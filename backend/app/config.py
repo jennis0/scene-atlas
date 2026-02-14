@@ -1,0 +1,84 @@
+"""Application configuration management."""
+
+from pathlib import Path
+from typing import Optional
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """Application settings."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore"
+    )
+
+    # Application
+    app_name: str = "Battlemap Explorer"
+    app_version: str = "0.1.0"
+    debug: bool = False
+
+    # Paths
+    base_dir: Path = Path(__file__).parent.parent.parent
+    data_dir: Path = base_dir / "data"
+    store_images_dir: Path = data_dir / "store" / "images"  # Object store for images
+    store_thumbnails_dir: Path = data_dir / "store" / "thumbnails"  # Object store for thumbnails
+    config_dir: Path = base_dir / "config"
+
+    # Database
+    database_url: str = "sqlite:///./data/battlemap.db"
+
+    # Qdrant
+    qdrant_host: str = "localhost"
+    qdrant_port: int = 6333
+    qdrant_collection_name: str = "battlemap_images"
+    qdrant_vector_size: int = 512  # CLIP ViT-B/32 projection_dim (common space for text & image)
+
+    # CLIP Model
+    clip_model_name: str = "openai/clip-vit-base-patch32"
+    clip_device: str = "cpu"  # or "cuda" if GPU available
+
+    # Image Processing
+    thumbnail_sizes: list[tuple[int, int]] = [
+        (150, 150),   # Small thumbnail
+        (400, 400),   # Medium thumbnail
+        (800, 800),   # Large thumbnail
+    ]
+    max_image_size: int = 10 * 1024 * 1024  # 10MB
+    supported_formats: list[str] = [".jpg", ".jpeg", ".png", ".webp"]
+
+    # Color Extraction
+    num_dominant_colors: int = 5
+    color_clustering_samples: int = 10000  # Pixels to sample for k-means
+
+    # API
+    api_host: str = "0.0.0.0"
+    api_port: int = 8000
+    api_prefix: str = "/api/v1"
+    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173"]
+
+    # Prefect
+    prefect_api_url: str = "http://localhost:4200/api"
+    prefect_work_pool: str = "battlemap-pool"
+
+    # Import limits
+    staging_dir: Path = data_dir / "staging"
+    max_import_file_size: int = 50 * 1024 * 1024  # 50MB per file
+    max_import_files: int = 200  # Max images per import
+    max_import_total_size: int = 500 * 1024 * 1024  # 500MB total
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Ensure directories exist
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.store_images_dir.mkdir(parents=True, exist_ok=True)
+        self.store_thumbnails_dir.mkdir(parents=True, exist_ok=True)
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+        self.staging_dir.mkdir(parents=True, exist_ok=True)
+
+
+# Global settings instance
+settings = Settings()

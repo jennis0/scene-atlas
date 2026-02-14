@@ -48,6 +48,8 @@ data/qdrant_storage/
 data/*.db
 data/*.db-journal
 
+test_data/*
+
 # Logs
 *.log
 logs/
@@ -79,3 +81,5 @@ htmlcov/
 .cache/
 models/
 transformers_cache/
+
+.claude/
