@@ -34,7 +34,7 @@ if not image_files:
     sys.exit(1)
 
 print(f"      Processing: {image_files[0].name}")
-result = process_single_image(image_files[0])
+result = process_single_image(image_files[0], source_dir=images_dir)
 
 if result["status"] == "success":
     print(f"      [OK] Image ingested successfully (ID: {result['image_id']})")

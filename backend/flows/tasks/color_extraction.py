@@ -27,11 +27,11 @@ def rgb_to_hex(rgb: tuple) -> str:
 
 
 @task(name="extract_dominant_colors", retries=2)
-def extract_dominant_colors(image_path: Path, num_colors: int = None) -> List[dict]:
+def extract_dominant_colors(image_path: str, num_colors: int = None) -> List[dict]:
     """Extract dominant colors from an image using k-means clustering.
 
     Args:
-        image_path: Path to the image
+        image_path: Path to the image (as string for serialization)
         num_colors: Number of dominant colors to extract (default from settings)
 
     Returns:

@@ -36,6 +36,7 @@ async def search_images(
     exclude_tags: List[str] = Query([]),
     authors: List[str] = Query([]),
     colors: List[str] = Query([]),
+    gridded: Optional[bool] = None,
     limit: int = 100,
     offset: int = 0,
     db: Session = Depends(get_db)
@@ -82,6 +83,10 @@ async def search_images(
                 Image.author.ilike(search_pattern)
             )
         )
+
+    # Gridded filter
+    if gridded is not None:
+        query = query.filter(Image.gridded == gridded)
 
     # Author filter - OR logic (match any selected author)
     if authors:

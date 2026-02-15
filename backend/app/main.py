@@ -1,12 +1,17 @@
 """FastAPI application for Battlemap Explorer."""
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .api import images, search, tags
 from .config import settings
+
+# Set PREFECT_API_URL before any Prefect imports so the client connects to our server
+os.environ.setdefault("PREFECT_API_URL", settings.prefect_api_url)
+
+from .api import images, imports, search, tags
 from .models import get_engine, init_db, seed_tag_categories, get_session_local
 
 # Configure logging
@@ -75,6 +80,7 @@ app.add_middleware(
 app.include_router(images.router, prefix=f"{settings.api_prefix}/images", tags=["images"])
 app.include_router(search.router, prefix=f"{settings.api_prefix}/search", tags=["search"])
 app.include_router(tags.router, prefix=f"{settings.api_prefix}/tags", tags=["tags"])
+app.include_router(imports.router, prefix=f"{settings.api_prefix}/imports", tags=["imports"])
 
 
 @app.get("/")

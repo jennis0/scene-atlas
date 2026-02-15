@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     # Prefect
     prefect_api_url: str = "http://localhost:4200/api"
     prefect_work_pool: str = "battlemap-pool"
+    analyse_deployment: str = "analyse-deployment"
+    analyse_flow: str = "analyse_upload"
+    process_deployment: str = "import-deployment"
+    process_flow: str = "process_import_group"
 
     # Import limits
     staging_dir: Path = data_dir / "staging"

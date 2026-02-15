@@ -1,19 +1,28 @@
-"""Test metadata extraction on a single image without full processing."""
+"""Test metadata extraction on a single image using BattlemapParser."""
 
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from backend.flows.tasks.metadata_extraction import (
-    extract_tags_from_filename,
-    extract_tags_from_path,
-    infer_author,
-    infer_base_name,
-    merge_tags,
-)
-
+from backend.app.config import settings
+from backend.app.models import TagCategory, get_engine, get_session_local, init_db, seed_tag_categories
+from backend.app.services import BattlemapParser
 from backend.tests import FIXTURES_DIR
+
+# Ensure DB is initialized with tag categories
+engine = get_engine(settings.database_url)
+init_db(engine)
+SessionLocal = get_session_local(engine)
+db = SessionLocal()
+seed_tag_categories(db)
+
+# Load parser with DB vocabulary
+categories = db.query(TagCategory).all()
+cat_dicts = [{"name": c.name, "common_values": c.common_values} for c in categories]
+db.close()
+
+parser = BattlemapParser(tag_categories=cat_dicts)
 
 # Find first image
 images_dir = FIXTURES_DIR
@@ -29,18 +38,22 @@ for img_path in image_files[:5]:
     print(f"File: {img_path}")
     print(f"{'='*60}")
 
-    # Extract metadata
-    filename_tags = extract_tags_from_filename.fn(img_path.name)
-    path_tags = extract_tags_from_path.fn(img_path)
-    all_tags = merge_tags.fn([filename_tags, path_tags])
+    # Parse metadata from relative path
+    try:
+        relative = img_path.relative_to(images_dir)
+    except ValueError:
+        relative = Path(img_path.name)
 
-    author = infer_author.fn(img_path)
-    base_name = infer_base_name.fn(img_path.name, all_tags)
+    parsed = parser.parse(str(relative))
 
-    print(f"\nAuthor: {author}")
-    print(f"Base Name: {base_name}")
-    print(f"\nExtracted Tags ({len(all_tags)}):")
-    for tag in all_tags:
+    print(f"\nAuthor: {parsed['author']}")
+    print(f"Variant Group: {parsed['variant_group_name']}")
+    print(f"Sub-variant: {parsed['sub_variant']}")
+    print(f"Gridded: {parsed['gridded']}")
+    if parsed['grid_width']:
+        print(f"Grid Dimensions: {parsed['grid_width']}x{parsed['grid_height']}")
+    print(f"\nExtracted Tags ({len(parsed['tags'])}):")
+    for tag in parsed['tags']:
         print(f"  - {tag['category']:12s}: {tag['value']:15s} (confidence: {tag['confidence']:.1f}, source: {tag['source']})")
 
 print(f"\n{'='*60}")

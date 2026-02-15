@@ -14,17 +14,18 @@ logger = logging.getLogger(__name__)
 
 
 @task(name="generate_thumbnails", retries=2)
-def generate_thumbnails(image_path: Path, storage_key_stem: str) -> dict[str, str]:
+def generate_thumbnails(image_path: str, storage_key_stem: str) -> dict[str, str]:
     """Generate thumbnails at different sizes and store via ImageStore.
 
     Args:
-        image_path: Path to the original image file
+        image_path: Path to the original image file (as string for serialization)
         storage_key_stem: UUID stem for naming thumbnails (e.g., "a1b2c3d4e5f6")
 
     Returns:
         Dict mapping size names to thumbnail storage keys
     """
     try:
+        image_path = Path(image_path)
         image = Image.open(image_path)
         image = image.convert("RGB")  # Ensure RGB mode
 
@@ -56,18 +57,62 @@ def generate_thumbnails(image_path: Path, storage_key_stem: str) -> dict[str, st
         raise
 
 
+@task(name="generate_preview_thumbnail", retries=1)
+def generate_preview_thumbnail(
+    image_path: str,
+    staging_dir: str,
+    relative_path: str,
+    size: int = 120,
+) -> str | None:
+    """Generate a small preview thumbnail for the import preview UI.
+
+    Saves the thumbnail into a .thumbs/ subdirectory of the staging dir.
+    The filename is derived from the relative path with slashes replaced.
+
+    Args:
+        image_path: Absolute path to the source image
+        staging_dir: Path to the staging directory (data/staging/{job_id})
+        relative_path: Relative path of the file within staging
+        size: Thumbnail size (square, default 120px)
+
+    Returns:
+        The safe filename of the generated thumbnail, or None on failure
+    """
+    try:
+        thumbs_dir = Path(staging_dir) / ".thumbs"
+        thumbs_dir.mkdir(parents=True, exist_ok=True)
+
+        # Convert relative path to safe filename: replace slashes and backslashes
+        safe_name = relative_path.replace("/", "__").replace("\\", "__")
+        safe_name = Path(safe_name).stem + ".jpg"
+
+        thumb_path = thumbs_dir / safe_name
+
+        image = Image.open(Path(image_path))
+        image = image.convert("RGB")
+        image.thumbnail((size, size), Image.Resampling.LANCZOS)
+        image.save(thumb_path, format="JPEG", quality=70, optimize=True)
+
+        logger.debug(f"Generated preview thumbnail: {safe_name}")
+        return safe_name
+
+    except Exception as e:
+        logger.warning(f"Failed to generate preview thumbnail for {relative_path}: {e}")
+        return None
+
+
 @task(name="get_image_dimensions", retries=2)
-def get_image_dimensions(image_path: Path) -> Tuple[int, int]:
+def get_image_dimensions(image_path: str) -> Tuple[int, int]:
     """Get image width and height.
 
     Args:
-        image_path: Path to the image
+        image_path: Path to the image (as string for serialization)
 
     Returns:
         Tuple of (width, height)
     """
     try:
-        with Image.open(image_path) as img:
+        with Image.open(Path(image_path)) as img:
             return img.size
     except Exception as e:
         logger.error(f"Error getting dimensions for {image_path}: {e}")
@@ -75,17 +120,17 @@ def get_image_dimensions(image_path: Path) -> Tuple[int, int]:
 
 
 @task(name="get_file_size", retries=2)
-def get_file_size(image_path: Path) -> int:
+def get_file_size(image_path: str) -> int:
     """Get file size in bytes.
 
     Args:
-        image_path: Path to the file
+        image_path: Path to the file (as string for serialization)
 
     Returns:
         File size in bytes
     """
     try:
-        return image_path.stat().st_size
+        return Path(image_path).stat().st_size
     except Exception as e:
         logger.error(f"Error getting file size for {image_path}: {e}")
         raise

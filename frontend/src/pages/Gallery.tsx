@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Search, Sparkles, Filter, X } from 'lucide-react'
+import { Search, Sparkles, Filter, X, Upload } from 'lucide-react'
 import { imageApi, searchApi, tagApi } from '@/lib/api'
 import { ImageGrid } from '@/components/ImageGrid'
 import { ImageViewer } from '@/components/ImageViewer'
+import { ImportDialog } from '@/components/ImportDialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -26,6 +27,8 @@ export function Gallery() {
   const [selectedAuthors, setSelectedAuthors] = useState<string[]>([])
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [showFilters, setShowFilters] = useState(false)
+  const [showImport, setShowImport] = useState(false)
+  const [importActive, setImportActive] = useState(false)
   const [filterSearch, setFilterSearch] = useState('')
 
   // Fetch all images for deriving authors
@@ -246,6 +249,20 @@ export function Gallery() {
               )}
             </form>
 
+            {/* Import button */}
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setShowImport(true)}
+              title={importActive ? 'Import in progress - click to view' : 'Import images'}
+              className="relative"
+            >
+              <Upload className="h-4 w-4" />
+              {importActive && (
+                <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-primary animate-pulse" />
+              )}
+            </Button>
+
             {/* Filter panel button */}
             <Sheet open={showFilters} onOpenChange={setShowFilters}>
               <Button
@@ -449,6 +466,9 @@ export function Gallery() {
           onPrevious={selectedImage.index > 0 ? handlePrevious : undefined}
         />
       )}
+
+      {/* Import dialog */}
+      <ImportDialog open={showImport} onOpenChange={setShowImport} onActiveChange={setImportActive} />
     </div>
   )
 }

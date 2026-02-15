@@ -43,7 +43,7 @@ export function Search() {
   const handleNext = () => {
     if (!selectedImage || selectedImage.index >= results.length - 1) return
     const nextIndex = selectedImage.index + 1
-    setResults({ image: results[nextIndex], index: nextIndex })
+    setSelectedImage({ image: results[nextIndex], index: nextIndex })
   }
 
   const handlePrevious = () => {

@@ -1,8 +1,15 @@
 """Prefect flows package."""
- 
-from .ingestion import bulk_image_ingestion, process_single_image
+
+from .ingestion import (
+    analyse_upload,
+    bulk_image_ingestion,
+    process_import_group,
+    process_single_image,
+)
 
 __all__ = [
+    "analyse_upload",
     "bulk_image_ingestion",
+    "process_import_group",
     "process_single_image",
 ]

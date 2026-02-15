@@ -1,5 +1,6 @@
 """Services package."""
 
+from .battlemap_parser import BattlemapParser
 from .clip_service import CLIPService, get_clip_service
 from .image_store import ImageStore
 from .qdrant_service import QdrantService, qdrant_service
@@ -28,6 +29,7 @@ def get_thumbnail_store() -> ImageStore:
 
 
 __all__ = [
+    "BattlemapParser",
     "CLIPService",
     "get_clip_service",
     "ImageStore",

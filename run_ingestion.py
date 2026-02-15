@@ -6,11 +6,15 @@ Usage:
     uv run python run_ingestion.py /path/to/dir1 /path/to/dir2
 """
 
+import os
 import sys
 from pathlib import Path
 
 # Add backend to path
 sys.path.insert(0, str(Path(__file__).parent))
+
+# Set PREFECT_API_URL so flow runs are tracked by the Prefect server
+os.environ.setdefault("PREFECT_API_URL", "http://localhost:4200/api")
 
 from backend.flows.ingestion import bulk_image_ingestion
 

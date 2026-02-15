@@ -88,18 +88,9 @@ services:
       - battlemap-network
 
 
-  prefect-worker:
-    image: prefecthq/prefect:3-latest
-    depends_on:
-      prefect-server:
-        condition: service_healthy
-    environment:
-      PREFECT_API_URL: http://prefect-server:4200/api
-    command: prefect worker start --pool local-pool
-    restart: on-failure
-    networks:
-      - battlemap-network
-
+  # NOTE: Worker runs locally (not in Docker) because it needs access to
+  # project code, Python dependencies (CLIP, PIL, etc.), and the local filesystem.
+  # Start it with: uv run prefect worker start --pool battlemap-pool
 
 networks:
   battlemap-network:

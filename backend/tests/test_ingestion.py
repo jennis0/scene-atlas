@@ -30,7 +30,7 @@ def test_single_image(images_dir: Path = FIXTURES_DIR):
     print(f"\nProcessing first image: {image_files[0].name}")
 
     # Process the first image
-    result = process_single_image(image_files[0])
+    result = process_single_image(image_files[0], source_dir=images_dir)
 
     if result["status"] == "success":
         print(f"\n[OK] Image processed successfully!")
