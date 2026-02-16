@@ -156,20 +156,22 @@ async def search_images(
 
     # Semantic search using Qdrant
     image_ids_from_semantic = None
+    semantic_scores = None
     if semantic:
         try:
             clip_service = get_clip_service()
             query_embedding = clip_service.encode_text(semantic)
 
             # Search in Qdrant
-            results = qdrant_service.search_similar(
+            qdrant_results = qdrant_service.search_similar(
                 query_embedding=query_embedding,
                 limit=limit * 2,  # Get more results to allow for filtering
                 score_threshold=0.2,  # Minimum similarity threshold (lowered to match /semantic endpoint)
             )
 
-            # Extract image IDs
-            image_ids_from_semantic = [r["image_id"] for r in results]
+            # Extract image IDs and scores
+            image_ids_from_semantic = [r["image_id"] for r in qdrant_results]
+            semantic_scores = {r["image_id"]: r["score"] for r in qdrant_results}
 
             if image_ids_from_semantic:
                 query = query.filter(Image.id.in_(image_ids_from_semantic))
@@ -214,7 +216,8 @@ async def search_images(
         total=total,
         limit=limit,
         offset=offset,
-        images=results
+        images=results,
+        scores=semantic_scores,
     )
 
 

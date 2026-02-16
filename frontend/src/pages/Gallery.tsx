@@ -1,10 +1,12 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Search, Sparkles, Filter, X, Upload } from 'lucide-react'
+import { Search, Sparkles, Filter, X, Upload, LayoutGrid, Layers } from 'lucide-react'
 import { imageApi, searchApi, tagApi } from '@/lib/api'
 import { ImageGrid } from '@/components/ImageGrid'
+import { GroupGrid } from '@/components/GroupGrid'
 import { ImageViewer } from '@/components/ImageViewer'
 import { ImportDialog } from '@/components/ImportDialog'
+import { useImageGrouping } from '@/hooks/useImageGrouping'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -16,7 +18,7 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet'
-import type { Image, SearchParams } from '@/types'
+import type { Image, SearchParams, ViewMode } from '@/types'
 
 type SearchMode = 'text' | 'semantic'
 
@@ -30,6 +32,7 @@ export function Gallery() {
   const [showImport, setShowImport] = useState(false)
   const [importActive, setImportActive] = useState(false)
   const [filterSearch, setFilterSearch] = useState('')
+  const [viewMode, setViewMode] = useState<ViewMode>('individual')
 
   // Fetch all images for deriving authors
   const { data: allImages = [], isLoading: isLoadingImages } = useQuery({
@@ -155,6 +158,13 @@ export function Gallery() {
     return allImages
   }, [searchQuery, selectedAuthors, selectedTags, searchResults, allImages])
 
+  // Group images for the grouped view
+  const imageGroups = useImageGrouping({
+    images: filteredImages,
+    allImages,
+    scores: searchResults?.scores,
+  })
+
   const handleSearchModeChange = (mode: SearchMode) => {
     setSearchMode(mode)
   }
@@ -199,7 +209,7 @@ export function Gallery() {
         <div className="container mx-auto px-4 py-4">
           <h1 className="text-3xl font-bold mb-4">Battlemap Explorer</h1>
 
-          {/* Search mode toggle */}
+          {/* Search mode toggle + view mode toggle */}
           <div className="flex gap-2 mb-3">
             <Button
               variant={searchMode === 'text' ? 'default' : 'outline'}
@@ -217,6 +227,25 @@ export function Gallery() {
               <Sparkles className="h-4 w-4 mr-2" />
               Semantic Search
             </Button>
+
+            <div className="ml-auto flex gap-1">
+              <Button
+                variant={viewMode === 'individual' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setViewMode('individual')}
+                title="Individual images"
+              >
+                <LayoutGrid className="h-4 w-4" />
+              </Button>
+              <Button
+                variant={viewMode === 'grouped' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setViewMode('grouped')}
+                title="Variant groups"
+              >
+                <Layers className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
 
           {/* Search bar */}
@@ -449,10 +478,15 @@ export function Gallery() {
               )}
             </div>
           </div>
-        ) : (
+        ) : viewMode === 'individual' ? (
           <ImageGrid
             images={filteredImages}
             onImageClick={(image, index) => setSelectedImage({ image, index })}
+          />
+        ) : (
+          <GroupGrid
+            groups={imageGroups}
+            onGroupClick={(group) => setSelectedImage({ image: group.heroImage, index: 0 })}
           />
         )}
       </main>
@@ -464,6 +498,9 @@ export function Gallery() {
           onClose={() => setSelectedImage(null)}
           onNext={selectedImage.index < filteredImages.length - 1 ? handleNext : undefined}
           onPrevious={selectedImage.index > 0 ? handlePrevious : undefined}
+          onImageChange={(newImage) => {
+            setSelectedImage((prev) => prev ? { ...prev, image: newImage } : null)
+          }}
         />
       )}
 

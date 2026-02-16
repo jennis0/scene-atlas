@@ -5,7 +5,6 @@ We mock QdrantClient before the qdrant_service module loads to prevent this.
 """
 
 import os
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 

@@ -74,6 +74,21 @@ export interface SearchResult {
   images: Image[]
   limit: number
   offset: number
+  scores?: Record<number, number>  // image_id -> semantic score
+}
+
+export type ViewMode = 'individual' | 'grouped'
+
+export interface ImageGroup {
+  groupId: number | null
+  baseName: string
+  author: string
+  heroImage: Image
+  mosaicImages: Image[]
+  totalVariants: number
+  matchingCount: number
+  bestScore: number | null
+  aggregatedTags: Tag[]
 }
 
 export interface SemanticSearchResult {

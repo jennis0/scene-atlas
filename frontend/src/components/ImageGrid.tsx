@@ -40,7 +40,7 @@ export function ImageGrid({ images, onImageClick }: ImageGridProps) {
   const rowVirtualizer = useVirtualizer({
     count: Math.ceil(images.length / columnsPerRow),
     getScrollElement: () => parentRef.current,
-    estimateSize: () => IMAGE_SIZE + GAP,
+    estimateSize: () => IMAGE_SIZE + 60 + GAP, // image + metadata bar + gap
     overscan: 5,
     measureElement: (element) => element.getBoundingClientRect().height,
   })
@@ -101,7 +101,7 @@ export function ImageGrid({ images, onImageClick }: ImageGridProps) {
 function ImageCard({ image, onClick }: { image: Image; onClick: () => void }) {
   return (
     <div
-      className="group relative cursor-pointer overflow-hidden rounded-lg border bg-card transition-transform hover:scale-105"
+      className="group relative cursor-pointer overflow-hidden rounded-lg border bg-card transition-all duration-200 hover:scale-[1.03] hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5"
       onClick={onClick}
     >
       <div className="aspect-square overflow-hidden">
@@ -112,27 +112,33 @@ function ImageCard({ image, onClick }: { image: Image; onClick: () => void }) {
           loading="lazy"
         />
       </div>
-      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 transition-opacity group-hover:opacity-100">
-        <div className="absolute bottom-0 left-0 right-0 p-3">
-          <h3 className="font-semibold text-white text-sm truncate">
-            {image.name}
-          </h3>
-          <p className="text-xs text-white/80">{image.author}</p>
-          {image.tags && image.tags.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1">
-              {image.tags.slice(0, 3).map((tag) => (
-                <Badge key={tag.id} variant="secondary" className="text-xs">
-                  {tag.value}
-                </Badge>
-              ))}
-              {image.tags.length > 3 && (
-                <Badge variant="secondary" className="text-xs">
-                  +{image.tags.length - 3}
-                </Badge>
-              )}
-            </div>
-          )}
-        </div>
+      {/* Always-visible metadata bar */}
+      <div className="px-2.5 py-1.5 bg-card border-t border-border/50">
+        <h3 className="font-semibold text-sm text-foreground truncate">
+          {image.name}
+        </h3>
+        <p className="text-xs text-muted-foreground truncate">{image.author}</p>
+        {image.tags && image.tags.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {image.tags.slice(0, 3).map((tag) => (
+              <Badge
+                key={tag.id}
+                variant="outline"
+                className="text-[10px] text-muted-foreground"
+              >
+                {tag.value}
+              </Badge>
+            ))}
+            {image.tags.length > 3 && (
+              <Badge
+                variant="outline"
+                className="text-[10px] text-muted-foreground"
+              >
+                +{image.tags.length - 3}
+              </Badge>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

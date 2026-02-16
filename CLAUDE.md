@@ -12,3 +12,4 @@ The key features are:
 - Remember to focus on planning first before execution. 
 - Build with software engineering best principles in mind, we're making a long term solution, not a quick prototype.
 - When designing the frontend, use the frontend-design skill 
+- When you don't know something, check the docs in ./design before looking at code - it will point you to the right place
