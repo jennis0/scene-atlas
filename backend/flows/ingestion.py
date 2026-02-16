@@ -2,9 +2,18 @@
 
 Flows:
     analyse_upload       — Parse and group uploaded files for the preview UI
-    process_import_group — Process a confirmed variant group end-to-end
-    process_single_image — Process one image (subflow, used by the above + CLI)
-    bulk_image_ingestion — CLI batch ingestion from directories
+    process_import_group — Process a confirmed variant group (batched pipeline)
+    process_single_image — Process one image (thin wrapper for single-image use)
+    bulk_image_ingestion — CLI batch ingestion from directories (batched pipeline)
+
+Tasks:
+    prepare_single_image         — Parse, copy, thumbnail, colors for one image
+    batch_save_to_database       — Save a batch of images to SQLite in one transaction
+    batch_save_to_qdrant         — Save a batch of embeddings to Qdrant in one call
+    save_to_database             — Save one image to SQLite (single-image path)
+    save_to_qdrant               — Save one embedding to Qdrant (single-image path)
+    scan_directory               — Scan directory for supported image files
+    update_import_job_progress   — Update ImportJob progress counters
 """
 
 import logging
@@ -29,170 +38,18 @@ from backend.app.models import (
 )
 from backend.app.services import BattlemapParser, get_image_store, qdrant_service
 
-from .tasks.color_extraction import extract_dominant_colors
-from .tasks.embedding_generation import generate_clip_embedding
-from .tasks.image_processing import (
-    generate_preview_thumbnail,
-    generate_thumbnails,
-    get_file_size,
-    get_image_dimensions,
+from .tasks.embedding_generation import (
+    batch_generate_clip_embeddings,
+    generate_clip_embedding,
 )
+from .tasks.image_processing import generate_preview_thumbnail
 
 logger = logging.getLogger(__name__)
 
 
-@task(name="scan_directory", retries=1)
-def scan_directory(directory: str) -> List[str]:
-    """Scan directory for supported image files.
-
-    Args:
-        directory: Directory to scan (as string for serialization)
-
-    Returns:
-        List of image file paths as strings
-    """
-    directory_obj = Path(directory)
-    logger.info(f"Scanning directory: {directory_obj}")
-    image_paths = []
-
-    for ext in settings.supported_formats:
-        for path in directory_obj.rglob(f"*{ext}"):
-            # Skip macOS resource forks and metadata
-            if "__MACOSX" in path.parts or path.name.startswith("._"):
-                continue
-            image_paths.append(str(path))
-
-    logger.info(f"Found {len(image_paths)} images in {directory_obj}")
-    return image_paths
-
-
-@task(name="save_to_database", retries=2)
-def save_to_database(image_data: dict) -> int:
-    """Save image and related data to SQLite database.
-
-    Args:
-        image_data: Dict containing all image information
-
-    Returns:
-        Image ID
-    """
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
-    db = SessionLocal()
-
-    try:
-        # Check if image already exists (by storage_key)
-        existing = db.query(Image).filter(
-            Image.storage_key == image_data["storage_key"]
-        ).first()
-
-        if existing:
-            logger.info(f"Image already exists: {image_data['storage_key']}, updating...")
-            image = existing
-            image.name = image_data["name"]
-            image.author = image_data.get("author")
-            image.gridded = image_data.get("gridded")
-            image.grid_width = image_data.get("grid_width")
-            image.grid_height = image_data.get("grid_height")
-            image.sub_variant = image_data.get("sub_variant")
-        else:
-            image = Image(
-                filename=image_data["filename"],
-                storage_key=image_data["storage_key"],
-                name=image_data["name"],
-                author=image_data.get("author"),
-                width=image_data["width"],
-                height=image_data["height"],
-                file_size=image_data["file_size"],
-                thumbnail_key=image_data.get("thumbnail_key"),
-                gridded=image_data.get("gridded"),
-                grid_width=image_data.get("grid_width"),
-                grid_height=image_data.get("grid_height"),
-                sub_variant=image_data.get("sub_variant"),
-            )
-            db.add(image)
-            db.flush()
-
-        # Handle variant group
-        variant_group_name = image_data.get("variant_group_name")
-        author = image_data.get("author")
-        if variant_group_name:
-            vg = db.query(VariantGroup).filter(
-                VariantGroup.base_name == variant_group_name,
-                VariantGroup.author == author,
-            ).first()
-            if not vg:
-                vg = VariantGroup(base_name=variant_group_name, author=author)
-                db.add(vg)
-                db.flush()
-            image.variant_group_id = vg.id
-
-        # Replace tags
-        if existing:
-            db.query(Tag).filter(Tag.image_id == image.id).delete()
-
-        for tag_data in image_data.get("tags", []):
-            tag = Tag(
-                image_id=image.id,
-                category=tag_data["category"],
-                value=tag_data["value"],
-                confidence=tag_data.get("confidence", 1.0),
-                source=tag_data.get("source", "auto"),
-            )
-            db.add(tag)
-
-        # Replace colors
-        if existing:
-            db.query(Color).filter(Color.image_id == image.id).delete()
-
-        for color_data in image_data.get("colors", []):
-            color = Color(
-                image_id=image.id,
-                color_hex=color_data["color_hex"],
-                percentage=color_data["percentage"],
-                color_order=color_data["color_order"],
-            )
-            db.add(color)
-
-        db.commit()
-        image_id = image.id
-        logger.info(f"Saved image to database: {image_data['filename']} (ID: {image_id})")
-
-        return image_id
-
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Error saving to database: {e}")
-        raise
-    finally:
-        db.close()
-
-
-@task(name="save_to_qdrant", retries=2)
-def save_to_qdrant(image_id: int, embedding: List[float], metadata: dict) -> bool:
-    """Save embedding to Qdrant.
-
-    Args:
-        image_id: Image ID (from SQLite)
-        embedding: CLIP embedding vector
-        metadata: Metadata to store with the embedding
-
-    Returns:
-        Success status
-    """
-    try:
-        success = qdrant_service.add_image_embedding(
-            image_id=image_id,
-            embedding=embedding,
-            metadata=metadata,
-        )
-        if success:
-            logger.info(f"Saved embedding to Qdrant for image_id={image_id}")
-        return success
-    except Exception as e:
-        logger.error(f"Error saving to Qdrant: {e}")
-        raise
-
+# ---------------------------------------------------------------------------
+# Helper: Build parser with tag vocabulary
+# ---------------------------------------------------------------------------
 
 def _build_parser() -> BattlemapParser:
     """Create a BattlemapParser with tag vocabulary loaded from DB."""
@@ -210,30 +67,136 @@ def _build_parser() -> BattlemapParser:
         db.close()
 
 
-@flow(name="process_single_image", log_prints=True)
-def process_single_image(
+# ---------------------------------------------------------------------------
+# Helper: Save one image dict to DB (shared logic for single and batch)
+# ---------------------------------------------------------------------------
+
+def _save_image_to_db(db: Session, image_data: dict) -> int:
+    """Save one image and its tags/colors to the database within an existing session.
+
+    Returns the image ID. Does NOT commit — caller must commit.
+    """
+    existing = db.query(Image).filter(
+        Image.storage_key == image_data["storage_key"]
+    ).first()
+
+    if existing:
+        logger.info(f"Image already exists: {image_data['storage_key']}, updating...")
+        image = existing
+        image.name = image_data["name"]
+        image.author = image_data.get("author")
+        image.gridded = image_data.get("gridded")
+        image.grid_width = image_data.get("grid_width")
+        image.grid_height = image_data.get("grid_height")
+        image.sub_variant = image_data.get("sub_variant")
+    else:
+        image = Image(
+            filename=image_data["filename"],
+            storage_key=image_data["storage_key"],
+            name=image_data["name"],
+            author=image_data.get("author"),
+            width=image_data["width"],
+            height=image_data["height"],
+            file_size=image_data["file_size"],
+            thumbnail_key=image_data.get("thumbnail_key"),
+            gridded=image_data.get("gridded"),
+            grid_width=image_data.get("grid_width"),
+            grid_height=image_data.get("grid_height"),
+            sub_variant=image_data.get("sub_variant"),
+        )
+        db.add(image)
+        db.flush()
+
+    # Handle variant group
+    variant_group_name = image_data.get("variant_group_name")
+    author = image_data.get("author")
+    if variant_group_name:
+        vg = db.query(VariantGroup).filter(
+            VariantGroup.base_name == variant_group_name,
+            VariantGroup.author == author,
+        ).first()
+        if not vg:
+            vg = VariantGroup(base_name=variant_group_name, author=author)
+            db.add(vg)
+            db.flush()
+        image.variant_group_id = vg.id
+
+    # Replace tags
+    if existing:
+        db.query(Tag).filter(Tag.image_id == image.id).delete()
+    for tag_data in image_data.get("tags", []):
+        db.add(Tag(
+            image_id=image.id,
+            category=tag_data["category"],
+            value=tag_data["value"],
+            confidence=tag_data.get("confidence", 1.0),
+            source=tag_data.get("source", "auto"),
+        ))
+
+    # Replace colors
+    if existing:
+        db.query(Color).filter(Color.image_id == image.id).delete()
+    for color_data in image_data.get("colors", []):
+        db.add(Color(
+            image_id=image.id,
+            color_hex=color_data["color_hex"],
+            percentage=color_data["percentage"],
+            color_order=color_data["color_order"],
+        ))
+
+    return image.id
+
+
+# ---------------------------------------------------------------------------
+# Core tasks
+# ---------------------------------------------------------------------------
+
+@task(name="scan_directory", retries=1)
+def scan_directory(directory: str) -> List[str]:
+    """Scan directory for supported image files."""
+    directory_obj = Path(directory)
+    logger.info(f"Scanning directory: {directory_obj}")
+    image_paths = []
+
+    for ext in settings.supported_formats:
+        for path in directory_obj.rglob(f"*{ext}"):
+            if "__MACOSX" in path.parts or path.name.startswith("._"):
+                continue
+            image_paths.append(str(path))
+
+    logger.info(f"Found {len(image_paths)} images in {directory_obj}")
+    return image_paths
+
+
+@task(name="prepare_single_image", retries=2)
+def prepare_single_image(
     image_path: str,
     source_dir: str | None = None,
     metadata: dict | None = None,
+    parser: BattlemapParser | None = None,
 ) -> dict:
-    """Process a single image: extract metadata, generate thumbnails, embeddings, etc.
+    """Prepare a single image: parse metadata, copy to store, thumbnails, colors.
+
+    This task handles everything EXCEPT CLIP embedding and database/Qdrant saves,
+    which are batched separately for better throughput.
+
+    Runs inline (not sub-tasks) for minimal overhead when submitted concurrently.
 
     Args:
-        image_path: Absolute path to the image file (as string for serialization)
-        source_dir: Root directory the image was scanned from (for relative path parsing)
-        metadata: Optional explicit metadata dict (from web import).
-                  If provided, uses these values instead of parsing from path.
+        image_path: Absolute path to the image file
+        source_dir: Root directory for relative path parsing (CLI mode)
+        metadata: Explicit metadata dict (web import mode)
+        parser: Pre-built BattlemapParser (avoids rebuilding per image in batch)
 
     Returns:
-        Dict with processing results
+        Dict with 'status', 'image_data', 'original_image_path', 'qdrant_metadata'
     """
     image_path_obj = Path(image_path)
-    logger.info(f"Processing image: {image_path_obj}")
+    logger.info(f"Preparing image: {image_path_obj.name}")
 
     try:
         # --- Parse metadata ---
         if metadata:
-            # Web import: use explicit metadata (author + group from user, rest from parser)
             author = metadata.get("author")
             variant_group_name = metadata.get("variant_group_name")
             sub_variant = metadata.get("sub_variant")
@@ -242,8 +205,8 @@ def process_single_image(
             grid_height = metadata.get("grid_height")
             tags = metadata.get("tags", [])
         else:
-            # CLI import: parse from path
-            parser = _build_parser()
+            if parser is None:
+                parser = _build_parser()
             source_dir_obj = Path(source_dir) if source_dir else None
             if source_dir_obj:
                 relative = image_path_obj.relative_to(source_dir_obj)
@@ -265,21 +228,22 @@ def process_single_image(
         storage_key = f"{storage_key_stem}{ext}"
         image_store.put(storage_key, image_path_obj)
 
-        # --- Get image properties ---
-        width, height = get_image_dimensions(image_path)
-        file_size = get_file_size(image_path)
+        # --- File size (inline, fast) ---
+        file_size = image_path_obj.stat().st_size
 
-        # --- Generate thumbnails ---
-        thumbnail_keys = generate_thumbnails(image_path, storage_key_stem)
+        # --- Generate thumbnails + get dimensions (inline call to the function) ---
+        # Call the underlying function directly (not as Prefect task) to avoid overhead
+        from backend.flows.tasks.image_processing import generate_thumbnails as _gen_thumbs
+        thumbnail_result = _gen_thumbs.fn(image_path, storage_key_stem)
+        thumbnail_keys = thumbnail_result["keys"]
+        width, height = thumbnail_result["dimensions"]
         thumbnail_key = thumbnail_keys.get("medium", thumbnail_keys.get("small"))
 
-        # --- Extract colors ---
-        colors = extract_dominant_colors(image_path)
+        # --- Extract colors (inline call) ---
+        from backend.flows.tasks.color_extraction import extract_dominant_colors as _extract_colors
+        colors = _extract_colors.fn(image_path)
 
-        # --- Generate CLIP embedding ---
-        embedding = generate_clip_embedding(image_path)
-
-        # --- Prepare image data ---
+        # --- Build result ---
         image_data = {
             "filename": image_path_obj.name,
             "storage_key": storage_key,
@@ -298,129 +262,128 @@ def process_single_image(
             "colors": colors,
         }
 
-        # --- Save to database ---
-        image_id = save_to_database(image_data)
-
-        # --- Save embedding to Qdrant ---
-        save_to_qdrant(
-            image_id=image_id,
-            embedding=embedding,
-            metadata={
-                "filename": image_path_obj.name,
-                "author": author,
-                "base_name": variant_group_name,
-            }
-        )
-
-        logger.info(f"Successfully processed image: {image_path_obj}")
+        qdrant_metadata = {
+            "filename": image_path_obj.name,
+            "author": author,
+            "base_name": variant_group_name,
+        }
 
         return {
             "status": "success",
-            "image_id": image_id,
-            "filepath": image_path,
+            "image_data": image_data,
+            "original_image_path": image_path,
+            "qdrant_metadata": qdrant_metadata,
         }
 
     except Exception as e:
-        logger.error(f"Failed to process image {image_path_obj}: {e}")
+        logger.error(f"Failed to prepare image {image_path_obj}: {e}")
         return {
             "status": "failed",
-            "filepath": image_path,
+            "original_image_path": image_path,
             "error": str(e),
         }
 
 
-@flow(name="bulk_image_ingestion", log_prints=True)
-def bulk_image_ingestion(source_dirs: List[str]) -> dict:
-    """Ingest images from multiple directories.
+# ---------------------------------------------------------------------------
+# Single-image save tasks (kept for process_single_image wrapper)
+# ---------------------------------------------------------------------------
 
-    Args:
-        source_dirs: List of directory paths to scan
-
-    Returns:
-        Summary of ingestion results
-    """
-    logger.info(f"Starting bulk ingestion from {len(source_dirs)} directories")
-
-    all_results = []
-    total_images = 0
-
-    for dir_path in source_dirs:
-        directory = Path(dir_path)
-        if not directory.exists():
-            logger.warning(f"Directory does not exist: {directory}")
-            continue
-
-        # Scan directory for images
-        image_paths = scan_directory(dir_path)
-        total_images += len(image_paths)
-
-        # Process each image
-        for image_path in image_paths:
-            result = process_single_image(image_path, source_dir=dir_path)
-            all_results.append(result)
-
-    # Summarize results
-    successful = sum(1 for r in all_results if r["status"] == "success")
-    failed = sum(1 for r in all_results if r["status"] == "failed")
-
-    summary = {
-        "total_images": total_images,
-        "processed": len(all_results),
-        "successful": successful,
-        "failed": failed,
-        "results": all_results,
-    }
-
-    logger.info(f"Bulk ingestion complete: {successful} successful, {failed} failed")
-
-    return summary
-
-
-@flow(name="analyse_upload", log_prints=True, persist_result=True)
-def analyse_upload(
-    staging_dir: str,
-    relative_paths: list[str],
-) -> list[dict]:
-    """Parse and group uploaded files for the preview UI.
-
-    Runs BattlemapParser.group_files() on the uploaded files and returns
-    structured variant group data for the frontend to display.
-
-    Args:
-        staging_dir: Path to the staging directory (as string for serialization)
-        relative_paths: List of relative file paths within staging_dir
+@task(name="save_to_database", retries=2)
+def save_to_database(image_data: dict) -> int:
+    """Save image and related data to SQLite database.
 
     Returns:
-        List of variant group dicts, each with:
-        - author: str | None
-        - variant_group_name: str
-        - files: list of dicts with relative_path, parsed metadata
+        Image ID
     """
-    logger.info(f"Analysing {len(relative_paths)} uploaded files in {staging_dir}")
+    engine = get_engine(settings.database_url)
+    SessionLocal = get_session_local(engine)
+    db = SessionLocal()
+    try:
+        image_id = _save_image_to_db(db, image_data)
+        db.commit()
+        logger.info(f"Saved image to database: {image_data['filename']} (ID: {image_id})")
+        return image_id
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error saving to database: {e}")
+        raise
+    finally:
+        db.close()
 
-    parser = _build_parser()
-    groups = parser.group_files(relative_paths)
 
-    # Generate preview thumbnails for each file
-    staging = Path(staging_dir)
-    for group in groups:
-        for f in group["files"]:
-            rel_path = f["relative_path"]
-            image_path = staging / rel_path
-            if image_path.exists():
-                thumb_name = generate_preview_thumbnail(
-                    image_path=str(image_path),
-                    staging_dir=staging_dir,
-                    relative_path=rel_path,
-                )
-                f["preview_thumbnail"] = thumb_name
+@task(name="save_to_qdrant", retries=2)
+def save_to_qdrant(image_id: int, embedding: List[float], metadata: dict) -> bool:
+    """Save embedding to Qdrant."""
+    try:
+        success = qdrant_service.add_image_embedding(
+            image_id=image_id,
+            embedding=embedding,
+            metadata=metadata,
+        )
+        if success:
+            logger.info(f"Saved embedding to Qdrant for image_id={image_id}")
+        return success
+    except Exception as e:
+        logger.error(f"Error saving to Qdrant: {e}")
+        raise
 
-    logger.info(f"Detected {len(groups)} variant group(s)")
-    for g in groups:
-        logger.info(f"  {g.get('author', '?')} / {g['variant_group_name']} ({len(g['files'])} files)")
 
-    return groups
+# ---------------------------------------------------------------------------
+# Batch save tasks
+# ---------------------------------------------------------------------------
 
+@task(name="batch_save_to_database", retries=2)
+def batch_save_to_database(image_data_list: List[dict]) -> List[int]:
+    """Save multiple images to the database in a single transaction.
+
+    Args:
+        image_data_list: List of image data dicts
+
+    Returns:
+        List of image IDs
+    """
+    engine = get_engine(settings.database_url)
+    SessionLocal = get_session_local(engine)
+    db = SessionLocal()
+    try:
+        image_ids = []
+        for image_data in image_data_list:
+            image_id = _save_image_to_db(db, image_data)
+            image_ids.append(image_id)
+        db.commit()
+        logger.info(f"Batch saved {len(image_ids)} images to database")
+        return image_ids
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error batch saving to database: {e}")
+        raise
+    finally:
+        db.close()
+
+
+@task(name="batch_save_to_qdrant", retries=2)
+def batch_save_to_qdrant(items: List[dict]) -> bool:
+    """Save multiple embeddings to Qdrant in one call.
+
+    Args:
+        items: List of dicts with 'image_id', 'embedding', 'metadata'
+
+    Returns:
+        Success status
+    """
+    try:
+        success = qdrant_service.batch_add_embeddings(items)
+        if success:
+            logger.info(f"Batch saved {len(items)} embeddings to Qdrant")
+        return success
+    except Exception as e:
+        logger.error(f"Error batch saving to Qdrant: {e}")
+        raise
+
+
+# ---------------------------------------------------------------------------
+# Progress tracking
+# ---------------------------------------------------------------------------
 
 @task(name="update_import_job_progress", retries=1)
 def update_import_job_progress(
@@ -446,6 +409,221 @@ def update_import_job_progress(
         db.close()
 
 
+# ---------------------------------------------------------------------------
+# Batch processing helper
+# ---------------------------------------------------------------------------
+
+def _process_batch(
+    prepared_results: List[dict],
+) -> tuple[List[dict], int]:
+    """Process a batch of prepared images: CLIP embed, DB save, Qdrant save.
+
+    Args:
+        prepared_results: List of results from prepare_single_image
+
+    Returns:
+        Tuple of (all_results including failures, count of batch failures)
+    """
+    # Separate successes from failures
+    successful = [r for r in prepared_results if r["status"] == "success"]
+    batch_failed = len(prepared_results) - len(successful)
+
+    if not successful:
+        return prepared_results, batch_failed
+
+    # Batch CLIP embedding
+    image_paths = [r["original_image_path"] for r in successful]
+    embeddings = batch_generate_clip_embeddings(image_paths)
+
+    # Attach embeddings to image data
+    for prep, embedding in zip(successful, embeddings):
+        prep["embedding"] = embedding
+
+    # Batch DB save
+    image_data_list = [r["image_data"] for r in successful]
+    image_ids = batch_save_to_database(image_data_list)
+
+    # Batch Qdrant save
+    qdrant_items = [
+        {
+            "image_id": image_id,
+            "embedding": prep["embedding"],
+            "metadata": prep["qdrant_metadata"],
+        }
+        for image_id, prep in zip(image_ids, successful)
+    ]
+    batch_save_to_qdrant(qdrant_items)
+
+    # Attach image IDs to results
+    for prep, image_id in zip(successful, image_ids):
+        prep["image_id"] = image_id
+
+    return prepared_results, batch_failed
+
+
+# ---------------------------------------------------------------------------
+# Flows
+# ---------------------------------------------------------------------------
+
+@flow(name="process_single_image", log_prints=True)
+def process_single_image(
+    image_path: str,
+    source_dir: str | None = None,
+    metadata: dict | None = None,
+) -> dict:
+    """Process a single image end-to-end.
+
+    Thin wrapper around prepare_single_image + single CLIP + single DB/Qdrant save.
+    Used for one-off processing; batch flows use the batched pipeline directly.
+    """
+    image_path_obj = Path(image_path)
+    logger.info(f"Processing image: {image_path_obj}")
+
+    try:
+        # Prepare (thumbnails, colors, copy to store)
+        prepared = prepare_single_image(image_path, source_dir=source_dir, metadata=metadata)
+
+        if prepared["status"] != "success":
+            return {
+                "status": "failed",
+                "filepath": image_path,
+                "error": prepared.get("error", "Preparation failed"),
+            }
+
+        # CLIP embedding (single image)
+        embedding = generate_clip_embedding(image_path)
+
+        # Save to database
+        image_id = save_to_database(prepared["image_data"])
+
+        # Save to Qdrant
+        save_to_qdrant(
+            image_id=image_id,
+            embedding=embedding,
+            metadata=prepared["qdrant_metadata"],
+        )
+
+        logger.info(f"Successfully processed image: {image_path_obj}")
+        return {
+            "status": "success",
+            "image_id": image_id,
+            "filepath": image_path,
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to process image {image_path_obj}: {e}")
+        return {
+            "status": "failed",
+            "filepath": image_path,
+            "error": str(e),
+        }
+
+
+@flow(name="bulk_image_ingestion", log_prints=True)
+def bulk_image_ingestion(source_dirs: List[str]) -> dict:
+    """Ingest images from multiple directories using batched pipeline.
+
+    Images are processed in batches for maximum throughput:
+    - prepare_single_image tasks run concurrently via .submit()
+    - CLIP embeddings are generated in batch (vectorized forward pass)
+    - Database and Qdrant saves are batched into single transactions
+    """
+    batch_size = settings.ingestion_batch_size
+    logger.info(f"Starting bulk ingestion from {len(source_dirs)} directories (batch_size={batch_size})")
+
+    all_results = []
+    total_images = 0
+
+    # Build parser once for all images (avoids per-image DB query)
+    parser = _build_parser()
+
+    for dir_path in source_dirs:
+        directory = Path(dir_path)
+        if not directory.exists():
+            logger.warning(f"Directory does not exist: {directory}")
+            continue
+
+        image_paths = scan_directory(dir_path)
+        total_images += len(image_paths)
+
+        # Process in batches
+        for batch_start in range(0, len(image_paths), batch_size):
+            batch = image_paths[batch_start:batch_start + batch_size]
+            logger.info(
+                f"Processing batch {batch_start // batch_size + 1} "
+                f"({len(batch)} images, {batch_start + len(batch)}/{len(image_paths)})"
+            )
+
+            # Step 1: Prepare all images concurrently
+            prepare_futures = [
+                prepare_single_image.submit(
+                    image_path=img_path,
+                    source_dir=dir_path,
+                    parser=parser,
+                )
+                for img_path in batch
+            ]
+            prepared_results = [f.result() for f in prepare_futures]
+
+            # Step 2-4: Batch CLIP → batch DB save → batch Qdrant save
+            batch_results, _ = _process_batch(prepared_results)
+            all_results.extend(batch_results)
+
+    successful = sum(1 for r in all_results if r["status"] == "success")
+    failed = sum(1 for r in all_results if r["status"] != "success")
+
+    summary = {
+        "total_images": total_images,
+        "processed": len(all_results),
+        "successful": successful,
+        "failed": failed,
+        "results": all_results,
+    }
+
+    logger.info(f"Bulk ingestion complete: {successful} successful, {failed} failed")
+    return summary
+
+
+@flow(name="analyse_upload", log_prints=True, persist_result=True)
+def analyse_upload(
+    staging_dir: str,
+    relative_paths: list[str],
+) -> list[dict]:
+    """Parse and group uploaded files for the preview UI.
+
+    Preview thumbnails are generated concurrently using .submit() for speed.
+    """
+    logger.info(f"Analysing {len(relative_paths)} uploaded files in {staging_dir}")
+
+    parser = _build_parser()
+    groups = parser.group_files(relative_paths)
+
+    # Generate preview thumbnails concurrently using .submit()
+    staging = Path(staging_dir)
+    thumb_futures = []
+    for group in groups:
+        for f in group["files"]:
+            rel_path = f["relative_path"]
+            image_path = staging / rel_path
+            if image_path.exists():
+                future = generate_preview_thumbnail.submit(
+                    image_path=str(image_path),
+                    staging_dir=staging_dir,
+                    relative_path=rel_path,
+                )
+                thumb_futures.append((f, future))
+
+    # Collect all results
+    for f, future in thumb_futures:
+        f["preview_thumbnail"] = future.result()
+
+    logger.info(f"Detected {len(groups)} variant group(s)")
+    for g in groups:
+        logger.info(f"  {g.get('author', '?')} / {g['variant_group_name']} ({len(g['files'])} files)")
+
+    return groups
+
+
 @flow(name="process_import_group", log_prints=True)
 def process_import_group(
     job_id: str,
@@ -454,44 +632,47 @@ def process_import_group(
     variant_group_name: str,
     files: list[dict],
 ) -> dict:
-    """Process a confirmed variant group from web import.
+    """Process a confirmed variant group from web import using batched pipeline.
 
-    Uses the per-file metadata provided by the user (from the preview UI)
-    directly, without re-parsing filenames.
-
-    Args:
-        job_id: ImportJob ID for progress tracking
-        staging_dir: Path to the staging directory
-        author: User-confirmed author name
-        variant_group_name: User-confirmed variant group name
-        files: List of dicts with relative_path and user-confirmed metadata
-               (tags, gridded, grid_width, grid_height, sub_variant)
-
-    Returns:
-        Summary dict with processed/failed counts
+    Images are processed in batches with progress updates after each batch.
     """
+    batch_size = settings.ingestion_batch_size
     logger.info(
         f"Processing import group '{variant_group_name}' by '{author}' "
-        f"({len(files)} files) for job {job_id}"
+        f"({len(files)} files, batch_size={batch_size}) for job {job_id}"
     )
 
     staging = Path(staging_dir)
-
     processed = 0
     failed = 0
 
+    # Filter to existing files upfront
+    valid_files = []
     for file_info in files:
         rel_path = file_info["relative_path"]
         image_path = staging / rel_path
         if not image_path.exists():
             logger.warning(f"File not found in staging: {image_path}")
             failed += 1
-            update_import_job_progress(job_id, processed, failed)
-            continue
+        else:
+            valid_files.append((file_info, str(image_path)))
 
-        try:
-            result = process_single_image(
-                image_path=str(image_path),
+    if failed > 0:
+        update_import_job_progress(job_id, processed, failed)
+
+    # Process in batches
+    for batch_start in range(0, len(valid_files), batch_size):
+        batch = valid_files[batch_start:batch_start + batch_size]
+        logger.info(
+            f"Processing batch {batch_start // batch_size + 1} "
+            f"({len(batch)} images, {batch_start + len(batch)}/{len(valid_files)})"
+        )
+
+        # Step 1: Prepare all images in this batch concurrently
+        prepare_futures = []
+        for file_info, image_path in batch:
+            future = prepare_single_image.submit(
+                image_path=image_path,
                 metadata={
                     "author": author,
                     "variant_group_name": variant_group_name,
@@ -502,15 +683,18 @@ def process_import_group(
                     "sub_variant": file_info.get("sub_variant"),
                 },
             )
-            if result.get("status") == "success":
-                processed += 1
-            else:
-                failed += 1
-        except Exception as e:
-            logger.error(f"Failed to process {rel_path}: {e}")
-            failed += 1
+            prepare_futures.append(future)
 
-        # Update progress after each image
+        prepared_results = [f.result() for f in prepare_futures]
+
+        # Step 2-4: Batch CLIP → batch DB → batch Qdrant
+        batch_results, _ = _process_batch(prepared_results)
+
+        batch_success = sum(1 for r in batch_results if r["status"] == "success")
+        processed += batch_success
+        failed += (len(batch_results) - batch_success)
+
+        # Update progress after each batch
         update_import_job_progress(job_id, processed, failed)
 
     # Mark job as completed

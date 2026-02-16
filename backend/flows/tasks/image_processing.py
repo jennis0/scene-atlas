@@ -14,28 +14,32 @@ logger = logging.getLogger(__name__)
 
 
 @task(name="generate_thumbnails", retries=2)
-def generate_thumbnails(image_path: str, storage_key_stem: str) -> dict[str, str]:
+def generate_thumbnails(image_path: str, storage_key_stem: str) -> dict:
     """Generate thumbnails at different sizes and store via ImageStore.
+
+    Also returns original image dimensions to avoid a separate PIL open.
 
     Args:
         image_path: Path to the original image file (as string for serialization)
         storage_key_stem: UUID stem for naming thumbnails (e.g., "a1b2c3d4e5f6")
 
     Returns:
-        Dict mapping size names to thumbnail storage keys
+        Dict with 'keys' (size name -> storage key) and 'dimensions' (width, height)
     """
     try:
         image_path = Path(image_path)
         image = Image.open(image_path)
         image = image.convert("RGB")  # Ensure RGB mode
+        dimensions = image.size  # (width, height) - capture before thumbnailing
 
         thumbnail_store = get_thumbnail_store()
         thumbnail_keys = {}
 
         for idx, (width, height) in enumerate(settings.thumbnail_sizes):
-            # Create thumbnail
+            # Create thumbnail - use LANCZOS for large, BILINEAR for small/medium
             thumb = image.copy()
-            thumb.thumbnail((width, height), Image.Resampling.LANCZOS)
+            resampling = Image.Resampling.LANCZOS if idx == len(settings.thumbnail_sizes) - 1 else Image.Resampling.BILINEAR
+            thumb.thumbnail((width, height), resampling)
 
             # Generate storage key for this thumbnail
             thumb_key = f"{storage_key_stem}_{width}x{height}.jpg"
@@ -50,7 +54,7 @@ def generate_thumbnails(image_path: str, storage_key_stem: str) -> dict[str, str
 
             logger.debug(f"Generated {size_name} thumbnail: {thumb_key}")
 
-        return thumbnail_keys
+        return {"keys": thumbnail_keys, "dimensions": dimensions}
 
     except Exception as e:
         logger.error(f"Error generating thumbnails for {image_path}: {e}")
@@ -90,7 +94,7 @@ def generate_preview_thumbnail(
 
         image = Image.open(Path(image_path))
         image = image.convert("RGB")
-        image.thumbnail((size, size), Image.Resampling.LANCZOS)
+        image.thumbnail((size, size), Image.Resampling.BILINEAR)
         image.save(thumb_path, format="JPEG", quality=70, optimize=True)
 
         logger.debug(f"Generated preview thumbnail: {safe_name}")

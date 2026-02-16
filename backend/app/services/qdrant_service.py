@@ -90,6 +90,39 @@ class QdrantService:
             logger.error(f"Error adding embedding for image_id={image_id}: {e}")
             return False
 
+    def batch_add_embeddings(
+        self,
+        items: List[dict],
+    ) -> bool:
+        """Add or update multiple image embeddings in Qdrant in a single call.
+
+        Args:
+            items: List of dicts with 'image_id', 'embedding', and optional 'metadata'
+
+        Returns:
+            True if successful
+        """
+        try:
+            points = []
+            for item in items:
+                payload = item.get("metadata", {}).copy()
+                payload["image_id"] = item["image_id"]
+                points.append(PointStruct(
+                    id=item["image_id"],
+                    vector=item["embedding"],
+                    payload=payload,
+                ))
+
+            self.client.upsert(
+                collection_name=self.collection_name,
+                points=points,
+            )
+            logger.debug(f"Batch added {len(points)} embeddings to Qdrant")
+            return True
+        except Exception as e:
+            logger.error(f"Error batch adding embeddings: {e}")
+            return False
+
     def search_similar(
         self,
         query_embedding: List[float],

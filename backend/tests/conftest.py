@@ -110,30 +110,67 @@ def test_client(tmp_db):
 
 @pytest.fixture
 def mock_heavy_services(monkeypatch):
-    """Mock CLIP + Qdrant + thumbnails so integration tests don't need real infrastructure."""
+    """Mock CLIP + Qdrant + thumbnails so integration tests don't need real infrastructure.
+
+    The batch pipeline calls task functions via .fn() from their source modules,
+    so we mock at the source (backend.flows.tasks.*) not at the ingestion module level.
+    """
     dummy_embedding = [0.1] * 512
 
+    # Mock single-image CLIP (used by process_single_image wrapper)
     monkeypatch.setattr(
         "backend.flows.ingestion.generate_clip_embedding",
         lambda *args, **kwargs: dummy_embedding,
     )
+    # Mock batch CLIP (used by batch pipeline)
+    monkeypatch.setattr(
+        "backend.flows.ingestion.batch_generate_clip_embeddings",
+        lambda image_paths, **kwargs: [dummy_embedding] * len(image_paths),
+    )
+
+    # Mock Qdrant (single + batch)
     monkeypatch.setattr(
         "backend.flows.ingestion.qdrant_service.add_image_embedding",
         lambda *args, **kwargs: True,
     )
     monkeypatch.setattr(
-        "backend.flows.ingestion.generate_thumbnails",
-        lambda image_path, storage_key_stem: {
-            "small": f"{storage_key_stem}_150x150.jpg",
-            "medium": f"{storage_key_stem}_400x400.jpg",
-            "large": f"{storage_key_stem}_800x800.jpg",
-        },
+        "backend.flows.ingestion.qdrant_service.batch_add_embeddings",
+        lambda *args, **kwargs: True,
     )
+
+    # Mock thumbnails at the source module (prepare_single_image calls .fn() directly)
+    from backend.flows.tasks.image_processing import generate_thumbnails
+    original_fn = generate_thumbnails.fn
+
+    def mock_generate_thumbnails(image_path, storage_key_stem):
+        # Open image to get real dimensions (needed for DB save)
+        from PIL import Image as PILImage
+        with PILImage.open(image_path) as img:
+            dimensions = img.size
+        return {
+            "keys": {
+                "small": f"{storage_key_stem}_150x150.jpg",
+                "medium": f"{storage_key_stem}_400x400.jpg",
+                "large": f"{storage_key_stem}_800x800.jpg",
+            },
+            "dimensions": dimensions,
+        }
+
     monkeypatch.setattr(
-        "backend.flows.ingestion.extract_dominant_colors",
-        lambda *args, **kwargs: [
+        "backend.flows.tasks.image_processing.generate_thumbnails",
+        MagicMock(fn=mock_generate_thumbnails),
+    )
+
+    # Mock color extraction at source module
+    def mock_extract_colors(*args, **kwargs):
+        return [
             {"color_hex": "#1a2b3c", "percentage": 40.0, "color_order": 1},
             {"color_hex": "#4d5e6f", "percentage": 30.0, "color_order": 2},
-        ],
+        ]
+
+    monkeypatch.setattr(
+        "backend.flows.tasks.color_extraction.extract_dominant_colors",
+        MagicMock(fn=mock_extract_colors),
     )
+
     return dummy_embedding

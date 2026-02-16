@@ -52,7 +52,12 @@ class Settings(BaseSettings):
 
     # Color Extraction
     num_dominant_colors: int = 5
-    color_clustering_samples: int = 10000  # Pixels to sample for k-means
+    color_clustering_samples: int = 5000  # Pixels to sample for k-means
+    color_kmeans_n_init: int = 3  # K-means random initializations (3 is sufficient for color extraction)
+
+    # Ingestion Performance
+    ingestion_batch_size: int = 16  # Images per batch for CLIP and DB operations
+    max_concurrent_prepare: int = 8  # Concurrent prepare_single_image tasks
 
     # API
     api_host: str = "0.0.0.0"

@@ -8,6 +8,11 @@ All ingestion runs through **Prefect** flows defined in `backend/flows/ingestion
 
 ## Flow Architecture
 
+The pipeline uses a **batched stage architecture** for maximum throughput. Images are processed in configurable batches (default 16) where:
+- **Prepare stage** runs concurrently via Prefect `.submit()` (thumbnails + colors per image)
+- **CLIP embedding** runs as a batch forward pass (vectorized, 3-5x faster than individual)
+- **Database and Qdrant saves** are batched into single transactions
+
 ```
 Web Upload                              CLI
     │                                    │
@@ -16,23 +21,37 @@ analyse_upload (deployment)     bulk_image_ingestion (flow)
     │                                    │
     ├── BattlemapParser.group_files()    │
     ├── generate_preview_thumbnail()     │
+    │   (concurrent via .submit())       │
     │                                    │
     ▼                                    │
   [user reviews & edits metadata]        │
     │                                    │
-    ▼                                    │
-process_import_group (deployment)        │
-    │                                    │
-    ├─── process_single_image ◄──────────┘
-    │        ├── get_image_dimensions (task)
-    │        ├── get_file_size (task)
-    │        ├── generate_thumbnails (task)
-    │        ├── extract_dominant_colors (task)
-    │        ├── generate_clip_embedding (task)
-    │        ├── save_to_database (task, retries=2)
-    │        └── save_to_qdrant (task, retries=2)
-    │
-    └─── update_import_job_progress (task)
+    ▼                                    ▼
+process_import_group (deployment)   ┌────────────────────────────┐
+    │                               │  Batched Pipeline (per N)  │
+    └───────────────────────────────┤                            │
+                                    │  1. prepare_single_image   │
+                                    │     × N (.submit())        │
+                                    │     → parse + copy + dims  │
+                                    │     → thumbnails + colors  │
+                                    │                            │
+                                    │  2. batch_generate_clip    │
+                                    │     _embeddings            │
+                                    │     (single batch forward  │
+                                    │      pass for all N)       │
+                                    │                            │
+                                    │  3. batch_save_to_database │
+                                    │     (single transaction)   │
+                                    │                            │
+                                    │  4. batch_save_to_qdrant   │
+                                    │     (single upsert call)   │
+                                    └────────────────────────────┘
+
+process_single_image (thin wrapper for one-off use)
+    ├── prepare_single_image (task)
+    ├── generate_clip_embedding (task, single image)
+    ├── save_to_database (task)
+    └── save_to_qdrant (task)
 ```
 
 ## Flows
@@ -48,38 +67,36 @@ Parses and groups uploaded files for the preview UI. Called synchronously by the
 **Processing:**
 1. Creates a `BattlemapParser` with tag vocabulary from DB
 2. Runs `parser.group_files(relative_paths)` to detect variant groups
-3. Generates preview thumbnails (120x120 JPEG) for each file into `{staging_dir}/.thumbs/`
+3. Generates preview thumbnails (120x120 JPEG) concurrently via `.submit()` for each file into `{staging_dir}/.thumbs/`
 4. Returns grouped results with per-file metadata and `preview_thumbnail` filenames
 
 **Returns:** `list[dict]` — variant groups with parsed metadata (persisted result for cross-process retrieval)
 
 ### `process_import_group` (Prefect deployment)
 
-Processes a confirmed variant group end-to-end. Called async by the confirm endpoint via `run_deployment(timeout=0)`.
+Processes a confirmed variant group using the batched pipeline. Called async by the confirm endpoint via `run_deployment(timeout=0)`.
 
 **Parameters:**
 - `job_id: str` — ImportJob ID for progress tracking
 - `staging_dir: str` — path to staging directory
 - `author: str` — user-confirmed author
 - `variant_group_name: str` — user-confirmed group name
-- `files: list[dict]` — per-file metadata dicts from the confirm request, each containing:
-  - `relative_path: str`
-  - `tags: list[dict]` (category, value, confidence, source)
-  - `gridded: bool | None`
-  - `grid_width: int | None`
-  - `grid_height: int | None`
-  - `sub_variant: str | None`
+- `files: list[dict]` — per-file metadata dicts from the confirm request
 
 **Processing:**
-For each file, calls `process_single_image` with a `metadata` dict built directly from the confirm data — no re-parsing of filenames. The metadata includes `author`, `variant_group_name`, and all per-file fields from the confirm request.
-
-**Side effects:** Updates `ImportJob.processed_files` / `failed_files` after each image.
+1. Filters to existing files upfront
+2. For each batch of N images (default 16):
+   - Submits `prepare_single_image` concurrently for all images in the batch
+   - Runs `batch_generate_clip_embeddings` on all successful preparations
+   - Runs `batch_save_to_database` in a single transaction
+   - Runs `batch_save_to_qdrant` in a single upsert call
+   - Updates `ImportJob` progress after each batch
 
 **Returns:** `dict` with `{job_id, processed, failed, total}`
 
-### `process_single_image` (Prefect subflow)
+### `process_single_image` (Prefect flow — thin wrapper)
 
-The core unit of work. Processes one image file end-to-end.
+Processes one image end-to-end. Used for one-off processing; batch flows use the batched pipeline directly.
 
 **Parameters:**
 - `image_path: str` — absolute path to the source image
@@ -87,42 +104,10 @@ The core unit of work. Processes one image file end-to-end.
 - `metadata: dict | None` — explicit metadata from web import (skips path parsing)
 
 **Pipeline steps:**
-
-```
-1. Parse metadata
-   ├── CLI mode: BattlemapParser.parse(relative_path)
-   │   → author, variant_group_name, sub_variant, gridded, grid_width, grid_height, tags
-   └── Web import mode: use explicit metadata dict directly
-       (all fields provided by the user via the preview UI)
-
-2. Copy into ImageStore
-   → Generate UUID-based storage_key
-   → image_store.put(storage_key, image_path)
-
-3. Get image properties (Prefect task, retries=2)
-   → width, height via PIL
-   → file_size via os.stat
-
-4. Generate thumbnails (Prefect task, retries=2)
-   → 150x150, 400x400, 800x800
-   → Saved to ThumbnailStore with key "{stem}_{WxH}.jpg"
-
-5. Extract dominant colors (Prefect task, retries=2)
-   → K-means clustering on downsampled pixels
-   → Returns top 5 colors as hex + percentage
-
-6. Generate CLIP embedding (Prefect task, retries=2)
-   → CLIPService.encode_image(path)
-   → 512-dim normalized vector
-
-7. Save to database (Prefect task, retries=2)
-   → Upsert Image row (keyed on storage_key)
-   → Create/find VariantGroup (keyed on base_name + author)
-   → Replace tags and colors
-
-8. Save to Qdrant (Prefect task, retries=2)
-   → qdrant_service.add_image_embedding(image_id, embedding, metadata)
-```
+1. `prepare_single_image` — parse, copy to store, thumbnails, colors (single task)
+2. `generate_clip_embedding` — single-image CLIP inference
+3. `save_to_database` — single-image DB save
+4. `save_to_qdrant` — single-image Qdrant save
 
 **Returns:** `{"status": "success"|"failed", "image_id": int, "filepath": str}`
 
@@ -130,10 +115,49 @@ The core unit of work. Processes one image file end-to-end.
 
 Batch ingestion from one or more source directories (CLI entry point).
 
-1. For each source directory, run `scan_directory` task
-2. `scan_directory` recursively finds supported image files, skipping `__MACOSX` dirs and `._` files
-3. For each image, call `process_single_image(image_path, source_dir=directory)`
+1. Builds parser once for all images (avoids per-image DB query)
+2. For each source directory, runs `scan_directory` task
+3. Processes images in batches using the batched pipeline (same as `process_import_group`)
 4. Returns summary: `{total_images, processed, successful, failed, results}`
+
+## Key Tasks
+
+### `prepare_single_image` (Prefect task, retries=2)
+
+The main per-image preparation task. Handles everything except CLIP and saves:
+
+1. **Parse metadata** — CLI mode: `BattlemapParser.parse()`, Web mode: use explicit dict
+2. **Copy to ImageStore** — UUID-based storage key, `image_store.put()`
+3. **Get file size** — inline `os.stat()`
+4. **Generate thumbnails** — calls `generate_thumbnails.fn()` inline (3 sizes, BILINEAR for small/medium, LANCZOS for large). Also captures image dimensions.
+5. **Extract colors** — calls `extract_dominant_colors.fn()` inline (K-means, n_init=3, 5000 pixel sample)
+
+Returns a dict with `image_data`, `original_image_path`, `qdrant_metadata`, and `status`.
+
+### `batch_generate_clip_embeddings` (Prefect task, retries=2)
+
+Processes multiple images through CLIP in a single batch forward pass using `CLIPService.batch_encode_images()`. Sub-batches by `ingestion_batch_size` to manage memory.
+
+### `batch_save_to_database` (Prefect task, retries=2)
+
+Saves multiple images to SQLite in a single session/transaction using shared `_save_image_to_db()` helper.
+
+### `batch_save_to_qdrant` (Prefect task, retries=2)
+
+Saves multiple embeddings to Qdrant in a single `batch_add_embeddings()` call.
+
+## Performance Configuration
+
+Settings in `backend/app/config.py`:
+
+| Setting | Default | Purpose |
+|---------|---------|---------|
+| `ingestion_batch_size` | 16 | Images per batch for CLIP/DB/Qdrant operations |
+| `max_concurrent_prepare` | 8 | Max concurrent `prepare_single_image` tasks |
+| `color_kmeans_n_init` | 3 | K-means random initializations |
+| `color_clustering_samples` | 5000 | Max pixels sampled for color extraction |
+
+Thumbnail resampling: BILINEAR for 150px and 400px, LANCZOS for 800px. Preview thumbnails use BILINEAR.
 
 ## Deployments
 

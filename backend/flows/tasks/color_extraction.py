@@ -62,7 +62,7 @@ def extract_dominant_colors(image_path: str, num_colors: int = None) -> List[dic
             pixels = pixels[indices]
 
         # Apply k-means clustering
-        kmeans = KMeans(n_clusters=num_colors, random_state=42, n_init=10)
+        kmeans = KMeans(n_clusters=num_colors, random_state=42, n_init=settings.color_kmeans_n_init)
         kmeans.fit(pixels)
 
         # Get cluster centers (dominant colors)
