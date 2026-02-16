@@ -1,7 +1,7 @@
 """Tags API endpoints."""
 
 from typing import List
-
+import json
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
@@ -33,7 +33,71 @@ async def list_tag_categories(db: Session = Depends(get_db)):
     categories = db.query(TagCategory).all()
     return categories
 
+@router.put("/categories/{category_name}/tags/{tag_name}", response_model=TagCategoryResponse)
+async def update_tag_in_category(
+    category_name: str,
+    tag_name: str,
+    aliases: List[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Add a tag to a category or updates it's aliases."""
+    category = db.query(TagCategory).filter(TagCategory.name == category_name).first()
+    if not category:
+        raise HTTPException(status_code=404, detail="Tag category not found")
 
+    existing_tags = json.loads(category.common_values)
+    updated_tags = [{'value': v, 'aliases': [] if isinstance(v, str) else v.get('aliases', [])} for v in existing_tags]
+    updated = False
+    for tag in updated_tags:
+        if tag['value'] == tag_name:
+            tag['aliases'] = aliases
+            updated = True
+            
+    if not updated:
+        updated_tags.append({'value': tag_name, 'aliases': aliases or []})
+               
+    category.common_values = json.dumps(updated_tags)
+    db.commit()
+    db.refresh(category)
+        
+    return category
+
+@router.delete("/categories/{category_name}/tags/{tag_name}")
+async def delete_tag_from_category(
+    category_name: str,
+    tag_name: str,
+    db: Session = Depends(get_db)
+):
+    "Delete a tag from a category's common values list. This does not delete any tags from images, just removes it from the category's common values."
+    category = db.query(TagCategory).filter(TagCategory.name == category_name).first()
+    if not category:
+        raise HTTPException(status_code=404, detail="Tag category not found")
+    
+    existing_tags = json.loads(category.common_values)
+    updated_tags = []
+    deleted = False
+    for v in existing_tags:
+        if isinstance(v, str):
+            if v != tag_name:
+                updated_tags.append(v)    
+            else:
+                deleted = True
+        else:
+            if v['value'] != tag_name:
+                updated_tags.append(v)
+            else:
+                deleted = True
+                
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Tag not found in category")
+    
+    else:
+        category.common_values = json.dumps(updated_tags)
+        db.commit()
+        db.refresh(category)
+        return {"message": "Tag deleted from category successfully", "category": category_name, "tag": tag_name}
+    
+    
 @router.get("/categories/{category_name}", response_model=TagCategoryResponse)
 async def get_tag_category(
     category_name: str,

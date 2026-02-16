@@ -40,8 +40,8 @@ class BattlemapParser:
         self._dim_re = re.compile(r'[\(\[ ]?(\d{1,3})\s*[xX]\s*(\d{1,3})[\)\] ]?')
         self._by_author_re = re.compile(r'[bB]y([A-Z][a-z]+|[A-Z]+|[a-z]+)')
         self._bracket_re = re.compile(r'[\(\[](.*?)[\)\]]')
-        self._grid_negative_re = re.compile(r'\b(no[-_ ]?grid|gridless|ungridded)\b')
-        self._grid_positive_re = re.compile(r'\b(grid(ded)?)\b')
+        self._grid_negative_re = re.compile(r'\b(no[-_ ]?grid|gridless|ungridded|gl)\b')
+        self._grid_positive_re = re.compile(r'\b(grid(ded)?|gd)\b')
 
         self._generic_folders = frozenset({
             'singletons', 'variants', 'random', 'miscellaneous', 'assets',
@@ -49,7 +49,7 @@ class BattlemapParser:
             # Resolution / format folders
             'full resolution', 'high resolution', 'low resolution',
             'high res', 'low res', 'full res', 'hi-res', 'lo-res',
-            'jpeg', 'jpg', 'png', 'webp', 'pdf', 'tiff',
+            'jpeg', 'jpg', 'png', 'webp', 'pdf', 'tiff', "highres", "lowres",
             # Grid folders
             'gridded', 'gridless', 'no grid', 'grid', 'ungridded',
             # Other utility folders
@@ -230,6 +230,7 @@ class BattlemapParser:
         # Split CamelCase and replace separators so \b word boundaries work
         gridded = None
         grid_text = self._split_camel(stem).lower().replace('_', ' ').replace('-', ' ')
+        print(grid_text)
         if self._grid_negative_re.search(grid_text):
             gridded = False
         elif self._grid_positive_re.search(grid_text):
@@ -325,7 +326,7 @@ class BattlemapParser:
 
         return {
             "author": author,
-            "variant_group_name": group_name,
+            "variant_group_name": group_name.split("[(")[0].strip(),
             "group_from_folder": group_from_folder,
             "sub_variants": sub_variants,
             "sub_variant": sub_variant,
@@ -525,3 +526,8 @@ class BattlemapParser:
                 result.extend(groups)
 
         return result
+
+
+if __name__ == "__main__":
+    
+    parser = BattlemapParser()
