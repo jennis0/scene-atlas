@@ -13,7 +13,8 @@
 
 import { useState, useMemo } from 'react'
 import { Search, X, Check, Minus } from 'lucide-react'
-import { getTagColor, DEFAULT_TAG_COLOR } from '@/components/import/tagColors'
+import { DEFAULT_TAG_COLOR } from '@/components/import/tagColors'
+import { useGetTagColor } from '@/contexts/TagColorContext'
 import type { ActiveFilter } from '@/components/import/fileFilter'
 
 // ─── Public types ─────────────────────────────────────────────────────────────
@@ -44,6 +45,7 @@ const NON_TAG_GROUPS = new Set(['author', 'gridded', 'subVariant'])
 // ─── Main component ────────────────────────────────────────────────────────────
 
 export function FilterMenuContent({ groups, activeFilters, onFiltersChange }: FilterMenuContentProps) {
+  const getTagColor = useGetTagColor()
   const [search, setSearch] = useState('')
   const [tab, setTab] = useState('all')
 
@@ -274,6 +276,7 @@ function CategoryNavItem({
   colorId: string | null
   onClick: () => void
 }) {
+  const getTagColor = useGetTagColor()
   const colors = colorId ? getTagColor(colorId) : DEFAULT_TAG_COLOR
 
   return (
@@ -314,6 +317,7 @@ function OptionPill({
   onInclude: () => void
   onExclude: (e: React.MouseEvent) => void
 }) {
+  const getTagColor = useGetTagColor()
   const colors = colorId ? getTagColor(colorId) : DEFAULT_TAG_COLOR
 
   if (activeState === 'include') {
@@ -369,6 +373,7 @@ function FilterChip({
   onToggle: () => void
   onRemove: () => void
 }) {
+  const getTagColor = useGetTagColor()
   const category = filter.type === 'tag' ? filter.value.split(':')[0] : null
   const colors = category ? getTagColor(category) : null
 

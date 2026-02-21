@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Search, Sparkles, X, Upload, LayoutGrid, Layers, Pencil, AlignLeft } from 'lucide-react'
+import { Search, Sparkles, X, Upload, LayoutGrid, Layers, Pencil, AlignLeft, Tag } from 'lucide-react'
 import { searchApi } from '@/lib/api'
 import { ImageGrid } from '@/components/ImageGrid'
 import { GroupGrid } from '@/components/GroupGrid'
@@ -8,6 +8,7 @@ import { ImageViewer } from '@/components/ImageViewer'
 import { ImportDialog } from '@/components/ImportDialog'
 import { ImportTray } from '@/components/ImportTray'
 import { EditGroupDialog } from '@/components/EditGroupDialog'
+import { TagManagementDialog } from '@/components/TagManagementDialog'
 import { GalleryFilterPanel } from '@/components/GalleryFilterPanel'
 import { FilterChipList } from '@/components/FilterMenuContent'
 import { useImageGrouping } from '@/hooks/useImageGrouping'
@@ -28,6 +29,7 @@ export function Gallery() {
 
   // Import state: null = closed, 'new' = fresh import, '{jobId}' = reconnect
   const [importDialogJobId, setImportDialogJobId] = useState<string | null>(null)
+  const [showTagManagement, setShowTagManagement] = useState(false)
   const activeImports = useActiveImports()
 
   // Search state — separate controlled input from submitted query
@@ -173,6 +175,15 @@ export function Gallery() {
                   <span className="text-muted-foreground text-xs">({displayImages.length})</span>
                 </Button>
               )}
+              <Button
+                variant="outline"
+                onClick={() => setShowTagManagement(true)}
+                title="Manage tag categories and values"
+                className="gap-2"
+              >
+                <Tag className="h-4 w-4" />
+                Tags
+              </Button>
               <Button
                 variant="outline"
                 onClick={() => setImportDialogJobId('new')}
@@ -380,6 +391,11 @@ export function Gallery() {
             activeImports.refresh()
           }
         }}
+      />
+
+      <TagManagementDialog
+        open={showTagManagement}
+        onClose={() => setShowTagManagement(false)}
       />
 
       {/* Import tray — right-side overlay showing active imports */}

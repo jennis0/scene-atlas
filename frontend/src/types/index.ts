@@ -45,6 +45,7 @@ export interface TagCategory {
   id: number
   name: string
   description: string | null
+  color: string | null  // Tailwind color preset name
   display_order: number
   common_values: string | null // JSON string of tag values
 }

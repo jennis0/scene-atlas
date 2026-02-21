@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, X, Search, Pencil, Edit, SlidersHorizontal } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { imageApi, tagApi, searchApi, getImageUrl, getThumbnailUrl } from '@/lib/api'
-import { getTagColor } from '@/components/import/tagColors'
+import { useGetTagColor } from '@/contexts/TagColorContext'
 import { TagPicker } from '@/components/import/TagPicker'
 import { GridToggle } from '@/components/import/GridToggle'
 import { FilterMenuContent, FilterChipList, type FilterOptionGroup } from '@/components/FilterMenuContent'
@@ -28,6 +28,7 @@ const CANVAS_STYLE: React.CSSProperties = {
 }
 
 export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange, onEditGroup }: ImageViewerProps) {
+  const getTagColor = useGetTagColor()
   const queryClient = useQueryClient()
 
   // Fresh data for the displayed image; initialData avoids flash on navigation

@@ -5,7 +5,7 @@ import { TagPicker } from './TagPicker'
 import { GridToggle } from './GridToggle'
 import { SubVariantPicker } from './SubVariantPicker'
 import type { ParsedTagVocab } from './types'
-import { getTagColor } from './tagColors'
+import { useGetTagColor } from '@/contexts/TagColorContext'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 
 interface FileCardProps {
@@ -29,6 +29,7 @@ export function FileCard({
   onUpdate,
   disabled,
 }: FileCardProps) {
+  const getTagColor = useGetTagColor()
   const [isEditingName, setIsEditingName] = useState(false)
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [isEditingSubVariant, setIsEditingSubVariant] = useState(false)

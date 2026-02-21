@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { Plus, ChevronLeft, Search, X } from 'lucide-react'
 import type { TagData } from '@/types'
 import type { ParsedTagVocab } from './types'
-import { getTagColor } from './tagColors'
+import { useGetTagColor } from '@/contexts/TagColorContext'
 
 interface TagPickerProps {
   vocab: ParsedTagVocab[]
@@ -11,6 +11,7 @@ interface TagPickerProps {
 }
 
 export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
+  const getTagColor = useGetTagColor()
   const [open, setOpen] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [search, setSearch] = useState('')
