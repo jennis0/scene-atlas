@@ -11,7 +11,7 @@ from .config import settings
 # Set PREFECT_API_URL before any Prefect imports so the client connects to our server
 os.environ.setdefault("PREFECT_API_URL", settings.prefect_api_url)
 
-from .api import images, imports, search, tags
+from .api import images, imports, search, tags, variant_groups
 from .models import get_engine, init_db, seed_tag_categories, get_session_local
 
 # Configure logging
@@ -81,6 +81,7 @@ app.include_router(images.router, prefix=f"{settings.api_prefix}/images", tags=[
 app.include_router(search.router, prefix=f"{settings.api_prefix}/search", tags=["search"])
 app.include_router(tags.router, prefix=f"{settings.api_prefix}/tags", tags=["tags"])
 app.include_router(imports.router, prefix=f"{settings.api_prefix}/imports", tags=["imports"])
+app.include_router(variant_groups.router, prefix=f"{settings.api_prefix}/variant-groups", tags=["variant-groups"])
 
 
 @app.get("/")

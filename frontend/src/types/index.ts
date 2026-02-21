@@ -5,6 +5,8 @@ export interface Image {
   author: string
   name: string
   variant_group_id: number | null
+  variant_group_name: string | null
+  variant_group_image_count: number | null
   created_at: string
   updated_at: string
   file_size: number
@@ -56,17 +58,29 @@ export interface Color {
 }
 
 export interface SearchParams {
-  text?: string
-  semantic?: string
+  query?: string            // hybrid: FTS5 + semantic
+  semantic_only?: boolean   // skip FTS5, pure semantic (from ~ prefix)
   authors?: string[]
+  exclude_authors?: string[]
   tags?: string[]
   exclude_tags?: string[]
   colors?: string[]
   gridded?: boolean
-  min_width?: number
-  min_height?: number
   limit?: number
   offset?: number
+}
+
+export interface FacetOption {
+  value: string
+  count: number
+}
+
+export interface FacetData {
+  total_images: number
+  authors: FacetOption[]
+  tags: Record<string, FacetOption[]>  // category → values sorted by count
+  gridded: { gridded: number; gridless: number; unknown: number }
+  colors: { hex: string; count: number }[]
 }
 
 export interface SearchResult {
@@ -91,11 +105,6 @@ export interface ImageGroup {
   aggregatedTags: Tag[]
 }
 
-export interface SemanticSearchResult {
-  image_id: number
-  score: number
-  image: Image
-}
 
 export interface TagValue {
   category: string
@@ -144,6 +153,7 @@ export interface TagData {
 
 export interface ImportConfirmFile {
   relative_path: string
+  name?: string
   tags: TagData[]
   gridded: boolean | null
   grid_width: number | null
@@ -161,12 +171,15 @@ export interface ImportConfirmRequest {
 export interface EditableFileState {
   relative_path: string
   filename: string
+  name: string
   tags: TagData[]
   gridded: boolean | null
   grid_width: number | null
   grid_height: number | null
   sub_variant: string | null
   excluded: boolean
+  previewUrl?: string  // Browser blob URL (for direct uploads) or server preview URL (for ZIP)
+  fullImageUrl?: string  // Full-res URL (edit mode); falls back to previewUrl in lightbox
 }
 
 export interface EditableGroupState {
@@ -179,6 +192,38 @@ export interface EditableGroupState {
   processed: number
   failed: number
   total: number
+}
+
+// Variant group edit types
+export interface VariantGroupDetail {
+  id: number
+  base_name: string
+  author: string | null
+  primary_image_id: number | null
+  images: Image[]
+}
+
+export interface ImageEditPayload {
+  id: number
+  name?: string
+  tags: TagData[]
+  gridded?: boolean | null
+  grid_width?: number | null
+  grid_height?: number | null
+  sub_variant?: string | null
+}
+
+export interface NewGroupPayload {
+  base_name: string
+  author?: string
+  image_ids: number[]
+}
+
+export interface VariantGroupEditRequest {
+  base_name: string
+  author?: string
+  images: ImageEditPayload[]
+  new_groups: NewGroupPayload[]
 }
 
 // Import types — status response

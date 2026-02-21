@@ -26,6 +26,18 @@ def get_db(request: Request):
         db.close()
 
 
+@router.get("/authors", response_model=List[str])
+async def list_authors(db: Session = Depends(get_db)):
+    """List all distinct non-empty author values."""
+    rows = (
+        db.query(Image.author)
+        .filter(Image.author.isnot(None), Image.author != "")
+        .distinct()
+        .all()
+    )
+    return sorted([r[0] for r in rows])
+
+
 @router.get("/", response_model=List[ImageResponse])
 async def list_images(
     skip: int = 0,

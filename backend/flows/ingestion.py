@@ -13,7 +13,7 @@ Tasks:
     save_to_database             — Save one image to SQLite (single-image path)
     save_to_qdrant               — Save one embedding to Qdrant (single-image path)
     scan_directory               — Scan directory for supported image files
-    update_import_job_progress   — Update ImportJob progress counters
+    update_import_group_job_progress — Update ImportGroupJob progress counters
 """
 
 import logging
@@ -29,6 +29,7 @@ from backend.app.config import settings
 from backend.app.models import (
     Color,
     Image,
+    ImportGroupJob,
     ImportJob,
     Tag,
     TagCategory,
@@ -37,12 +38,12 @@ from backend.app.models import (
     get_session_local,
 )
 from backend.app.services import BattlemapParser, get_image_store, qdrant_service
+from backend.app.services.fts_service import fts_rebuild
 
 from .tasks.embedding_generation import (
     batch_generate_clip_embeddings,
     generate_clip_embedding,
 )
-from .tasks.image_processing import generate_preview_thumbnail
 
 logger = logging.getLogger(__name__)
 
@@ -199,6 +200,7 @@ def prepare_single_image(
         if metadata:
             author = metadata.get("author")
             variant_group_name = metadata.get("variant_group_name")
+            name = metadata.get("name") or variant_group_name
             sub_variant = metadata.get("sub_variant")
             gridded = metadata.get("gridded")
             grid_width = metadata.get("grid_width")
@@ -215,6 +217,7 @@ def prepare_single_image(
             parsed = parser.parse(str(relative))
             author = parsed["author"]
             variant_group_name = parsed["variant_group_name"]
+            name = variant_group_name
             sub_variant = parsed["sub_variant"]
             gridded = parsed["gridded"]
             grid_width = parsed["grid_width"]
@@ -247,7 +250,7 @@ def prepare_single_image(
         image_data = {
             "filename": image_path_obj.name,
             "storage_key": storage_key,
-            "name": variant_group_name,
+            "name": name,
             "author": author,
             "variant_group_name": variant_group_name,
             "width": width,
@@ -385,25 +388,25 @@ def batch_save_to_qdrant(items: List[dict]) -> bool:
 # Progress tracking
 # ---------------------------------------------------------------------------
 
-@task(name="update_import_job_progress", retries=1)
-def update_import_job_progress(
-    job_id: str,
+@task(name="update_import_group_job_progress", retries=1)
+def update_import_group_job_progress(
+    group_job_id: str,
     processed: int,
     failed: int,
     status: str = "running",
 ) -> None:
-    """Update ImportJob progress counters in the database."""
+    """Update ImportGroupJob progress counters in the database."""
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)
     db = SessionLocal()
     try:
-        job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
-        if job:
-            job.processed_files = processed
-            job.failed_files = failed
-            job.status = status
+        group_job = db.query(ImportGroupJob).filter(ImportGroupJob.id == group_job_id).first()
+        if group_job:
+            group_job.processed_files = processed
+            group_job.failed_files = failed
+            group_job.status = status
             if status == "completed":
-                job.completed_at = datetime.utcnow()
+                group_job.completed_at = datetime.utcnow()
             db.commit()
     finally:
         db.close()
@@ -580,6 +583,20 @@ def bulk_image_ingestion(source_dirs: List[str]) -> dict:
         "results": all_results,
     }
 
+    # Rebuild FTS index after bulk import
+    if successful > 0:
+        try:
+            engine = get_engine(settings.database_url)
+            SessionLocal = get_session_local(engine)
+            db_fts = SessionLocal()
+            try:
+                fts_rebuild(db_fts)
+                logger.info("FTS index rebuilt after bulk ingestion")
+            finally:
+                db_fts.close()
+        except Exception as e:
+            logger.warning(f"FTS rebuild failed (non-fatal): {e}")
+
     logger.info(f"Bulk ingestion complete: {successful} successful, {failed} failed")
     return summary
 
@@ -591,31 +608,14 @@ def analyse_upload(
 ) -> list[dict]:
     """Parse and group uploaded files for the preview UI.
 
-    Preview thumbnails are generated concurrently using .submit() for speed.
+    Preview images are served directly from staging via the /preview/ endpoint
+    (or from browser blob URLs when files were uploaded individually).
+    No server-side thumbnail generation is done here — the frontend handles previews.
     """
     logger.info(f"Analysing {len(relative_paths)} uploaded files in {staging_dir}")
 
     parser = _build_parser()
     groups = parser.group_files(relative_paths)
-
-    # Generate preview thumbnails concurrently using .submit()
-    staging = Path(staging_dir)
-    thumb_futures = []
-    for group in groups:
-        for f in group["files"]:
-            rel_path = f["relative_path"]
-            image_path = staging / rel_path
-            if image_path.exists():
-                future = generate_preview_thumbnail.submit(
-                    image_path=str(image_path),
-                    staging_dir=staging_dir,
-                    relative_path=rel_path,
-                )
-                thumb_futures.append((f, future))
-
-    # Collect all results
-    for f, future in thumb_futures:
-        f["preview_thumbnail"] = future.result()
 
     logger.info(f"Detected {len(groups)} variant group(s)")
     for g in groups:
@@ -627,6 +627,7 @@ def analyse_upload(
 @flow(name="process_import_group", log_prints=True)
 def process_import_group(
     job_id: str,
+    group_job_id: str,
     staging_dir: str,
     author: str,
     variant_group_name: str,
@@ -635,11 +636,13 @@ def process_import_group(
     """Process a confirmed variant group from web import using batched pipeline.
 
     Images are processed in batches with progress updates after each batch.
+    Progress is written to ImportGroupJob (keyed by group_job_id) so that
+    multiple groups within the same job can be tracked independently.
     """
     batch_size = settings.ingestion_batch_size
     logger.info(
         f"Processing import group '{variant_group_name}' by '{author}' "
-        f"({len(files)} files, batch_size={batch_size}) for job {job_id}"
+        f"({len(files)} files, batch_size={batch_size}) for job {job_id}, group {group_job_id}"
     )
 
     staging = Path(staging_dir)
@@ -658,7 +661,7 @@ def process_import_group(
             valid_files.append((file_info, str(image_path)))
 
     if failed > 0:
-        update_import_job_progress(job_id, processed, failed)
+        update_import_group_job_progress(group_job_id, processed, failed)
 
     # Process in batches
     for batch_start in range(0, len(valid_files), batch_size):
@@ -676,6 +679,7 @@ def process_import_group(
                 metadata={
                     "author": author,
                     "variant_group_name": variant_group_name,
+                    "name": file_info.get("name") or variant_group_name,
                     "tags": file_info.get("tags", []),
                     "gridded": file_info.get("gridded"),
                     "grid_width": file_info.get("grid_width"),
@@ -695,15 +699,30 @@ def process_import_group(
         failed += (len(batch_results) - batch_success)
 
         # Update progress after each batch
-        update_import_job_progress(job_id, processed, failed)
+        update_import_group_job_progress(group_job_id, processed, failed)
 
-    # Mark job as completed
-    update_import_job_progress(job_id, processed, failed, status="completed")
+    # Mark group job as completed
+    update_import_group_job_progress(group_job_id, processed, failed, status="completed")
 
-    logger.info(f"Import job {job_id} complete: {processed} processed, {failed} failed")
+    # Rebuild FTS index to ensure text search reflects newly added images
+    if processed > 0:
+        try:
+            engine = get_engine(settings.database_url)
+            SessionLocal = get_session_local(engine)
+            db_fts = SessionLocal()
+            try:
+                fts_rebuild(db_fts)
+                logger.info("FTS index rebuilt successfully")
+            finally:
+                db_fts.close()
+        except Exception as e:
+            logger.warning(f"FTS rebuild failed (non-fatal): {e}")
+
+    logger.info(f"Group job {group_job_id} complete: {processed} processed, {failed} failed")
 
     return {
         "job_id": job_id,
+        "group_job_id": group_job_id,
         "processed": processed,
         "failed": failed,
         "total": len(files),

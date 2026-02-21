@@ -12,9 +12,10 @@ interface ImageViewerProps {
   onNext?: () => void
   onPrevious?: () => void
   onImageChange?: (image: Image) => void
+  onEditGroup?: (groupId: number) => void
 }
 
-export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange }: ImageViewerProps) {
+export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange, onEditGroup }: ImageViewerProps) {
   const { data: variants } = useQuery({
     queryKey: ['variants', image.id],
     queryFn: () => imageApi.getVariants(image.id),
@@ -61,15 +62,27 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange 
           </Button>
         )}
 
-        {/* Close button */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="absolute right-4 top-4 text-white hover:bg-white/20 z-10"
-          onClick={onClose}
-        >
-          <X className="h-6 w-6" />
-        </Button>
+        {/* Top-right controls */}
+        <div className="absolute right-4 top-4 flex items-center gap-2 z-10">
+          {image.variant_group_id !== null && onEditGroup && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-white/80 hover:text-white hover:bg-white/20"
+              onClick={(e) => { e.stopPropagation(); onEditGroup(image.variant_group_id!) }}
+            >
+              Edit Group
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-white hover:bg-white/20"
+            onClick={onClose}
+          >
+            <X className="h-6 w-6" />
+          </Button>
+        </div>
 
         {/* Image and info — both constrained to the same max height */}
         <div

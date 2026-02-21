@@ -3,29 +3,14 @@ import type { Image, ImageGroup, Tag } from '@/types'
 
 interface UseImageGroupingOptions {
   images: Image[]
-  allImages?: Image[]
   scores?: Record<number, number>
 }
 
 export function useImageGrouping({
   images,
-  allImages,
   scores,
 }: UseImageGroupingOptions): ImageGroup[] {
   return useMemo(() => {
-    // Build a map of true group sizes from allImages
-    const trueGroupSizes = new Map<number, number>()
-    if (allImages) {
-      for (const img of allImages) {
-        if (img.variant_group_id != null) {
-          trueGroupSizes.set(
-            img.variant_group_id,
-            (trueGroupSizes.get(img.variant_group_id) ?? 0) + 1
-          )
-        }
-      }
-    }
-
     // Bucket images by variant_group_id
     const grouped = new Map<number, Image[]>()
     const ungrouped: Image[] = []
@@ -47,7 +32,7 @@ export function useImageGrouping({
 
     // Process variant groups
     for (const [groupId, groupImages] of grouped) {
-      result.push(buildGroup(groupId, groupImages, trueGroupSizes, scores))
+      result.push(buildGroup(groupId, groupImages, scores))
     }
 
     // Ungrouped images become single-item groups
@@ -73,13 +58,12 @@ export function useImageGrouping({
     }
 
     return result
-  }, [images, allImages, scores])
+  }, [images, scores])
 }
 
 function buildGroup(
   groupId: number,
   groupImages: Image[],
-  trueGroupSizes: Map<number, number>,
   scores?: Record<number, number>
 ): ImageGroup {
   // Sort by score descending if available
@@ -109,13 +93,16 @@ function buildGroup(
     }
   }
 
+  // True total comes from the backend property; fall back to matching count
+  const totalVariants = heroImage.variant_group_image_count ?? groupImages.length
+
   return {
     groupId,
-    baseName: heroImage.name,
+    baseName: heroImage.variant_group_name || heroImage.name,
     author: heroImage.author,
     heroImage,
     mosaicImages,
-    totalVariants: trueGroupSizes.get(groupId) ?? groupImages.length,
+    totalVariants,
     matchingCount: groupImages.length,
     bestScore,
     aggregatedTags,

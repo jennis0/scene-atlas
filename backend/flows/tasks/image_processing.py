@@ -36,10 +36,8 @@ def generate_thumbnails(image_path: str, storage_key_stem: str) -> dict:
         thumbnail_keys = {}
 
         for idx, (width, height) in enumerate(settings.thumbnail_sizes):
-            # Create thumbnail - use LANCZOS for large, BILINEAR for small/medium
             thumb = image.copy()
-            resampling = Image.Resampling.LANCZOS if idx == len(settings.thumbnail_sizes) - 1 else Image.Resampling.BILINEAR
-            thumb.thumbnail((width, height), resampling)
+            thumb.thumbnail((width, height), Image.Resampling.LANCZOS)
 
             # Generate storage key for this thumbnail
             thumb_key = f"{storage_key_stem}_{width}x{height}.jpg"
@@ -94,8 +92,8 @@ def generate_preview_thumbnail(
 
         image = Image.open(Path(image_path))
         image = image.convert("RGB")
-        image.thumbnail((size, size), Image.Resampling.BILINEAR)
-        image.save(thumb_path, format="JPEG", quality=70, optimize=True)
+        image.thumbnail((size, size), Image.Resampling.LANCZOS)
+        image.save(thumb_path, format="JPEG", quality=85, optimize=True)
 
         logger.debug(f"Generated preview thumbnail: {safe_name}")
         return safe_name

@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import (
+    ImportGroupJob,
     ImportJob,
     get_session_local,
 )
@@ -223,15 +224,30 @@ async def confirm_import(
     if not valid_files:
         raise HTTPException(status_code=400, detail="No valid files to process")
 
+    # Create an ImportGroupJob row to track this group's progress independently
+    group_job_id = uuid.uuid4().hex[:16]
+    group_job = ImportGroupJob(
+        id=group_job_id,
+        job_id=job_id,
+        variant_group_name=body.variant_group_name,
+        author=body.author,
+        total_files=len(valid_files),
+        processed_files=0,
+        failed_files=0,
+        status="running",
+    )
+    db.add(group_job)
+
     # Submit process_import_group flow via Prefect deployment (fire-and-forget)
     logger.info(
-        f"Submitting process_import_group deployment for job {job_id}: "
-        f"{len(valid_files)} files, group '{body.variant_group_name}'"
+        f"Submitting process_import_group deployment for job {job_id}, "
+        f"group_job {group_job_id}: {len(valid_files)} files, group '{body.variant_group_name}'"
     )
     flow_run = await run_deployment(
         name=f"{settings.process_flow}/{settings.process_deployment}",
         parameters={
             "job_id": job_id,
+            "group_job_id": group_job_id,
             "staging_dir": str(staging_dir),
             "author": body.author,
             "variant_group_name": body.variant_group_name,
@@ -240,14 +256,8 @@ async def confirm_import(
         timeout=0,  # Return immediately, don't wait for completion
     )
 
-    # Update job with flow run tracking info
+    group_job.flow_run_id = str(flow_run.id)
     job.status = "running"
-    job.author = body.author
-    job.variant_group_name = body.variant_group_name
-    job.total_files = len(valid_files)
-    job.processed_files = 0
-    job.failed_files = 0
-    job.flow_run_id = str(flow_run.id)
     db.commit()
 
     return ImportJobResponse(
@@ -279,19 +289,39 @@ async def get_import_status(
     if not job:
         raise HTTPException(status_code=404, detail="Import job not found")
 
-    groups = []
-    if job.variant_group_name:
-        groups.append(ImportGroupStatus(
-            variant_group_name=job.variant_group_name,
-            total_files=job.total_files,
-            processed_files=job.processed_files,
-            failed_files=job.failed_files,
-            status=job.status,
-        ))
+    group_jobs = (
+        db.query(ImportGroupJob)
+        .filter(ImportGroupJob.job_id == job_id)
+        .order_by(ImportGroupJob.created_at)
+        .all()
+    )
+
+    groups = [
+        ImportGroupStatus(
+            variant_group_name=gj.variant_group_name,
+            total_files=gj.total_files,
+            processed_files=gj.processed_files,
+            failed_files=gj.failed_files,
+            status=gj.status,
+        )
+        for gj in group_jobs
+    ]
+
+    # Derive overall job status from group statuses
+    if group_jobs:
+        terminal = {"completed", "failed"}
+        if all(gj.status in terminal for gj in group_jobs):
+            overall_status = "completed"
+        elif any(gj.status == "running" for gj in group_jobs):
+            overall_status = "running"
+        else:
+            overall_status = job.status
+    else:
+        overall_status = job.status
 
     return ImportJobResponse(
         job_id=job.id,
-        status=job.status,
+        status=overall_status,
         groups=groups,
         created_at=job.created_at,
         completed_at=job.completed_at,
