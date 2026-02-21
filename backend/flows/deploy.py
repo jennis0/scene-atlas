@@ -17,7 +17,7 @@ from pathlib import Path
 os.environ.setdefault("PREFECT_API_URL", "http://localhost:4200/api")
 
 from backend.app.config import settings
-from backend.flows.ingestion import analyse_upload, process_import_group
+from backend.flows.ingestion import analyse_upload, process_import_group, process_import_job
 
 # Project root for from_source entrypoints
 PROJECT_ROOT = str(Path(__file__).parent.parent.parent)
@@ -48,6 +48,16 @@ def main():
         work_pool_name=WORK_POOL,
     )
     print(f"  Registered: {settings.process_deployment}/process-import-group")
+
+    # process_import_job: handles all groups in one flow run (CLIP loaded once)
+    process_import_job.from_source(
+        source=PROJECT_ROOT,
+        entrypoint="backend/flows/ingestion.py:process_import_job",
+    ).deploy(
+        name=settings.process_job_deployment,
+        work_pool_name=WORK_POOL,
+    )
+    print(f"  Registered: {settings.process_job_deployment}/process-import-job")
 
     print()
     print("Deployments registered successfully.")

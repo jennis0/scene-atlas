@@ -28,29 +28,31 @@ def generate_thumbnails(image_path: str, storage_key_stem: str) -> dict:
     """
     try:
         image_path = Path(image_path)
-        image = Image.open(image_path)
-        image = image.convert("RGB")  # Ensure RGB mode
-        dimensions = image.size  # (width, height) - capture before thumbnailing
-
         thumbnail_store = get_thumbnail_store()
         thumbnail_keys = {}
 
-        for idx, (width, height) in enumerate(settings.thumbnail_sizes):
-            thumb = image.copy()
-            thumb.thumbnail((width, height), Image.Resampling.LANCZOS)
+        with Image.open(image_path) as orig:
+            with orig.convert("RGB") as image:
+                dimensions = image.size  # (width, height) - capture before thumbnailing
 
-            # Generate storage key for this thumbnail
-            thumb_key = f"{storage_key_stem}_{width}x{height}.jpg"
+                for idx, (width, height) in enumerate(settings.thumbnail_sizes):
+                    # Generate storage key for this thumbnail
+                    thumb_key = f"{storage_key_stem}_{width}x{height}.jpg"
 
-            # Save to a temp file, then put into store
-            thumb_path = thumbnail_store.get_path(thumb_key)
-            thumb_path.parent.mkdir(parents=True, exist_ok=True)
-            thumb.save(thumb_path, quality=85, optimize=True)
+                    # Save to a temp file, then put into store
+                    thumb_path = thumbnail_store.get_path(thumb_key)
+                    thumb_path.parent.mkdir(parents=True, exist_ok=True)
 
-            size_name = ["small", "medium", "large"][idx] if idx < 3 else f"size_{idx}"
-            thumbnail_keys[size_name] = thumb_key
+                    # Copy, resize, save, then immediately close to free memory
+                    thumb = image.copy()
+                    thumb.thumbnail((width, height), Image.Resampling.LANCZOS)
+                    thumb.save(thumb_path, quality=85, optimize=True)
+                    thumb.close()
 
-            logger.debug(f"Generated {size_name} thumbnail: {thumb_key}")
+                    size_name = ["small", "medium", "large"][idx] if idx < 3 else f"size_{idx}"
+                    thumbnail_keys[size_name] = thumb_key
+
+                    logger.debug(f"Generated {size_name} thumbnail: {thumb_key}")
 
         return {"keys": thumbnail_keys, "dimensions": dimensions}
 

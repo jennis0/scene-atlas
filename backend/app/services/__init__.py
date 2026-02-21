@@ -1,7 +1,6 @@
 """Services package."""
 
 from .battlemap_parser import BattlemapParser
-from .clip_service import CLIPService, get_clip_service
 from .image_store import ImageStore
 from .qdrant_service import QdrantService, qdrant_service
 
@@ -28,9 +27,19 @@ def get_thumbnail_store() -> ImageStore:
     return _thumbnail_store
 
 
+def get_clip_service():
+    """Get or create the CLIP service singleton.
+
+    Imported lazily so that loading this package (which happens on every
+    Prefect flow-run startup) does not trigger the transformers library's
+    module-directory scan, which causes an OSError on Windows.
+    """
+    from .clip_service import get_clip_service as _get
+    return _get()
+
+
 __all__ = [
     "BattlemapParser",
-    "CLIPService",
     "get_clip_service",
     "ImageStore",
     "get_image_store",

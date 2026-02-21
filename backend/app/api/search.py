@@ -170,7 +170,7 @@ async def search_images(
 
     # --- Hybrid search: run FTS5 and semantic in parallel ---
     TEXT_BOOST = 0.15
-    SEMANTIC_THRESHOLD = 0.20
+    SEMANTIC_THRESHOLD = 0.15
     SEMANTIC_ONLY_THRESHOLD = 0.15
 
     # FTS5 text search (skip if semantic_only)

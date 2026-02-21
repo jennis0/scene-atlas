@@ -219,6 +219,38 @@ class TestSearchEndpoints:
         data = response.json()
         assert isinstance(data["results"], list)
 
+    def test_search_semantic_rerank(self, client):
+        """Combined search should return images ordered by semantic score."""
+        # pick a query that actually returns results by trying a few common terms
+        sem_ids = []
+        query_str = None
+        for q in ["abandoned mine", "dark forest", "tavern", "castle"]:
+            encoded = q.replace(" ", "+")
+            sem_resp = client.get(f"/api/v1/search/semantic?query={encoded}&limit=10")
+            if sem_resp.status_code != 200:
+                continue
+            sem_data = sem_resp.json()
+            sem_ids = [r["image_id"] for r in sem_data.get("results", [])]
+            if sem_ids:
+                query_str = encoded
+                break
+
+        if not sem_ids:
+            pytest.skip("No semantic results available for rerank test")
+
+        combined_resp = client.get(f"/api/v1/search/?semantic={query_str}&limit=10")
+        assert combined_resp.status_code == 200
+        combined = combined_resp.json()
+        returned_ids = [img["id"] for img in combined.get("images", [])]
+
+        # ordering of returned IDs should match the semantic-only list prefix
+        assert returned_ids == sem_ids[: len(returned_ids)]
+
+        # scores map should be sorted descending
+        scores = combined.get("scores") or {}
+        vals = list(scores.values())
+        assert vals == sorted(vals, reverse=True)
+
 
 class TestIntegration:
     """Integration tests."""

@@ -534,8 +534,10 @@ def bulk_image_ingestion(source_dirs: List[str]) -> dict:
     batch_size = settings.ingestion_batch_size
     logger.info(f"Starting bulk ingestion from {len(source_dirs)} directories (batch_size={batch_size})")
 
-    all_results = []
+    successful = 0
+    failed = 0
     total_images = 0
+    concurrency = settings.max_concurrent_prepare
 
     # Build parser once for all images (avoids per-image DB query)
     parser = _build_parser()
@@ -557,30 +559,32 @@ def bulk_image_ingestion(source_dirs: List[str]) -> dict:
                 f"({len(batch)} images, {batch_start + len(batch)}/{len(image_paths)})"
             )
 
-            # Step 1: Prepare all images concurrently
-            prepare_futures = [
-                prepare_single_image.submit(
-                    image_path=img_path,
-                    source_dir=dir_path,
-                    parser=parser,
-                )
-                for img_path in batch
-            ]
-            prepared_results = [f.result() for f in prepare_futures]
+            # Step 1: Prepare images with bounded concurrency to control memory usage.
+            # Submit max_concurrent_prepare tasks at a time and wait for each group
+            # before submitting the next — prevents all batch images loading into RAM at once.
+            prepared_results = []
+            for sub_start in range(0, len(batch), concurrency):
+                sub_batch = batch[sub_start:sub_start + concurrency]
+                futures = [
+                    prepare_single_image.submit(
+                        image_path=img_path,
+                        source_dir=dir_path,
+                        parser=parser,
+                    )
+                    for img_path in sub_batch
+                ]
+                prepared_results.extend(f.result() for f in futures)
 
             # Step 2-4: Batch CLIP → batch DB save → batch Qdrant save
             batch_results, _ = _process_batch(prepared_results)
-            all_results.extend(batch_results)
-
-    successful = sum(1 for r in all_results if r["status"] == "success")
-    failed = sum(1 for r in all_results if r["status"] != "success")
+            successful += sum(1 for r in batch_results if r["status"] == "success")
+            failed += sum(1 for r in batch_results if r["status"] != "success")
 
     summary = {
         "total_images": total_images,
-        "processed": len(all_results),
+        "processed": successful + failed,
         "successful": successful,
         "failed": failed,
-        "results": all_results,
     }
 
     # Rebuild FTS index after bulk import
@@ -624,36 +628,32 @@ def analyse_upload(
     return groups
 
 
-@flow(name="process_import_group", log_prints=True)
-def process_import_group(
-    job_id: str,
+# ---------------------------------------------------------------------------
+# Shared group-processing helper (used by both single-group and job flows)
+# ---------------------------------------------------------------------------
+
+def _run_group(
     group_job_id: str,
     staging_dir: str,
     author: str,
     variant_group_name: str,
     files: list[dict],
-) -> dict:
-    """Process a confirmed variant group from web import using batched pipeline.
+) -> tuple[int, int]:
+    """Process one variant group end-to-end and return (processed, failed) counts.
 
-    Images are processed in batches with progress updates after each batch.
-    Progress is written to ImportGroupJob (keyed by group_job_id) so that
-    multiple groups within the same job can be tracked independently.
+    Updates ImportGroupJob progress after every batch and marks it completed
+    when done.  Intended to be called from a Prefect flow context.
     """
     batch_size = settings.ingestion_batch_size
-    logger.info(
-        f"Processing import group '{variant_group_name}' by '{author}' "
-        f"({len(files)} files, batch_size={batch_size}) for job {job_id}, group {group_job_id}"
-    )
-
+    concurrency = settings.max_concurrent_prepare
     staging = Path(staging_dir)
     processed = 0
     failed = 0
 
-    # Filter to existing files upfront
+    # Filter to files that actually exist in staging
     valid_files = []
     for file_info in files:
-        rel_path = file_info["relative_path"]
-        image_path = staging / rel_path
+        image_path = staging / file_info["relative_path"]
         if not image_path.exists():
             logger.warning(f"File not found in staging: {image_path}")
             failed += 1
@@ -663,67 +663,139 @@ def process_import_group(
     if failed > 0:
         update_import_group_job_progress(group_job_id, processed, failed)
 
-    # Process in batches
     for batch_start in range(0, len(valid_files), batch_size):
         batch = valid_files[batch_start:batch_start + batch_size]
         logger.info(
-            f"Processing batch {batch_start // batch_size + 1} "
+            f"[{variant_group_name}] batch {batch_start // batch_size + 1} "
             f"({len(batch)} images, {batch_start + len(batch)}/{len(valid_files)})"
         )
 
-        # Step 1: Prepare all images in this batch concurrently
-        prepare_futures = []
-        for file_info, image_path in batch:
-            future = prepare_single_image.submit(
-                image_path=image_path,
-                metadata={
-                    "author": author,
-                    "variant_group_name": variant_group_name,
-                    "name": file_info.get("name") or variant_group_name,
-                    "tags": file_info.get("tags", []),
-                    "gridded": file_info.get("gridded"),
-                    "grid_width": file_info.get("grid_width"),
-                    "grid_height": file_info.get("grid_height"),
-                    "sub_variant": file_info.get("sub_variant"),
-                },
-            )
-            prepare_futures.append(future)
+        # Prepare images with bounded concurrency to control peak memory use.
+        prepared_results = []
+        for sub_start in range(0, len(batch), concurrency):
+            sub_batch = batch[sub_start:sub_start + concurrency]
+            futures = [
+                prepare_single_image.submit(
+                    image_path=image_path,
+                    metadata={
+                        "author": author,
+                        "variant_group_name": variant_group_name,
+                        "name": file_info.get("name") or variant_group_name,
+                        "tags": file_info.get("tags", []),
+                        "gridded": file_info.get("gridded"),
+                        "grid_width": file_info.get("grid_width"),
+                        "grid_height": file_info.get("grid_height"),
+                        "sub_variant": file_info.get("sub_variant"),
+                    },
+                )
+                for file_info, image_path in sub_batch
+            ]
+            prepared_results.extend(f.result() for f in futures)
 
-        prepared_results = [f.result() for f in prepare_futures]
-
-        # Step 2-4: Batch CLIP → batch DB → batch Qdrant
+        # Batch CLIP → batch DB → batch Qdrant
         batch_results, _ = _process_batch(prepared_results)
-
         batch_success = sum(1 for r in batch_results if r["status"] == "success")
         processed += batch_success
-        failed += (len(batch_results) - batch_success)
-
-        # Update progress after each batch
+        failed += len(batch_results) - batch_success
         update_import_group_job_progress(group_job_id, processed, failed)
 
-    # Mark group job as completed
     update_import_group_job_progress(group_job_id, processed, failed, status="completed")
+    logger.info(f"Group {group_job_id} ({variant_group_name}): {processed} ok, {failed} failed")
+    return processed, failed
 
-    # Rebuild FTS index to ensure text search reflects newly added images
-    if processed > 0:
+
+def _rebuild_fts() -> None:
+    """Rebuild the FTS index (non-fatal on error)."""
+    try:
+        engine = get_engine(settings.database_url)
+        SessionLocal = get_session_local(engine)
+        db = SessionLocal()
         try:
-            engine = get_engine(settings.database_url)
-            SessionLocal = get_session_local(engine)
-            db_fts = SessionLocal()
-            try:
-                fts_rebuild(db_fts)
-                logger.info("FTS index rebuilt successfully")
-            finally:
-                db_fts.close()
-        except Exception as e:
-            logger.warning(f"FTS rebuild failed (non-fatal): {e}")
+            fts_rebuild(db)
+            logger.info("FTS index rebuilt successfully")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning(f"FTS rebuild failed (non-fatal): {e}")
 
-    logger.info(f"Group job {group_job_id} complete: {processed} processed, {failed} failed")
 
+@flow(name="process_import_group", log_prints=True)
+def process_import_group(
+    job_id: str,
+    group_job_id: str,
+    staging_dir: str,
+    author: str,
+    variant_group_name: str,
+    files: list[dict],
+) -> dict:
+    """Process a single confirmed variant group (single-group import path).
+
+    For multi-group imports prefer process_import_job, which handles all groups
+    in one Python process so the CLIP model is loaded only once.
+    """
+    logger.info(
+        f"Processing import group '{variant_group_name}' by '{author}' "
+        f"({len(files)} files) for job {job_id}, group {group_job_id}"
+    )
+    processed, failed = _run_group(
+        group_job_id, staging_dir, author, variant_group_name, files
+    )
+    if processed > 0:
+        _rebuild_fts()
     return {
         "job_id": job_id,
         "group_job_id": group_job_id,
         "processed": processed,
         "failed": failed,
         "total": len(files),
+    }
+
+
+@flow(name="process_import_job", log_prints=True)
+def process_import_job(
+    job_id: str,
+    staging_dir: str,
+    groups: list[dict],
+) -> dict:
+    """Process all variant groups for an import job in a single flow run.
+
+    Running all groups here — rather than one flow per group — means the CLIP
+    model (~600 MB) is loaded exactly once for the whole job instead of once
+    per group in separate subprocesses.  Groups are processed sequentially so
+    peak memory stays bounded regardless of how many groups are in the job.
+
+    Each group dict must contain:
+        group_job_id, author, variant_group_name, files (list[dict])
+    """
+    logger.info(
+        f"Starting import job {job_id}: {len(groups)} group(s) in {staging_dir}"
+    )
+    total_processed = 0
+    total_failed = 0
+
+    for group in groups:
+        group_job_id = group["group_job_id"]
+        author = group["author"]
+        variant_group_name = group["variant_group_name"]
+        files = group["files"]
+        logger.info(
+            f"Processing group '{variant_group_name}' by '{author}' ({len(files)} files)"
+        )
+        processed, failed = _run_group(
+            group_job_id, staging_dir, author, variant_group_name, files
+        )
+        total_processed += processed
+        total_failed += failed
+
+    if total_processed > 0:
+        _rebuild_fts()
+
+    logger.info(
+        f"Import job {job_id} complete: {total_processed} processed, {total_failed} failed"
+    )
+    return {
+        "job_id": job_id,
+        "processed": total_processed,
+        "failed": total_failed,
+        "total_groups": len(groups),
     }

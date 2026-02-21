@@ -14,7 +14,8 @@ import zipfile
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Request, UploadFile
+from pydantic import BaseModel
 from fastapi.responses import FileResponse
 from prefect.deployments import run_deployment
 from sqlalchemy.orm import Session
@@ -34,6 +35,10 @@ from ..models.schemas import (
     ImportUploadResponse,
     ImportVariantGroup,
 )
+
+class ImportConfirmAllRequest(BaseModel):
+    """Confirm all variant groups for processing in one flow run."""
+    groups: List[ImportConfirmRequest]
 
 logger = logging.getLogger(__name__)
 
@@ -270,6 +275,100 @@ async def confirm_import(
             failed_files=0,
             status="running",
         )],
+        created_at=job.created_at,
+        completed_at=None,
+    )
+
+
+@router.post("/{job_id}/confirm-all")
+async def confirm_all_groups(
+    job_id: str,
+    body: ImportConfirmAllRequest,
+    db: Session = Depends(get_db),
+):
+    """Confirm all variant groups for processing in a single flow run.
+
+    Unlike the per-group /confirm endpoint (which spawns one Prefect flow per
+    group), this endpoint submits a single process_import_job flow that handles
+    all groups sequentially.  The CLIP model is therefore loaded once for the
+    entire job instead of once per group subprocess, dramatically reducing peak
+    memory usage for large multi-group imports.
+    """
+    job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Import job not found")
+
+    staging_dir = settings.staging_dir / job_id
+    if not staging_dir.exists():
+        raise HTTPException(status_code=404, detail="Staging directory not found")
+
+    # Build ImportGroupJob rows and the groups payload for the flow.
+    groups_payload: list[dict] = []
+    group_statuses: list[ImportGroupStatus] = []
+    for group_req in body.groups:
+        valid_files = [
+            f.model_dump()
+            for f in group_req.files
+            if (staging_dir / f.relative_path).exists()
+        ]
+        if not valid_files:
+            logger.warning(
+                f"No valid files for group '{group_req.variant_group_name}', skipping"
+            )
+            continue
+
+        group_job_id = uuid.uuid4().hex[:16]
+        group_job = ImportGroupJob(
+            id=group_job_id,
+            job_id=job_id,
+            variant_group_name=group_req.variant_group_name,
+            author=group_req.author,
+            total_files=len(valid_files),
+            processed_files=0,
+            failed_files=0,
+            status="running",
+        )
+        db.add(group_job)
+
+        groups_payload.append({
+            "group_job_id": group_job_id,
+            "author": group_req.author,
+            "variant_group_name": group_req.variant_group_name,
+            "files": valid_files,
+        })
+        group_statuses.append(ImportGroupStatus(
+            variant_group_name=group_req.variant_group_name,
+            total_files=len(valid_files),
+            processed_files=0,
+            failed_files=0,
+            status="running",
+        ))
+
+    if not groups_payload:
+        raise HTTPException(status_code=400, detail="No valid files found in any group")
+
+    flow_run = await run_deployment(
+        name=f"{settings.process_job_flow}/{settings.process_job_deployment}",
+        parameters={
+            "job_id": job_id,
+            "staging_dir": str(staging_dir),
+            "groups": groups_payload,
+        },
+        timeout=0,  # fire-and-forget
+    )
+
+    job.status = "running"
+    db.commit()
+
+    logger.info(
+        f"Submitted process_import_job for job {job_id}: "
+        f"{len(groups_payload)} groups, flow_run={flow_run.id}"
+    )
+
+    return ImportJobResponse(
+        job_id=job.id,
+        status="running",
+        groups=group_statuses,
         created_at=job.created_at,
         completed_at=None,
     )

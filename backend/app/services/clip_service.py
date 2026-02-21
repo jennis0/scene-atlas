@@ -6,7 +6,6 @@ from typing import List, Union
 
 import torch
 from PIL import Image
-from transformers import CLIPModel, CLIPProcessor
 
 from ..config import settings
 
@@ -17,7 +16,17 @@ class CLIPService:
     """Service for generating CLIP embeddings."""
 
     def __init__(self):
-        """Initialize CLIP model and processor."""
+        """Initialize CLIP model and processor.
+
+        The transformers import is deferred to here rather than module level.
+        On Windows, newer transformers versions scan their own directory tree at
+        import time and hit an OSError (EINVAL) on certain files.  Prefect loads
+        the flow module on every flow-run startup, so a top-level transformers
+        import would crash every flow before any work begins.  Keeping it lazy
+        means only processes that actually instantiate CLIPService pay the cost.
+        """
+        from transformers import CLIPModel, CLIPProcessor
+
         logger.info(f"Loading CLIP model: {settings.clip_model_name}")
         self.device = settings.clip_device
 
@@ -49,28 +58,22 @@ class CLIPService:
             Embedding vector as list of floats
         """
         try:
-            # Load and preprocess image
-            image = Image.open(image_path).convert("RGB")
+            # Load and preprocess image — use context manager so PIL frees pixel data
+            with Image.open(image_path) as img:
+                image = img.convert("RGB")
             inputs = self.processor(images=image, return_tensors="pt")
+            del image  # free after processor has extracted tensors
 
             # Move tensors to device individually (Windows compatibility)
             inputs = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs.items()}
 
             # Generate embedding
             with torch.no_grad():
-                # Use the vision model encoder
                 vision_outputs = self.model.vision_model(**inputs)
-                # Get the pooled output
                 pooled_output = vision_outputs.pooler_output
-
-                # Project to common embedding space using visual projection
                 image_features = self.model.visual_projection(pooled_output)
+                image_features = torch.nn.functional.normalize(image_features, p=2, dim=-1)
 
-                # Normalize the embedding
-                import torch.nn.functional as F
-                image_features = F.normalize(image_features, p=2, dim=-1)
-
-            # Convert to list
             embedding = image_features.cpu().numpy().flatten().tolist()
             logger.debug(f"Generated embedding for {image_path}, size: {len(embedding)}")
             return embedding
@@ -89,27 +92,15 @@ class CLIPService:
             Embedding vector as list of floats
         """
         try:
-            # Preprocess text
             inputs = self.processor(text=text, return_tensors="pt", padding=True)
-
-            # Move tensors to device individually (Windows compatibility)
             inputs = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs.items()}
 
-            # Generate embedding
             with torch.no_grad():
-                # Use the text model encoder
                 text_outputs = self.model.text_model(**inputs)
-                # Get the pooled output
                 pooled_output = text_outputs.pooler_output
-
-                # Project to common embedding space using text projection
                 text_features = self.model.text_projection(pooled_output)
+                text_features = torch.nn.functional.normalize(text_features, p=2, dim=-1)
 
-                # Normalize the embedding
-                import torch.nn.functional as F
-                text_features = F.normalize(text_features, p=2, dim=-1)
-
-            # Convert to list
             embedding = text_features.cpu().numpy().flatten().tolist()
             logger.debug(f"Generated text embedding for '{text}', size: {len(embedding)}")
             return embedding
@@ -128,28 +119,22 @@ class CLIPService:
             List of embedding vectors
         """
         try:
-            # Load and preprocess images
-            images = [Image.open(path).convert("RGB") for path in image_paths]
+            # Load and preprocess images — close originals immediately after convert
+            images = []
+            for path in image_paths:
+                with Image.open(path) as img:
+                    images.append(img.convert("RGB"))
             inputs = self.processor(images=images, return_tensors="pt", padding=True)
+            del images  # free PIL objects after processor has extracted tensors
 
-            # Move tensors to device individually (Windows compatibility)
             inputs = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs.items()}
 
-            # Generate embeddings
             with torch.no_grad():
-                # Use the vision model encoder
                 vision_outputs = self.model.vision_model(**inputs)
-                # Get the pooled outputs
                 pooled_outputs = vision_outputs.pooler_output
-
-                # Project to common embedding space
                 image_features = self.model.visual_projection(pooled_outputs)
+                image_features = torch.nn.functional.normalize(image_features, p=2, dim=-1)
 
-                # Normalize embeddings
-                import torch.nn.functional as F
-                image_features = F.normalize(image_features, p=2, dim=-1)
-
-            # Convert to list of lists
             embeddings = image_features.cpu().numpy().tolist()
             logger.debug(f"Generated batch embeddings for {len(image_paths)} images")
             return embeddings

@@ -46,6 +46,18 @@ def extract_dominant_colors(image_path: str, num_colors: int = None) -> List[dic
         if image is None:
             raise ValueError(f"Could not read image: {image_path}")
 
+        # Downsample to max 512px before processing — color extraction doesn't
+        # need full resolution, and this reduces a 4000x4000 image from ~50MB to ~0.8MB.
+        h, w = image.shape[:2]
+        max_dim = 512
+        if max(h, w) > max_dim:
+            scale = max_dim / max(h, w)
+            image = cv2.resize(
+                image,
+                (max(1, int(w * scale)), max(1, int(h * scale))),
+                interpolation=cv2.INTER_AREA,
+            )
+
         # Convert BGR to RGB
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 

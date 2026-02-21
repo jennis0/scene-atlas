@@ -16,6 +16,7 @@ import type { EditableFileState, TagData } from '@/types'
 import { TagPicker } from './TagPicker'
 import type { ParsedTagVocab } from './types'
 import type { FileFilter, ActiveFilter } from './fileFilter'
+import { FilterMenuContent, FilterChipList, type FilterOptionGroup } from '@/components/FilterMenuContent'
 
 interface FileToolbarProps {
   files: EditableFileState[]
@@ -87,39 +88,21 @@ export function FileToolbar({
     setSubOpen(false)
   }
 
-  // ── Filter helpers ──────────────────────────────────────────────────
+  // ── Build filter groups ──────────────────────────────────────────────────
 
-  const addFilter = (af: ActiveFilter) => {
-    if (filter.active.some((f) => f.type === af.type && f.value === af.value && f.exclude === af.exclude)) return
-    onFilterChange({ ...filter, active: [...filter.active, af] })
-    setFilterOpen(false)
-  }
-
-  const removeFilter = (i: number) => {
-    onFilterChange({ ...filter, active: filter.active.filter((_, j) => j !== i) })
-  }
-
-  const toggleFilterMode = (i: number) => {
-    onFilterChange({
-      ...filter,
-      active: filter.active.map((f, j) => (j === i ? { ...f, exclude: !f.exclude } : f)),
-    })
-  }
-
-  // Aggregate available filter options from all non-excluded files
   const nonExcludedFiles = files.filter((f) => !f.excluded)
 
   const availableSubVariants = [...new Set(
     nonExcludedFiles.filter((f) => f.sub_variant).map((f) => f.sub_variant as string)
   )].sort()
 
-  const gridStates: { value: string; label: string }[] = [
-    { value: 'gridded', label: 'Gridded' },
-    { value: 'gridless', label: 'Gridless' },
-    { value: 'unknown', label: 'Unknown' },
+  const gridStates: FilterOptionGroup['options'] = [
+    { filterValue: 'gridded',  label: 'Gridded',  filterLabel: 'grid: Gridded' },
+    { filterValue: 'gridless', label: 'Gridless', filterLabel: 'grid: Gridless' },
+    { filterValue: 'unknown',  label: 'Unknown',  filterLabel: 'grid: Unknown' },
   ]
 
-  // Aggregate tags: count frequency per "category:value"
+  // Aggregate tag frequencies across all non-excluded files (no top-5 cap — use search to navigate)
   const tagFreq = new Map<string, { category: string; value: string; count: number }>()
   for (const f of nonExcludedFiles) {
     for (const t of f.tags) {
@@ -129,7 +112,8 @@ export function FileToolbar({
       else tagFreq.set(key, { category: t.category, value: t.value, count: 1 })
     }
   }
-  // Group by category, sort by frequency, keep top 5 per category
+
+  // Group by category, sort by frequency
   const tagsByCategory = new Map<string, Array<{ key: string; value: string; count: number }>>()
   for (const [key, entry] of tagFreq) {
     const arr = tagsByCategory.get(entry.category) ?? []
@@ -138,8 +122,49 @@ export function FileToolbar({
   }
   for (const arr of tagsByCategory.values()) {
     arr.sort((a, b) => b.count - a.count)
-    arr.splice(5)
   }
+
+  const filterGroups: FilterOptionGroup[] = []
+
+  if (availableSubVariants.length > 0) {
+    filterGroups.push({
+      id: 'subVariant',
+      label: 'Sub-variant',
+      type: 'subVariant',
+      options: availableSubVariants.map((sv) => ({
+        filterValue: sv,
+        label: sv,
+        filterLabel: `sub: ${sv}`,
+      })),
+    })
+  }
+
+  filterGroups.push({
+    id: 'gridded',
+    label: 'Grid state',
+    type: 'gridded',
+    options: gridStates,
+  })
+
+  for (const [category, tags] of tagsByCategory.entries()) {
+    filterGroups.push({
+      id: category,
+      label: category,
+      type: 'tag',
+      options: tags.map((t) => ({
+        filterValue: `${category}:${t.value}`,
+        label: t.value,
+        filterLabel: `${category}: ${t.value}`,
+        count: t.count,
+      })),
+    })
+  }
+
+  const handleFiltersChange = (newFilters: ActiveFilter[]) => {
+    onFilterChange({ ...filter, active: newFilters })
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex flex-col py-2 border-b border-slate-100 flex-shrink-0">
@@ -164,7 +189,7 @@ export function FileToolbar({
           </span>
         </div>
 
-        {/* Filter input + funnel button */}
+        {/* Text search + filter popover */}
         <div className="relative flex-1 min-w-0 flex items-center gap-1">
           <div className="relative flex-1 min-w-0">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-300 pointer-events-none" />
@@ -199,63 +224,12 @@ export function FileToolbar({
                 )}
               </Button>
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-64 p-0 max-h-80 overflow-y-auto">
-              {/* Sub-variants */}
-              {availableSubVariants.length > 0 && (
-                <div>
-                  <div className="px-3 pt-2.5 pb-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                    Sub-variant
-                  </div>
-                  {availableSubVariants.map((sv) => (
-                    <FilterOptionRow
-                      key={`sv-${sv}`}
-                      label={sv}
-                      onInclude={() => addFilter({ type: 'subVariant', value: sv, label: `sub: ${sv}`, exclude: false })}
-                      onExclude={() => addFilter({ type: 'subVariant', value: sv, label: `sub: ${sv}`, exclude: true })}
-                    />
-                  ))}
-                </div>
-              )}
-
-              {/* Grid state */}
-              <div>
-                <div className="px-3 pt-2.5 pb-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                  Grid state
-                </div>
-                {gridStates.map((gs) => (
-                  <FilterOptionRow
-                    key={`grid-${gs.value}`}
-                    label={gs.label}
-                    onInclude={() => addFilter({ type: 'gridded', value: gs.value, label: `grid: ${gs.label}`, exclude: false })}
-                    onExclude={() => addFilter({ type: 'gridded', value: gs.value, label: `grid: ${gs.label}`, exclude: true })}
-                  />
-                ))}
-              </div>
-
-              {/* Tags grouped by category */}
-              {tagsByCategory.size > 0 && (
-                <div>
-                  {[...tagsByCategory.entries()].map(([category, tags]) => (
-                    <div key={category}>
-                      <div className="px-3 pt-2.5 pb-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider capitalize">
-                        {category}
-                      </div>
-                      {tags.map((t) => (
-                        <FilterOptionRow
-                          key={`tag-${category}-${t.value}`}
-                          label={t.value}
-                          onInclude={() => addFilter({ type: 'tag', value: `${category}:${t.value}`, label: `${category}: ${t.value}`, exclude: false })}
-                          onExclude={() => addFilter({ type: 'tag', value: `${category}:${t.value}`, label: `${category}: ${t.value}`, exclude: true })}
-                        />
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {availableSubVariants.length === 0 && tagsByCategory.size === 0 && (
-                <p className="px-3 py-4 text-xs text-slate-400 text-center">No filter options available</p>
-              )}
+            <PopoverContent align="end" className="w-80 p-0 h-72 flex flex-col">
+              <FilterMenuContent
+                groups={filterGroups}
+                activeFilters={filter.active}
+                onFiltersChange={handleFiltersChange}
+              />
             </PopoverContent>
           </Popover>
         </div>
@@ -286,7 +260,7 @@ export function FileToolbar({
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {/* Bulk sub-variant — Popover to avoid Radix typeahead stealing focus from input */}
+            {/* Bulk sub-variant */}
             <Popover open={subOpen} onOpenChange={setSubOpen}>
               <PopoverTrigger asChild>
                 <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-slate-500 gap-1">
@@ -366,74 +340,7 @@ export function FileToolbar({
       </div>
 
       {/* Active filter chips */}
-      {filter.active.length > 0 && (
-        <div className="flex flex-wrap gap-1 pt-1.5">
-          {filter.active.map((af, i) => (
-            <span
-              key={i}
-              className={`inline-flex items-center gap-1 text-xs rounded-full border px-2 py-0.5
-                ${af.exclude
-                  ? 'border-red-200 bg-red-50 text-red-600'
-                  : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                }`}
-            >
-              <span className="capitalize">{af.label}</span>
-              <button
-                onClick={() => toggleFilterMode(i)}
-                className="opacity-60 hover:opacity-100 text-[10px] font-medium transition-opacity"
-                title="Toggle include/exclude"
-              >
-                {af.exclude ? 'hide' : 'only'}
-              </button>
-              <button
-                onClick={() => removeFilter(i)}
-                className="hover:opacity-80 transition-opacity ml-0.5"
-                title="Remove filter"
-              >
-                <X className="h-2.5 w-2.5" />
-              </button>
-            </span>
-          ))}
-          {filter.active.length > 1 && (
-            <button
-              onClick={() => onFilterChange({ ...filter, active: [] })}
-              className="text-xs text-slate-400 hover:text-slate-600 px-1 transition-colors"
-            >
-              Clear all
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function FilterOptionRow({
-  label,
-  onInclude,
-  onExclude,
-}: {
-  label: string
-  onInclude: () => void
-  onExclude: () => void
-}) {
-  return (
-    <div className="flex items-center justify-between px-3 py-1 hover:bg-slate-50">
-      <span className="text-sm text-slate-700 capitalize truncate flex-1 mr-2">{label}</span>
-      <div className="flex gap-1 flex-shrink-0">
-        <button
-          onClick={onInclude}
-          className="text-[11px] px-1.5 py-0.5 rounded text-emerald-600 hover:bg-emerald-50 font-medium transition-colors"
-        >
-          Only
-        </button>
-        <button
-          onClick={onExclude}
-          className="text-[11px] px-1.5 py-0.5 rounded text-red-500 hover:bg-red-50 font-medium transition-colors"
-        >
-          Hide
-        </button>
-      </div>
+      <FilterChipList filters={filter.active} onFiltersChange={handleFiltersChange} />
     </div>
   )
 }

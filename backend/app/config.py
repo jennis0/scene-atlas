@@ -72,6 +72,9 @@ class Settings(BaseSettings):
     analyse_flow: str = "analyse_upload"
     process_deployment: str = "import-deployment"
     process_flow: str = "process_import_group"
+    # Single-flow path for multi-group imports — loads CLIP once for all groups
+    process_job_deployment: str = "import-job-deployment"
+    process_job_flow: str = "process_import_job"
 
     # Import limits
     staging_dir: Path = data_dir / "staging"

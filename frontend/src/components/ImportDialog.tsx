@@ -434,23 +434,28 @@ export function ImportDialog({ open, onOpenChange, onActiveChange }: ImportDialo
   const handleConfirmAll = async () => {
     if (!jobId) return
     setState('processing')
-    await Promise.all(
-      groups.map(async (group, i) => {
-        if (group.status !== 'pending' || group.skip) return
-        const confirmFiles = buildConfirmFiles(group)
-        if (confirmFiles.length === 0) { updateGroup(i, { status: 'completed', processed: 0 }); return }
-        updateGroup(i, { status: 'running' })
-        try {
-          await importApi.confirm(jobId, {
-            author: group.author,
-            variant_group_name: group.variant_group_name,
-            files: confirmFiles,
-          })
-        } catch {
-          updateGroup(i, { status: 'failed' })
-        }
-      })
-    )
+
+    // Build the list of groups with files to submit.
+    const toSubmit: { i: number; author: string; variant_group_name: string; files: ImportConfirmFile[] }[] = []
+    groups.forEach((group, i) => {
+      if (group.status !== 'pending' || group.skip) return
+      const confirmFiles = buildConfirmFiles(group)
+      if (confirmFiles.length === 0) { updateGroup(i, { status: 'completed', processed: 0 }); return }
+      toSubmit.push({ i, author: group.author, variant_group_name: group.variant_group_name, files: confirmFiles })
+    })
+
+    if (toSubmit.length === 0) return
+    toSubmit.forEach(({ i }) => updateGroup(i, { status: 'running' }))
+
+    // Single request → single Prefect flow run → CLIP loaded once for all groups.
+    try {
+      await importApi.confirmAll(
+        jobId,
+        toSubmit.map(({ author, variant_group_name, files }) => ({ author, variant_group_name, files })),
+      )
+    } catch {
+      toSubmit.forEach(({ i }) => updateGroup(i, { status: 'failed' }))
+    }
   }
 
   // ── Derived values ────────────────────────────────────────────────

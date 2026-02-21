@@ -8,6 +8,7 @@ import { ImageViewer } from '@/components/ImageViewer'
 import { ImportDialog } from '@/components/ImportDialog'
 import { EditGroupDialog } from '@/components/EditGroupDialog'
 import { GalleryFilterPanel } from '@/components/GalleryFilterPanel'
+import { FilterChipList } from '@/components/FilterMenuContent'
 import { useImageGrouping } from '@/hooks/useImageGrouping'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -119,7 +120,7 @@ export function Gallery() {
           <h1 className="text-3xl font-bold mb-4">Battlemap Explorer</h1>
 
           {/* Search bar row */}
-          <div className="flex gap-2 mb-2">
+          <div className="flex gap-2 items-center mb-1.5">
             <form onSubmit={handleSubmit} className="relative flex-1 flex gap-2">
               <div className="relative flex-1">
                 {isSemantic ? (
@@ -187,6 +188,11 @@ export function Gallery() {
                 <Layers className="h-4 w-4" />
               </Button>
             </div>
+          </div>
+
+          {/* Active filter chips — always-reserved row so adding chips never shifts layout */}
+          <div className="min-h-[26px] flex items-center">
+            <FilterChipList filters={filters} onFiltersChange={setFilters} />
           </div>
 
           {/* Result count + hint */}
