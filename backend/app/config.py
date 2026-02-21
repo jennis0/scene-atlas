@@ -38,7 +38,8 @@ class Settings(BaseSettings):
     qdrant_vector_size: int = 512  # CLIP ViT-B/32 projection_dim (common space for text & image)
 
     # CLIP Model
-    clip_model_name: str = "openai/clip-vit-base-patch32"
+    #clip_model_name: str = "openai/clip-vit-base-patch32"
+    clip_model_name: str = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
     clip_device: str = "cpu"  # or "cuda" if GPU available
 
     # Image Processing

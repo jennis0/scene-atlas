@@ -14,13 +14,17 @@ logger = logging.getLogger(__name__)
 class QdrantService:
     """Service for interacting with Qdrant vector database."""
 
-    def __init__(self):
+    def __init__(self, 
+                 host: str = settings.qdrant_host,
+                 port: int = settings.qdrant_port,
+                 collection_name: str = settings.qdrant_collection_name
+        ):
         """Initialize Qdrant client."""
         self.client = QdrantClient(
-            host=settings.qdrant_host,
-            port=settings.qdrant_port,
+            host=host,
+            port=port,
         )
-        self.collection_name = settings.qdrant_collection_name
+        self.collection_name = collection_name
         self.ensure_collection()
 
     def delete_collection(self):

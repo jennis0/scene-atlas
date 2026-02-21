@@ -15,7 +15,8 @@ logger = logging.getLogger(__name__)
 class CLIPService:
     """Service for generating CLIP embeddings."""
 
-    def __init__(self):
+    def __init__(self, device: str = settings.clip_device,
+                 model_name: str = settings.clip_model_name):
         """Initialize CLIP model and processor.
 
         The transformers import is deferred to here rather than module level.
@@ -27,23 +28,24 @@ class CLIPService:
         """
         from transformers import CLIPModel, CLIPProcessor
 
-        logger.info(f"Loading CLIP model: {settings.clip_model_name}")
-        self.device = settings.clip_device
+        logger.info(f"Loading CLIP model: {model_name}")
+        self.device = device
+        self.model_name = model_name
 
         # Try loading from local cache first to avoid HTTP requests on every startup.
         # Falls back to downloading if the model isn't cached yet.
         try:
             self.model = CLIPModel.from_pretrained(
-                settings.clip_model_name, local_files_only=True
+                self.model_name, local_files_only=True
             ).to(self.device)
             self.processor = CLIPProcessor.from_pretrained(
-                settings.clip_model_name, local_files_only=True
+                self.model_name, local_files_only=True
             )
             logger.info("CLIP model loaded from local cache")
         except OSError:
             logger.info("CLIP model not cached locally, downloading...")
-            self.model = CLIPModel.from_pretrained(settings.clip_model_name).to(self.device)
-            self.processor = CLIPProcessor.from_pretrained(settings.clip_model_name)
+            self.model = CLIPModel.from_pretrained(self.model_name).to(self.device)
+            self.processor = CLIPProcessor.from_pretrained(self.model_name)
 
         self.model.eval()
         logger.info(f"CLIP model ready on device: {self.device}")

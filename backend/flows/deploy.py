@@ -18,6 +18,7 @@ os.environ.setdefault("PREFECT_API_URL", "http://localhost:4200/api")
 
 from backend.app.config import settings
 from backend.flows.ingestion import analyse_upload, process_import_group, process_import_job
+from backend.flows.write_new_embeddings import write_new_embeddings
 
 # Project root for from_source entrypoints
 PROJECT_ROOT = str(Path(__file__).parent.parent.parent)
@@ -59,10 +60,19 @@ def main():
     )
     print(f"  Registered: {settings.process_job_deployment}/process-import-job")
 
+    # write_new_embeddings: one-off flow to backfill Qdrant with CLIP embeddings for existing images
+    write_new_embeddings.from_source(
+        source=PROJECT_ROOT,
+        entrypoint = "backend/flows/write_new_embeddings.py:write_new_embeddings"
+    ).deploy(
+        name="write-new-embeddings-deployment",
+        work_pool_name=settings.prefect_work_pool,  
+    )
+    print(f"  Registered: {settings.process_job_deployment}/backfill-embeddings-job")
+    
     print()
     print("Deployments registered successfully.")
     print(f"Start a worker: uv run prefect worker start --pool {WORK_POOL}")
-
 
 if __name__ == "__main__":
     main()
