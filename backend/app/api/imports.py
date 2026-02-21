@@ -11,6 +11,7 @@ import logging
 import shutil
 import uuid
 import zipfile
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
@@ -27,11 +28,13 @@ from ..models import (
     get_session_local,
 )
 from ..models.schemas import (
+    ActiveImportsResponse,
     ImportConfirmFile,
     ImportConfirmRequest,
     ImportFileInfo,
     ImportGroupStatus,
     ImportJobResponse,
+    ImportJobSummary,
     ImportUploadResponse,
     ImportVariantGroup,
 )
@@ -190,9 +193,11 @@ async def upload_files(
             )
 
         # Create ImportJob in staging state
+        source_label = variant_groups[0].variant_group_name if variant_groups else None
         import_job = ImportJob(
             id=job_id,
             status="staging",
+            source_label=source_label,
             total_files=len(saved_relative_paths),
         )
         db.add(import_job)
@@ -424,7 +429,7 @@ async def get_import_status(
 
     # Derive overall job status from group statuses
     if group_jobs:
-        terminal = {"completed", "failed"}
+        terminal = {"completed", "failed", "cancelled"}
         if all(gj.status in terminal for gj in group_jobs):
             overall_status = "completed"
         elif any(gj.status == "running" for gj in group_jobs):
@@ -441,6 +446,176 @@ async def get_import_status(
         created_at=job.created_at,
         completed_at=job.completed_at,
     )
+
+
+@router.get("/active", response_model=ActiveImportsResponse)
+async def get_active_imports(db: Session = Depends(get_db)):
+    """List non-terminal import jobs for the import tray.
+
+    Returns staging/running jobs and recently-completed ones (within 1 hour).
+    Effective status is derived from group states so jobs show correctly even
+    if the Prefect flow hasn't written back to ImportJob yet.
+    """
+    from datetime import timedelta
+
+    terminal_statuses = {"completed", "failed", "cancelled"}
+    cutoff = datetime.utcnow() - timedelta(hours=1)
+
+    # Fetch recent jobs — import tables are small so fetching last 7 days is fine
+    recent_cutoff = datetime.utcnow() - timedelta(days=7)
+    all_jobs = (
+        db.query(ImportJob)
+        .filter(ImportJob.created_at >= recent_cutoff)
+        .order_by(ImportJob.created_at.desc())
+        .all()
+    )
+
+    summaries = []
+    for job in all_jobs:
+        groups = (
+            db.query(ImportGroupJob)
+            .filter(ImportGroupJob.job_id == job.id)
+            .all()
+        )
+
+        # Derive effective status from groups (more accurate than stale job.status)
+        if not groups:
+            effective_status = job.status
+            completed_at = job.completed_at
+        elif all(g.status in terminal_statuses for g in groups):
+            effective_status = "failed" if any(g.status == "failed" for g in groups) else "completed"
+            completed_at = max(
+                (g.completed_at for g in groups if g.completed_at),
+                default=job.completed_at,
+            )
+        elif any(g.status == "running" for g in groups):
+            effective_status = "running"
+            completed_at = None
+        else:
+            effective_status = job.status
+            completed_at = job.completed_at
+
+        # Filter: always include staging/running; completed/failed only within 1h
+        if effective_status in terminal_statuses:
+            if completed_at is None or completed_at < cutoff:
+                continue
+
+        summaries.append(
+            ImportJobSummary(
+                job_id=job.id,
+                source_label=job.source_label,
+                status=effective_status,
+                total_groups=len(groups),
+                completed_groups=sum(1 for g in groups if g.status == "completed"),
+                failed_groups=sum(1 for g in groups if g.status == "failed"),
+                running_groups=sum(1 for g in groups if g.status == "running"),
+                total_files=job.total_files,
+                created_at=job.created_at,
+            )
+        )
+
+    return ActiveImportsResponse(jobs=summaries)
+
+
+@router.delete("/cleanup")
+async def cleanup_old_imports(db: Session = Depends(get_db)):
+    """Delete completed, failed, cancelled, and abandoned staging import jobs.
+
+    Never deletes jobs that are currently staging (pending user review) or running.
+    """
+    # Fetch all groups so we can derive the effective status of each job
+    terminal_statuses = {"completed", "failed", "cancelled"}
+
+    all_jobs = db.query(ImportJob).all()
+    to_delete = []
+
+    for job in all_jobs:
+        groups = db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job.id).all()
+
+        if not groups:
+            # Staging job with no confirmed groups — safe to delete
+            # unless it's actively being worked on (status = staging means
+            # the user hasn't confirmed anything yet; we delete them all here)
+            if job.status != "running":
+                to_delete.append(job)
+        elif all(g.status in terminal_statuses for g in groups):
+            # All groups are terminal — job is done
+            to_delete.append(job)
+        # Otherwise: has running groups — leave it alone
+
+    count = len(to_delete)
+    for job in to_delete:
+        db.delete(job)
+    db.commit()
+
+    return {"deleted": count}
+
+
+@router.post("/{job_id}/cancel")
+async def cancel_import(job_id: str, db: Session = Depends(get_db)):
+    """Cancel an import job and clean up staging files.
+
+    Only cleans up staging directory if no groups are still running.
+    Marks the job as cancelled if no groups were ever confirmed.
+    """
+    job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Import job not found")
+
+    staging_dir = settings.staging_dir / job_id
+
+    # Check if any groups are still running — don't delete staging if so
+    running_groups = (
+        db.query(ImportGroupJob)
+        .filter(ImportGroupJob.job_id == job_id, ImportGroupJob.status == "running")
+        .count()
+    )
+
+    if running_groups == 0 and staging_dir.exists():
+        shutil.rmtree(staging_dir, ignore_errors=True)
+
+    # Update job status
+    all_groups = db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job_id).all()
+    if not all_groups:
+        # No groups were ever confirmed — pure cancellation
+        job.status = "cancelled"
+    elif all(g.status in ("completed", "failed", "cancelled") for g in all_groups):
+        job.status = "completed"
+
+    job.completed_at = datetime.utcnow()
+    db.commit()
+
+    return {"status": job.status, "staging_cleaned": running_groups == 0}
+
+
+@router.post("/{job_id}/groups/{group_id}/cancel")
+async def cancel_import_group(
+    job_id: str,
+    group_id: str,
+    db: Session = Depends(get_db),
+):
+    """Cancel a single import group.
+
+    Only groups that haven't started running can be cancelled.
+    """
+    group_job = (
+        db.query(ImportGroupJob)
+        .filter(ImportGroupJob.id == group_id, ImportGroupJob.job_id == job_id)
+        .first()
+    )
+    if not group_job:
+        raise HTTPException(status_code=404, detail="Group not found")
+    if group_job.status not in ("pending", "running"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Group in '{group_job.status}' state cannot be cancelled",
+        )
+
+    group_job.status = "cancelled"
+    group_job.completed_at = datetime.utcnow()
+    db.commit()
+
+    return {"status": "cancelled", "group_id": group_id}
 
 
 @router.get("/{job_id}/preview/{relative_path:path}")

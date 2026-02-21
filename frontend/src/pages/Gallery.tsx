@@ -6,10 +6,12 @@ import { ImageGrid } from '@/components/ImageGrid'
 import { GroupGrid } from '@/components/GroupGrid'
 import { ImageViewer } from '@/components/ImageViewer'
 import { ImportDialog } from '@/components/ImportDialog'
+import { ImportTray } from '@/components/ImportTray'
 import { EditGroupDialog } from '@/components/EditGroupDialog'
 import { GalleryFilterPanel } from '@/components/GalleryFilterPanel'
 import { FilterChipList } from '@/components/FilterMenuContent'
 import { useImageGrouping } from '@/hooks/useImageGrouping'
+import { useActiveImports } from '@/hooks/useActiveImports'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import type { Image, SearchParams, ViewMode } from '@/types'
@@ -20,11 +22,13 @@ export function Gallery() {
 
   // UI state
   const [selectedImage, setSelectedImage] = useState<{ image: Image; index: number } | null>(null)
-  const [showImport, setShowImport] = useState(false)
   const [editGroupId, setEditGroupId] = useState<number | null>(null)
-  const [importActive, setImportActive] = useState(false)
   const [showMassEdit, setShowMassEdit] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>('individual')
+
+  // Import state: null = closed, 'new' = fresh import, '{jobId}' = reconnect
+  const [importDialogJobId, setImportDialogJobId] = useState<string | null>(null)
+  const activeImports = useActiveImports()
 
   // Search state — separate controlled input from submitted query
   const [searchInput, setSearchInput] = useState('')
@@ -171,15 +175,12 @@ export function Gallery() {
               )}
               <Button
                 variant="outline"
-                onClick={() => setShowImport(true)}
-                title={importActive ? 'Import in progress — click to view' : 'Import images'}
-                className="relative gap-2"
+                onClick={() => setImportDialogJobId('new')}
+                title="Import images"
+                className="gap-2"
               >
                 <Upload className="h-4 w-4" />
                 Import
-                {importActive && (
-                  <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-primary animate-pulse" />
-                )}
               </Button>
             </div>
           </div>
@@ -371,9 +372,23 @@ export function Gallery() {
 
       {/* Import dialog */}
       <ImportDialog
-        open={showImport}
-        onOpenChange={setShowImport}
-        onActiveChange={setImportActive}
+        open={importDialogJobId !== null}
+        reconnectJobId={importDialogJobId === 'new' ? undefined : importDialogJobId ?? undefined}
+        onOpenChange={(open) => {
+          if (!open) {
+            setImportDialogJobId(null)
+            activeImports.refresh()
+          }
+        }}
+      />
+
+      {/* Import tray — right-side overlay showing active imports */}
+      <ImportTray
+        jobs={activeImports.jobs}
+        hasActive={activeImports.hasActive}
+        onOpenJob={(jobId) => setImportDialogJobId(jobId)}
+        onDismissJob={activeImports.dismissJob}
+        onRefresh={activeImports.refresh}
       />
     </div>
   )

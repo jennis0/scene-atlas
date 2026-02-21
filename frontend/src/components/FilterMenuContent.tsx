@@ -94,8 +94,9 @@ export function FilterMenuContent({ groups, activeFilters, onFiltersChange }: Fi
     }
   }
 
-  /** "−" button: not active → exclude; included → switch to exclude; excluded → remove */
+  /** Right-click: not active → exclude; included → switch to exclude; excluded → remove */
   const handleExclude = (e: React.MouseEvent, group: FilterOptionGroup, opt: FilterOption) => {
+    e.preventDefault()
     e.stopPropagation()
     const existing = activeFilters.find((af) => af.type === group.type && af.value === opt.filterValue)
     if (!existing) {
@@ -200,7 +201,7 @@ export function FilterMenuContent({ groups, activeFilters, onFiltersChange }: Fi
                   </div>
                 )}
 
-                <div className={`flex flex-wrap gap-1.5 pl-3 pr-8 pb-3 ${tab !== 'all' ? 'pt-3' : ''}`}>
+                <div className={`flex flex-wrap gap-1.5 pl-3 pr-3 pb-3 ${tab !== 'all' ? 'pt-3' : ''}`}>
                   {group.options.map((opt) => {
                     const state = getActiveState(group.type, opt.filterValue)
                     return (
@@ -319,7 +320,8 @@ function OptionPill({
     return (
       <button
         onClick={onInclude}
-        title={`${label} — click to remove`}
+        onContextMenu={onExclude}
+        title={`${label} — click to remove, right-click to exclude`}
         className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full bg-primary/20 border border-primary/40 text-primary text-xs font-medium hover:bg-primary/30 transition-colors"
       >
         <Check className="h-3 w-3 flex-shrink-0" />
@@ -332,7 +334,8 @@ function OptionPill({
     return (
       <button
         onClick={onInclude}
-        title={`${label} — click to include instead`}
+        onContextMenu={onExclude}
+        title={`${label} — click to include, right-click to remove`}
         className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full bg-destructive/10 border border-destructive/30 text-destructive text-xs hover:bg-destructive/20 transition-colors"
       >
         <Minus className="h-3 w-3 flex-shrink-0" />
@@ -341,29 +344,19 @@ function OptionPill({
     )
   }
 
-  // Normal state — click = include, hover reveals "−" to exclude
+  // Normal state — left-click to include, right-click to exclude
   return (
-    <div className={`group inline-flex items-center h-6 rounded-full border overflow-hidden ${colors.border}`} title={label}>
-      <button
-        onClick={onInclude}
-        className={`flex items-center gap-1 pl-2.5 pr-2.5 h-full ${colors.bg} ${colors.text} text-xs hover:brightness-110 transition-all`}
-      >
-        <span className="capitalize max-w-[160px] truncate">{label}</span>
-        {count !== undefined && (
-          <span className="ml-0.5 text-[9px] opacity-50 tabular-nums">{count}</span>
-        )}
-      </button>
-      {/* Exclude button expands from right on hover */}
-      <button
-        onClick={onExclude}
-        title="Exclude"
-        className={`h-full w-0 overflow-hidden group-hover:w-5 flex items-center justify-center
-          bg-card border-l ${colors.border} text-muted-foreground hover:text-destructive hover:bg-destructive/10
-          transition-all duration-100 text-sm font-medium leading-none`}
-      >
-        −
-      </button>
-    </div>
+    <button
+      onClick={onInclude}
+      onContextMenu={onExclude}
+      title={`${label} — right-click to exclude`}
+      className={`inline-flex items-center gap-1 h-6 px-2.5 rounded-full border ${colors.border} ${colors.bg} ${colors.text} text-xs hover:brightness-110 transition-colors`}
+    >
+      <span className="capitalize max-w-[160px] truncate">{label}</span>
+      {count !== undefined && (
+        <span className="ml-0.5 text-[9px] opacity-50 tabular-nums">{count}</span>
+      )}
+    </button>
   )
 }
 

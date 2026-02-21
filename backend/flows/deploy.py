@@ -10,11 +10,14 @@ Prerequisites:
     - PREFECT_API_URL set (defaults to http://localhost:4200/api)
 """
 
+import asyncio
 import os
 from pathlib import Path
 
 # Ensure Prefect client points to our server
 os.environ.setdefault("PREFECT_API_URL", "http://localhost:4200/api")
+
+from prefect.client.orchestration import get_client
 
 from backend.app.config import settings
 from backend.flows.ingestion import analyse_upload, process_import_group, process_import_job
@@ -68,6 +71,15 @@ def main():
         work_pool_name=settings.prefect_work_pool,
     )
     print(f"  Registered: {settings.process_job_deployment}/backfill-embeddings-job")
+
+    # Register concurrency limit for CLIP tasks — only one CLIP model
+    # instance should load at a time across all concurrent flows
+    async def _set_clip_limit():
+        async with get_client() as client:
+            await client.create_concurrency_limit(tag="clip", concurrency_limit=1)
+
+    asyncio.run(_set_clip_limit())
+    print("  Registered: clip tag concurrency limit = 1")
 
     print()
     print("Deployments registered successfully.")

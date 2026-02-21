@@ -12,7 +12,7 @@ from backend.app.config import settings
 logger = logging.getLogger(__name__)
 
 
-@task(name="generate_clip_embedding", retries=2)
+@task(name="generate_clip_embedding", retries=2, tags=["clip"])
 def generate_clip_embedding(image_path: str) -> List[float]:
     """Generate CLIP embedding for a single image.
 
@@ -32,7 +32,7 @@ def generate_clip_embedding(image_path: str) -> List[float]:
         raise
 
 
-@task(name="batch_generate_clip_embeddings", retries=2)
+@task(name="batch_generate_clip_embeddings", retries=2, tags=["clip"])
 def batch_generate_clip_embeddings(
     image_paths: List[str],
     batch_size: int | None = None,

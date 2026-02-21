@@ -190,7 +190,7 @@ export interface EditableGroupState {
   variant_group_name: string
   files: EditableFileState[]
   skip: boolean
-  status: 'pending' | 'running' | 'completed' | 'failed'
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
   processed: number
   failed: number
   total: number
@@ -243,4 +243,21 @@ export interface ImportJobResponse {
   groups: ImportGroupStatus[]
   created_at: string
   completed_at: string | null
+}
+
+// Import tray types
+export interface ImportJobSummary {
+  job_id: string
+  source_label: string | null
+  status: string
+  total_groups: number
+  completed_groups: number
+  failed_groups: number
+  running_groups: number
+  total_files: number
+  created_at: string
+}
+
+export interface ActiveImportsResponse {
+  jobs: ImportJobSummary[]
 }

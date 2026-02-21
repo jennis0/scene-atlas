@@ -722,6 +722,32 @@ def _run_group(
     return processed, failed
 
 
+def _finalize_import_job(job_id: str) -> None:
+    """Mark ImportJob as completed/failed once all its groups are terminal.
+
+    Called at the end of every import flow so the parent job status is
+    written back to the DB — the tray and /active endpoint both read this.
+    """
+    engine = get_engine(settings.database_url)
+    SessionLocal = get_session_local(engine)
+    db = SessionLocal()
+    try:
+        job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
+        if not job:
+            return
+        groups = db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job_id).all()
+        if not groups:
+            return
+        terminal = {"completed", "failed", "cancelled"}
+        if all(g.status in terminal for g in groups):
+            job.status = "failed" if any(g.status == "failed" for g in groups) else "completed"
+            job.completed_at = datetime.utcnow()
+            db.commit()
+            logger.info(f"Import job {job_id} finalized as '{job.status}'")
+    finally:
+        db.close()
+
+
 def _rebuild_fts() -> None:
     """Rebuild the FTS index (non-fatal on error)."""
     try:
@@ -756,6 +782,7 @@ def process_import_group(
         f"({len(files)} files) for job {job_id}, group {group_job_id}"
     )
     processed, failed = _run_group(group_job_id, staging_dir, author, variant_group_name, files)
+    _finalize_import_job(job_id)
     if processed > 0:
         _rebuild_fts()
     return {
@@ -797,6 +824,7 @@ def process_import_job(
         total_processed += processed
         total_failed += failed
 
+    _finalize_import_job(job_id)
     if total_processed > 0:
         _rebuild_fts()
 
