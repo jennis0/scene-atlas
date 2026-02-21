@@ -86,6 +86,7 @@ async def get_search_facets(db: Session = Depends(get_db)):
 async def search_images(
     query: Optional[str] = None,
     semantic_only: bool = False,
+    text_only: bool = False,
     tags: List[str] = Query([]),
     exclude_tags: List[str] = Query([]),
     authors: List[str] = Query([]),
@@ -106,6 +107,7 @@ async def search_images(
       final_score = semantic_score + TEXT_BOOST * normalized_text_score
 
     Prefix query with '~' on the frontend to set semantic_only=True (skips FTS5).
+    Prefix query with '=' on the frontend to set text_only=True (skips CLIP).
 
     Filter logic:
     - Tags: OR within same category, AND across categories
@@ -116,6 +118,9 @@ async def search_images(
     effective_query = query or text or semantic
     if semantic and not query:
         semantic_only = True
+    # text_only and semantic_only are mutually exclusive; text_only wins
+    if text_only:
+        semantic_only = False
 
     # --- Build base SQL filter query ---
     sql_query = db.query(Image)
@@ -182,20 +187,21 @@ async def search_images(
                 # Normalize: 1.0 for best match, approaching 0 for poor matches
                 text_scores[image_id] = bm25 / min_bm25 if min_bm25 != 0 else 0.0
 
-    # CLIP semantic search
+    # CLIP semantic search (skipped in text_only mode)
     semantic_scores: dict[int, float] = {}
-    try:
-        clip_service = get_clip_service()
-        query_embedding = clip_service.encode_text(effective_query)
-        threshold = SEMANTIC_ONLY_THRESHOLD if semantic_only else SEMANTIC_THRESHOLD
-        qdrant_results = qdrant_service.search_similar(
-            query_embedding=query_embedding,
-            limit=limit * 3,
-            score_threshold=threshold,
-        )
-        semantic_scores = {r["image_id"]: r["score"] for r in qdrant_results}
-    except Exception as e:
-        print(f"Semantic search error: {e}")
+    if not text_only:
+        try:
+            clip_service = get_clip_service()
+            query_embedding = clip_service.encode_text(effective_query)
+            threshold = SEMANTIC_ONLY_THRESHOLD if semantic_only else SEMANTIC_THRESHOLD
+            qdrant_results = qdrant_service.search_similar(
+                query_embedding=query_embedding,
+                limit=limit * 3,
+                score_threshold=threshold,
+            )
+            semantic_scores = {r["image_id"]: r["score"] for r in qdrant_results}
+        except Exception as e:
+            print(f"Semantic search error: {e}")
 
     # Merge scores
     all_candidate_ids = set(text_scores.keys()) | set(semantic_scores.keys())

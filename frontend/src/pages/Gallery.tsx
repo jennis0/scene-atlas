@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Search, Sparkles, X, Upload, LayoutGrid, Layers, Pencil } from 'lucide-react'
+import { Search, Sparkles, X, Upload, LayoutGrid, Layers, Pencil, AlignLeft } from 'lucide-react'
 import { searchApi } from '@/lib/api'
 import { ImageGrid } from '@/components/ImageGrid'
 import { GroupGrid } from '@/components/GroupGrid'
@@ -31,12 +31,19 @@ export function Gallery() {
   const [submittedQuery, setSubmittedQuery] = useState('')
   const [filters, setFilters] = useState<ActiveFilter[]>([])
 
+  // Relevance threshold — slider value 0–0.85, applied client-side against returned scores
+  const [minScore, setMinScore] = useState(0.2)
+
   // Facets — lightweight cached fetch, replaces the old 10k image fetch
   const { data: facets } = useQuery({
     queryKey: ['searchFacets'],
     queryFn: () => searchApi.facets(),
     staleTime: 60_000,
   })
+
+  // Detect search mode from prefix
+  const isSemantic = submittedQuery.startsWith('~')
+  const isTextOnly = submittedQuery.startsWith('=')
 
   // Build search params from submitted query + active filters
   const searchParams: SearchParams = useMemo(() => {
@@ -46,6 +53,9 @@ export function Gallery() {
       if (submittedQuery.startsWith('~')) {
         params.query = submittedQuery.slice(1).trim()
         params.semantic_only = true
+      } else if (submittedQuery.startsWith('=')) {
+        params.query = submittedQuery.slice(1).trim()
+        params.text_only = true
       } else {
         params.query = submittedQuery
       }
@@ -80,7 +90,18 @@ export function Gallery() {
     queryFn: () => searchApi.search(searchParams),
   })
 
-  const displayImages = searchResults?.images ?? []
+  // Apply client-side relevance threshold when scores are available
+  const displayImages = useMemo(() => {
+    const images = searchResults?.images ?? []
+    if (!searchResults?.scores) return images
+    return images.filter((img) => (searchResults.scores![img.id] ?? 0) >= minScore)
+  }, [searchResults, minScore])
+
+  // Show slider only when there's a scored query (not text-only, which returns no scores)
+  const showRelevanceSlider = !!submittedQuery && !isTextOnly
+
+  const totalBeforeFilter = searchResults?.images?.length ?? 0
+  const filteredCount = displayImages.length
 
   // Group images for the grouped view
   const imageGroups = useImageGrouping({
@@ -91,12 +112,14 @@ export function Gallery() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     setSubmittedQuery(searchInput)
+    setMinScore(0.2) // reset threshold on new search
   }
 
   const clearAll = () => {
     setSearchInput('')
     setSubmittedQuery('')
     setFilters([])
+    setMinScore(0.2)
   }
 
   const handleNext = () => {
@@ -111,7 +134,8 @@ export function Gallery() {
     setSelectedImage({ image: displayImages[prevIndex], index: prevIndex })
   }
 
-  const isSemantic = submittedQuery.startsWith('~')
+  // Result count label suffix
+  const searchModeSuffix = isSemantic ? ' · visual' : isTextOnly ? ' · keyword' : ''
 
   return (
     <div className="flex h-screen flex-col">
@@ -166,12 +190,14 @@ export function Gallery() {
               <div className="relative flex-1 min-w-0">
                 {isSemantic ? (
                   <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                ) : isTextOnly ? (
+                  <AlignLeft className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 ) : (
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 )}
                 <Input
                   type="text"
-                  placeholder="Search worlds… (prefix ~ for visual search)"
+                  placeholder="Search worlds…  ~ visual  ·  = keyword"
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
                   className="pl-9 w-full"
@@ -215,14 +241,43 @@ export function Gallery() {
           </div>
 
           {/* Chips + count row */}
-          <div className="flex items-center gap-2 pb-4 min-h-[28px]">
+          <div className="flex items-center gap-3 pb-4 min-h-[28px]">
             <FilterChipList filters={filters} onFiltersChange={setFilters} />
+            {showRelevanceSlider && (
+              <div
+                className="flex items-center gap-2 ml-auto shrink-0"
+                title="Minimum relevance threshold"
+              >
+                <span className="text-xs text-muted-foreground">Relevance</span>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="0.5"
+                  step="0.01"
+                  value={minScore}
+                  onChange={(e) => setMinScore(parseFloat(e.target.value))}
+                  className="w-24 cursor-pointer accent-primary"
+                  style={{ height: '4px' }}
+                />
+                <span className="text-xs text-muted-foreground tabular-nums w-8 text-right">
+                  {minScore > 0 ? `${Math.round((minScore / 0.4 - 0.25) * 100)}%` : 'All'}
+                </span>
+              </div>
+            )}
             {!isSearching && (
-              <span className="text-xs text-muted-foreground ml-auto shrink-0">
-                {hasActiveSearch
-                  ? `${searchResults?.total ?? 0} result${(searchResults?.total ?? 0) !== 1 ? 's' : ''}`
-                  : `${facets?.total_images ?? 0} worlds`}
-                {isSemantic && ' · visual search'}
+              <span className={`text-xs text-muted-foreground tabular-nums shrink-0 ${showRelevanceSlider ? '' : 'ml-auto'}`}>
+                {hasActiveSearch ? (
+                  showRelevanceSlider ? (
+                    <>
+                      <span
+                        style={{ display: 'inline-block', minWidth: `${String(totalBeforeFilter).length}ch`, textAlign: 'right' }}
+                      >{filteredCount}</span>
+                      {` / ${totalBeforeFilter} result${totalBeforeFilter !== 1 ? 's' : ''}${searchModeSuffix}`}
+                    </>
+                  ) : (
+                    `${filteredCount} result${filteredCount !== 1 ? 's' : ''}${searchModeSuffix}`
+                  )
+                ) : `${facets?.total_images ?? 0} worlds`}
               </span>
             )}
           </div>
@@ -245,6 +300,11 @@ export function Gallery() {
               {isSemantic && (
                 <p className="text-sm text-muted-foreground">
                   Try: "abandoned mine with crystals" or "winter forest temple"
+                </p>
+              )}
+              {minScore > 0 && (
+                <p className="text-sm text-muted-foreground">
+                  Lower the relevance threshold to see more results.
                 </p>
               )}
               {hasActiveSearch && (

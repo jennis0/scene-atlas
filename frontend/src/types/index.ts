@@ -60,6 +60,7 @@ export interface Color {
 export interface SearchParams {
   query?: string            // hybrid: FTS5 + semantic
   semantic_only?: boolean   // skip FTS5, pure semantic (from ~ prefix)
+  text_only?: boolean       // skip CLIP, FTS keyword only (from = prefix)
   authors?: string[]
   exclude_authors?: string[]
   tags?: string[]
