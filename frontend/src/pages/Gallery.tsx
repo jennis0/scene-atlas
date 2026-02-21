@@ -96,12 +96,12 @@ export function Gallery() {
     queryFn: () => searchApi.search(searchParams),
   })
 
-  // Apply client-side relevance threshold when scores are available
+  // Apply client-side relevance threshold when scores are available (not for text-only)
   const displayImages = useMemo(() => {
     const images = searchResults?.images ?? []
-    if (!searchResults?.scores) return images
+    if (!searchResults?.scores || isTextOnly) return images
     return images.filter((img) => (searchResults.scores![img.id] ?? 0) >= minScore)
-  }, [searchResults, minScore])
+  }, [searchResults, minScore, isTextOnly])
 
   // Show slider only when there's a scored query (not text-only, which returns no scores)
   const showRelevanceSlider = !!submittedQuery && !isTextOnly
