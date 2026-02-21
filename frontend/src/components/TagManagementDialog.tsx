@@ -89,12 +89,18 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent
         className="max-w-3xl w-full h-[75vh] flex flex-col gap-0 border-zinc-700/50 bg-zinc-900 p-0 overflow-hidden"
-        onClose={onClose}
       >
         {/* Header */}
         <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-800">
           <Tag className="w-3.5 h-3.5 text-amber-400" />
           <h2 className="text-xs font-semibold text-zinc-300 tracking-wide uppercase">Tag Management</h2>
+          <button
+            onClick={onClose}
+            className="ml-auto rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 text-zinc-400 hover:text-zinc-100"
+          >
+            <X className="h-4 w-4" />
+            <span className="sr-only">Close</span>
+          </button>
         </div>
 
         {isLoading ? (
