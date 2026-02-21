@@ -1,7 +1,6 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useRef, useState, useEffect } from 'react'
 import { getThumbnailUrl } from '@/lib/api'
-import { Badge } from '@/components/ui/badge'
 import type { Image } from '@/types'
 
 interface ImageGridProps {
@@ -9,20 +8,20 @@ interface ImageGridProps {
   onImageClick: (image: Image, index: number) => void
 }
 
-const IMAGE_SIZE = 200 // Max size per image in pixels
-const GAP = 16 // gap-4 = 1rem = 16px
-const PADDING = 16 // p-4 = 1rem = 16px
+const IMAGE_SIZE = 240  // card width in pixels
+const CARD_HEIGHT = 180 // card height — 4:3 landscape ratio (240 × 0.75)
+const GAP = 16          // gap-4 = 1rem = 16px
+const PADDING = 16      // p-4 = 1rem = 16px
 
 export function ImageGrid({ images, onImageClick }: ImageGridProps) {
   const parentRef = useRef<HTMLDivElement>(null)
   const [columnsPerRow, setColumnsPerRow] = useState(6)
 
-  // Calculate how many columns fit based on container width
   useEffect(() => {
     const updateColumns = () => {
       if (parentRef.current) {
         const containerWidth = parentRef.current.clientWidth
-        const availableWidth = containerWidth - (PADDING * 2)
+        const availableWidth = containerWidth - PADDING * 2
         const columns = Math.max(1, Math.floor((availableWidth + GAP) / (IMAGE_SIZE + GAP)))
         setColumnsPerRow(columns)
       }
@@ -30,30 +29,21 @@ export function ImageGrid({ images, onImageClick }: ImageGridProps) {
 
     updateColumns()
     const resizeObserver = new ResizeObserver(updateColumns)
-    if (parentRef.current) {
-      resizeObserver.observe(parentRef.current)
-    }
-
+    if (parentRef.current) resizeObserver.observe(parentRef.current)
     return () => resizeObserver.disconnect()
   }, [])
 
   const rowVirtualizer = useVirtualizer({
     count: Math.ceil(images.length / columnsPerRow),
     getScrollElement: () => parentRef.current,
-    estimateSize: () => IMAGE_SIZE + 60 + GAP, // image + metadata bar + gap
+    estimateSize: () => CARD_HEIGHT + GAP,
     overscan: 5,
     measureElement: (element) => element.getBoundingClientRect().height,
   })
 
   return (
-    <div ref={parentRef} className="h-full overflow-auto p-4">
-      <div
-        style={{
-          height: `${rowVirtualizer.getTotalSize()}px`,
-          width: '100%',
-          position: 'relative',
-        }}
-      >
+    <div ref={parentRef} className="h-full overflow-auto pt-8 px-4 pb-4">
+      <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }}>
         {rowVirtualizer.getVirtualItems().map((virtualRow) => {
           const startIdx = virtualRow.index * columnsPerRow
           const rowImages = images.slice(startIdx, startIdx + columnsPerRow)
@@ -76,19 +66,16 @@ export function ImageGrid({ images, onImageClick }: ImageGridProps) {
                 className="grid gap-4"
                 style={{
                   gridTemplateColumns: `repeat(${columnsPerRow}, ${IMAGE_SIZE}px)`,
-                  justifyContent: 'center'
+                  justifyContent: 'center',
                 }}
               >
-                {rowImages.map((image, colIdx) => {
-                  const imageIndex = startIdx + colIdx
-                  return (
-                    <ImageCard
-                      key={image.id}
-                      image={image}
-                      onClick={() => onImageClick(image, imageIndex)}
-                    />
-                  )
-                })}
+                {rowImages.map((image, colIdx) => (
+                  <ImageCard
+                    key={image.id}
+                    image={image}
+                    onClick={() => onImageClick(image, startIdx + colIdx)}
+                  />
+                ))}
               </div>
             </div>
           )
@@ -101,44 +88,25 @@ export function ImageGrid({ images, onImageClick }: ImageGridProps) {
 function ImageCard({ image, onClick }: { image: Image; onClick: () => void }) {
   return (
     <div
-      className="group relative cursor-pointer overflow-hidden rounded-lg border bg-card transition-all duration-200 hover:scale-[1.03] hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5"
+      className="group relative cursor-pointer overflow-hidden rounded-lg border border-border/30 bg-card transition-all duration-200 hover:border-primary/40 hover:shadow-xl hover:shadow-black/40"
       onClick={onClick}
     >
-      <div className="aspect-square overflow-hidden">
+      {/* Image — 4:3 landscape, scales subtly on hover */}
+      <div className="aspect-[4/3] overflow-hidden">
         <img
           src={getThumbnailUrl(image)}
           alt={image.name}
-          className="h-full w-full object-cover"
+          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.05]"
           loading="lazy"
         />
       </div>
-      {/* Always-visible metadata bar */}
-      <div className="px-2.5 py-1.5 bg-card border-t border-border/50">
-        <h3 className="font-semibold text-sm text-foreground truncate">
+
+      {/* Gradient overlay — name + author, always readable */}
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/50 to-transparent pt-12 pb-3 px-2.5 pointer-events-none">
+        <p className="text-[13px] font-medium text-white leading-snug line-clamp-1 drop-shadow">
           {image.name}
-        </h3>
-        <p className="text-xs text-muted-foreground truncate">{image.author}</p>
-        {image.tags && image.tags.length > 0 && (
-          <div className="mt-1 flex flex-wrap gap-1">
-            {image.tags.slice(0, 3).map((tag) => (
-              <Badge
-                key={tag.id}
-                variant="outline"
-                className="text-[10px] text-muted-foreground"
-              >
-                {tag.value}
-              </Badge>
-            ))}
-            {image.tags.length > 3 && (
-              <Badge
-                variant="outline"
-                className="text-[10px] text-muted-foreground"
-              >
-                +{image.tags.length - 3}
-              </Badge>
-            )}
-          </div>
-        )}
+        </p>
+        <p className="text-[11px] text-white/60 truncate mt-0.5">{image.author}</p>
       </div>
     </div>
   )

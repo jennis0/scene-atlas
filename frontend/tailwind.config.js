@@ -17,6 +17,11 @@ export default {
       },
     },
     extend: {
+      fontFamily: {
+        sans: ['Figtree', 'system-ui', 'sans-serif'],
+        display: ['Cinzel', 'Georgia', 'serif'],
+        mono: ['"JetBrains Mono"', 'Consolas', 'monospace'],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",

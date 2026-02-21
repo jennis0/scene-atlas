@@ -1,9 +1,10 @@
 """Images API endpoints."""
 
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..models import (
@@ -12,6 +13,14 @@ from ..models import (
     get_session_local,
 )
 from ..services import get_image_store, get_thumbnail_store
+
+
+class ImagePatch(BaseModel):
+    name: Optional[str] = None
+    sub_variant: Optional[str] = None
+    gridded: Optional[bool] = None
+    grid_width: Optional[int] = None
+    grid_height: Optional[int] = None
 
 router = APIRouter()
 
@@ -58,6 +67,23 @@ async def get_image(
     image = db.query(Image).filter(Image.id == image_id).first()
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
+    return image
+
+
+@router.patch("/{image_id}", response_model=ImageResponse)
+async def patch_image(
+    image_id: int,
+    patch: ImagePatch,
+    db: Session = Depends(get_db)
+):
+    """Update image metadata (name, sub_variant, gridded, grid dimensions)."""
+    image = db.query(Image).filter(Image.id == image_id).first()
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found")
+    for field, value in patch.model_dump(exclude_unset=True).items():
+        setattr(image, field, value)
+    db.commit()
+    db.refresh(image)
     return image
 
 

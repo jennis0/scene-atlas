@@ -12,17 +12,17 @@ const OPTIONS: { label: string; val: boolean | null }[] = [
 
 export function GridToggle({ value, onChange, disabled }: GridToggleProps) {
   return (
-    <div className="inline-flex rounded-lg overflow-hidden border border-slate-200">
+    <div className="inline-flex rounded-md overflow-hidden border border-border">
       {OPTIONS.map((opt, i) => (
         <button
           key={opt.label}
           disabled={disabled}
           onClick={() => onChange(opt.val)}
-          className={`px-2 py-0.5 text-[11px] font-medium transition-all disabled:opacity-40
-            ${i > 0 ? 'border-l border-slate-200' : ''}
+          className={`px-2.5 py-1 text-[11px] font-medium transition-all disabled:opacity-40
+            ${i > 0 ? 'border-l border-border' : ''}
             ${value === opt.val
-              ? 'bg-emerald-600 text-white border-emerald-600'
-              : 'bg-white text-slate-500 hover:bg-slate-50'
+              ? 'bg-primary/20 text-primary'
+              : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
             }`}
         >
           {opt.label}

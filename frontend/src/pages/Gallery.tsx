@@ -115,14 +115,40 @@ export function Gallery() {
   return (
     <div className="flex h-screen flex-col">
       {/* Header */}
-      <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container mx-auto px-4 py-4">
-          <h1 className="text-3xl font-bold mb-4">Battlemap Explorer</h1>
+      <header
+        className="border-b border-border/70 backdrop-blur-md"
+        style={{
+          background: 'linear-gradient(180deg, hsl(38 60% 58% / 0.08) 0%, hsl(222 22% 12% / 0.97) 65%)',
+        }}
+      >
+        <div className="container mx-auto px-4">
 
-          {/* Search bar row */}
-          <div className="flex gap-2 items-center mb-1.5">
-            <form onSubmit={handleSubmit} className="relative flex-1 flex gap-2">
-              <div className="relative flex-1">
+          {/* Title row */}
+          <div className="pt-8 pb-4 flex items-start justify-between">
+            <div>
+              <h1 className="font-display text-4xl font-semibold tracking-wide text-foreground">
+                Library of Worlds
+              </h1>
+              <div className="mt-3 h-[2px] w-24 rounded-full bg-primary/50" />
+            </div>
+            <Button
+              variant="outline"
+              onClick={() => setShowImport(true)}
+              title={importActive ? 'Import in progress — click to view' : 'Import images'}
+              className="relative mt-1 gap-2"
+            >
+              <Upload className="h-4 w-4" />
+              Import
+              {importActive && (
+                <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-primary animate-pulse" />
+              )}
+            </Button>
+          </div>
+
+          {/* Search + tools row */}
+          <div className="flex items-center gap-3 pb-5">
+            <form onSubmit={handleSubmit} className="flex-1 flex gap-2 min-w-0">
+              <div className="relative flex-1 min-w-0">
                 {isSemantic ? (
                   <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 ) : (
@@ -130,85 +156,67 @@ export function Gallery() {
                 )}
                 <Input
                   type="text"
-                  placeholder="Search battlemaps… (prefix with ~ for visual search)"
+                  placeholder="Search worlds… (prefix ~ for visual search)"
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
-                  className="pl-9"
+                  className="pl-9 w-full"
                 />
               </div>
-              <Button type="submit" disabled={isSearching}>
+              <Button type="submit" disabled={isSearching} variant="secondary">
                 {isSearching ? 'Searching…' : 'Search'}
               </Button>
             </form>
 
-            {/* Filter panel */}
             <GalleryFilterPanel
               filters={filters}
               facets={facets}
               onFiltersChange={setFilters}
             />
-
-            {/* Clear all */}
             {hasActiveSearch && (
               <Button variant="ghost" size="icon" onClick={clearAll} title="Clear search and filters">
                 <X className="h-4 w-4" />
               </Button>
             )}
 
-            {/* Import button */}
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => setShowImport(true)}
-              title={importActive ? 'Import in progress — click to view' : 'Import images'}
-              className="relative"
-            >
-              <Upload className="h-4 w-4" />
-              {importActive && (
-                <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-primary animate-pulse" />
-              )}
-            </Button>
-
-            {/* View toggle */}
-            <div className="flex gap-1">
-              <Button
-                variant={viewMode === 'individual' ? 'default' : 'outline'}
-                size="icon"
+            {/* Segmented view toggle */}
+            <div className="flex rounded-md overflow-hidden border border-border shrink-0">
+              <button
                 onClick={() => setViewMode('individual')}
                 title="Individual images"
+                className={`h-10 w-10 flex items-center justify-center border-r border-border transition-colors
+                  ${viewMode === 'individual' ? 'bg-secondary text-foreground' : 'text-foreground/50 hover:text-foreground hover:bg-secondary/50'}`}
               >
                 <LayoutGrid className="h-4 w-4" />
-              </Button>
-              <Button
-                variant={viewMode === 'grouped' ? 'default' : 'outline'}
-                size="icon"
+              </button>
+              <button
                 onClick={() => setViewMode('grouped')}
                 title="Variant groups"
+                className={`h-10 w-10 flex items-center justify-center transition-colors
+                  ${viewMode === 'grouped' ? 'bg-secondary text-foreground' : 'text-foreground/50 hover:text-foreground hover:bg-secondary/50'}`}
               >
                 <Layers className="h-4 w-4" />
-              </Button>
+              </button>
             </div>
           </div>
 
-          {/* Active filter chips — always-reserved row so adding chips never shifts layout */}
-          <div className="min-h-[26px] flex items-center">
+          {/* Chips + count row */}
+          <div className="flex items-center gap-2 pb-4 min-h-[28px]">
             <FilterChipList filters={filters} onFiltersChange={setFilters} />
+            {!isSearching && (
+              <span className="text-xs text-muted-foreground ml-auto shrink-0">
+                {hasActiveSearch
+                  ? `${searchResults?.total ?? 0} result${(searchResults?.total ?? 0) !== 1 ? 's' : ''}`
+                  : `${facets?.total_images ?? 0} worlds`}
+                {isSemantic && ' · visual search'}
+              </span>
+            )}
           </div>
 
-          {/* Result count + hint */}
-          {!isSearching && (
-            <div className="text-xs text-muted-foreground">
-              {hasActiveSearch
-                ? `${searchResults?.total ?? 0} result${(searchResults?.total ?? 0) !== 1 ? 's' : ''}`
-                : `${facets?.total_images ?? 0} battlemaps`}
-              {isSemantic && ' · visual search'}
-            </div>
-          )}
         </div>
       </header>
 
       {/* Main content */}
-      <main className="flex-1 overflow-hidden">
+      <main className="flex-1 overflow-hidden" style={{ boxShadow: 'inset 0 8px 24px rgba(0,0,0,0.4)' }}>
         {isSearching ? (
           <div className="flex h-full items-center justify-center">
             <p className="text-muted-foreground">Searching…</p>
@@ -232,15 +240,19 @@ export function Gallery() {
             </div>
           </div>
         ) : viewMode === 'individual' ? (
-          <ImageGrid
-            images={displayImages}
-            onImageClick={(image, index) => setSelectedImage({ image, index })}
-          />
+          <div className="h-full max-w-[1400px] mx-auto">
+            <ImageGrid
+              images={displayImages}
+              onImageClick={(image, index) => setSelectedImage({ image, index })}
+            />
+          </div>
         ) : (
-          <GroupGrid
-            groups={imageGroups}
-            onGroupClick={(group) => setSelectedImage({ image: group.heroImage, index: 0 })}
-          />
+          <div className="h-full max-w-[1400px] mx-auto">
+            <GroupGrid
+              groups={imageGroups}
+              onGroupClick={(group) => setSelectedImage({ image: group.heroImage, index: 0 })}
+            />
+          </div>
         )}
       </main>
 

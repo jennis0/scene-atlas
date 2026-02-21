@@ -44,17 +44,17 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
     <div className="relative inline-block" ref={containerRef}>
       <button
         onClick={() => { setOpen(!open); setSelectedCategory(null) }}
-        className="inline-flex items-center gap-1 rounded-full border border-dashed border-emerald-300/60 px-2 py-0.5 text-xs text-emerald-600 hover:border-emerald-400 hover:bg-emerald-50 transition-all"
+        className="inline-flex items-center gap-1 rounded-full border border-dashed border-border/50 px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:border-border hover:bg-secondary/50 transition-all"
       >
         <Plus className="h-3 w-3" />
         Tag
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full mt-1.5 z-50 w-[200px] rounded-xl border bg-white shadow-xl shadow-black/5 overflow-hidden">
+        <div className="absolute left-0 top-full mt-1.5 z-50 w-[200px] rounded-xl border border-border bg-card shadow-2xl shadow-black/40 overflow-hidden">
           {!selectedCategory ? (
             <div className="py-1">
-              <div className="px-3 pt-2 pb-1.5 text-[10px] font-semibold text-slate-400 uppercase tracking-widest">
+              <div className="px-3 pt-2 pb-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
                 Pick category
               </div>
               {vocab.map((v) => {
@@ -63,11 +63,11 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
                   <button
                     key={v.category}
                     onClick={() => setSelectedCategory(v.category)}
-                    className="flex w-full items-center gap-2 px-3 py-1.5 text-sm hover:bg-slate-50 transition-colors text-left group"
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-sm hover:bg-secondary transition-colors text-left group"
                   >
-                    <span className={`w-2 h-2 rounded-full ${color.bg} ${color.border} border`} />
-                    <span className="capitalize text-slate-700">{v.category}</span>
-                    <span className="ml-auto text-xs text-slate-300 group-hover:text-slate-400">{v.values.length}</span>
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${color.dot}`} />
+                    <span className="capitalize text-foreground">{v.category}</span>
+                    <span className="ml-auto text-xs text-muted-foreground/60">{v.values.length}</span>
                   </button>
                 )
               })}
@@ -76,15 +76,15 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
             <div className="py-1">
               <button
                 onClick={() => setSelectedCategory(null)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-600 transition-colors w-full"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-full"
               >
                 <ChevronLeft className="h-3 w-3" />
                 <span className="capitalize">{selectedCategory}</span>
               </button>
-              <div className="h-px bg-slate-100 mx-2" />
+              <div className="h-px bg-border mx-2" />
               <div className="max-h-[200px] overflow-y-auto py-1">
                 {availableValues.length === 0 ? (
-                  <div className="px-3 py-3 text-xs text-slate-400 italic text-center">All values applied</div>
+                  <div className="px-3 py-3 text-xs text-muted-foreground italic text-center">All values applied</div>
                 ) : (
                   availableValues.map((value) => (
                     <button
@@ -94,7 +94,7 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
                         setOpen(false)
                         setSelectedCategory(null)
                       }}
-                      className="flex w-full items-center px-3 py-1.5 text-sm text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors text-left capitalize"
+                      className="flex w-full items-center px-3 py-1.5 text-sm text-foreground hover:bg-primary/10 hover:text-primary transition-colors text-left capitalize"
                     >
                       {value}
                     </button>

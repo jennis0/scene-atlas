@@ -67,12 +67,12 @@ export function GalleryFilterPanel({ filters, facets, onFiltersChange }: Gallery
         <Button
           variant="outline"
           size="icon"
-          className={`relative flex-shrink-0 ${filters.length > 0 ? 'border-emerald-400 text-emerald-600' : ''}`}
+          className={`relative flex-shrink-0 ${filters.length > 0 ? 'border-primary/60 text-primary' : ''}`}
           title="Filters"
         >
           <SlidersHorizontal className="h-4 w-4" />
           {filters.length > 0 && (
-            <span className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-emerald-500 text-[10px] font-bold text-white flex items-center justify-center">
+            <span className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-primary text-[10px] font-bold text-primary-foreground flex items-center justify-center">
               {filters.length}
             </span>
           )}
@@ -87,7 +87,7 @@ export function GalleryFilterPanel({ filters, facets, onFiltersChange }: Gallery
             onFiltersChange={onFiltersChange}
           />
         ) : (
-          <p className="px-3 py-6 text-xs text-slate-400 text-center">No filters available</p>
+          <p className="px-3 py-6 text-xs text-muted-foreground text-center">No filters available</p>
         )}
       </PopoverContent>
     </Popover>

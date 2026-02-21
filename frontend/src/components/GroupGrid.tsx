@@ -9,8 +9,8 @@ interface GroupGridProps {
 }
 
 const CARD_WIDTH = 420
-const CARD_HEIGHT = 200 // 160px image area + ~40px metadata bar
-const GAP = 16
+const CARD_HEIGHT = 160 // image area only — metadata lives in gradient overlay
+const GAP = 24
 const PADDING = 16
 
 export function GroupGrid({ groups, onGroupClick }: GroupGridProps) {
@@ -47,7 +47,7 @@ export function GroupGrid({ groups, onGroupClick }: GroupGridProps) {
   })
 
   return (
-    <div ref={parentRef} className="h-full overflow-auto p-4">
+    <div ref={parentRef} className="h-full overflow-auto pt-8 px-4 pb-4">
       <div
         style={{
           height: `${rowVirtualizer.getTotalSize()}px`,
