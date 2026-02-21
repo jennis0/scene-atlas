@@ -26,13 +26,16 @@ def fts_search(db: Session, query: str, limit: int = 500) -> list[tuple[int, flo
         return []
 
     try:
-        rows = db.execute(text("""
+        rows = db.execute(
+            text("""
             SELECT rowid, bm25(image_fts) AS score
             FROM image_fts
             WHERE image_fts MATCH :query
             ORDER BY score
             LIMIT :limit
-        """), {"query": fts_query, "limit": limit}).fetchall()
+        """),
+            {"query": fts_query, "limit": limit},
+        ).fetchall()
 
         return [(int(row[0]), float(row[1])) for row in rows]
     except Exception:

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   Upload,
@@ -10,19 +10,14 @@ import {
   SkipForward,
   Merge,
   Undo2,
-  UserRound,
   FolderOpen,
   Search,
   Pencil,
 } from 'lucide-react'
 import { importApi, tagApi, imageApi } from '@/lib/api'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
 } from '@/components/ui/dialog'
 import {
   DropdownMenu,
@@ -48,6 +43,9 @@ import type { FileFilter } from './import/fileFilter'
 
 type DialogState = 'upload' | 'preview' | 'processing' | 'done'
 
+const ALL_TAB = -1
+const ALL_GROUP_ID = '__all__'
+
 interface ImportDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -64,8 +62,8 @@ export function ImportDialog({ open, onOpenChange, onActiveChange }: ImportDialo
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
   const [groups, setGroups] = useState<EditableGroupState[]>([])
-  const [activeTab, setActiveTab] = useState(0)
-  const [defaultAuthor, setDefaultAuthor] = useState('')
+  // -1 = "All" virtual tab, ≥0 = group index
+  const [activeTab, setActiveTab] = useState<number>(ALL_TAB)
   const [tagVocab, setTagVocab] = useState<ParsedTagVocab[]>([])
   const [selections, setSelections] = useState<Record<string, Set<string>>>({})
   const [fileFilter, setFileFilter] = useState<FileFilter>(EMPTY_FILTER)
@@ -74,14 +72,11 @@ export function ImportDialog({ open, onOpenChange, onActiveChange }: ImportDialo
   const [svHeadingDraft, setSvHeadingDraft] = useState('')
 
   useEffect(() => { onActiveChange?.(state === 'processing') }, [state, onActiveChange])
-
-  // Clear filter when switching tabs
   useEffect(() => { setFileFilter(EMPTY_FILTER); setEditingSvHeading(null) }, [activeTab])
 
   // Status polling during processing
   useEffect(() => {
     if (state !== 'processing' || !jobId) return
-
     const poll = async () => {
       try {
         const status = await importApi.status(jobId)
@@ -98,21 +93,16 @@ export function ImportDialog({ open, onOpenChange, onActiveChange }: ImportDialo
             }
           })
         )
-        if (
-          status.groups.length > 0 &&
-          status.groups.every((gs) => gs.status === 'completed' || gs.status === 'failed')
-        ) {
+        if (status.groups.length > 0 && status.groups.every((gs) => gs.status === 'completed' || gs.status === 'failed')) {
           setState('done')
         }
       } catch { /* ignore transient poll errors */ }
     }
-
     poll()
     const interval = setInterval(poll, 2000)
     return () => clearInterval(interval)
   }, [state, jobId])
 
-  // Fetch tag vocab + author suggestions on entering preview
   useEffect(() => {
     if (state !== 'preview') return
     if (tagVocab.length === 0) {
@@ -131,8 +121,7 @@ export function ImportDialog({ open, onOpenChange, onActiveChange }: ImportDialo
     setUploadError(null)
     setJobId(null)
     setGroups([])
-    setActiveTab(0)
-    setDefaultAuthor('')
+    setActiveTab(ALL_TAB)
     setTagVocab([])
     setSelections({})
     setFileFilter(EMPTY_FILTER)
@@ -155,10 +144,8 @@ export function ImportDialog({ open, onOpenChange, onActiveChange }: ImportDialo
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files || files.length === 0) return
-
     setUploading(true)
     setUploadError(null)
-
     try {
       const relativePaths: string[] = []
       const blobUrlMap: Record<string, string> = {}
@@ -169,10 +156,8 @@ export function ImportDialog({ open, onOpenChange, onActiveChange }: ImportDialo
         blobUrlMap[relPath] = blobUrl
         blobUrlsRef.current.push(blobUrl)
       }
-
       const response: ImportUploadResponse = await importApi.upload(files, relativePaths)
       setJobId(response.job_id)
-
       const editableGroups: EditableGroupState[] = response.variant_groups.map((vg) => ({
         id: crypto.randomUUID(),
         author: vg.author || '',
@@ -195,8 +180,9 @@ export function ImportDialog({ open, onOpenChange, onActiveChange }: ImportDialo
         failed: 0,
         total: vg.files.length,
       }))
-
       setGroups(editableGroups)
+      // Start on "All" tab if multiple groups, first group if single
+      setActiveTab(editableGroups.length > 1 ? ALL_TAB : 0)
       setState('preview')
     } catch (err: any) {
       setUploadError(err?.response?.data?.detail || err?.message || 'Upload failed')
@@ -222,6 +208,13 @@ export function ImportDialog({ open, onOpenChange, onActiveChange }: ImportDialo
     )
   }
 
+  // Used in "All" mode — finds and updates the file in whichever group owns it
+  const updateFileAnyGroup = (relativePath: string, updates: Partial<EditableFileState>) => {
+    setGroups((prev) =>
+      prev.map((g) => ({ ...g, files: g.files.map((f) => (f.relative_path === relativePath ? { ...f, ...updates } : f)) }))
+    )
+  }
+
   const mergeGroups = (sourceIndex: number, targetIndex: number) => {
     setGroups((prev) => {
       const source = prev[sourceIndex]
@@ -235,15 +228,11 @@ export function ImportDialog({ open, onOpenChange, onActiveChange }: ImportDialo
         .filter((_, i) => i !== sourceIndex)
     })
     setActiveTab((prev) => {
+      if (prev === ALL_TAB) return ALL_TAB
       if (sourceIndex < prev) return prev - 1
       if (sourceIndex === prev) return Math.min(targetIndex, groups.length - 2)
       return prev
     })
-  }
-
-  const applyDefaultAuthor = () => {
-    if (!defaultAuthor.trim()) return
-    setGroups((prev) => prev.map((g) => (g.author === '' ? { ...g, author: defaultAuthor.trim() } : g)))
   }
 
   // ── Selection helpers ─────────────────────────────────────────────
@@ -269,13 +258,14 @@ export function ImportDialog({ open, onOpenChange, onActiveChange }: ImportDialo
     setSelections((prev) => ({ ...prev, [groupId]: new Set<string>() }))
   }
 
-  // ── Bulk actions ──────────────────────────────────────────────────
+  // ── Bulk actions (groupId: null = All mode) ───────────────────────
 
-  const bulkAddTag = (groupId: string, tag: TagData) => {
-    const sel = selections[groupId] ?? new Set<string>()
+  const bulkAddTag = (groupId: string | null, tag: TagData) => {
+    const selId = groupId ?? ALL_GROUP_ID
+    const sel = selections[selId] ?? new Set<string>()
     setGroups((prev) =>
       prev.map((g) => {
-        if (g.id !== groupId) return g
+        if (groupId !== null && g.id !== groupId) return g
         return {
           ...g,
           files: g.files.map((f) => {
@@ -288,62 +278,46 @@ export function ImportDialog({ open, onOpenChange, onActiveChange }: ImportDialo
     )
   }
 
-  const bulkSetGrid = (groupId: string, value: boolean | null) => {
-    const sel = selections[groupId] ?? new Set<string>()
+  const bulkSetGrid = (groupId: string | null, value: boolean | null) => {
+    const selId = groupId ?? ALL_GROUP_ID
+    const sel = selections[selId] ?? new Set<string>()
     setGroups((prev) =>
       prev.map((g) => {
-        if (g.id !== groupId) return g
-        return {
-          ...g,
-          files: g.files.map((f) => {
-            if (!sel.has(f.relative_path) || f.excluded) return f
-            return { ...f, gridded: value }
-          }),
-        }
+        if (groupId !== null && g.id !== groupId) return g
+        return { ...g, files: g.files.map((f) => (!sel.has(f.relative_path) || f.excluded ? f : { ...f, gridded: value })) }
       })
     )
   }
 
-  const bulkSetSubVariant = (groupId: string, value: string) => {
-    const sel = selections[groupId] ?? new Set<string>()
+  const bulkSetSubVariant = (groupId: string | null, value: string) => {
+    const selId = groupId ?? ALL_GROUP_ID
+    const sel = selections[selId] ?? new Set<string>()
     const normalized = value.trim() || null
     setGroups((prev) =>
       prev.map((g) => {
-        if (g.id !== groupId) return g
-        return {
-          ...g,
-          files: g.files.map((f) => {
-            if (!sel.has(f.relative_path) || f.excluded) return f
-            return { ...f, sub_variant: normalized }
-          }),
-        }
+        if (groupId !== null && g.id !== groupId) return g
+        return { ...g, files: g.files.map((f) => (!sel.has(f.relative_path) || f.excluded ? f : { ...f, sub_variant: normalized })) }
       })
     )
   }
 
-  const bulkExclude = (groupId: string) => {
-    const sel = selections[groupId] ?? new Set<string>()
+  const bulkExclude = (groupId: string | null) => {
+    const selId = groupId ?? ALL_GROUP_ID
+    const sel = selections[selId] ?? new Set<string>()
     setGroups((prev) =>
       prev.map((g) => {
-        if (g.id !== groupId) return g
+        if (groupId !== null && g.id !== groupId) return g
         return { ...g, files: g.files.map((f) => (!sel.has(f.relative_path) ? f : { ...f, excluded: true })) }
       })
     )
-    deselectAll(groupId)
+    deselectAll(selId)
   }
 
-  // Remove the sub-variant label from all non-excluded files that have the given sub_variant,
-  // effectively merging them into the "Main" (null sub-variant) group.
   const clearSubVariantLabel = (groupId: string, subVariant: string) => {
     setGroups((prev) =>
       prev.map((g) => {
         if (g.id !== groupId) return g
-        return {
-          ...g,
-          files: g.files.map((f) =>
-            f.sub_variant === subVariant && !f.excluded ? { ...f, sub_variant: null } : f
-          ),
-        }
+        return { ...g, files: g.files.map((f) => (f.sub_variant === subVariant && !f.excluded ? { ...f, sub_variant: null } : f)) }
       })
     )
   }
@@ -352,12 +326,7 @@ export function ImportDialog({ open, onOpenChange, onActiveChange }: ImportDialo
     setGroups((prev) =>
       prev.map((g) => {
         if (g.id !== groupId) return g
-        return {
-          ...g,
-          files: g.files.map((f) =>
-            f.sub_variant === oldVal && !f.excluded ? { ...f, sub_variant: newVal.trim() || null } : f
-          ),
-        }
+        return { ...g, files: g.files.map((f) => (f.sub_variant === oldVal && !f.excluded ? { ...f, sub_variant: newVal.trim() || null } : f)) }
       })
     )
   }
@@ -385,12 +354,9 @@ export function ImportDialog({ open, onOpenChange, onActiveChange }: ImportDialo
     }
 
     const newGroups = [
-      ...groups.map((g, i) =>
-        i === sourceIndex ? { ...g, files: remainingFiles, total: remainingFiles.length } : g
-      ),
+      ...groups.map((g, i) => (i === sourceIndex ? { ...g, files: remainingFiles, total: remainingFiles.length } : g)),
       newGroup,
     ]
-
     setGroups(newGroups)
     setSelections((prev) => { const next = { ...prev }; delete next[sourceGroupId]; return next })
     setActiveTab(newGroups.length - 1)
@@ -417,7 +383,6 @@ export function ImportDialog({ open, onOpenChange, onActiveChange }: ImportDialo
     if (group.skip) return
     const confirmFiles = buildConfirmFiles(group)
     if (confirmFiles.length === 0) return
-
     updateGroup(index, { status: 'running' })
     setState('processing')
     try {
@@ -434,8 +399,6 @@ export function ImportDialog({ open, onOpenChange, onActiveChange }: ImportDialo
   const handleConfirmAll = async () => {
     if (!jobId) return
     setState('processing')
-
-    // Build the list of groups with files to submit.
     const toSubmit: { i: number; author: string; variant_group_name: string; files: ImportConfirmFile[] }[] = []
     groups.forEach((group, i) => {
       if (group.status !== 'pending' || group.skip) return
@@ -443,16 +406,10 @@ export function ImportDialog({ open, onOpenChange, onActiveChange }: ImportDialo
       if (confirmFiles.length === 0) { updateGroup(i, { status: 'completed', processed: 0 }); return }
       toSubmit.push({ i, author: group.author, variant_group_name: group.variant_group_name, files: confirmFiles })
     })
-
     if (toSubmit.length === 0) return
     toSubmit.forEach(({ i }) => updateGroup(i, { status: 'running' }))
-
-    // Single request → single Prefect flow run → CLIP loaded once for all groups.
     try {
-      await importApi.confirmAll(
-        jobId,
-        toSubmit.map(({ author, variant_group_name, files }) => ({ author, variant_group_name, files })),
-      )
+      await importApi.confirmAll(jobId, toSubmit.map(({ author, variant_group_name, files }) => ({ author, variant_group_name, files })))
     } catch {
       toSubmit.forEach(({ i }) => updateGroup(i, { status: 'failed' }))
     }
@@ -460,22 +417,29 @@ export function ImportDialog({ open, onOpenChange, onActiveChange }: ImportDialo
 
   // ── Derived values ────────────────────────────────────────────────
 
-  const activeGroup = groups[activeTab]
-  const activeSelection = selections[activeGroup?.id ?? ''] ?? new Set<string>()
-  const filteredFiles = activeGroup ? applyFileFilter(activeGroup.files, fileFilter) : []
+  const isAllTab = activeTab === ALL_TAB
+  const activeGroup = isAllTab ? null : groups[activeTab] ?? null
+  const activeGroupId = isAllTab ? ALL_GROUP_ID : (activeGroup?.id ?? '')
 
-  // All distinct non-empty sub-variants in the active group (for pickers in FileCard/FileToolbar).
-  const groupSubVariants = [...new Set(
-    activeGroup?.files.filter((f) => !f.excluded && f.sub_variant).map((f) => f.sub_variant as string) ?? []
-  )].sort()
+  // In "All" mode, show files from all pending (non-skipped) groups
+  const allPendingFiles = useMemo(() =>
+    groups.filter((g) => g.status === 'pending' && !g.skip).flatMap((g) => g.files),
+    [groups]
+  )
+  const sourceFiles = isAllTab ? allPendingFiles : (activeGroup?.files ?? [])
+  const filteredFiles = useMemo(() => applyFileFilter(sourceFiles, fileFilter), [sourceFiles, fileFilter])
+  const activeSelection = selections[activeGroupId] ?? new Set<string>()
 
-  // Group filtered files by sub_variant for gallery rendering.
-  // null sub_variant = "Main" group, always first; others sorted alphabetically.
-  const distinctSubVariants = [...new Set(filteredFiles.map((f) => f.sub_variant))].sort((a, b) => {
+  const groupSubVariants = useMemo(() => [...new Set(
+    sourceFiles.filter((f) => !f.excluded && f.sub_variant).map((f) => f.sub_variant as string)
+  )].sort(), [sourceFiles])
+
+  const distinctSubVariants = useMemo(() => [...new Set(filteredFiles.map((f) => f.sub_variant))].sort((a, b) => {
     if (a === null) return -1
     if (b === null) return 1
     return (a ?? '').localeCompare(b ?? '')
-  })
+  }), [filteredFiles])
+
   const showSubVariantHeadings = distinctSubVariants.length > 1
   const subVariantGroups = distinctSubVariants.map((sv) => ({
     subVariant: sv,
@@ -485,364 +449,464 @@ export function ImportDialog({ open, onOpenChange, onActiveChange }: ImportDialo
   const pendingGroups = groups.filter((g) => g.status === 'pending' && !g.skip)
   const completedCount = groups.filter((g) => g.status === 'completed').length
   const totalFiles = groups.reduce((sum, g) => sum + g.files.length, 0)
-  const hasEmptyAuthors = groups.some((g) => !g.skip && g.author === '' && g.status === 'pending')
+
+  // For "All" tab author field: show shared value if all groups agree, else empty
+  const allSameAuthor = useMemo(() => {
+    if (groups.length === 0) return ''
+    const first = groups[0].author
+    return groups.every((g) => g.author === first) ? first : ''
+  }, [groups])
+
+  // Determines whether the active group's import button should be disabled
+  const canImportActive = !isAllTab && activeGroup?.status === 'pending' && !!activeGroup.author && !activeGroup.files.every((f) => f.excluded)
+  const canImportAll = pendingGroups.length > 0 && pendingGroups.every((g) => !!g.author)
 
   // ── Render ────────────────────────────────────────────────────────
+
+  const isWide = state === 'preview' || state === 'processing'
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
-        className={`${state === 'preview' || state === 'processing' ? 'max-w-5xl' : 'max-w-lg'} max-h-[85vh] overflow-hidden flex flex-col`}
-        onClose={handleClose}
+        className={`${isWide ? 'max-w-5xl h-[85vh]' : 'max-w-lg'} overflow-hidden flex flex-col p-0 gap-0`}
       >
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            {state === 'upload' && <><Upload className="h-5 w-5 text-emerald-600" />Import Battlemaps</>}
-            {state === 'preview' && <><FolderOpen className="h-5 w-5 text-emerald-600" />Review Import</>}
-            {state === 'processing' && <><Loader2 className="h-5 w-5 text-emerald-600 animate-spin" />Processing…</>}
-            {state === 'done' && <><Check className="h-5 w-5 text-emerald-600" />Import Complete</>}
-          </DialogTitle>
-        </DialogHeader>
+        {/* Amber stripe */}
+        <div className="absolute top-0 inset-x-0 h-0.5 bg-gradient-to-r from-primary/70 via-primary/30 to-transparent pointer-events-none rounded-t-xl" />
 
-        {/* ── Upload ──────────────────────────────────────────────── */}
+        {/* ── Header ── */}
+        <div className="flex items-center justify-between px-6 pt-6 pb-3 shrink-0">
+          <h2 className="font-display text-lg font-semibold flex items-center gap-2 text-foreground">
+            {state === 'upload' && <><Upload className="h-5 w-5 text-primary shrink-0" />Import Battlemaps</>}
+            {state === 'preview' && <><FolderOpen className="h-5 w-5 text-primary shrink-0" />Review Import</>}
+            {state === 'processing' && <><Loader2 className="h-5 w-5 text-primary animate-spin shrink-0" />Processing…</>}
+            {state === 'done' && <><Check className="h-5 w-5 text-primary shrink-0" />Import Complete</>}
+          </h2>
+          <button
+            onClick={handleClose}
+            className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        {/* Amber rule */}
+        <div className="h-px bg-gradient-to-r from-primary/60 via-primary/20 to-transparent mx-6 shrink-0" />
+
+        {/* Author datalist */}
+        <datalist id="author-suggestions">
+          {authorSuggestions.map((a) => <option key={a} value={a} />)}
+        </datalist>
+
+        {/* ── Upload state ── */}
         {state === 'upload' && (
-          <div className="space-y-5">
+          <div className="px-6 py-5 space-y-5">
             <p className="text-sm text-muted-foreground">
               Select image files, a folder, or a .zip archive to import.
             </p>
             <div className="flex gap-3">
               <input ref={fileInputRef} type="file" multiple accept=".jpg,.jpeg,.png,.webp,.zip"
                 onChange={handleFileSelect} className="hidden" id="import-files" />
-              <Button onClick={() => fileInputRef.current?.click()} disabled={uploading}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-md border border-primary/40 bg-primary/20 text-primary hover:bg-primary/30 transition-colors disabled:opacity-50"
+              >
                 {uploading
-                  ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Analysing…</>
-                  : <><Upload className="h-4 w-4 mr-2" />Select Files</>
+                  ? <><Loader2 className="h-4 w-4 animate-spin" />Analysing…</>
+                  : <><Upload className="h-4 w-4" />Select Files</>
                 }
-              </Button>
+              </button>
               <input type="file"
                 // @ts-expect-error webkitdirectory is not in HTMLInputElement type
                 webkitdirectory="" multiple onChange={handleFileSelect} className="hidden" id="import-folder" />
-              <Button variant="outline" onClick={() => document.getElementById('import-folder')?.click()} disabled={uploading}>
-                <FolderOpen className="h-4 w-4 mr-2" />Select Folder
-              </Button>
+              <button
+                onClick={() => document.getElementById('import-folder')?.click()}
+                disabled={uploading}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-md border border-border bg-secondary text-muted-foreground hover:text-foreground hover:border-border/80 transition-colors disabled:opacity-50"
+              >
+                <FolderOpen className="h-4 w-4" />Select Folder
+              </button>
             </div>
             {uploadError && (
-              <div className="flex items-center gap-2 text-destructive text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                <AlertCircle className="h-4 w-4 flex-shrink-0" />{uploadError}
+              <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2">
+                <AlertCircle className="h-4 w-4 shrink-0" />{uploadError}
               </div>
             )}
           </div>
         )}
 
-        {/* ── Preview / Processing ─────────────────────────────────── */}
+        {/* ── Preview / Processing — two-column layout ── */}
         {(state === 'preview' || state === 'processing') && groups.length > 0 && (
-          <div className="flex flex-col gap-3 min-h-0 flex-1">
-            {/* Author datalist for autocomplete */}
-            <datalist id="author-suggestions">
-              {authorSuggestions.map((a) => <option key={a} value={a} />)}
-            </datalist>
+          <div className="flex min-h-0 flex-1 overflow-hidden">
 
-            <p className="text-sm text-slate-500 flex-shrink-0">
-              {totalFiles} files in {groups.length} group{groups.length !== 1 ? 's' : ''}. Review metadata, then import.
-            </p>
-
-            {/* Default author bar */}
-            {hasEmptyAuthors && (
-              <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-2.5 flex-shrink-0">
-                <UserRound className="h-4 w-4 text-amber-500 flex-shrink-0" />
-                <span className="text-sm text-amber-700 flex-shrink-0">Missing author</span>
-                <Input
-                  value={defaultAuthor}
-                  onChange={(e) => setDefaultAuthor(e.target.value)}
-                  placeholder="Enter default author…"
-                  list="author-suggestions"
-                  className="h-8 text-sm max-w-[200px] bg-white"
-                />
-                <Button size="sm" variant="outline" onClick={applyDefaultAuthor}
-                  disabled={!defaultAuthor.trim()} className="flex-shrink-0 h-8 text-xs">
-                  Apply to All
-                </Button>
-              </div>
-            )}
-
-            {/* Tab bar */}
+            {/* ── Left: groups nav (only when >1 group) ── */}
             {groups.length > 1 && (
-              <div className="flex items-center gap-1 border-b border-slate-200 overflow-x-auto flex-shrink-0 -mx-1 px-1">
-                {groups.map((g, i) => (
-                  <div key={g.id} className="flex items-center">
-                    <button
-                      onClick={() => setActiveTab(i)}
-                      className={`px-3 py-2 text-sm whitespace-nowrap border-b-2 transition-all flex items-center gap-1.5
-                        ${i === activeTab ? 'border-emerald-600 text-emerald-700 font-medium' : 'border-transparent text-slate-400 hover:text-slate-600'}
-                        ${g.skip ? 'opacity-40' : ''}`}
-                    >
-                      {g.status === 'completed' && <Check className="h-3 w-3 text-emerald-500" />}
-                      {g.status === 'running' && <Loader2 className="h-3 w-3 animate-spin text-emerald-500" />}
-                      {g.status === 'failed' && <AlertCircle className="h-3 w-3 text-red-400" />}
-                      {g.skip && <SkipForward className="h-3 w-3" />}
-                      <span className={g.skip ? 'line-through' : ''}>{g.variant_group_name}</span>
-                      <span className="text-[11px] text-slate-300 font-normal">
-                        {g.files.filter((f) => !f.excluded).length}
-                      </span>
-                    </button>
+              <div className="w-[190px] shrink-0 border-r border-border/30 flex flex-col overflow-hidden bg-muted/20">
+                <div className="px-3 py-2.5 border-b border-border/30 shrink-0">
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-semibold">
+                    {groups.length} groups · {totalFiles} files
+                  </span>
+                </div>
 
-                    {g.status === 'pending' && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button className="p-0.5 rounded hover:bg-slate-100 transition-colors -ml-0.5">
-                            <MoreHorizontal className="h-3.5 w-3.5 text-slate-300" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start">
-                          <DropdownMenuItem onClick={() => updateGroup(i, { skip: !g.skip })}>
-                            <SkipForward className="h-4 w-4 mr-2" />
-                            {g.skip ? 'Unskip Group' : 'Skip Group'}
-                          </DropdownMenuItem>
-                          {groups.length > 1 && (
-                            <>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuLabel className="text-xs text-slate-400">Merge into…</DropdownMenuLabel>
-                              {groups.map((target, j) =>
-                                j !== i ? (
-                                  <DropdownMenuItem key={target.id} onClick={() => mergeGroups(i, j)}>
-                                    <Merge className="h-4 w-4 mr-2" />{target.variant_group_name}
-                                  </DropdownMenuItem>
-                                ) : null
-                              )}
-                            </>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
+                {/* Scrollable group list */}
+                <div className="flex-1 overflow-y-auto py-1">
+                  {/* "All" entry */}
+                  <button
+                    onClick={() => setActiveTab(ALL_TAB)}
+                    className={`w-full flex items-center gap-2 px-3 py-2 text-left transition-colors border-l-2 ${
+                      isAllTab
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+                    }`}
+                  >
+                    <span className="font-display text-[13px] font-semibold flex-1">All</span>
+                    <span className="text-[11px] text-muted-foreground/40 tabular-nums shrink-0">
+                      {groups.reduce((s, g) => s + g.files.filter((f) => !f.excluded).length, 0)}
+                    </span>
+                  </button>
+                  <div className="h-px bg-border/30 mx-3 my-0.5" />
+
+                  {groups.map((g, i) => (
+                    <div key={g.id} className="flex items-center group/nav">
+                      <button
+                        onClick={() => setActiveTab(i)}
+                        className={`flex-1 flex items-center gap-2 px-3 py-2 text-left transition-colors border-l-2 min-w-0 ${
+                          activeTab === i
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+                        } ${g.skip ? 'opacity-40' : ''}`}
+                      >
+                        <span className="shrink-0 w-3 flex justify-center">
+                          {g.status === 'completed' && <Check className="h-3 w-3" />}
+                          {g.status === 'running' && <Loader2 className="h-3 w-3 animate-spin" />}
+                          {g.status === 'failed' && <AlertCircle className="h-3 w-3 text-destructive" />}
+                          {g.status === 'pending' && !g.skip && <span className="h-1.5 w-1.5 rounded-full bg-current opacity-50 inline-block" />}
+                          {g.skip && <SkipForward className="h-3 w-3" />}
+                        </span>
+                        <span className={`flex-1 text-[12px] truncate ${g.skip ? 'line-through' : ''}`}>
+                          {g.variant_group_name}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground/40 tabular-nums shrink-0">
+                          {g.files.filter((f) => !f.excluded).length}
+                        </span>
+                      </button>
+                      {g.status === 'pending' && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button className="opacity-0 group-hover/nav:opacity-100 p-1.5 text-muted-foreground/40 hover:text-muted-foreground transition-all shrink-0">
+                              <MoreHorizontal className="h-3.5 w-3.5" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" side="right">
+                            <DropdownMenuItem onClick={() => updateGroup(i, { skip: !g.skip })}>
+                              <SkipForward className="h-4 w-4 mr-2" />
+                              {g.skip ? 'Unskip Group' : 'Skip Group'}
+                            </DropdownMenuItem>
+                            {groups.length > 1 && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuLabel className="text-xs text-muted-foreground">Merge into…</DropdownMenuLabel>
+                                {groups.map((target, j) =>
+                                  j !== i ? (
+                                    <DropdownMenuItem key={target.id} onClick={() => mergeGroups(i, j)}>
+                                      <Merge className="h-4 w-4 mr-2" />{target.variant_group_name}
+                                    </DropdownMenuItem>
+                                  ) : null
+                                )}
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Import All button at bottom of sidebar */}
+                {pendingGroups.length > 1 && state === 'preview' && (
+                  <div className="p-2.5 border-t border-border/30 shrink-0">
+                    <button
+                      onClick={handleConfirmAll}
+                      disabled={!canImportAll}
+                      className="w-full text-[12px] py-1.5 rounded border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Import All ({pendingGroups.length})
+                    </button>
                   </div>
-                ))}
+                )}
               </div>
             )}
 
-            {/* Active group */}
-            {activeGroup && (
-              <div className="flex flex-col gap-3 min-h-0 flex-1">
-                {activeGroup.skip ? (
-                  <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-3">
-                    <SkipForward className="h-10 w-10 text-slate-200" />
-                    <p className="text-sm font-medium">Group skipped</p>
-                    <button onClick={() => updateGroup(activeTab, { skip: false })}
-                      className="inline-flex items-center gap-1.5 text-sm text-emerald-600 hover:text-emerald-700 font-medium transition-colors">
-                      <Undo2 className="h-3.5 w-3.5" />Undo
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    {/* Group metadata */}
-                    <div className="grid grid-cols-2 gap-3 flex-shrink-0">
-                      <div>
-                        <label className="text-[11px] font-semibold text-slate-400 mb-1 block uppercase tracking-wider">Author</label>
-                        <Input
-                          value={activeGroup.author}
-                          onChange={(e) => updateGroup(activeTab, { author: e.target.value })}
-                          placeholder="Author name"
-                          list="author-suggestions"
-                          disabled={activeGroup.status !== 'pending'}
-                          className={!activeGroup.author ? 'border-amber-300 focus-visible:ring-amber-400' : ''}
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[11px] font-semibold text-slate-400 mb-1 block uppercase tracking-wider">Variant Group</label>
-                        <Input
-                          value={activeGroup.variant_group_name}
-                          onChange={(e) => updateGroup(activeTab, { variant_group_name: e.target.value })}
-                          placeholder="Variant group name"
-                          disabled={activeGroup.status !== 'pending'}
-                        />
-                      </div>
-                    </div>
+            {/* ── Right: active group content ── */}
+            <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
 
-                    {/* File toolbar */}
-                    {activeGroup.status === 'pending' && (
+              {/* Group metadata */}
+              <div className="px-5 pt-4 pb-3 border-b border-border/30 shrink-0">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1.5 block font-semibold">
+                      Author
+                    </label>
+                    <input
+                      value={isAllTab ? allSameAuthor : (activeGroup?.author ?? '')}
+                      onChange={(e) => {
+                        if (isAllTab) {
+                          setGroups((prev) => prev.map((g) => ({ ...g, author: e.target.value })))
+                        } else {
+                          updateGroup(activeTab, { author: e.target.value })
+                        }
+                      }}
+                      placeholder={isAllTab && !allSameAuthor ? 'Multiple — type to set for all groups' : 'Author name'}
+                      list="author-suggestions"
+                      disabled={!isAllTab && activeGroup?.status !== 'pending'}
+                      className={`w-full h-8 px-3 text-sm rounded border bg-secondary text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                        !isAllTab && activeGroup?.author === '' && activeGroup?.status === 'pending'
+                          ? 'border-primary/50'
+                          : 'border-border'
+                      }`}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1.5 block font-semibold">
+                      Group Name
+                    </label>
+                    <input
+                      value={isAllTab ? '' : (activeGroup?.variant_group_name ?? '')}
+                      onChange={(e) => !isAllTab && updateGroup(activeTab, { variant_group_name: e.target.value })}
+                      placeholder={isAllTab ? '— (varies by group)' : 'Variant group name'}
+                      disabled={isAllTab || (activeGroup?.status !== 'pending')}
+                      className="w-full h-8 px-3 text-sm rounded border border-border bg-secondary text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Skip state placeholder */}
+              {!isAllTab && activeGroup?.skip ? (
+                <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-3">
+                  <SkipForward className="h-10 w-10 text-muted-foreground/20" />
+                  <p className="text-sm font-medium">Group skipped</p>
+                  <button
+                    onClick={() => updateGroup(activeTab, { skip: false })}
+                    className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary font-medium transition-colors"
+                  >
+                    <Undo2 className="h-3.5 w-3.5" />Undo
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {/* File toolbar */}
+                  {(isAllTab || activeGroup?.status === 'pending') && (
+                    <div className="px-5">
                       <FileToolbar
-                        files={activeGroup.files}
+                        files={sourceFiles}
                         filteredFiles={filteredFiles}
                         selection={activeSelection}
                         filter={fileFilter}
                         vocab={tagVocab}
                         onFilterChange={setFileFilter}
-                        onSelectAll={() => selectAllVisible(activeGroup.id, filteredFiles)}
-                        onDeselectAll={() => deselectAll(activeGroup.id)}
-                        onBulkAddTag={(tag) => bulkAddTag(activeGroup.id, tag)}
-                        onBulkSetGrid={(v) => bulkSetGrid(activeGroup.id, v)}
-                        onBulkSetSubVariant={(v) => bulkSetSubVariant(activeGroup.id, v)}
-                        onBulkExclude={() => bulkExclude(activeGroup.id)}
-                        onMoveToNewGroup={() => moveToNewGroup(activeGroup.id)}
+                        onSelectAll={() => selectAllVisible(activeGroupId, filteredFiles)}
+                        onDeselectAll={() => deselectAll(activeGroupId)}
+                        onBulkAddTag={(tag) => bulkAddTag(isAllTab ? null : activeGroupId, tag)}
+                        onBulkSetGrid={(v) => bulkSetGrid(isAllTab ? null : activeGroupId, v)}
+                        onBulkSetSubVariant={(v) => bulkSetSubVariant(isAllTab ? null : activeGroupId, v)}
+                        onBulkExclude={() => bulkExclude(isAllTab ? null : activeGroupId)}
+                        onMoveToNewGroup={!isAllTab && activeGroup?.id ? () => moveToNewGroup(activeGroup.id) : undefined}
                       />
-                    )}
+                    </div>
+                  )}
 
-                    {/* File gallery */}
-                    <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-                      {showSubVariantHeadings ? (
-                        subVariantGroups.map((svGroup) => {
-                          const nonExcluded = svGroup.files.filter((f) => !f.excluded).length
-                          return (
-                            <div key={svGroup.subVariant ?? '__main__'} className="mb-1">
-                              {/* Sub-variant heading */}
-                              <div className="flex items-center gap-2 py-1.5 px-1 sticky top-0 bg-white z-10">
-                                {svGroup.subVariant !== null && editingSvHeading === svGroup.subVariant ? (
-                                  <input
-                                    value={svHeadingDraft}
-                                    autoFocus
-                                    onChange={(e) => setSvHeadingDraft(e.target.value)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') { renameSubVariant(activeGroup.id, svGroup.subVariant!, svHeadingDraft); setEditingSvHeading(null) }
-                                      if (e.key === 'Escape') setEditingSvHeading(null)
-                                    }}
-                                    onBlur={() => { renameSubVariant(activeGroup.id, svGroup.subVariant!, svHeadingDraft); setEditingSvHeading(null) }}
-                                    className="text-[11px] font-semibold text-slate-600 border-b border-emerald-300 bg-transparent outline-none uppercase tracking-wider capitalize"
-                                  />
-                                ) : (
-                                  <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider capitalize whitespace-nowrap">
-                                    {svGroup.subVariant ?? 'Main'}
-                                  </span>
-                                )}
-                                {activeGroup.status === 'pending' && svGroup.subVariant !== null && editingSvHeading !== svGroup.subVariant && (
-                                  <button
-                                    onClick={() => { setSvHeadingDraft(svGroup.subVariant!); setEditingSvHeading(svGroup.subVariant!) }}
-                                    className="text-slate-300 hover:text-slate-500 transition-colors"
-                                    title={`Rename "${svGroup.subVariant}"`}
-                                  >
-                                    <Pencil className="h-3 w-3" />
-                                  </button>
-                                )}
-                                <div className="flex-1 h-px bg-slate-100" />
-                                <span className="text-[11px] text-slate-300 tabular-nums">{nonExcluded}</span>
-                                {activeGroup.status === 'pending' && svGroup.subVariant !== null && editingSvHeading !== svGroup.subVariant && (
-                                  <button
-                                    onClick={() => clearSubVariantLabel(activeGroup.id, svGroup.subVariant!)}
-                                    className="text-slate-300 hover:text-amber-500 transition-colors"
-                                    title={`Remove "${svGroup.subVariant}" label from all files`}
-                                  >
-                                    <X className="h-3.5 w-3.5" />
-                                  </button>
-                                )}
-                              </div>
-                              <div className="space-y-2 pb-2">
-                                {svGroup.files.map((file) => (
-                                  <FileCard
-                                    key={file.relative_path}
-                                    file={file}
-                                    jobId={jobId!}
-                                    vocab={tagVocab}
-                                    existingSubVariants={groupSubVariants}
-                                    selected={activeSelection.has(file.relative_path)}
-                                    onToggleSelect={() => toggleFileSelection(activeGroup.id, file.relative_path)}
-                                    onUpdate={(updates) => updateFile(activeTab, file.relative_path, updates)}
-                                    disabled={activeGroup.status !== 'pending'}
-                                  />
-                                ))}
-                              </div>
+                  {/* File gallery */}
+                  <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
+                    {showSubVariantHeadings ? (
+                      subVariantGroups.map((svGroup) => {
+                        const nonExcluded = svGroup.files.filter((f) => !f.excluded).length
+                        const groupOwner = !isAllTab ? activeGroup : null
+                        const isEditing = !isAllTab && editingSvHeading === svGroup.subVariant && svGroup.subVariant !== null
+                        return (
+                          <div key={svGroup.subVariant ?? '__main__'} className="mb-2">
+                            <div className="flex items-center gap-2 py-1.5 mt-2 first:mt-0">
+                              {isEditing ? (
+                                <input
+                                  value={svHeadingDraft}
+                                  autoFocus
+                                  onChange={(e) => setSvHeadingDraft(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') { renameSubVariant(activeGroup!.id, svGroup.subVariant!, svHeadingDraft); setEditingSvHeading(null) }
+                                    if (e.key === 'Escape') setEditingSvHeading(null)
+                                  }}
+                                  onBlur={() => { renameSubVariant(activeGroup!.id, svGroup.subVariant!, svHeadingDraft); setEditingSvHeading(null) }}
+                                  className="text-[11px] font-semibold text-foreground border-b border-primary/70 bg-transparent outline-none uppercase tracking-wider capitalize"
+                                />
+                              ) : (
+                                <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider capitalize whitespace-nowrap">
+                                  {svGroup.subVariant ?? 'Main'}
+                                </span>
+                              )}
+                              {groupOwner?.status === 'pending' && svGroup.subVariant !== null && !isEditing && (
+                                <button
+                                  onClick={() => { setSvHeadingDraft(svGroup.subVariant!); setEditingSvHeading(svGroup.subVariant!) }}
+                                  className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </button>
+                              )}
+                              <div className="flex-1 h-px bg-border/30" />
+                              <span className="text-[11px] text-muted-foreground/40 tabular-nums">{nonExcluded}</span>
+                              {groupOwner?.status === 'pending' && svGroup.subVariant !== null && !isEditing && (
+                                <button
+                                  onClick={() => clearSubVariantLabel(activeGroup!.id, svGroup.subVariant!)}
+                                  className="text-muted-foreground/40 hover:text-primary transition-colors"
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                </button>
+                              )}
                             </div>
-                          )
-                        })
-                      ) : (
-                        <div className="space-y-2">
-                          {filteredFiles.map((file) => (
-                            <FileCard
-                              key={file.relative_path}
-                              file={file}
-                              jobId={jobId!}
-                              vocab={tagVocab}
-                              existingSubVariants={groupSubVariants}
-                              selected={activeSelection.has(file.relative_path)}
-                              onToggleSelect={() => toggleFileSelection(activeGroup.id, file.relative_path)}
-                              onUpdate={(updates) => updateFile(activeTab, file.relative_path, updates)}
-                              disabled={activeGroup.status !== 'pending'}
+                            <div className="space-y-1.5 pb-2">
+                              {svGroup.files.map((file) => (
+                                <FileCard
+                                  key={file.relative_path}
+                                  file={file}
+                                  jobId={jobId!}
+                                  vocab={tagVocab}
+                                  existingSubVariants={groupSubVariants}
+                                  selected={activeSelection.has(file.relative_path)}
+                                  onToggleSelect={() => toggleFileSelection(activeGroupId, file.relative_path)}
+                                  onUpdate={(updates) =>
+                                    isAllTab
+                                      ? updateFileAnyGroup(file.relative_path, updates)
+                                      : updateFile(activeTab, file.relative_path, updates)
+                                  }
+                                  disabled={!isAllTab && activeGroup?.status !== 'pending'}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })
+                    ) : (
+                      <div className="space-y-1.5">
+                        {filteredFiles.map((file) => (
+                          <FileCard
+                            key={file.relative_path}
+                            file={file}
+                            jobId={jobId!}
+                            vocab={tagVocab}
+                            existingSubVariants={groupSubVariants}
+                            selected={activeSelection.has(file.relative_path)}
+                            onToggleSelect={() => toggleFileSelection(activeGroupId, file.relative_path)}
+                            onUpdate={(updates) =>
+                              isAllTab
+                                ? updateFileAnyGroup(file.relative_path, updates)
+                                : updateFile(activeTab, file.relative_path, updates)
+                            }
+                            disabled={!isAllTab && activeGroup?.status !== 'pending'}
+                          />
+                        ))}
+                      </div>
+                    )}
+                    {filteredFiles.length === 0 && (fileFilter.text || fileFilter.active.length > 0) && (
+                      <div className="flex flex-col items-center py-12 text-muted-foreground gap-2">
+                        <Search className="h-8 w-8 text-muted-foreground/20" />
+                        <p className="text-sm">No files match the current filter</p>
+                      </div>
+                    )}
+                    {filteredFiles.length === 0 && !fileFilter.text && fileFilter.active.length === 0 && isAllTab && (
+                      <div className="flex flex-col items-center py-12 text-muted-foreground gap-2">
+                        <p className="text-sm">All groups are complete or skipped</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Per-group status / footer */}
+                  {!isAllTab && activeGroup && (
+                    <div className="px-5 py-3 border-t border-border/30 shrink-0">
+                      {activeGroup.status === 'running' && (
+                        <div className="flex flex-col gap-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                              <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />Processing…
+                            </div>
+                            <span className="text-xs tabular-nums text-muted-foreground">
+                              {activeGroup.processed} / {activeGroup.total}
+                            </span>
+                          </div>
+                          <div className="w-full bg-secondary rounded-full h-1 overflow-hidden">
+                            <div
+                              className="bg-primary/70 h-full rounded-full transition-all duration-500 ease-out"
+                              style={{ width: `${activeGroup.total > 0 ? Math.round((activeGroup.processed / activeGroup.total) * 100) : 0}%` }}
                             />
-                          ))}
+                          </div>
                         </div>
                       )}
-                      {filteredFiles.length === 0 && (fileFilter.text || fileFilter.active.length > 0) && (
-                        <div className="flex flex-col items-center py-12 text-slate-400 gap-2">
-                          <Search className="h-8 w-8 text-slate-200" />
-                          <p className="text-sm">No files match the current filter</p>
+                      {activeGroup.status === 'completed' && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <Check className="h-4 w-4 text-primary" />
+                          <span className="text-primary">{activeGroup.processed} images processed</span>
+                          {activeGroup.failed > 0 && <span className="text-destructive">({activeGroup.failed} failed)</span>}
+                        </div>
+                      )}
+                      {activeGroup.status === 'failed' && (
+                        <div className="flex items-center gap-2 text-sm text-destructive">
+                          <AlertCircle className="h-4 w-4" />Import failed
+                        </div>
+                      )}
+                      {activeGroup.status === 'pending' && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-muted-foreground">
+                            {activeGroup.files.filter((f) => !f.excluded).length} of {activeGroup.files.length} files
+                          </span>
+                          <button
+                            onClick={() => handleConfirmGroup(activeTab)}
+                            disabled={!canImportActive}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded border border-primary/40 bg-primary/20 text-primary hover:bg-primary/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            Import Group
+                            <span className="opacity-60 text-xs">({activeGroup.files.filter((f) => !f.excluded).length})</span>
+                          </button>
                         </div>
                       )}
                     </div>
+                  )}
 
-                    {/* Status bar */}
-                    {activeGroup.status === 'running' && (
-                      <div className="flex flex-col gap-2 flex-shrink-0 pt-3 border-t border-slate-100">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-1.5 text-sm text-slate-500">
-                            <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />Processing…
-                          </div>
-                          <span className="text-xs tabular-nums text-slate-400">
-                            {activeGroup.processed} / {activeGroup.total}
-                          </span>
-                        </div>
-                        <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                          <div
-                            className="bg-emerald-500 h-full rounded-full transition-all duration-500 ease-out"
-                            style={{ width: `${activeGroup.total > 0 ? Math.round((activeGroup.processed / activeGroup.total) * 100) : 0}%` }}
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    {activeGroup.status === 'completed' && (
-                      <div className="flex items-center gap-2 text-sm flex-shrink-0 pt-3 border-t border-slate-100">
-                        <Check className="h-4 w-4 text-emerald-500" />
-                        <span className="text-emerald-700">{activeGroup.processed} images processed</span>
-                        {activeGroup.failed > 0 && <span className="text-red-500">({activeGroup.failed} failed)</span>}
-                      </div>
-                    )}
-
-                    {activeGroup.status === 'failed' && (
-                      <div className="flex items-center gap-2 text-sm text-red-500 flex-shrink-0 pt-3 border-t border-slate-100">
-                        <AlertCircle className="h-4 w-4" />Import failed
-                      </div>
-                    )}
-
-                    {/* Actions */}
-                    {activeGroup.status === 'pending' && (
-                      <div className="flex items-center justify-between flex-shrink-0 pt-3 border-t border-slate-100">
-                        <span className="text-xs text-slate-400">
-                          {activeGroup.files.filter((f) => !f.excluded).length} of {activeGroup.files.length} files selected
-                        </span>
-                        <div className="flex gap-2">
-                          {groups.length > 1 && pendingGroups.length > 1 && (
-                            <Button variant="outline" size="sm" onClick={handleConfirmAll}
-                              disabled={pendingGroups.some((g) => !g.author)}>
-                              Import All ({pendingGroups.length} groups)
-                            </Button>
-                          )}
-                          <Button size="sm" onClick={() => handleConfirmGroup(activeTab)}
-                            disabled={!activeGroup.author || activeGroup.files.every((f) => f.excluded)}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white">
-                            Import Group
-                            <span className="ml-1 opacity-70">({activeGroup.files.filter((f) => !f.excluded).length})</span>
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
+                  {/* All-tab footer */}
+                  {isAllTab && state === 'preview' && (
+                    <div className="px-5 py-3 border-t border-border/30 shrink-0 flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">
+                        {groups.reduce((s, g) => s + g.files.filter((f) => !f.excluded).length, 0)} files across {pendingGroups.length} pending groups
+                      </span>
+                      <button
+                        onClick={handleConfirmAll}
+                        disabled={!canImportAll}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded border border-primary/40 bg-primary/20 text-primary hover:bg-primary/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        Import All ({pendingGroups.length} groups)
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         )}
 
-        {/* ── Done ────────────────────────────────────────────────── */}
+        {/* ── Done ── */}
         {state === 'done' && (
-          <div className="flex flex-col items-center py-8 gap-4">
-            <div className="h-14 w-14 rounded-2xl bg-emerald-50 flex items-center justify-center">
-              <Check className="h-7 w-7 text-emerald-600" />
+          <div className="flex flex-col items-center py-10 gap-4 px-6">
+            <div className="h-14 w-14 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+              <Check className="h-7 w-7 text-primary" />
             </div>
             <div className="text-center">
-              <p className="text-lg font-semibold text-slate-800">All done</p>
-              <p className="text-sm text-slate-500 mt-1">
+              <p className="font-display text-xl font-semibold text-foreground">All done</p>
+              <p className="text-sm text-muted-foreground mt-1">
                 {completedCount} group{completedCount !== 1 ? 's' : ''} imported successfully.
               </p>
             </div>
-            <Button onClick={handleClose} className="bg-emerald-600 hover:bg-emerald-700 text-white">Close</Button>
+            <button
+              onClick={handleClose}
+              className="px-4 py-2 text-sm rounded border border-primary/40 bg-primary/20 text-primary hover:bg-primary/30 transition-colors"
+            >
+              Close
+            </button>
           </div>
         )}
       </DialogContent>

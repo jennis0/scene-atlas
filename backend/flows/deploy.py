@@ -62,17 +62,17 @@ def main():
 
     # write_new_embeddings: one-off flow to backfill Qdrant with CLIP embeddings for existing images
     write_new_embeddings.from_source(
-        source=PROJECT_ROOT,
-        entrypoint = "backend/flows/write_new_embeddings.py:write_new_embeddings"
+        source=PROJECT_ROOT, entrypoint="backend/flows/write_new_embeddings.py:write_new_embeddings"
     ).deploy(
         name="write-new-embeddings-deployment",
-        work_pool_name=settings.prefect_work_pool,  
+        work_pool_name=settings.prefect_work_pool,
     )
     print(f"  Registered: {settings.process_job_deployment}/backfill-embeddings-job")
-    
+
     print()
     print("Deployments registered successfully.")
     print(f"Start a worker: uv run prefect worker start --pool {WORK_POOL}")
+
 
 if __name__ == "__main__":
     main()

@@ -11,6 +11,7 @@ try:
     print("Testing imports...")
     from backend.app.main import app
     from backend.app.config import settings
+
     print("[OK] Imports successful")
     print(f"[OK] App: {settings.app_name}")
     print(f"[OK] Database URL: {settings.database_url}")
@@ -39,5 +40,6 @@ try:
 except Exception as e:
     print(f"\n[ERROR] Error during startup:")
     import traceback
+
     traceback.print_exc()
     sys.exit(1)

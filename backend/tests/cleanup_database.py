@@ -24,6 +24,7 @@ print("[OK] All tables recreated")
 
 # Seed tag categories
 from backend.app.models import seed_tag_categories
+
 SessionLocal = get_session_local(engine)
 session = SessionLocal()
 try:

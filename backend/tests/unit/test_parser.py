@@ -17,35 +17,67 @@ from backend.app.services.battlemap_parser import BattlemapParser
 SAMPLE_TAG_CATEGORIES = [
     {
         "name": "lighting",
-        "common_values": json.dumps([
-            "night", "day",
-            {"value": "dawn", "aliases": ["sunrise"]},
-            {"value": "dusk", "aliases": ["sunset", "twilight"]},
-            "dark", "bright", "dim", "torchlit", "moonlit", "firelit",
-        ]),
+        "common_values": json.dumps(
+            [
+                "night",
+                "day",
+                {"value": "dawn", "aliases": ["sunrise"]},
+                {"value": "dusk", "aliases": ["sunset", "twilight"]},
+                "dark",
+                "bright",
+                "dim",
+                "torchlit",
+                "moonlit",
+                "firelit",
+            ]
+        ),
     },
     {
         "name": "season",
-        "common_values": json.dumps([
-            "spring", "summer", "autumn", "winter",
-            {"value": "autumn", "aliases": ["fall"]},
-        ]),
+        "common_values": json.dumps(
+            [
+                "spring",
+                "summer",
+                "autumn",
+                "winter",
+                {"value": "autumn", "aliases": ["fall"]},
+            ]
+        ),
     },
     {
         "name": "weather",
-        "common_values": json.dumps([
-            {"value": "rain", "aliases": ["rainy", "raining"]},
-            {"value": "snow", "aliases": ["snowy", "snowing"]},
-            "fog", "storm", "clear",
-        ]),
+        "common_values": json.dumps(
+            [
+                {"value": "rain", "aliases": ["rainy", "raining"]},
+                {"value": "snow", "aliases": ["snowy", "snowing"]},
+                "fog",
+                "storm",
+                "clear",
+            ]
+        ),
     },
     {
         "name": "terrain",
-        "common_values": json.dumps([
-            "forest", "desert", "mountain", "swamp", "cave", "ocean",
-            "river", "lake", "island", "coast", "jungle", "tundra",
-            "plains", "hills", "volcano", "ruins",
-        ]),
+        "common_values": json.dumps(
+            [
+                "forest",
+                "desert",
+                "mountain",
+                "swamp",
+                "cave",
+                "ocean",
+                "river",
+                "lake",
+                "island",
+                "coast",
+                "jungle",
+                "tundra",
+                "plains",
+                "hills",
+                "volcano",
+                "ruins",
+            ]
+        ),
     },
 ]
 

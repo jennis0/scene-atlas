@@ -14,6 +14,7 @@ from backend.flows import process_single_image, bulk_image_ingestion
 from backend.app.config import settings
 from backend.tests import FIXTURES_DIR
 
+
 def test_single_image(images_dir: Path = FIXTURES_DIR):
     """Test processing a single image."""
     image_files = list(images_dir.glob("**/*.jpg")) + list(images_dir.glob("**/*.png"))
@@ -42,6 +43,7 @@ def test_single_image(images_dir: Path = FIXTURES_DIR):
         print(f"        {result.get('error', 'Unknown error')}")
         return False
 
+
 def test_bulk_ingestion(images_dir: Path = FIXTURES_DIR):
     """Test bulk ingestion."""
 
@@ -54,13 +56,14 @@ def test_bulk_ingestion(images_dir: Path = FIXTURES_DIR):
     print(f"Successfully processed: {result['successful']}")
     print(f"Failed: {result['failed']}")
 
-    if result['failed'] > 0:
+    if result["failed"] > 0:
         print("\nFailed images:")
-        for r in result['results']:
-            if r['status'] == 'failed':
+        for r in result["results"]:
+            if r["status"] == "failed":
                 print(f"  - {r['filename']}: {r.get('error', 'Unknown error')}")
 
-    return result['successful'] > 0
+    return result["successful"] > 0
+
 
 def check_database():
     """Check what's in the database."""
@@ -91,6 +94,7 @@ def check_database():
     finally:
         session.close()
 
+
 if __name__ == "__main__":
     print("=== Battlemap Image Ingestion Test ===\n")
 
@@ -99,11 +103,11 @@ if __name__ == "__main__":
 
     # Check if images directory has any images
     if test_single_image(source_dir):
-        print("\n" + "="*50)
+        print("\n" + "=" * 50)
         print("\nDo you want to process all images? (y/n): ", end="")
         response = input().lower().strip()
 
-        if response == 'y':
+        if response == "y":
             test_bulk_ingestion(source_dir)
 
     # Check database contents

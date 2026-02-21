@@ -52,6 +52,7 @@ logger = logging.getLogger(__name__)
 # Helper: Build parser with tag vocabulary
 # ---------------------------------------------------------------------------
 
+
 def _build_parser() -> BattlemapParser:
     """Create a BattlemapParser with tag vocabulary loaded from DB."""
     engine = get_engine(settings.database_url)
@@ -59,10 +60,7 @@ def _build_parser() -> BattlemapParser:
     db = SessionLocal()
     try:
         categories = db.query(TagCategory).all()
-        cat_dicts = [
-            {"name": c.name, "common_values": c.common_values}
-            for c in categories
-        ]
+        cat_dicts = [{"name": c.name, "common_values": c.common_values} for c in categories]
         return BattlemapParser(tag_categories=cat_dicts)
     finally:
         db.close()
@@ -72,14 +70,13 @@ def _build_parser() -> BattlemapParser:
 # Helper: Save one image dict to DB (shared logic for single and batch)
 # ---------------------------------------------------------------------------
 
+
 def _save_image_to_db(db: Session, image_data: dict) -> int:
     """Save one image and its tags/colors to the database within an existing session.
 
     Returns the image ID. Does NOT commit — caller must commit.
     """
-    existing = db.query(Image).filter(
-        Image.storage_key == image_data["storage_key"]
-    ).first()
+    existing = db.query(Image).filter(Image.storage_key == image_data["storage_key"]).first()
 
     if existing:
         logger.info(f"Image already exists: {image_data['storage_key']}, updating...")
@@ -112,10 +109,14 @@ def _save_image_to_db(db: Session, image_data: dict) -> int:
     variant_group_name = image_data.get("variant_group_name")
     author = image_data.get("author")
     if variant_group_name:
-        vg = db.query(VariantGroup).filter(
-            VariantGroup.base_name == variant_group_name,
-            VariantGroup.author == author,
-        ).first()
+        vg = (
+            db.query(VariantGroup)
+            .filter(
+                VariantGroup.base_name == variant_group_name,
+                VariantGroup.author == author,
+            )
+            .first()
+        )
         if not vg:
             vg = VariantGroup(base_name=variant_group_name, author=author)
             db.add(vg)
@@ -126,24 +127,28 @@ def _save_image_to_db(db: Session, image_data: dict) -> int:
     if existing:
         db.query(Tag).filter(Tag.image_id == image.id).delete()
     for tag_data in image_data.get("tags", []):
-        db.add(Tag(
-            image_id=image.id,
-            category=tag_data["category"],
-            value=tag_data["value"],
-            confidence=tag_data.get("confidence", 1.0),
-            source=tag_data.get("source", "auto"),
-        ))
+        db.add(
+            Tag(
+                image_id=image.id,
+                category=tag_data["category"],
+                value=tag_data["value"],
+                confidence=tag_data.get("confidence", 1.0),
+                source=tag_data.get("source", "auto"),
+            )
+        )
 
     # Replace colors
     if existing:
         db.query(Color).filter(Color.image_id == image.id).delete()
     for color_data in image_data.get("colors", []):
-        db.add(Color(
-            image_id=image.id,
-            color_hex=color_data["color_hex"],
-            percentage=color_data["percentage"],
-            color_order=color_data["color_order"],
-        ))
+        db.add(
+            Color(
+                image_id=image.id,
+                color_hex=color_data["color_hex"],
+                percentage=color_data["percentage"],
+                color_order=color_data["color_order"],
+            )
+        )
 
     return image.id
 
@@ -151,6 +156,7 @@ def _save_image_to_db(db: Session, image_data: dict) -> int:
 # ---------------------------------------------------------------------------
 # Core tasks
 # ---------------------------------------------------------------------------
+
 
 @task(name="scan_directory", retries=1)
 def scan_directory(directory: str) -> List[str]:
@@ -237,6 +243,7 @@ def prepare_single_image(
         # --- Generate thumbnails + get dimensions (inline call to the function) ---
         # Call the underlying function directly (not as Prefect task) to avoid overhead
         from backend.flows.tasks.image_processing import generate_thumbnails as _gen_thumbs
+
         thumbnail_result = _gen_thumbs.fn(image_path, storage_key_stem)
         thumbnail_keys = thumbnail_result["keys"]
         width, height = thumbnail_result["dimensions"]
@@ -244,6 +251,7 @@ def prepare_single_image(
 
         # --- Extract colors (inline call) ---
         from backend.flows.tasks.color_extraction import extract_dominant_colors as _extract_colors
+
         colors = _extract_colors.fn(image_path)
 
         # --- Build result ---
@@ -291,6 +299,7 @@ def prepare_single_image(
 # Single-image save tasks (kept for process_single_image wrapper)
 # ---------------------------------------------------------------------------
 
+
 @task(name="save_to_database", retries=2)
 def save_to_database(image_data: dict) -> int:
     """Save image and related data to SQLite database.
@@ -334,6 +343,7 @@ def save_to_qdrant(image_id: int, embedding: List[float], metadata: dict) -> boo
 # ---------------------------------------------------------------------------
 # Batch save tasks
 # ---------------------------------------------------------------------------
+
 
 @task(name="batch_save_to_database", retries=2)
 def batch_save_to_database(image_data_list: List[dict]) -> List[int]:
@@ -388,6 +398,7 @@ def batch_save_to_qdrant(items: List[dict]) -> bool:
 # Progress tracking
 # ---------------------------------------------------------------------------
 
+
 @task(name="update_import_group_job_progress", retries=1)
 def update_import_group_job_progress(
     group_job_id: str,
@@ -415,6 +426,7 @@ def update_import_group_job_progress(
 # ---------------------------------------------------------------------------
 # Batch processing helper
 # ---------------------------------------------------------------------------
+
 
 def _process_batch(
     prepared_results: List[dict],
@@ -467,6 +479,7 @@ def _process_batch(
 # ---------------------------------------------------------------------------
 # Flows
 # ---------------------------------------------------------------------------
+
 
 @flow(name="process_single_image", log_prints=True)
 def process_single_image(
@@ -532,7 +545,9 @@ def bulk_image_ingestion(source_dirs: List[str]) -> dict:
     - Database and Qdrant saves are batched into single transactions
     """
     batch_size = settings.ingestion_batch_size
-    logger.info(f"Starting bulk ingestion from {len(source_dirs)} directories (batch_size={batch_size})")
+    logger.info(
+        f"Starting bulk ingestion from {len(source_dirs)} directories (batch_size={batch_size})"
+    )
 
     successful = 0
     failed = 0
@@ -553,7 +568,7 @@ def bulk_image_ingestion(source_dirs: List[str]) -> dict:
 
         # Process in batches
         for batch_start in range(0, len(image_paths), batch_size):
-            batch = image_paths[batch_start:batch_start + batch_size]
+            batch = image_paths[batch_start : batch_start + batch_size]
             logger.info(
                 f"Processing batch {batch_start // batch_size + 1} "
                 f"({len(batch)} images, {batch_start + len(batch)}/{len(image_paths)})"
@@ -564,7 +579,7 @@ def bulk_image_ingestion(source_dirs: List[str]) -> dict:
             # before submitting the next — prevents all batch images loading into RAM at once.
             prepared_results = []
             for sub_start in range(0, len(batch), concurrency):
-                sub_batch = batch[sub_start:sub_start + concurrency]
+                sub_batch = batch[sub_start : sub_start + concurrency]
                 futures = [
                     prepare_single_image.submit(
                         image_path=img_path,
@@ -623,7 +638,9 @@ def analyse_upload(
 
     logger.info(f"Detected {len(groups)} variant group(s)")
     for g in groups:
-        logger.info(f"  {g.get('author', '?')} / {g['variant_group_name']} ({len(g['files'])} files)")
+        logger.info(
+            f"  {g.get('author', '?')} / {g['variant_group_name']} ({len(g['files'])} files)"
+        )
 
     return groups
 
@@ -631,6 +648,7 @@ def analyse_upload(
 # ---------------------------------------------------------------------------
 # Shared group-processing helper (used by both single-group and job flows)
 # ---------------------------------------------------------------------------
+
 
 def _run_group(
     group_job_id: str,
@@ -664,7 +682,7 @@ def _run_group(
         update_import_group_job_progress(group_job_id, processed, failed)
 
     for batch_start in range(0, len(valid_files), batch_size):
-        batch = valid_files[batch_start:batch_start + batch_size]
+        batch = valid_files[batch_start : batch_start + batch_size]
         logger.info(
             f"[{variant_group_name}] batch {batch_start // batch_size + 1} "
             f"({len(batch)} images, {batch_start + len(batch)}/{len(valid_files)})"
@@ -673,7 +691,7 @@ def _run_group(
         # Prepare images with bounded concurrency to control peak memory use.
         prepared_results = []
         for sub_start in range(0, len(batch), concurrency):
-            sub_batch = batch[sub_start:sub_start + concurrency]
+            sub_batch = batch[sub_start : sub_start + concurrency]
             futures = [
                 prepare_single_image.submit(
                     image_path=image_path,
@@ -737,9 +755,7 @@ def process_import_group(
         f"Processing import group '{variant_group_name}' by '{author}' "
         f"({len(files)} files) for job {job_id}, group {group_job_id}"
     )
-    processed, failed = _run_group(
-        group_job_id, staging_dir, author, variant_group_name, files
-    )
+    processed, failed = _run_group(group_job_id, staging_dir, author, variant_group_name, files)
     if processed > 0:
         _rebuild_fts()
     return {
@@ -767,9 +783,7 @@ def process_import_job(
     Each group dict must contain:
         group_job_id, author, variant_group_name, files (list[dict])
     """
-    logger.info(
-        f"Starting import job {job_id}: {len(groups)} group(s) in {staging_dir}"
-    )
+    logger.info(f"Starting import job {job_id}: {len(groups)} group(s) in {staging_dir}")
     total_processed = 0
     total_failed = 0
 
@@ -778,21 +792,15 @@ def process_import_job(
         author = group["author"]
         variant_group_name = group["variant_group_name"]
         files = group["files"]
-        logger.info(
-            f"Processing group '{variant_group_name}' by '{author}' ({len(files)} files)"
-        )
-        processed, failed = _run_group(
-            group_job_id, staging_dir, author, variant_group_name, files
-        )
+        logger.info(f"Processing group '{variant_group_name}' by '{author}' ({len(files)} files)")
+        processed, failed = _run_group(group_job_id, staging_dir, author, variant_group_name, files)
         total_processed += processed
         total_failed += failed
 
     if total_processed > 0:
         _rebuild_fts()
 
-    logger.info(
-        f"Import job {job_id} complete: {total_processed} processed, {total_failed} failed"
-    )
+    logger.info(f"Import job {job_id} complete: {total_processed} processed, {total_failed} failed")
     return {
         "job_id": job_id,
         "processed": total_processed,

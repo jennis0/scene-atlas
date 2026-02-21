@@ -15,8 +15,9 @@ logger = logging.getLogger(__name__)
 class CLIPService:
     """Service for generating CLIP embeddings."""
 
-    def __init__(self, device: str = settings.clip_device,
-                 model_name: str = settings.clip_model_name):
+    def __init__(
+        self, device: str = settings.clip_device, model_name: str = settings.clip_model_name
+    ):
         """Initialize CLIP model and processor.
 
         The transformers import is deferred to here rather than module level.
@@ -35,12 +36,10 @@ class CLIPService:
         # Try loading from local cache first to avoid HTTP requests on every startup.
         # Falls back to downloading if the model isn't cached yet.
         try:
-            self.model = CLIPModel.from_pretrained(
-                self.model_name, local_files_only=True
-            ).to(self.device)
-            self.processor = CLIPProcessor.from_pretrained(
-                self.model_name, local_files_only=True
+            self.model = CLIPModel.from_pretrained(self.model_name, local_files_only=True).to(
+                self.device
             )
+            self.processor = CLIPProcessor.from_pretrained(self.model_name, local_files_only=True)
             logger.info("CLIP model loaded from local cache")
         except OSError:
             logger.info("CLIP model not cached locally, downloading...")
@@ -67,7 +66,7 @@ class CLIPService:
             del image  # free after processor has extracted tensors
 
             # Move tensors to device individually (Windows compatibility)
-            inputs = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs.items()}
+            inputs = {k: v.to(self.device) if hasattr(v, "to") else v for k, v in inputs.items()}
 
             # Generate embedding
             with torch.no_grad():
@@ -95,7 +94,7 @@ class CLIPService:
         """
         try:
             inputs = self.processor(text=text, return_tensors="pt", padding=True)
-            inputs = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs.items()}
+            inputs = {k: v.to(self.device) if hasattr(v, "to") else v for k, v in inputs.items()}
 
             with torch.no_grad():
                 text_outputs = self.model.text_model(**inputs)
@@ -129,7 +128,7 @@ class CLIPService:
             inputs = self.processor(images=images, return_tensors="pt", padding=True)
             del images  # free PIL objects after processor has extracted tensors
 
-            inputs = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs.items()}
+            inputs = {k: v.to(self.device) if hasattr(v, "to") else v for k, v in inputs.items()}
 
             with torch.no_grad():
                 vision_outputs = self.model.vision_model(**inputs)

@@ -20,6 +20,7 @@ time.sleep(3)
 
 BASE_URL = "http://localhost:8000"
 
+
 def test_endpoint(name, method, url, expected_keys=None, params=None):
     """Test an endpoint."""
     try:
@@ -45,6 +46,7 @@ def test_endpoint(name, method, url, expected_keys=None, params=None):
     except Exception as e:
         print(f"  [ERROR] {name}: {e}")
         return None
+
 
 try:
     print("\n=== Testing API Endpoints ===\n")
@@ -76,18 +78,27 @@ try:
     print("\nSearch Endpoints:")
     test_endpoint("Search (no params)", "GET", f"{BASE_URL}/api/v1/search/", ["total", "images"])
     test_endpoint("Search by text", "GET", f"{BASE_URL}/api/v1/search/", params={"text": "mine"})
-    test_endpoint("Search by author", "GET", f"{BASE_URL}/api/v1/search/", params={"author": "czepeku"})
-    test_endpoint("Search by tags", "GET", f"{BASE_URL}/api/v1/search/", params={"tags": ["state:abandoned"]})
+    test_endpoint(
+        "Search by author", "GET", f"{BASE_URL}/api/v1/search/", params={"author": "czepeku"}
+    )
+    test_endpoint(
+        "Search by tags", "GET", f"{BASE_URL}/api/v1/search/", params={"tags": ["state:abandoned"]}
+    )
 
     # Semantic search
     print("\nSemantic Search:")
-    result = test_endpoint("Semantic search", "GET", f"{BASE_URL}/api/v1/search/semantic", params={"query": "abandoned mine", "limit": 10})
+    result = test_endpoint(
+        "Semantic search",
+        "GET",
+        f"{BASE_URL}/api/v1/search/semantic",
+        params={"query": "abandoned mine", "limit": 10},
+    )
     if result:
         if "error" in result and result["error"]:
             print(f"    [ERROR] Semantic search has error: {result['error']}")
         elif "results" in result:
             print(f"    Found {len(result.get('results', []))} results")
-            if len(result.get('results', [])) > 0:
+            if len(result.get("results", [])) > 0:
                 print(f"    Top result score: {result['results'][0].get('score', 'N/A')}")
 
     print("\n=== Test Complete ===")

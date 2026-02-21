@@ -67,9 +67,7 @@ def extract_dominant_colors(image_path: str, num_colors: int = None) -> List[dic
         # Sample pixels if image is large
         if len(pixels) > settings.color_clustering_samples:
             indices = np.random.choice(
-                len(pixels),
-                settings.color_clustering_samples,
-                replace=False
+                len(pixels), settings.color_clustering_samples, replace=False
             )
             pixels = pixels[indices]
 
@@ -96,11 +94,13 @@ def extract_dominant_colors(image_path: str, num_colors: int = None) -> List[dic
             percentage = percentages[idx]
             hex_color = rgb_to_hex(color)
 
-            dominant_colors.append({
-                "color_hex": hex_color,
-                "percentage": float(percentage),
-                "color_order": order,
-            })
+            dominant_colors.append(
+                {
+                    "color_hex": hex_color,
+                    "percentage": float(percentage),
+                    "color_order": order,
+                }
+            )
 
         logger.debug(f"Extracted {len(dominant_colors)} colors from {image_path}")
         return dominant_colors

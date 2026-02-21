@@ -37,6 +37,7 @@ _mock_qdrant_client_cls.return_value = _mock_qdrant_client_instance
 
 # Patch qdrant_client before it's imported by qdrant_service.py
 import qdrant_client as _qc
+
 _original_QdrantClient = _qc.QdrantClient
 _qc.QdrantClient = _mock_qdrant_client_cls
 
@@ -73,11 +74,13 @@ def db_session(tmp_db):
 @pytest.fixture
 def make_test_image():
     """Factory fixture that creates minimal test JPEG files."""
+
     def _make(path: Path, width: int = 20, height: int = 20, color: tuple = (100, 150, 200)):
         path.parent.mkdir(parents=True, exist_ok=True)
         img = PILImage.new("RGB", (width, height), color)
         img.save(path, format="JPEG", quality=70)
         return path
+
     return _make
 
 
@@ -85,8 +88,12 @@ def make_test_image():
 def tmp_staging(tmp_path, make_test_image):
     """Staging directory with programmatically generated test images."""
     staging = tmp_path / "staging" / "test-job-id"
-    make_test_image(staging / "TestAuthor" / "TestMap" / "TestMap_Night_Grid.jpg", color=(30, 30, 80))
-    make_test_image(staging / "TestAuthor" / "TestMap" / "TestMap_Summer.jpg", color=(100, 200, 100))
+    make_test_image(
+        staging / "TestAuthor" / "TestMap" / "TestMap_Night_Grid.jpg", color=(30, 30, 80)
+    )
+    make_test_image(
+        staging / "TestAuthor" / "TestMap" / "TestMap_Summer.jpg", color=(100, 200, 100)
+    )
     make_test_image(staging / "FlatFile.jpg", color=(200, 100, 100))
     return staging
 
@@ -140,11 +147,13 @@ def mock_heavy_services(monkeypatch):
 
     # Mock thumbnails at the source module (prepare_single_image calls .fn() directly)
     from backend.flows.tasks.image_processing import generate_thumbnails
+
     original_fn = generate_thumbnails.fn
 
     def mock_generate_thumbnails(image_path, storage_key_stem):
         # Open image to get real dimensions (needed for DB save)
         from PIL import Image as PILImage
+
         with PILImage.open(image_path) as img:
             dimensions = img.size
         return {

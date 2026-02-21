@@ -14,11 +14,12 @@ logger = logging.getLogger(__name__)
 class QdrantService:
     """Service for interacting with Qdrant vector database."""
 
-    def __init__(self, 
-                 host: str = settings.qdrant_host,
-                 port: int = settings.qdrant_port,
-                 collection_name: str = settings.qdrant_collection_name
-        ):
+    def __init__(
+        self,
+        host: str = settings.qdrant_host,
+        port: int = settings.qdrant_port,
+        collection_name: str = settings.qdrant_collection_name,
+    ):
         """Initialize Qdrant client."""
         self.client = QdrantClient(
             host=host,
@@ -59,10 +60,7 @@ class QdrantService:
             raise
 
     def add_image_embedding(
-        self,
-        image_id: int,
-        embedding: List[float],
-        metadata: Optional[dict] = None
+        self, image_id: int, embedding: List[float], metadata: Optional[dict] = None
     ) -> bool:
         """Add or update an image embedding in Qdrant.
 
@@ -111,11 +109,13 @@ class QdrantService:
             for item in items:
                 payload = item.get("metadata", {}).copy()
                 payload["image_id"] = item["image_id"]
-                points.append(PointStruct(
-                    id=item["image_id"],
-                    vector=item["embedding"],
-                    payload=payload,
-                ))
+                points.append(
+                    PointStruct(
+                        id=item["image_id"],
+                        vector=item["embedding"],
+                        payload=payload,
+                    )
+                )
 
             self.client.upsert(
                 collection_name=self.collection_name,

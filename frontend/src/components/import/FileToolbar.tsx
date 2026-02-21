@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Search, X, ChevronDown, FolderPlus, SlidersHorizontal } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,7 +31,7 @@ interface FileToolbarProps {
   onBulkSetGrid: (v: boolean | null) => void
   onBulkSetSubVariant: (v: string) => void
   onBulkExclude: () => void
-  onMoveToNewGroup: () => void
+  onMoveToNewGroup?: () => void
   excludeLabel?: string
 }
 
@@ -51,24 +51,16 @@ export function FileToolbar({
   onMoveToNewGroup,
   excludeLabel = 'Exclude',
 }: FileToolbarProps) {
-  const checkboxRef = useRef<HTMLInputElement>(null)
-  const subInputRef = useRef<HTMLInputElement>(null)
   const [subVariantInput, setSubVariantInput] = useState('')
   const [subOpen, setSubOpen] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
 
-  const visibleNonExcluded = filteredFiles.filter((f) => !f.excluded)
+  const visibleNonExcluded = filteredFiles.filter((f) => !f.excluded && !f.outOfScope)
   const selectedVisible = visibleNonExcluded.filter((f) => selection.has(f.relative_path))
-  const totalSelected = files.filter((f) => !f.excluded && selection.has(f.relative_path)).length
-  const totalNonExcluded = files.filter((f) => !f.excluded).length
+  const totalSelected = files.filter((f) => !f.excluded && !f.outOfScope && selection.has(f.relative_path)).length
+  const totalNonExcluded = files.filter((f) => !f.excluded && !f.outOfScope).length
   const isAllSelected = visibleNonExcluded.length > 0 && selectedVisible.length === visibleNonExcluded.length
   const isIndeterminate = selectedVisible.length > 0 && !isAllSelected
-
-  useEffect(() => {
-    if (checkboxRef.current) {
-      checkboxRef.current.indeterminate = isIndeterminate
-    }
-  }, [isIndeterminate])
 
   const handleCheckboxChange = () => {
     if (isAllSelected || isIndeterminate) {
@@ -90,7 +82,7 @@ export function FileToolbar({
 
   // ── Build filter groups ──────────────────────────────────────────────────
 
-  const nonExcludedFiles = files.filter((f) => !f.excluded)
+  const nonExcludedFiles = files.filter((f) => !f.excluded && !f.outOfScope)
 
   const availableSubVariants = [...new Set(
     nonExcludedFiles.filter((f) => f.sub_variant).map((f) => f.sub_variant as string)
@@ -102,7 +94,6 @@ export function FileToolbar({
     { filterValue: 'unknown',  label: 'Unknown',  filterLabel: 'grid: Unknown' },
   ]
 
-  // Aggregate tag frequencies across all non-excluded files (no top-5 cap — use search to navigate)
   const tagFreq = new Map<string, { category: string; value: string; count: number }>()
   for (const f of nonExcludedFiles) {
     for (const t of f.tags) {
@@ -113,7 +104,6 @@ export function FileToolbar({
     }
   }
 
-  // Group by category, sort by frequency
   const tagsByCategory = new Map<string, Array<{ key: string; value: string; count: number }>>()
   for (const [key, entry] of tagFreq) {
     const arr = tagsByCategory.get(entry.category) ?? []
@@ -167,62 +157,57 @@ export function FileToolbar({
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col py-2 border-b border-slate-100 flex-shrink-0">
+    <div className="flex flex-col py-2 border-b border-border/30 shrink-0">
       {/* Main toolbar row */}
       <div className="flex items-center gap-2">
         {/* Select-all checkbox + count */}
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <input
-            ref={checkboxRef}
-            type="checkbox"
-            checked={isAllSelected}
-            onChange={handleCheckboxChange}
+        <div className="flex items-center gap-2 shrink-0">
+          <Checkbox
+            checked={isIndeterminate ? 'indeterminate' : isAllSelected}
+            onCheckedChange={handleCheckboxChange}
             disabled={visibleNonExcluded.length === 0}
-            className="h-3.5 w-3.5 rounded border-slate-300 cursor-pointer accent-emerald-600 disabled:opacity-40"
-            title="Select all visible"
+            className="h-3.5 w-3.5 rounded-[3px]"
           />
-          <span className="text-xs text-slate-400 tabular-nums whitespace-nowrap">
+          <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
             {totalSelected > 0
-              ? <><span className="text-slate-600 font-medium">{totalSelected}</span> / {totalNonExcluded}</>
+              ? <><span className="text-foreground font-medium">{totalSelected}</span> / {totalNonExcluded}</>
               : <>{totalNonExcluded} file{totalNonExcluded !== 1 ? 's' : ''}</>
             }
           </span>
         </div>
 
-        {/* Text search + filter popover */}
+        {/* Search + filter */}
         <div className="relative flex-1 min-w-0 flex items-center gap-1">
           <div className="relative flex-1 min-w-0">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-300 pointer-events-none" />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/40 pointer-events-none" />
             <input
               value={filter.text}
               onChange={(e) => onFilterChange({ ...filter, text: e.target.value })}
               placeholder="Filter maps…"
-              className="w-full h-7 pl-8 pr-7 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-300 focus:border-emerald-300 text-slate-600 placeholder:text-slate-300"
+              className="w-full h-7 pl-8 pr-7 text-sm bg-secondary border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary/40 text-foreground placeholder:text-muted-foreground"
             />
             {filter.text && (
               <button
                 onClick={() => onFilterChange({ ...filter, text: '' })}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-colors"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
             )}
           </div>
 
-          {/* Filter popover */}
           <Popover open={filterOpen} onOpenChange={setFilterOpen}>
             <PopoverTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className={`h-7 px-2 flex-shrink-0 gap-1 ${filter.active.length > 0 ? 'text-emerald-600' : 'text-slate-400 hover:text-slate-600'}`}
+              <button
+                className={`h-7 w-7 rounded flex items-center justify-center shrink-0 transition-colors ${
+                  filter.active.length > 0
+                    ? 'text-primary bg-primary/20 border border-primary/40'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-secondary border border-transparent'
+                }`}
                 title="Add filters"
               >
                 <SlidersHorizontal className="h-3.5 w-3.5" />
-                {filter.active.length > 0 && (
-                  <span className="text-xs font-medium">{filter.active.length}</span>
-                )}
-              </Button>
+              </button>
             </PopoverTrigger>
             <PopoverContent align="end" className="w-80 p-0 h-72 flex flex-col">
               <FilterMenuContent
@@ -236,22 +221,16 @@ export function FileToolbar({
 
         {/* Bulk actions — only shown when something is selected */}
         {totalSelected > 0 && (
-          <div className="flex items-center gap-1 flex-shrink-0">
-            {/* Bulk add tag */}
+          <div className="flex items-center gap-0.5 shrink-0">
             {vocab.length > 0 && (
-              <TagPicker
-                vocab={vocab}
-                existingTags={[]}
-                onAdd={onBulkAddTag}
-              />
+              <TagPicker vocab={vocab} existingTags={[]} onAdd={onBulkAddTag} />
             )}
 
-            {/* Bulk grid */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-slate-500 gap-1">
+                <button className="h-7 px-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors flex items-center gap-1">
                   Grid <ChevronDown className="h-3 w-3" />
-                </Button>
+                </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={() => onBulkSetGrid(true)}>Grid</DropdownMenuItem>
@@ -260,86 +239,79 @@ export function FileToolbar({
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {/* Bulk sub-variant */}
             <Popover open={subOpen} onOpenChange={setSubOpen}>
               <PopoverTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-slate-500 gap-1">
+                <button className="h-7 px-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors flex items-center gap-1">
                   Sub <ChevronDown className="h-3 w-3" />
-                </Button>
+                </button>
               </PopoverTrigger>
               <PopoverContent
                 align="end"
                 className="w-52 p-0"
-                onOpenAutoFocus={(e: Event) => { e.preventDefault(); subInputRef.current?.focus() }}
+                onOpenAutoFocus={(e: Event) => { e.preventDefault() }}
               >
                 {existingSubVariants.length > 0 && (
                   <>
-                    <div className="px-3 pt-2.5 pb-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                    <div className="px-3 pt-2.5 pb-1 text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">
                       Existing
                     </div>
                     {existingSubVariants.map((sv) => (
                       <button
                         key={sv}
                         onClick={() => applySubVariant(sv)}
-                        className="w-full text-left px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 capitalize transition-colors"
+                        className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-secondary capitalize transition-colors"
                       >
                         {sv}
                       </button>
                     ))}
-                    <div className="h-px bg-slate-100 my-1" />
+                    <div className="h-px bg-border/50 my-1" />
                   </>
                 )}
                 <div className="p-2 flex gap-1.5">
                   <input
-                    ref={subInputRef}
+                    autoFocus={existingSubVariants.length === 0}
                     value={subVariantInput}
                     onChange={(e) => setSubVariantInput(e.target.value)}
                     placeholder="New sub-variant…"
-                    className="flex-1 min-w-0 h-7 px-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-emerald-300 focus:border-emerald-300"
+                    className="flex-1 min-w-0 h-7 px-2 text-sm bg-secondary border border-border rounded text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
                     onKeyDown={(e) => {
                       e.stopPropagation()
                       if (e.key === 'Enter' && subVariantInput.trim()) applySubVariant(subVariantInput.trim())
                       if (e.key === 'Escape') setSubOpen(false)
                     }}
                   />
-                  <Button
-                    size="sm"
-                    className="h-7 text-xs flex-shrink-0"
+                  <button
+                    className="h-7 px-2.5 text-xs shrink-0 rounded border border-border bg-secondary text-muted-foreground hover:text-foreground transition-colors"
                     onClick={() => { if (subVariantInput.trim()) applySubVariant(subVariantInput.trim()) }}
                   >
                     Set
-                  </Button>
+                  </button>
                 </div>
               </PopoverContent>
             </Popover>
 
-            {/* Move to new group */}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs text-slate-500 hover:text-slate-700 gap-1"
-              onClick={onMoveToNewGroup}
-              title="Move selected to new group"
-            >
-              <FolderPlus className="h-3.5 w-3.5" />
-              Split
-            </Button>
+            {onMoveToNewGroup && (
+              <button
+                className="h-7 px-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors flex items-center gap-1"
+                onClick={onMoveToNewGroup}
+                title="Move selected to new group"
+              >
+                <FolderPlus className="h-3.5 w-3.5" />
+                Split
+              </button>
+            )}
 
-            {/* Exclude / Delete */}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs text-red-400 hover:text-red-600 hover:bg-red-50 gap-1"
+            <button
+              className="h-7 px-2 rounded text-xs text-destructive/70 hover:text-destructive hover:bg-destructive/10 transition-colors flex items-center gap-1"
               onClick={onBulkExclude}
             >
               <X className="h-3.5 w-3.5" />
               {excludeLabel}
-            </Button>
+            </button>
           </div>
         )}
       </div>
 
-      {/* Active filter chips */}
       <FilterChipList filters={filter.active} onFiltersChange={handleFiltersChange} />
     </div>
   )

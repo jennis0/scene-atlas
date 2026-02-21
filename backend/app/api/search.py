@@ -131,16 +131,16 @@ async def search_images(
 
     if tags:
         from collections import defaultdict
+
         tags_by_category: dict = defaultdict(list)
         for tag_filter in tags:
             if ":" in tag_filter:
                 cat, val = tag_filter.split(":", 1)
                 tags_by_category[cat].append(val)
         for category, values in tags_by_category.items():
-            category_filter = or_(*[
-                and_(Tag.category == category, Tag.value == value)
-                for value in values
-            ])
+            category_filter = or_(
+                *[and_(Tag.category == category, Tag.value == value) for value in values]
+            )
             sql_query = sql_query.filter(
                 Image.id.in_(db.query(Tag.image_id).filter(category_filter).distinct())
             )
@@ -164,9 +164,7 @@ async def search_images(
     if not effective_query:
         total = sql_query.count()
         results = sql_query.distinct().order_by(Image.name).offset(offset).limit(limit).all()
-        return ImageSearchResponse(
-            total=total, limit=limit, offset=offset, images=results
-        )
+        return ImageSearchResponse(total=total, limit=limit, offset=offset, images=results)
 
     # --- Hybrid search: run FTS5 and semantic in parallel ---
     TEXT_BOOST = 0.15
@@ -211,7 +209,9 @@ async def search_images(
         txt = text_scores.get(image_id, 0.0)
 
         # Drop pure-semantic results below threshold (text matches always included)
-        if image_id not in text_scores and sem < (SEMANTIC_ONLY_THRESHOLD if semantic_only else SEMANTIC_THRESHOLD):
+        if image_id not in text_scores and sem < (
+            SEMANTIC_ONLY_THRESHOLD if semantic_only else SEMANTIC_THRESHOLD
+        ):
             continue
 
         merged_scores[image_id] = sem + (TEXT_BOOST * txt if txt > 0 else 0.0)
@@ -228,7 +228,7 @@ async def search_images(
     filtered_images.sort(key=lambda img: merged_scores.get(img.id, 0.0), reverse=True)
 
     total = len(filtered_images)
-    results = filtered_images[offset: offset + limit]
+    results = filtered_images[offset : offset + limit]
 
     # Return only scores for returned images
     returned_scores = {img.id: merged_scores.get(img.id, 0.0) for img in results}

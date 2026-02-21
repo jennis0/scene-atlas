@@ -45,9 +45,7 @@ class TestAnalyseUpload:
         assert len(all_files) == 3
 
         # Find the TestMap group
-        testmap_group = next(
-            (g for g in groups if "TestMap" in g["variant_group_name"]), None
-        )
+        testmap_group = next((g for g in groups if "TestMap" in g["variant_group_name"]), None)
         assert testmap_group is not None
         assert len(testmap_group["files"]) == 2
         assert testmap_group["author"] == "TestAuthor"

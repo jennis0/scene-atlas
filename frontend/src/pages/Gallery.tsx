@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Search, Sparkles, X, Upload, LayoutGrid, Layers } from 'lucide-react'
+import { Search, Sparkles, X, Upload, LayoutGrid, Layers, Pencil } from 'lucide-react'
 import { searchApi } from '@/lib/api'
 import { ImageGrid } from '@/components/ImageGrid'
 import { GroupGrid } from '@/components/GroupGrid'
@@ -23,6 +23,7 @@ export function Gallery() {
   const [showImport, setShowImport] = useState(false)
   const [editGroupId, setEditGroupId] = useState<number | null>(null)
   const [importActive, setImportActive] = useState(false)
+  const [showMassEdit, setShowMassEdit] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>('individual')
 
   // Search state — separate controlled input from submitted query
@@ -131,18 +132,32 @@ export function Gallery() {
               </h1>
               <div className="mt-3 h-[2px] w-24 rounded-full bg-primary/50" />
             </div>
-            <Button
-              variant="outline"
-              onClick={() => setShowImport(true)}
-              title={importActive ? 'Import in progress — click to view' : 'Import images'}
-              className="relative mt-1 gap-2"
-            >
-              <Upload className="h-4 w-4" />
-              Import
-              {importActive && (
-                <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-primary animate-pulse" />
+            <div className="flex items-center gap-2 mt-1">
+              {displayImages.length > 0 && (
+                <Button
+                  variant="outline"
+                  onClick={() => setShowMassEdit(true)}
+                  className="gap-2"
+                  title="Bulk-edit all maps in current results"
+                >
+                  <Pencil className="h-4 w-4" />
+                  Edit Results
+                  <span className="text-muted-foreground text-xs">({displayImages.length})</span>
+                </Button>
               )}
-            </Button>
+              <Button
+                variant="outline"
+                onClick={() => setShowImport(true)}
+                title={importActive ? 'Import in progress — click to view' : 'Import images'}
+                className="relative gap-2"
+              >
+                <Upload className="h-4 w-4" />
+                Import
+                {importActive && (
+                  <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-primary animate-pulse" />
+                )}
+              </Button>
+            </div>
           </div>
 
           {/* Search + tools row */}
@@ -270,13 +285,25 @@ export function Gallery() {
         />
       )}
 
-      {/* Edit group dialog */}
+      {/* Edit group dialog — single group (from image viewer) */}
       <EditGroupDialog
         groupId={editGroupId}
         open={editGroupId !== null}
         onClose={() => setEditGroupId(null)}
         onSave={() => {
           setEditGroupId(null)
+          queryClient.invalidateQueries({ queryKey: ['search'] })
+          queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
+        }}
+      />
+
+      {/* Mass-edit dialog — all images in current search results */}
+      <EditGroupDialog
+        seedImages={displayImages}
+        open={showMassEdit}
+        onClose={() => setShowMassEdit(false)}
+        onSave={() => {
+          setShowMassEdit(false)
           queryClient.invalidateQueries({ queryKey: ['search'] })
           queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
         }}

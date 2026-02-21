@@ -14,6 +14,7 @@ def get_image_store() -> ImageStore:
     global _image_store
     if _image_store is None:
         from ..config import settings
+
         _image_store = ImageStore(settings.store_images_dir)
     return _image_store
 
@@ -23,6 +24,7 @@ def get_thumbnail_store() -> ImageStore:
     global _thumbnail_store
     if _thumbnail_store is None:
         from ..config import settings
+
         _thumbnail_store = ImageStore(settings.store_thumbnails_dir)
     return _thumbnail_store
 
@@ -35,6 +37,7 @@ def get_clip_service():
     module-directory scan, which causes an OSError on Windows.
     """
     from .clip_service import get_clip_service as _get
+
     return _get()
 
 

@@ -100,13 +100,15 @@ async def edit_variant_group(
             db.delete(tag)
         db.flush()
         for tag_data in img_payload.tags:
-            db.add(Tag(
-                image_id=image.id,
-                category=tag_data.category,
-                value=tag_data.value,
-                confidence=tag_data.confidence,
-                source=tag_data.source,
-            ))
+            db.add(
+                Tag(
+                    image_id=image.id,
+                    category=tag_data.category,
+                    value=tag_data.value,
+                    confidence=tag_data.confidence,
+                    source=tag_data.source,
+                )
+            )
 
     # 4. Fix primary_image_id if deleted
     if group.primary_image_id and group.primary_image_id not in kept_ids:
@@ -127,7 +129,9 @@ async def edit_variant_group(
             if image:
                 image.variant_group_id = new_group.id
                 image.author = new_group_payload.author
-        new_group.primary_image_id = new_group_payload.image_ids[0] if new_group_payload.image_ids else None
+        new_group.primary_image_id = (
+            new_group_payload.image_ids[0] if new_group_payload.image_ids else None
+        )
         new_group_ids.append(new_group.id)
 
     db.commit()

@@ -49,6 +49,7 @@ async def lifespan(app: FastAPI):
     # Pre-load CLIP model to avoid blocking on first request
     logger.info("Pre-loading CLIP model...")
     from .services.clip_service import get_clip_service
+
     clip_service = get_clip_service()
     logger.info("CLIP model loaded and ready")
 
@@ -81,7 +82,9 @@ app.include_router(images.router, prefix=f"{settings.api_prefix}/images", tags=[
 app.include_router(search.router, prefix=f"{settings.api_prefix}/search", tags=["search"])
 app.include_router(tags.router, prefix=f"{settings.api_prefix}/tags", tags=["tags"])
 app.include_router(imports.router, prefix=f"{settings.api_prefix}/imports", tags=["imports"])
-app.include_router(variant_groups.router, prefix=f"{settings.api_prefix}/variant-groups", tags=["variant-groups"])
+app.include_router(
+    variant_groups.router, prefix=f"{settings.api_prefix}/variant-groups", tags=["variant-groups"]
+)
 
 
 @app.get("/")

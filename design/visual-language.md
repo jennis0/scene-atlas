@@ -1,122 +1,382 @@
-# Visual Language & Component Patterns
+# Visual Language & Component Design
 
-A reference for consistent styling across all gallery components.
+A comprehensive reference for the Library of Worlds UI. All new components must conform to these principles. When in doubt, follow existing patterns rather than introduce new ones.
+
+---
+
+## Aesthetic Direction
+
+**Theme:** Dark cartographic / archival. Think a scholar's map room at night — deep navy surfaces, warm parchment text, amber gold accents used sparingly for wayfinding.
+
+**NOT:** generic dark mode, purple gradients, high-contrast tech aesthetics.
+
+### Core Adjectives
+- Precise and measured (tight spacing, clean alignment)
+- Warm but serious (amber over blue, parchment over white)
+- Informational density done tastefully (show more, never clutter)
+
+---
+
+## Design Tokens
+
+All values sourced from CSS custom properties defined in `frontend/src/index.css`. **Never use raw hex/rgb values** — always use token names.
+
+### Surface Hierarchy (darkest → lightest)
+| Token | Approx. hex | Role |
+|-------|-------------|------|
+| `--background` | `#0e1118` | Page base, dot-grid applied |
+| `--popover` | `#12171f` | Dropdowns, popovers |
+| `--card` | `#161c28` | Card surfaces, panel backgrounds |
+| `--muted` | `#181f2e` | Muted/recessed surfaces |
+| `--secondary` | `#1c2231` | Inputs, hover states, raised elements |
+
+### Accent / Semantic
+| Token | Approx. hex | Role |
+|-------|-------------|------|
+| `--primary` | `#d4a853` | Amber gold — active states, focus rings, decorative accents |
+| `--primary-foreground` | near-black | Text on amber backgrounds |
+| `--destructive` | `#e04e4e` | Destructive actions, excluded filter chips |
+| `--border` | `#222a38` | Dividers — use `/50` or `/30` for very subtle |
+| `--ring` | same as primary | Focus ring colour |
+
+### Text
+| Token | Role |
+|-------|------|
+| `text-foreground` | `#ede8dc` warm parchment — primary body text |
+| `text-muted-foreground` | dimmed parchment — secondary text, labels |
+| `text-muted-foreground/60` | very subtle — hints, placeholders, tertiary info |
+| `text-white` with opacity | for text overlaid directly on images |
+
+---
+
+## Typography
+
+Three font families, used in distinct roles. **Never mix roles.**
+
+| Family | Tailwind class | Role |
+|--------|---------------|------|
+| **Cinzel** (display serif) | `font-display` | Page titles, map/group names, modal headings. Conveys gravitas. |
+| **Figtree** (geometric sans) | `font-sans` (default) | All body text, labels, controls, metadata. |
+| **JetBrains Mono** | `font-mono` | Filenames, UUIDs, dimensions, file sizes. `text-[10px]` usually. |
+
+### Size Scale in Practice
+- Page title: `font-display text-3xl font-semibold`
+- Section heading (e.g. viewer name): `font-display text-xl font-semibold`
+- Card name: `text-[13px] font-medium` (gradient overlay) or `text-sm font-semibold`
+- Metadata / labels: `text-[11px]` or `text-xs text-muted-foreground`
+- Micro badges / counts: `text-[10px]` or `text-[9px]`
+- Category labels: `text-[10px] uppercase tracking-wider text-muted-foreground/60`
+
+---
+
+## Amber Accent — Rules of Use
+
+Amber (`primary`) is the single accent colour. It draws the eye, so it must be used intentionally and sparingly.
+
+| Use | Pattern |
+|-----|---------|
+| Top-of-viewport stripe | `body::before` in index.css — always present |
+| Top of modal/panel | Split gradient: canvas side `from-transparent to-primary/80`, sidebar side `from-primary/80 to-transparent` — brightest at the join line |
+| Active/selected states | `bg-primary/20 text-primary border border-primary/40` |
+| Focus rings | `focus:ring-1 focus:ring-primary/40` |
+| Hover on interactive text | `hover:text-primary` |
+| Decorative rule | `border-primary/60` |
+
+**Never use amber as a background fill** (except `bg-primary` for the tiny count badge on filter buttons, where text-primary-foreground ensures contrast).
+
+---
+
+## Interaction States
+
+Applied consistently across all interactive elements:
+
+### Buttons and clickable items
+| State | Classes |
+|-------|---------|
+| Default (muted) | `text-muted-foreground` |
+| Hover | `hover:text-foreground hover:bg-secondary` |
+| Active / selected | `bg-primary/20 text-primary border border-primary/40` |
+| Disabled | `opacity-30 cursor-not-allowed` (not `disabled:` if using native button disabled) |
+| Destructive hover | `hover:text-destructive hover:bg-destructive/10` |
+
+### Inputs and text fields
+```
+bg-secondary border border-border rounded
+text-foreground placeholder:text-muted-foreground
+focus:outline-none focus:ring-1 focus:ring-primary/40
+```
+For inline editing (no box, just underline): `bg-transparent border-b border-primary/70 focus:outline-none`
+
+### Number inputs — always hide native spinners
+```
+[appearance:textfield]
+[&::-webkit-outer-spin-button]:appearance-none
+[&::-webkit-inner-spin-button]:appearance-none
+```
+
+---
+
+## Tag / Category Colour System
+
+Tags are coloured by category. The colour replaces any need for a text category label. Defined in `frontend/src/components/import/tagColors.ts`.
+
+### Colour pattern (dark-mode opacity tints)
+```typescript
+{ bg: 'bg-{colour}-400/10', text: 'text-{colour}-300', border: 'border-{colour}-400/30', dot: 'bg-{colour}-400' }
+```
+- `bg-*-400/10` — very subtle tint, doesn't dominate
+- `text-*-300` — lighter shade readable on dark backgrounds
+- `border-*-400/30` — 30% opacity border, cohesive with bg tint
+- `dot` — solid colour for small dot indicators (2×2 in category nav lists)
+
+### Assigned categories
+| Category | Colour family |
+|----------|--------------|
+| lighting | amber |
+| weather | sky |
+| season | orange |
+| terrain | emerald |
+| biome | green |
+| environment | teal |
+| structure | stone |
+| feature | violet |
+| mood | rose |
+| (unknown) | zinc |
+
+### Tag pill rendering
+Show **capitalised value only** — the colour already encodes the category:
+```tsx
+<span className={`inline-flex items-center gap-1 text-[11px] rounded-full border px-2 py-px ${colors.bg} ${colors.text} ${colors.border}`}
+  title={tag.category}>
+  <span className="capitalize">{tag.value}</span>
+</span>
+```
+Add `title={tag.category}` on the outer element for discoverability on hover.
+
+---
 
 ## Card Pattern
 
-All image-displaying cards (ImageCard, GroupCard, VariantTile) share a common visual structure:
+All image cards (ImageCard, GroupCard, VariantTile) share a **gradient overlay** structure — NO separate metadata bar below the image.
 
 ```
 ┌─────────────────────────┐
 │                         │
-│      Image area         │  ← object-cover, lazy loaded
+│      Image area         │ ← object-cover, lazy loaded
 │      (thumbnail)        │
 │                         │
-├─────────────────────────┤
-│  Name / label           │  ← always visible, not hover-only
-│  Author / secondary     │
-│  [tag] [tag] [+N]       │  ← outline badges, text-[10px]
+│ ░░░░░░░░░░░░░░░░░░░░░   │ ← gradient overlay: from-black/85 via-black/55 to-transparent
+│  Name           [N]  │   │ ← text-[13px] font-medium text-white
+│  Author              │   │ ← text-[11px] text-white/60
 └─────────────────────────┘
 ```
 
-### Shared Classes
+**Overlay gradient:** `bg-gradient-to-t from-black/85 via-black/55 to-transparent pt-10 pb-2.5 px-3`
 
-| Property | Classes |
-|----------|---------|
-| Container | `cursor-pointer overflow-hidden rounded-lg border bg-card` |
-| Hover | `transition-all duration-200 hover:scale-[1.03] hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5` |
-| Metadata bar | `bg-card border-t border-border/50` + padding |
-| Name text | `font-semibold text-sm text-foreground truncate` |
-| Secondary text | `text-xs text-muted-foreground truncate` |
-| Tag badges | `Badge variant="outline"` with `text-[10px] text-muted-foreground` |
-| Tiny badges | `text-[8px] px-1 py-0 text-muted-foreground/60 leading-tight` (variant tiles) |
+**Hover animation:** `transition-all duration-200 hover:scale-[1.03]` — subtle scale only, no border animation on cards with overlays.
 
-### Key Principle: Always-Visible Metadata
+**Ring/border on cards:**
+- Default: `ring-1 ring-border/40`
+- Hover: `hover:ring-primary/40`
+- Active / selected: `ring-2 ring-primary/70 shadow-lg shadow-primary/15`
 
-Metadata (name, author, tags) is shown in a permanent bar below the image, **not** hidden behind a hover overlay. This ensures:
-- Users can scan content without mousing over every card
-- Touch/mobile users see the same information
-- The grid reads as an informative catalogue, not a photo wall
+---
 
-## Card Variants
+## Gallery Page Structure
 
-### ImageCard (individual grid)
-- 200px wide, square image area + metadata bar
-- Shows: name, author, up to 3 tag values + overflow count
+### Header
+```
+[Title (font-display)]                    [Import button] [Toggle segmented control]
+─────────────────── amber rule ──────────────────────────────────────────────────────
+```
 
-### GroupCard (grouped grid)
-- 420px wide, 160px image area + metadata bar
-- Left 60%: hero image, right 40%: mosaic of variant thumbnails
-- Mosaic uses **even tile counts only** (1, 2, or 4) to avoid empty grid cells
-- Last mosaic tile shows "+N more" overlay when overflow
-- Metadata: group name, author, variant count badge (shows "3/23" when filtered), up to 3 tags
+**Amber rule:** `h-px bg-gradient-to-r from-primary/70 via-primary/30 to-transparent`
 
-### VariantTile (ImageViewer sidebar)
-- Small tile in 2-column scrollable grid
-- 4:3 aspect ratio image
-- Shows: filename (without extension), grid info badge, up to 2 tag values
-- Active state: `border-primary ring-1 ring-primary/30`
+**Segmented view toggle:** Native `<button>` elements inside a shared `div.flex.rounded-md.overflow-hidden.border.border-border`:
+```tsx
+<div className="flex rounded-md overflow-hidden border border-border">
+  <button className={`h-10 w-10 flex items-center justify-center border-r border-border transition-colors ${
+    active ? 'bg-secondary text-foreground' : 'text-foreground/50 hover:text-foreground hover:bg-secondary/50'
+  }`}>
+```
+
+### Filter panel
+Filter chips use `bg-primary/20 border border-primary/40 text-primary` for active state. Clear-all uses plain `text-muted-foreground`.
+
+---
+
+## FilterMenuContent Component
+
+Shared two-column filter panel used in GalleryFilterPanel (full-page sidebar) and ImageViewer (variant filter popover).
+
+### Structure
+- Left 112px: scrollable category nav with coloured dot indicators
+- Right: `flex-1` pill grid, wraps, with search bar at top
+
+### Active states
+| State | Classes |
+|-------|---------|
+| Include (active) | `bg-primary/20 border border-primary/40 text-primary` |
+| Exclude (active) | `bg-destructive/10 border border-destructive/30 text-destructive` |
+| Category nav active | Uses category's `colors.bg colors.text colors.border` (left border stripe) |
+
+### Truncation — mandatory for all label text
+Filter chips (active filter rows below search inputs): `max-w-[130px] truncate` with `title={filter.label}` on outer element.
+Option pills (inside popover): `max-w-[160px] truncate` with `title={label}` on outer element.
+
+### Filter button states (for variant filter trigger in ImageViewer)
+```tsx
+hasActiveFilters     → 'bg-primary/20 text-primary border border-primary/40'
+hasFilterableData    → 'text-muted-foreground hover:text-foreground hover:bg-secondary border border-transparent'
+no filterable data   → 'text-muted-foreground/25 border border-transparent cursor-not-allowed'
+```
+**Always render the button** — never hide it just because there's nothing to filter. Grey it out instead. This maintains layout stability and teaches the user what feature is present.
+
+---
 
 ## ImageViewer Layout
 
-Full-screen overlay (`bg-black/95`) with image + sidebar:
+Full-screen overlay with fixed image canvas + structured sidebar:
 
 ```
-┌────────────────────────────────────────────────────┐
-│                                    ┌──────────┐    │
-│                                    │ Metadata │    │
-│         Main Image                 │ header   │    │
-│         (object-contain)           ├──────────┤    │
-│                                    │ Variants │    │
-│                                    │ (scroll) │    │
-│                                    └──────────┘    │
-└────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ │  ← amber stripe: bright at join, transparent at edges
+├──────────────────────────────────┬───────────────────────────────────┤
+│                                  │  [Edit group]            [✕]      │  ← controls row
+│         Image canvas             ├───────────────────────────────────┤
+│         dot-grid background      │  Map Name (font-display, xl)      │  ← fixed info section
+│         (dark navy + subtle      │  by Author                        │    (shrink-0, border-b)
+│          white dots at 24px)     │  Variant  [current value] [✎] [✕] │
+│                                  │  [Grid][Gridless][?]  W × H       │
+│    [◀]                   [▶]    │  ● ● ● ●  1920×1080 · 4.2MB      │
+│                                  │  [tag] [tag] [+ Tag]              │
+│                                  ├───────────────────────────────────┤
+│                                  │  Variants (23)  [search] [⧉]    │  ← sticky within scroll area
+│                                  ├───────────────────────────────────┤
+│                                  │  [tile] [tile]  ← scrollable      │
+│                                  │  [tile] [tile]                    │
+│                                  │  [tile] [tile]                    │
+└──────────────────────────────────┴───────────────────────────────────┘
 ```
 
-- Both sides constrained to `max-height: 85vh` via `items-stretch` on the container
-- Sidebar: fixed metadata header (name, author, sub-variant badge, grid badge, filename, tags, colors, dimensions) + scrollable variant area
+### Key layout rules
+- Container: `max-width: 1600px; height: 88vh` — fixed size, image fits within canvas
+- Canvas: `flex-1 relative`, `min-w-0` (allows flex shrink)
+- Canvas background: `hsl(222 22% 6%)` + `radial-gradient(circle, rgba(255,255,255,0.045) 1px, transparent 1px)` at 24px
+- Sidebar: `w-[440px] shrink-0 flex flex-col` — **does not grow or shrink**
 
-### Variant Organisation in ImageViewer
+### Sidebar sections (top to bottom)
+1. `h-0.5 shrink-0 bg-gradient-to-l from-transparent to-primary/80` — amber stripe (sidebar half)
+2. Controls row: `shrink-0` — edit group link (left), close × (right)
+3. **Image info**: `shrink-0 border-b border-border/30 px-4 pb-4` — **fixed, never scrolls away**
+4. **Variants**: `flex-1 min-h-0 overflow-y-auto` — only this section scrolls
 
-Variants are **partitioned by `sub_variant` value** into labelled sections:
+### Amber stripe implementation
+The stripe spans the full viewer top but is **brightest at the canvas/sidebar join**, fading to transparent at both outer rounded corners:
+- Canvas: `absolute top-0 inset-x-0 h-0.5 bg-gradient-to-r from-transparent to-primary/80`
+- Sidebar: first child `h-0.5 shrink-0 bg-gradient-to-l from-transparent to-primary/80`
 
+### Inline editing pattern (name field)
+```tsx
+// Display mode — group hover reveals pencil icon
+<div className="group/name flex items-start gap-2">
+  <h2 className="cursor-text" onClick={() => setEditing(true)}>{value}</h2>
+  <button className="opacity-0 group-hover/name:opacity-60 hover:!opacity-100 transition-opacity">
+    <Pencil className="h-3.5 w-3.5" />
+  </button>
+</div>
+
+// Edit mode — underline input, Enter/Escape/blur to save/cancel
+<input className="bg-transparent border-b border-primary/70 focus:outline-none" onBlur={save} />
 ```
-Variants (23)
 
-SNOWY
-  [tile] [tile]
-  [tile] [tile]
-
-FEY
-  [tile] [tile]
-
-SUMMER
-  [tile] [tile]
-  [tile]
+### Sub-variant field
+Displayed as a labeled property row, **not** a tag pill. Uses inline editing:
+```tsx
+<div className="group/sv flex items-center gap-2 mb-2 min-w-0">
+  <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 w-[72px] shrink-0">Variant</span>
+  {/* editing: underline input with datalist suggestions from sibling variants */}
+  {/* display: current value text (or italic "none"), hover reveals ✎ and ✕ */}
+</div>
 ```
+The datalist is populated from `existingSubVariants` — unique non-null `sub_variant` values across the loaded variant group.
 
-- Each unique `sub_variant` becomes an uppercase section header
-- Tiles within a section show the **filename** (not sub_variant, since the header already shows it)
-- If all variants share the same `sub_variant` or none have one, renders as a single flat list with no section header
-- Variants without `sub_variant` go into an "Other" section
+### Grid toggle pattern (GridToggle component)
+Segmented button group: `[Grid | Gridless | ?]` — saves immediately on click via `patchMutation`. When `gridded === true`, shows W × H number inputs inline (spinners hidden, saves on blur/Enter).
 
-## Badge Usage
+### Variant scroll preservation
+When navigating to a variant within the same group (sidebar click), sidebar scroll position must be maintained. Implementation:
+- Set `preserveStateRef.current = true` **before** calling `onImageChange`
+- In the `useEffect([image.id])`, guard with `lastProcessedIdRef.current === image.id` to prevent React Strict Mode double-invocation from consuming the flag prematurely
+- Only `scrollContainerRef` (the variants section) is reset to 0; image info state is always reset on cross-group navigation
 
-| Context | Variant | Size | Content |
-|---------|---------|------|---------|
-| Gallery cards (tags) | `outline` | `text-[10px]` | Tag value only (no category prefix) |
-| Gallery cards (variant count) | `secondary` | `text-[10px]` | "23" or "3/23" |
-| ImageViewer header (tags) | `outline` | `text-[10px]` | "category: value" |
-| ImageViewer header (sub-variant) | `outline` | `text-xs` | Sub-variant label |
-| ImageViewer header (grid) | `outline` | `text-xs` | "Grid 30×20" or "Gridded" |
-| Variant tiles (tags/grid) | `outline` | `text-[8px]` | Compact, muted |
+---
 
-## Color & Theme
+## Shared Interactive Components
 
-- Dark mode is primary (`dark` class on root)
-- Card backgrounds: `bg-card` (maps to dark blue-grey)
-- Borders: `border-border` (subtle), `border-border/50` (very subtle, used for internal separators)
-- Hover accent: `border-primary/40` + `shadow-primary/5`
-- Active/selected: `border-primary ring-1 ring-primary/30`
-- Muted text: `text-muted-foreground` (main secondary), `text-muted-foreground/60` (very subtle)
-- Overlay text: white with opacity variants (`text-white`, `text-white/70`, `text-white/90`)
+### TagPicker (`frontend/src/components/import/TagPicker.tsx`)
+Two-level dropdown: category → value. Used in both import flow and ImageViewer.
+
+Trigger: `border-dashed border-border/50 text-muted-foreground hover:text-foreground hover:border-border hover:bg-secondary/50`
+Dropdown: `bg-card border-border shadow-2xl shadow-black/40 rounded-xl`
+Category dot: `color.dot` (solid), not `color.bg` (tinted)
+
+### GridToggle (`frontend/src/components/import/GridToggle.tsx`)
+Three-option segmented control: Grid / Gridless / ?
+
+Active: `bg-primary/20 text-primary`
+Inactive: `text-muted-foreground hover:text-foreground hover:bg-secondary/50`
+Container: `inline-flex rounded-md overflow-hidden border border-border`
+
+### SubVariantPicker (`frontend/src/components/import/SubVariantPicker.tsx`)
+Popup picker showing existing sub_variants from the group as quick-select options, plus a free-text input. Used in the import/edit flow (not in ImageViewer — ImageViewer uses inline editing instead).
+
+Trigger: `text-muted-foreground hover:text-primary`
+Dropdown: `bg-card border-border shadow-2xl shadow-black/40`
+
+---
+
+## Component-Level Rules
+
+### Borders and separators
+- Between major sections: `border-b border-border/30`
+- Between items in a list: `border-border/50`
+- Very subtle internal structure: `border-border/20`
+- Never use `border-border` at full opacity for internal dividers
+
+### Scrollbars
+Styled globally in index.css: 5px wide, `bg-border` thumb, transparent track. Do not override per-component.
+
+### Shadows
+- Elevation for floating panels/modals: `shadow-2xl shadow-black/70`
+- Dropdowns: `shadow-2xl shadow-black/40`
+- Card hover: `shadow-lg shadow-primary/15` (amber tinted)
+
+### Popovers
+Use Radix `<Popover>` with `<PopoverContent className="p-0 ...">` — do not add internal padding at the content level, let child components define their own spacing.
+
+### Z-index conventions
+- Sticky variant header inside scroll container: `z-10`
+- ImageViewer overlay: `z-50`
+- Tag picker / sub-variant picker dropdowns: `z-50`
+- Global amber top stripe (body::before): `z-1000`
+
+---
+
+## Anti-Patterns
+
+The following patterns appear in older code (especially FileCard and import-flow components) and should **not** be used in new work or extended to viewer/gallery components:
+
+| Old pattern | Correct replacement |
+|-------------|---------------------|
+| `bg-white`, `bg-slate-50` | `bg-card`, `bg-secondary` |
+| `text-slate-700`, `text-slate-400` | `text-foreground`, `text-muted-foreground` |
+| `border-slate-200` | `border-border` |
+| `hover:bg-emerald-50 hover:text-emerald-700` | `hover:bg-primary/10 hover:text-primary` |
+| `bg-emerald-600 text-white` (active) | `bg-primary/20 text-primary` |
+| `border-emerald-300` (focus) | `focus:ring-primary/40` |
+| Separate metadata bar below image | Gradient overlay (bottom of image) |
+| Showing `category: value` in tag pills | Value only, capitalised; category in `title` attribute |
+| Hiding filter button when no filterable data | Show it greyed out (`opacity-25 cursor-not-allowed`) |
+| Metadata bar with fixed height below card | Remove; use gradient overlay on card |
+| `rounded-lg border bg-white shadow-black/5` for dropdowns | `rounded-xl border border-border bg-card shadow-2xl shadow-black/40` |

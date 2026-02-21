@@ -178,6 +178,7 @@ export interface EditableFileState {
   grid_height: number | null
   sub_variant: string | null
   excluded: boolean
+  outOfScope?: boolean  // true = in group but not in search results (mass-edit context only)
   previewUrl?: string  // Browser blob URL (for direct uploads) or server preview URL (for ZIP)
   fullImageUrl?: string  // Full-res URL (edit mode); falls back to previewUrl in lightbox
 }

@@ -28,6 +28,7 @@ def _patch_db_for_flows(monkeypatch, tmp_db):
 def _patch_image_store(monkeypatch, tmp_path):
     """Point ImageStore at a temp directory."""
     from backend.app.services.image_store import ImageStore
+
     store = ImageStore(tmp_path / "store")
     monkeypatch.setattr("backend.flows.ingestion.get_image_store", lambda: store)
     return store
@@ -37,7 +38,11 @@ class TestMetadataRoundTrip:
     """User-provided metadata must arrive in DB unchanged."""
 
     def test_custom_tag_survives(
-        self, tmp_staging, mock_heavy_services, _patch_db_for_flows, _patch_image_store,
+        self,
+        tmp_staging,
+        mock_heavy_services,
+        _patch_db_for_flows,
+        _patch_image_store,
     ):
         """A user-added tag that the parser would never produce must persist."""
         from backend.flows.ingestion import process_single_image
@@ -51,7 +56,12 @@ class TestMetadataRoundTrip:
                 "author": "CustomAuthor",
                 "variant_group_name": "Custom Group",
                 "tags": [
-                    {"category": "custom", "value": "user-added", "confidence": 1.0, "source": "manual"},
+                    {
+                        "category": "custom",
+                        "value": "user-added",
+                        "confidence": 1.0,
+                        "source": "manual",
+                    },
                     {"category": "lighting", "value": "night", "confidence": 0.9, "source": "auto"},
                 ],
                 "gridded": True,
@@ -89,7 +99,11 @@ class TestMetadataRoundTrip:
             db.close()
 
     def test_gridded_override_persists(
-        self, tmp_staging, mock_heavy_services, _patch_db_for_flows, _patch_image_store,
+        self,
+        tmp_staging,
+        mock_heavy_services,
+        _patch_db_for_flows,
+        _patch_image_store,
     ):
         """User sets gridded=True on a file that the parser would say is None."""
         from backend.flows.ingestion import process_single_image
@@ -123,7 +137,11 @@ class TestMetadataRoundTrip:
             db.close()
 
     def test_process_import_group_passes_metadata_through(
-        self, tmp_staging, mock_heavy_services, _patch_db_for_flows, _patch_image_store,
+        self,
+        tmp_staging,
+        mock_heavy_services,
+        _patch_db_for_flows,
+        _patch_image_store,
     ):
         """process_import_group should relay per-file metadata to process_single_image."""
         from backend.flows.ingestion import process_import_group
@@ -146,7 +164,14 @@ class TestMetadataRoundTrip:
             files=[
                 {
                     "relative_path": "TestAuthor/TestMap/TestMap_Night_Grid.jpg",
-                    "tags": [{"category": "mood", "value": "spooky", "confidence": 1.0, "source": "manual"}],
+                    "tags": [
+                        {
+                            "category": "mood",
+                            "value": "spooky",
+                            "confidence": 1.0,
+                            "source": "manual",
+                        }
+                    ],
                     "gridded": False,
                     "grid_width": None,
                     "grid_height": None,

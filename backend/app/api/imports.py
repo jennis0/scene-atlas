@@ -36,13 +36,17 @@ from ..models.schemas import (
     ImportVariantGroup,
 )
 
+
 class ImportConfirmAllRequest(BaseModel):
     """Confirm all variant groups for processing in one flow run."""
+
     groups: List[ImportConfirmRequest]
+
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
 
 def get_db(request: Request):
     """Dependency to get database session."""
@@ -99,7 +103,9 @@ async def upload_files(
                         # Skip directories, macOS resource forks, hidden files
                         if member.is_dir():
                             continue
-                        if "__MACOSX" in member.filename or Path(member.filename).name.startswith("._"):
+                        if "__MACOSX" in member.filename or Path(member.filename).name.startswith(
+                            "._"
+                        ):
                             continue
                         # Only extract supported image formats
                         ext = Path(member.filename).suffix.lower()
@@ -155,25 +161,33 @@ async def upload_files(
             files_info: list[ImportFileInfo] = []
             for f in group["files"]:
                 parsed = f["parsed"]
-                files_info.append(ImportFileInfo(
-                    relative_path=f["relative_path"],
-                    filename=parsed["filename"],
-                    detected_tags=[
-                        {"category": t["category"], "value": t["value"],
-                         "confidence": t.get("confidence", 1.0), "source": t.get("source", "auto")}
-                        for t in parsed.get("tags", [])
-                    ],
-                    gridded=parsed.get("gridded"),
-                    grid_width=parsed.get("grid_width"),
-                    grid_height=parsed.get("grid_height"),
-                    sub_variant=parsed.get("sub_variant"),
-                ))
+                files_info.append(
+                    ImportFileInfo(
+                        relative_path=f["relative_path"],
+                        filename=parsed["filename"],
+                        detected_tags=[
+                            {
+                                "category": t["category"],
+                                "value": t["value"],
+                                "confidence": t.get("confidence", 1.0),
+                                "source": t.get("source", "auto"),
+                            }
+                            for t in parsed.get("tags", [])
+                        ],
+                        gridded=parsed.get("gridded"),
+                        grid_width=parsed.get("grid_width"),
+                        grid_height=parsed.get("grid_height"),
+                        sub_variant=parsed.get("sub_variant"),
+                    )
+                )
 
-            variant_groups.append(ImportVariantGroup(
-                author=group.get("author"),
-                variant_group_name=group["variant_group_name"],
-                files=files_info,
-            ))
+            variant_groups.append(
+                ImportVariantGroup(
+                    author=group.get("author"),
+                    variant_group_name=group["variant_group_name"],
+                    files=files_info,
+                )
+            )
 
         # Create ImportJob in staging state
         import_job = ImportJob(
@@ -268,13 +282,15 @@ async def confirm_import(
     return ImportJobResponse(
         job_id=job.id,
         status="running",
-        groups=[ImportGroupStatus(
-            variant_group_name=body.variant_group_name,
-            total_files=len(valid_files),
-            processed_files=0,
-            failed_files=0,
-            status="running",
-        )],
+        groups=[
+            ImportGroupStatus(
+                variant_group_name=body.variant_group_name,
+                total_files=len(valid_files),
+                processed_files=0,
+                failed_files=0,
+                status="running",
+            )
+        ],
         created_at=job.created_at,
         completed_at=None,
     )
@@ -307,14 +323,10 @@ async def confirm_all_groups(
     group_statuses: list[ImportGroupStatus] = []
     for group_req in body.groups:
         valid_files = [
-            f.model_dump()
-            for f in group_req.files
-            if (staging_dir / f.relative_path).exists()
+            f.model_dump() for f in group_req.files if (staging_dir / f.relative_path).exists()
         ]
         if not valid_files:
-            logger.warning(
-                f"No valid files for group '{group_req.variant_group_name}', skipping"
-            )
+            logger.warning(f"No valid files for group '{group_req.variant_group_name}', skipping")
             continue
 
         group_job_id = uuid.uuid4().hex[:16]
@@ -330,19 +342,23 @@ async def confirm_all_groups(
         )
         db.add(group_job)
 
-        groups_payload.append({
-            "group_job_id": group_job_id,
-            "author": group_req.author,
-            "variant_group_name": group_req.variant_group_name,
-            "files": valid_files,
-        })
-        group_statuses.append(ImportGroupStatus(
-            variant_group_name=group_req.variant_group_name,
-            total_files=len(valid_files),
-            processed_files=0,
-            failed_files=0,
-            status="running",
-        ))
+        groups_payload.append(
+            {
+                "group_job_id": group_job_id,
+                "author": group_req.author,
+                "variant_group_name": group_req.variant_group_name,
+                "files": valid_files,
+            }
+        )
+        group_statuses.append(
+            ImportGroupStatus(
+                variant_group_name=group_req.variant_group_name,
+                total_files=len(valid_files),
+                processed_files=0,
+                failed_files=0,
+                status="running",
+            )
+        )
 
     if not groups_payload:
         raise HTTPException(status_code=400, detail="No valid files found in any group")
@@ -461,7 +477,12 @@ async def get_preview_thumbnail(
         if not str(resolved).startswith(str(staging_dir.resolve())):
             raise HTTPException(status_code=403, detail="Access denied")
         suffix = original_path.suffix.lower()
-        media_types = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
+        media_types = {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".webp": "image/webp",
+        }
         return FileResponse(original_path, media_type=media_types.get(suffix, "image/jpeg"))
 
     raise HTTPException(status_code=404, detail="Preview not found")

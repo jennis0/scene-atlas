@@ -10,10 +10,7 @@ class Settings(BaseSettings):
     """Application settings."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore"
+        env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"
     )
 
     # Application
@@ -38,15 +35,15 @@ class Settings(BaseSettings):
     qdrant_vector_size: int = 512  # CLIP ViT-B/32 projection_dim (common space for text & image)
 
     # CLIP Model
-    #clip_model_name: str = "openai/clip-vit-base-patch32"
+    # clip_model_name: str = "openai/clip-vit-base-patch32"
     clip_model_name: str = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
     clip_device: str = "cpu"  # or "cuda" if GPU available
 
     # Image Processing
     thumbnail_sizes: list[tuple[int, int]] = [
-        (150, 150),   # Small thumbnail
-        (400, 400),   # Medium thumbnail
-        (800, 800),   # Large thumbnail
+        (150, 150),  # Small thumbnail
+        (400, 400),  # Medium thumbnail
+        (800, 800),  # Large thumbnail
     ]
     max_image_size: int = 10 * 1024 * 1024  # 10MB
     supported_formats: list[str] = [".jpg", ".jpeg", ".png", ".webp"]
@@ -54,7 +51,9 @@ class Settings(BaseSettings):
     # Color Extraction
     num_dominant_colors: int = 5
     color_clustering_samples: int = 5000  # Pixels to sample for k-means
-    color_kmeans_n_init: int = 3  # K-means random initializations (3 is sufficient for color extraction)
+    color_kmeans_n_init: int = (
+        3  # K-means random initializations (3 is sufficient for color extraction)
+    )
 
     # Ingestion Performance
     ingestion_batch_size: int = 16  # Images per batch for CLIP and DB operations

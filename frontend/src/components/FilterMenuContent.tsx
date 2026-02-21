@@ -200,7 +200,7 @@ export function FilterMenuContent({ groups, activeFilters, onFiltersChange }: Fi
                   </div>
                 )}
 
-                <div className={`flex flex-wrap gap-1.5 px-3 pb-3 ${tab !== 'all' ? 'pt-3' : ''}`}>
+                <div className={`flex flex-wrap gap-1.5 pl-3 pr-8 pb-3 ${tab !== 'all' ? 'pt-3' : ''}`}>
                   {group.options.map((opt) => {
                     const state = getActiveState(group.type, opt.filterValue)
                     return (
@@ -346,11 +346,11 @@ function OptionPill({
     <div className={`group inline-flex items-center h-6 rounded-full border overflow-hidden ${colors.border}`} title={label}>
       <button
         onClick={onInclude}
-        className={`flex items-center gap-1 pl-2.5 h-full ${colors.bg} ${colors.text} text-xs hover:brightness-110 transition-all`}
+        className={`flex items-center gap-1 pl-2.5 pr-2.5 h-full ${colors.bg} ${colors.text} text-xs hover:brightness-110 transition-all`}
       >
         <span className="capitalize max-w-[160px] truncate">{label}</span>
         {count !== undefined && (
-          <span className="ml-0.5 pr-2 text-[9px] opacity-50 tabular-nums">{count}</span>
+          <span className="ml-0.5 text-[9px] opacity-50 tabular-nums">{count}</span>
         )}
       </button>
       {/* Exclude button expands from right on hover */}

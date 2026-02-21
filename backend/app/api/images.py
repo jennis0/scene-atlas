@@ -22,6 +22,7 @@ class ImagePatch(BaseModel):
     grid_width: Optional[int] = None
     grid_height: Optional[int] = None
 
+
 router = APIRouter()
 
 
@@ -39,30 +40,20 @@ def get_db(request: Request):
 async def list_authors(db: Session = Depends(get_db)):
     """List all distinct non-empty author values."""
     rows = (
-        db.query(Image.author)
-        .filter(Image.author.isnot(None), Image.author != "")
-        .distinct()
-        .all()
+        db.query(Image.author).filter(Image.author.isnot(None), Image.author != "").distinct().all()
     )
     return sorted([r[0] for r in rows])
 
 
 @router.get("/", response_model=List[ImageResponse])
-async def list_images(
-    skip: int = 0,
-    limit: int = 100,
-    db: Session = Depends(get_db)
-):
+async def list_images(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     """List all images with pagination."""
     images = db.query(Image).offset(skip).limit(limit).all()
     return images
 
 
 @router.get("/{image_id}", response_model=ImageResponse)
-async def get_image(
-    image_id: int,
-    db: Session = Depends(get_db)
-):
+async def get_image(image_id: int, db: Session = Depends(get_db)):
     """Get a specific image by ID."""
     image = db.query(Image).filter(Image.id == image_id).first()
     if not image:
@@ -71,11 +62,7 @@ async def get_image(
 
 
 @router.patch("/{image_id}", response_model=ImageResponse)
-async def patch_image(
-    image_id: int,
-    patch: ImagePatch,
-    db: Session = Depends(get_db)
-):
+async def patch_image(image_id: int, patch: ImagePatch, db: Session = Depends(get_db)):
     """Update image metadata (name, sub_variant, gridded, grid dimensions)."""
     image = db.query(Image).filter(Image.id == image_id).first()
     if not image:
@@ -88,10 +75,7 @@ async def patch_image(
 
 
 @router.delete("/{image_id}")
-async def delete_image(
-    image_id: int,
-    db: Session = Depends(get_db)
-):
+async def delete_image(image_id: int, db: Session = Depends(get_db)):
     """Delete an image and its files from stores."""
     image = db.query(Image).filter(Image.id == image_id).first()
     if not image:
@@ -111,10 +95,7 @@ async def delete_image(
 
 
 @router.get("/{image_id}/variants", response_model=List[ImageResponse])
-async def get_image_variants(
-    image_id: int,
-    db: Session = Depends(get_db)
-):
+async def get_image_variants(image_id: int, db: Session = Depends(get_db)):
     """Get all variants of an image (images in the same variant group)."""
     image = db.query(Image).filter(Image.id == image_id).first()
     if not image:
@@ -123,18 +104,13 @@ async def get_image_variants(
     if not image.variant_group_id:
         return [image]  # No variant group, return just this image
 
-    variants = db.query(Image).filter(
-        Image.variant_group_id == image.variant_group_id
-    ).all()
+    variants = db.query(Image).filter(Image.variant_group_id == image.variant_group_id).all()
 
     return variants
 
 
 @router.get("/{image_id}/file")
-async def get_image_file(
-    image_id: int,
-    db: Session = Depends(get_db)
-):
+async def get_image_file(image_id: int, db: Session = Depends(get_db)):
     """Serve the original image file via ImageStore."""
     image = db.query(Image).filter(Image.id == image_id).first()
     if not image:
@@ -149,10 +125,7 @@ async def get_image_file(
 
 
 @router.get("/{image_id}/thumbnail")
-async def get_image_thumbnail(
-    image_id: int,
-    db: Session = Depends(get_db)
-):
+async def get_image_thumbnail(image_id: int, db: Session = Depends(get_db)):
     """Serve the image thumbnail via ImageStore."""
     image = db.query(Image).filter(Image.id == image_id).first()
     if not image:

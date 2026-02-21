@@ -5,13 +5,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-print("="*60)
+print("=" * 60)
 print("COMPLETE WORKFLOW TEST - Fresh Start")
-print("="*60)
+print("=" * 60)
 
 # Step 1: Verify database is clean
 print("\n[1/6] Checking database state...")
 from backend.app.models import get_engine, get_session_local, Image, Tag
+
 engine = get_engine()
 SessionLocal = get_session_local(engine)
 db = SessionLocal()
@@ -27,6 +28,7 @@ print("\n[2/6] Ingesting test image...")
 from backend.flows import process_single_image
 
 from backend.tests import FIXTURES_DIR
+
 images_dir = FIXTURES_DIR
 image_files = list(images_dir.glob("**/*.jpg"))[:1]
 if not image_files:
@@ -66,9 +68,11 @@ db.close()
 # Step 4: Verify Qdrant
 print("\n[4/6] Verifying Qdrant...")
 from backend.app.services import qdrant_service
+
 try:
     # Try to search to verify collection exists
     from backend.app.services import get_clip_service
+
     clip = get_clip_service()
     query_emb = clip.encode_text("test query")
     results = qdrant_service.search_similar(query_emb, limit=5)
@@ -125,9 +129,9 @@ with TestClient(app) as client:
     assert "error" not in data or data.get("error") is None
     print("      [OK] Semantic search endpoint")
 
-print("\n" + "="*60)
+print("\n" + "=" * 60)
 print("ALL TESTS PASSED!")
-print("="*60)
+print("=" * 60)
 print("\nSystem is ready!")
 print("- Database: 1 image with metadata, tags, and colors")
 print("- Qdrant: Vector embeddings stored and searchable")

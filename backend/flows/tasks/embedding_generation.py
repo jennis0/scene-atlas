@@ -57,7 +57,7 @@ def batch_generate_clip_embeddings(
         all_embeddings: List[List[float]] = []
 
         for i in range(0, len(image_paths), batch_size):
-            chunk = image_paths[i:i + batch_size]
+            chunk = image_paths[i : i + batch_size]
             chunk_paths = [Path(p) for p in chunk]
             embeddings = clip_service.batch_encode_images(chunk_paths)
             all_embeddings.extend(embeddings)
