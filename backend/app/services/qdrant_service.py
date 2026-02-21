@@ -184,6 +184,28 @@ class QdrantService:
             logger.error(f"Error deleting embedding for image_id={image_id}: {e}")
             return False
 
+    def get_embedding(self, image_id: int) -> list[float] | None:
+        """Retrieve a stored embedding vector for an image.
+
+        Args:
+            image_id: Image ID whose embedding to retrieve
+
+        Returns:
+            Embedding vector, or None if not found / on error
+        """
+        try:
+            results = self.client.retrieve(
+                collection_name=self.collection_name,
+                ids=[image_id],
+                with_vectors=True,
+            )
+            if results and results[0].vector:
+                return results[0].vector
+            return None
+        except Exception as e:
+            logger.warning(f"Error retrieving embedding for image_id={image_id}: {e}")
+            return None
+
     def get_collection_info(self) -> dict:
         """Get information about the collection.
 

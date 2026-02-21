@@ -16,6 +16,7 @@ Tasks:
     update_import_group_job_progress — Update ImportGroupJob progress counters
 """
 
+import hashlib
 import logging
 import uuid
 from datetime import datetime
@@ -66,6 +67,18 @@ def _build_parser() -> BattlemapParser:
         db.close()
 
 
+def _compute_file_hash(file_path: Path) -> str:
+    """Compute SHA-256 hex digest of a file, reading in 8KB chunks."""
+    h = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        while True:
+            chunk = f.read(8192)
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()
+
+
 # ---------------------------------------------------------------------------
 # Helper: Save one image dict to DB (shared logic for single and batch)
 # ---------------------------------------------------------------------------
@@ -74,36 +87,28 @@ def _build_parser() -> BattlemapParser:
 def _save_image_to_db(db: Session, image_data: dict) -> int:
     """Save one image and its tags/colors to the database within an existing session.
 
+    Always creates a new record (never updates an existing one by storage_key,
+    since multiple records can now share the same storage_key for dedup).
+
     Returns the image ID. Does NOT commit — caller must commit.
     """
-    existing = db.query(Image).filter(Image.storage_key == image_data["storage_key"]).first()
-
-    if existing:
-        logger.info(f"Image already exists: {image_data['storage_key']}, updating...")
-        image = existing
-        image.name = image_data["name"]
-        image.author = image_data.get("author")
-        image.gridded = image_data.get("gridded")
-        image.grid_width = image_data.get("grid_width")
-        image.grid_height = image_data.get("grid_height")
-        image.sub_variant = image_data.get("sub_variant")
-    else:
-        image = Image(
-            filename=image_data["filename"],
-            storage_key=image_data["storage_key"],
-            name=image_data["name"],
-            author=image_data.get("author"),
-            width=image_data["width"],
-            height=image_data["height"],
-            file_size=image_data["file_size"],
-            thumbnail_key=image_data.get("thumbnail_key"),
-            gridded=image_data.get("gridded"),
-            grid_width=image_data.get("grid_width"),
-            grid_height=image_data.get("grid_height"),
-            sub_variant=image_data.get("sub_variant"),
-        )
-        db.add(image)
-        db.flush()
+    image = Image(
+        filename=image_data["filename"],
+        storage_key=image_data["storage_key"],
+        name=image_data["name"],
+        author=image_data.get("author"),
+        width=image_data["width"],
+        height=image_data["height"],
+        file_size=image_data["file_size"],
+        thumbnail_key=image_data.get("thumbnail_key"),
+        gridded=image_data.get("gridded"),
+        grid_width=image_data.get("grid_width"),
+        grid_height=image_data.get("grid_height"),
+        sub_variant=image_data.get("sub_variant"),
+        content_hash=image_data.get("content_hash"),
+    )
+    db.add(image)
+    db.flush()
 
     # Handle variant group
     variant_group_name = image_data.get("variant_group_name")
@@ -123,9 +128,7 @@ def _save_image_to_db(db: Session, image_data: dict) -> int:
             db.flush()
         image.variant_group_id = vg.id
 
-    # Replace tags
-    if existing:
-        db.query(Tag).filter(Tag.image_id == image.id).delete()
+    # Add tags
     for tag_data in image_data.get("tags", []):
         db.add(
             Tag(
@@ -137,9 +140,7 @@ def _save_image_to_db(db: Session, image_data: dict) -> int:
             )
         )
 
-    # Replace colors
-    if existing:
-        db.query(Color).filter(Color.image_id == image.id).delete()
+    # Add colors
     for color_data in image_data.get("colors", []):
         db.add(
             Color(
@@ -212,6 +213,9 @@ def prepare_single_image(
             grid_width = metadata.get("grid_width")
             grid_height = metadata.get("grid_height")
             tags = metadata.get("tags", [])
+            content_hash = metadata.get("content_hash")
+            reuse_storage_key = metadata.get("reuse_storage_key")
+            reuse_thumbnail_key = metadata.get("reuse_thumbnail_key")
         else:
             if parser is None:
                 parser = _build_parser()
@@ -229,13 +233,92 @@ def prepare_single_image(
             grid_width = parsed["grid_width"]
             grid_height = parsed["grid_height"]
             tags = parsed["tags"]
+            content_hash = None
+            reuse_storage_key = None
+            reuse_thumbnail_key = None
 
-        # --- Copy image into ImageStore ---
+        # --- Duplicate reuse path ---
+        # If we're reusing an existing file, skip copy/thumbnail/color extraction
+        # and copy properties from the existing image record instead.
+        if reuse_storage_key:
+            image_store = get_image_store()
+            if not image_store.get_path(reuse_storage_key).exists():
+                logger.warning(
+                    f"Reuse key {reuse_storage_key} not found on disk, falling back to normal path"
+                )
+                reuse_storage_key = None  # Fall through to normal path below
+
+        if reuse_storage_key:
+            # Look up existing image to copy dimensions, file_size, colors
+            engine = get_engine(settings.database_url)
+            SessionLocal = get_session_local(engine)
+            db = SessionLocal()
+            try:
+                source_image = (
+                    db.query(Image)
+                    .filter(Image.storage_key == reuse_storage_key)
+                    .first()
+                )
+                if source_image:
+                    width = source_image.width
+                    height = source_image.height
+                    file_size = source_image.file_size
+                    colors = [
+                        {"color_hex": c.color_hex, "percentage": c.percentage, "color_order": c.color_order}
+                        for c in source_image.colors
+                    ]
+                    reuse_embedding_from = source_image.id
+                else:
+                    # Source record gone — fall back to computing from file
+                    logger.warning(f"No DB record for storage_key={reuse_storage_key}")
+                    reuse_storage_key = None
+            finally:
+                db.close()
+
+        if reuse_storage_key:
+            image_data = {
+                "filename": image_path_obj.name,
+                "storage_key": reuse_storage_key,
+                "name": name,
+                "author": author,
+                "variant_group_name": variant_group_name,
+                "width": width,
+                "height": height,
+                "file_size": file_size,
+                "thumbnail_key": reuse_thumbnail_key,
+                "gridded": gridded,
+                "grid_width": grid_width,
+                "grid_height": grid_height,
+                "sub_variant": sub_variant,
+                "content_hash": content_hash,
+                "tags": tags,
+                "colors": colors,
+            }
+
+            qdrant_metadata = {
+                "filename": image_path_obj.name,
+                "author": author,
+                "base_name": variant_group_name,
+            }
+
+            return {
+                "status": "success",
+                "image_data": image_data,
+                "original_image_path": image_path,
+                "qdrant_metadata": qdrant_metadata,
+                "reuse_embedding_from": reuse_embedding_from,
+            }
+
+        # --- Normal path: Copy image into ImageStore ---
         image_store = get_image_store()
         storage_key_stem = uuid.uuid4().hex[:12]
         ext = image_path_obj.suffix.lower()
         storage_key = f"{storage_key_stem}{ext}"
         image_store.put(storage_key, image_path_obj)
+
+        # Compute content hash if not already known
+        if not content_hash:
+            content_hash = _compute_file_hash(image_path_obj)
 
         # --- File size (inline, fast) ---
         file_size = image_path_obj.stat().st_size
@@ -269,6 +352,7 @@ def prepare_single_image(
             "grid_width": grid_width,
             "grid_height": grid_height,
             "sub_variant": sub_variant,
+            "content_hash": content_hash,
             "tags": tags,
             "colors": colors,
         }
@@ -433,6 +517,11 @@ def _process_batch(
 ) -> tuple[List[dict], int]:
     """Process a batch of prepared images: CLIP embed, DB save, Qdrant save.
 
+    Handles two kinds of successful results:
+    - New images: need CLIP embedding generation
+    - Reuse images: retrieve existing embedding from Qdrant (or fall back to
+      generating from the stored file if retrieval fails)
+
     Args:
         prepared_results: List of results from prepare_single_image
 
@@ -446,16 +535,44 @@ def _process_batch(
     if not successful:
         return prepared_results, batch_failed
 
-    # Batch CLIP embedding
-    image_paths = [r["original_image_path"] for r in successful]
-    embeddings = batch_generate_clip_embeddings(image_paths)
+    # Split into new images vs reuse images
+    new_images = [r for r in successful if "reuse_embedding_from" not in r]
+    reuse_images = [r for r in successful if "reuse_embedding_from" in r]
 
-    # Attach embeddings to image data
-    for prep, embedding in zip(successful, embeddings):
-        prep["embedding"] = embedding
+    # --- New images: batch CLIP embedding ---
+    if new_images:
+        image_paths = [r["original_image_path"] for r in new_images]
+        embeddings = batch_generate_clip_embeddings(image_paths)
+        for prep, embedding in zip(new_images, embeddings):
+            prep["embedding"] = embedding
+
+    # --- Reuse images: retrieve existing embeddings from Qdrant ---
+    for prep in reuse_images:
+        source_id = prep["reuse_embedding_from"]
+        embedding = qdrant_service.get_embedding(source_id)
+        if embedding:
+            prep["embedding"] = embedding
+        else:
+            # Fallback: generate from the stored file
+            logger.warning(
+                f"Could not retrieve embedding for source image {source_id}, "
+                f"generating from stored file"
+            )
+            stored_path = get_image_store().get_path(prep["image_data"]["storage_key"])
+            if stored_path.exists():
+                from .tasks.embedding_generation import generate_clip_embedding
+                prep["embedding"] = generate_clip_embedding.fn(str(stored_path))
+            else:
+                logger.error(f"Stored file not found for reuse: {stored_path}")
+                prep["status"] = "failed"
+                prep["error"] = "Could not retrieve or generate embedding"
+                batch_failed += 1
+
+    # Re-filter to only truly successful results
+    all_successful = [r for r in successful if r["status"] == "success"]
 
     # Batch DB save
-    image_data_list = [r["image_data"] for r in successful]
+    image_data_list = [r["image_data"] for r in all_successful]
     image_ids = batch_save_to_database(image_data_list)
 
     # Batch Qdrant save
@@ -465,12 +582,12 @@ def _process_batch(
             "embedding": prep["embedding"],
             "metadata": prep["qdrant_metadata"],
         }
-        for image_id, prep in zip(image_ids, successful)
+        for image_id, prep in zip(image_ids, all_successful)
     ]
     batch_save_to_qdrant(qdrant_items)
 
     # Attach image IDs to results
-    for prep, image_id in zip(successful, image_ids):
+    for prep, image_id in zip(all_successful, image_ids):
         prep["image_id"] = image_id
 
     return prepared_results, batch_failed
@@ -624,17 +741,86 @@ def bulk_image_ingestion(source_dirs: List[str]) -> dict:
 def analyse_upload(
     staging_dir: str,
     relative_paths: list[str],
+    precomputed_hashes: dict[str, dict] | None = None,
 ) -> list[dict]:
     """Parse and group uploaded files for the preview UI.
 
-    Preview images are served directly from staging via the /preview/ endpoint
-    (or from browser blob URLs when files were uploaded individually).
-    No server-side thumbnail generation is done here — the frontend handles previews.
+    Also computes SHA-256 content hashes for each file and checks the
+    database for existing images with matching hashes (duplicate detection).
+
+    If ``precomputed_hashes`` is provided (from the client-side pre-flight
+    check), those entries skip server-side hash computation and duplicate
+    lookup — their content_hash and duplicate_of are used directly.
     """
     logger.info(f"Analysing {len(relative_paths)} uploaded files in {staging_dir}")
+    staging = Path(staging_dir)
+    if precomputed_hashes is None:
+        precomputed_hashes = {}
 
     parser = _build_parser()
     groups = parser.group_files(relative_paths)
+
+    # Compute content hashes and detect duplicates
+    engine = get_engine(settings.database_url)
+    SessionLocal = get_session_local(engine)
+    db = SessionLocal()
+    try:
+        # Collect hashes that still need DB lookup (non-precomputed files)
+        hashes_to_check: dict[str, list[dict]] = {}  # hash -> [file_entry, ...]
+
+        for group in groups:
+            for file_entry in group["files"]:
+                rel_path = file_entry["relative_path"]
+
+                # Use precomputed data if available (from client-side check)
+                precomputed = precomputed_hashes.get(rel_path)
+                if precomputed:
+                    file_entry["content_hash"] = precomputed["content_hash"]
+                    if precomputed.get("duplicate_of"):
+                        file_entry["duplicate_of"] = precomputed["duplicate_of"]
+                    continue
+
+                # Compute hash for files actually in staging
+                file_path = staging / rel_path
+                if not file_path.exists():
+                    continue
+
+                content_hash = _compute_file_hash(file_path)
+                file_entry["content_hash"] = content_hash
+                hashes_to_check.setdefault(content_hash, []).append(file_entry)
+
+        # Batch-query DB for any server-computed hashes
+        if hashes_to_check:
+            all_hashes = list(hashes_to_check.keys())
+            existing_images = (
+                db.query(Image)
+                .filter(Image.content_hash.in_(all_hashes))
+                .all()
+            )
+            hash_to_image: dict[str, Image] = {}
+            for img in existing_images:
+                if img.content_hash and img.content_hash not in hash_to_image:
+                    hash_to_image[img.content_hash] = img
+
+            for h, entries in hashes_to_check.items():
+                existing = hash_to_image.get(h)
+                if existing:
+                    dup_info = {
+                        "image_id": existing.id,
+                        "name": existing.name,
+                        "author": existing.author,
+                        "storage_key": existing.storage_key,
+                        "thumbnail_key": existing.thumbnail_key,
+                        "variant_group_name": existing.variant_group_name,
+                    }
+                    for entry in entries:
+                        entry["duplicate_of"] = dup_info
+                    logger.info(
+                        f"  Duplicate detected: {len(entries)} file(s) match "
+                        f"image {existing.id} ({existing.name})"
+                    )
+    finally:
+        db.close()
 
     logger.info(f"Detected {len(groups)} variant group(s)")
     for g in groups:
@@ -668,15 +854,19 @@ def _run_group(
     processed = 0
     failed = 0
 
-    # Filter to files that actually exist in staging
+    # Filter to files that exist in staging or have a reuse key (duplicate not uploaded)
     valid_files = []
     for file_info in files:
         image_path = staging / file_info["relative_path"]
-        if not image_path.exists():
+        if image_path.exists():
+            valid_files.append((file_info, str(image_path)))
+        elif file_info.get("reuse_storage_key"):
+            # Duplicate not in staging — prepare_single_image only uses
+            # image_path_obj.name for the filename in the reuse path
+            valid_files.append((file_info, str(image_path)))
+        else:
             logger.warning(f"File not found in staging: {image_path}")
             failed += 1
-        else:
-            valid_files.append((file_info, str(image_path)))
 
     if failed > 0:
         update_import_group_job_progress(group_job_id, processed, failed)
@@ -704,6 +894,9 @@ def _run_group(
                         "grid_width": file_info.get("grid_width"),
                         "grid_height": file_info.get("grid_height"),
                         "sub_variant": file_info.get("sub_variant"),
+                        "content_hash": file_info.get("content_hash"),
+                        "reuse_storage_key": file_info.get("reuse_storage_key"),
+                        "reuse_thumbnail_key": file_info.get("reuse_thumbnail_key"),
                     },
                 )
                 for file_info, image_path in sub_batch

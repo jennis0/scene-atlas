@@ -32,10 +32,11 @@ interface ImportTrayProps {
   hasActive: boolean
   onOpenJob: (jobId: string) => void
   onDismissJob: (jobId: string) => void
+  onCancelJob: (jobId: string) => void
   onRefresh: () => void
 }
 
-export function ImportTray({ jobs, hasActive, onOpenJob, onDismissJob, onRefresh }: ImportTrayProps) {
+export function ImportTray({ jobs, hasActive, onOpenJob, onDismissJob, onCancelJob, onRefresh }: ImportTrayProps) {
   const [expanded, setExpanded] = useState(false)
   const [cleaning, setCleaning] = useState(false)
 
@@ -164,6 +165,7 @@ export function ImportTray({ jobs, hasActive, onOpenJob, onDismissJob, onRefresh
               job={job}
               onOpen={() => onOpenJob(job.jobId)}
               onDismiss={() => onDismissJob(job.jobId)}
+              onCancel={() => onCancelJob(job.jobId)}
             />
           ))}
         </div>
@@ -178,12 +180,15 @@ function ImportTrayCard({
   job,
   onOpen,
   onDismiss,
+  onCancel,
 }: {
   job: ActiveImportJob
   onOpen: () => void
   onDismiss: () => void
+  onCancel: () => void
 }) {
   const isTerminal = job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled'
+  const canCancel = job.status === 'staging'
   const progressRatio = job.totalGroups > 0
     ? (job.completedGroups / job.totalGroups)
     : 0
@@ -214,6 +219,18 @@ function ImportTrayCard({
                 text-muted-foreground/40 hover:text-foreground hover:bg-secondary
                 transition-all"
               title="Dismiss"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
+          {canCancel && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onCancel() }}
+              className="opacity-0 group-hover:opacity-100 shrink-0
+                h-5 w-5 rounded flex items-center justify-center
+                text-muted-foreground/40 hover:text-destructive hover:bg-secondary
+                transition-all"
+              title="Cancel import"
             >
               <X className="h-3 w-3" />
             </button>

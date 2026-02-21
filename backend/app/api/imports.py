@@ -29,6 +29,10 @@ from ..models import (
 )
 from ..models.schemas import (
     ActiveImportsResponse,
+    DuplicateInfo,
+    HashCheckRequest,
+    HashCheckResponse,
+    HashCheckResultItem,
     ImportConfirmFile,
     ImportConfirmRequest,
     ImportFileInfo,
@@ -61,11 +65,69 @@ def get_db(request: Request):
         db.close()
 
 
+@router.post("/check-hashes", response_model=HashCheckResponse)
+async def check_hashes(
+    body: HashCheckRequest,
+    db: Session = Depends(get_db),
+):
+    """Check a batch of content hashes against the database.
+
+    Returns duplicate info for any hash that matches an existing image.
+    Used as a pre-flight check before uploading, allowing the client
+    to skip uploading files that already exist in the library.
+    """
+    from ..models import Image
+
+    if not body.files:
+        return HashCheckResponse(results=[], total_checked=0, duplicates_found=0)
+
+    # Collect unique hashes and batch-query DB
+    unique_hashes = list({f.content_hash for f in body.files})
+    existing_images = (
+        db.query(Image)
+        .filter(Image.content_hash.in_(unique_hashes))
+        .all()
+    )
+
+    # Build hash → DuplicateInfo map (first match wins)
+    hash_to_dup: dict[str, DuplicateInfo] = {}
+    for img in existing_images:
+        if img.content_hash and img.content_hash not in hash_to_dup:
+            hash_to_dup[img.content_hash] = DuplicateInfo(
+                image_id=img.id,
+                name=img.name,
+                author=img.author,
+                storage_key=img.storage_key,
+                thumbnail_key=img.thumbnail_key,
+                variant_group_name=img.variant_group_name,
+            )
+
+    # Build results
+    results = []
+    duplicates_found = 0
+    for f in body.files:
+        dup = hash_to_dup.get(f.content_hash)
+        if dup:
+            duplicates_found += 1
+        results.append(HashCheckResultItem(
+            relative_path=f.relative_path,
+            content_hash=f.content_hash,
+            duplicate_of=dup,
+        ))
+
+    return HashCheckResponse(
+        results=results,
+        total_checked=len(body.files),
+        duplicates_found=duplicates_found,
+    )
+
+
 @router.post("/upload", response_model=ImportUploadResponse)
 async def upload_files(
     request: Request,
-    files: List[UploadFile] = File(...),
+    files: List[UploadFile] = File(default=[]),
     relative_paths: Optional[str] = Form(None),
+    manifest: Optional[str] = Form(None),
     db: Session = Depends(get_db),
 ):
     """Upload files for import, analyse and group them.
@@ -73,6 +135,12 @@ async def upload_files(
     Accepts multiple image files and/or .zip archives.
     Saves to staging, submits analyse_upload Prefect flow,
     returns detected variant groups with metadata for user review.
+
+    The optional ``manifest`` parameter is a JSON array of entries for
+    files that the client determined are duplicates and chose not to
+    upload.  Each entry has ``relative_path``, ``filename``,
+    ``content_hash``, and ``duplicate_of``.  These files are included
+    in variant-group detection but skip server-side hashing.
     """
     job_id = uuid.uuid4().hex[:16]
     staging_dir = settings.staging_dir / job_id
@@ -85,6 +153,14 @@ async def upload_files(
             rel_paths_list = json.loads(relative_paths)
         except (json.JSONDecodeError, TypeError):
             rel_paths_list = []
+
+    # Parse manifest of duplicate files (not uploaded, will reuse existing storage)
+    manifest_entries: list[dict] = []
+    if manifest:
+        try:
+            manifest_entries = json.loads(manifest)
+        except (json.JSONDecodeError, TypeError):
+            manifest_entries = []
 
     saved_relative_paths: list[str] = []
 
@@ -133,18 +209,33 @@ async def upload_files(
                 dest.write_bytes(content)
                 saved_relative_paths.append(rel_path)
 
-        if not saved_relative_paths:
-            # Clean up empty staging dir
+        # Merge uploaded + manifest paths for grouping (grouping uses relative paths only)
+        manifest_paths = [entry["relative_path"] for entry in manifest_entries]
+        all_relative_paths = saved_relative_paths + manifest_paths
+
+        if not all_relative_paths:
             shutil.rmtree(staging_dir, ignore_errors=True)
             raise HTTPException(status_code=400, detail="No supported image files found in upload")
 
+        # Build precomputed hashes dict from manifest entries
+        precomputed_hashes: dict[str, dict] = {}
+        for entry in manifest_entries:
+            precomputed_hashes[entry["relative_path"]] = {
+                "content_hash": entry["content_hash"],
+                "duplicate_of": entry["duplicate_of"],
+            }
+
         # Submit analyse_upload flow via Prefect deployment (waits for result)
-        logger.info(f"Submitting analyse_upload deployment for {len(saved_relative_paths)} files")
+        logger.info(
+            f"Submitting analyse_upload deployment for {len(all_relative_paths)} files "
+            f"({len(saved_relative_paths)} uploaded, {len(manifest_entries)} from manifest)"
+        )
         flow_run = await run_deployment(
             name=f"{settings.analyse_flow}/{settings.analyse_deployment}",
             parameters={
                 "staging_dir": str(staging_dir),
-                "relative_paths": saved_relative_paths,
+                "relative_paths": all_relative_paths,
+                "precomputed_hashes": precomputed_hashes if precomputed_hashes else None,
             },
             timeout=120,  # Wait up to 2 minutes for analysis
         )
@@ -164,6 +255,10 @@ async def upload_files(
             files_info: list[ImportFileInfo] = []
             for f in group["files"]:
                 parsed = f["parsed"]
+                # Build duplicate info if the analysis detected a match
+                dup_data = f.get("duplicate_of")
+                dup_info = DuplicateInfo(**dup_data) if dup_data else None
+
                 files_info.append(
                     ImportFileInfo(
                         relative_path=f["relative_path"],
@@ -181,6 +276,8 @@ async def upload_files(
                         grid_width=parsed.get("grid_width"),
                         grid_height=parsed.get("grid_height"),
                         sub_variant=parsed.get("sub_variant"),
+                        content_hash=f.get("content_hash"),
+                        duplicate_of=dup_info,
                     )
                 )
 
@@ -198,14 +295,14 @@ async def upload_files(
             id=job_id,
             status="staging",
             source_label=source_label,
-            total_files=len(saved_relative_paths),
+            total_files=len(all_relative_paths),
         )
         db.add(import_job)
         db.commit()
 
         return ImportUploadResponse(
             job_id=job_id,
-            total_files=len(saved_relative_paths),
+            total_files=len(all_relative_paths),
             variant_groups=variant_groups,
         )
 
@@ -237,13 +334,13 @@ async def confirm_import(
     if not staging_dir.exists():
         raise HTTPException(status_code=404, detail="Staging directory not found")
 
-    # Validate files exist and build serializable metadata list
+    # Validate files: must exist in staging OR have a reuse key (duplicate not uploaded)
     valid_files: list[dict] = []
     for file_info in body.files:
-        if (staging_dir / file_info.relative_path).exists():
+        if (staging_dir / file_info.relative_path).exists() or file_info.reuse_storage_key:
             valid_files.append(file_info.model_dump())
         else:
-            logger.warning(f"File not found in staging: {file_info.relative_path}")
+            logger.warning(f"File not found in staging and no reuse key: {file_info.relative_path}")
 
     if not valid_files:
         raise HTTPException(status_code=400, detail="No valid files to process")
@@ -328,7 +425,8 @@ async def confirm_all_groups(
     group_statuses: list[ImportGroupStatus] = []
     for group_req in body.groups:
         valid_files = [
-            f.model_dump() for f in group_req.files if (staging_dir / f.relative_path).exists()
+            f.model_dump() for f in group_req.files
+            if (staging_dir / f.relative_path).exists() or f.reuse_storage_key
         ]
         if not valid_files:
             logger.warning(f"No valid files for group '{group_req.variant_group_name}', skipping")

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { X, Undo2, Pencil, Plus } from 'lucide-react'
+import { X, Undo2, Pencil, Plus, Copy } from 'lucide-react'
 import type { EditableFileState, TagData } from '@/types'
 import { TagPicker } from './TagPicker'
 import { GridToggle } from './GridToggle'
@@ -120,6 +120,8 @@ export function FileCard({
           selected
             ? 'border-primary/50 bg-primary/5'
             : 'border-border/40 bg-card hover:border-border/70'
+        } ${
+          file.duplicate_action === 'skip' ? 'opacity-40' : ''
         }`}
         onClick={handleCardClick}
       >
@@ -186,6 +188,34 @@ export function FileCard({
               </button>
             )}
           </div>
+
+          {/* Duplicate badge */}
+          {file.duplicate_of && (
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-400">
+                <Copy className="h-3 w-3" />
+                Duplicate of <span className="font-medium">{file.duplicate_of.name || 'existing image'}</span>
+                {file.duplicate_of.author && (
+                  <span className="text-amber-400/60">by {file.duplicate_of.author}</span>
+                )}
+              </span>
+              {!disabled && (
+                <button
+                  data-no-select=""
+                  onClick={() => onUpdate({
+                    duplicate_action: file.duplicate_action === 'skip' ? 'import' : 'skip',
+                  })}
+                  className={`text-[11px] rounded border px-1.5 py-0.5 transition-colors ${
+                    file.duplicate_action === 'skip'
+                      ? 'border-amber-500/30 text-amber-400/80 hover:bg-amber-500/10'
+                      : 'border-primary/40 text-primary bg-primary/10'
+                  }`}
+                >
+                  {file.duplicate_action === 'skip' ? 'Skipping' : 'Import as new'}
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Tags */}
           <div className="flex flex-wrap items-center gap-1">

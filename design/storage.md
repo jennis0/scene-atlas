@@ -17,7 +17,7 @@ The system uses three storage backends:
 images
   id              INTEGER PK
   filename        TEXT NOT NULL        -- Original filename (display only)
-  storage_key     TEXT NOT NULL UNIQUE -- Key into ImageStore (e.g. "a1b2c3d4e5f6.jpg")
+  storage_key     TEXT NOT NULL        -- Key into ImageStore (NOT unique — shared by dedup records)
   name            TEXT                 -- Inferred base name / variant group name
   author          TEXT
   variant_group_id INTEGER FK → variant_groups.id
@@ -29,6 +29,7 @@ images
   grid_height     INTEGER
   sub_variant     TEXT                 -- Sub-variant path (e.g. "Eerie / No Grid")
   thumbnail_key   TEXT                 -- Key into thumbnail store
+  content_hash    TEXT(64)             -- SHA-256 hex digest for deduplication
   needs_review    BOOLEAN DEFAULT FALSE
   created_at      DATETIME
   updated_at      DATETIME

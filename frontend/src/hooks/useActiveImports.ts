@@ -38,6 +38,7 @@ export interface UseActiveImportsReturn {
   hasActive: boolean
   refresh: () => void
   dismissJob: (jobId: string) => void
+  cancelJob: (jobId: string) => Promise<void>
 }
 
 export function useActiveImports(): UseActiveImportsReturn {
@@ -76,11 +77,22 @@ export function useActiveImports(): UseActiveImportsReturn {
     setJobs((prev) => prev.filter((j) => j.jobId !== jobId))
   }, [])
 
+  const cancelJob = useCallback(async (jobId: string) => {
+    const job = jobs.find((j) => j.jobId === jobId)
+    if (!job?.localOnly) {
+      try {
+        await importApi.cancel(jobId)
+      } catch { /* ignore errors */ }
+    }
+    removeImportState(jobId)
+    setJobs((prev) => prev.filter((j) => j.jobId !== jobId))
+  }, [jobs])
+
   const hasActive = jobs.some((j) =>
     j.status === 'staging' || j.status === 'running' || j.pendingGroups > 0
   )
 
-  return { jobs, hasActive, refresh, dismissJob }
+  return { jobs, hasActive, refresh, dismissJob, cancelJob }
 }
 
 function localToActiveJob(entry: ImportJobIndexEntry): ActiveImportJob {

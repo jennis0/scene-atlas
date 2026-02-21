@@ -3,11 +3,12 @@ import { Upload, Loader2, AlertCircle, FolderOpen } from 'lucide-react'
 interface ImportUploadPaneProps {
   uploading: boolean
   uploadError: string | null
+  uploadPhase: string | null
   fileInputRef: React.RefObject<HTMLInputElement>
   onFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => void
 }
 
-export function ImportUploadPane({ uploading, uploadError, fileInputRef, onFileSelect }: ImportUploadPaneProps) {
+export function ImportUploadPane({ uploading, uploadError, uploadPhase, fileInputRef, onFileSelect }: ImportUploadPaneProps) {
   return (
     <div className="px-6 py-5 space-y-5">
       <p className="text-sm text-muted-foreground">
@@ -22,7 +23,7 @@ export function ImportUploadPane({ uploading, uploadError, fileInputRef, onFileS
           className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-md border border-primary/40 bg-primary/20 text-primary hover:bg-primary/30 transition-colors disabled:opacity-50"
         >
           {uploading
-            ? <><Loader2 className="h-4 w-4 animate-spin" />Analysing…</>
+            ? <><Loader2 className="h-4 w-4 animate-spin" />{uploadPhase || 'Analysing\u2026'}</>
             : <><Upload className="h-4 w-4" />Select Files</>
           }
         </button>

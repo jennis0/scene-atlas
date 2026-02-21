@@ -1,9 +1,10 @@
 import { useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Upload, FolderOpen, Loader2, Check, X } from 'lucide-react'
+import { Upload, FolderOpen, Loader2, Check, X, Ban } from 'lucide-react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { useImportState } from '@/hooks/useImportState'
 import { removeImportState } from '@/lib/importStorage'
+import { importApi } from '@/lib/api'
 import { ImportUploadPane } from './import/ImportUploadPane'
 import { ImportGroupNav } from './import/ImportGroupNav'
 import { ImportGroupContent } from './import/ImportGroupContent'
@@ -20,6 +21,17 @@ interface ImportDialogProps {
 export function ImportDialog({ open, onOpenChange, onActiveChange, reconnectJobId }: ImportDialogProps) {
   const queryClient = useQueryClient()
   const s = useImportState(onActiveChange, reconnectJobId)
+
+  const handleCancel = useCallback(async () => {
+    if (s.jobId) {
+      try {
+        await importApi.cancel(s.jobId)
+      } catch { /* ignore */ }
+      removeImportState(s.jobId)
+    }
+    s.reset()
+    onOpenChange(false)
+  }, [s.jobId, s.reset, onOpenChange]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleClose = useCallback(() => {
     // If processing, just hide the dialog — tray will show progress
@@ -68,12 +80,24 @@ export function ImportDialog({ open, onOpenChange, onActiveChange, reconnectJobI
             {s.state === 'processing' && <><Loader2 className="h-5 w-5 text-primary animate-spin shrink-0" />Processing…</>}
             {s.state === 'done' && <><Check className="h-5 w-5 text-primary shrink-0" />Import Complete</>}
           </h2>
-          <button
-            onClick={handleClose}
-            className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-1">
+            {s.state === 'preview' && s.jobId && (
+              <button
+                onClick={handleCancel}
+                className="flex items-center gap-1.5 px-2.5 h-7 rounded text-sm text-muted-foreground hover:text-destructive hover:bg-secondary transition-colors"
+                title="Cancel and discard this import"
+              >
+                <Ban className="h-3.5 w-3.5" />
+                Cancel
+              </button>
+            )}
+            <button
+              onClick={handleClose}
+              className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
         {/* Amber rule */}
         <div className="h-px bg-gradient-to-r from-primary/60 via-primary/20 to-transparent mx-6 shrink-0" />
@@ -83,6 +107,7 @@ export function ImportDialog({ open, onOpenChange, onActiveChange, reconnectJobI
           <ImportUploadPane
             uploading={s.uploading}
             uploadError={s.uploadError}
+            uploadPhase={s.uploadPhase}
             fileInputRef={s.fileInputRef}
             onFileSelect={s.handleFileSelect}
           />

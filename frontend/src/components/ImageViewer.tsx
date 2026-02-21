@@ -9,7 +9,7 @@ import { GridToggle } from '@/components/import/GridToggle'
 import { FilterMenuContent, FilterChipList, type FilterOptionGroup } from '@/components/FilterMenuContent'
 import type { ActiveFilter } from '@/components/import/fileFilter'
 import type { Image, TagData } from '@/types'
-import type { ParsedTagVocab } from '@/components/import/types'
+import { parseTagVocabulary, type ParsedTagVocab } from '@/components/import/types'
 
 interface ImageViewerProps {
   image: Image
@@ -47,6 +47,12 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
     queryKey: ['searchFacets'],
     queryFn: () => searchApi.facets(),
     staleTime: 60_000,
+  })
+
+  const { data: tagCategories } = useQuery({
+    queryKey: ['tagCategories'],
+    queryFn: () => tagApi.getCategories(),
+    staleTime: 5 * 60_000,
   })
 
   // ── Refs ──────────────────────────────────────────────────────────────────
@@ -151,12 +157,11 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
   // ── Derived data ──────────────────────────────────────────────────────────
   const img = displayImage ?? image
 
-  // Build tag vocabulary from facets for TagPicker
+  // Build tag vocabulary from full category list (not facets) so new vocabulary
+  // values with zero images are still selectable in the tag picker.
   const tagVocab = useMemo((): ParsedTagVocab[] =>
-    Object.entries(facets?.tags ?? {})
-      .map(([cat, opts]) => ({ category: cat, values: opts.map((o) => o.value) }))
-      .sort((a, b) => a.category.localeCompare(b.category)),
-    [facets]
+    tagCategories ? parseTagVocabulary(tagCategories) : [],
+    [tagCategories]
   )
 
   // Convert Image tags → TagData for TagPicker deduplication
@@ -393,7 +398,7 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
               {/* Sub-variant — inline editable property row */}
               <div className="group/sv flex items-center gap-2 mb-2 min-w-0">
                 <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 w-[72px] shrink-0">
-                  Variant
+                  Subgroup
                 </span>
                 {editingSV ? (
                   <>

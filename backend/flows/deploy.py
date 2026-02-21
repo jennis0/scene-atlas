@@ -21,6 +21,7 @@ from prefect.client.orchestration import get_client
 
 from backend.app.config import settings
 from backend.flows.ingestion import analyse_upload, process_import_group, process_import_job
+from backend.flows.backfill_content_hash import backfill_content_hash
 from backend.flows.write_new_embeddings import write_new_embeddings
 
 # Project root for from_source entrypoints
@@ -71,6 +72,15 @@ def main():
         work_pool_name=settings.prefect_work_pool,
     )
     print(f"  Registered: {settings.process_job_deployment}/backfill-embeddings-job")
+
+    # backfill_content_hash: one-off flow to compute SHA-256 for existing images
+    backfill_content_hash.from_source(
+        source=PROJECT_ROOT, entrypoint="backend/flows/backfill_content_hash.py:backfill_content_hash"
+    ).deploy(
+        name="backfill-content-hash-deployment",
+        work_pool_name=WORK_POOL,
+    )
+    print("  Registered: backfill-content-hash-deployment/backfill-content-hash")
 
     # Register concurrency limit for CLIP tasks — only one CLIP model
     # instance should load at a time across all concurrent flows

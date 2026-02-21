@@ -27,6 +27,7 @@ export interface UseImportStateReturn {
   state: DialogState
   uploading: boolean
   uploadError: string | null
+  uploadPhase: string | null
   jobId: string | null
   groups: EditableGroupState[]
   activeTab: number
@@ -56,6 +57,8 @@ export interface UseImportStateReturn {
   completedCount: number
   totalFiles: number
   allSameAuthor: string
+  duplicateCount: number
+  skippedDuplicateCount: number
   canImportActive: boolean
   canImportAll: boolean
 
@@ -81,6 +84,7 @@ export interface UseImportStateReturn {
   bulkSetGrid: (groupId: string | null, value: boolean | null) => void
   bulkSetSubVariant: (groupId: string | null, value: string) => void
   bulkExclude: (groupId: string | null) => void
+  bulkSetDuplicateAction: (groupId: string | null, action: 'skip' | 'import') => void
   clearSubVariantLabel: (groupId: string, subVariant: string) => void
   renameSubVariant: (groupId: string, oldVal: string, newVal: string) => void
   moveToNewGroup: (sourceGroupId: string) => void
@@ -109,6 +113,7 @@ export function useImportState(
   const [authorSuggestions, setAuthorSuggestions] = useState<string[]>([])
   const [editingSvHeading, setEditingSvHeading] = useState<string | null>(null)
   const [svHeadingDraft, setSvHeadingDraft] = useState('')
+  const [uploadPhase, setUploadPhase] = useState<string | null>(null)
 
   useEffect(() => { onActiveChange?.(state === 'processing') }, [state, onActiveChange])
   useEffect(() => { setFileFilter(EMPTY_FILTER); setEditingSvHeading(null) }, [activeTab])
@@ -237,22 +242,112 @@ export function useImportState(
   // ── Upload ────────────────────────────────────────────────────────
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (!files || files.length === 0) return
+    const fileList = e.target.files
+    if (!fileList || fileList.length === 0) return
     setUploading(true)
     setUploadError(null)
+    setUploadPhase(null)
     try {
-      const relativePaths: string[] = []
+      // Build relative paths, blob URLs, and separate ZIPs from image files
+      const imageFiles: File[] = []
+      const imageRelPaths: string[] = []
+      const zipFiles: File[] = []
+      const zipRelPaths: string[] = []
       const blobUrlMap: Record<string, string> = {}
-      for (let i = 0; i < files.length; i++) {
-        const relPath = (files[i] as any).webkitRelativePath || files[i].name
-        relativePaths.push(relPath)
-        const blobUrl = URL.createObjectURL(files[i])
-        blobUrlMap[relPath] = blobUrl
-        blobUrlsRef.current.push(blobUrl)
+      const fileByPath: Record<string, File> = {}
+
+      for (let i = 0; i < fileList.length; i++) {
+        const file = fileList[i]
+        const relPath = (file as any).webkitRelativePath || file.name
+        fileByPath[relPath] = file
+
+        if (file.name.toLowerCase().endsWith('.zip')) {
+          zipFiles.push(file)
+          zipRelPaths.push(relPath)
+        } else {
+          imageFiles.push(file)
+          imageRelPaths.push(relPath)
+          const blobUrl = URL.createObjectURL(file)
+          blobUrlMap[relPath] = blobUrl
+          blobUrlsRef.current.push(blobUrl)
+        }
       }
-      const response: ImportUploadResponse = await importApi.upload(files, relativePaths)
+
+      // ── Phase 1: Hash image files client-side ────────────────────
+      // ZIPs are extracted server-side so we can't hash them here
+      let duplicateFiles = new Map<string, import('@/types').DuplicateInfo>()
+      let hashMap = new Map<string, string>()
+
+      if (imageFiles.length > 0) {
+        setUploadPhase(`Hashing files\u2026 0/${imageFiles.length}`)
+        const { hashFiles } = await import('@/lib/hashFile')
+        const hashed = await hashFiles(
+          imageFiles,
+          (_file, i) => imageRelPaths[i],
+          (p) => setUploadPhase(`Hashing files\u2026 ${p.current}/${p.total}`),
+        )
+
+        // ── Phase 2: Pre-flight duplicate check ──────────────────
+        setUploadPhase('Checking for duplicates\u2026')
+        const checkItems = hashed.map((h) => ({
+          relative_path: h.relativePath,
+          filename: h.file.name,
+          content_hash: h.contentHash,
+        }))
+        const checkResult = await importApi.checkHashes(checkItems)
+
+        for (const r of checkResult.results) {
+          hashMap.set(r.relative_path, r.content_hash)
+          if (r.duplicate_of) {
+            duplicateFiles.set(r.relative_path, r.duplicate_of)
+          }
+        }
+      }
+
+      // ── Phase 3: Upload only new files + ZIPs ──────────────────
+      const newFiles: File[] = []
+      const newRelPaths: string[] = []
+      for (let i = 0; i < imageFiles.length; i++) {
+        if (!duplicateFiles.has(imageRelPaths[i])) {
+          newFiles.push(imageFiles[i])
+          newRelPaths.push(imageRelPaths[i])
+        }
+      }
+
+      // Build manifest for duplicate files (metadata only, no upload)
+      const manifest = Array.from(duplicateFiles.entries()).map(
+        ([relPath, dupInfo]) => ({
+          relative_path: relPath,
+          filename: fileByPath[relPath].name,
+          content_hash: hashMap.get(relPath)!,
+          duplicate_of: dupInfo,
+        }),
+      )
+
+      const uploadFiles = [...newFiles, ...zipFiles]
+      const uploadRelPaths = [...newRelPaths, ...zipRelPaths]
+
+      const uploadCount = uploadFiles.length
+      const skipCount = duplicateFiles.size
+      if (uploadCount > 0) {
+        setUploadPhase(
+          skipCount > 0
+            ? `Uploading ${uploadCount} new file${uploadCount !== 1 ? 's' : ''} (${skipCount} duplicate${skipCount !== 1 ? 's' : ''} skipped)\u2026`
+            : `Uploading ${uploadCount} file${uploadCount !== 1 ? 's' : ''}\u2026`,
+        )
+      } else {
+        setUploadPhase('Analysing\u2026')
+      }
+
+      const response: ImportUploadResponse = await importApi.upload(
+        uploadFiles,
+        uploadRelPaths,
+        manifest.length > 0 ? manifest : undefined,
+      )
       setJobId(response.job_id)
+
+      // ── Phase 4: Map response to editable groups ───────────────
+      setUploadPhase('Analysing\u2026')
       const editableGroups: EditableGroupState[] = response.variant_groups.map((vg) => ({
         id: crypto.randomUUID(),
         author: vg.author || '',
@@ -267,7 +362,13 @@ export function useImportState(
           grid_height: f.grid_height,
           sub_variant: f.sub_variant,
           excluded: false,
-          previewUrl: blobUrlMap[f.relative_path],
+          // Duplicates not uploaded: use existing image thumbnail for preview
+          previewUrl: f.duplicate_of
+            ? `/api/v1/images/${f.duplicate_of.image_id}/thumbnail`
+            : blobUrlMap[f.relative_path],
+          content_hash: f.content_hash ?? hashMap.get(f.relative_path),
+          duplicate_of: f.duplicate_of,
+          duplicate_action: f.duplicate_of ? 'skip' : undefined,
         })),
         skip: false,
         status: 'pending',
@@ -282,6 +383,7 @@ export function useImportState(
       setUploadError(err?.response?.data?.detail || err?.message || 'Upload failed')
     } finally {
       setUploading(false)
+      setUploadPhase(null)
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
@@ -406,6 +508,20 @@ export function useImportState(
     deselectAll(selId)
   }
 
+  const bulkSetDuplicateAction = (groupId: string | null, action: 'skip' | 'import') => {
+    setGroups((prev) =>
+      prev.map((g) => {
+        if (groupId !== null && g.id !== groupId) return g
+        return {
+          ...g,
+          files: g.files.map((f) =>
+            f.duplicate_of ? { ...f, duplicate_action: action } : f
+          ),
+        }
+      })
+    )
+  }
+
   const clearSubVariantLabel = (groupId: string, subVariant: string) => {
     setGroups((prev) =>
       prev.map((g) => {
@@ -459,16 +575,24 @@ export function useImportState(
 
   const buildConfirmFiles = (group: EditableGroupState): ImportConfirmFile[] =>
     group.files
-      .filter((f) => !f.excluded)
-      .map((f) => ({
-        relative_path: f.relative_path,
-        name: f.name,
-        tags: f.tags,
-        gridded: f.gridded,
-        grid_width: f.grid_width,
-        grid_height: f.grid_height,
-        sub_variant: f.sub_variant,
-      }))
+      .filter((f) => !f.excluded && f.duplicate_action !== 'skip')
+      .map((f) => {
+        const base: ImportConfirmFile = {
+          relative_path: f.relative_path,
+          name: f.name,
+          tags: f.tags,
+          gridded: f.gridded,
+          grid_width: f.grid_width,
+          grid_height: f.grid_height,
+          sub_variant: f.sub_variant,
+        }
+        if (f.content_hash) base.content_hash = f.content_hash
+        if (f.duplicate_of && f.duplicate_action === 'import') {
+          base.reuse_storage_key = f.duplicate_of.storage_key
+          base.reuse_thumbnail_key = f.duplicate_of.thumbnail_key ?? undefined
+        }
+        return base
+      })
 
   const handleConfirmGroup = async (index: number) => {
     if (!jobId) return
@@ -545,6 +669,14 @@ export function useImportState(
   const pendingGroups = groups.filter((g) => g.status === 'pending' && !g.skip)
   const completedCount = groups.filter((g) => g.status === 'completed').length
   const totalFiles = groups.reduce((sum, g) => sum + g.files.length, 0)
+  const duplicateCount = useMemo(() =>
+    sourceFiles.filter((f) => !f.excluded && f.duplicate_of).length,
+    [sourceFiles]
+  )
+  const skippedDuplicateCount = useMemo(() =>
+    sourceFiles.filter((f) => !f.excluded && f.duplicate_action === 'skip').length,
+    [sourceFiles]
+  )
 
   const allSameAuthor = useMemo(() => {
     if (groups.length === 0) return ''
@@ -556,18 +688,20 @@ export function useImportState(
   const canImportAll = pendingGroups.length > 0 && pendingGroups.every((g) => !!g.author)
 
   return {
-    state, uploading, uploadError, jobId, groups, activeTab, tagVocab,
+    state, uploading, uploadError, uploadPhase, jobId, groups, activeTab, tagVocab,
     selections, fileFilter, authorSuggestions, editingSvHeading, svHeadingDraft,
     fileInputRef,
     isAllTab, activeGroup, activeGroupId, allPendingFiles, sourceFiles,
     filteredFiles, activeSelection, groupSubVariants, distinctSubVariants,
     showSubVariantHeadings, subVariantGroups, pendingGroups, completedCount,
-    totalFiles, allSameAuthor, canImportActive, canImportAll,
+    totalFiles, duplicateCount, skippedDuplicateCount,
+    allSameAuthor, canImportActive, canImportAll,
     setState, setActiveTab, setFileFilter, setEditingSvHeading,
     setSvHeadingDraft, setGroups,
     reset, handleFileSelect, updateGroup, updateFile, updateFileAnyGroup,
     mergeGroups, toggleFileSelection, selectAllVisible, deselectAll,
     bulkAddTag, bulkSetGrid, bulkSetSubVariant, bulkExclude,
+    bulkSetDuplicateAction,
     clearSubVariantLabel, renameSubVariant, moveToNewGroup,
     handleConfirmGroup, handleConfirmAll, buildConfirmFiles,
     saveNow,

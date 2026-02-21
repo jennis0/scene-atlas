@@ -12,7 +12,7 @@ from ..models import (
     ImageResponse,
     get_session_local,
 )
-from ..services import get_image_store, get_thumbnail_store
+from ..services import get_image_store, get_thumbnail_store, safe_delete_image
 
 
 class ImagePatch(BaseModel):
@@ -76,20 +76,12 @@ async def patch_image(image_id: int, patch: ImagePatch, db: Session = Depends(ge
 
 @router.delete("/{image_id}")
 async def delete_image(image_id: int, db: Session = Depends(get_db)):
-    """Delete an image and its files from stores."""
+    """Delete an image and its files from stores (ref-counted)."""
     image = db.query(Image).filter(Image.id == image_id).first()
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
 
-    # Delete files from stores
-    image_store = get_image_store()
-    thumbnail_store = get_thumbnail_store()
-
-    image_store.delete(image.storage_key)
-    if image.thumbnail_key:
-        thumbnail_store.delete(image.thumbnail_key)
-
-    db.delete(image)
+    safe_delete_image(db, image)
     db.commit()
     return {"message": "Image deleted successfully"}
 

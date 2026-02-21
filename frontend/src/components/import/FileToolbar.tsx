@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Search, X, ChevronDown, FolderPlus, SlidersHorizontal } from 'lucide-react'
+import { Search, X, ChevronDown, FolderPlus, SlidersHorizontal, Copy } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   DropdownMenu,
@@ -33,6 +33,9 @@ interface FileToolbarProps {
   onBulkExclude: () => void
   onMoveToNewGroup?: () => void
   excludeLabel?: string
+  duplicateCount?: number
+  skippedDuplicateCount?: number
+  onBulkSetDuplicateAction?: (action: 'skip' | 'import') => void
 }
 
 export function FileToolbar({
@@ -50,6 +53,9 @@ export function FileToolbar({
   onBulkExclude,
   onMoveToNewGroup,
   excludeLabel = 'Exclude',
+  duplicateCount = 0,
+  skippedDuplicateCount = 0,
+  onBulkSetDuplicateAction,
 }: FileToolbarProps) {
   const [subVariantInput, setSubVariantInput] = useState('')
   const [subOpen, setSubOpen] = useState(false)
@@ -311,6 +317,22 @@ export function FileToolbar({
           </div>
         )}
       </div>
+
+      {/* Duplicate bulk controls */}
+      {duplicateCount > 0 && onBulkSetDuplicateAction && (
+        <div className="flex items-center gap-2 pt-1.5">
+          <Copy className="h-3.5 w-3.5 text-amber-400/70 shrink-0" />
+          <span className="text-xs text-amber-400/80">
+            {skippedDuplicateCount}/{duplicateCount} duplicate{duplicateCount !== 1 ? 's' : ''} skipped
+          </span>
+          <button
+            className="text-[11px] rounded border border-amber-500/30 px-1.5 py-0.5 text-amber-400/80 hover:bg-amber-500/10 transition-colors"
+            onClick={() => onBulkSetDuplicateAction(skippedDuplicateCount > 0 ? 'import' : 'skip')}
+          >
+            {skippedDuplicateCount > 0 ? 'Include all duplicates' : 'Skip all duplicates'}
+          </button>
+        </div>
+      )}
 
       <FilterChipList filters={filter.active} onFiltersChange={handleFiltersChange} />
     </div>

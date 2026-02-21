@@ -308,7 +308,6 @@ class BattlemapParser:
         # Split CamelCase and replace separators so \b word boundaries work
         gridded = None
         grid_text = self._split_camel(stem).lower().replace("_", " ").replace("-", " ")
-        print(grid_text)
         if self._grid_negative_re.search(grid_text):
             gridded = False
         elif self._grid_positive_re.search(grid_text):
@@ -371,14 +370,16 @@ class BattlemapParser:
         sub_variant = " / ".join(sub_variants) if sub_variants else None
 
         # --- Build exclusion set for tag extraction ---
+        # Note: we intentionally do NOT exclude group name or sub-variant tokens —
+        # those words are valid semantic tags (e.g. "desert" from "Desert Canyon").
+        # Author exclusion only applies when group_from_folder=True (3+ level paths
+        # where parts[0] is a real author folder, not a map group folder).
+        # For 2-level paths (folder/file) parts[0] is the group/map folder.
         exclusions: set[str] = {"by"}
         exclusions.update(self._grid_stop_words)
         exclusions.update(self._junk_words)
-        if author:
+        if author and group_from_folder:
             exclusions.update(self._get_token_set(author))
-        exclusions.update(self._get_token_set(group_name))
-        for sub in sub_variants:
-            exclusions.update(self._get_token_set(sub))
         if grid_width is not None:
             exclusions.update([str(grid_width), str(grid_height)])
 

@@ -29,6 +29,7 @@ export function Gallery() {
 
   // Import state: null = closed, 'new' = fresh import, '{jobId}' = reconnect
   const [importDialogJobId, setImportDialogJobId] = useState<string | null>(null)
+  const [importDialogKey, setImportDialogKey] = useState(0)
   const [showTagManagement, setShowTagManagement] = useState(false)
   const activeImports = useActiveImports()
 
@@ -171,7 +172,7 @@ export function Gallery() {
                   title="Bulk-edit all maps in current results"
                 >
                   <Pencil className="h-4 w-4" />
-                  Edit Results
+                  Bulk Edit Results
                   <span className="text-muted-foreground text-xs">({displayImages.length})</span>
                 </Button>
               )}
@@ -182,11 +183,11 @@ export function Gallery() {
                 className="gap-2"
               >
                 <Tag className="h-4 w-4" />
-                Tags
+                Manage Tags
               </Button>
               <Button
                 variant="outline"
-                onClick={() => setImportDialogJobId('new')}
+                onClick={() => { setImportDialogKey((k) => k + 1); setImportDialogJobId('new') }}
                 title="Import images"
                 className="gap-2"
               >
@@ -381,8 +382,9 @@ export function Gallery() {
         }}
       />
 
-      {/* Import dialog */}
+      {/* Import dialog — key forces remount so each open starts fresh */}
       <ImportDialog
+        key={importDialogKey}
         open={importDialogJobId !== null}
         reconnectJobId={importDialogJobId === 'new' ? undefined : importDialogJobId ?? undefined}
         onOpenChange={(open) => {
@@ -402,8 +404,9 @@ export function Gallery() {
       <ImportTray
         jobs={activeImports.jobs}
         hasActive={activeImports.hasActive}
-        onOpenJob={(jobId) => setImportDialogJobId(jobId)}
+        onOpenJob={(jobId) => { setImportDialogKey((k) => k + 1); setImportDialogJobId(jobId) }}
         onDismissJob={activeImports.dismissJob}
+        onCancelJob={activeImports.cancelJob}
         onRefresh={activeImports.refresh}
       />
     </div>

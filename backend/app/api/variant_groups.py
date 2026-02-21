@@ -16,7 +16,7 @@ from ..models.schemas import (
     VariantGroupEditRequest,
     VariantGroupEditResponse,
 )
-from ..services import get_image_store, get_thumbnail_store
+from ..services import safe_delete_image
 
 router = APIRouter()
 
@@ -62,9 +62,6 @@ async def edit_variant_group(
     if not group:
         raise HTTPException(status_code=404, detail="Variant group not found")
 
-    image_store = get_image_store()
-    thumbnail_store = get_thumbnail_store()
-
     # 1. Update group-level metadata
     group.base_name = payload.base_name
     group.author = payload.author
@@ -76,12 +73,8 @@ async def edit_variant_group(
     deleted_ids: List[int] = []
     for image in all_images:
         if image.id not in kept_ids:
-            # Delete files from stores
-            image_store.delete(image.storage_key)
-            if image.thumbnail_key:
-                thumbnail_store.delete(image.thumbnail_key)
             deleted_ids.append(image.id)
-            db.delete(image)
+            safe_delete_image(db, image)
 
     # 3. Update kept images
     image_map = {img.id: img for img in all_images if img.id in kept_ids}
@@ -152,14 +145,9 @@ async def delete_variant_group(
     if not group:
         raise HTTPException(status_code=404, detail="Variant group not found")
 
-    image_store = get_image_store()
-    thumbnail_store = get_thumbnail_store()
-
     images = db.query(Image).filter(Image.variant_group_id == group_id).all()
     for image in images:
-        image_store.delete(image.storage_key)
-        if image.thumbnail_key:
-            thumbnail_store.delete(image.thumbnail_key)
+        safe_delete_image(db, image)
 
     db.delete(group)
     db.commit()

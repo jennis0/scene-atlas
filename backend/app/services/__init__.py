@@ -1,6 +1,7 @@
 """Services package."""
 
 from .battlemap_parser import BattlemapParser
+from .deletion_service import safe_delete_image
 from .image_store import ImageStore
 from .qdrant_service import QdrantService, qdrant_service
 
@@ -49,4 +50,5 @@ __all__ = [
     "get_thumbnail_store",
     "QdrantService",
     "qdrant_service",
+    "safe_delete_image",
 ]

@@ -122,6 +122,16 @@ export interface TagStats {
   }>
 }
 
+// Import types — duplicate detection
+export interface DuplicateInfo {
+  image_id: number
+  name: string | null
+  author: string | null
+  storage_key: string
+  thumbnail_key: string | null
+  variant_group_name: string | null
+}
+
 // Import types — upload response (from analysis)
 export interface ImportFileInfo {
   relative_path: string
@@ -131,6 +141,8 @@ export interface ImportFileInfo {
   grid_width: number | null
   grid_height: number | null
   sub_variant: string | null
+  content_hash: string | null
+  duplicate_of: DuplicateInfo | null
 }
 
 export interface ImportVariantGroup {
@@ -143,6 +155,25 @@ export interface ImportUploadResponse {
   job_id: string
   total_files: number
   variant_groups: ImportVariantGroup[]
+}
+
+// Pre-flight hash check types
+export interface HashCheckItem {
+  relative_path: string
+  filename: string
+  content_hash: string
+}
+
+export interface HashCheckResultItem {
+  relative_path: string
+  content_hash: string
+  duplicate_of: DuplicateInfo | null
+}
+
+export interface HashCheckResponse {
+  results: HashCheckResultItem[]
+  total_checked: number
+  duplicates_found: number
 }
 
 // Import types — confirm request (full per-file metadata)
@@ -161,6 +192,9 @@ export interface ImportConfirmFile {
   grid_width: number | null
   grid_height: number | null
   sub_variant: string | null
+  content_hash?: string
+  reuse_storage_key?: string
+  reuse_thumbnail_key?: string
 }
 
 export interface ImportConfirmRequest {
@@ -183,6 +217,9 @@ export interface EditableFileState {
   outOfScope?: boolean  // true = in group but not in search results (mass-edit context only)
   previewUrl?: string  // Browser blob URL (for direct uploads) or server preview URL (for ZIP)
   fullImageUrl?: string  // Full-res URL (edit mode); falls back to previewUrl in lightbox
+  content_hash?: string  // SHA-256 content hash
+  duplicate_of?: DuplicateInfo | null  // Existing image this file matches
+  duplicate_action?: 'skip' | 'import'  // User's choice for duplicate files
 }
 
 export interface EditableGroupState {

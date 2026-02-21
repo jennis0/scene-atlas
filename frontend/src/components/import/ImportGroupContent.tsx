@@ -28,7 +28,9 @@ export function ImportGroupContent({ s }: ImportGroupContentProps) {
     setFileFilter, setGroups, setEditingSvHeading, setSvHeadingDraft,
     updateGroup, updateFile, updateFileAnyGroup,
     selectAllVisible, deselectAll, toggleFileSelection,
-    bulkAddTag, bulkSetGrid, bulkSetSubVariant, bulkExclude, moveToNewGroup,
+    bulkAddTag, bulkSetGrid, bulkSetSubVariant, bulkExclude, bulkSetDuplicateAction,
+    duplicateCount, skippedDuplicateCount,
+    moveToNewGroup,
     clearSubVariantLabel, renameSubVariant,
     handleConfirmGroup, handleConfirmAll,
   } = s
@@ -112,6 +114,9 @@ export function ImportGroupContent({ s }: ImportGroupContentProps) {
                 onBulkSetSubVariant={(v) => bulkSetSubVariant(isAllTab ? null : activeGroupId, v)}
                 onBulkExclude={() => bulkExclude(isAllTab ? null : activeGroupId)}
                 onMoveToNewGroup={!isAllTab && activeGroup?.id ? () => moveToNewGroup(activeGroup.id) : undefined}
+                duplicateCount={duplicateCount}
+                skippedDuplicateCount={skippedDuplicateCount}
+                onBulkSetDuplicateAction={(action) => bulkSetDuplicateAction(isAllTab ? null : activeGroupId, action)}
               />
             </div>
           )}
