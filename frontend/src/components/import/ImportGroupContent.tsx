@@ -1,6 +1,7 @@
-import { Check, AlertCircle, Loader2, SkipForward, Undo2, Search, Pencil, X } from 'lucide-react'
+import { Check, AlertCircle, Loader2, SkipForward, Undo2, Search } from 'lucide-react'
 import { FileCard } from './FileCard'
 import { FileToolbar } from './FileToolbar'
+import { SubgroupHeading } from '@/components/SubgroupHeading'
 import type { UseImportStateReturn } from '@/hooks/useImportState'
 
 type ImportState = UseImportStateReturn
@@ -164,58 +165,24 @@ export function ImportGroupContent({ s }: ImportGroupContentProps) {
                   !isAllTab && editingSvHeading === svGroup.subgroup && svGroup.subgroup !== null
                 return (
                   <div key={svGroup.subgroup ?? '__main__'} className="mb-2">
-                    <div className="flex items-center gap-2 py-1.5 mt-2 first:mt-0">
-                      {isEditing ? (
-                        <input
-                          value={svHeadingDraft}
-                          autoFocus
-                          onChange={(e) => setSvHeadingDraft(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              renameSubgroup(activeGroup!.id, svGroup.subgroup!, svHeadingDraft)
-                              setEditingSvHeading(null)
-                            }
-                            if (e.key === 'Escape') setEditingSvHeading(null)
-                          }}
-                          onBlur={() => {
-                            renameSubgroup(activeGroup!.id, svGroup.subgroup!, svHeadingDraft)
-                            setEditingSvHeading(null)
-                          }}
-                          className="text-[11px] font-semibold text-foreground border-b border-primary/70 bg-transparent outline-none uppercase tracking-wider capitalize"
-                        />
-                      ) : (
-                        <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider capitalize whitespace-nowrap">
-                          {svGroup.subgroup ?? 'Main'}
-                        </span>
-                      )}
-                      {groupOwner?.status === 'pending' &&
-                        svGroup.subgroup !== null &&
-                        !isEditing && (
-                          <button
-                            onClick={() => {
-                              setSvHeadingDraft(svGroup.subgroup!)
-                              setEditingSvHeading(svGroup.subgroup!)
-                            }}
-                            className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
-                          >
-                            <Pencil className="h-3 w-3" />
-                          </button>
-                        )}
-                      <div className="flex-1 h-px bg-border/30" />
-                      <span className="text-[11px] text-muted-foreground/40 tabular-nums">
-                        {nonExcluded}
-                      </span>
-                      {groupOwner?.status === 'pending' &&
-                        svGroup.subgroup !== null &&
-                        !isEditing && (
-                          <button
-                            onClick={() => clearSubgroupLabel(activeGroup!.id, svGroup.subgroup!)}
-                            className="text-muted-foreground/40 hover:text-primary transition-colors"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                    </div>
+                    <SubgroupHeading
+                      subgroup={svGroup.subgroup}
+                      count={nonExcluded}
+                      isEditing={isEditing}
+                      draft={svHeadingDraft}
+                      onDraftChange={setSvHeadingDraft}
+                      onStartEdit={() => {
+                        setSvHeadingDraft(svGroup.subgroup!)
+                        setEditingSvHeading(svGroup.subgroup!)
+                      }}
+                      onCommit={() => {
+                        renameSubgroup(activeGroup!.id, svGroup.subgroup!, svHeadingDraft)
+                        setEditingSvHeading(null)
+                      }}
+                      onCancel={() => setEditingSvHeading(null)}
+                      onClear={() => clearSubgroupLabel(activeGroup!.id, svGroup.subgroup!)}
+                      canEdit={groupOwner?.status === 'pending'}
+                    />
                     <div className="space-y-1.5 pb-2">
                       {svGroup.files.map((file) => (
                         <FileCard

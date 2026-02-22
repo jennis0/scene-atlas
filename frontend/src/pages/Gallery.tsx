@@ -11,7 +11,6 @@ import {
   Pencil,
   AlignLeft,
   Tag,
-  Loader2,
 } from 'lucide-react'
 import { searchApi, groupApi } from '@/lib/api'
 import { RELEVANCE_MIN, RELEVANCE_MAX, RELEVANCE_STEP, relevanceToPercent } from '@/lib/constants'
@@ -25,7 +24,7 @@ import { TagManagementDialog } from '@/components/TagManagementDialog'
 import { MergeGroupPicker } from '@/components/MergeGroupPicker'
 import { GalleryFilterPanel } from '@/components/GalleryFilterPanel'
 import { FilterChipList } from '@/components/FilterMenuContent'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { useImageGrouping } from '@/hooks/useImageGrouping'
 import { useActiveImports } from '@/hooks/useActiveImports'
 import { Button } from '@/components/ui/button'
@@ -597,43 +596,20 @@ export function Gallery() {
       />
 
       {/* Delete group confirmation */}
-      <Dialog
+      <ConfirmDialog
         open={deleteConfirmGroup !== null}
-        onOpenChange={(v) => !v && !deleting && setDeleteConfirmGroup(null)}
-      >
-        <DialogContent
-          className="max-w-sm"
-          onClose={() => !deleting && setDeleteConfirmGroup(null)}
-        >
-          <DialogHeader>
-            <DialogTitle>Delete Group</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            Are you sure you want to delete <strong>{deleteConfirmGroup?.baseName}</strong> and all{' '}
-            {deleteConfirmGroup?.totalScenes} image
+        onOpenChange={(v) => !v && setDeleteConfirmGroup(null)}
+        title="Delete Group"
+        description={
+          <>
+            Are you sure you want to delete <strong>{deleteConfirmGroup?.baseName}</strong> and
+            all {deleteConfirmGroup?.totalScenes} image
             {deleteConfirmGroup?.totalScenes !== 1 ? 's' : ''}? This cannot be undone.
-          </p>
-          <div className="flex justify-end gap-2 mt-2">
-            <Button
-              variant="outline"
-              onClick={() => setDeleteConfirmGroup(null)}
-              disabled={deleting}
-            >
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={handleGroupDeleteConfirm} disabled={deleting}>
-              {deleting ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                  Deleting...
-                </>
-              ) : (
-                'Delete'
-              )}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+          </>
+        }
+        onConfirm={handleGroupDeleteConfirm}
+        isLoading={deleting}
+      />
 
       {/* Merge group picker */}
       <MergeGroupPicker

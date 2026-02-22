@@ -8,10 +8,10 @@ import {
   Pencil,
   Edit,
   SlidersHorizontal,
-  Play,
 } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { imageApi, tagApi, getImageUrl, getThumbnailUrl } from '@/lib/api'
+import { SceneTile } from '@/components/SceneTile'
+import { imageApi, tagApi, getImageUrl } from '@/lib/api'
 import { useGetTagColor } from '@/contexts/TagColorContext'
 import { TagPicker } from '@/components/import/TagPicker'
 import { GridToggle } from '@/components/import/GridToggle'
@@ -822,8 +822,16 @@ export function ImageViewer({
                         {section.images.map((variant) => (
                           <SceneTile
                             key={variant.id}
-                            variant={variant}
+                            image={variant}
                             isActive={variant.id === img.id}
+                            primaryText={variant.name}
+                            secondaryText={
+                              variant.gridded && variant.image_type !== 'scene'
+                                ? variant.grid_width && variant.grid_height
+                                  ? `${variant.grid_width}×${variant.grid_height}`
+                                  : 'Grid'
+                                : undefined
+                            }
                             onClick={() => handleSceneClick(variant)}
                           />
                         ))}
@@ -836,56 +844,6 @@ export function ImageViewer({
           )}
         </div>
       </div>
-    </div>
-  )
-}
-
-// ── Sub-components ────────────────────────────────────────────────────────────
-
-function SceneTile({
-  variant,
-  isActive,
-  onClick,
-}: {
-  variant: Image
-  isActive: boolean
-  onClick: () => void
-}) {
-  return (
-    <div
-      className={`relative cursor-pointer overflow-hidden rounded-md transition-all duration-200 hover:scale-[1.03] ${
-        isActive
-          ? 'ring-2 ring-primary/70 shadow-lg shadow-primary/15'
-          : 'ring-1 ring-border/40 hover:ring-primary/40'
-      }`}
-      onClick={onClick}
-    >
-      <div className="aspect-[4/3] relative">
-        <img
-          src={getThumbnailUrl(variant)}
-          alt={variant.name}
-          className="h-full w-full object-cover"
-          loading="lazy"
-        />
-        {variant.media_type === 'video' && (
-          <div className="absolute top-1 left-1 flex items-center justify-center h-5 w-5 rounded-full bg-black/35 text-white/60 backdrop-blur-sm">
-            <Play className="h-2.5 w-2.5 fill-current" />
-          </div>
-        )}
-      </div>
-      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent pt-8 pb-1.5 px-1.5 pointer-events-none">
-        <p className="text-[10px] text-white/90 truncate leading-tight">{variant.name}</p>
-        {variant.gridded && variant.image_type !== 'scene' && (
-          <p className="text-[9px] text-white/50 leading-tight">
-            {variant.grid_width && variant.grid_height
-              ? `${variant.grid_width}×${variant.grid_height}`
-              : 'Grid'}
-          </p>
-        )}
-      </div>
-      {isActive && (
-        <div className="absolute inset-0 ring-2 ring-inset ring-primary/40 rounded-md pointer-events-none" />
-      )}
     </div>
   )
 }

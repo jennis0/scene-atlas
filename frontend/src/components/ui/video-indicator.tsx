@@ -1,0 +1,21 @@
+import { Play } from 'lucide-react'
+
+interface VideoIndicatorProps {
+  /** sm: h-5 top-1 left-1 (compact tiles) · md: h-6 top-2 left-2 (default) */
+  size?: 'sm' | 'md'
+}
+
+export function VideoIndicator({ size = 'md' }: VideoIndicatorProps) {
+  if (size === 'sm') {
+    return (
+      <div className="absolute top-1 left-1 z-10 flex items-center justify-center h-5 w-5 rounded-full bg-black/35 text-white/60 backdrop-blur-sm">
+        <Play className="h-2.5 w-2.5 fill-current" />
+      </div>
+    )
+  }
+  return (
+    <div className="absolute top-2 left-2 z-10 flex items-center justify-center h-6 w-6 rounded-full bg-black/35 text-white/60 backdrop-blur-sm">
+      <Play className="h-3 w-3 fill-current" />
+    </div>
+  )
+}

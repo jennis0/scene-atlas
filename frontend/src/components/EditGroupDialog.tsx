@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { FileCard } from './import/FileCard'
 import { FileToolbar } from './import/FileToolbar'
+import { SubgroupHeading } from './SubgroupHeading'
 import { parseTagVocabulary } from './import/types'
 import { EMPTY_FILTER, applyFileFilter } from './import/fileFilter'
 import { useFileEditing, ALL_TAB } from '@/hooks/useFileEditing'
@@ -841,62 +842,24 @@ export function EditGroupDialog({
                       svGroup.subVariant !== null
                     return (
                       <div key={svGroup.subVariant ?? '__main__'} className="mb-2">
-                        <div className="flex items-center gap-2 py-1.5 mt-2 first:mt-0">
-                          {isEditing ? (
-                            <input
-                              value={svHeadingDraft}
-                              autoFocus
-                              onChange={(e) => setSvHeadingDraft(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  renameSubgroup(
-                                    activeGroup!.id,
-                                    svGroup.subVariant!,
-                                    svHeadingDraft,
-                                  )
-                                  setEditingSvHeading(null)
-                                }
-                                if (e.key === 'Escape') setEditingSvHeading(null)
-                              }}
-                              onBlur={() => {
-                                renameSubgroup(activeGroup!.id, svGroup.subVariant!, svHeadingDraft)
-                                setEditingSvHeading(null)
-                              }}
-                              className="text-[11px] font-semibold text-foreground border-b border-primary/70 bg-transparent outline-none uppercase tracking-wider capitalize"
-                            />
-                          ) : (
-                            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider capitalize whitespace-nowrap">
-                              {svGroup.subVariant ?? 'Main'}
-                            </span>
-                          )}
-                          {!isAllTab && svGroup.subVariant !== null && !isEditing && (
-                            <button
-                              onClick={() => {
-                                setSvHeadingDraft(svGroup.subVariant!)
-                                setEditingSvHeading(svGroup.subVariant!)
-                              }}
-                              className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
-                              title={`Rename "${svGroup.subVariant}"`}
-                            >
-                              <Pencil className="h-3 w-3" />
-                            </button>
-                          )}
-                          <div className="flex-1 h-px bg-border/30" />
-                          <span className="text-[11px] text-muted-foreground/40 tabular-nums">
-                            {nonExcluded}
-                          </span>
-                          {!isAllTab && svGroup.subVariant !== null && !isEditing && (
-                            <button
-                              onClick={() =>
-                                clearSubgroupLabel(activeGroup!.id, svGroup.subVariant!)
-                              }
-                              className="text-muted-foreground/40 hover:text-primary transition-colors"
-                              title={`Remove "${svGroup.subVariant}" label from all files`}
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                        </div>
+                        <SubgroupHeading
+                          subgroup={svGroup.subVariant}
+                          count={nonExcluded}
+                          isEditing={isEditing}
+                          draft={svHeadingDraft}
+                          onDraftChange={setSvHeadingDraft}
+                          onStartEdit={() => {
+                            setSvHeadingDraft(svGroup.subVariant!)
+                            setEditingSvHeading(svGroup.subVariant!)
+                          }}
+                          onCommit={() => {
+                            renameSubgroup(activeGroup!.id, svGroup.subVariant!, svHeadingDraft)
+                            setEditingSvHeading(null)
+                          }}
+                          onCancel={() => setEditingSvHeading(null)}
+                          onClear={() => clearSubgroupLabel(activeGroup!.id, svGroup.subVariant!)}
+                          canEdit={!isAllTab}
+                        />
                         <div className="space-y-1.5 pb-2">
                           {svGroup.files.map((file) => (
                             <FileCard

@@ -237,6 +237,8 @@ export interface EditableGroupState {
   processed: number
   failed: number
   total: number
+  /** Error message from a failed confirm, displayed in the footer */
+  error?: string
 }
 
 // Group search/merge types
