@@ -2,10 +2,13 @@
 
 import logging
 import os
+import urllib.request
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
 from .config import settings
 
 # Set PREFECT_API_URL before any Prefect imports so the client connects to our server
@@ -100,10 +103,53 @@ async def root():
     }
 
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Catch all unhandled exceptions, log them, return a clean JSON error.
+
+    FastAPI's built-in HTTPException handler takes precedence over this, so
+    HTTP 4xx/5xx responses from endpoints still reach the client unchanged.
+    This handler catches unexpected programming errors that would otherwise
+    return raw 500 responses with stack traces.
+    """
+    logger.error("Unhandled exception on %s %s", request.method, request.url, exc_info=exc)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
 @app.get("/health")
-async def health():
-    """Health check endpoint."""
-    return {"status": "healthy"}
+async def health(request: Request):
+    """Deep health check: DB connectivity + Qdrant reachability.
+
+    Returns 200 with status "healthy" when all systems are up, or "degraded"
+    when one or more checks fail.  Useful for diagnosing "why isn't search
+    working?" without tailing logs.
+    """
+    checks: dict[str, str] = {}
+    overall = "healthy"
+
+    # Database check
+    try:
+        with request.app.state.db_engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        checks["database"] = "ok"
+    except Exception as exc:
+        checks["database"] = f"error: {exc}"
+        overall = "degraded"
+
+    # Qdrant check
+    try:
+        req = urllib.request.Request(
+            f"http://{settings.qdrant_host}:{settings.qdrant_port}/collections",
+            method="GET",
+        )
+        with urllib.request.urlopen(req, timeout=3):
+            pass
+        checks["qdrant"] = "ok"
+    except Exception as exc:
+        checks["qdrant"] = f"error: {exc}"
+        overall = "degraded"
+
+    return {"status": overall, "checks": checks}
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 """FTS5 full-text search helpers."""
 
 import logging
+import re
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -8,6 +9,22 @@ from sqlalchemy.orm import Session
 from backend.app.services.battlemap_parser import build_search_text
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_fts_query(raw: str) -> str:
+    """Strip FTS5 special syntax so user input always produces a valid MATCH query.
+
+    FTS5 special chars: " ( ) ^ * - AND OR NOT (boolean operators are case-sensitive).
+    Unbalanced quotes or dangling operators cause silent empty results; stripping
+    them means "mine (underground)" correctly matches 'mine' and 'underground'
+    instead of returning nothing.
+    """
+    # Remove FTS5 boolean operators (must be uppercase to be operators in FTS5)
+    cleaned = re.sub(r"\b(AND|OR|NOT)\b", " ", raw)
+    # Remove all chars that are special in FTS5 MATCH syntax
+    cleaned = re.sub(r"[^\w\s]", " ", cleaned)
+    # Collapse whitespace and strip
+    return " ".join(cleaned.split())
 
 
 def fts_rebuild(db: Session) -> None:
@@ -26,28 +43,26 @@ def fts_search(db: Session, query: str, limit: int = 500) -> list[tuple[int, flo
     Returns list of (image_id, bm25_score) pairs sorted by relevance.
     BM25 scores from FTS5 are negative (more negative = better match).
     Porter stemmer is active, so 'forests' matches 'forest', 'mining' matches 'mine'.
+
+    User input is sanitized before passing to MATCH so that special characters
+    (parentheses, quotes, AND/OR/NOT) never cause silent empty results.
     """
-    fts_query = query.strip()
+    fts_query = _sanitize_fts_query(query.strip())
     if not fts_query:
         return []
 
-    try:
-        rows = db.execute(
-            text("""
-            SELECT rowid, bm25(image_fts) AS score
-            FROM image_fts
-            WHERE image_fts MATCH :query
-            ORDER BY score
-            LIMIT :limit
-        """),
-            {"query": fts_query, "limit": limit},
-        ).fetchall()
+    rows = db.execute(
+        text("""
+        SELECT rowid, bm25(image_fts) AS score
+        FROM image_fts
+        WHERE image_fts MATCH :query
+        ORDER BY score
+        LIMIT :limit
+    """),
+        {"query": fts_query, "limit": limit},
+    ).fetchall()
 
-        return [(int(row[0]), float(row[1])) for row in rows]
-    except Exception:
-        # FTS5 MATCH syntax can raise if the query contains special chars.
-        # Fall back gracefully to an empty result.
-        return []
+    return [(int(row[0]), float(row[1])) for row in rows]
 
 
 def backfill_search_text(db: Session) -> int:
