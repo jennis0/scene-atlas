@@ -12,7 +12,7 @@ import {
   MoreHorizontal,
 } from 'lucide-react'
 import { groupApi, tagApi, imageApi, getThumbnailUrlById, getImageUrlById } from '@/lib/api'
-import { getApiErrorMessage } from '@/lib/getErrorMessage'
+import { getApiErrorMessage, isNotFoundError } from '@/lib/getErrorMessage'
 import { SAVED_INDICATOR_DURATION_MS } from '@/lib/constants'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import type {
@@ -62,6 +62,7 @@ function imageToEditable(img: Image, outOfScope = false): EditableFileState {
     gridded: img.gridded ?? null,
     grid_width: img.grid_width ?? null,
     grid_height: img.grid_height ?? null,
+    grid_type: img.grid_type ?? null,
     subgroup: img.subgroup ?? null,
     image_type: img.image_type ?? 'battlemap',
     excluded: false,
@@ -83,6 +84,7 @@ function buildPayload(group: EditableGroupState): GroupEditRequest {
       gridded: f.gridded,
       grid_width: f.grid_width,
       grid_height: f.grid_height,
+      grid_type: f.grid_type,
       subgroup: f.subgroup,
       image_type: f.image_type,
     })),
@@ -246,7 +248,11 @@ export function EditGroupDialog({
         setActiveTab(0)
       })
       .catch((err: unknown) => {
-        setLoadError(getApiErrorMessage(err, 'Failed to load group'))
+        if (isNotFoundError(err)) {
+          setLoadError('This group no longer exists — it may have been merged or deleted.')
+        } else {
+          setLoadError(getApiErrorMessage(err, 'Failed to load group'))
+        }
       })
       .finally(() => {
         setLoading(false)
@@ -373,6 +379,7 @@ export function EditGroupDialog({
             gridded: f.gridded,
             grid_width: f.grid_width,
             grid_height: f.grid_height,
+            grid_type: f.grid_type,
             subgroup: f.subgroup,
             image_type: f.image_type,
           })),
@@ -796,7 +803,9 @@ export function EditGroupDialog({
                   onSelectAll={() => selectAllVisible(activeGroupId, filteredInScope)}
                   onDeselectAll={() => deselectAll(activeGroupId)}
                   onBulkAddTag={(tag) => bulkAddTag(isAllTab ? null : activeGroupId, tag)}
-                  onBulkSetGrid={(v) => bulkSetGrid(isAllTab ? null : activeGroupId, v)}
+                  onBulkSetGrid={(gridded, gridType) =>
+                    bulkSetGrid(isAllTab ? null : activeGroupId, gridded, gridType)
+                  }
                   onBulkSetImageType={(v) => bulkSetImageType(isAllTab ? null : activeGroupId, v)}
                   onBulkSetSubgroup={(v) => bulkSetSubgroup(isAllTab ? null : activeGroupId, v)}
                   onBulkExclude={() => bulkExclude(isAllTab ? null : activeGroupId)}

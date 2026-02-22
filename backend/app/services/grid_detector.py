@@ -120,10 +120,13 @@ class GridDetector:
             logger.debug("Image too small for grid detection after scaling")
             return {**_NO_GRID}
 
-        # Row projection (average across columns → one value per row)
-        row_proj = self._compute_projection(edges, axis=1)
-        # Column projection (average across rows → one value per column)
-        col_proj = self._compute_projection(edges, axis=0)
+        # Morphological line extraction — keep only long, axis-aligned edges.
+        # Horizontal lines are projected onto rows (→ vertical period),
+        # vertical lines are projected onto columns (→ horizontal period).
+        h_lines, v_lines = self._extract_line_edges(edges, min_cell)
+
+        row_proj = self._compute_projection(h_lines, axis=1)
+        col_proj = self._compute_projection(v_lines, axis=0)
 
         # Find dominant periods
         v_period, v_strength = self._find_dominant_period(row_proj, min_cell, max_cell)
@@ -152,6 +155,14 @@ class GridDetector:
         if confidence < threshold:
             return {**_NO_GRID, "confidence": confidence}
 
+        # Bilateral axis floor: when both axes detected a period, both must
+        # independently show a minimum signal. A strongly single-axis result
+        # is more consistent with artwork repetition (horizontal stone blocks,
+        # wall stripes) than with a proper two-dimensional grid.
+        if h_period is not None and v_period is not None:
+            if min(h_strength, v_strength) < threshold * 0.6:
+                return {**_NO_GRID, "confidence": confidence}
+
         # Convert periods back to original pixel scale
         if h_period is not None:
             h_period_orig = h_period / scale
@@ -171,11 +182,17 @@ class GridDetector:
                 h_period_orig, v_period_orig, orig_width, orig_height
             )
         else:
-            # Square grid: both periods should be similar
-            if h_period_orig is not None:
-                grid_width = self._snap_to_tile_count(h_period_orig, orig_width)
+            # Square grid: cell size (pixels per cell) is identical on both axes.
+            # The vertical period (row spacing) is empirically more reliable —
+            # horizontal artwork features (corridors, rivers, stonework) create
+            # competing autocorrelation signals in the column projection.
+            # Anchor both tile counts to the vertical cell size when available.
             if v_period_orig is not None:
                 grid_height = self._snap_to_tile_count(v_period_orig, orig_height)
+                grid_width = self._snap_to_tile_count(v_period_orig, orig_width)
+            if grid_width is None and h_period_orig is not None:
+                # Fallback: vertical period not found, use horizontal directly
+                grid_width = self._snap_to_tile_count(h_period_orig, orig_width)
 
         gridded = True if confidence >= threshold else None
 
@@ -192,7 +209,7 @@ class GridDetector:
     # ------------------------------------------------------------------
 
     def _preprocess(self, image_path: Path) -> tuple[np.ndarray | None, float]:
-        """Load image, convert to grayscale, downsample, and apply Canny edge detection.
+        """Load image, convert to grayscale, crop centre, downsample, and apply Canny.
 
         Returns:
             (edge_image, scale_factor) where scale_factor maps scaled px → original px.
@@ -204,8 +221,16 @@ class GridDetector:
             return None, 0.0
 
         h, w = img.shape
-        scale = 1.0
 
+        # Crop to central 70% — removes decorative borders, watermarks,
+        # and title panels that create false periodicity at image edges.
+        margin_y = int(h * 0.15)
+        margin_x = int(w * 0.15)
+        if margin_y > 0 and margin_x > 0:
+            img = img[margin_y : h - margin_y, margin_x : w - margin_x]
+            h, w = img.shape
+
+        scale = 1.0
         if max(h, w) > self.max_dim:
             scale = self.max_dim / max(h, w)
             new_w = max(1, int(w * scale))
@@ -220,6 +245,35 @@ class GridDetector:
         edges = cv2.Canny(img, lower, upper)
 
         return edges, scale
+
+    # ------------------------------------------------------------------
+    # Morphological line extraction
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_line_edges(
+        edges: np.ndarray, min_cell: int,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Extract long, axis-aligned edges via morphological opening.
+
+        Grid lines are thin (1–3 px), image-spanning, and straight.
+        Morphological opening with long 1-px-tall (or wide) kernels preserves
+        them while destroying short, chaotic texture edges (stone, wood, brick).
+
+        The kernel cross-axis dimension is 1 px so even the thinnest (1 px)
+        grid lines survive.  The along-axis length is set to ~3 cell widths
+        so a run must span at least 3 grid squares to be kept.
+
+        Returns:
+            (h_lines, v_lines) — binary images retaining only horizontal and
+            vertical line structures respectively.
+        """
+        kernel_len = max(16, min_cell * 3)
+        h_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_len, 1))
+        v_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, kernel_len))
+        h_lines = cv2.morphologyEx(edges, cv2.MORPH_OPEN, h_kernel)
+        v_lines = cv2.morphologyEx(edges, cv2.MORPH_OPEN, v_kernel)
+        return h_lines, v_lines
 
     # ------------------------------------------------------------------
     # Projection + autocorrelation

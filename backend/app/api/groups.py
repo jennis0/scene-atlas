@@ -168,6 +168,7 @@ async def edit_group(
         image.gridded = img_payload.gridded
         image.grid_width = img_payload.grid_width
         image.grid_height = img_payload.grid_height
+        image.grid_type = img_payload.grid_type
         image.subgroup = img_payload.subgroup
         if img_payload.image_type is not None:
             image.image_type = img_payload.image_type

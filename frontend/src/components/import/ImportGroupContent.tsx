@@ -115,7 +115,9 @@ export function ImportGroupContent({ s }: ImportGroupContentProps) {
                 onSelectAll={() => selectAllVisible(activeGroupId, filteredFiles)}
                 onDeselectAll={() => deselectAll(activeGroupId)}
                 onBulkAddTag={(tag) => bulkAddTag(isAllTab ? null : activeGroupId, tag)}
-                onBulkSetGrid={(v) => bulkSetGrid(isAllTab ? null : activeGroupId, v)}
+                onBulkSetGrid={(gridded, gridType) =>
+                  bulkSetGrid(isAllTab ? null : activeGroupId, gridded, gridType)
+                }
                 onBulkSetImageType={(v) => bulkSetImageType(isAllTab ? null : activeGroupId, v)}
                 onBulkSetSubgroup={(v) => bulkSetSubgroup(isAllTab ? null : activeGroupId, v)}
                 onBulkExclude={() => bulkExclude(isAllTab ? null : activeGroupId)}

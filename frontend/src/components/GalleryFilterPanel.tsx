@@ -55,8 +55,20 @@ export function GalleryFilterPanel({ filters, facets, onFiltersChange }: Gallery
       type: 'gridded',
       options: [
         {
+          filterValue: 'square',
+          label: 'Square grid',
+          filterLabel: 'grid: Square',
+          count: gridded.square,
+        },
+        {
+          filterValue: 'hex',
+          label: 'Hex grid',
+          filterLabel: 'grid: Hex',
+          count: gridded.hex,
+        },
+        {
           filterValue: 'gridded',
-          label: 'Gridded',
+          label: 'Any gridded',
           filterLabel: 'grid: Gridded',
           count: gridded.gridded,
         },

@@ -40,8 +40,15 @@ export function applyFileFilter(
         const match = f.tags.some((t) => t.category === cat && t.value === val)
         if (af.exclude ? match : !match) return false
       } else if (af.type === 'gridded') {
-        const gv = af.value === 'gridded' ? true : af.value === 'gridless' ? false : null
-        const match = f.gridded === gv
+        let match: boolean
+        if (af.value === 'square') {
+          match = f.gridded === true && f.grid_type === 'square'
+        } else if (af.value === 'hex') {
+          match = f.gridded === true && f.grid_type === 'hex'
+        } else {
+          const gv = af.value === 'gridded' ? true : af.value === 'gridless' ? false : null
+          match = f.gridded === gv
+        }
         if (af.exclude ? match : !match) return false
       } else if (af.type === 'media_type') {
         const match = (f.media_type ?? 'image') === af.value

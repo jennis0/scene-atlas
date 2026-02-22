@@ -44,7 +44,7 @@ export interface UseFileEditingReturn {
 
   // Bulk ops
   bulkAddTag: (groupId: string | null, tag: TagData) => void
-  bulkSetGrid: (groupId: string | null, value: boolean | null) => void
+  bulkSetGrid: (groupId: string | null, gridded: boolean | null, gridType: string | null) => void
   bulkSetImageType: (groupId: string | null, value: 'battlemap' | 'scene') => void
   bulkSetSubgroup: (groupId: string | null, value: string) => void
   bulkExclude: (groupId: string | null) => void
@@ -180,8 +180,8 @@ export function useFileEditing({
     onGroupChange?.(toSave)
   }
 
-  const bulkSetGrid = (groupId: string | null, value: boolean | null) =>
-    bulkUpdateFiles(groupId, (f) => ({ ...f, gridded: value }))
+  const bulkSetGrid = (groupId: string | null, gridded: boolean | null, gridType: string | null) =>
+    bulkUpdateFiles(groupId, (f) => ({ ...f, gridded, grid_type: gridType }))
 
   const bulkSetImageType = (groupId: string | null, value: 'battlemap' | 'scene') =>
     bulkUpdateFiles(groupId, (f) => ({ ...f, image_type: value }))

@@ -28,7 +28,7 @@ interface FileToolbarProps {
   onSelectAll: () => void
   onDeselectAll: () => void
   onBulkAddTag: (tag: TagData) => void
-  onBulkSetGrid: (v: boolean | null) => void
+  onBulkSetGrid: (gridded: boolean | null, gridType: string | null) => void
   onBulkSetImageType: (v: 'battlemap' | 'scene') => void
   onBulkSetSubgroup: (v: string) => void
   onBulkExclude: () => void
@@ -102,7 +102,9 @@ export function FileToolbar({
   ].sort()
 
   const gridStates: FilterOptionGroup['options'] = [
-    { filterValue: 'gridded', label: 'Gridded', filterLabel: 'grid: Gridded' },
+    { filterValue: 'square', label: 'Square grid', filterLabel: 'grid: Square' },
+    { filterValue: 'hex', label: 'Hex grid', filterLabel: 'grid: Hex' },
+    { filterValue: 'gridded', label: 'Any gridded', filterLabel: 'grid: Gridded' },
     { filterValue: 'gridless', label: 'Gridless', filterLabel: 'grid: Gridless' },
     { filterValue: 'unknown', label: 'Unknown', filterLabel: 'grid: Unknown' },
   ]
@@ -288,9 +290,16 @@ export function FileToolbar({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => onBulkSetGrid(true)}>Grid</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onBulkSetGrid(false)}>Gridless</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onBulkSetGrid(null)}>Unknown</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onBulkSetGrid(true, 'square')}>
+                  Square
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onBulkSetGrid(true, 'hex')}>Hex</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onBulkSetGrid(false, null)}>
+                  Gridless
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onBulkSetGrid(null, null)}>
+                  Unknown
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
 

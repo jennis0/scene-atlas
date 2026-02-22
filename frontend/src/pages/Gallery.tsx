@@ -163,12 +163,20 @@ export function Gallery() {
     if (includeAuthors.length) params.authors = includeAuthors
     if (excludeAuthors.length) params.exclude_authors = excludeAuthors
     if (griddedFilter) {
-      params.gridded =
-        griddedFilter.value === 'gridded'
-          ? true
-          : griddedFilter.value === 'gridless'
-            ? false
-            : undefined
+      if (griddedFilter.value === 'square') {
+        params.gridded = true
+        params.grid_type = 'square'
+      } else if (griddedFilter.value === 'hex') {
+        params.gridded = true
+        params.grid_type = 'hex'
+      } else {
+        params.gridded =
+          griddedFilter.value === 'gridded'
+            ? true
+            : griddedFilter.value === 'gridless'
+              ? false
+              : undefined
+      }
     }
 
     const colorFilters = filters.filter((f) => f.type === 'color').map((f) => f.value)
@@ -578,6 +586,7 @@ export function Gallery() {
             activeImports.refresh()
           }
         }}
+        onActiveChange={() => activeImports.refresh()}
       />
 
       <TagManagementDialog open={showTagManagement} onClose={() => setShowTagManagement(false)} />
@@ -621,8 +630,11 @@ export function Gallery() {
           if (!mergeSourceGroup?.groupId) return
           try {
             await groupApi.merge(mergeSourceGroup.groupId, targetGroup.id)
+            // Await search refetch so stale group cards are removed before
+            // the picker closes and the user can interact with the gallery.
+            await queryClient.refetchQueries({ queryKey: ['search'] })
+            queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
             setMergeSourceGroup(null)
-            invalidateGallery()
           } catch (err) {
             console.error('Failed to merge groups:', err)
           }

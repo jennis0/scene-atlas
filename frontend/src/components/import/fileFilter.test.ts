@@ -12,6 +12,7 @@ function makeFile(overrides: Partial<EditableFileState>): EditableFileState {
     gridded: null,
     grid_width: null,
     grid_height: null,
+    grid_type: null,
     subgroup: null,
     excluded: false,
     media_type: 'image',

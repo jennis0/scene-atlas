@@ -91,6 +91,7 @@ class ImageParser:
         self._by_author_re = re.compile(r"[bB]y([A-Z][a-z]+|[A-Z]+|[a-z]+)")
         self._bracket_re = re.compile(r"[\(\[](.*?)[\)\]]")
         self._grid_negative_re = re.compile(r"\b(no[-_ ]?grid|gridless|ungridded|gl)\b")
+        self._grid_hex_re = re.compile(r"\b(hexgrid|hex[-_ ]?grid|hg)\b")
         self._grid_positive_re = re.compile(r"\b(grid(ded)?|gd)\b")
 
         self._generic_folders = frozenset(
@@ -131,6 +132,8 @@ class ImageParser:
                 "no grid",
                 "grid",
                 "ungridded",
+                "hexgrid",
+                "hex grid",
                 # Other utility folders
                 "originals",
                 "source",
@@ -152,6 +155,8 @@ class ImageParser:
                 "nogrid",
                 "no-grid",
                 "ungridded",
+                "hexgrid",
+                "hex-grid",
             }
         )
 
@@ -235,7 +240,7 @@ class ImageParser:
         )
         self._maps_word_re = re.compile(r"\bMaps\b", re.IGNORECASE)
         self._grid_name_re = re.compile(
-            r"\b(No\s*Grid|Grid(ded|less)?|Ungridded|GL|GD)\b", re.IGNORECASE
+            r"\b(No\s*Grid|Grid(ded|less)?|Ungridded|GL|GD|Hexgrid|Hex[-_ ]?Grid|HG)\b", re.IGNORECASE
         )
         self._abbrev_rejoin_re = re.compile(r"\b([A-Z]{1,2})\s+(\d+)\b")
         self._tight_alpha_dash_re = re.compile(r"(?<=[a-zA-Z])-(?=[a-zA-Z])")
@@ -608,6 +613,7 @@ class ImageParser:
 
         # --- Grid detection (from filename) — battlemaps only ---
         gridded = None
+        grid_type = None
         grid_width = None
         grid_height = None
 
@@ -615,16 +621,24 @@ class ImageParser:
             grid_text = self._split_camel(stem).lower().replace("_", " ").replace("-", " ")
             if self._grid_negative_re.search(grid_text):
                 gridded = False
+            elif self._grid_hex_re.search(grid_text):
+                gridded = True
+                grid_type = "hex"
             elif self._grid_positive_re.search(grid_text):
                 gridded = True
+                grid_type = "square"
 
             # Also check path parts for grid info
             if gridded is None:
                 full_path_grid = self._split_camel(clean).lower().replace("_", " ").replace("-", " ")
                 if self._grid_negative_re.search(full_path_grid):
                     gridded = False
+                elif self._grid_hex_re.search(full_path_grid):
+                    gridded = True
+                    grid_type = "hex"
                 elif self._grid_positive_re.search(full_path_grid):
                     gridded = True
+                    grid_type = "square"
 
             # --- Dimensions ---
             dim_match = self._dim_re.search(stem)
@@ -732,6 +746,7 @@ class ImageParser:
             "subgroup": subgroup,
             "tags": tags,
             "gridded": gridded,
+            "grid_type": grid_type,
             "grid_width": grid_width,
             "grid_height": grid_height,
             "filename": path_obj.name,

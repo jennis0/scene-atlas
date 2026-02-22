@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { AUTO_SAVE_INTERVAL_MS } from '@/lib/constants'
 import { saveImportState, loadImportState, restorePreviewUrls } from '@/lib/importStorage'
 import { importApi } from '@/lib/api'
@@ -36,14 +36,28 @@ export function useImportPersistence({
   setJobId,
   setState,
 }: UseImportPersistenceOptions): UseImportPersistenceReturn {
-  const saveNow = useCallback(() => {
+  // Inner save captures the latest state from each render.
+  const saveNowInner = useCallback(() => {
     if (!jobId || groups.length === 0) return
     saveImportState(jobId, groups, activeTab, tagVocab)
   }, [jobId, groups, activeTab, tagVocab])
 
-  // Auto-save every 60 seconds while in preview mode
+  // Ref keeps the latest version so callers in async closures / setTimeout
+  // always persist current state rather than a stale snapshot.
+  const saveNowRef = useRef(saveNowInner)
   useEffect(() => {
-    if (state !== 'preview' || !jobId) return
+    saveNowRef.current = saveNowInner
+  }, [saveNowInner])
+
+  const saveNow = useCallback(() => {
+    saveNowRef.current()
+  }, [])
+
+  // Auto-save periodically while in preview or processing mode.
+  // During processing, this keeps localStorage in sync with group status
+  // updates from useImportPolling so the import tray has accurate data.
+  useEffect(() => {
+    if ((state !== 'preview' && state !== 'processing') || !jobId) return
     const interval = setInterval(saveNow, AUTO_SAVE_INTERVAL_MS)
     return () => clearInterval(interval)
   }, [state, jobId, saveNow])
@@ -51,8 +65,10 @@ export function useImportPersistence({
   // Save on beforeunload (browser close/navigate)
   useEffect(() => {
     if (!jobId || groups.length === 0) return
-    const hasPending = groups.some((g) => g.status === 'pending' && !g.skip)
-    if (!hasPending) return
+    const hasActive = groups.some(
+      (g) => (g.status === 'pending' && !g.skip) || g.status === 'running',
+    )
+    if (!hasActive) return
     const handler = () => saveNow()
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)

@@ -15,6 +15,8 @@ export interface Image {
   gridded: boolean | null
   grid_width: number | null
   grid_height: number | null
+  grid_type: string | null
+  grid_confidence: number | null
   subgroup: string | null
   image_type: 'battlemap' | 'scene'
   thumbnail_key: string | null
@@ -60,6 +62,7 @@ export interface SearchParams {
   exclude_tags?: string[]
   colors?: string[]
   gridded?: boolean
+  grid_type?: string
   image_types?: string[]
   media_types?: string[]
   limit?: number
@@ -75,7 +78,7 @@ export interface FacetData {
   total_images: number
   authors: FacetOption[]
   tags: Record<string, FacetOption[]> // category → values sorted by count
-  gridded: { gridded: number; gridless: number; unknown: number }
+  gridded: { gridded: number; gridless: number; unknown: number; square: number; hex: number }
   colors: { hex: string; count: number }[]
   image_types: FacetOption[]
   media_types: FacetOption[]
@@ -140,6 +143,8 @@ export interface ImportFileInfo {
   gridded: boolean | null
   grid_width: number | null
   grid_height: number | null
+  grid_type: string | null
+  grid_confidence: number | null
   subgroup: string | null
   image_type: string | null
   content_hash: string | null
@@ -189,12 +194,13 @@ export interface ImportConfirmFile {
   relative_path: string
   name?: string
   media_type?: string
+  image_type?: string
   tags: TagData[]
   gridded: boolean | null
   grid_width: number | null
   grid_height: number | null
+  grid_type: string | null
   subgroup: string | null
-  image_type?: string
   content_hash?: string
   reuse_storage_key?: string
   reuse_thumbnail_key?: string
@@ -216,6 +222,7 @@ export interface EditableFileState {
   gridded: boolean | null
   grid_width: number | null
   grid_height: number | null
+  grid_type: string | null
   subgroup: string | null
   image_type?: 'battlemap' | 'scene'
   excluded: boolean
@@ -278,6 +285,7 @@ export interface ImageEditPayload {
   gridded?: boolean | null
   grid_width?: number | null
   grid_height?: number | null
+  grid_type?: string | null
   subgroup?: string | null
   image_type?: string | null
 }

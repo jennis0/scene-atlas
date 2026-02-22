@@ -319,8 +319,9 @@ export function FileCard({
 
             {file.image_type !== 'scene' && (
               <GridToggle
-                value={file.gridded}
-                onChange={(v) => onUpdate({ gridded: v })}
+                gridded={file.gridded}
+                gridType={file.grid_type ?? null}
+                onChange={(gridded, gridType) => onUpdate({ gridded, grid_type: gridType })}
                 disabled={disabled}
               />
             )}

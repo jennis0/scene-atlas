@@ -144,11 +144,17 @@ function mergeJobs(
   }
 
   // Merge in localStorage data (may have pending group counts)
+  const terminalStatuses = new Set(['completed', 'failed', 'cancelled'])
   for (const entry of localEntries) {
     const existing = result.get(entry.jobId)
     if (existing) {
-      // Backend has this job — merge in pending group count from localStorage
-      existing.pendingGroups = entry.pendingGroups
+      // Backend has this job — merge in localStorage supplements.
+      // Only apply pending count when the backend still considers the job active;
+      // localStorage may have stale pendingGroups from a save before groups
+      // transitioned to running/completed.
+      if (!terminalStatuses.has(existing.status)) {
+        existing.pendingGroups = entry.pendingGroups
+      }
       existing.label = entry.label || existing.label
       // If backend says staging but localStorage has groups, update total
       if (entry.totalGroups > existing.totalGroups) {

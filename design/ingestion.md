@@ -131,6 +131,7 @@ The main per-image preparation task. Handles everything except CLIP and saves:
 3. **Get file size** — inline `os.stat()`
 4. **Generate thumbnails** — calls `generate_thumbnails.fn()` inline (3 sizes, BILINEAR for small/medium, LANCZOS for large). Also captures image dimensions.
 5. **Extract colors** — calls `extract_dominant_colors.fn()` inline (K-means, n_init=3, 5000 pixel sample)
+6. **Grid detection** (optional) — calls `detect_grid_from_image.fn()` inline when `enable_image_grid_detection=True`, battlemaps only, non-video. Uses hybrid constraint + autocorrelation algorithm. Only runs when filename-based detection left `gridded=None` (presence + size) or `gridded=True` with no dimensions (size only).
 
 Returns a dict with `image_data`, `original_image_path`, `qdrant_metadata`, and `status`.
 
@@ -156,6 +157,12 @@ Settings in `backend/app/config.py`:
 | `max_concurrent_prepare` | 8 | Max concurrent `prepare_single_image` tasks |
 | `color_kmeans_n_init` | 3 | K-means random initializations |
 | `color_clustering_samples` | 5000 | Max pixels sampled for color extraction |
+| `enable_image_grid_detection` | False | Enable image-analysis-based grid detection |
+| `grid_min_cell_px` | 32 | Minimum grid cell size in pixels |
+| `grid_max_cell_px` | 256 | Maximum grid cell size in pixels |
+| `grid_detection_max_dim` | 1024 | Downsample to this before analysis |
+| `grid_presence_threshold` | 0.3 | Confidence threshold for grid presence |
+| `grid_size_threshold` | 0.15 | Threshold when presence already known |
 
 Thumbnail resampling: BILINEAR for 150px and 400px, LANCZOS for 800px. Preview thumbnails use BILINEAR.
 

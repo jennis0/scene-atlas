@@ -173,6 +173,7 @@ export function useImportUpload({
             gridded: f.gridded,
             grid_width: f.grid_width,
             grid_height: f.grid_height,
+            grid_type: f.grid_type ?? null,
             subgroup: f.subgroup,
             image_type: (f.image_type as 'battlemap' | 'scene') ?? defaultImageType,
             excluded: false,

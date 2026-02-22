@@ -570,8 +570,11 @@ export function ImageViewer({
                 </span>
                 <div className="flex items-center gap-2 flex-1 min-w-0">
                   <GridToggle
-                    value={img.gridded ?? null}
-                    onChange={(v) => patchMutation.mutate({ gridded: v })}
+                    gridded={img.gridded ?? null}
+                    gridType={img.grid_type ?? null}
+                    onChange={(gridded, gridType) =>
+                      patchMutation.mutate({ gridded, grid_type: gridType })
+                    }
                     disabled={patchMutation.isPending}
                   />
                   {img.gridded === true && (

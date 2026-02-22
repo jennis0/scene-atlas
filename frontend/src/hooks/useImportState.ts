@@ -86,7 +86,7 @@ export interface UseImportStateReturn {
   selectAllVisible: (groupId: string, visibleFiles: EditableFileState[]) => void
   deselectAll: (groupId: string) => void
   bulkAddTag: (groupId: string | null, tag: TagData) => void
-  bulkSetGrid: (groupId: string | null, value: boolean | null) => void
+  bulkSetGrid: (groupId: string | null, gridded: boolean | null, gridType: string | null) => void
   bulkSetImageType: (groupId: string | null, value: 'battlemap' | 'scene') => void
   bulkSetSubgroup: (groupId: string | null, value: string) => void
   bulkExclude: (groupId: string | null) => void
@@ -314,6 +314,7 @@ export function useImportState(
           gridded: f.gridded,
           grid_width: f.grid_width,
           grid_height: f.grid_height,
+          grid_type: f.grid_type ?? null,
           subgroup: f.subgroup,
           image_type: f.image_type,
         }

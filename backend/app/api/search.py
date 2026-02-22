@@ -59,6 +59,18 @@ async def get_search_facets(db: Session = Depends(get_db)):
     gridded_count = db.query(func.count(Image.id)).filter(Image.gridded.is_(True)).scalar() or 0
     gridless_count = db.query(func.count(Image.id)).filter(Image.gridded.is_(False)).scalar() or 0
     unknown_count = db.query(func.count(Image.id)).filter(Image.gridded.is_(None)).scalar() or 0
+    square_count = (
+        db.query(func.count(Image.id))
+        .filter(Image.gridded.is_(True), Image.grid_type == "square")
+        .scalar()
+        or 0
+    )
+    hex_count = (
+        db.query(func.count(Image.id))
+        .filter(Image.gridded.is_(True), Image.grid_type == "hex")
+        .scalar()
+        or 0
+    )
 
     # Top 50 colors by distinct image count
     colors = (
@@ -93,6 +105,8 @@ async def get_search_facets(db: Session = Depends(get_db)):
             "gridded": gridded_count,
             "gridless": gridless_count,
             "unknown": unknown_count,
+            "square": square_count,
+            "hex": hex_count,
         },
         "colors": [{"hex": h, "count": c} for h, c in colors],
         "image_types": [{"value": t or "battlemap", "count": c} for t, c in image_type_rows],
@@ -113,6 +127,7 @@ async def search_images(
     image_types: list[str] = Query([]),
     media_types: list[str] = Query([]),
     gridded: bool | None = None,
+    grid_type: str | None = None,
     limit: int = 500,
     offset: int = 0,
     # Deprecated aliases kept for backward compat
@@ -153,6 +168,9 @@ async def search_images(
 
     if gridded is not None:
         sql_query = sql_query.filter(Image.gridded == gridded)
+
+    if grid_type is not None:
+        sql_query = sql_query.filter(Image.grid_type == grid_type)
 
     if authors:
         sql_query = sql_query.filter(or_(*[Image.author == a for a in authors]))

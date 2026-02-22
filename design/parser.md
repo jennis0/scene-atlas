@@ -29,12 +29,31 @@ Given a relative path like `czepeku/Island Fort/Gridded/IslandFort_Night_Rain_30
 - Override: `byAuthor` pattern in filename (e.g. `byJohnSmith` → `"JohnSmith"`)
 
 ### 2. Grid Detection (battlemaps only)
+
+**Filename-based** (always runs, in `ImageParser.parse()`):
 - CamelCase-split + normalize the filename stem to space-separated words
 - Check negative regex: `\b(no[-_ ]?grid|gridless|ungridded)\b` → `gridded = False`
 - Check positive regex: `\b(grid(ded)?)\b` → `gridded = True`
 - Also checks path components if filename doesn't match
 - Grid dimensions: `(\d{1,3})\s*[xX]\s*(\d{1,3})` pattern → `grid_width`, `grid_height`
 - **Skipped for `image_type="scene"`** — scenes do not use grid metadata
+
+**Image-analysis-based** (opt-in, in `prepare_single_image()`):
+- Enabled via `enable_image_grid_detection=True` in settings
+- Only runs for battlemaps (not scenes), non-video files
+- Decision tree:
+  - If filename says "nogrid" → `gridded=False`, skip analysis
+  - If filename says "grid" but no dimensions → run algorithm for **size only** (lower threshold)
+  - If no keyword → run algorithm for **presence + size**
+- Algorithm: Hybrid constraint + autocorrelation
+  1. Grayscale + Canny edge detection, downsampled to 1024px max
+  2. Compute row/column projections of edge image
+  3. Find dominant periods via FFT-based autocorrelation
+  4. Classify grid type from period ratio: square (≈1.0) or hex (≈0.866)
+  5. Validate against image dimensions (snap to nearest clean divisor → tile count)
+- Outputs: `grid_type` ("square"/"hex"), `grid_width`/`grid_height` (tile counts), `grid_confidence` (0.0–1.0)
+- Service: `backend/app/services/grid_detector.py`
+- Task: `backend/flows/tasks/grid_detection.py`
 
 ### 3. Folder Hierarchy Parsing
 
