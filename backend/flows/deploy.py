@@ -21,6 +21,7 @@ from prefect.client.orchestration import get_client
 
 from backend.app.config import settings
 from backend.flows.ingestion import analyse_upload, process_import_group, process_import_job
+from backend.flows.maintenance import backup_database, cleanup_staging
 from backend.flows.backfill_content_hash import backfill_content_hash
 from backend.flows.write_new_embeddings import write_new_embeddings
 
@@ -81,6 +82,28 @@ def main():
         work_pool_name=WORK_POOL,
     )
     print("  Registered: backfill-content-hash-deployment/backfill-content-hash")
+
+    # backup_database: runs daily at 03:00 UTC
+    backup_database.from_source(
+        source=PROJECT_ROOT,
+        entrypoint="backend/flows/maintenance.py:backup_database",
+    ).deploy(
+        name="backup-deployment",
+        work_pool_name=WORK_POOL,
+        schedules=[{"cron": "0 3 * * *", "timezone": "UTC"}],
+    )
+    print("  Registered: backup-deployment/backup-database (daily 03:00 UTC)")
+
+    # cleanup_staging: runs every 6 hours
+    cleanup_staging.from_source(
+        source=PROJECT_ROOT,
+        entrypoint="backend/flows/maintenance.py:cleanup_staging",
+    ).deploy(
+        name="cleanup-staging-deployment",
+        work_pool_name=WORK_POOL,
+        schedules=[{"cron": "0 */6 * * *", "timezone": "UTC"}],
+    )
+    print("  Registered: cleanup-staging-deployment/cleanup-staging (every 6h)")
 
     # Register concurrency limit for CLIP tasks — only one CLIP model
     # instance should load at a time across all concurrent flows

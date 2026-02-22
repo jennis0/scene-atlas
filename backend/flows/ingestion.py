@@ -18,6 +18,7 @@ Tasks:
 
 import hashlib
 import logging
+import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -1028,6 +1029,12 @@ def process_import_job(
     _finalize_import_job(job_id)
     if total_processed > 0:
         _rebuild_fts()
+
+    # Clean up staging directory now that all groups are processed
+    staging_path = Path(staging_dir)
+    if staging_path.exists():
+        shutil.rmtree(staging_path, ignore_errors=True)
+        logger.info(f"Cleaned up staging dir for job {job_id}")
 
     logger.info(f"Import job {job_id} complete: {total_processed} processed, {total_failed} failed")
     return {

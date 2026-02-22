@@ -177,3 +177,26 @@ The worker runs **locally** (not in Docker) because it needs project code, Pytho
 - Access control can be added later without changing the frontend
 - Slightly more overhead per request (DB lookup + FileResponse) but negligible for a local tool
 - Vite proxy handles the routing in development
+
+---
+
+## ADR-010: Backup strategy and database migrations
+
+**Date:** 2026-02
+**Status:** Accepted
+
+**Context:** The application stores irreplaceable user data (battlemap metadata, tags, variant groups, CLIP embeddings) across three stores: SQLite, the hash-sharded filesystem, and Qdrant. With no backup strategy, a disk failure or an accidental `reset_database.py` run means total data loss. Additionally, the original `init_db()` function used ad-hoc hand-rolled `ALTER TABLE` statements with no version tracking, making schema evolution fragile and difficult to reason about.
+
+**Decision:** Two separate concerns addressed together:
+
+1. **Backups via Prefect flows**: A `backup_database` flow in `backend/flows/maintenance.py` creates a consistent SQLite snapshot (using the `sqlite3.backup()` API, not file copy) and a Qdrant snapshot (via REST API). It rotates old backups: keep last 7 daily + 4 weekly. Registered as a scheduled Prefect deployment running daily at 03:00 UTC. A companion `cleanup_staging` flow removes stale import staging directories (>24h old) every 6 hours. Both flows are observable and manually triggerable via the Prefect UI.
+
+2. **Alembic for schema migrations**: The hand-rolled migration code in `init_db()` is replaced with Alembic. A single initial migration (`001_initial_schema.py`) captures the complete current schema including FTS5 virtual table and triggers. `init_db()` now detects whether the database is fresh (runs all migrations), pre-Alembic (stamps at head), or already Alembic-managed (runs pending migrations). Future schema changes are added as numbered Alembic migration files.
+
+**Consequences:**
+- Backups: daily snapshots with rotation; restore procedure documented in tests (`test_backup_restore.py` proves the backup is restorable)
+- Staging cleanup: disk space no longer leaks from crashed or abandoned imports
+- Alembic: schema changes are versioned, reviewable, and revertable; `alembic upgrade head` is the canonical way to apply migrations
+- The `alembic.ini` at project root allows CLI use: `uv run alembic upgrade head`
+- Image store files are not backed up by the script — they are large, append-only blobs and the originals typically exist elsewhere; document this assumption
+- Qdrant embeddings can be regenerated from images via `write_new_embeddings` flow if the Qdrant snapshot is unavailable
