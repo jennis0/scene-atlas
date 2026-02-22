@@ -340,4 +340,5 @@ export interface ActiveImportsResponse {
 export interface ParsedTagVocab {
   category: string
   values: string[]
+  aliases: Record<string, string[]> // canonical value → alias list
 }

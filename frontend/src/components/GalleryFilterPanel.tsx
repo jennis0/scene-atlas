@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { SlidersHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -6,6 +7,8 @@ import { FilterMenuContent, type FilterOptionGroup } from '@/components/FilterMe
 import type { ActiveFilter } from '@/components/import/fileFilter'
 import type { FacetData } from '@/types'
 import { COLOR_FILTER_PALETTE } from '@/lib/colorPalette'
+import { tagApi } from '@/lib/api'
+import { parseTagVocabulary } from '@/components/import/types'
 
 interface GalleryFilterPanelProps {
   filters: ActiveFilter[]
@@ -15,6 +18,17 @@ interface GalleryFilterPanelProps {
 
 export function GalleryFilterPanel({ filters, facets, onFiltersChange }: GalleryFilterPanelProps) {
   const [open, setOpen] = useState(false)
+
+  // Re-uses the cached tagCategories query — no extra network request
+  const { data: tagCategories } = useQuery({
+    queryKey: ['tagCategories'],
+    queryFn: tagApi.getCategories,
+    staleTime: 30_000,
+  })
+  const tagVocab = useMemo(
+    () => (tagCategories ? parseTagVocabulary(tagCategories) : []),
+    [tagCategories],
+  )
 
   const groups: FilterOptionGroup[] = []
 
@@ -90,6 +104,7 @@ export function GalleryFilterPanel({ filters, facets, onFiltersChange }: Gallery
 
   for (const [cat, values] of Object.entries(facets?.tags ?? {})) {
     if (values.length === 0) continue
+    const vocabEntry = tagVocab.find((v) => v.category === cat)
     groups.push({
       id: cat,
       label: cat,
@@ -99,6 +114,7 @@ export function GalleryFilterPanel({ filters, facets, onFiltersChange }: Gallery
         label: v.value,
         filterLabel: `${cat}: ${v.value}`,
         count: v.count,
+        aliases: vocabEntry?.aliases[v.value],
       })),
     })
   }

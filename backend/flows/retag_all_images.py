@@ -51,8 +51,17 @@ def retag_batch(image_ids: list[int], parser: ImageParser) -> dict:
         images = db.query(Image).filter(Image.id.in_(image_ids)).all()
         for image in images:
             try:
+                # Build set of manually applied (category, value) pairs for this image
+                manual_tags = {
+                    (t.category, t.value)
+                    for t in db.query(Tag)
+                    .filter(Tag.image_id == image.id, Tag.source == "manual")
+                    .all()
+                }
                 parsed = parser.parse(image.filename)
                 for tag_data in parsed["tags"]:
+                    if (tag_data["category"], tag_data["value"]) in manual_tags:
+                        continue  # Don't duplicate a manually applied tag
                     db.add(
                         Tag(
                             image_id=image.id,

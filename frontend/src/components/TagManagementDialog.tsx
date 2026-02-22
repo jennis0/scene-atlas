@@ -10,6 +10,7 @@ import {
   GripVertical,
   Tag,
   Loader2,
+  RefreshCw,
 } from 'lucide-react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { tagApi, searchApi } from '@/lib/api'
@@ -48,6 +49,8 @@ type ConfirmAction = {
   label: string
   detail: string
   onConfirm: () => void
+  confirmLabel?: string
+  confirmStyle?: 'danger' | 'warning'
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -56,6 +59,13 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
   const queryClient = useQueryClient()
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null)
+
+  const [vocabDirty, setVocabDirty] = useState(false)
+
+  const retagMut = useMutation({
+    mutationFn: tagApi.retagAll,
+    onSuccess: () => setVocabDirty(false),
+  })
 
   const { data: categories = [], isLoading } = useQuery({
     queryKey: ['tagCategories'],
@@ -75,6 +85,12 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
     queryClient.invalidateQueries({ queryKey: ['tagCategories'] })
     queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
   }, [queryClient])
+
+  // Wraps invalidate and marks the vocab as changed since last retag
+  const invalidateAndMark = useCallback(() => {
+    setVocabDirty(true)
+    invalidate()
+  }, [invalidate])
 
   // Auto-select first category
   const activeCat = categories.find((c) => c.name === selectedCategory) ?? null
@@ -97,8 +113,33 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
             Tag Management
           </h2>
           <button
+            onClick={() =>
+              setConfirmAction({
+                label: 'Regenerate auto-tags?',
+                detail:
+                  'This will delete all automatically assigned tags across every image and regenerate them from filenames. Manually applied tags are kept.',
+                confirmLabel: 'Regenerate',
+                confirmStyle: 'warning',
+                onConfirm: () => {
+                  retagMut.mutate()
+                  setConfirmAction(null)
+                },
+              })
+            }
+            disabled={retagMut.isPending}
+            className={`ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors disabled:opacity-40 ${
+              vocabDirty
+                ? 'text-amber-400 bg-amber-400/10 hover:bg-amber-400/20 ring-1 ring-amber-400/30'
+                : 'text-zinc-400 hover:text-amber-400 hover:bg-zinc-800'
+            }`}
+            title="Regenerate auto-tags for all images from their filenames. Manually applied tags are always preserved."
+          >
+            <RefreshCw className={`w-3 h-3 ${retagMut.isPending ? 'animate-spin' : ''}`} />
+            Regenerate auto-tags
+          </button>
+          <button
             onClick={onClose}
-            className="ml-auto rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 text-zinc-400 hover:text-zinc-100"
+            className="rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 text-zinc-400 hover:text-zinc-100"
           >
             <X className="h-4 w-4" />
             <span className="sr-only">Close</span>
@@ -116,7 +157,7 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
               categories={categories}
               selected={effectiveSelection}
               onSelect={setSelectedCategory}
-              invalidate={invalidate}
+              invalidate={invalidateAndMark}
               setConfirmAction={setConfirmAction}
             />
 
@@ -126,7 +167,7 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
                 <CategoryEditor
                   key={effectiveSelection}
                   category={categories.find((c) => c.name === effectiveSelection)!}
-                  invalidate={invalidate}
+                  invalidate={invalidateAndMark}
                   setConfirmAction={setConfirmAction}
                   onCategoryRenamed={setSelectedCategory}
                   facetCounts={facets?.tags[effectiveSelection] ?? []}
@@ -734,9 +775,13 @@ function ConfirmOverlay({ action, onCancel }: { action: ConfirmAction; onCancel:
           </button>
           <button
             onClick={action.onConfirm}
-            className="px-3 py-1.5 text-sm text-red-400 hover:text-red-300 bg-red-400/10 hover:bg-red-400/20 rounded-md border border-red-400/20 transition-colors"
+            className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
+              action.confirmStyle === 'warning'
+                ? 'text-amber-400 hover:text-amber-300 bg-amber-400/10 hover:bg-amber-400/20 border-amber-400/20'
+                : 'text-red-400 hover:text-red-300 bg-red-400/10 hover:bg-red-400/20 border-red-400/20'
+            }`}
           >
-            Delete
+            {action.confirmLabel ?? 'Delete'}
           </button>
         </div>
       </div>

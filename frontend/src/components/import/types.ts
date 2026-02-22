@@ -7,17 +7,28 @@ export function parseTagVocabulary(categories: TagCategory[]): ParsedTagVocab[] 
   return categories
     .map((cat) => {
       let values: string[] = []
+      const aliases: Record<string, string[]> = {}
       if (cat.common_values) {
         try {
-          const parsed = JSON.parse(cat.common_values)
-          values = parsed.map((entry: string | { value: string }) =>
-            typeof entry === 'string' ? entry : entry.value,
-          )
+          const parsed = JSON.parse(cat.common_values) as (
+            | string
+            | { value: string; aliases?: string[] }
+          )[]
+          for (const entry of parsed) {
+            if (typeof entry === 'string') {
+              values.push(entry)
+            } else {
+              values.push(entry.value)
+              if (entry.aliases && entry.aliases.length > 0) {
+                aliases[entry.value] = entry.aliases
+              }
+            }
+          }
         } catch {
           /* skip malformed */
         }
       }
-      return { category: cat.name, values }
+      return { category: cat.name, values, aliases }
     })
     .filter((v) => v.values.length > 0)
 }

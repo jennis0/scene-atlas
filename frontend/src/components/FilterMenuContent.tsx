@@ -24,6 +24,7 @@ export interface FilterOption {
   label: string // shown in the pill
   filterLabel: string // stored in ActiveFilter.label (chip text)
   count?: number
+  aliases?: string[] // alias strings for search matching
 }
 
 export interface FilterOptionGroup {
@@ -49,6 +50,29 @@ const NON_TAG_GROUPS = new Set([
   'media_type',
 ])
 
+/**
+ * Scores how well a filter option matches a search query.
+ * Higher is a better match. Returns -1 if no match at all.
+ *   5 — exact value match
+ *   4 — value starts with query
+ *   3 — exact alias match
+ *   2 — value contains query
+ *   1 — alias starts with query
+ *   0 — alias contains query
+ *  -1 — no match
+ */
+function optionMatchScore(label: string, aliases: string[], q: string): number {
+  const l = label.toLowerCase()
+  if (l === q) return 5
+  if (l.startsWith(q)) return 4
+  const aa = aliases.map((a) => a.toLowerCase())
+  if (aa.some((a) => a === q)) return 3
+  if (l.includes(q)) return 2
+  if (aa.some((a) => a.startsWith(q))) return 1
+  if (aa.some((a) => a.includes(q))) return 0
+  return -1
+}
+
 // ─── Main component ────────────────────────────────────────────────────────────
 
 export function FilterMenuContent({
@@ -68,14 +92,18 @@ export function FilterMenuContent({
     const byTab = tab === 'all' ? groups : groups.filter((g) => g.id === tab)
     if (!searchLower) return byTab
     return byTab
-      .map((g) => ({
-        ...g,
-        options: g.options.filter(
-          (o) =>
-            o.label.toLowerCase().includes(searchLower) ||
-            g.label.toLowerCase().includes(searchLower),
-        ),
-      }))
+      .map((g) => {
+        // If the category name matches, show all its options unranked (as before)
+        if (g.label.toLowerCase().includes(searchLower)) return g
+
+        // Otherwise score each option and keep only matches, sorted best-first
+        const scored = g.options
+          .map((o) => ({ o, s: optionMatchScore(o.label, o.aliases ?? [], searchLower) }))
+          .filter(({ s }) => s >= 0)
+        if (scored.length === 0) return { ...g, options: [] }
+        scored.sort((a, b) => b.s - a.s)
+        return { ...g, options: scored.map(({ o }) => o) }
+      })
       .filter((g) => g.options.length > 0)
   }, [groups, tab, searchLower])
 

@@ -53,16 +53,27 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
   const searchResults = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return []
-    const results: Array<{ category: string; value: string }> = []
+    const scored: Array<{ category: string; value: string; score: number }> = []
     for (const v of vocab) {
+      const catMatch = v.category.toLowerCase().includes(q)
       for (const val of v.values) {
         if (existingKeys.has(`${v.category}:${val}`)) continue
-        if (val.toLowerCase().includes(q) || v.category.toLowerCase().includes(q)) {
-          results.push({ category: v.category, value: val })
-        }
+        const l = val.toLowerCase()
+        const aa = (v.aliases[val] ?? []).map((a) => a.toLowerCase())
+        let score: number
+        if (l === q) score = 5
+        else if (l.startsWith(q)) score = 4
+        else if (aa.some((a) => a === q)) score = 3
+        else if (l.includes(q)) score = 2
+        else if (aa.some((a) => a.startsWith(q))) score = 1
+        else if (aa.some((a) => a.includes(q))) score = 0
+        else if (catMatch) score = -1
+        else continue
+        scored.push({ category: v.category, value: val, score })
       }
     }
-    return results
+    scored.sort((a, b) => b.score - a.score)
+    return scored.map(({ category, value }) => ({ category, value }))
   }, [search, vocab, existingKeys])
 
   const handleAdd = (category: string, value: string) => {

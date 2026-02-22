@@ -89,6 +89,8 @@ class Settings(BaseSettings):
     # Single-flow path for multi-group imports — loads CLIP once for all groups
     process_job_deployment: str = "import-job-deployment"
     process_job_flow: str = "process_import_job"
+    retag_deployment: str = "retag-all-images-deployment"
+    retag_flow: str = "retag_all_images"
 
     # Import limits
     staging_dir: Path = data_dir / "staging"
