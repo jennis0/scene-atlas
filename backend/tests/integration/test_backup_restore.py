@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from backend.app.models.database import init_db, seed_tag_categories, get_engine, get_session_local
-from backend.app.models import Image, VariantGroup, Tag, Color
+from backend.app.models import Image, ImageGroup, Tag, Color
 from backend.flows.maintenance import backup_sqlite, rotate_backups
 
 
@@ -30,8 +30,8 @@ def _seed_test_data(engine) -> dict:
     try:
         seed_tag_categories(db)
 
-        # Variant group
-        group = VariantGroup(base_name="Forest Map", author="TestAuthor")
+        # Image group
+        group = ImageGroup(base_name="Forest Map", author="TestAuthor")
         db.add(group)
         db.flush()
 
@@ -45,7 +45,7 @@ def _seed_test_data(engine) -> dict:
             height=600,
             file_size=100_000,
             content_hash="a" * 64,
-            variant_group_id=group.id,
+            group_id=group.id,
         )
         img2 = Image(
             filename="forest_day.jpg",
@@ -56,7 +56,7 @@ def _seed_test_data(engine) -> dict:
             height=600,
             file_size=90_000,
             content_hash="b" * 64,
-            variant_group_id=group.id,
+            group_id=group.id,
         )
         db.add_all([img1, img2])
         db.flush()
@@ -75,7 +75,7 @@ def _seed_test_data(engine) -> dict:
             "image_count": 2,
             "tag_count": 2,
             "color_count": 2,
-            "variant_group_count": 1,
+            "group_count": 1,
             "img1_hash": img1.content_hash,
             "img2_hash": img2.content_hash,
         }
@@ -92,7 +92,7 @@ def _query_counts(engine) -> dict:
             "image_count": conn.execute(text("SELECT COUNT(*) FROM images")).scalar(),
             "tag_count": conn.execute(text("SELECT COUNT(*) FROM tags")).scalar(),
             "color_count": conn.execute(text("SELECT COUNT(*) FROM colors")).scalar(),
-            "variant_group_count": conn.execute(
+            "group_count": conn.execute(
                 text("SELECT COUNT(*) FROM variant_groups")
             ).scalar(),
         }
@@ -170,7 +170,7 @@ def test_restore_from_backup_preserves_all_data(tmp_path, tmp_db):
     assert counts["image_count"] == expected["image_count"]
     assert counts["tag_count"] == expected["tag_count"]
     assert counts["color_count"] == expected["color_count"]
-    assert counts["variant_group_count"] == expected["variant_group_count"]
+    assert counts["group_count"] == expected["group_count"]
 
     # Verify content hashes — proves actual image data is preserved
     restored_hashes = _query_content_hashes(restored_engine)

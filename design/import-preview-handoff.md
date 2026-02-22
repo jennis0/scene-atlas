@@ -18,7 +18,7 @@ All code has been written but **nothing has been tested yet**. The changes span 
 
 3. **`backend/app/models/schemas.py`** — Schema changes:
    - Added `grid_width` and `grid_height` to `ImportFileInfo` (analysis response)
-   - Added new `ImportConfirmFile` model (per-file metadata: relative_path, tags, gridded, grid_width, grid_height, sub_variant)
+   - Added new `ImportConfirmFile` model (per-file metadata: relative_path, tags, gridded, grid_width, grid_height, subgroup, image_type)
    - Changed `ImportConfirmRequest.files` from `List[str]` to `List[ImportConfirmFile]`
 
 4. **`backend/app/api/imports.py`** — Two changes:

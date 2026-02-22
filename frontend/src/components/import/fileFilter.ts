@@ -1,18 +1,21 @@
 import type { EditableFileState } from '@/types'
 
 export interface ActiveFilter {
-  type: 'subVariant' | 'tag' | 'gridded' | 'author' | 'color'
-  value: string   // sub-variant text | "category:value" | "gridded"/"gridless"/"unknown" | author name | hex color
+  type: 'subgroup' | 'tag' | 'gridded' | 'author' | 'color'
+  value: string   // subgroup text | "category:value" | "gridded"/"gridless"/"unknown" | author name | hex color
   label: string   // display text for chip
   exclude: boolean
 }
 
+export type ImageTypeFilter = 'all' | 'battlemap' | 'scene'
+
 export interface FileFilter {
   text: string
+  imageType: ImageTypeFilter
   active: ActiveFilter[]
 }
 
-export const EMPTY_FILTER: FileFilter = { text: '', active: [] }
+export const EMPTY_FILTER: FileFilter = { text: '', imageType: 'all', active: [] }
 
 export function applyFileFilter(files: EditableFileState[], filter: FileFilter): EditableFileState[] {
   return files.filter((f) => {
@@ -20,9 +23,12 @@ export function applyFileFilter(files: EditableFileState[], filter: FileFilter):
       const t = filter.text.toLowerCase()
       if (!f.filename.toLowerCase().includes(t) && !f.name.toLowerCase().includes(t)) return false
     }
+    if (filter.imageType !== 'all') {
+      if ((f.image_type ?? 'battlemap') !== filter.imageType) return false
+    }
     for (const af of filter.active) {
-      if (af.type === 'subVariant') {
-        const match = f.sub_variant === af.value
+      if (af.type === 'subgroup') {
+        const match = f.subgroup === af.value
         if (af.exclude ? match : !match) return false
       } else if (af.type === 'tag') {
         const colonIdx = af.value.indexOf(':')

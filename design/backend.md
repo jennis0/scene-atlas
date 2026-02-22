@@ -18,7 +18,7 @@ backend/
 │   │   ├── database.py   # SQLAlchemy models + DB setup + seed data
 │   │   └── schemas.py    # Pydantic request/response schemas
 │   ├── services/
-│   │   ├── battlemap_parser.py  # Filename/path metadata parser
+│   │   ├── image_parser.py      # Filename/path metadata parser
 │   │   ├── clip_service.py      # CLIP model for embeddings
 │   │   ├── image_store.py       # Hash-sharded filesystem storage
 │   │   └── qdrant_service.py    # Qdrant vector DB client
@@ -42,7 +42,7 @@ backend/
 | GET | `/api/v1/images/` | List images (paginated) |
 | GET | `/api/v1/images/{id}` | Get single image |
 | DELETE | `/api/v1/images/{id}` | Delete image + files |
-| GET | `/api/v1/images/{id}/variants` | Get variant group members |
+| GET | `/api/v1/images/{id}/scenes` | Get group members (scenes) |
 | GET | `/api/v1/images/{id}/file` | Serve original image file |
 | GET | `/api/v1/images/{id}/thumbnail` | Serve thumbnail (falls back to original) |
 | GET | `/api/v1/search/` | Multi-faceted search (text, tags, colors, semantic) |
@@ -53,7 +53,7 @@ backend/
 | DELETE | `/api/v1/tags/{tag_id}` | Remove a tag |
 | GET | `/api/v1/tags/stats` | Tag statistics |
 | POST | `/api/v1/imports/upload` | Upload files for import analysis |
-| POST | `/api/v1/imports/{job_id}/confirm` | Confirm a variant group for processing |
+| POST | `/api/v1/imports/{job_id}/confirm` | Confirm a group for processing |
 | GET | `/api/v1/imports/{job_id}/status` | Check import job progress |
 
 ## Services
@@ -67,7 +67,7 @@ Singleton wrapping HuggingFace CLIP ViT-B/32. Lazy-loaded on first use. Methods:
 ### QdrantService
 Client for the Qdrant vector DB. Manages the `battlemap_images` collection. Methods: `add_image_embedding`, `search_similar`, `delete_image_embedding`.
 
-### BattlemapParser
+### ImageParser
 Filename/path parser with DB-driven tag vocabulary. See [parser.md](parser.md).
 
 ## Configuration
@@ -101,7 +101,7 @@ API endpoints
 Prefect flows
   ├── SQLAlchemy (save_to_database task)
   ├── ImageStore (copy files into store)
-  ├── BattlemapParser (metadata extraction)
+  ├── ImageParser (metadata extraction)
   ├── CLIPService (embedding generation)
   └── QdrantService (save embeddings)
 ```

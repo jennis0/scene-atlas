@@ -59,7 +59,7 @@ class TestConfirmEndpoint:
             f"/api/v1/imports/{job_id}/confirm",
             json={
                 "author": "TestAuthor",
-                "variant_group_name": "Test Map",
+                "group_name": "Test Map",
                 "files": [
                     {
                         "relative_path": "author/map.jpg",
@@ -67,7 +67,7 @@ class TestConfirmEndpoint:
                         "gridded": True,
                         "grid_width": 30,
                         "grid_height": 30,
-                        "sub_variant": "Night",
+                        "subgroup": "Night",
                     },
                 ],
             },
@@ -82,7 +82,7 @@ class TestConfirmEndpoint:
         call_kwargs = mock_run.call_args
         params = call_kwargs.kwargs.get("parameters") or call_kwargs[1].get("parameters")
         assert params["author"] == "TestAuthor"
-        assert params["variant_group_name"] == "Test Map"
+        assert params["group_name"] == "Test Map"
         assert len(params["files"]) == 1
         assert params["files"][0]["tags"][0]["category"] == "lighting"
 
@@ -92,7 +92,7 @@ class TestConfirmEndpoint:
             "/api/v1/imports/no-such-job/confirm",
             json={
                 "author": "A",
-                "variant_group_name": "G",
+                "group_name": "G",
                 "files": [{"relative_path": "f.jpg"}],
             },
         )
@@ -105,7 +105,7 @@ class TestConfirmEndpoint:
             f"/api/v1/imports/{job_id}/confirm",
             json={
                 "author": "A",
-                "variant_group_name": "G",
+                "group_name": "G",
                 "files": [{"relative_path": "nonexistent/file.jpg"}],
             },
         )

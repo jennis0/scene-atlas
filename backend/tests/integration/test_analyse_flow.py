@@ -46,7 +46,7 @@ class TestAnalyseUpload:
 
         # Find the TestMap group (parser cleans CamelCase → "Test Map")
         testmap_group = next(
-            (g for g in groups if "Test Map" in g["variant_group_name"]),
+            (g for g in groups if "Test Map" in g["group_name"]),
             None,
         )
         assert testmap_group is not None

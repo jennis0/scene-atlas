@@ -1,4 +1,4 @@
-"""Test metadata extraction on a single image using BattlemapParser."""
+"""Test metadata extraction on a single image using ImageParser."""
 
 import sys
 from pathlib import Path
@@ -13,7 +13,7 @@ from backend.app.models import (
     init_db,
     seed_tag_categories,
 )
-from backend.app.services import BattlemapParser
+from backend.app.services import ImageParser
 from backend.tests import FIXTURES_DIR
 
 # Ensure DB is initialized with tag categories
@@ -28,7 +28,7 @@ categories = db.query(TagCategory).all()
 cat_dicts = [{"name": c.name, "common_values": c.common_values} for c in categories]
 db.close()
 
-parser = BattlemapParser(tag_categories=cat_dicts)
+parser = ImageParser(tag_categories=cat_dicts)
 
 # Find first image
 images_dir = FIXTURES_DIR
@@ -53,8 +53,8 @@ for img_path in image_files[:5]:
     parsed = parser.parse(str(relative))
 
     print(f"\nAuthor: {parsed['author']}")
-    print(f"Variant Group: {parsed['variant_group_name']}")
-    print(f"Sub-variant: {parsed['sub_variant']}")
+    print(f"Group: {parsed['group_name']}")
+    print(f"Subgroup: {parsed['subgroup']}")
     print(f"Gridded: {parsed['gridded']}")
     if parsed["grid_width"]:
         print(f"Grid Dimensions: {parsed['grid_width']}x{parsed['grid_height']}")

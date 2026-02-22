@@ -10,7 +10,7 @@ import {
   Merge,
   MoreHorizontal,
 } from 'lucide-react'
-import { variantGroupApi, tagApi, imageApi, getThumbnailUrlById, getImageUrlById } from '@/lib/api'
+import { groupApi, tagApi, imageApi, getThumbnailUrlById, getImageUrlById } from '@/lib/api'
 import {
   Dialog,
   DialogContent,
@@ -20,8 +20,8 @@ import type {
   EditableGroupState,
   TagData,
   Image,
-  VariantGroupEditRequest,
-  VariantGroupSearchItem,
+  GroupEditRequest,
+  GroupSearchItem,
 } from '@/types'
 import { MergeGroupPicker } from './MergeGroupPicker'
 import {
@@ -65,7 +65,8 @@ function imageToEditable(img: Image, outOfScope = false): EditableFileState {
     gridded: img.gridded ?? null,
     grid_width: img.grid_width ?? null,
     grid_height: img.grid_height ?? null,
-    sub_variant: img.sub_variant ?? null,
+    subgroup: img.subgroup ?? null,
+    image_type: img.image_type ?? 'battlemap',
     excluded: false,
     outOfScope,
     previewUrl: getThumbnailUrlById(img.id),
@@ -73,10 +74,10 @@ function imageToEditable(img: Image, outOfScope = false): EditableFileState {
   }
 }
 
-function buildPayload(group: EditableGroupState): VariantGroupEditRequest {
+function buildPayload(group: EditableGroupState): GroupEditRequest {
   const kept = group.files.filter((f) => !f.excluded)
   return {
-    base_name: group.variant_group_name,
+    base_name: group.group_name,
     author: group.author || undefined,
     images: kept.map((f) => ({
       id: Number(f.relative_path),
@@ -85,7 +86,8 @@ function buildPayload(group: EditableGroupState): VariantGroupEditRequest {
       gridded: f.gridded,
       grid_width: f.grid_width,
       grid_height: f.grid_height,
-      sub_variant: f.sub_variant,
+      subgroup: f.subgroup,
+      image_type: f.image_type,
     })),
     new_groups: [],
   }
@@ -154,14 +156,14 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
     setLoadError(null)
 
     Promise.all([
-      variantGroupApi.get(gId),
+      groupApi.get(gId),
       tagApi.getCategories(),
       imageApi.getAuthors(),
     ]).then(([group, categories, authors]) => {
       setGroups([{
         id: String(group.id),
         author: group.author ?? '',
-        variant_group_name: group.base_name,
+        group_name: group.base_name,
         files: group.images.map((img) => imageToEditable(img)),
         skip: false,
         status: 'pending',
@@ -188,16 +190,16 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
     setLoading(true)
     setLoadError(null)
 
-    // Group seed images by variant_group_id
+    // Group seed images by group_id
     const byGroup = new Map<number, Image[]>()
     let ungrouped = 0
     for (const img of seedImages!) {
-      if (img.variant_group_id === null) {
+      if (img.group_id === null) {
         ungrouped++
       } else {
-        const list = byGroup.get(img.variant_group_id) ?? []
+        const list = byGroup.get(img.group_id) ?? []
         list.push(img)
-        byGroup.set(img.variant_group_id, list)
+        byGroup.set(img.group_id, list)
       }
     }
 
@@ -211,11 +213,11 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
     setUngroupedCount(ungrouped)
 
     Promise.all([
-      ...groupIds.map((id) => variantGroupApi.get(id)),
+      ...groupIds.map((id) => groupApi.get(id)),
       tagApi.getCategories(),
       imageApi.getAuthors(),
     ]).then((results) => {
-      const groupDetails = results.slice(0, groupIds.length) as Awaited<ReturnType<typeof variantGroupApi.get>>[]
+      const groupDetails = results.slice(0, groupIds.length) as Awaited<ReturnType<typeof groupApi.get>>[]
       const categories = results[groupIds.length] as Awaited<ReturnType<typeof tagApi.getCategories>>
       const authors = results[groupIds.length + 1] as string[]
 
@@ -224,7 +226,7 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
         return {
           id: String(detail.id),
           author: detail.author ?? '',
-          variant_group_name: detail.base_name,
+          group_name: detail.base_name,
           // ALL images in the group; non-seed ones marked outOfScope
           files: detail.images.map((img) => imageToEditable(img, !seedIds.has(img.id))),
           skip: false,
@@ -256,7 +258,7 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
     setGroupSaving((prev) => { const s = new Set(prev); s.add(group.id); return s })
     setSaveError(null)
     try {
-      await variantGroupApi.edit(gId, buildPayload(group))
+      await groupApi.edit(gId, buildPayload(group))
       setGroupSaved((prev) => { const s = new Set(prev); s.add(group.id); return s })
       setTimeout(() => {
         setGroupSaved((prev) => { const s = new Set(prev); s.delete(group.id); return s })
@@ -366,7 +368,24 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
     toSave.forEach(autoSaveGroup)
   }
 
-  const bulkSetSubVariant = (gId: string | null, value: string) => {
+  const bulkSetImageType = (gId: string | null, value: 'battlemap' | 'scene') => {
+    const selId = gId ?? ALL_GROUP_ID
+    const sel = selections[selId] ?? new Set<string>()
+    const newGroups = groups.map((g) => {
+      if (gId !== null && g.id !== gId) return g
+      return {
+        ...g,
+        files: g.files.map((f) =>
+          !sel.has(f.relative_path) || f.excluded || f.outOfScope ? f : { ...f, image_type: value }
+        ),
+      }
+    })
+    setGroups(newGroups)
+    const toSave = gId !== null ? newGroups.filter((g) => g.id === gId) : newGroups
+    toSave.forEach(autoSaveGroup)
+  }
+
+  const bulkSetSubgroup = (gId: string | null, value: string) => {
     const selId = gId ?? ALL_GROUP_ID
     const sel = selections[selId] ?? new Set<string>()
     const normalized = value.trim() || null
@@ -375,7 +394,7 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
       return {
         ...g,
         files: g.files.map((f) =>
-          !sel.has(f.relative_path) || f.excluded || f.outOfScope ? f : { ...f, sub_variant: normalized }
+          !sel.has(f.relative_path) || f.excluded || f.outOfScope ? f : { ...f, subgroup: normalized }
         ),
       }
     })
@@ -403,7 +422,7 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
       return {
         ...g,
         files: g.files.map((f) =>
-          f.sub_variant === subVariant && !f.excluded && !f.outOfScope ? { ...f, sub_variant: null } : f
+          f.subgroup === subVariant && !f.excluded && !f.outOfScope ? { ...f, subgroup: null } : f
         ),
       }
     })
@@ -418,7 +437,7 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
       return {
         ...g,
         files: g.files.map((f) =>
-          f.sub_variant === oldVal && !f.excluded && !f.outOfScope ? { ...f, sub_variant: newVal.trim() || null } : f
+          f.subgroup === oldVal && !f.excluded && !f.outOfScope ? { ...f, subgroup: newVal.trim() || null } : f
         ),
       }
     })
@@ -443,8 +462,8 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
     setSaving(true)
     setSaveError(null)
     try {
-      const response = await variantGroupApi.edit(sourceGId, {
-        base_name: source.variant_group_name,
+      const response = await groupApi.edit(sourceGId, {
+        base_name: source.group_name,
         author: source.author || undefined,
         images: remainingFiles.filter((f) => !f.excluded).map((f) => ({
           id: Number(f.relative_path),
@@ -453,10 +472,11 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
           gridded: f.gridded,
           grid_width: f.grid_width,
           grid_height: f.grid_height,
-          sub_variant: f.sub_variant,
+          subgroup: f.subgroup,
+          image_type: f.image_type,
         })),
         new_groups: [{
-          base_name: `${source.variant_group_name} (split)`,
+          base_name: `${source.group_name} (split)`,
           author: source.author || undefined,
           image_ids: movedFiles.filter((f) => !f.excluded).map((f) => Number(f.relative_path)),
         }],
@@ -464,14 +484,14 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
 
       // Reload both groups from API so we have real IDs
       const newGroupId = response.new_group_ids[0]
-      const fetches: Promise<Awaited<ReturnType<typeof variantGroupApi.get>>>[] = [variantGroupApi.get(sourceGId)]
-      if (newGroupId) fetches.push(variantGroupApi.get(newGroupId))
+      const fetches: Promise<Awaited<ReturnType<typeof groupApi.get>>>[] = [groupApi.get(sourceGId)]
+      if (newGroupId) fetches.push(groupApi.get(newGroupId))
       const [updatedSource, newGroup] = await Promise.all(fetches)
 
       const toEditable = (g: typeof updatedSource): EditableGroupState => ({
         id: String(g.id),
         author: g.author ?? '',
-        variant_group_name: g.base_name,
+        group_name: g.base_name,
         files: g.images.map((img) => imageToEditable(img)),
         skip: false,
         status: 'pending',
@@ -501,7 +521,7 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
     if (gId === null) return
     setSaving(true)
     try {
-      await variantGroupApi.delete(gId)
+      await groupApi.delete(gId)
       onSave()
       onClose()
     } catch (err: any) {
@@ -518,7 +538,7 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
     if (gId === null) return
     setMerging(true)
     try {
-      await variantGroupApi.merge(gId, targetGroup.id)
+      await groupApi.merge(gId, targetGroup.id)
       setShowMergePicker(false)
       onSave()
       onClose()
@@ -535,7 +555,7 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
     setSaving(true)
     setSaveError(null)
     try {
-      await variantGroupApi.delete(Number(gId))
+      await groupApi.delete(Number(gId))
       setGroups((prev) => prev.filter((g) => g.id !== gId))
       setDeleteConfirmGroupId(null)
       if (activeTab !== ALL_TAB) {
@@ -549,19 +569,19 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
     }
   }
 
-  const handleMergeGroup = async (sourceId: string, targetGroup: VariantGroupSearchItem) => {
+  const handleMergeGroup = async (sourceId: string, targetGroup: GroupSearchItem) => {
     const idx = groups.findIndex((g) => g.id === sourceId)
     setMerging(true)
     setSaveError(null)
     try {
-      await variantGroupApi.merge(Number(sourceId), targetGroup.id)
+      await groupApi.merge(Number(sourceId), targetGroup.id)
 
       // If target group is also open in this dialog, reload it from the API
       const targetInGroups = groups.some((g) => g.id === String(targetGroup.id))
       let updatedGroups = groups.filter((g) => g.id !== sourceId)
 
       if (targetInGroups) {
-        const reloaded = await variantGroupApi.get(targetGroup.id)
+        const reloaded = await groupApi.get(targetGroup.id)
         // Preserve outOfScope flags for the target group's existing images
         const originalTarget = groups.find((g) => g.id === String(targetGroup.id))
         const originalSeedIds = new Set(
@@ -618,10 +638,10 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
   const activeSelection = selections[activeGroupId] ?? new Set<string>()
 
   const groupSubVariants = useMemo(() => [...new Set(
-    inScopeSource.filter((f) => !f.excluded && f.sub_variant).map((f) => f.sub_variant as string)
+    inScopeSource.filter((f) => !f.excluded && f.subgroup).map((f) => f.subgroup as string)
   )].sort(), [inScopeSource])
 
-  const distinctSubVariants = useMemo(() => [...new Set(filteredInScope.map((f) => f.sub_variant))].sort((a, b) => {
+  const distinctSubVariants = useMemo(() => [...new Set(filteredInScope.map((f) => f.subgroup))].sort((a, b) => {
     if (a === null) return -1
     if (b === null) return 1
     return (a ?? '').localeCompare(b ?? '')
@@ -630,7 +650,7 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
   const showSubVariantHeadings = distinctSubVariants.length > 1
   const subVariantGroups = distinctSubVariants.map((sv) => ({
     subVariant: sv,
-    files: filteredInScope.filter((f) => f.sub_variant === sv),
+    files: filteredInScope.filter((f) => f.subgroup === sv),
   }))
 
   const hasActiveFilter = fileFilter.text || fileFilter.active.length > 0
@@ -760,7 +780,7 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
                                 : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/50'
                             }`}
                           >
-                            <span className="flex-1 text-[12px] truncate">{g.variant_group_name}</span>
+                            <span className="flex-1 text-[12px] truncate">{g.group_name}</span>
                             <span className="text-[11px] text-muted-foreground/40 tabular-nums shrink-0 flex items-center gap-1">
                               {g.files.filter((f) => !f.excluded && !f.outOfScope).length}
                               {g.files.some((f) => f.outOfScope) && (
@@ -846,8 +866,8 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
                       Group Name
                     </label>
                     <input
-                      value={isAllTab ? '' : (activeGroup?.variant_group_name ?? '')}
-                      onChange={(e) => !isAllTab && updateGroup(activeTab, { variant_group_name: e.target.value })}
+                      value={isAllTab ? '' : (activeGroup?.group_name ?? '')}
+                      onChange={(e) => !isAllTab && updateGroup(activeTab, { group_name: e.target.value })}
                       onBlur={() => {
                         if (!isAllTab && activeGroup) autoSaveGroup(activeGroup)
                       }}
@@ -877,10 +897,12 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
                   onDeselectAll={() => deselectAll(activeGroupId)}
                   onBulkAddTag={(tag) => bulkAddTag(isAllTab ? null : activeGroupId, tag)}
                   onBulkSetGrid={(v) => bulkSetGrid(isAllTab ? null : activeGroupId, v)}
-                  onBulkSetSubVariant={(v) => bulkSetSubVariant(isAllTab ? null : activeGroupId, v)}
+                  onBulkSetImageType={(v) => bulkSetImageType(isAllTab ? null : activeGroupId, v)}
+                  onBulkSetSubgroup={(v) => bulkSetSubgroup(isAllTab ? null : activeGroupId, v)}
                   onBulkExclude={() => bulkExclude(isAllTab ? null : activeGroupId)}
                   onMoveToNewGroup={!isAllTab && !isMassEdit && activeGroup?.id ? () => moveToNewGroup(activeGroup.id) : undefined}
                   excludeLabel={isMassEdit ? 'Remove' : 'Delete'}
+                  alwaysShowTypeToggle
                 />
               </div>
 
@@ -944,7 +966,7 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
                               file={file}
                               jobId=""
                               vocab={tagVocab}
-                              existingSubVariants={groupSubVariants}
+                              existingSubgroups={groupSubVariants}
                               selected={activeSelection.has(file.relative_path)}
                               onToggleSelect={() => toggleFileSelection(activeGroupId, file.relative_path)}
                               onUpdate={(updates) =>
@@ -966,7 +988,7 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
                         file={file}
                         jobId=""
                         vocab={tagVocab}
-                        existingSubVariants={groupSubVariants}
+                        existingSubgroups={groupSubVariants}
                         selected={activeSelection.has(file.relative_path)}
                         onToggleSelect={() => toggleFileSelection(activeGroupId, file.relative_path)}
                         onUpdate={(updates) =>
@@ -1003,7 +1025,7 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
                           file={file}
                           jobId=""
                           vocab={tagVocab}
-                          existingSubVariants={groupSubVariants}
+                          existingSubgroups={groupSubVariants}
                           selected={false}
                           onToggleSelect={() => {}}
                           onUpdate={(updates) => updateFile(activeTab, file.relative_path, updates)}
@@ -1105,8 +1127,8 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
         }
         currentGroupName={
           mergeSourceGroupId !== null
-            ? groups.find((g) => g.id === mergeSourceGroupId)?.variant_group_name
-            : activeGroup?.variant_group_name
+            ? groups.find((g) => g.id === mergeSourceGroupId)?.group_name
+            : activeGroup?.group_name
         }
       />
     </Dialog>

@@ -3,7 +3,7 @@
 ## Overview
 
 The system uses three storage backends:
-1. **SQLite** — relational metadata (images, tags, colors, variant groups, import jobs)
+1. **SQLite** — relational metadata (images, tags, colors, image groups, import jobs)
 2. **Qdrant** — CLIP vector embeddings for semantic search
 3. **Filesystem (ImageStore)** — image and thumbnail files
 
@@ -18,23 +18,24 @@ images
   id              INTEGER PK
   filename        TEXT NOT NULL        -- Original filename (display only)
   storage_key     TEXT NOT NULL        -- Key into ImageStore (NOT unique — shared by dedup records)
-  name            TEXT                 -- Inferred base name / variant group name
+  name            TEXT                 -- Display name for the individual image
   author          TEXT
-  variant_group_id INTEGER FK → variant_groups.id
+  variant_group_id INTEGER FK → image_groups.id  -- (aliased as group_id in app code)
+  image_type      TEXT DEFAULT 'battlemap'       -- "battlemap" or "scene"
   width           INTEGER
   height          INTEGER
   file_size       INTEGER             -- Bytes
-  gridded         BOOLEAN             -- True/False/NULL (unknown)
+  gridded         BOOLEAN             -- True/False/NULL (unknown); not used for scenes
   grid_width      INTEGER             -- Grid square dimensions
   grid_height     INTEGER
-  sub_variant     TEXT                 -- Sub-variant path (e.g. "Eerie / No Grid")
+  sub_variant     TEXT                 -- Subgroup path (aliased as subgroup in app code)
   thumbnail_key   TEXT                 -- Key into thumbnail store
   content_hash    TEXT(64)             -- SHA-256 hex digest for deduplication
   needs_review    BOOLEAN DEFAULT FALSE
   created_at      DATETIME
   updated_at      DATETIME
 
-variant_groups
+image_groups (table name: variant_groups)
   id              INTEGER PK
   base_name       TEXT NOT NULL        -- Canonical group name
   author          TEXT
@@ -68,8 +69,8 @@ import_jobs
   id              TEXT PK              -- UUID hex string
   status          TEXT NOT NULL        -- staging, pending, running, completed, failed
   author          TEXT
-  variant_group_name TEXT
-  variant_group_id INTEGER
+  variant_group_name TEXT              -- (aliased as group_name in app code)
+  variant_group_id INTEGER              -- (aliased as group_id in app code)
   total_files     INTEGER DEFAULT 0
   processed_files INTEGER DEFAULT 0
   failed_files    INTEGER DEFAULT 0
@@ -80,9 +81,15 @@ import_jobs
 ```
 
 ### Key Relationships
-- `Image` → `VariantGroup` (many-to-one via `variant_group_id`)
+- `Image` → `ImageGroup` (many-to-one via `group_id` / physical column `variant_group_id`)
 - `Image` → `Tag` (one-to-many, cascade delete)
 - `Image` → `Color` (one-to-many, cascade delete)
+
+### Column Aliasing
+Several DB columns retain their original names for backward compatibility (avoiding a migration), but are aliased to new names in the SQLAlchemy models. See ADR-011 for details. Key mappings:
+- `variant_group_id` → `group_id`
+- `variant_group_name` → `group_name`
+- `sub_variant` → `subgroup`
 
 ### Seed Data
 `seed_tag_categories()` runs at startup and upserts tag categories with vocabulary words. Existing categories are updated, stale categories are deleted. Categories: lighting, season, weather, state, theme, population, terrain, floor, perspective, quality.

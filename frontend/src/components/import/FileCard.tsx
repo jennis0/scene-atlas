@@ -3,7 +3,7 @@ import { X, Undo2, Pencil, Plus, Copy } from 'lucide-react'
 import type { EditableFileState, TagData } from '@/types'
 import { TagPicker } from './TagPicker'
 import { GridToggle } from './GridToggle'
-import { SubVariantPicker } from './SubVariantPicker'
+import { SubgroupPicker } from './SubgroupPicker'
 import type { ParsedTagVocab } from './types'
 import { useGetTagColor } from '@/contexts/TagColorContext'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
@@ -12,7 +12,7 @@ interface FileCardProps {
   file: EditableFileState
   jobId: string
   vocab: ParsedTagVocab[]
-  existingSubVariants: string[]
+  existingSubgroups: string[]
   selected: boolean
   onToggleSelect: () => void
   onUpdate: (updates: Partial<EditableFileState>) => void
@@ -23,7 +23,7 @@ export function FileCard({
   file,
   jobId,
   vocab,
-  existingSubVariants,
+  existingSubgroups,
   selected,
   onToggleSelect,
   onUpdate,
@@ -33,8 +33,8 @@ export function FileCard({
   const [isEditingName, setIsEditingName] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
   const [lightboxOpen, setLightboxOpen] = useState(false)
-  const [isEditingSubVariant, setIsEditingSubVariant] = useState(false)
-  const [subVariantDraft, setSubVariantDraft] = useState('')
+  const [isEditingSubgroup, setIsEditingSubgroup] = useState(false)
+  const [subgroupDraft, setSubgroupDraft] = useState('')
 
   const previewUrl = file.previewUrl ?? `/api/v1/imports/${jobId}/preview/${file.relative_path}`
 
@@ -252,49 +252,78 @@ export function FileCard({
             )}
           </div>
 
-          {/* Grid + sub-variant */}
+          {/* Type + Grid + subgroup */}
           <div className="flex items-center gap-2.5 flex-wrap">
-            <GridToggle
-              value={file.gridded}
-              onChange={(v) => onUpdate({ gridded: v })}
-              disabled={disabled}
-            />
+            {!disabled && (
+              <div className="inline-flex rounded border border-border p-px bg-secondary/50">
+                <button
+                  onClick={() => onUpdate({ image_type: 'battlemap' })}
+                  className={`px-1.5 py-0.5 text-[10px] rounded-sm transition-colors ${
+                    file.image_type !== 'scene'
+                      ? 'bg-primary/20 text-primary font-medium'
+                      : 'text-muted-foreground/60 hover:text-muted-foreground'
+                  }`}
+                  title="Battlemap — grid detection enabled"
+                >
+                  Map
+                </button>
+                <button
+                  onClick={() => onUpdate({ image_type: 'scene' })}
+                  className={`px-1.5 py-0.5 text-[10px] rounded-sm transition-colors ${
+                    file.image_type === 'scene'
+                      ? 'bg-primary/20 text-primary font-medium'
+                      : 'text-muted-foreground/60 hover:text-muted-foreground'
+                  }`}
+                  title="Scene — no grid detection"
+                >
+                  Scene
+                </button>
+              </div>
+            )}
 
-            {file.sub_variant ? (
-              isEditingSubVariant ? (
+            {file.image_type !== 'scene' && (
+              <GridToggle
+                value={file.gridded}
+                onChange={(v) => onUpdate({ gridded: v })}
+                disabled={disabled}
+              />
+            )}
+
+            {file.subgroup ? (
+              isEditingSubgroup ? (
                 <input
-                  value={subVariantDraft}
+                  value={subgroupDraft}
                   autoFocus
                   className="text-[11px] border-b border-primary/70 bg-transparent outline-none w-28 text-foreground capitalize"
-                  onChange={(e) => setSubVariantDraft(e.target.value)}
+                  onChange={(e) => setSubgroupDraft(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
-                      onUpdate({ sub_variant: subVariantDraft.trim() || null })
-                      setIsEditingSubVariant(false)
+                      onUpdate({ subgroup: subgroupDraft.trim() || null })
+                      setIsEditingSubgroup(false)
                     }
-                    if (e.key === 'Escape') setIsEditingSubVariant(false)
+                    if (e.key === 'Escape') setIsEditingSubgroup(false)
                   }}
                   onBlur={() => {
-                    onUpdate({ sub_variant: subVariantDraft.trim() || null })
-                    setIsEditingSubVariant(false)
+                    onUpdate({ subgroup: subgroupDraft.trim() || null })
+                    setIsEditingSubgroup(false)
                   }}
                 />
               ) : (
                 <span className="group/sv inline-flex items-center gap-0.5 rounded border border-border bg-secondary px-1.5 py-0.5 text-[11px] text-foreground/80">
-                  <span className="capitalize">{file.sub_variant}</span>
+                  <span className="capitalize">{file.subgroup}</span>
                   {!disabled && (
                     <>
                       <button
                         className="ml-0.5 opacity-0 group-hover/sv:opacity-60 hover:!opacity-100 transition-opacity"
-                        title="Rename sub-variant"
-                        onClick={() => { setSubVariantDraft(file.sub_variant!); setIsEditingSubVariant(true) }}
+                        title="Rename subgroup"
+                        onClick={() => { setSubgroupDraft(file.subgroup!); setIsEditingSubgroup(true) }}
                       >
                         <Pencil className="h-2.5 w-2.5" />
                       </button>
                       <button
-                        onClick={() => onUpdate({ sub_variant: null })}
+                        onClick={() => onUpdate({ subgroup: null })}
                         className="ml-0.5 opacity-40 hover:opacity-100 transition-opacity"
-                        title="Remove sub-variant"
+                        title="Remove subgroup"
                       >
                         <X className="h-2.5 w-2.5" />
                       </button>
@@ -303,9 +332,9 @@ export function FileCard({
                 </span>
               )
             ) : !disabled ? (
-              <SubVariantPicker
-                existingSubVariants={existingSubVariants}
-                onSelect={(v) => onUpdate({ sub_variant: v || null })}
+              <SubgroupPicker
+                existingSubgroups={existingSubgroups}
+                onSelect={(v) => onUpdate({ subgroup: v || null })}
               />
             ) : null}
           </div>

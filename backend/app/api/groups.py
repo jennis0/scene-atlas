@@ -1,4 +1,4 @@
-"""Variant groups API endpoints."""
+"""Groups API endpoints."""
 
 import re
 from typing import List, Optional, Set
@@ -9,18 +9,18 @@ from sqlalchemy.orm import Session, joinedload
 
 from ..models import (
     Image,
+    ImageGroup,
     Tag,
-    VariantGroup,
     get_session_local,
 )
 from ..models.schemas import (
-    VariantGroupDetailResponse,
-    VariantGroupEditRequest,
-    VariantGroupEditResponse,
-    VariantGroupMergeRequest,
-    VariantGroupMergeResponse,
-    VariantGroupSearchItem,
-    VariantGroupSearchResponse,
+    GroupDetailResponse,
+    GroupEditRequest,
+    GroupEditResponse,
+    GroupMergeRequest,
+    GroupMergeResponse,
+    GroupSearchItem,
+    GroupSearchResponse,
 )
 from ..services import safe_delete_image
 
@@ -51,31 +51,31 @@ def get_db(request: Request):
         db.close()
 
 
-@router.get("/search", response_model=VariantGroupSearchResponse)
-async def search_variant_groups(
+@router.get("/search", response_model=GroupSearchResponse)
+async def search_groups(
     q: str = "",
     exclude_id: Optional[int] = None,
     limit: int = Query(20, ge=1, le=100),
     reference_name: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    """Search variant groups by base_name for typeahead picker.
+    """Search groups by base_name for typeahead picker.
 
     When reference_name is provided, results are ranked by token Jaccard
     similarity to that name rather than returned alphabetically.
     """
-    query = db.query(VariantGroup)
+    query = db.query(ImageGroup)
 
     if q.strip():
-        query = query.filter(VariantGroup.base_name.ilike(f"%{q.strip()}%"))
+        query = query.filter(ImageGroup.base_name.ilike(f"%{q.strip()}%"))
 
     if exclude_id is not None:
-        query = query.filter(VariantGroup.id != exclude_id)
+        query = query.filter(ImageGroup.id != exclude_id)
 
     if reference_name:
         # Fetch all matching rows and rank by similarity in Python.
         # For thousands of groups this is still fast (in-memory sort).
-        all_groups = query.order_by(VariantGroup.base_name).all()
+        all_groups = query.order_by(ImageGroup.base_name).all()
         total = len(all_groups)
         ref_tokens = _tokenize(reference_name)
         groups = sorted(
@@ -85,22 +85,22 @@ async def search_variant_groups(
         )[:limit]
     else:
         total = query.count()
-        groups = query.order_by(VariantGroup.base_name).limit(limit).all()
+        groups = query.order_by(ImageGroup.base_name).limit(limit).all()
 
     # Batch-compute image counts
     group_ids = [g.id for g in groups]
     counts = {}
     if group_ids:
         rows = (
-            db.query(Image.variant_group_id, func.count(Image.id))
-            .filter(Image.variant_group_id.in_(group_ids))
-            .group_by(Image.variant_group_id)
+            db.query(Image.group_id, func.count(Image.id))
+            .filter(Image.group_id.in_(group_ids))
+            .group_by(Image.group_id)
             .all()
         )
         counts = {gid: cnt for gid, cnt in rows}
 
     result = [
-        VariantGroupSearchItem(
+        GroupSearchItem(
             id=g.id,
             base_name=g.base_name,
             author=g.author,
@@ -110,39 +110,39 @@ async def search_variant_groups(
         for g in groups
     ]
 
-    return VariantGroupSearchResponse(groups=result, total=total)
+    return GroupSearchResponse(groups=result, total=total)
 
 
-@router.get("/{group_id}", response_model=VariantGroupDetailResponse)
-async def get_variant_group(
+@router.get("/{group_id}", response_model=GroupDetailResponse)
+async def get_group(
     group_id: int,
     db: Session = Depends(get_db),
 ):
-    """Get a variant group with all its images."""
+    """Get a group with all its images."""
     group = (
-        db.query(VariantGroup)
+        db.query(ImageGroup)
         .options(
-            joinedload(VariantGroup.images).joinedload(Image.tags),
-            joinedload(VariantGroup.images).joinedload(Image.colors),
+            joinedload(ImageGroup.images).joinedload(Image.tags),
+            joinedload(ImageGroup.images).joinedload(Image.colors),
         )
-        .filter(VariantGroup.id == group_id)
+        .filter(ImageGroup.id == group_id)
         .first()
     )
     if not group:
-        raise HTTPException(status_code=404, detail="Variant group not found")
+        raise HTTPException(status_code=404, detail="Group not found")
     return group
 
 
-@router.put("/{group_id}", response_model=VariantGroupEditResponse)
-async def edit_variant_group(
+@router.put("/{group_id}", response_model=GroupEditResponse)
+async def edit_group(
     group_id: int,
-    payload: VariantGroupEditRequest,
+    payload: GroupEditRequest,
     db: Session = Depends(get_db),
 ):
-    """Edit a variant group: update metadata, delete images, update images, split off new groups."""
-    group = db.query(VariantGroup).filter(VariantGroup.id == group_id).first()
+    """Edit a group: update metadata, delete images, update images, split off new groups."""
+    group = db.query(ImageGroup).filter(ImageGroup.id == group_id).first()
     if not group:
-        raise HTTPException(status_code=404, detail="Variant group not found")
+        raise HTTPException(status_code=404, detail="Group not found")
 
     # 1. Update group-level metadata
     group.base_name = payload.base_name
@@ -150,7 +150,7 @@ async def edit_variant_group(
 
     # 2. Determine which images to keep
     kept_ids = {img.id for img in payload.images}
-    all_images = db.query(Image).filter(Image.variant_group_id == group_id).all()
+    all_images = db.query(Image).filter(Image.group_id == group_id).all()
 
     deleted_ids: List[int] = []
     for image in all_images:
@@ -169,7 +169,9 @@ async def edit_variant_group(
         image.gridded = img_payload.gridded
         image.grid_width = img_payload.grid_width
         image.grid_height = img_payload.grid_height
-        image.sub_variant = img_payload.sub_variant
+        image.subgroup = img_payload.subgroup
+        if img_payload.image_type is not None:
+            image.image_type = img_payload.image_type
         # Replace tags
         for tag in list(image.tags):
             db.delete(tag)
@@ -193,7 +195,7 @@ async def edit_variant_group(
     # 5. Create split-off groups
     new_group_ids: List[int] = []
     for new_group_payload in payload.new_groups:
-        new_group = VariantGroup(
+        new_group = ImageGroup(
             base_name=new_group_payload.base_name,
             author=new_group_payload.author,
         )
@@ -202,7 +204,7 @@ async def edit_variant_group(
         for img_id in new_group_payload.image_ids:
             image = db.query(Image).filter(Image.id == img_id).first()
             if image:
-                image.variant_group_id = new_group.id
+                image.group_id = new_group.id
                 image.author = new_group_payload.author
         new_group.primary_image_id = (
             new_group_payload.image_ids[0] if new_group_payload.image_ids else None
@@ -210,7 +212,7 @@ async def edit_variant_group(
         new_group_ids.append(new_group.id)
 
     db.commit()
-    return VariantGroupEditResponse(
+    return GroupEditResponse(
         id=group_id,
         new_group_ids=new_group_ids,
         deleted_image_ids=deleted_ids,
@@ -218,57 +220,57 @@ async def edit_variant_group(
 
 
 @router.delete("/{group_id}")
-async def delete_variant_group(
+async def delete_group(
     group_id: int,
     db: Session = Depends(get_db),
 ):
-    """Delete a variant group and all its images."""
-    group = db.query(VariantGroup).filter(VariantGroup.id == group_id).first()
+    """Delete a group and all its images."""
+    group = db.query(ImageGroup).filter(ImageGroup.id == group_id).first()
     if not group:
-        raise HTTPException(status_code=404, detail="Variant group not found")
+        raise HTTPException(status_code=404, detail="Group not found")
 
-    images = db.query(Image).filter(Image.variant_group_id == group_id).all()
+    images = db.query(Image).filter(Image.group_id == group_id).all()
     for image in images:
         safe_delete_image(db, image)
 
     db.delete(group)
     db.commit()
-    return {"message": f"Variant group {group_id} and all its images deleted"}
+    return {"message": f"Group {group_id} and all its images deleted"}
 
 
-@router.post("/{group_id}/merge", response_model=VariantGroupMergeResponse)
-async def merge_variant_group(
+@router.post("/{group_id}/merge", response_model=GroupMergeResponse)
+async def merge_group(
     group_id: int,
-    payload: VariantGroupMergeRequest,
+    payload: GroupMergeRequest,
     db: Session = Depends(get_db),
 ):
     """Merge source group into target group.
 
     Moves all images from source (group_id) into target (payload.target_group_id).
-    Updates each image's variant_group_id and author to match the target.
+    Updates each image's group_id and author to match the target.
     Deletes the now-empty source group.
     """
     if group_id == payload.target_group_id:
         raise HTTPException(status_code=400, detail="Cannot merge a group into itself")
 
-    source = db.query(VariantGroup).filter(VariantGroup.id == group_id).first()
+    source = db.query(ImageGroup).filter(ImageGroup.id == group_id).first()
     if not source:
-        raise HTTPException(status_code=404, detail="Source variant group not found")
+        raise HTTPException(status_code=404, detail="Source group not found")
 
-    target = db.query(VariantGroup).filter(VariantGroup.id == payload.target_group_id).first()
+    target = db.query(ImageGroup).filter(ImageGroup.id == payload.target_group_id).first()
     if not target:
-        raise HTTPException(status_code=404, detail="Target variant group not found")
+        raise HTTPException(status_code=404, detail="Target group not found")
 
     # Move all images from source to target
-    images = db.query(Image).filter(Image.variant_group_id == group_id).all()
+    images = db.query(Image).filter(Image.group_id == group_id).all()
     for image in images:
-        image.variant_group_id = target.id
+        image.group_id = target.id
         image.author = target.author
 
     images_moved = len(images)
 
     # Flush so SQLAlchemy's identity map knows the images belong to target,
-    # otherwise db.delete(source) will null out their variant_group_id
+    # otherwise db.delete(source) will null out their group_id
     # via the back_populates relationship bookkeeping.
     db.flush()
 
@@ -276,7 +278,7 @@ async def merge_variant_group(
     db.delete(source)
     db.commit()
 
-    return VariantGroupMergeResponse(
+    return GroupMergeResponse(
         target_group_id=target.id,
         target_group_name=target.base_name,
         images_moved=images_moved,

@@ -39,6 +39,7 @@ export interface UseImportStateReturn {
   authorSuggestions: string[]
   editingSvHeading: string | null
   svHeadingDraft: string
+  defaultImageType: 'battlemap' | 'scene'
 
   // Refs
   fileInputRef: React.RefObject<HTMLInputElement>
@@ -51,10 +52,10 @@ export interface UseImportStateReturn {
   sourceFiles: EditableFileState[]
   filteredFiles: EditableFileState[]
   activeSelection: Set<string>
-  groupSubVariants: string[]
-  distinctSubVariants: (string | null)[]
-  showSubVariantHeadings: boolean
-  subVariantGroups: { subVariant: string | null; files: EditableFileState[] }[]
+  groupSubgroups: string[]
+  distinctSubgroups: (string | null)[]
+  showSubgroupHeadings: boolean
+  subgroupGroups: { subgroup: string | null; files: EditableFileState[] }[]
   pendingGroups: EditableGroupState[]
   completedCount: number
   totalFiles: number
@@ -71,6 +72,7 @@ export interface UseImportStateReturn {
   setEditingSvHeading: (heading: string | null) => void
   setSvHeadingDraft: (draft: string) => void
   setGroups: React.Dispatch<React.SetStateAction<EditableGroupState[]>>
+  setDefaultImageType: (type: 'battlemap' | 'scene') => void
 
   // Actions
   reset: () => void
@@ -84,11 +86,12 @@ export interface UseImportStateReturn {
   deselectAll: (groupId: string) => void
   bulkAddTag: (groupId: string | null, tag: TagData) => void
   bulkSetGrid: (groupId: string | null, value: boolean | null) => void
-  bulkSetSubVariant: (groupId: string | null, value: string) => void
+  bulkSetImageType: (groupId: string | null, value: 'battlemap' | 'scene') => void
+  bulkSetSubgroup: (groupId: string | null, value: string) => void
   bulkExclude: (groupId: string | null) => void
   bulkSetDuplicateAction: (groupId: string | null, action: 'skip' | 'import') => void
-  clearSubVariantLabel: (groupId: string, subVariant: string) => void
-  renameSubVariant: (groupId: string, oldVal: string, newVal: string) => void
+  clearSubgroupLabel: (groupId: string, subgroup: string) => void
+  renameSubgroup: (groupId: string, oldVal: string, newVal: string) => void
   moveToNewGroup: (sourceGroupId: string) => void
   handleConfirmGroup: (index: number) => Promise<void>
   handleConfirmAll: () => Promise<void>
@@ -117,6 +120,7 @@ export function useImportState(
   const [svHeadingDraft, setSvHeadingDraft] = useState('')
   const [uploadPhase, setUploadPhase] = useState<string | null>(null)
   const [skippedFiles, setSkippedFiles] = useState<string[]>([])
+  const [defaultImageType, setDefaultImageType] = useState<'battlemap' | 'scene'>('battlemap')
 
   useEffect(() => { onActiveChange?.(state === 'processing') }, [state, onActiveChange])
   useEffect(() => { setFileFilter(EMPTY_FILTER); setEditingSvHeading(null) }, [activeTab])
@@ -129,7 +133,7 @@ export function useImportState(
         const status = await importApi.status(jobId)
         setGroups((prev) =>
           prev.map((g) => {
-            const gs = status.groups.find((s) => s.variant_group_name === g.variant_group_name)
+            const gs = status.groups.find((s) => s.group_name === g.group_name)
             if (!gs) return g
             return {
               ...g,
@@ -212,7 +216,7 @@ export function useImportState(
     importApi.status(reconnectJobId).then((status) => {
       setGroups((prev) =>
         prev.map((g) => {
-          const gs = status.groups.find((s) => s.variant_group_name === g.variant_group_name)
+          const gs = status.groups.find((s) => s.group_name === g.group_name)
           if (!gs) return g
           return {
             ...g,
@@ -361,15 +365,16 @@ export function useImportState(
         uploadFiles,
         uploadRelPaths,
         manifest.length > 0 ? manifest : undefined,
+        defaultImageType,
       )
       setJobId(response.job_id)
 
       // ── Phase 4: Map response to editable groups ───────────────
       setUploadPhase('Analysing\u2026')
-      const editableGroups: EditableGroupState[] = response.variant_groups.map((vg) => ({
+      const editableGroups: EditableGroupState[] = response.groups.map((vg) => ({
         id: crypto.randomUUID(),
         author: vg.author || '',
-        variant_group_name: vg.variant_group_name,
+        group_name: vg.group_name,
         files: vg.files.map((f) => ({
           relative_path: f.relative_path,
           filename: f.filename,
@@ -379,7 +384,8 @@ export function useImportState(
           gridded: f.gridded,
           grid_width: f.grid_width,
           grid_height: f.grid_height,
-          sub_variant: f.sub_variant,
+          subgroup: f.subgroup,
+          image_type: (f.image_type as 'battlemap' | 'scene') ?? defaultImageType,
           excluded: false,
           // Duplicates not uploaded: use existing image thumbnail for preview
           previewUrl: f.duplicate_of
@@ -503,14 +509,25 @@ export function useImportState(
     )
   }
 
-  const bulkSetSubVariant = (groupId: string | null, value: string) => {
+  const bulkSetImageType = (groupId: string | null, value: 'battlemap' | 'scene') => {
+    const selId = groupId ?? ALL_GROUP_ID
+    const sel = selections[selId] ?? new Set<string>()
+    setGroups((prev) =>
+      prev.map((g) => {
+        if (groupId !== null && g.id !== groupId) return g
+        return { ...g, files: g.files.map((f) => (!sel.has(f.relative_path) || f.excluded ? f : { ...f, image_type: value })) }
+      })
+    )
+  }
+
+  const bulkSetSubgroup = (groupId: string | null, value: string) => {
     const selId = groupId ?? ALL_GROUP_ID
     const sel = selections[selId] ?? new Set<string>()
     const normalized = value.trim() || null
     setGroups((prev) =>
       prev.map((g) => {
         if (groupId !== null && g.id !== groupId) return g
-        return { ...g, files: g.files.map((f) => (!sel.has(f.relative_path) || f.excluded ? f : { ...f, sub_variant: normalized })) }
+        return { ...g, files: g.files.map((f) => (!sel.has(f.relative_path) || f.excluded ? f : { ...f, subgroup: normalized })) }
       })
     )
   }
@@ -541,20 +558,20 @@ export function useImportState(
     )
   }
 
-  const clearSubVariantLabel = (groupId: string, subVariant: string) => {
+  const clearSubgroupLabel = (groupId: string, subgroup: string) => {
     setGroups((prev) =>
       prev.map((g) => {
         if (g.id !== groupId) return g
-        return { ...g, files: g.files.map((f) => (f.sub_variant === subVariant && !f.excluded ? { ...f, sub_variant: null } : f)) }
+        return { ...g, files: g.files.map((f) => (f.subgroup === subgroup && !f.excluded ? { ...f, subgroup: null } : f)) }
       })
     )
   }
 
-  const renameSubVariant = (groupId: string, oldVal: string, newVal: string) => {
+  const renameSubgroup = (groupId: string, oldVal: string, newVal: string) => {
     setGroups((prev) =>
       prev.map((g) => {
         if (g.id !== groupId) return g
-        return { ...g, files: g.files.map((f) => (f.sub_variant === oldVal && !f.excluded ? { ...f, sub_variant: newVal.trim() || null } : f)) }
+        return { ...g, files: g.files.map((f) => (f.subgroup === oldVal && !f.excluded ? { ...f, subgroup: newVal.trim() || null } : f)) }
       })
     )
   }
@@ -572,7 +589,7 @@ export function useImportState(
     const newGroup: EditableGroupState = {
       id: crypto.randomUUID(),
       author: source.author,
-      variant_group_name: `${source.variant_group_name} (split)`,
+      group_name: `${source.group_name} (split)`,
       files: movedFiles,
       skip: false,
       status: 'pending',
@@ -604,7 +621,8 @@ export function useImportState(
           gridded: f.gridded,
           grid_width: f.grid_width,
           grid_height: f.grid_height,
-          sub_variant: f.sub_variant,
+          subgroup: f.subgroup,
+          image_type: f.image_type,
         }
         if (f.content_hash) base.content_hash = f.content_hash
         if (f.duplicate_of && f.duplicate_action === 'import') {
@@ -625,7 +643,7 @@ export function useImportState(
     try {
       await importApi.confirm(jobId, {
         author: group.author,
-        variant_group_name: group.variant_group_name,
+        group_name: group.group_name,
         files: confirmFiles,
       })
       // Save state after confirm so tray can track this job
@@ -638,17 +656,17 @@ export function useImportState(
   const handleConfirmAll = async () => {
     if (!jobId) return
     setState('processing')
-    const toSubmit: { i: number; author: string; variant_group_name: string; files: ImportConfirmFile[] }[] = []
+    const toSubmit: { i: number; author: string; group_name: string; files: ImportConfirmFile[] }[] = []
     groups.forEach((group, i) => {
       if (group.status !== 'pending' || group.skip) return
       const confirmFiles = buildConfirmFiles(group)
       if (confirmFiles.length === 0) { updateGroup(i, { status: 'completed', processed: 0 }); return }
-      toSubmit.push({ i, author: group.author, variant_group_name: group.variant_group_name, files: confirmFiles })
+      toSubmit.push({ i, author: group.author, group_name: group.group_name, files: confirmFiles })
     })
     if (toSubmit.length === 0) return
     toSubmit.forEach(({ i }) => updateGroup(i, { status: 'running' }))
     try {
-      await importApi.confirmAll(jobId, toSubmit.map(({ author, variant_group_name, files }) => ({ author, variant_group_name, files })))
+      await importApi.confirmAll(jobId, toSubmit.map(({ author, group_name, files }) => ({ author, group_name, files })))
       // Save state after confirm so tray can track this job
       setTimeout(saveNow, 100)
     } catch {
@@ -670,20 +688,20 @@ export function useImportState(
   const filteredFiles = useMemo(() => applyFileFilter(sourceFiles, fileFilter), [sourceFiles, fileFilter])
   const activeSelection = selections[activeGroupId] ?? new Set<string>()
 
-  const groupSubVariants = useMemo(() => [...new Set(
-    sourceFiles.filter((f) => !f.excluded && f.sub_variant).map((f) => f.sub_variant as string)
+  const groupSubgroups = useMemo(() => [...new Set(
+    sourceFiles.filter((f) => !f.excluded && f.subgroup).map((f) => f.subgroup as string)
   )].sort(), [sourceFiles])
 
-  const distinctSubVariants = useMemo(() => [...new Set(filteredFiles.map((f) => f.sub_variant))].sort((a, b) => {
+  const distinctSubgroups = useMemo(() => [...new Set(filteredFiles.map((f) => f.subgroup))].sort((a, b) => {
     if (a === null) return -1
     if (b === null) return 1
     return (a ?? '').localeCompare(b ?? '')
   }), [filteredFiles])
 
-  const showSubVariantHeadings = distinctSubVariants.length > 1
-  const subVariantGroups = distinctSubVariants.map((sv) => ({
-    subVariant: sv,
-    files: filteredFiles.filter((f) => f.sub_variant === sv),
+  const showSubgroupHeadings = distinctSubgroups.length > 1
+  const subgroupGroups = distinctSubgroups.map((sv) => ({
+    subgroup: sv,
+    files: filteredFiles.filter((f) => f.subgroup === sv),
   }))
 
   const pendingGroups = groups.filter((g) => g.status === 'pending' && !g.skip)
@@ -709,20 +727,20 @@ export function useImportState(
 
   return {
     state, uploading, uploadError, uploadPhase, skippedFiles, jobId, groups, activeTab, tagVocab,
-    selections, fileFilter, authorSuggestions, editingSvHeading, svHeadingDraft,
+    selections, fileFilter, authorSuggestions, editingSvHeading, svHeadingDraft, defaultImageType,
     fileInputRef,
     isAllTab, activeGroup, activeGroupId, allPendingFiles, sourceFiles,
-    filteredFiles, activeSelection, groupSubVariants, distinctSubVariants,
-    showSubVariantHeadings, subVariantGroups, pendingGroups, completedCount,
+    filteredFiles, activeSelection, groupSubgroups, distinctSubgroups,
+    showSubgroupHeadings, subgroupGroups, pendingGroups, completedCount,
     totalFiles, duplicateCount, skippedDuplicateCount,
     allSameAuthor, canImportActive, canImportAll,
     setState, setActiveTab, setFileFilter, setEditingSvHeading,
-    setSvHeadingDraft, setGroups,
+    setSvHeadingDraft, setGroups, setDefaultImageType,
     reset, handleFileSelect, updateGroup, updateFile, updateFileAnyGroup,
     mergeGroups, toggleFileSelection, selectAllVisible, deselectAll,
-    bulkAddTag, bulkSetGrid, bulkSetSubVariant, bulkExclude,
+    bulkAddTag, bulkSetGrid, bulkSetImageType, bulkSetSubgroup, bulkExclude,
     bulkSetDuplicateAction,
-    clearSubVariantLabel, renameSubVariant, moveToNewGroup,
+    clearSubgroupLabel, renameSubgroup, moveToNewGroup,
     handleConfirmGroup, handleConfirmAll, buildConfirmFiles,
     saveNow,
   }

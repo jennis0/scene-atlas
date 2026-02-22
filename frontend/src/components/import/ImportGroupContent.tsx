@@ -21,17 +21,17 @@ interface ImportGroupContentProps {
 export function ImportGroupContent({ s }: ImportGroupContentProps) {
   const {
     isAllTab, activeGroup, activeGroupId, sourceFiles, filteredFiles,
-    activeSelection, groupSubVariants, showSubVariantHeadings, subVariantGroups,
+    activeSelection, groupSubgroups, showSubgroupHeadings, subgroupGroups,
     pendingGroups, allSameAuthor, canImportActive, canImportAll,
     tagVocab, fileFilter, jobId, groups, activeTab, state, authorSuggestions,
     editingSvHeading, svHeadingDraft,
     setFileFilter, setGroups, setEditingSvHeading, setSvHeadingDraft,
     updateGroup, updateFile, updateFileAnyGroup,
     selectAllVisible, deselectAll, toggleFileSelection,
-    bulkAddTag, bulkSetGrid, bulkSetSubVariant, bulkExclude, bulkSetDuplicateAction,
+    bulkAddTag, bulkSetGrid, bulkSetImageType, bulkSetSubgroup, bulkExclude, bulkSetDuplicateAction,
     duplicateCount, skippedDuplicateCount,
     moveToNewGroup,
-    clearSubVariantLabel, renameSubVariant,
+    clearSubgroupLabel, renameSubgroup,
     handleConfirmGroup, handleConfirmAll,
   } = s
 
@@ -73,9 +73,9 @@ export function ImportGroupContent({ s }: ImportGroupContentProps) {
               Group Name
             </label>
             <input
-              value={isAllTab ? '' : (activeGroup?.variant_group_name ?? '')}
-              onChange={(e) => !isAllTab && updateGroup(activeTab, { variant_group_name: e.target.value })}
-              placeholder={isAllTab ? '— (varies by group)' : 'Variant group name'}
+              value={isAllTab ? '' : (activeGroup?.group_name ?? '')}
+              onChange={(e) => !isAllTab && updateGroup(activeTab, { group_name: e.target.value })}
+              placeholder={isAllTab ? '— (varies by group)' : 'Group name'}
               disabled={isAllTab || (activeGroup?.status !== 'pending')}
               className="w-full h-8 px-3 text-sm rounded border border-border bg-secondary text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             />
@@ -111,25 +111,27 @@ export function ImportGroupContent({ s }: ImportGroupContentProps) {
                 onDeselectAll={() => deselectAll(activeGroupId)}
                 onBulkAddTag={(tag) => bulkAddTag(isAllTab ? null : activeGroupId, tag)}
                 onBulkSetGrid={(v) => bulkSetGrid(isAllTab ? null : activeGroupId, v)}
-                onBulkSetSubVariant={(v) => bulkSetSubVariant(isAllTab ? null : activeGroupId, v)}
+                onBulkSetImageType={(v) => bulkSetImageType(isAllTab ? null : activeGroupId, v)}
+                onBulkSetSubgroup={(v) => bulkSetSubgroup(isAllTab ? null : activeGroupId, v)}
                 onBulkExclude={() => bulkExclude(isAllTab ? null : activeGroupId)}
                 onMoveToNewGroup={!isAllTab && activeGroup?.id ? () => moveToNewGroup(activeGroup.id) : undefined}
                 duplicateCount={duplicateCount}
                 skippedDuplicateCount={skippedDuplicateCount}
                 onBulkSetDuplicateAction={(action) => bulkSetDuplicateAction(isAllTab ? null : activeGroupId, action)}
+                alwaysShowTypeToggle
               />
             </div>
           )}
 
           {/* File gallery */}
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
-            {showSubVariantHeadings ? (
-              subVariantGroups.map((svGroup) => {
+            {showSubgroupHeadings ? (
+              subgroupGroups.map((svGroup) => {
                 const nonExcluded = svGroup.files.filter((f) => !f.excluded).length
                 const groupOwner = !isAllTab ? activeGroup : null
-                const isEditing = !isAllTab && editingSvHeading === svGroup.subVariant && svGroup.subVariant !== null
+                const isEditing = !isAllTab && editingSvHeading === svGroup.subgroup && svGroup.subgroup !== null
                 return (
-                  <div key={svGroup.subVariant ?? '__main__'} className="mb-2">
+                  <div key={svGroup.subgroup ?? '__main__'} className="mb-2">
                     <div className="flex items-center gap-2 py-1.5 mt-2 first:mt-0">
                       {isEditing ? (
                         <input
@@ -137,20 +139,20 @@ export function ImportGroupContent({ s }: ImportGroupContentProps) {
                           autoFocus
                           onChange={(e) => setSvHeadingDraft(e.target.value)}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter') { renameSubVariant(activeGroup!.id, svGroup.subVariant!, svHeadingDraft); setEditingSvHeading(null) }
+                            if (e.key === 'Enter') { renameSubgroup(activeGroup!.id, svGroup.subgroup!, svHeadingDraft); setEditingSvHeading(null) }
                             if (e.key === 'Escape') setEditingSvHeading(null)
                           }}
-                          onBlur={() => { renameSubVariant(activeGroup!.id, svGroup.subVariant!, svHeadingDraft); setEditingSvHeading(null) }}
+                          onBlur={() => { renameSubgroup(activeGroup!.id, svGroup.subgroup!, svHeadingDraft); setEditingSvHeading(null) }}
                           className="text-[11px] font-semibold text-foreground border-b border-primary/70 bg-transparent outline-none uppercase tracking-wider capitalize"
                         />
                       ) : (
                         <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider capitalize whitespace-nowrap">
-                          {svGroup.subVariant ?? 'Main'}
+                          {svGroup.subgroup ?? 'Main'}
                         </span>
                       )}
-                      {groupOwner?.status === 'pending' && svGroup.subVariant !== null && !isEditing && (
+                      {groupOwner?.status === 'pending' && svGroup.subgroup !== null && !isEditing && (
                         <button
-                          onClick={() => { setSvHeadingDraft(svGroup.subVariant!); setEditingSvHeading(svGroup.subVariant!) }}
+                          onClick={() => { setSvHeadingDraft(svGroup.subgroup!); setEditingSvHeading(svGroup.subgroup!) }}
                           className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
                         >
                           <Pencil className="h-3 w-3" />
@@ -158,9 +160,9 @@ export function ImportGroupContent({ s }: ImportGroupContentProps) {
                       )}
                       <div className="flex-1 h-px bg-border/30" />
                       <span className="text-[11px] text-muted-foreground/40 tabular-nums">{nonExcluded}</span>
-                      {groupOwner?.status === 'pending' && svGroup.subVariant !== null && !isEditing && (
+                      {groupOwner?.status === 'pending' && svGroup.subgroup !== null && !isEditing && (
                         <button
-                          onClick={() => clearSubVariantLabel(activeGroup!.id, svGroup.subVariant!)}
+                          onClick={() => clearSubgroupLabel(activeGroup!.id, svGroup.subgroup!)}
                           className="text-muted-foreground/40 hover:text-primary transition-colors"
                         >
                           <X className="h-3.5 w-3.5" />
@@ -174,7 +176,7 @@ export function ImportGroupContent({ s }: ImportGroupContentProps) {
                           file={file}
                           jobId={jobId!}
                           vocab={tagVocab}
-                          existingSubVariants={groupSubVariants}
+                          existingSubgroups={groupSubgroups}
                           selected={activeSelection.has(file.relative_path)}
                           onToggleSelect={() => toggleFileSelection(activeGroupId, file.relative_path)}
                           onUpdate={(updates) =>
@@ -197,7 +199,7 @@ export function ImportGroupContent({ s }: ImportGroupContentProps) {
                     file={file}
                     jobId={jobId!}
                     vocab={tagVocab}
-                    existingSubVariants={groupSubVariants}
+                    existingSubgroups={groupSubgroups}
                     selected={activeSelection.has(file.relative_path)}
                     onToggleSelect={() => toggleFileSelection(activeGroupId, file.relative_path)}
                     onUpdate={(updates) =>

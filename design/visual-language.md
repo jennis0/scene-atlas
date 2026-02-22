@@ -290,25 +290,25 @@ The stripe spans the full viewer top but is **brightest at the canvas/sidebar jo
 <input className="bg-transparent border-b border-primary/70 focus:outline-none" onBlur={save} />
 ```
 
-### Sub-variant field
+### Subgroup field
 Displayed as a labeled property row, **not** a tag pill. Uses inline editing:
 ```tsx
 <div className="group/sv flex items-center gap-2 mb-2 min-w-0">
-  <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 w-[72px] shrink-0">Variant</span>
-  {/* editing: underline input with datalist suggestions from sibling variants */}
+  <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 w-[72px] shrink-0">Subgroup</span>
+  {/* editing: underline input with datalist suggestions from sibling scenes */}
   {/* display: current value text (or italic "none"), hover reveals ✎ and ✕ */}
 </div>
 ```
-The datalist is populated from `existingSubVariants` — unique non-null `sub_variant` values across the loaded variant group.
+The datalist is populated from `existingSubgroups` — unique non-null `subgroup` values across the loaded image group.
 
 ### Grid toggle pattern (GridToggle component)
 Segmented button group: `[Grid | Gridless | ?]` — saves immediately on click via `patchMutation`. When `gridded === true`, shows W × H number inputs inline (spinners hidden, saves on blur/Enter).
 
-### Variant scroll preservation
-When navigating to a variant within the same group (sidebar click), sidebar scroll position must be maintained. Implementation:
+### Scene scroll preservation
+When navigating to a scene within the same group (sidebar click), sidebar scroll position must be maintained. Implementation:
 - Set `preserveStateRef.current = true` **before** calling `onImageChange`
 - In the `useEffect([image.id])`, guard with `lastProcessedIdRef.current === image.id` to prevent React Strict Mode double-invocation from consuming the flag prematurely
-- Only `scrollContainerRef` (the variants section) is reset to 0; image info state is always reset on cross-group navigation
+- Only `scrollContainerRef` (the scenes section) is reset to 0; image info state is always reset on cross-group navigation
 
 ---
 
@@ -328,8 +328,8 @@ Active: `bg-primary/20 text-primary`
 Inactive: `text-muted-foreground hover:text-foreground hover:bg-secondary/50`
 Container: `inline-flex rounded-md overflow-hidden border border-border`
 
-### SubVariantPicker (`frontend/src/components/import/SubVariantPicker.tsx`)
-Popup picker showing existing sub_variants from the group as quick-select options, plus a free-text input. Used in the import/edit flow (not in ImageViewer — ImageViewer uses inline editing instead).
+### SubgroupPicker (`frontend/src/components/import/SubgroupPicker.tsx`)
+Popup picker showing existing subgroups from the group as quick-select options, plus a free-text input. Used in the import/edit flow (not in ImageViewer — ImageViewer uses inline editing instead).
 
 Trigger: `text-muted-foreground hover:text-primary`
 Dropdown: `bg-card border-border shadow-2xl shadow-black/40`
@@ -358,7 +358,7 @@ Use Radix `<Popover>` with `<PopoverContent className="p-0 ...">` — do not add
 ### Z-index conventions
 - Sticky variant header inside scroll container: `z-10`
 - ImageViewer overlay: `z-50`
-- Tag picker / sub-variant picker dropdowns: `z-50`
+- Tag picker / subgroup picker dropdowns: `z-50`
 - Global amber top stripe (body::before): `z-1000`
 
 ---

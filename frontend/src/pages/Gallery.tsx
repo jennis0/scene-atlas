@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Search, Sparkles, X, Upload, LayoutGrid, Layers, Pencil, AlignLeft, Tag, Loader2 } from 'lucide-react'
-import { searchApi, variantGroupApi } from '@/lib/api'
+import { searchApi, groupApi } from '@/lib/api'
 import { ImageGrid } from '@/components/ImageGrid'
 import { GroupGrid } from '@/components/GroupGrid'
 import { ImageViewer } from '@/components/ImageViewer'
@@ -19,7 +19,7 @@ import { useActiveImports } from '@/hooks/useActiveImports'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import type { Image, ImageGroup, SearchParams, ViewMode } from '@/types'
-import type { ActiveFilter } from '@/components/import/fileFilter'
+import type { ActiveFilter, ImageTypeFilter } from '@/components/import/fileFilter'
 
 // ---------------------------------------------------------------------------
 // URL ↔ filter serialisation helpers
@@ -52,9 +52,10 @@ function parseFiltersFromUrl(params: URLSearchParams): ActiveFilter[] {
   return result
 }
 
-function buildUrlParams(query: string, activeFilters: ActiveFilter[]): URLSearchParams {
+function buildUrlParams(query: string, activeFilters: ActiveFilter[], imageType: ImageTypeFilter = 'all'): URLSearchParams {
   const params = new URLSearchParams()
   if (query) params.set('q', query)
+  if (imageType !== 'all') params.set('image_type', imageType)
   for (const f of activeFilters) {
     if (f.type === 'tag') params.append(f.exclude ? 'xtag' : 'tag', f.value)
     else if (f.type === 'author') params.append(f.exclude ? 'xauthor' : 'author', f.value)
@@ -93,6 +94,9 @@ export function Gallery() {
   const [searchInput, setSearchInput] = useState(() => urlParams.get('q') ?? '')
   const [submittedQuery, setSubmittedQuery] = useState(() => urlParams.get('q') ?? '')
   const [filters, setFilters] = useState<ActiveFilter[]>(() => parseFiltersFromUrl(urlParams))
+  const [imageType, setImageType] = useState<ImageTypeFilter>(
+    () => (urlParams.get('image_type') as ImageTypeFilter) || 'all'
+  )
 
   // Relevance threshold — slider value 0–0.85, applied client-side against returned scores
   const [minScore, setMinScore] = useState(0.2)
@@ -144,8 +148,10 @@ export function Gallery() {
     const colorFilters = filters.filter((f) => f.type === 'color').map((f) => f.value)
     if (colorFilters.length) params.colors = colorFilters
 
+    if (imageType !== 'all') params.image_types = [imageType]
+
     return params
-  }, [submittedQuery, filters])
+  }, [submittedQuery, filters, imageType])
 
   const hasActiveSearch = !!searchParams.query || filters.length > 0 ||
     (searchParams.tags?.length ?? 0) > 0 || (searchParams.authors?.length ?? 0) > 0
@@ -179,12 +185,17 @@ export function Gallery() {
     e.preventDefault()
     setSubmittedQuery(searchInput)
     setMinScore(0.2) // reset threshold on new search
-    setUrlParams(buildUrlParams(searchInput, filters))
+    setUrlParams(buildUrlParams(searchInput, filters, imageType))
   }
 
   const handleFiltersChange = (newFilters: ActiveFilter[]) => {
     setFilters(newFilters)
-    setUrlParams(buildUrlParams(submittedQuery, newFilters))
+    setUrlParams(buildUrlParams(submittedQuery, newFilters, imageType))
+  }
+
+  const handleImageTypeChange = (type: ImageTypeFilter) => {
+    setImageType(type)
+    setUrlParams(buildUrlParams(submittedQuery, filters, type))
   }
 
   const invalidateGallery = () => {
@@ -196,7 +207,7 @@ export function Gallery() {
     if (!deleteConfirmGroup?.groupId) return
     setDeleting(true)
     try {
-      await variantGroupApi.delete(deleteConfirmGroup.groupId)
+      await groupApi.delete(deleteConfirmGroup.groupId)
       setDeleteConfirmGroup(null)
       invalidateGallery()
     } catch (err) {
@@ -210,6 +221,7 @@ export function Gallery() {
     setSearchInput('')
     setSubmittedQuery('')
     setFilters([])
+    setImageType('all')
     setMinScore(0.2)
     setUrlParams(new URLSearchParams())
   }
@@ -314,6 +326,31 @@ export function Gallery() {
               <X className="h-4 w-4" />
             </Button>
 
+            {/* Type toggle — All / Maps / Scenes */}
+            <div className="flex rounded-md overflow-hidden border border-border shrink-0 text-xs">
+              <button
+                onClick={() => handleImageTypeChange('all')}
+                className={`h-10 px-3 flex items-center justify-center border-r border-border transition-colors
+                  ${imageType === 'all' ? 'bg-secondary text-foreground font-medium' : 'text-foreground/50 hover:text-foreground hover:bg-secondary/50'}`}
+              >
+                All
+              </button>
+              <button
+                onClick={() => handleImageTypeChange('battlemap')}
+                className={`h-10 px-3 flex items-center justify-center border-r border-border transition-colors
+                  ${imageType === 'battlemap' ? 'bg-secondary text-foreground font-medium' : 'text-foreground/50 hover:text-foreground hover:bg-secondary/50'}`}
+              >
+                Maps
+              </button>
+              <button
+                onClick={() => handleImageTypeChange('scene')}
+                className={`h-10 px-3 flex items-center justify-center transition-colors
+                  ${imageType === 'scene' ? 'bg-secondary text-foreground font-medium' : 'text-foreground/50 hover:text-foreground hover:bg-secondary/50'}`}
+              >
+                Scenes
+              </button>
+            </div>
+
             {/* Segmented view toggle */}
             <div className="flex rounded-md overflow-hidden border border-border shrink-0">
               <button
@@ -326,7 +363,7 @@ export function Gallery() {
               </button>
               <button
                 onClick={() => { setViewMode('grouped'); localStorage.setItem('gallery-view-mode', 'grouped') }}
-                title="Variant groups"
+                title="Groups"
                 className={`h-10 w-10 flex items-center justify-center transition-colors
                   ${viewMode === 'grouped' ? 'bg-secondary text-foreground' : 'text-foreground/50 hover:text-foreground hover:bg-secondary/50'}`}
               >
@@ -344,7 +381,7 @@ export function Gallery() {
               {displayImages.length > 0 && (
                 <button
                   onClick={() => setShowMassEdit(true)}
-                  title="Bulk-edit all maps in current results"
+                  title="Bulk-edit all scenes in current results"
                   className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
                 >
                   <Pencil className="h-3 w-3" />
@@ -512,7 +549,7 @@ export function Gallery() {
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
             Are you sure you want to delete <strong>{deleteConfirmGroup?.baseName}</strong> and
-            all {deleteConfirmGroup?.totalVariants} image{deleteConfirmGroup?.totalVariants !== 1 ? 's' : ''}?
+            all {deleteConfirmGroup?.totalScenes} image{deleteConfirmGroup?.totalScenes !== 1 ? 's' : ''}?
             This cannot be undone.
           </p>
           <div className="flex justify-end gap-2 mt-2">
@@ -535,7 +572,7 @@ export function Gallery() {
         onSelect={async (targetGroup) => {
           if (!mergeSourceGroup?.groupId) return
           try {
-            await variantGroupApi.merge(mergeSourceGroup.groupId, targetGroup.id)
+            await groupApi.merge(mergeSourceGroup.groupId, targetGroup.id)
             setMergeSourceGroup(null)
             invalidateGallery()
           } catch (err) {

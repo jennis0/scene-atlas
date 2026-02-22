@@ -1,7 +1,7 @@
-"""Re-parse variant group names and image names using the improved parser.
+"""Re-parse group names and image names using the improved parser.
 
-Applies _clean_group_name to all VariantGroup.base_name values and
-_build_map_name to all Image.name values, then rebuilds search_text
+Applies _clean_group_name to all ImageGroup.base_name values and
+_build_name to all Image.name values, then rebuilds search_text
 and the FTS index.
 
 Usage:
@@ -19,13 +19,13 @@ os.environ.setdefault("PREFECT_API_URL", "http://localhost:4200/api")
 from backend.app.config import settings
 from backend.app.models.database import (
     Image,
+    ImageGroup,
     TagCategory,
-    VariantGroup,
     get_engine,
     get_session_local,
 )
-from backend.app.services import BattlemapParser
-from backend.app.services.battlemap_parser import build_search_text
+from backend.app.services import ImageParser
+from backend.app.services.image_parser import build_search_text
 from backend.app.services.fts_service import fts_rebuild
 
 logger = logging.getLogger(__name__)
@@ -33,18 +33,18 @@ logger = logging.getLogger(__name__)
 BATCH_SIZE = 200
 
 
-def _build_parser(db) -> BattlemapParser:
-    """Create a BattlemapParser with tag vocabulary loaded from DB."""
+def _build_parser(db) -> ImageParser:
+    """Create an ImageParser with tag vocabulary loaded from DB."""
     categories = db.query(TagCategory).all()
     cat_dicts = [{"name": c.name, "common_values": c.common_values} for c in categories]
-    return BattlemapParser(tag_categories=cat_dicts)
+    return ImageParser(tag_categories=cat_dicts)
 
 
-@task(name="clean_variant_group_names")
-def clean_variant_group_names(parser: BattlemapParser) -> dict:
-    """Clean all VariantGroup base_name values.
+@task(name="clean_group_names")
+def clean_group_names(parser: ImageParser) -> dict:
+    """Clean all ImageGroup base_name values.
 
-    Returns mapping of VG id -> new base_name for use by the image task.
+    Returns mapping of group id -> new base_name for use by the image task.
     """
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)
@@ -52,15 +52,15 @@ def clean_variant_group_names(parser: BattlemapParser) -> dict:
 
     updated = 0
     unchanged = 0
-    vg_names: dict[int, str] = {}
+    group_names: dict[int, str] = {}
 
     try:
-        groups = db.query(VariantGroup).all()
-        for vg in groups:
-            cleaned = parser._clean_group_name(vg.base_name, vg.author)
-            vg_names[vg.id] = cleaned
-            if cleaned != vg.base_name:
-                vg.base_name = cleaned
+        groups = db.query(ImageGroup).all()
+        for grp in groups:
+            cleaned = parser._clean_group_name(grp.base_name, grp.author)
+            group_names[grp.id] = cleaned
+            if cleaned != grp.base_name:
+                grp.base_name = cleaned
                 updated += 1
             else:
                 unchanged += 1
@@ -68,15 +68,15 @@ def clean_variant_group_names(parser: BattlemapParser) -> dict:
     finally:
         db.close()
 
-    print(f"Variant groups: {updated} updated, {unchanged} unchanged")
-    return vg_names
+    print(f"Groups: {updated} updated, {unchanged} unchanged")
+    return group_names
 
 
 @task(name="reparse_image_names_batch")
 def reparse_image_names_batch(
     image_ids: list[int],
-    parser: BattlemapParser,
-    vg_names: dict[int, str],
+    parser: ImageParser,
+    group_names: dict[int, str],
 ) -> dict:
     """Re-parse names for a batch of images."""
     engine = get_engine(settings.database_url)
@@ -92,12 +92,12 @@ def reparse_image_names_batch(
         for image in images:
             try:
                 stem = Path(image.filename).stem
-                vg_name = vg_names.get(image.variant_group_id, "")
-                sub_variants = (
-                    image.sub_variant.split(" / ") if image.sub_variant else []
+                grp_name = group_names.get(image.group_id, "")
+                subgroups = (
+                    image.subgroup.split(" / ") if image.subgroup else []
                 )
-                new_name = parser._build_map_name(
-                    stem, image.author, vg_name, sub_variants
+                new_name = parser._build_name(
+                    stem, image.author, grp_name, subgroups
                 )
 
                 name_changed = new_name != image.name
@@ -113,7 +113,7 @@ def reparse_image_names_batch(
                     filename=image.filename,
                     author=image.author,
                     tags=tags,
-                    sub_variant=image.sub_variant,
+                    subgroup=image.subgroup,
                 )
                 search_changed = new_search_text != image.search_text
                 if search_changed:
@@ -136,7 +136,7 @@ def reparse_image_names_batch(
 
 @flow(name="reparse_names", log_prints=True)
 def reparse_names():
-    """Re-parse all variant group and image names using the improved parser."""
+    """Re-parse all group and image names using the improved parser."""
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)
     db = SessionLocal()
@@ -156,15 +156,14 @@ def reparse_names():
         print("Nothing to reparse")
         return {"total": 0, "updated": 0, "unchanged": 0, "errors": 0}
 
-    # Step 1: Clean variant group names
-    vg_names = clean_variant_group_names(parser)
+    # Step 1: Clean group names
+    group_names = clean_group_names(parser)
 
     # Step 2: Re-parse image names in batches
-    # vg_names keys are int from SQLAlchemy, but dict keys survive Prefect
     totals = {"updated": 0, "unchanged": 0, "errors": 0}
     for i in range(0, total, BATCH_SIZE):
         batch_ids = all_ids[i : i + BATCH_SIZE]
-        result = reparse_image_names_batch(batch_ids, parser, vg_names)
+        result = reparse_image_names_batch(batch_ids, parser, group_names)
         totals["updated"] += result["updated"]
         totals["unchanged"] += result["unchanged"]
         totals["errors"] += result["errors"]

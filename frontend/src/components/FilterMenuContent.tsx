@@ -27,7 +27,7 @@ export interface FilterOption {
 }
 
 export interface FilterOptionGroup {
-  id: string            // 'author' | 'gridded' | 'subVariant' | category name
+  id: string            // 'author' | 'gridded' | 'subgroup' | category name
   label: string         // section heading (will be capitalised via CSS)
   type: ActiveFilter['type']
   options: FilterOption[]
@@ -40,7 +40,7 @@ interface FilterMenuContentProps {
 }
 
 // Groups that are not tag categories — they don't get category colours
-const NON_TAG_GROUPS = new Set(['author', 'gridded', 'subVariant', 'color'])
+const NON_TAG_GROUPS = new Set(['author', 'gridded', 'subgroup', 'color', 'image_type'])
 
 // ─── Main component ────────────────────────────────────────────────────────────
 

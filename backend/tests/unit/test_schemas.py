@@ -44,7 +44,7 @@ class TestImportConfirmFile:
         assert f.gridded is None
         assert f.grid_width is None
         assert f.grid_height is None
-        assert f.sub_variant is None
+        assert f.subgroup is None
 
     def test_with_tags(self):
         f = ImportConfirmFile(
@@ -53,7 +53,7 @@ class TestImportConfirmFile:
             gridded=True,
             grid_width=30,
             grid_height=30,
-            sub_variant="Night",
+            subgroup="Night",
         )
         assert len(f.tags) == 1
         assert f.gridded is True
@@ -78,7 +78,7 @@ class TestImportConfirmRequest:
     def test_valid_request(self):
         req = ImportConfirmRequest(
             author="TestAuthor",
-            variant_group_name="Test Map",
+            group_name="Test Map",
             files=[ImportConfirmFile(relative_path="file.jpg")],
         )
         assert req.author == "TestAuthor"
@@ -87,6 +87,6 @@ class TestImportConfirmRequest:
     def test_missing_author_fails(self):
         with pytest.raises(Exception):
             ImportConfirmRequest(
-                variant_group_name="Test Map",
+                group_name="Test Map",
                 files=[ImportConfirmFile(relative_path="file.jpg")],
             )

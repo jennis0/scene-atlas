@@ -39,19 +39,19 @@ def _setup_upload(tmp_path, tmp_db, monkeypatch):
         return [
             {
                 "author": "TestAuthor",
-                "variant_group_name": "TestMap",
+                "group_name": "TestMap",
                 "files": [
                     {
                         "relative_path": "TestAuthor/TestMap/map.jpg",
                         "parsed": {
                             "filename": "map.jpg",
                             "author": "TestAuthor",
-                            "variant_group_name": "TestMap",
+                            "group_name": "TestMap",
                             "tags": [],
                             "gridded": None,
                             "grid_width": None,
                             "grid_height": None,
-                            "sub_variant": None,
+                            "subgroup": None,
                         },
                     }
                 ],
@@ -85,8 +85,8 @@ class TestUploadEndpoint:
         data = resp.json()
         assert "job_id" in data
         assert data["total_files"] == 1
-        assert len(data["variant_groups"]) == 1
-        assert data["variant_groups"][0]["variant_group_name"] == "TestMap"
+        assert len(data["groups"]) == 1
+        assert data["groups"][0]["group_name"] == "TestMap"
 
         # Verify file was saved to staging
         job_id = data["job_id"]

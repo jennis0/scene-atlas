@@ -25,7 +25,7 @@ uv run pytest backend/tests/integration/test_metadata_roundtrip.py -v
 backend/tests/
 ├── conftest.py              # Shared fixtures, Qdrant/Prefect mocking
 ├── unit/                    # Pure logic, no DB, no filesystem side effects
-│   ├── test_parser.py       # BattlemapParser.parse() and group_files()
+│   ├── test_parser.py       # ImageParser.parse() and group_files()
 │   ├── test_schemas.py      # Pydantic model validation and round-trips
 │   └── test_thumbnail_names.py  # Preview thumbnail filename consistency
 ├── integration/             # Real SQLite DB, mocked CLIP/Qdrant/Prefect

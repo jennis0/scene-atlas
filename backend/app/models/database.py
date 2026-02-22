@@ -1,4 +1,4 @@
-"""SQLAlchemy database models for battlemap explorer."""
+"""SQLAlchemy database models for Scene Atlas."""
 
 import json
 import logging
@@ -34,7 +34,7 @@ class Image(Base):
     storage_key = Column(String, nullable=False, index=True)  # Key into ImageStore (e.g., "a1b2c3d4.jpg")
     name = Column(String, index=True)  # Inferred base name / variant group name
     author = Column(String, index=True)
-    variant_group_id = Column(Integer, ForeignKey("variant_groups.id"), nullable=True)
+    group_id = Column("variant_group_id", Integer, ForeignKey("variant_groups.id"), nullable=True)
 
     # Image properties
     width = Column(Integer)
@@ -43,10 +43,11 @@ class Image(Base):
     gridded = Column(Boolean, nullable=True)  # True=gridded, False=gridless, None=unknown
     grid_width = Column(Integer, nullable=True)  # Grid-square width (e.g. 30)
     grid_height = Column(Integer, nullable=True)  # Grid-square height (e.g. 45)
-    sub_variant = Column(String, nullable=True)  # Sub-variant path (e.g. "MA / No Grid")
+    subgroup = Column("sub_variant", String, nullable=True)  # Subgroup path (e.g. "MA / No Grid")
     content_hash = Column(String(64), nullable=True, index=True)  # SHA-256 hex digest
     search_text = Column(Text, nullable=True)  # Pre-tokenized text for FTS5 (CamelCase-split)
     media_type = Column(String, nullable=True, default="image")  # "image" or "video"
+    image_type = Column(String, nullable=True, default="battlemap")  # "battlemap" or "scene"
 
     # Storage keys (resolved via ImageStore at runtime)
     thumbnail_key = Column(String)  # Key into thumbnail store (e.g., "a1b2c3d4_400x400.jpg")
@@ -59,26 +60,26 @@ class Image(Base):
     # Relationships
     tags = relationship("Tag", back_populates="image", cascade="all, delete-orphan")
     colors = relationship("Color", back_populates="image", cascade="all, delete-orphan")
-    variant_group = relationship(
-        "VariantGroup",
+    group = relationship(
+        "ImageGroup",
         back_populates="images",
-        foreign_keys="[Image.variant_group_id]"
+        foreign_keys="[Image.group_id]"
     )
 
     @property
-    def variant_group_name(self) -> Optional[str]:
-        return self.variant_group.base_name if self.variant_group else None
+    def group_name(self) -> Optional[str]:
+        return self.group.base_name if self.group else None
 
     @property
-    def variant_group_image_count(self) -> Optional[int]:
-        return len(self.variant_group.images) if self.variant_group else None
+    def group_image_count(self) -> Optional[int]:
+        return len(self.group.images) if self.group else None
 
     def __repr__(self):
         return f"<Image(id={self.id}, name='{self.name}', filename='{self.filename}')>"
 
 
-class VariantGroup(Base):
-    """Groups related image variants together."""
+class ImageGroup(Base):
+    """Groups related scenes together."""
 
     __tablename__ = "variant_groups"
 
@@ -91,12 +92,12 @@ class VariantGroup(Base):
     # Relationships
     images = relationship(
         "Image",
-        back_populates="variant_group",
-        foreign_keys="[Image.variant_group_id]"
+        back_populates="group",
+        foreign_keys="[Image.group_id]"
     )
 
     def __repr__(self):
-        return f"<VariantGroup(id={self.id}, base_name='{self.base_name}')>"
+        return f"<ImageGroup(id={self.id}, base_name='{self.base_name}')>"
 
 
 class Tag(Base):
@@ -176,13 +177,13 @@ class ImportJob(Base):
 
 
 class ImportGroupJob(Base):
-    """Tracks progress of a single variant group within an import job."""
+    """Tracks progress of a single group within an import job."""
 
     __tablename__ = "import_group_jobs"
 
     id = Column(String, primary_key=True)  # UUID hex
     job_id = Column(String, ForeignKey("import_jobs.id"), nullable=False, index=True)
-    variant_group_name = Column(String, nullable=False)
+    group_name = Column("variant_group_name", String, nullable=False)
     author = Column(String, nullable=True)
     total_files = Column(Integer, default=0)
     processed_files = Column(Integer, default=0)
@@ -198,7 +199,7 @@ class ImportGroupJob(Base):
     job = relationship("ImportJob", back_populates="groups")
 
     def __repr__(self):
-        return f"<ImportGroupJob(id='{self.id}', group='{self.variant_group_name}', status='{self.status}')>"
+        return f"<ImportGroupJob(id='{self.id}', group='{self.group_name}', status='{self.status}')>"
 
 
 # Database setup utilities
@@ -348,7 +349,7 @@ def seed_tag_categories(session):
     - An object: {"value": "rain", "aliases": ["rainy", "raining"]}
       Aliases are alternative words that map to the canonical value.
 
-    The BattlemapParser loads these to build its tag vocabulary.
+    The ImageParser loads these to build its tag vocabulary.
     """
     existing_count = session.query(TagCategory).count()
     if existing_count > 0:

@@ -6,7 +6,7 @@ import re
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from backend.app.services.battlemap_parser import build_search_text
+from backend.app.services.image_parser import build_search_text
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +114,7 @@ def backfill_search_text(db: Session) -> int:
             filename=data["filename"],
             author=data["author"],
             tags=data["tags"],
-            sub_variant=data["sub_variant"],
+            subgroup=data["sub_variant"],
         )
         db.execute(
             text("UPDATE images SET search_text = :st WHERE id = :id"),

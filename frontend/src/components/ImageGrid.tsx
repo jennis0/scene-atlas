@@ -94,11 +94,11 @@ function ImageCard({ image, onClick }: { image: Image; onClick: () => void }) {
   // the card doesn't flash a harsh grey before the thumbnail loads.
   const placeholderBg = image.colors?.[0]?.color_hex ?? undefined
 
-  // When in a group: primary = group name; secondary = sub-variant + image name (if distinct)
+  // When in a group: primary = group name; secondary = subgroup + image name (if distinct)
   // When standalone: primary = image name; no secondary
-  const primaryText = image.variant_group_name ?? image.name
-  const secondaryText = image.variant_group_name
-    ? [image.sub_variant, image.name !== image.variant_group_name ? image.name : null]
+  const primaryText = image.group_name ?? image.name
+  const secondaryText = image.group_name
+    ? [image.subgroup, image.name !== image.group_name ? image.name : null]
         .filter(Boolean)
         .join(' · ')
     : ''

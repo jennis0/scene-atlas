@@ -2,12 +2,12 @@ import { useMemo, useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, X, Search, Pencil, Edit, SlidersHorizontal, Play } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { imageApi, tagApi, searchApi, getImageUrl, getThumbnailUrl } from '@/lib/api'
+import { imageApi, tagApi, getImageUrl, getThumbnailUrl } from '@/lib/api'
 import { useGetTagColor } from '@/contexts/TagColorContext'
 import { TagPicker } from '@/components/import/TagPicker'
 import { GridToggle } from '@/components/import/GridToggle'
 import { FilterMenuContent, FilterChipList, type FilterOptionGroup } from '@/components/FilterMenuContent'
-import type { ActiveFilter } from '@/components/import/fileFilter'
+import type { ActiveFilter, ImageTypeFilter } from '@/components/import/fileFilter'
 import type { Image, TagData } from '@/types'
 import { parseTagVocabulary, type ParsedTagVocab } from '@/components/import/types'
 
@@ -38,16 +38,10 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
     initialData: image,
   })
 
-  const { data: variants } = useQuery({
-    queryKey: ['variants', image.id],
-    queryFn: () => imageApi.getVariants(image.id),
+  const { data: scenes } = useQuery({
+    queryKey: ['scenes', image.id],
+    queryFn: () => imageApi.getScenes(image.id),
     placeholderData: keepPreviousData,
-  })
-
-  const { data: facets } = useQuery({
-    queryKey: ['searchFacets'],
-    queryFn: () => searchApi.facets(),
-    staleTime: 60_000,
   })
 
   const { data: tagCategories } = useQuery({
@@ -65,13 +59,14 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
   const lastProcessedIdRef = useRef<number | null>(null)
 
   // ── Local UI state ────────────────────────────────────────────────────────
-  const [variantSearch, setVariantSearch] = useState('')
-  const [variantFilters, setVariantFilters] = useState<ActiveFilter[]>([])
+  const [sceneSearch, setVariantSearch] = useState('')
+  const [sceneTypeFilter, setSceneTypeFilter] = useState<ImageTypeFilter>('all')
+  const [sceneFilters, setVariantFilters] = useState<ActiveFilter[]>([])
   const [filterPopoverOpen, setFilterPopoverOpen] = useState(false)
   const [editingName, setEditingName] = useState(false)
   const [nameDraft, setNameDraft] = useState(image.name)
   const [editingSV, setEditingSV] = useState(false)
-  const [subVariantDraft, setSubVariantDraft] = useState(image.sub_variant ?? '')
+  const [subgroupDraft, setSubVariantDraft] = useState(image.subgroup ?? '')
   const [gridWidthDraft, setGridWidthDraft] = useState<string>(image.grid_width?.toString() ?? '')
   const [gridHeightDraft, setGridHeightDraft] = useState<string>(image.grid_height?.toString() ?? '')
 
@@ -90,9 +85,10 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
     const src = displayImage ?? image
     setNameDraft(src.name)
     setEditingName(false)
-    setSubVariantDraft(src.sub_variant ?? '')
+    setSubVariantDraft(src.subgroup ?? '')
     setEditingSV(false)
     setVariantSearch('')
+    setSceneTypeFilter('all')
     setVariantFilters([])
     setGridWidthDraft(src.grid_width?.toString() ?? '')
     setGridHeightDraft(src.grid_height?.toString() ?? '')
@@ -102,10 +98,10 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
   // Sync drafts when fresh image data arrives (e.g. after a patch succeeds)
   useEffect(() => {
     if (!editingName) setNameDraft(displayImage?.name ?? '')
-    if (!editingSV) setSubVariantDraft(displayImage?.sub_variant ?? '')
+    if (!editingSV) setSubVariantDraft(displayImage?.subgroup ?? '')
     setGridWidthDraft(displayImage?.grid_width?.toString() ?? '')
     setGridHeightDraft(displayImage?.grid_height?.toString() ?? '')
-  }, [displayImage?.name, displayImage?.sub_variant, displayImage?.grid_width, displayImage?.grid_height])
+  }, [displayImage?.name, displayImage?.subgroup, displayImage?.grid_width, displayImage?.grid_height])
 
   // Keyboard shortcuts — skip when any input/select/textarea is focused
   useEffect(() => {
@@ -124,7 +120,7 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
   // ── Mutations ─────────────────────────────────────────────────────────────
   const invalidateImage = () => {
     queryClient.invalidateQueries({ queryKey: ['image', image.id] })
-    queryClient.invalidateQueries({ queryKey: ['variants', image.id] })
+    queryClient.invalidateQueries({ queryKey: ['scenes', image.id] })
   }
 
   const renameMutation = useMutation({
@@ -176,38 +172,38 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
     [img.tags]
   )
 
-  // Unique sub_variants across the loaded variant group (datalist suggestions)
-  const existingSubVariants = useMemo(() =>
-    [...new Set((variants ?? []).map((v) => v.sub_variant).filter((sv): sv is string => sv != null))].sort(),
-    [variants]
+  // Unique subgroups across the loaded variant group (datalist suggestions)
+  const existingSubgroups = useMemo(() =>
+    [...new Set((scenes ?? []).map((v) => v.subgroup).filter((sv): sv is string => sv != null))].sort(),
+    [scenes]
   )
 
   // Filter options derived from the loaded variant list
-  const variantFilterGroups = useMemo((): FilterOptionGroup[] => {
-    if (!variants || variants.length <= 1) return []
+  const sceneFilterGroups = useMemo((): FilterOptionGroup[] => {
+    if (!scenes || scenes.length <= 1) return []
     const groups: FilterOptionGroup[] = []
 
-    // Sub-variants
+    // Sub-scenes
     const subVariants = [
-      ...new Set(variants.map((v) => v.sub_variant).filter((sv): sv is string => sv != null)),
+      ...new Set(scenes.map((v) => v.subgroup).filter((sv): sv is string => sv != null)),
     ].sort()
     if (subVariants.length > 0) {
       groups.push({
-        id: 'subVariant',
+        id: 'subgroup',
         label: 'Variant',
-        type: 'subVariant',
+        type: 'subgroup',
         options: subVariants.map((sv) => ({
           filterValue: sv,
           label: sv,
           filterLabel: sv,
-          count: variants.filter((v) => v.sub_variant === sv).length,
+          count: scenes.filter((v) => v.subgroup === sv).length,
         })),
       })
     }
 
-    // Tag categories present across variants
+    // Tag categories present across scenes
     const tagMap = new Map<string, Map<string, number>>()
-    for (const v of variants) {
+    for (const v of scenes) {
       for (const tag of v.tags ?? []) {
         if (!tagMap.has(tag.category)) tagMap.set(tag.category, new Map())
         const cm = tagMap.get(tag.category)!
@@ -229,41 +225,50 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
     }
 
     return groups
-  }, [variants])
+  }, [scenes])
 
-  const filteredVariants = useMemo(() => {
-    let result = variants ?? []
+  const hasMixedSceneTypes = useMemo(() => {
+    if (!scenes || scenes.length <= 1) return false
+    return new Set(scenes.map((v) => v.image_type ?? 'battlemap')).size > 1
+  }, [scenes])
 
-    if (variantSearch.trim()) {
-      const q = variantSearch.toLowerCase()
+  const filteredScenes = useMemo(() => {
+    let result = scenes ?? []
+
+    if (sceneSearch.trim()) {
+      const q = sceneSearch.toLowerCase()
       result = result.filter(
         (v) =>
           v.name.toLowerCase().includes(q) ||
-          v.sub_variant?.toLowerCase().includes(q) ||
+          v.subgroup?.toLowerCase().includes(q) ||
           filenameStem(v.filename).toLowerCase().includes(q),
       )
     }
 
-    const includes = variantFilters.filter((f) => !f.exclude)
-    const excludes = variantFilters.filter((f) => f.exclude)
+    if (sceneTypeFilter !== 'all') {
+      result = result.filter((v) => (v.image_type ?? 'battlemap') === sceneTypeFilter)
+    }
+
+    const includes = sceneFilters.filter((f) => !f.exclude)
+    const excludes = sceneFilters.filter((f) => f.exclude)
     if (includes.length) result = result.filter((v) => includes.every((f) => matchesFilter(v, f)))
     if (excludes.length) result = result.filter((v) => !excludes.some((f) => matchesFilter(v, f)))
 
     return result
-  }, [variants, variantSearch, variantFilters])
+  }, [scenes, sceneSearch, sceneTypeFilter, sceneFilters])
 
-  const variantSections = useMemo(
-    () => (filteredVariants.length > 1 ? partitionBySubVariant(filteredVariants) : []),
-    [filteredVariants],
+  const sceneSections = useMemo(
+    () => (filteredScenes.length > 1 ? partitionBySubgroup(filteredScenes) : []),
+    [filteredScenes],
   )
 
-  const hasVariants = variants && variants.length > 1
+  const hasScenes = scenes && scenes.length > 1
   // True when there are dimensions to filter on (not just whether filters are active)
-  const hasFilterableData = variantFilterGroups.length > 0
-  const hasActiveFilters = variantFilters.length > 0
+  const hasFilterableData = sceneFilterGroups.length > 0
+  const hasActiveFilters = sceneFilters.length > 0
 
   // ── Handlers ─────────────────────────────────────────────────────────────
-  const handleVariantClick = (variant: Image) => {
+  const handleSceneClick = (variant: Image) => {
     preserveStateRef.current = true
     onImageChange?.(variant)
   }
@@ -279,15 +284,15 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
     if (e.key === 'Escape') { setNameDraft(img.name); setEditingName(false) }
   }
 
-  const saveSubVariant = () => {
-    const trimmed = subVariantDraft.trim() || null
-    if (trimmed !== img.sub_variant) patchMutation.mutate({ sub_variant: trimmed })
+  const saveSubgroup = () => {
+    const trimmed = subgroupDraft.trim() || null
+    if (trimmed !== img.subgroup) patchMutation.mutate({ subgroup: trimmed })
     setEditingSV(false)
   }
 
   const handleSVKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') saveSubVariant()
-    if (e.key === 'Escape') { setSubVariantDraft(img.sub_variant ?? ''); setEditingSV(false) }
+    if (e.key === 'Enter') saveSubgroup()
+    if (e.key === 'Escape') { setSubVariantDraft(img.subgroup ?? ''); setEditingSV(false) }
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -351,9 +356,9 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
 
           {/* Controls row */}
           <div className="flex items-center justify-between px-4 pt-3 pb-1.5 shrink-0">
-            {img.variant_group_id !== null && onEditGroup ? (
+            {img.group_id !== null && onEditGroup ? (
               <button
-                onClick={() => onEditGroup(img.variant_group_id!)}
+                onClick={() => onEditGroup(img.group_id!)}
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
                 <Edit className="h-3.5 w-3.5" />
@@ -370,8 +375,8 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
             </button>
           </div>
 
-          {/* ── Image info (fixed — stays visible while variants scroll) ── */}
-          <div className="px-4 pb-4 shrink-0 border-b border-border/30">
+          {/* ── Image info (fixed — stays visible while scenes scroll) ── */}
+          <div className="px-4 pb-2 shrink-0 border-b border-border/30">
 
               {/* Name (inline-editable) */}
               <div className="group/name flex items-start gap-2 mb-0.5">
@@ -405,7 +410,15 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
               </div>
 
               {/* Author */}
-              <p className="text-sm text-muted-foreground mb-3">by {img.author}</p>
+              <p className="text-sm text-muted-foreground">by {img.author}</p>
+
+              {/* File metadata — filename, dimensions, size */}
+              <p className="text-[10px] text-muted-foreground/40 font-mono truncate mt-1" title={img.filename}>
+                {filenameStem(img.filename)}
+              </p>
+              <p className="text-[10px] text-muted-foreground/40 mb-3">
+                {img.width}×{img.height} · {(img.file_size / 1024 / 1024).toFixed(1)} MB
+              </p>
 
               {/* Sub-variant — inline editable property row */}
               <div className="group/sv flex items-center gap-2 mb-2 min-w-0">
@@ -416,42 +429,42 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
                   <>
                     <input
                       autoFocus
-                      value={subVariantDraft}
+                      value={subgroupDraft}
                       onChange={(e) => setSubVariantDraft(e.target.value)}
-                      onBlur={saveSubVariant}
+                      onBlur={saveSubgroup}
                       onKeyDown={handleSVKeyDown}
                       list="sv-suggestions"
                       placeholder="e.g. MA / No Grid"
                       className="flex-1 min-w-0 text-xs bg-transparent border-b border-primary/70 focus:outline-none text-foreground pb-px"
                     />
                     <datalist id="sv-suggestions">
-                      {existingSubVariants.map((sv) => <option key={sv} value={sv} />)}
+                      {existingSubgroups.map((sv) => <option key={sv} value={sv} />)}
                     </datalist>
                   </>
                 ) : (
                   <>
                     <span
-                      onClick={() => { setSubVariantDraft(img.sub_variant ?? ''); setEditingSV(true) }}
+                      onClick={() => { setSubVariantDraft(img.subgroup ?? ''); setEditingSV(true) }}
                       className="flex-1 min-w-0 text-xs cursor-text truncate"
-                      title={img.sub_variant ?? undefined}
+                      title={img.subgroup ?? undefined}
                     >
-                      {img.sub_variant
-                        ? <span className="text-foreground/80">{img.sub_variant}</span>
+                      {img.subgroup
+                        ? <span className="text-foreground/80">{img.subgroup}</span>
                         : <span className="text-muted-foreground/30 italic">none</span>
                       }
                     </span>
                     <button
-                      onClick={() => { setSubVariantDraft(img.sub_variant ?? ''); setEditingSV(true) }}
+                      onClick={() => { setSubVariantDraft(img.subgroup ?? ''); setEditingSV(true) }}
                       className="opacity-0 group-hover/sv:opacity-40 hover:!opacity-100 transition-opacity text-muted-foreground shrink-0"
-                      title="Edit sub-variant"
+                      title="Edit subgroup"
                     >
                       <Pencil className="h-3 w-3" />
                     </button>
-                    {img.sub_variant && (
+                    {img.subgroup && (
                       <button
-                        onClick={() => patchMutation.mutate({ sub_variant: null })}
+                        onClick={() => patchMutation.mutate({ subgroup: null })}
                         className="opacity-0 group-hover/sv:opacity-40 hover:!opacity-100 transition-opacity text-muted-foreground shrink-0"
-                        title="Clear sub-variant"
+                        title="Clear subgroup"
                       >
                         <X className="h-3 w-3" />
                       </button>
@@ -460,70 +473,102 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
                 )}
               </div>
 
-              {/* Gridded toggle + optional grid size inputs */}
-              <div className="flex items-center gap-3 flex-wrap mb-4">
-                <GridToggle
-                  value={img.gridded ?? null}
-                  onChange={(v) => patchMutation.mutate({ gridded: v })}
-                  disabled={patchMutation.isPending}
-                />
-                {img.gridded === true && (
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <input
-                      type="number"
-                      value={gridWidthDraft}
-                      onChange={(e) => setGridWidthDraft(e.target.value)}
-                      onBlur={() => {
-                        const w = parseInt(gridWidthDraft) || null
-                        if (w !== img.grid_width) patchMutation.mutate({ grid_width: w })
-                      }}
-                      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                      placeholder="W"
-                      min={1}
-                      className="w-14 bg-secondary border border-border rounded px-2 py-1 text-foreground text-center placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    />
-                    <span>×</span>
-                    <input
-                      type="number"
-                      value={gridHeightDraft}
-                      onChange={(e) => setGridHeightDraft(e.target.value)}
-                      onBlur={() => {
-                        const h = parseInt(gridHeightDraft) || null
-                        if (h !== img.grid_height) patchMutation.mutate({ grid_height: h })
-                      }}
-                      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                      placeholder="H"
-                      min={1}
-                      className="w-14 bg-secondary border border-border rounded px-2 py-1 text-foreground text-center placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    />
-                  </div>
-                )}
+              {/* Image type toggle */}
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 w-[72px] shrink-0">
+                  Type
+                </span>
+                <div className="inline-flex rounded border border-border p-px bg-secondary/50">
+                  <button
+                    onClick={() => patchMutation.mutate({ image_type: 'battlemap' })}
+                    disabled={patchMutation.isPending}
+                    className={`px-2 py-0.5 text-[11px] rounded-sm transition-colors ${
+                      img.image_type !== 'scene'
+                        ? 'bg-primary/20 text-primary font-medium'
+                        : 'text-muted-foreground/60 hover:text-muted-foreground'
+                    }`}
+                  >
+                    Map
+                  </button>
+                  <button
+                    onClick={() => patchMutation.mutate({ image_type: 'scene' })}
+                    disabled={patchMutation.isPending}
+                    className={`px-2 py-0.5 text-[11px] rounded-sm transition-colors ${
+                      img.image_type === 'scene'
+                        ? 'bg-primary/20 text-primary font-medium'
+                        : 'text-muted-foreground/60 hover:text-muted-foreground'
+                    }`}
+                  >
+                    Scene
+                  </button>
+                </div>
               </div>
 
-              {/* Color swatches + dimensions */}
-              <div className="flex items-center gap-3 mb-4">
+              {/* Gridded toggle + optional grid size inputs (hidden for scenes) */}
+              {img.image_type !== 'scene' && (
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 w-[72px] shrink-0">
+                    Grid
+                  </span>
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <GridToggle
+                      value={img.gridded ?? null}
+                      onChange={(v) => patchMutation.mutate({ gridded: v })}
+                      disabled={patchMutation.isPending}
+                    />
+                    {img.gridded === true && (
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <input
+                          type="number"
+                          value={gridWidthDraft}
+                          onChange={(e) => setGridWidthDraft(e.target.value)}
+                          onBlur={() => {
+                            const w = parseInt(gridWidthDraft) || null
+                            if (w !== img.grid_width) patchMutation.mutate({ grid_width: w })
+                          }}
+                          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                          placeholder="W"
+                          min={1}
+                          className="w-11 bg-secondary border border-border rounded px-1.5 py-0.5 text-foreground text-center placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 text-[11px] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                        <span className="text-[11px]">×</span>
+                        <input
+                          type="number"
+                          value={gridHeightDraft}
+                          onChange={(e) => setGridHeightDraft(e.target.value)}
+                          onBlur={() => {
+                            const h = parseInt(gridHeightDraft) || null
+                            if (h !== img.grid_height) patchMutation.mutate({ grid_height: h })
+                          }}
+                          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                          placeholder="H"
+                          min={1}
+                          className="w-11 bg-secondary border border-border rounded px-1.5 py-0.5 text-foreground text-center placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 text-[11px] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Divider + color swatches + tags */}
+              <div className="border-t border-border/30 pt-3 mt-1">
                 {img.colors && img.colors.length > 0 && (
-                  <div className="flex gap-1">
+                  <div className="flex gap-1 mb-2">
                     {img.colors
                       .sort((a, b) => a.color_order - b.color_order)
                       .map((color) => (
                         <div
                           key={color.id}
-                          className="h-5 w-5 rounded-full border border-black/25 shadow-sm"
+                          className="h-5 w-5 rounded-full ring-1 ring-white/15 shadow-sm"
                           style={{ backgroundColor: color.color_hex }}
                           title={`${color.color_hex} (${(color.percentage * 100).toFixed(1)}%)`}
                         />
                       ))}
                   </div>
                 )}
-                <p className="text-[11px] text-muted-foreground">
-                  {img.width}×{img.height} · {(img.file_size / 1024 / 1024).toFixed(1)} MB
-                  <span className="ml-1 opacity-40 font-mono text-[10px]">{filenameStem(img.filename)}</span>
-                </p>
-              </div>
 
-              {/* Tags — colour indicates category, so show capitalised value only */}
-              <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-1.5">
                 {img.tags?.map((tag) => {
                   const colors = getTagColor(tag.category)
                   return (
@@ -550,21 +595,22 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
                   existingTags={existingTagData}
                   onAdd={(tag) => addTagMutation.mutate({ category: tag.category, value: tag.value })}
                 />
+                </div>
               </div>
           </div>
 
           {/* ── Variants section (only this scrolls) ── */}
-          {hasVariants && (
+          {hasScenes && (
             <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto">
               {/* Sticky header: label + search + filter button */}
               <div className="sticky top-0 z-10 bg-card border-b border-border/30">
                   <div className="px-4 py-2 flex items-center gap-2">
                     <span className="text-sm font-semibold shrink-0">
-                      Variants
+                      Scenes
                       <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                        ({filteredVariants.length}
-                        {(variantSearch || hasActiveFilters) && variants
-                          ? `/${variants.length}`
+                        ({filteredScenes.length}
+                        {(sceneSearch || sceneTypeFilter !== 'all' || hasActiveFilters) && scenes
+                          ? `/${scenes.length}`
                           : ''})
                       </span>
                     </span>
@@ -573,12 +619,41 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
                     <div className="relative flex-1">
                       <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
                       <input
-                        value={variantSearch}
+                        value={sceneSearch}
                         onChange={(e) => setVariantSearch(e.target.value)}
                         placeholder="Filter…"
-                        className="w-full h-6 pl-6 pr-2 text-xs bg-secondary border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary/40 text-foreground placeholder:text-muted-foreground"
+                        className={`w-full h-6 pl-6 text-xs bg-secondary border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary/40 text-foreground placeholder:text-muted-foreground ${
+                          sceneSearch || sceneTypeFilter !== 'all' ? 'pr-6' : 'pr-2'
+                        }`}
                       />
+                      {(sceneSearch || sceneTypeFilter !== 'all') && (
+                        <button
+                          onClick={() => { setVariantSearch(''); setSceneTypeFilter('all') }}
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
                     </div>
+
+                    {/* Type toggle — only when group has mixed types */}
+                    {hasMixedSceneTypes && (
+                      <div className="inline-flex rounded border border-border overflow-hidden shrink-0">
+                        {([['All', 'all'], ['Maps', 'battlemap'], ['Scenes', 'scene']] as const).map(([label, val]) => (
+                          <button
+                            key={val}
+                            onClick={() => setSceneTypeFilter(val)}
+                            className={`px-1.5 py-0.5 text-[10px] transition-colors ${
+                              sceneTypeFilter === val
+                                ? 'bg-secondary text-foreground font-medium'
+                                : 'text-muted-foreground/60 hover:text-muted-foreground hover:bg-secondary/50'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
 
                     {/* Filter button — always present, greyed when nothing to filter on */}
                     <Popover
@@ -595,12 +670,12 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
                                 ? 'text-muted-foreground hover:text-foreground hover:bg-secondary border border-transparent'
                                 : 'text-muted-foreground/25 border border-transparent cursor-not-allowed'
                           }`}
-                          title={hasFilterableData ? 'Filter variants' : 'No filterable dimensions'}
+                          title={hasFilterableData ? 'Filter scenes' : 'No filterable dimensions'}
                         >
                           <SlidersHorizontal className="h-3 w-3" />
                           {hasActiveFilters && (
                             <span className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-primary text-[9px] font-bold text-primary-foreground flex items-center justify-center">
-                              {variantFilters.length}
+                              {sceneFilters.length}
                             </span>
                           )}
                         </button>
@@ -612,8 +687,8 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
                           className="w-[320px] p-0 h-[360px] flex flex-col"
                         >
                           <FilterMenuContent
-                            groups={variantFilterGroups}
-                            activeFilters={variantFilters}
+                            groups={sceneFilterGroups}
+                            activeFilters={sceneFilters}
                             onFiltersChange={setVariantFilters}
                           />
                         </PopoverContent>
@@ -625,7 +700,7 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
                   {hasActiveFilters && (
                     <div className="px-4 pb-2">
                       <FilterChipList
-                        filters={variantFilters}
+                        filters={sceneFilters}
                         onFiltersChange={setVariantFilters}
                       />
                     </div>
@@ -634,23 +709,23 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
 
                 {/* Variant grid */}
                 <div className="px-4 pt-3 pb-4">
-                  {filteredVariants.length === 0 ? (
-                    <p className="text-xs text-muted-foreground text-center py-6">No variants match</p>
+                  {filteredScenes.length === 0 ? (
+                    <p className="text-xs text-muted-foreground text-center py-6">No scenes match</p>
                   ) : (
-                    variantSections.map((section) => (
+                    sceneSections.map((section) => (
                       <div key={section.label} className="mb-3 last:mb-0">
-                        {variantSections.length > 1 && (
+                        {sceneSections.length > 1 && (
                           <p className="text-[11px] font-medium text-muted-foreground mb-2 uppercase tracking-wider">
                             {section.label}
                           </p>
                         )}
                         <div className="grid grid-cols-2 gap-2">
                           {section.images.map((variant) => (
-                            <VariantTile
+                            <SceneTile
                               key={variant.id}
                               variant={variant}
                               isActive={variant.id === img.id}
-                              onClick={() => handleVariantClick(variant)}
+                              onClick={() => handleSceneClick(variant)}
                             />
                           ))}
                         </div>
@@ -668,7 +743,7 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function VariantTile({
+function SceneTile({
   variant,
   isActive,
   onClick,
@@ -701,7 +776,7 @@ function VariantTile({
       </div>
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent pt-8 pb-1.5 px-1.5 pointer-events-none">
         <p className="text-[10px] text-white/90 truncate leading-tight">{variant.name}</p>
-        {variant.gridded && (
+        {variant.gridded && variant.image_type !== 'scene' && (
           <p className="text-[9px] text-white/50 leading-tight">
             {variant.grid_width && variant.grid_height
               ? `${variant.grid_width}×${variant.grid_height}`
@@ -718,13 +793,13 @@ function VariantTile({
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-interface VariantSection {
+interface SceneSection {
   label: string
   images: Image[]
 }
 
 function matchesFilter(v: Image, f: ActiveFilter): boolean {
-  if (f.type === 'subVariant') return v.sub_variant === f.value
+  if (f.type === 'subgroup') return v.subgroup === f.value
   if (f.type === 'tag') {
     const idx = f.value.indexOf(':')
     const cat = f.value.slice(0, idx)
@@ -734,17 +809,17 @@ function matchesFilter(v: Image, f: ActiveFilter): boolean {
   return true
 }
 
-function partitionBySubVariant(variants: Image[]): VariantSection[] {
+function partitionBySubgroup(scenes: Image[]): SceneSection[] {
   const groups = new Map<string, Image[]>()
   const order: string[] = []
 
-  for (const v of variants) {
-    const key = v.sub_variant || 'Other'
+  for (const v of scenes) {
+    const key = v.subgroup || 'Other'
     if (!groups.has(key)) { groups.set(key, []); order.push(key) }
     groups.get(key)!.push(v)
   }
 
-  if (order.length <= 1) return [{ label: order[0] ?? 'All variants', images: variants }]
+  if (order.length <= 1) return [{ label: order[0] ?? 'All scenes', images: scenes }]
   return order.map((label) => ({ label, images: groups.get(label)! }))
 }
 

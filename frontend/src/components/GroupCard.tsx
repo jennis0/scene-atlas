@@ -21,7 +21,7 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
   const {
     heroImage,
     mosaicImages,
-    totalVariants,
+    totalScenes,
     matchingCount,
     baseName,
     author,
@@ -31,7 +31,7 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
   const maxMosaic = mosaicImages.length >= 4 ? 4 : mosaicImages.length >= 2 ? 2 : mosaicImages.length
   const visibleMosaic = mosaicImages.slice(0, maxMosaic)
   const displayedCount = 1 + visibleMosaic.length
-  const overflowCount = totalVariants - displayedCount
+  const overflowCount = totalScenes - displayedCount
   const hasMosaic = visibleMosaic.length > 0
   const hasActions = groupId !== null
 
@@ -103,7 +103,7 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
                   <div key={img.id} className="relative overflow-hidden">
                     <img
                       src={getThumbnailUrl(img)}
-                      alt={img.sub_variant || img.name}
+                      alt={img.subgroup || img.name}
                       className="h-full w-full object-cover"
                       loading="lazy"
                     />
@@ -112,10 +112,10 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
                         <Play className="h-2.5 w-2.5 fill-current" />
                       </div>
                     )}
-                    {img.sub_variant && !isOverflowTile && (
+                    {img.subgroup && !isOverflowTile && (
                       <div className="absolute bottom-0 left-0 right-0 bg-black/50 px-1.5 py-0.5">
                         <span className="text-[10px] leading-tight text-white/90 line-clamp-1">
-                          {img.sub_variant}
+                          {img.subgroup}
                         </span>
                       </div>
                     )}
@@ -143,13 +143,13 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
           {author && (
             <p className="text-[11px] text-white/60 truncate mt-0.5">{author}</p>
           )}
-          {totalVariants > 1 && (
+          {totalScenes > 1 && (
             <div className="flex items-center gap-1 mt-0.5">
               <Layers className="h-3 w-3 text-white/40" />
               <span className="text-[11px] tabular-nums text-white/50">
-                {matchingCount < totalVariants
-                  ? `${matchingCount} of ${totalVariants} variants`
-                  : `${totalVariants} variants`
+                {matchingCount < totalScenes
+                  ? `${matchingCount} of ${totalScenes} scenes`
+                  : `${totalScenes} scenes`
                 }
               </span>
             </div>

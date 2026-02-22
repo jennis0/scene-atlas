@@ -1,4 +1,4 @@
-"""Unit tests for BattlemapParser — parse() and group_files().
+"""Unit tests for ImageParser — parse() and group_files().
 
 Tests pure parsing logic with no DB, no filesystem.
 """
@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from backend.app.services.battlemap_parser import BattlemapParser
+from backend.app.services.image_parser import ImageParser
 
 
 # ---------------------------------------------------------------------------
@@ -84,7 +84,7 @@ SAMPLE_TAG_CATEGORIES = [
 
 def make_parser(with_tags=True):
     cats = SAMPLE_TAG_CATEGORIES if with_tags else None
-    return BattlemapParser(tag_categories=cats)
+    return ImageParser(tag_categories=cats)
 
 
 # ===========================================================================
@@ -99,7 +99,7 @@ class TestParseBasic:
         p = make_parser()
         result = p.parse("czepeku/Island Fort/IslandFort_Night.jpg")
         assert result["author"] == "czepeku"
-        assert result["variant_group_name"] == "Island Fort"
+        assert result["group_name"] == "Island Fort"
         assert result["filename"] == "IslandFort_Night.jpg"
         assert result["group_from_folder"] is True
 
@@ -120,9 +120,9 @@ class TestParseBasic:
         p = make_parser()
         result = p.parse("Author/Group/SubA/SubB/file.jpg")
         assert result["author"] == "Author"
-        assert result["variant_group_name"] == "Group"
-        assert result["sub_variants"] == ["SubA", "SubB"]
-        assert result["sub_variant"] == "SubA / SubB"
+        assert result["group_name"] == "Group"
+        assert result["subgroups"] == ["SubA", "SubB"]
+        assert result["subgroup"] == "SubA / SubB"
 
 
 class TestParseGridDetection:
@@ -249,20 +249,20 @@ class TestParseTags:
         assert ("weather", "rain") in tag_values
 
 
-class TestParseSubVariants:
-    """Sub-variant detection."""
+class TestParseSubgroups:
+    """Subgroup detection."""
 
-    def test_sub_variants_from_folders(self):
+    def test_subgroups_from_folders(self):
         p = make_parser()
         result = p.parse("author/group/Night/Gridded/file.jpg")
-        assert "Night" in result["sub_variants"]
-        assert result["sub_variant"] is not None
+        assert "Night" in result["subgroups"]
+        assert result["subgroup"] is not None
 
-    def test_no_sub_variants_for_flat_path(self):
+    def test_no_subgroups_for_flat_path(self):
         p = make_parser()
         result = p.parse("author/group/file.jpg")
-        assert result["sub_variants"] == []
-        assert result["sub_variant"] is None
+        assert result["subgroups"] == []
+        assert result["subgroup"] is None
 
 
 class TestParseGenericFolders:
@@ -271,12 +271,12 @@ class TestParseGenericFolders:
     def test_skip_generic_gridded_folder(self):
         p = make_parser()
         result = p.parse("author/MapName/gridded/file.jpg")
-        assert result["variant_group_name"] == "Map Name"
+        assert result["group_name"] == "Map Name"
 
     def test_skip_generic_vtt_folder(self):
         p = make_parser()
         result = p.parse("author/MapName/VTT/file.jpg")
-        assert result["variant_group_name"] == "Map Name"
+        assert result["group_name"] == "Map Name"
 
     def test_all_generic_intermediate_folders(self):
         """When ALL intermediate folders are generic, author becomes None."""
@@ -292,7 +292,7 @@ class TestParseCamelCase:
     def test_camelcase_group_name(self):
         p = make_parser()
         result = p.parse("author/IslandFort/file.jpg")
-        assert result["variant_group_name"] == "Island Fort"
+        assert result["group_name"] == "Island Fort"
 
     def test_ordinal_protection(self):
         p = make_parser()
@@ -316,11 +316,11 @@ class TestGroupFilesFolder:
             "czepeku/Dark Cave/DarkCave_Lit.jpg",
         ]
         groups = p.group_files(paths)
-        group_names = {g["variant_group_name"] for g in groups}
+        group_names = {g["group_name"] for g in groups}
         assert "Island Fort" in group_names
         assert "Dark Cave" in group_names
 
-        fort_group = next(g for g in groups if g["variant_group_name"] == "Island Fort")
+        fort_group = next(g for g in groups if g["group_name"] == "Island Fort")
         assert len(fort_group["files"]) == 2
 
     def test_different_authors_separate_groups(self):
@@ -358,11 +358,11 @@ class TestGroupFilesPrefix:
         assert len(groups) == 2
 
 
-class TestGroupFilesMergeSubvariants:
-    """Sub-variant folder merging (Pass 1.5)."""
+class TestGroupFilesMergeSubgroups:
+    """Subgroup folder merging (Pass 1.5)."""
 
-    def test_subvariant_folders_merged(self):
-        """When top folder IS the variant group and subfolders are sub-variants."""
+    def test_subgroup_folders_merged(self):
+        """When top folder IS the group and subfolders are subgroups."""
         p = make_parser()
         paths = [
             "Abandoned Campsite 30x30/Abandoned Campsite/camp_day.jpg",
@@ -479,21 +479,21 @@ class TestCleanGroupName:
 
 
 # ===========================================================================
-# _build_map_name() tests
+# _build_name() tests
 # ===========================================================================
 
 
-class TestBuildMapName:
-    """Individual map display name generation."""
+class TestBuildName:
+    """Individual display name generation."""
 
     def test_dragon_gate(self):
         p = make_parser()
-        result = p._build_map_name("Dragon Gate no light", "Crosshead", "DUNGEONS - DRAGONGATE")
+        result = p._build_name("Dragon Gate no light", "Crosshead", "DUNGEONS - DRAGONGATE")
         assert result == "Dragon Gate no light"
 
     def test_snowy_forest(self):
         p = make_parser()
-        result = p._build_map_name(
+        result = p._build_name(
             "SnowyForestTier2_FR_Gridless_R20_SnowyForest",
             "dice_grimorium",
             "Snowy Forest",
@@ -505,7 +505,7 @@ class TestBuildMapName:
 
     def test_mikwewa_church(self):
         p = make_parser()
-        result = p._build_map_name(
+        result = p._build_name(
             "140dpiShieldChurchMaps_140dpiChurchHeavenDayGfGrid",
             "mikwewa",
             "Shield Church",
@@ -514,7 +514,7 @@ class TestBuildMapName:
 
     def test_moonlight_rocky_coast(self):
         p = make_parser()
-        result = p._build_map_name(
+        result = p._build_name(
             "Moonlight_Maps_Rocky_Coast_Lava06",
             "moonlight_maps",
             "Rocky Coast",
@@ -523,25 +523,25 @@ class TestBuildMapName:
 
     def test_strips_dpi(self):
         p = make_parser()
-        result = p._build_map_name("Forest_300dpi_Night", "author", "Forest")
+        result = p._build_name("Forest_300dpi_Night", "author", "Forest")
         assert "dpi" not in result.lower()
         assert "300" not in result
 
     def test_strips_pixel_dimensions(self):
         p = make_parser()
-        result = p._build_map_name(
+        result = p._build_name(
             "DreadMaps_Manor_12000x8000", "Dreadmaps", "Manor"
         )
         assert "12000" not in result
 
     def test_strips_grid_dimensions(self):
         p = make_parser()
-        result = p._build_map_name("Map_Night_30x30", "author", "Map")
+        result = p._build_name("Map_Night_30x30", "author", "Map")
         assert "30" not in result
 
     def test_strips_author_prefix_moonlight(self):
         p = make_parser()
-        result = p._build_map_name(
+        result = p._build_name(
             "Moonlight_Maps_Castle_Night", "moonlight_maps", "Castle"
         )
         assert "Moonlight" not in result
@@ -549,7 +549,7 @@ class TestBuildMapName:
 
     def test_strips_author_prefix_dreadmaps(self):
         p = make_parser()
-        result = p._build_map_name(
+        result = p._build_name(
             "DreadMaps_Tomb_Pink_Grid", "Dreadmaps", "Tomb"
         )
         assert "Dread" not in result or "Dread" in result  # "Dread" in "DreadMaps" stripped
@@ -557,70 +557,70 @@ class TestBuildMapName:
 
     def test_rejoins_abbreviations(self):
         p = make_parser()
-        result = p._build_map_name("Map_FL1_Night", "author", "Map")
+        result = p._build_name("Map_FL1_Night", "author", "Map")
         assert "FL1" in result
 
     def test_preserves_variant_numbers(self):
         p = make_parser()
-        result = p._build_map_name("Forest-1", "author", "Forest")
+        result = p._build_name("Forest-1", "author", "Forest")
         assert "1" in result
 
     def test_empty_fallback(self):
         """If everything is stripped, falls back to cleaned stem."""
         p = make_parser()
-        result = p._build_map_name("SomeMap", "author", "Some Map")
+        result = p._build_name("SomeMap", "author", "Some Map")
         assert result  # not empty
 
     def test_title_case_preserve_on_slug(self):
         p = make_parser()
-        result = p._build_map_name("cave-pool-night", "author", "Cave Pool")
-        # After VG strip, "night" should be title-cased since all lowercase
+        result = p._build_name("cave-pool-night", "author", "Cave Pool")
+        # After group strip, "night" should be title-cased since all lowercase
         assert result == "Night"
 
-    def test_strips_sub_variant(self):
+    def test_strips_subgroup(self):
         p = make_parser()
-        result = p._build_map_name(
+        result = p._build_name(
             "Crystal_Grotto_Caustic_Gridless",
             "neutral_party",
             "Crystal Grotto Expert",
-            sub_variants=["Caustic"],
+            subgroups=["Caustic"],
         )
         assert "Caustic" not in result
         assert "Gridless" not in result
 
-    def test_strips_multiple_sub_variants(self):
+    def test_strips_multiple_subgroups(self):
         p = make_parser()
-        result = p._build_map_name(
+        result = p._build_name(
             "Desert_Temple_Night",
             "neutral_party",
             "Desert Temple Expert",
-            sub_variants=["Desert Temple", "Night"],
+            subgroups=["Desert Temple", "Night"],
         )
-        # Both sub-variants stripped, but guard prevents empty result
+        # Both subgroups stripped, but guard prevents empty result
         assert result  # not empty
 
-    def test_sub_variant_strip_guard_nonempty(self):
-        """Stripping sub-variants should not empty the word list."""
+    def test_subgroup_strip_guard_nonempty(self):
+        """Stripping subgroups should not empty the word list."""
         p = make_parser()
-        result = p._build_map_name(
-            "Sunset", "author", "Group", sub_variants=["Sunset"]
+        result = p._build_name(
+            "Sunset", "author", "Group", subgroups=["Sunset"]
         )
         assert result  # fallback kicks in
 
 
 # ===========================================================================
-# parse() — map_name integration tests
+# parse() — name integration tests
 # ===========================================================================
 
 
-class TestParseMapName:
-    """End-to-end: parse() returns correct map_name alongside variant_group_name."""
+class TestParseName:
+    """End-to-end: parse() returns correct name alongside group_name."""
 
     def test_crosshead_dragon_gate(self):
         p = make_parser()
         result = p.parse("Crosshead/DUNGEONS - DRAGONGATE/Dragon Gate no light.jpg")
-        assert result["variant_group_name"] == "DUNGEONS - DRAGONGATE"
-        assert result["map_name"] == "Dragon Gate no light"
+        assert result["group_name"] == "DUNGEONS - DRAGONGATE"
+        assert result["name"] == "Dragon Gate no light"
 
     def test_dice_grimorium_snowy_forest(self):
         p = make_parser()
@@ -628,19 +628,19 @@ class TestParseMapName:
             "dice_grimorium/Snowy Forest Tier 2/"
             "SnowyForestTier2_FR_Gridless_R20_SnowyForest-1.jpg"
         )
-        assert result["variant_group_name"] == "Snowy Forest"
-        assert "Snowy Forest" not in result["map_name"]
+        assert result["group_name"] == "Snowy Forest"
+        assert "Snowy Forest" not in result["name"]
         # Noise stripped: Tier, Gridless, R20
-        assert "Gridless" not in result["map_name"]
-        assert "R20" not in result["map_name"]
+        assert "Gridless" not in result["name"]
+        assert "R20" not in result["name"]
 
     def test_mikwewa_shield_church(self):
         p = make_parser()
         result = p.parse(
             "mikwewa/140dpiShieldChurchMaps_140dpiChurchHeavenDayGfGrid.jpg"
         )
-        assert result["variant_group_name"] == "Shield Church"
-        assert result["map_name"] == "Church Heaven Day Gf"
+        assert result["group_name"] == "Shield Church"
+        assert result["name"] == "Church Heaven Day Gf"
 
     def test_moonlight_rocky_coast(self):
         p = make_parser()
@@ -648,23 +648,23 @@ class TestParseMapName:
             "moonlight_maps/Rocky Coast/MA/No Grid/"
             "Moonlight_Maps_Rocky_Coast_Lava06_18x22.jpg"
         )
-        assert result["variant_group_name"] == "Rocky Coast"
-        assert result["map_name"] == "Lava 06"
+        assert result["group_name"] == "Rocky Coast"
+        assert result["name"] == "Lava 06"
 
-    def test_map_name_present_in_result(self):
-        """Every parse result should include map_name."""
+    def test_name_present_in_result(self):
+        """Every parse result should include name."""
         p = make_parser()
         result = p.parse("author/group/SomeFile_Night.jpg")
-        assert "map_name" in result
-        assert isinstance(result["map_name"], str)
-        assert len(result["map_name"]) > 0
+        assert "name" in result
+        assert isinstance(result["name"], str)
+        assert len(result["name"]) > 0
 
     def test_venatus_simple(self):
         p = make_parser()
         result = p.parse("venatus/Bank/Bank_unfurnished.png")
-        assert result["variant_group_name"] == "Bank"
-        # map_name should strip VG prefix "Bank"
-        assert "unfurnished" in result["map_name"].lower()
+        assert result["group_name"] == "Bank"
+        # name should strip group prefix "Bank"
+        assert "unfurnished" in result["name"].lower()
 
     def test_dreadmaps_slug_folder(self):
         p = make_parser()
@@ -672,15 +672,15 @@ class TestParseMapName:
             "Dreadmaps/dreadmaps_dread-hills-saloon/fl1/"
             "DreadMaps_DreadHills_Saloon_FL1_Transparent_18x17_70ppi_1260x1190.png"
         )
-        assert result["variant_group_name"] == "Dread Hills Saloon"
-        assert "70" not in result["map_name"]  # DPI stripped
-        assert "1260" not in result["map_name"]  # pixel dims stripped
+        assert result["group_name"] == "Dread Hills Saloon"
+        assert "70" not in result["name"]  # DPI stripped
+        assert "1260" not in result["name"]  # pixel dims stripped
 
-    def test_sub_variant_stripped_from_map_name(self):
-        """Sub-variant folder names are removed from map_name."""
+    def test_subgroup_stripped_from_name(self):
+        """Subgroup folder names are removed from name."""
         p = make_parser()
         result = p.parse(
             "neutral_party/Small Cave Expert 25x25/Sunset/Small_Cave_Sunset.jpg"
         )
-        assert result["sub_variant"] == "Sunset"
-        assert "Sunset" not in result["map_name"]
+        assert result["subgroup"] == "Sunset"
+        assert "Sunset" not in result["name"]

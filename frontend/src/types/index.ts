@@ -4,9 +4,9 @@ export interface Image {
   filename: string
   author: string
   name: string
-  variant_group_id: number | null
-  variant_group_name: string | null
-  variant_group_image_count: number | null
+  group_id: number | null
+  group_name: string | null
+  group_image_count: number | null
   created_at: string
   updated_at: string
   file_size: number
@@ -15,22 +15,13 @@ export interface Image {
   gridded: boolean | null
   grid_width: number | null
   grid_height: number | null
-  sub_variant: string | null
+  subgroup: string | null
+  image_type: 'battlemap' | 'scene'
   thumbnail_key: string | null
   needs_review: boolean
   media_type: 'image' | 'video'
   tags: Tag[]
   colors: Color[]
-}
-
-export interface VariantGroup {
-  id: number
-  base_name: string
-  author: string
-  description: string | null
-  created_at: string
-  updated_at: string
-  image_count: number
 }
 
 export interface Tag {
@@ -69,6 +60,7 @@ export interface SearchParams {
   exclude_tags?: string[]
   colors?: string[]
   gridded?: boolean
+  image_types?: string[]
   limit?: number
   offset?: number
 }
@@ -84,6 +76,7 @@ export interface FacetData {
   tags: Record<string, FacetOption[]>  // category → values sorted by count
   gridded: { gridded: number; gridless: number; unknown: number }
   colors: { hex: string; count: number }[]
+  image_types: FacetOption[]
 }
 
 export interface SearchResult {
@@ -102,7 +95,7 @@ export interface ImageGroup {
   author: string
   heroImage: Image
   mosaicImages: Image[]
-  totalVariants: number
+  totalScenes: number
   matchingCount: number
   bestScore: number | null
   aggregatedTags: Tag[]
@@ -130,7 +123,7 @@ export interface DuplicateInfo {
   author: string | null
   storage_key: string
   thumbnail_key: string | null
-  variant_group_name: string | null
+  group_name: string | null
 }
 
 // Import types — upload response (from analysis)
@@ -143,21 +136,22 @@ export interface ImportFileInfo {
   gridded: boolean | null
   grid_width: number | null
   grid_height: number | null
-  sub_variant: string | null
+  subgroup: string | null
+  image_type: string | null
   content_hash: string | null
   duplicate_of: DuplicateInfo | null
 }
 
-export interface ImportVariantGroup {
+export interface ImportGroup {
   author: string | null
-  variant_group_name: string
+  group_name: string
   files: ImportFileInfo[]
 }
 
 export interface ImportUploadResponse {
   job_id: string
   total_files: number
-  variant_groups: ImportVariantGroup[]
+  groups: ImportGroup[]
 }
 
 // Pre-flight hash check types
@@ -195,7 +189,8 @@ export interface ImportConfirmFile {
   gridded: boolean | null
   grid_width: number | null
   grid_height: number | null
-  sub_variant: string | null
+  subgroup: string | null
+  image_type?: string
   content_hash?: string
   reuse_storage_key?: string
   reuse_thumbnail_key?: string
@@ -203,7 +198,7 @@ export interface ImportConfirmFile {
 
 export interface ImportConfirmRequest {
   author: string
-  variant_group_name: string
+  group_name: string
   files: ImportConfirmFile[]
 }
 
@@ -217,7 +212,8 @@ export interface EditableFileState {
   gridded: boolean | null
   grid_width: number | null
   grid_height: number | null
-  sub_variant: string | null
+  subgroup: string | null
+  image_type?: 'battlemap' | 'scene'
   excluded: boolean
   outOfScope?: boolean  // true = in group but not in search results (mass-edit context only)
   previewUrl?: string  // Browser blob URL (for direct uploads) or server preview URL (for ZIP)
@@ -230,7 +226,7 @@ export interface EditableFileState {
 export interface EditableGroupState {
   id: string
   author: string
-  variant_group_name: string
+  group_name: string
   files: EditableFileState[]
   skip: boolean
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
@@ -239,8 +235,8 @@ export interface EditableGroupState {
   total: number
 }
 
-// Variant group search/merge types
-export interface VariantGroupSearchItem {
+// Group search/merge types
+export interface GroupSearchItem {
   id: number
   base_name: string
   author: string | null
@@ -248,20 +244,20 @@ export interface VariantGroupSearchItem {
   image_count: number
 }
 
-export interface VariantGroupSearchResponse {
-  groups: VariantGroupSearchItem[]
+export interface GroupSearchResponse {
+  groups: GroupSearchItem[]
   total: number
 }
 
-export interface VariantGroupMergeResponse {
+export interface GroupMergeResponse {
   target_group_id: number
   target_group_name: string
   images_moved: number
   source_group_deleted: boolean
 }
 
-// Variant group edit types
-export interface VariantGroupDetail {
+// Group edit types
+export interface GroupDetail {
   id: number
   base_name: string
   author: string | null
@@ -276,7 +272,8 @@ export interface ImageEditPayload {
   gridded?: boolean | null
   grid_width?: number | null
   grid_height?: number | null
-  sub_variant?: string | null
+  subgroup?: string | null
+  image_type?: string | null
 }
 
 export interface NewGroupPayload {
@@ -285,14 +282,14 @@ export interface NewGroupPayload {
   image_ids: number[]
 }
 
-export interface VariantGroupEditRequest {
+export interface GroupEditRequest {
   base_name: string
   author?: string
   images: ImageEditPayload[]
   new_groups: NewGroupPayload[]
 }
 
-export interface VariantGroupEditResponse {
+export interface GroupEditResponse {
   id: number
   new_group_ids: number[]
   deleted_image_ids: number[]
@@ -300,7 +297,7 @@ export interface VariantGroupEditResponse {
 
 // Import types — status response
 export interface ImportGroupStatus {
-  variant_group_name: string
+  group_name: string
   total_files: number
   processed_files: number
   failed_files: number

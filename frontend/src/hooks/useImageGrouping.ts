@@ -11,17 +11,17 @@ export function useImageGrouping({
   scores,
 }: UseImageGroupingOptions): ImageGroup[] {
   return useMemo(() => {
-    // Bucket images by variant_group_id
+    // Bucket images by group
     const grouped = new Map<number, Image[]>()
     const ungrouped: Image[] = []
 
     for (const img of images) {
-      if (img.variant_group_id != null) {
-        const bucket = grouped.get(img.variant_group_id)
+      if (img.group_id != null) {
+        const bucket = grouped.get(img.group_id)
         if (bucket) {
           bucket.push(img)
         } else {
-          grouped.set(img.variant_group_id, [img])
+          grouped.set(img.group_id, [img])
         }
       } else {
         ungrouped.push(img)
@@ -43,7 +43,7 @@ export function useImageGrouping({
         author: img.author,
         heroImage: img,
         mosaicImages: [],
-        totalVariants: 1,
+        totalScenes: 1,
         matchingCount: 1,
         bestScore: scores?.[img.id] ?? null,
         aggregatedTags: img.tags,
@@ -94,15 +94,15 @@ function buildGroup(
   }
 
   // True total comes from the backend property; fall back to matching count
-  const totalVariants = heroImage.variant_group_image_count ?? groupImages.length
+  const totalScenes = heroImage.group_image_count ?? groupImages.length
 
   return {
     groupId,
-    baseName: heroImage.variant_group_name || heroImage.name,
+    baseName: heroImage.group_name || heroImage.name,
     author: heroImage.author,
     heroImage,
     mosaicImages,
-    totalVariants,
+    totalScenes,
     matchingCount: groupImages.length,
     bestScore,
     aggregatedTags,

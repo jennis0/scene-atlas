@@ -17,10 +17,11 @@ from ..services import get_image_store, get_thumbnail_store, safe_delete_image
 
 class ImagePatch(BaseModel):
     name: Optional[str] = None
-    sub_variant: Optional[str] = None
+    subgroup: Optional[str] = None
     gridded: Optional[bool] = None
     grid_width: Optional[int] = None
     grid_height: Optional[int] = None
+    image_type: Optional[str] = None
 
 
 router = APIRouter()
@@ -63,7 +64,7 @@ async def get_image(image_id: int, db: Session = Depends(get_db)):
 
 @router.patch("/{image_id}", response_model=ImageResponse)
 async def patch_image(image_id: int, patch: ImagePatch, db: Session = Depends(get_db)):
-    """Update image metadata (name, sub_variant, gridded, grid dimensions)."""
+    """Update image metadata (name, subgroup, gridded, grid dimensions)."""
     image = db.query(Image).filter(Image.id == image_id).first()
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
@@ -86,19 +87,19 @@ async def delete_image(image_id: int, db: Session = Depends(get_db)):
     return {"message": "Image deleted successfully"}
 
 
-@router.get("/{image_id}/variants", response_model=List[ImageResponse])
-async def get_image_variants(image_id: int, db: Session = Depends(get_db)):
-    """Get all variants of an image (images in the same variant group)."""
+@router.get("/{image_id}/scenes", response_model=List[ImageResponse])
+async def get_image_scenes(image_id: int, db: Session = Depends(get_db)):
+    """Get all scenes in the same group as this image."""
     image = db.query(Image).filter(Image.id == image_id).first()
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
 
-    if not image.variant_group_id:
-        return [image]  # No variant group, return just this image
+    if not image.group_id:
+        return [image]  # No group, return just this image
 
-    variants = db.query(Image).filter(Image.variant_group_id == image.variant_group_id).all()
+    scenes = db.query(Image).filter(Image.group_id == image.group_id).all()
 
-    return variants
+    return scenes
 
 
 @router.get("/{image_id}/file")

@@ -1,11 +1,11 @@
-"""Battlemap filename/path parser with DB-driven tag categorization.
+"""Image filename/path parser with DB-driven tag categorization.
 
-Extracts structured metadata from battlemap image paths:
+Extracts structured metadata from image paths:
 - Author (from top-level folder or embedded "byAuthor" pattern)
-- Variant group name (from folder hierarchy)
-- Sub-variants (intermediate folders between group and file)
-- Gridded status (boolean, from filename keywords)
-- Grid dimensions (from NxN patterns in filename)
+- Group name (from folder hierarchy)
+- Subgroups (intermediate folders between group and file)
+- Gridded status (boolean, from filename keywords — battlemaps only)
+- Grid dimensions (from NxN patterns in filename — battlemaps only)
 - Categorized tags (matched against DB-stored tag vocabulary)
 """
 
@@ -35,17 +35,17 @@ def build_search_text(
     filename: str | None,
     author: str | None = None,
     tags: list[dict] | None = None,
-    sub_variant: str | None = None,
+    subgroup: str | None = None,
 ) -> str:
     """Build a pre-tokenized search string for FTS5 indexing.
 
     CamelCase-splits name and filename so that "desertCanyon" becomes
     "desert Canyon", letting FTS5's unicode61 tokenizer index each word
-    separately.  Also appends tag values and sub-variant text.
+    separately.  Also appends tag values and subgroup text.
     """
     parts: list[str] = []
 
-    for raw in (name, filename, sub_variant):
+    for raw in (name, filename, subgroup):
         if not raw:
             continue
         # Strip file extension from filename
@@ -67,8 +67,8 @@ def build_search_text(
     return " ".join(parts)
 
 
-class BattlemapParser:
-    """Parses battlemap image paths into structured metadata.
+class ImageParser:
+    """Parses image paths into structured metadata.
 
     Tag vocabulary is loaded from the TagCategory table in the database.
     Each category has common_values entries that can be plain strings
@@ -206,6 +206,17 @@ class BattlemapParser:
                 "geomorphs",
             }
         )
+
+        # Scene-specific junk words: remove map/tile terms that could be
+        # meaningful in scene filenames (e.g. "World Map of Faerun")
+        self._scene_junk_words = self._junk_words - {
+            "map",
+            "maps",
+            "tile",
+            "tiles",
+            "geomorph",
+            "geomorphs",
+        }
 
         # --- Name-cleaning patterns ---
         self._dpi_re = re.compile(r"\b\d+\s*(dpi|ppi)\b", re.IGNORECASE)
@@ -500,7 +511,7 @@ class BattlemapParser:
         return name
 
     def _clean_group_name(self, raw: str, author: str | None = None) -> str:
-        """Clean a raw folder/filename-derived name into a variant group name.
+        """Clean a raw folder/filename-derived name into a group name.
 
         Strips noise (Tier, DPI, dimensions, pricing, platform markers, grid
         state) and normalises formatting (CamelCase → spaces, slug-dashes → spaces).
@@ -518,18 +529,18 @@ class BattlemapParser:
             result = self._title_case_preserve(result)
         return result
 
-    def _build_map_name(
+    def _build_name(
         self,
         stem: str,
         author: str | None,
-        variant_group_name: str,
-        sub_variants: list[str] | None = None,
+        group_name: str,
+        subgroups: list[str] | None = None,
     ) -> str:
-        """Build a display name for an individual map from the filename stem.
+        """Build a display name for an individual scene from the filename stem.
 
         Removes all noise (grid state, DPI, pricing, platform markers, etc.),
-        author prefix, duplicate sequences, the variant-group name, and
-        sub-variant folder names.
+        author prefix, duplicate sequences, the group name, and
+        subgroup folder names.
         """
         name = self._normalize_text(stem)
         # Strip author BEFORE noise removal so compound names like
@@ -542,23 +553,23 @@ class BattlemapParser:
         words = name.split()
         # Multi-word dedup first (e.g. "Snowy Forest...Snowy Forest")
         words = self._dedup_multi_word(words)
-        # Strip VG name (sequence match — finds it anywhere, not just prefix,
+        # Strip group name (sequence match — finds it anywhere, not just prefix,
         # so it works even when noise like "G_" precedes the group name)
-        vg_words = [w for w in variant_group_name.split() if w != "-"] if variant_group_name else []
-        candidate = self._strip_word_sequence(words, vg_words)
+        gn_words = [w for w in group_name.split() if w != "-"] if group_name else []
+        candidate = self._strip_word_sequence(words, gn_words)
         if candidate:  # guard: don't strip if it empties the list
             words = candidate
-        # Strip sub-variant folder names (already captured in sub_variant field)
-        if sub_variants:
-            for sv in sub_variants:
-                sv_cleaned = self._normalize_text(sv)
-                sv_cleaned = self._remove_noise(sv_cleaned)
+        # Strip subgroup folder names (already captured in subgroup field)
+        if subgroups:
+            for sg in subgroups:
+                sg_cleaned = self._normalize_text(sg)
+                sg_cleaned = self._remove_noise(sg_cleaned)
                 # Strip leading numbering (e.g. "02 Apple Press" → "Apple Press")
-                sv_cleaned = re.sub(r"^\d+\.?\s*", "", sv_cleaned).strip()
-                sv_words = [w for w in sv_cleaned.split() if w != "-"]
-                if not sv_words:
+                sg_cleaned = re.sub(r"^\d+\.?\s*", "", sg_cleaned).strip()
+                sg_words = [w for w in sg_cleaned.split() if w != "-"]
+                if not sg_words:
                     continue
-                stripped = self._strip_word_sequence(words, sv_words)
+                stripped = self._strip_word_sequence(words, sg_words)
                 if stripped:  # guard: don't strip if it empties the list
                     words = stripped
         words = self._dedup_consecutive(words)
@@ -568,17 +579,20 @@ class BattlemapParser:
             result = self._title_case_preserve(result)
         return result
 
-    def parse(self, relative_path: str) -> dict:
-        """Parse a battlemap image path into structured metadata.
+    def parse(self, relative_path: str, image_type: str = "battlemap") -> dict:
+        """Parse an image path into structured metadata.
 
         Args:
             relative_path: Path relative to source dir, e.g.
                 "czepeku/Island Fort/IslandFort_Night_Gridded.jpg"
+            image_type: "battlemap" or "scene". Scenes skip grid detection
+                and use a reduced junk word list.
 
         Returns:
-            Dict with: author, variant_group_name, sub_variants, sub_variant,
-                       tags, gridded, grid_width, grid_height, filename
+            Dict with: author, group_name, subgroups, subgroup,
+                       tags, gridded, grid_width, grid_height, filename, name
         """
+        is_scene = image_type == "scene"
         clean = relative_path.strip()
         path_obj = Path(clean)
         parts = path_obj.parts
@@ -590,34 +604,41 @@ class BattlemapParser:
         if author_match:
             author = author_match.group(1)
 
-        # --- Grid detection (from filename) ---
-        # Split CamelCase and replace separators so \b word boundaries work
+        # --- Grid detection (from filename) — battlemaps only ---
         gridded = None
-        grid_text = self._split_camel(stem).lower().replace("_", " ").replace("-", " ")
-        if self._grid_negative_re.search(grid_text):
-            gridded = False
-        elif self._grid_positive_re.search(grid_text):
-            gridded = True
-
-        # Also check path parts for grid info
-        if gridded is None:
-            full_path_grid = self._split_camel(clean).lower().replace("_", " ").replace("-", " ")
-            if self._grid_negative_re.search(full_path_grid):
-                gridded = False
-            elif self._grid_positive_re.search(full_path_grid):
-                gridded = True
-
-        # --- Dimensions ---
         grid_width = None
         grid_height = None
-        dim_match = self._dim_re.search(stem)
-        if dim_match:
-            grid_width = int(dim_match.group(1))
-            grid_height = int(dim_match.group(2))
-            stem = stem.replace(dim_match.group(0), " ")
 
-        # --- Hierarchy: author / [generic...] / group / [sub-variants...] / file ---
-        sub_variants_raw: list[str] = []
+        if not is_scene:
+            grid_text = self._split_camel(stem).lower().replace("_", " ").replace("-", " ")
+            if self._grid_negative_re.search(grid_text):
+                gridded = False
+            elif self._grid_positive_re.search(grid_text):
+                gridded = True
+
+            # Also check path parts for grid info
+            if gridded is None:
+                full_path_grid = self._split_camel(clean).lower().replace("_", " ").replace("-", " ")
+                if self._grid_negative_re.search(full_path_grid):
+                    gridded = False
+                elif self._grid_positive_re.search(full_path_grid):
+                    gridded = True
+
+            # --- Dimensions ---
+            dim_match = self._dim_re.search(stem)
+            if dim_match:
+                grid_width = int(dim_match.group(1))
+                grid_height = int(dim_match.group(2))
+                stem = stem.replace(dim_match.group(0), " ")
+        else:
+            # Still strip dimension patterns from stem for cleaner names,
+            # but don't record them as grid dimensions
+            dim_match = self._dim_re.search(stem)
+            if dim_match:
+                stem = stem.replace(dim_match.group(0), " ")
+
+        # --- Hierarchy: author / [generic...] / group / [subgroups...] / file ---
+        subgroups_raw: list[str] = []
         group_raw = "Unknown"
         group_from_folder = False
         if len(parts) >= 3:
@@ -629,7 +650,7 @@ class BattlemapParser:
             if group_idx < len(parts) - 1:
                 # Found a non-generic folder — that's the group
                 group_raw = parts[group_idx]
-                sub_variants_raw = list(parts[group_idx + 1 : -1])
+                subgroups_raw = list(parts[group_idx + 1 : -1])
                 group_from_folder = True
             else:
                 # All intermediate folders are generic — the top folder IS the group
@@ -642,7 +663,7 @@ class BattlemapParser:
                         rf"\b{re.escape(gw)}\b", "", top_clean, flags=re.IGNORECASE
                     ).strip()
                 group_raw = top_clean or parts[0]
-                sub_variants_raw = list(parts[1:-1])
+                subgroups_raw = list(parts[1:-1])
                 group_from_folder = True
                 author = None  # Can't determine author from this structure
 
@@ -657,24 +678,25 @@ class BattlemapParser:
                 group_raw = stem
             group_from_folder = False
 
-        # --- Clean group name & build map name ---
+        # --- Clean group name & build scene name ---
         effective_author = author if group_from_folder else None
         group_name = self._clean_group_name(group_raw, author=effective_author)
 
-        sub_variants = [s.replace("_", " ").strip() for s in sub_variants_raw]
-        sub_variant = " / ".join(sub_variants) if sub_variants else None
+        subgroups = [s.replace("_", " ").strip() for s in subgroups_raw]
+        subgroup = " / ".join(subgroups) if subgroups else None
 
-        map_name = self._build_map_name(stem, author, group_name, sub_variants)
+        name = self._build_name(stem, author, group_name, subgroups)
 
         # --- Build exclusion set for tag extraction ---
-        # Note: we intentionally do NOT exclude group name or sub-variant tokens —
+        # Note: we intentionally do NOT exclude group name or subgroup tokens —
         # those words are valid semantic tags (e.g. "desert" from "Desert Canyon").
         # Author exclusion only applies when group_from_folder=True (3+ level paths
         # where parts[0] is a real author folder, not a map group folder).
         # For 2-level paths (folder/file) parts[0] is the group/map folder.
         exclusions: set[str] = {"by"}
-        exclusions.update(self._grid_stop_words)
-        exclusions.update(self._junk_words)
+        if not is_scene:
+            exclusions.update(self._grid_stop_words)
+        exclusions.update(self._scene_junk_words if is_scene else self._junk_words)
         if author and group_from_folder:
             exclusions.update(self._get_token_set(author))
         if grid_width is not None:
@@ -701,11 +723,11 @@ class BattlemapParser:
 
         return {
             "author": author,
-            "variant_group_name": group_name,
-            "map_name": map_name,
+            "group_name": group_name,
+            "name": name,
             "group_from_folder": group_from_folder,
-            "sub_variants": sub_variants,
-            "sub_variant": sub_variant,
+            "subgroups": subgroups,
+            "subgroup": subgroup,
             "tags": tags,
             "gridded": gridded,
             "grid_width": grid_width,
@@ -734,11 +756,11 @@ class BattlemapParser:
 
         return " ".join(common)
 
-    def _merge_subvariant_folders(self, groups: list[dict]) -> list[dict]:
-        """Merge folder-based groups that are sub-variants of the same variant group.
+    def _merge_subgroup_folders(self, groups: list[dict]) -> list[dict]:
+        """Merge folder-based groups that are subgroups of the same group.
 
-        Detects the pattern where the top-level folder IS the variant group and
-        subfolders are sub-variants. E.g.:
+        Detects the pattern where the top-level folder IS the group and
+        subfolders are subgroups. E.g.:
             Abandoned Campsite 30x30/Abandoned Campsite/{files}
             Abandoned Campsite 30x30/Eerie/{files}
             Abandoned Campsite 30x30/Sunset/{files}
@@ -764,30 +786,30 @@ class BattlemapParser:
             # Check if any group name is contained in the top folder name
             match_found = False
             for g in author_groups:
-                group_tokens = set(g["variant_group_name"].lower().split())
+                group_tokens = set(g["group_name"].lower().split())
                 # Group name tokens are a subset of top folder tokens
                 if group_tokens and group_tokens.issubset(top_tokens):
                     match_found = True
                     break
 
             if match_found:
-                # Top folder is the variant group — merge all into one
+                # Top folder is the group — merge all into one
                 all_files: list[dict] = []
                 for g in author_groups:
-                    # Update sub_variant in parsed data to include the subfolder
+                    # Update subgroup in parsed data to include the subfolder
                     for f in g["files"]:
-                        subfolder = g["variant_group_name"]
-                        existing_sub = f["parsed"].get("sub_variant")
+                        subfolder = g["group_name"]
+                        existing_sub = f["parsed"].get("subgroup")
                         if existing_sub:
-                            f["parsed"]["sub_variant"] = f"{subfolder} / {existing_sub}"
+                            f["parsed"]["subgroup"] = f"{subfolder} / {existing_sub}"
                         else:
-                            f["parsed"]["sub_variant"] = subfolder
+                            f["parsed"]["subgroup"] = subfolder
                     all_files.extend(g["files"])
 
                 merged.append(
                     {
                         "author": None,  # Can't determine author from this structure
-                        "variant_group_name": top_clean,
+                        "group_name": top_clean,
                         "files": all_files,
                     }
                 )
@@ -796,25 +818,29 @@ class BattlemapParser:
 
         return merged
 
-    def group_files(self, relative_paths: list[str]) -> list[dict]:
-        """Group a list of relative paths into variant groups.
+    def group_files(self, relative_paths: list[str], image_type: str = "battlemap") -> list[dict]:
+        """Group a list of relative paths into groups.
 
         Pass 1: Run parse() on each file. If group_from_folder=True, group by
-                 (author, variant_group_name).
+                 (author, group_name).
         Pass 2: For files where group_from_folder=False, group by filename prefix
                  within the same parent folder.
+
+        Args:
+            relative_paths: List of relative file paths.
+            image_type: "battlemap" or "scene" — passed to parse().
 
         Returns:
             List of dicts: {
                 "author": str | None,
-                "variant_group_name": str,
+                "group_name": str,
                 "files": [{"relative_path": str, "parsed": dict}]
             }
         """
         # Parse all files
         parsed_files = []
         for rp in relative_paths:
-            parsed = self.parse(rp)
+            parsed = self.parse(rp, image_type=image_type)
             parsed_files.append({"relative_path": rp, "parsed": parsed})
 
         # Split into folder-based and filename-based groups
@@ -823,7 +849,7 @@ class BattlemapParser:
 
         for pf in parsed_files:
             if pf["parsed"]["group_from_folder"]:
-                key = (pf["parsed"]["author"], pf["parsed"]["variant_group_name"])
+                key = (pf["parsed"]["author"], pf["parsed"]["group_name"])
                 folder_based.setdefault(key, []).append(pf)
             else:
                 filename_based.append(pf)
@@ -836,17 +862,17 @@ class BattlemapParser:
             raw_folder_groups.append(
                 {
                     "author": author,
-                    "variant_group_name": group_name,
+                    "group_name": group_name,
                     "files": files,
                 }
             )
 
-        # Pass 1.5: merge folder-based groups that are actually sub-variants
-        # of the same variant group. Detects the pattern:
-        #   GroupName 30x30/SubVariantA/{files}
-        #   GroupName 30x30/SubVariantB/{files}
-        # where the top folder IS the variant group and subfolders are sub-variants.
-        raw_folder_groups = self._merge_subvariant_folders(raw_folder_groups)
+        # Pass 1.5: merge folder-based groups that are actually subgroups
+        # of the same group. Detects the pattern:
+        #   GroupName 30x30/SubGroupA/{files}
+        #   GroupName 30x30/SubGroupB/{files}
+        # where the top folder IS the group and subfolders are subgroups.
+        raw_folder_groups = self._merge_subgroup_folders(raw_folder_groups)
         result.extend(raw_folder_groups)
 
         # Pass 2: prefix-based merging within same parent folder
@@ -880,7 +906,7 @@ class BattlemapParser:
                         current_prefix = self._split_camel(stem).replace("_", " ").replace("-", " ")
                         current_group = {
                             "author": top_folder,
-                            "variant_group_name": f["parsed"]["variant_group_name"],
+                            "group_name": f["parsed"]["group_name"],
                             "files": [f],
                         }
                     else:
@@ -899,14 +925,14 @@ class BattlemapParser:
                             )
                             current_group = {
                                 "author": top_folder,
-                                "variant_group_name": f["parsed"]["variant_group_name"],
+                                "group_name": f["parsed"]["group_name"],
                                 "files": [f],
                             }
 
                 if current_group:
                     # For multi-file prefix groups, use the common prefix as group name
                     if len(current_group["files"]) > 1 and current_prefix:
-                        current_group["variant_group_name"] = current_prefix.strip()
+                        current_group["group_name"] = current_prefix.strip()
                     groups.append(current_group)
 
                 result.extend(groups)
@@ -915,4 +941,4 @@ class BattlemapParser:
 
 
 if __name__ == "__main__":
-    parser = BattlemapParser()
+    parser = ImageParser()

@@ -2,12 +2,12 @@ import { useState, useEffect, useRef } from 'react'
 import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
-interface SubVariantPickerProps {
-  existingSubVariants: string[]
+interface SubgroupPickerProps {
+  existingSubgroups: string[]
   onSelect: (value: string) => void
 }
 
-export function SubVariantPicker({ existingSubVariants, onSelect }: SubVariantPickerProps) {
+export function SubgroupPicker({ existingSubgroups, onSelect }: SubgroupPickerProps) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
@@ -41,17 +41,17 @@ export function SubVariantPicker({ existingSubVariants, onSelect }: SubVariantPi
         className="inline-flex items-center gap-0.5 text-[11px] text-muted-foreground hover:text-primary transition-colors"
       >
         <Plus className="h-3 w-3" />
-        Sub-variant
+        Subgroup
       </button>
 
       {open && (
         <div className="absolute left-0 top-full mt-1.5 z-50 w-52 rounded-lg border border-border bg-card shadow-2xl shadow-black/40 overflow-hidden">
-          {existingSubVariants.length > 0 && (
+          {existingSubgroups.length > 0 && (
             <div className="py-1">
               <div className="px-3 pt-2 pb-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
                 Existing
               </div>
-              {existingSubVariants.map((sv) => (
+              {existingSubgroups.map((sv) => (
                 <button
                   key={sv}
                   onClick={() => apply(sv)}
@@ -69,7 +69,7 @@ export function SubVariantPicker({ existingSubVariants, onSelect }: SubVariantPi
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="New…"
-                autoFocus={existingSubVariants.length === 0}
+                autoFocus={existingSubgroups.length === 0}
                 className="flex-1 min-w-0 h-7 px-2 text-sm bg-secondary border border-border rounded text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && input.trim()) apply(input.trim())

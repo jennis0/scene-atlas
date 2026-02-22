@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.app.models import Image, Tag, VariantGroup, get_engine, get_session_local
+from backend.app.models import Image, Tag, ImageGroup, get_engine, get_session_local
 
 
 @pytest.fixture
@@ -54,7 +54,7 @@ class TestMetadataRoundTrip:
             image_path=str(image_path),
             metadata={
                 "author": "CustomAuthor",
-                "variant_group_name": "Custom Group",
+                "group_name": "Custom Group",
                 "tags": [
                     {
                         "category": "custom",
@@ -67,7 +67,7 @@ class TestMetadataRoundTrip:
                 "gridded": True,
                 "grid_width": 30,
                 "grid_height": 30,
-                "sub_variant": "Night",
+                "subgroup": "Night",
             },
         )
 
@@ -83,18 +83,18 @@ class TestMetadataRoundTrip:
             assert image.gridded is True
             assert image.grid_width == 30
             assert image.grid_height == 30
-            assert image.sub_variant == "Night"
+            assert image.subgroup == "Night"
 
             tags = db.query(Tag).filter(Tag.image_id == image_id).all()
             tag_set = {(t.category, t.value) for t in tags}
             assert ("custom", "user-added") in tag_set
             assert ("lighting", "night") in tag_set
 
-            # Verify variant group
-            vg = db.query(VariantGroup).filter(VariantGroup.id == image.variant_group_id).first()
-            assert vg is not None
-            assert vg.base_name == "Custom Group"
-            assert vg.author == "CustomAuthor"
+            # Verify group
+            grp = db.query(ImageGroup).filter(ImageGroup.id == image.group_id).first()
+            assert grp is not None
+            assert grp.base_name == "Custom Group"
+            assert grp.author == "CustomAuthor"
         finally:
             db.close()
 
@@ -116,12 +116,12 @@ class TestMetadataRoundTrip:
             image_path=str(image_path),
             metadata={
                 "author": "TestAuthor",
-                "variant_group_name": "TestMap",
+                "group_name": "TestMap",
                 "tags": [],
                 "gridded": True,
                 "grid_width": 25,
                 "grid_height": 25,
-                "sub_variant": None,
+                "subgroup": None,
             },
         )
 
@@ -149,18 +149,31 @@ class TestMetadataRoundTrip:
 
         engine, SessionLocal = _patch_db_for_flows
 
-        # Create an ImportJob so progress updates don't fail
+        # Create an ImportJob + ImportGroupJob so progress updates don't fail
         db = SessionLocal()
         job = ImportJob(id="test-roundtrip-job", status="running", total_files=1)
         db.add(job)
+        from backend.app.models import ImportGroupJob
+        group_job = ImportGroupJob(
+            id="test-roundtrip-group",
+            job_id="test-roundtrip-job",
+            group_name="Roundtrip Group",
+            author="RoundtripAuthor",
+            total_files=1,
+            processed_files=0,
+            failed_files=0,
+            status="running",
+        )
+        db.add(group_job)
         db.commit()
         db.close()
 
         result = process_import_group(
             job_id="test-roundtrip-job",
+            group_job_id="test-roundtrip-group",
             staging_dir=str(tmp_staging),
             author="RoundtripAuthor",
-            variant_group_name="Roundtrip Group",
+            group_name="Roundtrip Group",
             files=[
                 {
                     "relative_path": "TestAuthor/TestMap/TestMap_Night_Grid.jpg",
@@ -175,7 +188,7 @@ class TestMetadataRoundTrip:
                     "gridded": False,
                     "grid_width": None,
                     "grid_height": None,
-                    "sub_variant": "Spooky Night",
+                    "subgroup": "Spooky Night",
                 },
             ],
         )
@@ -189,7 +202,7 @@ class TestMetadataRoundTrip:
             assert len(images) == 1
             img = images[0]
             assert img.gridded is False
-            assert img.sub_variant == "Spooky Night"
+            assert img.subgroup == "Spooky Night"
 
             tags = db.query(Tag).filter(Tag.image_id == img.id).all()
             assert any(t.category == "mood" and t.value == "spooky" for t in tags)

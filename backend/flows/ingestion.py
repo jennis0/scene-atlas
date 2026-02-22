@@ -2,7 +2,7 @@
 
 Flows:
     analyse_upload       — Parse and group uploaded files for the preview UI
-    process_import_group — Process a confirmed variant group (batched pipeline)
+    process_import_group — Process a confirmed group (batched pipeline)
     process_single_image — Process one image (thin wrapper for single-image use)
     bulk_image_ingestion — CLI batch ingestion from directories (batched pipeline)
 
@@ -31,16 +31,16 @@ from backend.app.config import settings
 from backend.app.models import (
     Color,
     Image,
+    ImageGroup,
     ImportGroupJob,
     ImportJob,
     Tag,
     TagCategory,
-    VariantGroup,
     get_engine,
     get_session_local,
 )
-from backend.app.services import BattlemapParser, get_image_store, qdrant_service
-from backend.app.services.battlemap_parser import build_search_text
+from backend.app.services import ImageParser, get_image_store, qdrant_service
+from backend.app.services.image_parser import build_search_text
 from backend.app.services.fts_service import fts_rebuild
 
 from .tasks.embedding_generation import (
@@ -56,15 +56,15 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _build_parser() -> BattlemapParser:
-    """Create a BattlemapParser with tag vocabulary loaded from DB."""
+def _build_parser() -> ImageParser:
+    """Create an ImageParser with tag vocabulary loaded from DB."""
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)
     db = SessionLocal()
     try:
         categories = db.query(TagCategory).all()
         cat_dicts = [{"name": c.name, "common_values": c.common_values} for c in categories]
-        return BattlemapParser(tag_categories=cat_dicts)
+        return ImageParser(tag_categories=cat_dicts)
     finally:
         db.close()
 
@@ -106,7 +106,8 @@ def _save_image_to_db(db: Session, image_data: dict) -> int:
         gridded=image_data.get("gridded"),
         grid_width=image_data.get("grid_width"),
         grid_height=image_data.get("grid_height"),
-        sub_variant=image_data.get("sub_variant"),
+        subgroup=image_data.get("subgroup"),
+        image_type=image_data.get("image_type", "battlemap"),
         content_hash=image_data.get("content_hash"),
         media_type=image_data.get("media_type", "image"),
         search_text=build_search_text(
@@ -114,29 +115,29 @@ def _save_image_to_db(db: Session, image_data: dict) -> int:
             filename=image_data.get("filename"),
             author=image_data.get("author"),
             tags=image_data.get("tags"),
-            sub_variant=image_data.get("sub_variant"),
+            subgroup=image_data.get("subgroup"),
         ),
     )
     db.add(image)
     db.flush()
 
-    # Handle variant group
-    variant_group_name = image_data.get("variant_group_name")
+    # Handle group
+    group_name = image_data.get("group_name")
     author = image_data.get("author")
-    if variant_group_name:
-        vg = (
-            db.query(VariantGroup)
+    if group_name:
+        grp = (
+            db.query(ImageGroup)
             .filter(
-                VariantGroup.base_name == variant_group_name,
-                VariantGroup.author == author,
+                ImageGroup.base_name == group_name,
+                ImageGroup.author == author,
             )
             .first()
         )
-        if not vg:
-            vg = VariantGroup(base_name=variant_group_name, author=author)
-            db.add(vg)
+        if not grp:
+            grp = ImageGroup(base_name=group_name, author=author)
+            db.add(grp)
             db.flush()
-        image.variant_group_id = vg.id
+        image.group_id = grp.id
 
     # Add tags
     for tag_data in image_data.get("tags", []):
@@ -191,7 +192,7 @@ def prepare_single_image(
     image_path: str,
     source_dir: str | None = None,
     metadata: dict | None = None,
-    parser: BattlemapParser | None = None,
+    parser: ImageParser | None = None,
 ) -> dict:
     """Prepare a single image: parse metadata, copy to store, thumbnails, colors.
 
@@ -204,7 +205,7 @@ def prepare_single_image(
         image_path: Absolute path to the image file
         source_dir: Root directory for relative path parsing (CLI mode)
         metadata: Explicit metadata dict (web import mode)
-        parser: Pre-built BattlemapParser (avoids rebuilding per image in batch)
+        parser: Pre-built ImageParser (avoids rebuilding per image in batch)
 
     Returns:
         Dict with 'status', 'image_data', 'original_image_path', 'qdrant_metadata'
@@ -216,9 +217,10 @@ def prepare_single_image(
         # --- Parse metadata ---
         if metadata:
             author = metadata.get("author")
-            variant_group_name = metadata.get("variant_group_name")
-            name = metadata.get("name") or variant_group_name
-            sub_variant = metadata.get("sub_variant")
+            group_name = metadata.get("group_name")
+            name = metadata.get("name") or group_name
+            subgroup = metadata.get("subgroup")
+            image_type = metadata.get("image_type", "battlemap")
             gridded = metadata.get("gridded")
             grid_width = metadata.get("grid_width")
             grid_height = metadata.get("grid_height")
@@ -236,9 +238,10 @@ def prepare_single_image(
                 relative = Path(image_path_obj.name)
             parsed = parser.parse(str(relative))
             author = parsed["author"]
-            variant_group_name = parsed["variant_group_name"]
-            name = parsed.get("map_name") or variant_group_name
-            sub_variant = parsed["sub_variant"]
+            group_name = parsed["group_name"]
+            name = parsed.get("name") or group_name
+            subgroup = parsed["subgroup"]
+            image_type = parsed.get("image_type", "battlemap")
             gridded = parsed["gridded"]
             grid_width = parsed["grid_width"]
             grid_height = parsed["grid_height"]
@@ -294,7 +297,7 @@ def prepare_single_image(
                 "storage_key": reuse_storage_key,
                 "name": name,
                 "author": author,
-                "variant_group_name": variant_group_name,
+                "group_name": group_name,
                 "width": width,
                 "height": height,
                 "file_size": file_size,
@@ -302,7 +305,8 @@ def prepare_single_image(
                 "gridded": gridded,
                 "grid_width": grid_width,
                 "grid_height": grid_height,
-                "sub_variant": sub_variant,
+                "subgroup": subgroup,
+                "image_type": image_type,
                 "content_hash": content_hash,
                 "media_type": "video" if reuse_ext in settings.supported_video_formats else "image",
                 "tags": tags,
@@ -312,7 +316,7 @@ def prepare_single_image(
             qdrant_metadata = {
                 "filename": image_path_obj.name,
                 "author": author,
-                "base_name": variant_group_name,
+                "base_name": group_name,
             }
 
             return {
@@ -375,7 +379,7 @@ def prepare_single_image(
             "storage_key": storage_key,
             "name": name,
             "author": author,
-            "variant_group_name": variant_group_name,
+            "group_name": group_name,
             "width": width,
             "height": height,
             "file_size": file_size,
@@ -383,7 +387,8 @@ def prepare_single_image(
             "gridded": gridded,
             "grid_width": grid_width,
             "grid_height": grid_height,
-            "sub_variant": sub_variant,
+            "subgroup": subgroup,
+            "image_type": image_type,
             "content_hash": content_hash,
             "media_type": "video" if is_video else "image",
             "tags": tags,
@@ -393,7 +398,7 @@ def prepare_single_image(
         qdrant_metadata = {
             "filename": image_path_obj.name,
             "author": author,
-            "base_name": variant_group_name,
+            "base_name": group_name,
         }
 
         return {
@@ -782,6 +787,7 @@ def analyse_upload(
     staging_dir: str,
     relative_paths: list[str],
     precomputed_hashes: dict[str, dict] | None = None,
+    default_image_type: str = "battlemap",
 ) -> list[dict]:
     """Parse and group uploaded files for the preview UI.
 
@@ -791,6 +797,9 @@ def analyse_upload(
     If ``precomputed_hashes`` is provided (from the client-side pre-flight
     check), those entries skip server-side hash computation and duplicate
     lookup — their content_hash and duplicate_of are used directly.
+
+    ``default_image_type`` is passed to the parser so it can apply
+    type-specific parsing rules (e.g. skip grid detection for scenes).
     """
     logger.info(f"Analysing {len(relative_paths)} uploaded files in {staging_dir}")
     staging = Path(staging_dir)
@@ -798,7 +807,7 @@ def analyse_upload(
         precomputed_hashes = {}
 
     parser = _build_parser()
-    groups = parser.group_files(relative_paths)
+    groups = parser.group_files(relative_paths, image_type=default_image_type)
 
     # Compute content hashes and detect duplicates
     engine = get_engine(settings.database_url)
@@ -847,7 +856,7 @@ def analyse_upload(
                         "author": existing.author,
                         "storage_key": existing.storage_key,
                         "thumbnail_key": existing.thumbnail_key,
-                        "variant_group_name": existing.variant_group_name,
+                        "group_name": existing.group_name,
                     }
                     for entry in entries:
                         entry["duplicate_of"] = dup_info
@@ -858,10 +867,10 @@ def analyse_upload(
     finally:
         db.close()
 
-    logger.info(f"Detected {len(groups)} variant group(s)")
+    logger.info(f"Detected {len(groups)} group(s)")
     for g in groups:
         logger.info(
-            f"  {g.get('author', '?')} / {g['variant_group_name']} ({len(g['files'])} files)"
+            f"  {g.get('author', '?')} / {g['group_name']} ({len(g['files'])} files)"
         )
 
     return groups
@@ -876,10 +885,10 @@ def _run_group(
     group_job_id: str,
     staging_dir: str,
     author: str,
-    variant_group_name: str,
+    group_name: str,
     files: list[dict],
 ) -> tuple[int, int]:
-    """Process one variant group end-to-end and return (processed, failed) counts.
+    """Process one group end-to-end and return (processed, failed) counts.
 
     Updates ImportGroupJob progress after every batch and marks it completed
     when done.  Intended to be called from a Prefect flow context.
@@ -910,7 +919,7 @@ def _run_group(
     for batch_start in range(0, len(valid_files), batch_size):
         batch = valid_files[batch_start : batch_start + batch_size]
         logger.info(
-            f"[{variant_group_name}] batch {batch_start // batch_size + 1} "
+            f"[{group_name}] batch {batch_start // batch_size + 1} "
             f"({len(batch)} images, {batch_start + len(batch)}/{len(valid_files)})"
         )
 
@@ -923,13 +932,14 @@ def _run_group(
                     image_path=image_path,
                     metadata={
                         "author": author,
-                        "variant_group_name": variant_group_name,
-                        "name": file_info.get("name") or variant_group_name,
+                        "group_name": group_name,
+                        "name": file_info.get("name") or group_name,
                         "tags": file_info.get("tags", []),
                         "gridded": file_info.get("gridded"),
                         "grid_width": file_info.get("grid_width"),
                         "grid_height": file_info.get("grid_height"),
-                        "sub_variant": file_info.get("sub_variant"),
+                        "subgroup": file_info.get("subgroup"),
+                        "image_type": file_info.get("image_type", "battlemap"),
                         "content_hash": file_info.get("content_hash"),
                         "media_type": file_info.get("media_type"),
                         "reuse_storage_key": file_info.get("reuse_storage_key"),
@@ -948,7 +958,7 @@ def _run_group(
         update_import_group_job_progress(group_job_id, processed, failed)
 
     update_import_group_job_progress(group_job_id, processed, failed, status="completed")
-    logger.info(f"Group {group_job_id} ({variant_group_name}): {processed} ok, {failed} failed")
+    logger.info(f"Group {group_job_id} ({group_name}): {processed} ok, {failed} failed")
     return processed, failed
 
 
@@ -999,19 +1009,19 @@ def process_import_group(
     group_job_id: str,
     staging_dir: str,
     author: str,
-    variant_group_name: str,
+    group_name: str,
     files: list[dict],
 ) -> dict:
-    """Process a single confirmed variant group (single-group import path).
+    """Process a single confirmed group (single-group import path).
 
     For multi-group imports prefer process_import_job, which handles all groups
     in one Python process so the CLIP model is loaded only once.
     """
     logger.info(
-        f"Processing import group '{variant_group_name}' by '{author}' "
+        f"Processing import group '{group_name}' by '{author}' "
         f"({len(files)} files) for job {job_id}, group {group_job_id}"
     )
-    processed, failed = _run_group(group_job_id, staging_dir, author, variant_group_name, files)
+    processed, failed = _run_group(group_job_id, staging_dir, author, group_name, files)
     _finalize_import_job(job_id)
     if processed > 0:
         _rebuild_fts()
@@ -1030,7 +1040,7 @@ def process_import_job(
     staging_dir: str,
     groups: list[dict],
 ) -> dict:
-    """Process all variant groups for an import job in a single flow run.
+    """Process all groups for an import job in a single flow run.
 
     Running all groups here — rather than one flow per group — means the CLIP
     model (~600 MB) is loaded exactly once for the whole job instead of once
@@ -1038,7 +1048,7 @@ def process_import_job(
     peak memory stays bounded regardless of how many groups are in the job.
 
     Each group dict must contain:
-        group_job_id, author, variant_group_name, files (list[dict])
+        group_job_id, author, group_name, files (list[dict])
     """
     logger.info(f"Starting import job {job_id}: {len(groups)} group(s) in {staging_dir}")
     total_processed = 0
@@ -1047,10 +1057,10 @@ def process_import_job(
     for group in groups:
         group_job_id = group["group_job_id"]
         author = group["author"]
-        variant_group_name = group["variant_group_name"]
+        group_name = group["group_name"]
         files = group["files"]
-        logger.info(f"Processing group '{variant_group_name}' by '{author}' ({len(files)} files)")
-        processed, failed = _run_group(group_job_id, staging_dir, author, variant_group_name, files)
+        logger.info(f"Processing group '{group_name}' by '{author}' ({len(files)} files)")
+        processed, failed = _run_group(group_job_id, staging_dir, author, group_name, files)
         total_processed += processed
         total_failed += failed
 

@@ -142,7 +142,7 @@ class UnmatchedToken(Base):
 ```
 
 #### Changes
-1. **Parser** (`battlemap_parser.py`): return `unmatched_tokens` alongside `tags`
+1. **Parser** (`image_parser.py`): return `unmatched_tokens` alongside `tags`
 2. **Ingestion** (`ingestion.py`): save unmatched tokens during `batch_save_to_database()`
 
 That's it for V1. Auto-apply UI deferred.

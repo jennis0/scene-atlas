@@ -50,14 +50,14 @@ class TestProcessSingleImageWithMetadata:
             image_path=str(image_path),
             metadata={
                 "author": "ExplicitAuthor",
-                "variant_group_name": "Explicit Group",
+                "group_name": "Explicit Group",
                 "tags": [
                     {"category": "season", "value": "summer", "confidence": 0.9, "source": "auto"}
                 ],
                 "gridded": None,
                 "grid_width": None,
                 "grid_height": None,
-                "sub_variant": "Summer",
+                "subgroup": "Summer",
             },
         )
 
@@ -68,7 +68,7 @@ class TestProcessSingleImageWithMetadata:
             image = db.query(Image).filter(Image.id == result["image_id"]).first()
             assert image.author == "ExplicitAuthor"
             assert image.name == "Explicit Group"
-            assert image.sub_variant == "Summer"
+            assert image.subgroup == "Summer"
         finally:
             db.close()
 
@@ -123,12 +123,12 @@ class TestProcessSingleImageStoresFile:
             image_path=str(image_path),
             metadata={
                 "author": "A",
-                "variant_group_name": "G",
+                "group_name": "G",
                 "tags": [],
                 "gridded": None,
                 "grid_width": None,
                 "grid_height": None,
-                "sub_variant": None,
+                "subgroup": None,
             },
         )
 

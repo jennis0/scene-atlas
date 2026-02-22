@@ -2,14 +2,14 @@ import { useState, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Search, Loader2, ImageIcon, Layers } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { variantGroupApi, getThumbnailUrlById } from '@/lib/api'
-import type { VariantGroupSearchItem } from '@/types'
+import { groupApi, getThumbnailUrlById } from '@/lib/api'
+import type { GroupSearchItem } from '@/types'
 
 interface MergeGroupPickerProps {
   open: boolean
   onClose: () => void
   excludeGroupId?: number | null
-  onSelect: (targetGroup: VariantGroupSearchItem) => void
+  onSelect: (targetGroup: GroupSearchItem) => void
   title?: string
   currentGroupName?: string
 }
@@ -24,7 +24,7 @@ export function MergeGroupPicker({
 }: MergeGroupPickerProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
-  const [selected, setSelected] = useState<VariantGroupSearchItem | null>(null)
+  const [selected, setSelected] = useState<GroupSearchItem | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Debounce search input
@@ -44,8 +44,8 @@ export function MergeGroupPicker({
   }, [open])
 
   const { data, isLoading } = useQuery({
-    queryKey: ['variantGroupSearch', debouncedQuery, excludeGroupId, currentGroupName],
-    queryFn: () => variantGroupApi.search(debouncedQuery, excludeGroupId ?? undefined, 20, currentGroupName || undefined),
+    queryKey: ['groupSearch', debouncedQuery, excludeGroupId, currentGroupName],
+    queryFn: () => groupApi.search(debouncedQuery, excludeGroupId ?? undefined, 20, currentGroupName || undefined),
     enabled: open,
   })
 

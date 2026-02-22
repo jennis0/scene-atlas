@@ -75,7 +75,7 @@ export function ImportDialog({ open, onOpenChange, onActiveChange, reconnectJobI
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-3 shrink-0">
           <h2 className="font-display text-lg font-semibold flex items-center gap-2 text-foreground">
-            {s.state === 'upload' && <><Upload className="h-5 w-5 text-primary shrink-0" />Import Battlemaps</>}
+            {s.state === 'upload' && <><Upload className="h-5 w-5 text-primary shrink-0" />Import Scenes</>}
             {s.state === 'preview' && <><FolderOpen className="h-5 w-5 text-primary shrink-0" />Review Import</>}
             {s.state === 'processing' && <><Loader2 className="h-5 w-5 text-primary animate-spin shrink-0" />Processing…</>}
             {s.state === 'done' && <><Check className="h-5 w-5 text-primary shrink-0" />Import Complete</>}
@@ -111,6 +111,8 @@ export function ImportDialog({ open, onOpenChange, onActiveChange, reconnectJobI
             skippedFiles={s.skippedFiles}
             fileInputRef={s.fileInputRef}
             onFileSelect={s.handleFileSelect}
+            defaultImageType={s.defaultImageType}
+            onDefaultImageTypeChange={s.setDefaultImageType}
           />
         )}
 

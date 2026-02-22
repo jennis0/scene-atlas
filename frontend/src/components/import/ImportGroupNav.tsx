@@ -81,7 +81,7 @@ export function ImportGroupNav({
                 {g.skip && <SkipForward className="h-3 w-3" />}
               </span>
               <span className={`flex-1 text-[12px] truncate ${g.skip ? 'line-through' : ''}`}>
-                {g.variant_group_name}
+                {g.group_name}
               </span>
               <span className="text-[11px] text-muted-foreground/40 tabular-nums shrink-0">
                 {g.files.filter((f) => !f.excluded).length}
@@ -106,7 +106,7 @@ export function ImportGroupNav({
                       {groups.map((target, j) =>
                         j !== i ? (
                           <DropdownMenuItem key={target.id} onClick={() => onMergeGroups(i, j)}>
-                            <Merge className="h-4 w-4 mr-2" />{target.variant_group_name}
+                            <Merge className="h-4 w-4 mr-2" />{target.group_name}
                           </DropdownMenuItem>
                         ) : null
                       )}

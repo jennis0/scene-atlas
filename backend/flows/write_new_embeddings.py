@@ -50,7 +50,7 @@ def generate_embeddings(images: list[Image], model_name: str, collection_name: s
                 image["id"],
                 image["filename"],
                 image["author"],
-                image["variant_group_name"],
+                image["group_name"],
             )
             for embedding, image in zip(embeddings, batch_images)
         ]
@@ -85,7 +85,7 @@ def get_all_images() -> list[Image]:
                 "storage_key": image.storage_key,
                 "filename": image.filename,
                 "author": image.author,
-                "variant_group_name": image.variant_group_name,
+                "group_name": image.group_name,
             }
             for image in new_images
         ]

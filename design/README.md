@@ -12,7 +12,8 @@ Architecture and design documentation for the Scene Atlas project. These documen
 | [storage.md](storage.md) | Data storage — SQLite schema, Qdrant vectors, ImageStore filesystem |
 | [ingestion.md](ingestion.md) | Ingestion pipeline — Prefect flows, processing steps, infrastructure |
 | [web-import.md](web-import.md) | Web import flow — upload, grouping, preview, confirm, processing |
-| [parser.md](parser.md) | BattlemapParser — filename parsing, tag extraction, variant group detection |
+| [parser.md](parser.md) | ImageParser — filename parsing, tag extraction, image group detection |
+| [group-view.md](group-view.md) | Group view — hero+mosaic card layout for browsing by image group |
 
 ## System Overview
 

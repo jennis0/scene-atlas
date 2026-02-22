@@ -1,10 +1,11 @@
 # Goal
-You are helping to build Scene Atlas - a tool to help users view and search a large quantity of battlemaps for tabletop RPGs.
+You are helping to build Scene Atlas - a tool to help users view and search a large quantity of tabletop RPG scenes (battlemaps, vistas, portraits, encounter art) via a web UI.
 
 The key features are:
-- Search battlemaps by name, author, features, 'tags', and semantic description of the image via web UI in a clean, modern interface
-- Upload battlesmaps via the web UI
-- Support for 'variants' of a battlemap, in particular we group them into 'variant groups' as many battlemaps are created with lots of different version (E.g. snowy, fey,summer, etc.)
+- Search scenes by name, author, features, 'tags', and semantic description of the image via web UI in a clean, modern interface
+- Upload scenes via the web UI, with per-image type selection (battlemap or scene)
+- Support for 'groups' of related images, as many battlemaps are created with lots of different versions (e.g. snowy, fey, summer, etc.). Groups can contain both battlemaps and scenes
+- Type-aware processing: battlemaps get grid detection; scenes skip grid detection
 
 # Working Principles
 - Ignore anything in ./ignore

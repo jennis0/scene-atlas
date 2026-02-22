@@ -1,4 +1,4 @@
-import { Upload, Loader2, AlertCircle, AlertTriangle, FolderOpen, ChevronDown } from 'lucide-react'
+import { Upload, Loader2, AlertCircle, AlertTriangle, FolderOpen, ChevronDown, Grid3X3, Image } from 'lucide-react'
 
 interface ImportUploadPaneProps {
   uploading: boolean
@@ -7,14 +7,58 @@ interface ImportUploadPaneProps {
   skippedFiles: string[]
   fileInputRef: React.RefObject<HTMLInputElement>
   onFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => void
+  defaultImageType: 'battlemap' | 'scene'
+  onDefaultImageTypeChange: (type: 'battlemap' | 'scene') => void
 }
 
-export function ImportUploadPane({ uploading, uploadError, uploadPhase, skippedFiles, fileInputRef, onFileSelect }: ImportUploadPaneProps) {
+export function ImportUploadPane({
+  uploading, uploadError, uploadPhase, skippedFiles, fileInputRef, onFileSelect,
+  defaultImageType, onDefaultImageTypeChange,
+}: ImportUploadPaneProps) {
   return (
     <div className="px-6 py-5 space-y-5">
       <p className="text-sm text-muted-foreground">
         Select image or video files, a folder, or a .zip archive to import.
       </p>
+
+      {/* Image type selector */}
+      <div className="space-y-1.5">
+        <label className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-semibold block">
+          Import as
+        </label>
+        <div className="inline-flex rounded-lg border border-border p-0.5 bg-secondary/50">
+          <button
+            onClick={() => onDefaultImageTypeChange('battlemap')}
+            disabled={uploading}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-all ${
+              defaultImageType === 'battlemap'
+                ? 'bg-primary/20 text-primary border border-primary/30 shadow-sm'
+                : 'text-muted-foreground hover:text-foreground border border-transparent'
+            } disabled:opacity-50 disabled:cursor-not-allowed`}
+          >
+            <Grid3X3 className="h-3.5 w-3.5" />
+            Battlemap
+          </button>
+          <button
+            onClick={() => onDefaultImageTypeChange('scene')}
+            disabled={uploading}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-all ${
+              defaultImageType === 'scene'
+                ? 'bg-primary/20 text-primary border border-primary/30 shadow-sm'
+                : 'text-muted-foreground hover:text-foreground border border-transparent'
+            } disabled:opacity-50 disabled:cursor-not-allowed`}
+          >
+            <Image className="h-3.5 w-3.5" />
+            Scene
+          </button>
+        </div>
+        <p className="text-xs text-muted-foreground/50">
+          {defaultImageType === 'battlemap'
+            ? 'Grid detection enabled. Optimized for battlemaps and tiles.'
+            : 'Grid detection skipped. For vistas, portraits, and encounter art.'}
+        </p>
+      </div>
+
       <div className="flex gap-3">
         <input ref={fileInputRef} type="file" multiple accept=".jpg,.jpeg,.png,.webp,.mp4,.webm,.zip"
           onChange={onFileSelect} className="hidden" id="import-files" />

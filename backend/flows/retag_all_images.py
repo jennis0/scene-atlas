@@ -1,7 +1,7 @@
 """Retag all images using the filename parser.
 
 Removes all auto-assigned tags (source='auto') and reruns the
-BattlemapParser on each image's filename to regenerate tags.
+ImageParser on each image's filename to regenerate tags.
 Manually assigned tags (source='manual') are left untouched.
 
 Usage:
@@ -23,7 +23,7 @@ from backend.app.models.database import (
     get_engine,
     get_session_local,
 )
-from backend.app.services import BattlemapParser
+from backend.app.services import ImageParser
 
 logger = logging.getLogger(__name__)
 
@@ -31,14 +31,14 @@ BATCH_SIZE = 200
 
 
 def _build_parser(db):
-    """Create a BattlemapParser with tag vocabulary loaded from DB."""
+    """Create an ImageParser with tag vocabulary loaded from DB."""
     categories = db.query(TagCategory).all()
     cat_dicts = [{"name": c.name, "common_values": c.common_values} for c in categories]
-    return BattlemapParser(tag_categories=cat_dicts)
+    return ImageParser(tag_categories=cat_dicts)
 
 
 @task(name="retag_batch")
-def retag_batch(image_ids: list[int], parser: BattlemapParser) -> dict:
+def retag_batch(image_ids: list[int], parser: ImageParser) -> dict:
     """Retag a batch of images."""
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)

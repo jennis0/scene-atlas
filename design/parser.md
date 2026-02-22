@@ -1,8 +1,8 @@
-# BattlemapParser — Metadata Extraction
+# ImageParser — Metadata Extraction
 
 ## Overview
 
-`BattlemapParser` (`backend/app/services/battlemap_parser.py`) extracts structured metadata from battlemap image paths. It handles the wide variety of naming conventions used by different map creators.
+`ImageParser` (`backend/app/services/image_parser.py`) extracts structured metadata from image paths. It handles the wide variety of naming conventions used by different map creators.
 
 ## Capabilities
 
@@ -11,15 +11,15 @@ Given a relative path like `czepeku/Island Fort/Gridded/IslandFort_Night_Rain_30
 | Field | Value | Source |
 |-------|-------|--------|
 | `author` | `"czepeku"` | First path component |
-| `variant_group_name` | `"Island Fort"` | Second path component (folder) |
+| `group_name` | `"Island Fort"` | Second path component (folder) |
 | `group_from_folder` | `true` | Group came from folder hierarchy |
-| `sub_variants` | `["Gridded"]` | Intermediate folders between group and file |
-| `sub_variant` | `"Gridded"` | Joined sub_variants string |
+| `subgroups` | `["Gridded"]` | Intermediate folders between group and file |
+| `subgroup` | `"Gridded"` | Joined subgroups string |
 | `gridded` | `true` | Keyword detection in filename |
 | `grid_width` | `30` | NxN dimension pattern |
 | `grid_height` | `30` | NxN dimension pattern |
 | `tags` | `[{category: "lighting", value: "night"}, {category: "weather", value: "rain"}]` | Vocabulary match |
-| `map_name` | `"Night Rain"` | Display name for the individual map |
+| `name` | `"Night Rain"` | Display name for the individual image |
 | `filename` | `"IslandFort_Night_Rain_30x30.jpg"` | Path leaf |
 
 ## Parsing Pipeline
@@ -28,18 +28,19 @@ Given a relative path like `czepeku/Island Fort/Gridded/IslandFort_Night_Rain_30
 - Default: `parts[0]` (first folder in relative path)
 - Override: `byAuthor` pattern in filename (e.g. `byJohnSmith` → `"JohnSmith"`)
 
-### 2. Grid Detection
+### 2. Grid Detection (battlemaps only)
 - CamelCase-split + normalize the filename stem to space-separated words
 - Check negative regex: `\b(no[-_ ]?grid|gridless|ungridded)\b` → `gridded = False`
 - Check positive regex: `\b(grid(ded)?)\b` → `gridded = True`
 - Also checks path components if filename doesn't match
 - Grid dimensions: `(\d{1,3})\s*[xX]\s*(\d{1,3})` pattern → `grid_width`, `grid_height`
+- **Skipped for `image_type="scene"`** — scenes do not use grid metadata
 
 ### 3. Folder Hierarchy Parsing
 
-The parser interprets path structure as: `author / [generic...] / group / [sub-variants...] / file`
+The parser interprets path structure as: `author / [generic...] / group / [subgroups...] / file`
 
-**Generic folders** are skipped when searching for the variant group folder. The set includes:
+**Generic folders** are skipped when searching for the image group folder. The set includes:
 - Platform folders: `vtt`, `roll20`, `fvtt`, `foundry`
 - Resolution folders: `full resolution`, `high res`, `low res`
 - Grid folders: `gridded`, `gridless`, `no grid`
@@ -47,8 +48,8 @@ The parser interprets path structure as: `author / [generic...] / group / [sub-v
 
 **Logic:**
 1. Skip consecutive generic folders after `parts[0]` (author)
-2. First non-generic folder = variant group → `group_from_folder = True`
-3. Remaining intermediate folders = sub-variants
+2. First non-generic folder = image group → `group_from_folder = True`
+3. Remaining intermediate folders = subgroups
 4. If ALL intermediate folders are generic → top folder IS the group (cleaned of dimensions/tier info), author = None
 5. If group name resolves to a generic folder name or "Unknown" → fall back to filename stem (split at first separator) → `group_from_folder = False`
 
@@ -57,7 +58,7 @@ The parser interprets path structure as: `author / [generic...] / group / [sub-v
 **Vocabulary:** Loaded from `TagCategory` table at init time. Each word maps to `(category, canonical_value)`. Aliases (e.g. "rainy" → "rain") are flattened into the same lookup.
 
 **Process:**
-1. Build exclusion set: author tokens, group tokens, sub-variant tokens, grid words, junk words, dimension numbers
+1. Build exclusion set: author tokens, group tokens, subgroup tokens, grid words, junk words, dimension numbers
 2. Extract words from filename stem:
    - Protect bracketed content `[like this]` or `(like this)` as multi-word phrases
    - CamelCase split → space-separated
@@ -67,11 +68,11 @@ The parser interprets path structure as: `author / [generic...] / group / [sub-v
 4. Also extract from path components (not filename) at confidence 0.7
 5. Merge: filename tags take priority over path tags (by category+value key)
 
-### 5. Name Cleaning (`_clean_group_name`, `_build_map_name`)
+### 5. Name Cleaning (`_clean_group_name`, `_build_name`)
 
 The parser generates two cleaned names:
 
-**Variant group name** (`_clean_group_name`): The "proper name" of the map collection, with noise stripped.
+**Group name** (`_clean_group_name`): The "proper name" of the image group (map collection), with noise stripped.
 
 Removals (in order):
 1. DPI/PPI markers: `140dpi`, `70ppi`
@@ -90,7 +91,7 @@ Removals (in order):
 
 Formatting: underscore/slug-dash → spaces, CamelCase split, abbreviation+number rejoin (`FL 1` → `FL1`), title-case-preserve (only capitalize all-lowercase words, preserving acronyms).
 
-**Map name** (`_build_map_name`): A display name for the individual map image.
+**Image name** (`_build_name`): A display name for the individual image.
 
 Steps:
 1. Normalize text (underscores → spaces, CamelCase split, dash handling)
@@ -98,16 +99,16 @@ Steps:
 3. Strip author prefix
 4. Remove `Maps` (plural)
 5. Multi-word sequence deduplication
-6. Strip variant group name prefix (always stripped)
-7. Strip sub-variant folder names (contiguous word-sequence matching, guarded against emptying)
+6. Strip group name prefix (always stripped)
+7. Strip subgroup folder names (contiguous word-sequence matching, guarded against emptying)
 8. Consecutive duplicate word removal
 9. Title-case-preserve on all-lowercase results
 
-The VG prefix and sub-variant names are always stripped since names are displayed alongside their VG and sub-variant context. If stripping leaves an empty result, the cleaned stem is used as fallback.
+The group name prefix and subgroup names are always stripped since names are displayed alongside their group and subgroup context. If stripping leaves an empty result, the cleaned stem is used as fallback.
 
 **Examples:**
-| Path | VG | Map Name |
-|------|-----|----------|
+| Path | Group | Name |
+|------|-------|------|
 | `Crosshead/DUNGEONS - DRAGONGATE/Dragon Gate no light.jpg` | DUNGEONS - DRAGONGATE | Dragon Gate no light |
 | `dice_grimorium/Snowy Forest Tier 2/SnowyForestTier2_FR_Gridless_R20_SnowyForest-1.jpg` | Snowy Forest | Tier 2 FR Gridless R20 - 1 |
 | `mikwewa/140dpiShieldChurchMaps_140dpiChurchHeavenDayGfGrid.jpg` | Shield Church | Church Heaven Day Gf Grid |
@@ -125,24 +126,24 @@ Example: `AbandonedCampsiteNight30x30` → `Abandoned Campsite Night 30 x 30`
 
 ### Integration with Ingestion
 
-In `flows/ingestion.py`, the `Image.name` field is populated from `parsed["map_name"]` (falling back to `variant_group_name` if absent). This gives each image a distinct, human-readable display name separate from its variant group.
+In `flows/ingestion.py`, the `Image.name` field is populated from `parsed["name"]` (falling back to `group_name` if absent). This gives each image a distinct, human-readable display name separate from its group.
 
-## Variant Group Detection (`group_files()`)
+## Group Detection (`group_files()`)
 
-Used by the web import to group uploaded files into variant groups.
+Used by the web import to group uploaded files into image groups.
 
 ### Pass 1: Folder-based grouping
 - Run `parse()` on each file
-- Group files with `group_from_folder=True` by `(author, variant_group_name)`
+- Group files with `group_from_folder=True` by `(author, group_name)`
 
-### Pass 1.5: Sub-variant folder merging
-When multiple folder-based groups share the same top-level folder (author), check if any group name is a subset of the top folder name's tokens. If so, the top folder is the real variant group and the subfolders are sub-variants → merge into one group.
+### Pass 1.5: Subgroup folder merging
+When multiple folder-based groups share the same top-level folder (author), check if any group name is a subset of the top folder name's tokens. If so, the top folder is the real image group and the subfolders are subgroups → merge into one group.
 
 **Example:**
 ```
 Abandoned Campsite 30x30/Abandoned Campsite/{files}  → group "Abandoned Campsite"
-Abandoned Campsite 30x30/Eerie/{files}               → merged, sub_variant "Eerie"
-Abandoned Campsite 30x30/Sunset/{files}               → merged, sub_variant "Sunset"
+Abandoned Campsite 30x30/Eerie/{files}               → merged, subgroup "Eerie"
+Abandoned Campsite 30x30/Sunset/{files}               → merged, subgroup "Sunset"
 ```
 
 ### Pass 2: Prefix-based merging
@@ -159,3 +160,19 @@ Words filtered out during tag extraction (not meaningful as tags):
 - File artifacts: `jpg`, `png`, `webp`, `vtt`, `ppi`, `dpi`, `copy`, `final`, `hd`
 - Filler: `no`, `the`, `and`, `of`, `with`, `by`, `for`, `in`
 - Generic map: `map`, `battlemap`, `tile`, `variation`, `variant`, `alternate`, `base`, `geomorph`
+
+**Note:** Scenes (`image_type="scene"`) use a reduced junk word list since some map-specific junk words may be meaningful scene descriptors.
+
+## Image Type Awareness
+
+The parser is type-aware via the `image_type` field (default: `"battlemap"`):
+
+| Behavior | `battlemap` | `scene` |
+|----------|-------------|---------|
+| Grid detection | Yes | Skipped |
+| Grid dimension extraction | Yes | Skipped |
+| Junk word list | Full list | Reduced list |
+| Tag extraction | Full | Full |
+| Name/group parsing | Full | Full |
+
+The `image_type` can be set per-file during import (see [web-import.md](web-import.md)). At the storage level, the `Image` model has an `image_type` column that drives conditional UI behavior (e.g., hiding the grid panel for scenes).

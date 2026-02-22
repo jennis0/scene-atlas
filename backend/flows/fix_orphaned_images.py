@@ -1,7 +1,7 @@
-"""Fix orphaned images that have no variant group.
+"""Fix orphaned images that have no group.
 
-Finds all images with variant_group_id = NULL and assigns them all
-to a single "Uncategorised" variant group.
+Finds all images with group_id = NULL and assigns them all
+to a single "Uncategorised" group.
 
 Usage:
     uv run python -m backend.flows.fix_orphaned_images
@@ -12,7 +12,7 @@ import logging
 from backend.app.config import settings
 from backend.app.models.database import (
     Image,
-    VariantGroup,
+    ImageGroup,
     get_engine,
     get_session_local,
 )
@@ -23,13 +23,13 @@ UNCATEGORISED_NAME = "Uncategorised"
 
 
 def fix_orphaned_images():
-    """Add all ungrouped images to a single 'Uncategorised' variant group."""
+    """Add all ungrouped images to a single 'Uncategorised' group."""
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)
     db = SessionLocal()
 
     try:
-        orphans = db.query(Image).filter(Image.variant_group_id.is_(None)).all()
+        orphans = db.query(Image).filter(Image.group_id.is_(None)).all()
 
         if not orphans:
             print("No orphaned images found.")
@@ -38,20 +38,20 @@ def fix_orphaned_images():
         print(f"Found {len(orphans)} orphaned image(s).")
 
         # Reuse existing Uncategorised group if one exists
-        vg = db.query(VariantGroup).filter(VariantGroup.base_name == UNCATEGORISED_NAME).first()
-        if vg:
-            print(f"Using existing '{UNCATEGORISED_NAME}' group (id={vg.id}).")
+        grp = db.query(ImageGroup).filter(ImageGroup.base_name == UNCATEGORISED_NAME).first()
+        if grp:
+            print(f"Using existing '{UNCATEGORISED_NAME}' group (id={grp.id}).")
         else:
-            vg = VariantGroup(
+            grp = ImageGroup(
                 base_name=UNCATEGORISED_NAME,
                 primary_image_id=orphans[0].id,
             )
-            db.add(vg)
+            db.add(grp)
             db.flush()
-            print(f"Created '{UNCATEGORISED_NAME}' group (id={vg.id}).")
+            print(f"Created '{UNCATEGORISED_NAME}' group (id={grp.id}).")
 
         for img in orphans:
-            img.variant_group_id = vg.id
+            img.group_id = grp.id
 
         db.commit()
         print(f"Done. Assigned {len(orphans)} image(s) to '{UNCATEGORISED_NAME}'.")

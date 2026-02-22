@@ -37,16 +37,16 @@ from ..models.schemas import (
     ImportConfirmFile,
     ImportConfirmRequest,
     ImportFileInfo,
+    ImportGroup,
     ImportGroupStatus,
     ImportJobResponse,
     ImportJobSummary,
     ImportUploadResponse,
-    ImportVariantGroup,
 )
 
 
 class ImportConfirmAllRequest(BaseModel):
-    """Confirm all variant groups for processing in one flow run."""
+    """Confirm all groups for processing in one flow run."""
 
     groups: List[ImportConfirmRequest]
 
@@ -96,7 +96,7 @@ async def check_hashes(
                 author=img.author,
                 storage_key=img.storage_key,
                 thumbnail_key=img.thumbnail_key,
-                variant_group_name=img.variant_group_name,
+                group_name=img.group_name,
             )
 
     # Build results
@@ -127,19 +127,20 @@ async def upload_files(
     files: List[UploadFile] = File(default=[]),
     relative_paths: Optional[str] = Form(None),
     manifest: Optional[str] = Form(None),
+    image_type: Optional[str] = Form(None),
     db: Session = Depends(get_db),
 ):
     """Upload files for import, analyse and group them.
 
     Accepts multiple image files and/or .zip archives.
     Saves to staging, submits analyse_upload Prefect flow,
-    returns detected variant groups with metadata for user review.
+    returns detected groups with metadata for user review.
 
     The optional ``manifest`` parameter is a JSON array of entries for
     files that the client determined are duplicates and chose not to
     upload.  Each entry has ``relative_path``, ``filename``,
     ``content_hash``, and ``duplicate_of``.  These files are included
-    in variant-group detection but skip server-side hashing.
+    in group detection but skip server-side hashing.
     """
     job_id = uuid.uuid4().hex[:16]
     staging_dir = settings.staging_dir / job_id
@@ -299,6 +300,7 @@ async def upload_files(
                 "staging_dir": str(staging_dir),
                 "relative_paths": all_relative_paths,
                 "precomputed_hashes": precomputed_hashes if precomputed_hashes else None,
+                "default_image_type": image_type or "battlemap",
             },
             timeout=120,  # Wait up to 2 minutes for analysis
         )
@@ -313,7 +315,7 @@ async def upload_files(
         groups = await flow_run.state.result()
 
         # Build response from flow result
-        variant_groups: list[ImportVariantGroup] = []
+        import_groups: list[ImportGroup] = []
         for group in groups:
             files_info: list[ImportFileInfo] = []
             for f in group["files"]:
@@ -326,7 +328,7 @@ async def upload_files(
                     ImportFileInfo(
                         relative_path=f["relative_path"],
                         filename=parsed["filename"],
-                        name=parsed.get("map_name"),
+                        name=parsed.get("name"),
                         media_type=(
                             "video"
                             if Path(f["relative_path"]).suffix.lower()
@@ -345,22 +347,23 @@ async def upload_files(
                         gridded=parsed.get("gridded"),
                         grid_width=parsed.get("grid_width"),
                         grid_height=parsed.get("grid_height"),
-                        sub_variant=parsed.get("sub_variant"),
+                        subgroup=parsed.get("subgroup"),
+                        image_type=parsed.get("image_type"),
                         content_hash=f.get("content_hash"),
                         duplicate_of=dup_info,
                     )
                 )
 
-            variant_groups.append(
-                ImportVariantGroup(
+            import_groups.append(
+                ImportGroup(
                     author=group.get("author"),
-                    variant_group_name=group["variant_group_name"],
+                    group_name=group["group_name"],
                     files=files_info,
                 )
             )
 
         # Create ImportJob in staging state
-        source_label = variant_groups[0].variant_group_name if variant_groups else None
+        source_label = import_groups[0].group_name if import_groups else None
         import_job = ImportJob(
             id=job_id,
             status="staging",
@@ -373,7 +376,7 @@ async def upload_files(
         return ImportUploadResponse(
             job_id=job_id,
             total_files=len(all_relative_paths),
-            variant_groups=variant_groups,
+            groups=import_groups,
         )
 
     except HTTPException:
@@ -391,7 +394,7 @@ async def confirm_import(
     body: ImportConfirmRequest,
     db: Session = Depends(get_db),
 ):
-    """Confirm a variant group for processing.
+    """Confirm a group for processing.
 
     Submits a process_import_group Prefect deployment and returns immediately.
     The flow updates ImportJob progress as it processes each image.
@@ -420,7 +423,7 @@ async def confirm_import(
     group_job = ImportGroupJob(
         id=group_job_id,
         job_id=job_id,
-        variant_group_name=body.variant_group_name,
+        group_name=body.group_name,
         author=body.author,
         total_files=len(valid_files),
         processed_files=0,
@@ -432,7 +435,7 @@ async def confirm_import(
     # Submit process_import_group flow via Prefect deployment (fire-and-forget)
     logger.info(
         f"Submitting process_import_group deployment for job {job_id}, "
-        f"group_job {group_job_id}: {len(valid_files)} files, group '{body.variant_group_name}'"
+        f"group_job {group_job_id}: {len(valid_files)} files, group '{body.group_name}'"
     )
     flow_run = await run_deployment(
         name=f"{settings.process_flow}/{settings.process_deployment}",
@@ -441,7 +444,7 @@ async def confirm_import(
             "group_job_id": group_job_id,
             "staging_dir": str(staging_dir),
             "author": body.author,
-            "variant_group_name": body.variant_group_name,
+            "group_name": body.group_name,
             "files": valid_files,
         },
         timeout=0,  # Return immediately, don't wait for completion
@@ -456,7 +459,7 @@ async def confirm_import(
         status="running",
         groups=[
             ImportGroupStatus(
-                variant_group_name=body.variant_group_name,
+                group_name=body.group_name,
                 total_files=len(valid_files),
                 processed_files=0,
                 failed_files=0,
@@ -474,7 +477,7 @@ async def confirm_all_groups(
     body: ImportConfirmAllRequest,
     db: Session = Depends(get_db),
 ):
-    """Confirm all variant groups for processing in a single flow run.
+    """Confirm all groups for processing in a single flow run.
 
     Unlike the per-group /confirm endpoint (which spawns one Prefect flow per
     group), this endpoint submits a single process_import_job flow that handles
@@ -500,14 +503,14 @@ async def confirm_all_groups(
             if (staging_dir / f.relative_path).exists() or f.reuse_storage_key
         ]
         if not valid_files:
-            logger.warning(f"No valid files for group '{group_req.variant_group_name}', skipping")
+            logger.warning(f"No valid files for group '{group_req.group_name}', skipping")
             continue
 
         group_job_id = uuid.uuid4().hex[:16]
         group_job = ImportGroupJob(
             id=group_job_id,
             job_id=job_id,
-            variant_group_name=group_req.variant_group_name,
+            group_name=group_req.group_name,
             author=group_req.author,
             total_files=len(valid_files),
             processed_files=0,
@@ -520,13 +523,13 @@ async def confirm_all_groups(
             {
                 "group_job_id": group_job_id,
                 "author": group_req.author,
-                "variant_group_name": group_req.variant_group_name,
+                "group_name": group_req.group_name,
                 "files": valid_files,
             }
         )
         group_statuses.append(
             ImportGroupStatus(
-                variant_group_name=group_req.variant_group_name,
+                group_name=group_req.group_name,
                 total_files=len(valid_files),
                 processed_files=0,
                 failed_files=0,
@@ -587,7 +590,7 @@ async def get_import_status(
 
     groups = [
         ImportGroupStatus(
-            variant_group_name=gj.variant_group_name,
+            group_name=gj.group_name,
             total_files=gj.total_files,
             processed_files=gj.processed_files,
             failed_files=gj.failed_files,

@@ -27,7 +27,7 @@ This document records all significant architectural decisions for the Scene Atla
 **Date:** 2025-01 (initial design)
 **Status:** Accepted
 
-**Context:** We need relational storage for images, tags, variant groups, and import jobs. We also need similarity search over CLIP embeddings.
+**Context:** We need relational storage for images, tags, image groups, and import jobs. We also need similarity search over CLIP embeddings.
 
 **Decision:** Use SQLite (via SQLAlchemy) for all relational data and Qdrant for vector embeddings. They are separate stores with `image_id` as the join key.
 
@@ -82,7 +82,7 @@ This document records all significant architectural decisions for the Scene Atla
 
 **Context:** We need to extract meaningful tags from battlemap filenames. Hardcoded tag patterns are brittle and hard to extend.
 
-**Decision:** Tag categories and their vocabularies are stored in the `TagCategory` table and seeded at startup. Each entry can be a plain string or an object with aliases: `{"value": "rain", "aliases": ["rainy", "raining"]}`. The `BattlemapParser` loads these from DB to build its vocabulary lookup.
+**Decision:** Tag categories and their vocabularies are stored in the `TagCategory` table and seeded at startup. Each entry can be a plain string or an object with aliases: `{"value": "rain", "aliases": ["rainy", "raining"]}`. The `ImageParser` loads these from DB to build its vocabulary lookup.
 
 **Consequences:**
 - Adding new tag words only requires updating the seed data (or eventually a UI)
@@ -92,16 +92,16 @@ This document records all significant architectural decisions for the Scene Atla
 
 ---
 
-## ADR-006: Variant group detection — two-pass approach
+## ADR-006: Image group detection — two-pass approach
 
 **Date:** 2025-02
 **Status:** Accepted
 
-**Context:** Battlemaps are often distributed as variant groups (same map, different lighting/weather/grid). We need to detect groups from folder structure and/or filename prefixes. Folder hierarchies vary widely across different map creators.
+**Context:** Battlemaps are often distributed as image groups (same map, different lighting/weather/grid). We need to detect groups from folder structure and/or filename prefixes. Folder hierarchies vary widely across different map creators.
 
-**Decision:** Use a two-pass approach in `BattlemapParser.group_files()`:
+**Decision:** Use a two-pass approach in `ImageParser.group_files()`:
 
-1. **Folder-based detection (pass 1):** The parser checks if the path has enough depth (3+ parts) and assigns a `group_from_folder` flag. After pass 1, a merge step detects when the top-level folder is actually the variant group (not the author) — signalled by a subfolder name matching the top folder.
+1. **Folder-based detection (pass 1):** The parser checks if the path has enough depth (3+ parts) and assigns a `group_from_folder` flag. After pass 1, a merge step detects when the top-level folder is actually the image group (not the author) — signalled by a subfolder name matching the top folder.
 
 2. **Prefix-based merging (pass 2):** For files where the parser couldn't find a group folder, files are sorted alphabetically and merged by common filename prefix (minimum 6 chars, trimmed to word boundaries). Merging only happens within the same parent folder.
 
@@ -112,7 +112,7 @@ This document records all significant architectural decisions for the Scene Atla
 - Flat files (no folders) → author is unknown (user fills in during import)
 
 **Consequences:**
-- Handles common structures: `author/group/file`, `group/subvariant/file`, `group/generic/generic/file`
+- Handles common structures: `author/group/file`, `group/subgroup/file`, `group/generic/generic/file`
 - Generic folders (resolution, grid, format names) are skipped when searching for the group folder
 - The merge step correctly combines `GroupName 30x30/Eerie/{files}` + `GroupName 30x30/Abandoned Campsite/{files}` into one group
 - When author can't be inferred, it's `None` and the user provides it during import preview
@@ -124,11 +124,11 @@ This document records all significant architectural decisions for the Scene Atla
 **Date:** 2025-02
 **Status:** Accepted (implemented)
 
-**Context:** The web import needs two data processing phases: (1) analysing uploaded files to detect variant groups, and (2) processing confirmed groups through the full ingestion pipeline. Both should be orchestrated through Prefect for observability, retries, and scalability. The analysis step may grow to include heavyweight compute (AV scanning, AI metadata extraction) in future.
+**Context:** The web import needs two data processing phases: (1) analysing uploaded files to detect image groups, and (2) processing confirmed groups through the full ingestion pipeline. Both should be orchestrated through Prefect for observability, retries, and scalability. The analysis step may grow to include heavyweight compute (AV scanning, AI metadata extraction) in future.
 
 **Decision:** Two Prefect deployments handle web import processing:
 
-1. **`analyse_upload`** — Called synchronously by the upload endpoint (`run_deployment(timeout=120)`). Parses and groups files via `BattlemapParser.group_files()`. Uses `persist_result=True` so the API process can retrieve results from the worker.
+1. **`analyse_upload`** — Called synchronously by the upload endpoint (`run_deployment(timeout=120)`). Parses and groups files via `ImageParser.group_files()`. Uses `persist_result=True` so the API process can retrieve results from the worker.
 
 2. **`process_import_group`** — Called async by the confirm endpoint (`run_deployment(timeout=0)`). Processes each file via `process_single_image` subflow. Updates `ImportJob` progress counters after each image. The `flow_run_id` is stored on the `ImportJob` for tracking.
 
@@ -185,7 +185,7 @@ The worker runs **locally** (not in Docker) because it needs project code, Pytho
 **Date:** 2026-02
 **Status:** Accepted
 
-**Context:** The application stores irreplaceable user data (battlemap metadata, tags, variant groups, CLIP embeddings) across three stores: SQLite, the hash-sharded filesystem, and Qdrant. With no backup strategy, a disk failure or an accidental `reset_database.py` run means total data loss. Additionally, the original `init_db()` function used ad-hoc hand-rolled `ALTER TABLE` statements with no version tracking, making schema evolution fragile and difficult to reason about.
+**Context:** The application stores irreplaceable user data (image metadata, tags, image groups, CLIP embeddings) across three stores: SQLite, the hash-sharded filesystem, and Qdrant. With no backup strategy, a disk failure or an accidental `reset_database.py` run means total data loss. Additionally, the original `init_db()` function used ad-hoc hand-rolled `ALTER TABLE` statements with no version tracking, making schema evolution fragile and difficult to reason about.
 
 **Decision:** Two separate concerns addressed together:
 
@@ -200,3 +200,41 @@ The worker runs **locally** (not in Docker) because it needs project code, Pytho
 - The `alembic.ini` at project root allows CLI use: `uv run alembic upgrade head`
 - Image store files are not backed up by the script — they are large, append-only blobs and the originals typically exist elsewhere; document this assumption
 - Qdrant embeddings can be regenerated from images via `write_new_embeddings` flow if the Qdrant snapshot is unavailable
+
+---
+
+## ADR-011: Terminology rename and image_type field
+
+**Date:** 2026-02
+**Status:** Accepted
+
+**Context:** The original codebase used "variant group" / "sub-variant" / "variants" terminology inherited from the early battlemap-only scope. As the tool broadened to handle non-battlemap images (character portraits, scene illustrations, tokens, etc.), the naming became confusing — "variant" conflated the concept of a group member with the broader "image variant" meaning. Additionally, the `BattlemapParser` name and `map_name` field were too domain-specific.
+
+The system also needed a way to distinguish between battlemaps (which have grid metadata) and other image types like scenes (which do not).
+
+**Decision:** Two changes made together:
+
+1. **Terminology rename:**
+   - "variant group" → "group" (or "image group"); `VariantGroup` model → `ImageGroup`
+   - "sub-variant" → "subgroup"; `sub_variant` field → `subgroup`
+   - "variants" (individual images in a group) → "scenes"
+   - `BattlemapParser` → `ImageParser`; `battlemap_parser.py` → `image_parser.py`
+   - `map_name` → `name`
+   - `variant_group_name` → `group_name`
+   - `/variant-groups` API route → `/groups`
+
+   SQLAlchemy column aliases are used to map old DB column names to new Python attribute names, avoiding a database migration for the rename. For example, `Column("variant_group_name", ...).label("group_name")` or using the `key` parameter. This keeps the physical schema stable while the application code uses the new names.
+
+2. **`image_type` field:**
+   - New `image_type` column on `Image` (values: `"battlemap"`, `"scene"`; default: `"battlemap"`)
+   - `ImageParser` is type-aware: scenes skip grid detection and use a reduced junk word list
+   - Gallery gains a type filter in the filter panel
+   - Import dialog gains a per-file type selector (override from default)
+   - ImageViewer conditionally hides grid UI for scene-type images
+
+**Consequences:**
+- No database migration needed for the rename (column aliasing approach)
+- All new code uses the new terminology; old DB column names are an implementation detail
+- `image_type` enables type-specific behavior in both parser and UI
+- Future image types (e.g., "token", "handout") can be added by extending the enum
+- The column aliasing pattern means raw SQL queries against the DB still use old column names — documented for anyone inspecting the DB directly

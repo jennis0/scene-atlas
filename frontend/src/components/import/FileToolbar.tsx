@@ -15,7 +15,7 @@ import {
 import type { EditableFileState, TagData } from '@/types'
 import { TagPicker } from './TagPicker'
 import type { ParsedTagVocab } from './types'
-import type { FileFilter, ActiveFilter } from './fileFilter'
+import type { FileFilter, ActiveFilter, ImageTypeFilter } from './fileFilter'
 import { FilterMenuContent, FilterChipList, type FilterOptionGroup } from '@/components/FilterMenuContent'
 
 interface FileToolbarProps {
@@ -29,13 +29,15 @@ interface FileToolbarProps {
   onDeselectAll: () => void
   onBulkAddTag: (tag: TagData) => void
   onBulkSetGrid: (v: boolean | null) => void
-  onBulkSetSubVariant: (v: string) => void
+  onBulkSetImageType: (v: 'battlemap' | 'scene') => void
+  onBulkSetSubgroup: (v: string) => void
   onBulkExclude: () => void
   onMoveToNewGroup?: () => void
   excludeLabel?: string
   duplicateCount?: number
   skippedDuplicateCount?: number
   onBulkSetDuplicateAction?: (action: 'skip' | 'import') => void
+  alwaysShowTypeToggle?: boolean
 }
 
 export function FileToolbar({
@@ -49,15 +51,17 @@ export function FileToolbar({
   onDeselectAll,
   onBulkAddTag,
   onBulkSetGrid,
-  onBulkSetSubVariant,
+  onBulkSetImageType,
+  onBulkSetSubgroup,
   onBulkExclude,
   onMoveToNewGroup,
   excludeLabel = 'Exclude',
   duplicateCount = 0,
   skippedDuplicateCount = 0,
   onBulkSetDuplicateAction,
+  alwaysShowTypeToggle = false,
 }: FileToolbarProps) {
-  const [subVariantInput, setSubVariantInput] = useState('')
+  const [subgroupInput, setSubgroupInput] = useState('')
   const [subOpen, setSubOpen] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
 
@@ -76,13 +80,13 @@ export function FileToolbar({
     }
   }
 
-  const existingSubVariants = [...new Set(
-    files.filter((f) => !f.excluded && f.sub_variant).map((f) => f.sub_variant as string)
+  const existingSubgroups = [...new Set(
+    files.filter((f) => !f.excluded && f.subgroup).map((f) => f.subgroup as string)
   )].sort()
 
-  const applySubVariant = (value: string) => {
-    onBulkSetSubVariant(value)
-    setSubVariantInput('')
+  const applySubgroup = (value: string) => {
+    onBulkSetSubgroup(value)
+    setSubgroupInput('')
     setSubOpen(false)
   }
 
@@ -90,8 +94,8 @@ export function FileToolbar({
 
   const nonExcludedFiles = files.filter((f) => !f.excluded && !f.outOfScope)
 
-  const availableSubVariants = [...new Set(
-    nonExcludedFiles.filter((f) => f.sub_variant).map((f) => f.sub_variant as string)
+  const availableSubgroups = [...new Set(
+    nonExcludedFiles.filter((f) => f.subgroup).map((f) => f.subgroup as string)
   )].sort()
 
   const gridStates: FilterOptionGroup['options'] = [
@@ -122,18 +126,20 @@ export function FileToolbar({
 
   const filterGroups: FilterOptionGroup[] = []
 
-  if (availableSubVariants.length > 0) {
+  if (availableSubgroups.length > 0) {
     filterGroups.push({
-      id: 'subVariant',
-      label: 'Sub-variant',
-      type: 'subVariant',
-      options: availableSubVariants.map((sv) => ({
+      id: 'subgroup',
+      label: 'Subgroup',
+      type: 'subgroup',
+      options: availableSubgroups.map((sv) => ({
         filterValue: sv,
         label: sv,
-        filterLabel: `sub: ${sv}`,
+        filterLabel: `subgroup: ${sv}`,
       })),
     })
   }
+
+  const hasMixedTypes = new Set(nonExcludedFiles.map((f) => f.image_type ?? 'battlemap')).size > 1
 
   filterGroups.push({
     id: 'gridded',
@@ -192,15 +198,22 @@ export function FileToolbar({
               placeholder="Filter maps…"
               className="w-full h-7 pl-8 pr-7 text-sm bg-secondary border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary/40 text-foreground placeholder:text-muted-foreground"
             />
-            {filter.text && (
+            {(filter.text || filter.imageType !== 'all') && (
               <button
-                onClick={() => onFilterChange({ ...filter, text: '' })}
+                onClick={() => onFilterChange({ ...filter, text: '', imageType: 'all' })}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
             )}
           </div>
+
+          {(hasMixedTypes || alwaysShowTypeToggle) && (
+            <TypeToggle
+              value={filter.imageType}
+              onChange={(v) => onFilterChange({ ...filter, imageType: v })}
+            />
+          )}
 
           <Popover open={filterOpen} onOpenChange={setFilterOpen}>
             <PopoverTrigger asChild>
@@ -235,6 +248,18 @@ export function FileToolbar({
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="h-7 px-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors flex items-center gap-1">
+                  Type <ChevronDown className="h-3 w-3" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => onBulkSetImageType('battlemap')}>Battlemap</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onBulkSetImageType('scene')}>Scene</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="h-7 px-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors flex items-center gap-1">
                   Grid <ChevronDown className="h-3 w-3" />
                 </button>
               </DropdownMenuTrigger>
@@ -256,15 +281,15 @@ export function FileToolbar({
                 className="w-52 p-0"
                 onOpenAutoFocus={(e: Event) => { e.preventDefault() }}
               >
-                {existingSubVariants.length > 0 && (
+                {existingSubgroups.length > 0 && (
                   <>
                     <div className="px-3 pt-2.5 pb-1 text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">
                       Existing
                     </div>
-                    {existingSubVariants.map((sv) => (
+                    {existingSubgroups.map((sv) => (
                       <button
                         key={sv}
-                        onClick={() => applySubVariant(sv)}
+                        onClick={() => applySubgroup(sv)}
                         className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-secondary capitalize transition-colors"
                       >
                         {sv}
@@ -275,20 +300,20 @@ export function FileToolbar({
                 )}
                 <div className="p-2 flex gap-1.5">
                   <input
-                    autoFocus={existingSubVariants.length === 0}
-                    value={subVariantInput}
-                    onChange={(e) => setSubVariantInput(e.target.value)}
-                    placeholder="New sub-variant…"
+                    autoFocus={existingSubgroups.length === 0}
+                    value={subgroupInput}
+                    onChange={(e) => setSubgroupInput(e.target.value)}
+                    placeholder="New subgroup…"
                     className="flex-1 min-w-0 h-7 px-2 text-sm bg-secondary border border-border rounded text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
                     onKeyDown={(e) => {
                       e.stopPropagation()
-                      if (e.key === 'Enter' && subVariantInput.trim()) applySubVariant(subVariantInput.trim())
+                      if (e.key === 'Enter' && subgroupInput.trim()) applySubgroup(subgroupInput.trim())
                       if (e.key === 'Escape') setSubOpen(false)
                     }}
                   />
                   <button
                     className="h-7 px-2.5 text-xs shrink-0 rounded border border-border bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-                    onClick={() => { if (subVariantInput.trim()) applySubVariant(subVariantInput.trim()) }}
+                    onClick={() => { if (subgroupInput.trim()) applySubgroup(subgroupInput.trim()) }}
                   >
                     Set
                   </button>
@@ -335,6 +360,31 @@ export function FileToolbar({
       )}
 
       <FilterChipList filters={filter.active} onFiltersChange={handleFiltersChange} />
+    </div>
+  )
+}
+
+function TypeToggle({ value, onChange }: { value: ImageTypeFilter; onChange: (v: ImageTypeFilter) => void }) {
+  const opts: { label: string; val: ImageTypeFilter }[] = [
+    { label: 'All', val: 'all' },
+    { label: 'Maps', val: 'battlemap' },
+    { label: 'Scenes', val: 'scene' },
+  ]
+  return (
+    <div className="inline-flex rounded border border-border overflow-hidden shrink-0">
+      {opts.map((opt) => (
+        <button
+          key={opt.val}
+          onClick={() => onChange(opt.val)}
+          className={`px-1.5 py-0.5 text-[11px] transition-colors ${
+            value === opt.val
+              ? 'bg-secondary text-foreground font-medium'
+              : 'text-muted-foreground/60 hover:text-muted-foreground hover:bg-secondary/50'
+          }`}
+        >
+          {opt.label}
+        </button>
+      ))}
     </div>
   )
 }

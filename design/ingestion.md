@@ -19,7 +19,7 @@ Web Upload                              CLI
     ▼                                    ▼
 analyse_upload (deployment)     bulk_image_ingestion (flow)
     │                                    │
-    ├── BattlemapParser.group_files()    │
+    ├── ImageParser.group_files()        │
     ├── generate_preview_thumbnail()     │
     │   (concurrent via .submit())       │
     │                                    │
@@ -65,22 +65,22 @@ Parses and groups uploaded files for the preview UI. Called synchronously by the
 - `relative_paths: list[str]` — file paths within staging
 
 **Processing:**
-1. Creates a `BattlemapParser` with tag vocabulary from DB
-2. Runs `parser.group_files(relative_paths)` to detect variant groups
+1. Creates an `ImageParser` with tag vocabulary from DB
+2. Runs `parser.group_files(relative_paths)` to detect image groups
 3. Generates preview thumbnails (120x120 JPEG) concurrently via `.submit()` for each file into `{staging_dir}/.thumbs/`
 4. Returns grouped results with per-file metadata and `preview_thumbnail` filenames
 
-**Returns:** `list[dict]` — variant groups with parsed metadata (persisted result for cross-process retrieval)
+**Returns:** `list[dict]` — image groups with parsed metadata (persisted result for cross-process retrieval)
 
 ### `process_import_group` (Prefect deployment)
 
-Processes a confirmed variant group using the batched pipeline. Called async by the confirm endpoint via `run_deployment(timeout=0)`.
+Processes a confirmed image group using the batched pipeline. Called async by the confirm endpoint via `run_deployment(timeout=0)`.
 
 **Parameters:**
 - `job_id: str` — ImportJob ID for progress tracking
 - `staging_dir: str` — path to staging directory
 - `author: str` — user-confirmed author
-- `variant_group_name: str` — user-confirmed group name
+- `group_name: str` — user-confirmed group name
 - `files: list[dict]` — per-file metadata dicts from the confirm request
 
 **Processing:**
@@ -126,7 +126,7 @@ Batch ingestion from one or more source directories (CLI entry point).
 
 The main per-image preparation task. Handles everything except CLIP and saves:
 
-1. **Parse metadata** — CLI mode: `BattlemapParser.parse()`, Web mode: use explicit dict
+1. **Parse metadata** — CLI mode: `ImageParser.parse()`, Web mode: use explicit dict
 2. **Copy to ImageStore** — UUID-based storage key, `image_store.put()`
 3. **Get file size** — inline `os.stat()`
 4. **Generate thumbnails** — calls `generate_thumbnails.fn()` inline (3 sizes, BILINEAR for small/medium, LANCZOS for large). Also captures image dimensions.

@@ -69,6 +69,13 @@ async def get_search_facets(db: Session = Depends(get_db)):
 
     total_images = db.query(func.count(Image.id)).scalar() or 0
 
+    # Image type counts
+    image_type_rows = (
+        db.query(Image.image_type, func.count(Image.id))
+        .group_by(Image.image_type)
+        .all()
+    )
+
     return {
         "total_images": total_images,
         "authors": [{"value": a, "count": c} for a, c in authors],
@@ -79,6 +86,7 @@ async def get_search_facets(db: Session = Depends(get_db)):
             "unknown": unknown_count,
         },
         "colors": [{"hex": h, "count": c} for h, c in colors],
+        "image_types": [{"value": t or "battlemap", "count": c} for t, c in image_type_rows],
     }
 
 
@@ -92,6 +100,7 @@ async def search_images(
     authors: List[str] = Query([]),
     exclude_authors: List[str] = Query([]),
     colors: List[str] = Query([]),
+    image_types: List[str] = Query([]),
     gridded: Optional[bool] = None,
     limit: int = 500,
     offset: int = 0,
@@ -124,6 +133,9 @@ async def search_images(
 
     # --- Build base SQL filter query ---
     sql_query = db.query(Image)
+
+    if image_types:
+        sql_query = sql_query.filter(Image.image_type.in_(image_types))
 
     if gridded is not None:
         sql_query = sql_query.filter(Image.gridded == gridded)
