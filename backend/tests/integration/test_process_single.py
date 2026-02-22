@@ -7,11 +7,10 @@ Tests both modes:
 Uses real DB + real filesystem. Mocks CLIP, Qdrant, thumbnails.
 """
 
-from pathlib import Path
 
 import pytest
 
-from backend.app.models import Image, Tag, get_engine, get_session_local
+from backend.app.models import Image
 
 
 @pytest.fixture

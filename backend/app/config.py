@@ -1,7 +1,6 @@
 """Application configuration management."""
 
 from pathlib import Path
-from typing import Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -27,6 +26,15 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str = "sqlite:///./data/battlemap.db"
+
+    @property
+    def db_path(self) -> Path:
+        """Path to the SQLite file, derived from database_url."""
+        url = self.database_url
+        if url.startswith("sqlite:///"):
+            p = Path(url[len("sqlite:///"):])
+            return p if p.is_absolute() else self.base_dir / p
+        raise ValueError(f"Cannot derive db_path from non-SQLite URL: {url}")
 
     # Qdrant
     qdrant_host: str = "localhost"

@@ -11,18 +11,16 @@ import logging
 import shutil
 import uuid
 import zipfile
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import List, Optional
 
-from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Request, UploadFile
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from prefect.deployments import run_deployment
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..services.validation import check_zip_safety, verify_media_mime
 from ..models import (
     ImportGroupJob,
     ImportJob,
@@ -34,7 +32,6 @@ from ..models.schemas import (
     HashCheckRequest,
     HashCheckResponse,
     HashCheckResultItem,
-    ImportConfirmFile,
     ImportConfirmRequest,
     ImportFileInfo,
     ImportGroup,
@@ -43,12 +40,13 @@ from ..models.schemas import (
     ImportJobSummary,
     ImportUploadResponse,
 )
+from ..services.validation import check_zip_safety, verify_media_mime
 
 
 class ImportConfirmAllRequest(BaseModel):
     """Confirm all groups for processing in one flow run."""
 
-    groups: List[ImportConfirmRequest]
+    groups: list[ImportConfirmRequest]
 
 
 logger = logging.getLogger(__name__)
@@ -124,10 +122,10 @@ async def check_hashes(
 @router.post("/upload", response_model=ImportUploadResponse)
 async def upload_files(
     request: Request,
-    files: List[UploadFile] = File(default=[]),
-    relative_paths: Optional[str] = Form(None),
-    manifest: Optional[str] = Form(None),
-    image_type: Optional[str] = Form(None),
+    files: list[UploadFile] = File(default=[]),
+    relative_paths: str | None = Form(None),
+    manifest: str | None = Form(None),
+    image_type: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     """Upload files for import, analyse and group them.
@@ -209,7 +207,7 @@ async def upload_files(
                     )
                 except ValueError as exc:
                     zip_path.unlink(missing_ok=True)
-                    raise HTTPException(status_code=413, detail=str(exc))
+                    raise HTTPException(status_code=413, detail=str(exc)) from exc
 
                 with zipfile.ZipFile(zip_path, "r") as zf:
                     for member in zf.infolist():
@@ -385,7 +383,7 @@ async def upload_files(
         # Clean up on error
         shutil.rmtree(staging_dir, ignore_errors=True)
         logger.error(f"Upload failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}") from e
 
 
 @router.post("/{job_id}/confirm")
@@ -631,10 +629,10 @@ async def get_active_imports(db: Session = Depends(get_db)):
     from datetime import timedelta
 
     terminal_statuses = {"completed", "failed", "cancelled"}
-    cutoff = datetime.utcnow() - timedelta(hours=1)
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=1)
 
     # Fetch recent jobs — import tables are small so fetching last 7 days is fine
-    recent_cutoff = datetime.utcnow() - timedelta(days=7)
+    recent_cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=7)
     all_jobs = (
         db.query(ImportJob)
         .filter(ImportJob.created_at >= recent_cutoff)
@@ -752,7 +750,7 @@ async def cancel_import(job_id: str, db: Session = Depends(get_db)):
     elif all(g.status in ("completed", "failed", "cancelled") for g in all_groups):
         job.status = "completed"
 
-    job.completed_at = datetime.utcnow()
+    job.completed_at = datetime.now(UTC).replace(tzinfo=None)
     db.commit()
 
     return {"status": job.status, "staging_cleaned": running_groups == 0}
@@ -782,7 +780,7 @@ async def cancel_import_group(
         )
 
     group_job.status = "cancelled"
-    group_job.completed_at = datetime.utcnow()
+    group_job.completed_at = datetime.now(UTC).replace(tzinfo=None)
     db.commit()
 
     return {"status": "cancelled", "group_id": group_id}

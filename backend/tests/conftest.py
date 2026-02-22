@@ -36,16 +36,17 @@ _mock_qdrant_client_instance.get_collections.return_value = MagicMock(collection
 _mock_qdrant_client_cls.return_value = _mock_qdrant_client_instance
 
 # Patch qdrant_client before it's imported by qdrant_service.py
-import qdrant_client as _qc
+import qdrant_client as _qc  # noqa: E402
 
-_original_QdrantClient = _qc.QdrantClient
 _qc.QdrantClient = _mock_qdrant_client_cls
 
-# Also patch in the models submodule that qdrant_service imports from
-import qdrant_client.models as _qc_models  # noqa: ensure it's loaded
-
 # Now safe to import backend modules — QdrantService() will use the mock
-from backend.app.models import get_engine, get_session_local, init_db, seed_tag_categories
+from backend.app.models import (  # noqa: E402
+    get_engine,
+    get_session_local,
+    init_db,
+    seed_tag_categories,
+)
 
 
 @pytest.fixture
@@ -107,10 +108,11 @@ def test_client(tmp_db):
     so our test DB takes precedence.
     """
     from fastapi.testclient import TestClient
+
     from backend.app.main import app
 
     engine, _ = tmp_db
-    with TestClient(app, raise_server_exceptions=False) as client:
+    with TestClient(app) as client:
         app.state.db_engine = engine
         yield client
 
@@ -146,10 +148,6 @@ def mock_heavy_services(monkeypatch):
     )
 
     # Mock thumbnails at the source module (prepare_single_image calls .fn() directly)
-    from backend.flows.tasks.image_processing import generate_thumbnails
-
-    original_fn = generate_thumbnails.fn
-
     def mock_generate_thumbnails(image_path, storage_key_stem):
         # Open image to get real dimensions (needed for DB save)
         from PIL import Image as PILImage

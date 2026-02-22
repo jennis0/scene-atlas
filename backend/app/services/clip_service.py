@@ -2,7 +2,6 @@
 
 import logging
 from pathlib import Path
-from typing import List, Union
 
 import torch
 from PIL import Image
@@ -49,7 +48,7 @@ class CLIPService:
         self.model.eval()
         logger.info(f"CLIP model ready on device: {self.device}")
 
-    def encode_image(self, image_path: Union[str, Path]) -> List[float]:
+    def encode_image(self, image_path: str | Path) -> list[float]:
         """Generate embedding for an image.
 
         Args:
@@ -83,7 +82,7 @@ class CLIPService:
             logger.error(f"Error encoding image {image_path}: {e}")
             raise
 
-    def encode_text(self, text: str) -> List[float]:
+    def encode_text(self, text: str) -> list[float]:
         """Generate embedding for text query.
 
         Args:
@@ -110,7 +109,7 @@ class CLIPService:
             logger.error(f"Error encoding text '{text}': {e}")
             raise
 
-    def batch_encode_images(self, image_paths: List[Union[str, Path]]) -> List[List[float]]:
+    def batch_encode_images(self, image_paths: list[str | Path]) -> list[list[float]]:
         """Generate embeddings for multiple images in batch.
 
         Args:
@@ -146,7 +145,7 @@ class CLIPService:
 
 
 # Global instance (lazy loaded)
-_clip_service: Union[CLIPService, None] = None
+_clip_service: CLIPService | None = None
 
 
 def get_clip_service() -> CLIPService:

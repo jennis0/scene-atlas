@@ -1,7 +1,6 @@
 """Groups API endpoints."""
 
 import re
-from typing import List, Optional, Set
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func
@@ -27,12 +26,12 @@ from ..services import safe_delete_image
 router = APIRouter()
 
 
-def _tokenize(name: str) -> Set[str]:
+def _tokenize(name: str) -> set[str]:
     """Split a group name into lowercase alphanumeric tokens."""
     return set(re.findall(r"[a-z0-9]+", name.lower()))
 
 
-def _token_jaccard(a: Set[str], b: Set[str]) -> float:
+def _token_jaccard(a: set[str], b: set[str]) -> float:
     """Token Jaccard similarity: |intersection| / |union|."""
     if not a and not b:
         return 1.0
@@ -54,9 +53,9 @@ def get_db(request: Request):
 @router.get("/search", response_model=GroupSearchResponse)
 async def search_groups(
     q: str = "",
-    exclude_id: Optional[int] = None,
+    exclude_id: int | None = None,
     limit: int = Query(20, ge=1, le=100),
-    reference_name: Optional[str] = None,
+    reference_name: str | None = None,
     db: Session = Depends(get_db),
 ):
     """Search groups by base_name for typeahead picker.
@@ -97,7 +96,7 @@ async def search_groups(
             .group_by(Image.group_id)
             .all()
         )
-        counts = {gid: cnt for gid, cnt in rows}
+        counts = dict(rows)
 
     result = [
         GroupSearchItem(
@@ -152,7 +151,7 @@ async def edit_group(
     kept_ids = {img.id for img in payload.images}
     all_images = db.query(Image).filter(Image.group_id == group_id).all()
 
-    deleted_ids: List[int] = []
+    deleted_ids: list[int] = []
     for image in all_images:
         if image.id not in kept_ids:
             deleted_ids.append(image.id)
@@ -193,7 +192,7 @@ async def edit_group(
         group.primary_image_id = remaining[0].id if remaining else None
 
     # 5. Create split-off groups
-    new_group_ids: List[int] = []
+    new_group_ids: list[int] = []
     for new_group_payload in payload.new_groups:
         new_group = ImageGroup(
             base_name=new_group_payload.base_name,

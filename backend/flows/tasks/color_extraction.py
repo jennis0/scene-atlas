@@ -1,17 +1,12 @@
 """Color extraction tasks for Prefect flows."""
 
-import logging
-from pathlib import Path
-from typing import List
-
 import cv2
 import numpy as np
 from prefect import task
 from sklearn.cluster import KMeans
 
 from backend.app.config import settings
-
-logger = logging.getLogger(__name__)
+from backend.flows.logger import get_logger
 
 
 def rgb_to_hex(rgb: tuple) -> str:
@@ -27,7 +22,7 @@ def rgb_to_hex(rgb: tuple) -> str:
 
 
 @task(name="extract_dominant_colors", retries=2)
-def extract_dominant_colors(image_path: str, num_colors: int = None) -> List[dict]:
+def extract_dominant_colors(image_path: str, num_colors: int = None) -> list[dict]:
     """Extract dominant colors from an image using k-means clustering.
 
     Args:
@@ -37,6 +32,7 @@ def extract_dominant_colors(image_path: str, num_colors: int = None) -> List[dic
     Returns:
         List of dicts with color info: [{"hex": "#abc123", "percentage": 45.2, "order": 1}, ...]
     """
+    logger = get_logger(__name__)
     if num_colors is None:
         num_colors = settings.num_dominant_colors
 

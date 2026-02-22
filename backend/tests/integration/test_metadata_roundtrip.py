@@ -8,11 +8,10 @@ silently overwrite them.
 Requires: real DB (SQLite in tmp_path). Mocks: CLIP, Qdrant, thumbnails, ImageStore.
 """
 
-from pathlib import Path
 
 import pytest
 
-from backend.app.models import Image, Tag, ImageGroup, get_engine, get_session_local
+from backend.app.models import Image, ImageGroup, Tag
 
 
 @pytest.fixture
@@ -144,8 +143,8 @@ class TestMetadataRoundTrip:
         _patch_image_store,
     ):
         """process_import_group should relay per-file metadata to process_single_image."""
-        from backend.flows.ingestion import process_import_group
         from backend.app.models import ImportJob
+        from backend.flows.ingestion import process_import_group
 
         engine, SessionLocal = _patch_db_for_flows
 

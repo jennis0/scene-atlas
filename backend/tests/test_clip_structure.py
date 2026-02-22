@@ -11,19 +11,19 @@ clip_service = get_clip_service()
 
 print("CLIP Model Structure:")
 print(f"Model: {clip_service.model.__class__.__name__}")
-print(f"\nText model output:")
+print("\nText model output:")
 print(f"  - text_model.config.hidden_size: {clip_service.model.text_model.config.hidden_size}")
-print(f"\nVision model output:")
+print("\nVision model output:")
 print(f"  - vision_model.config.hidden_size: {clip_service.model.vision_model.config.hidden_size}")
-print(f"\nProjection dimensions:")
+print("\nProjection dimensions:")
 print(f"  - projection_dim: {clip_service.model.config.projection_dim}")
 
 # Test both encoding methods
 text_emb = clip_service.encode_text("test")
-print(f"\nActual dimensions:")
+print("\nActual dimensions:")
 print(f"  - Text embedding: {len(text_emb)}")
 
-from backend.tests import FIXTURES_DIR
+from backend.tests import FIXTURES_DIR  # noqa: E402
 
 # Find an image to test
 images_dir = FIXTURES_DIR

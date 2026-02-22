@@ -16,7 +16,7 @@ print(f"Encoding text: '{text}'")
 
 try:
     embedding = clip_service.encode_text(text)
-    print(f"[OK] Text encoding successful!")
+    print("[OK] Text encoding successful!")
     print(f"     Embedding size: {len(embedding)}")
     print(f"     First 5 values: {embedding[:5]}")
 except Exception as e:

@@ -5,9 +5,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from backend.app.services.qdrant_service import QdrantService
-from backend.app.models import get_engine, Base, get_session_local
 from backend.app.config import settings
+from backend.app.models import Base, get_engine, get_session_local
+from backend.app.services.qdrant_service import QdrantService
 
 print("Cleaning up database...")
 
@@ -23,7 +23,7 @@ Base.metadata.create_all(bind=engine)
 print("[OK] All tables recreated")
 
 # Seed tag categories
-from backend.app.models import seed_tag_categories
+from backend.app.models import seed_tag_categories  # noqa: E402
 
 SessionLocal = get_session_local(engine)
 session = SessionLocal()

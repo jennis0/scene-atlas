@@ -1,16 +1,13 @@
 """Image processing tasks for Prefect flows."""
 
-import logging
 from pathlib import Path
-from typing import Tuple
 
 from PIL import Image
 from prefect import task
 
 from backend.app.config import settings
 from backend.app.services import get_thumbnail_store
-
-logger = logging.getLogger(__name__)
+from backend.flows.logger import get_logger
 
 
 @task(name="generate_thumbnails", retries=2)
@@ -26,6 +23,7 @@ def generate_thumbnails(image_path: str, storage_key_stem: str) -> dict:
     Returns:
         Dict with 'keys' (size name -> storage key) and 'dimensions' (width, height)
     """
+    logger = get_logger(__name__)
     try:
         image_path = Path(image_path)
         thumbnail_store = get_thumbnail_store()
@@ -82,6 +80,7 @@ def generate_preview_thumbnail(
     Returns:
         The safe filename of the generated thumbnail, or None on failure
     """
+    logger = get_logger(__name__)
     try:
         thumbs_dir = Path(staging_dir) / ".thumbs"
         thumbs_dir.mkdir(parents=True, exist_ok=True)
@@ -106,7 +105,7 @@ def generate_preview_thumbnail(
 
 
 @task(name="get_image_dimensions", retries=2)
-def get_image_dimensions(image_path: str) -> Tuple[int, int]:
+def get_image_dimensions(image_path: str) -> tuple[int, int]:
     """Get image width and height.
 
     Args:
@@ -115,6 +114,7 @@ def get_image_dimensions(image_path: str) -> Tuple[int, int]:
     Returns:
         Tuple of (width, height)
     """
+    logger = get_logger(__name__)
     try:
         with Image.open(Path(image_path)) as img:
             return img.size
@@ -133,6 +133,7 @@ def get_file_size(image_path: str) -> int:
     Returns:
         File size in bytes
     """
+    logger = get_logger(__name__)
     try:
         return Path(image_path).stat().st_size
     except Exception as e:

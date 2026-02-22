@@ -1,6 +1,6 @@
 """Search API endpoints."""
 
-from typing import List, Optional
+import logging
 
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import and_, func, or_
@@ -17,6 +17,8 @@ from ..services import get_clip_service, qdrant_service
 from ..services.fts_service import fts_search
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 
 def get_db(request: Request):
@@ -54,8 +56,8 @@ async def get_search_facets(db: Session = Depends(get_db)):
         tags_by_category.setdefault(cat, []).append({"value": val, "count": count})
 
     # Grid state counts
-    gridded_count = db.query(func.count(Image.id)).filter(Image.gridded == True).scalar() or 0
-    gridless_count = db.query(func.count(Image.id)).filter(Image.gridded == False).scalar() or 0
+    gridded_count = db.query(func.count(Image.id)).filter(Image.gridded.is_(True)).scalar() or 0
+    gridless_count = db.query(func.count(Image.id)).filter(Image.gridded.is_(False)).scalar() or 0
     unknown_count = db.query(func.count(Image.id)).filter(Image.gridded.is_(None)).scalar() or 0
 
     # Top 50 colors by distinct image count
@@ -100,22 +102,22 @@ async def get_search_facets(db: Session = Depends(get_db)):
 
 @router.get("/", response_model=ImageSearchResponse)
 async def search_images(
-    query: Optional[str] = None,
+    query: str | None = None,
     semantic_only: bool = False,
     text_only: bool = False,
-    tags: List[str] = Query([]),
-    exclude_tags: List[str] = Query([]),
-    authors: List[str] = Query([]),
-    exclude_authors: List[str] = Query([]),
-    colors: List[str] = Query([]),
-    image_types: List[str] = Query([]),
-    media_types: List[str] = Query([]),
-    gridded: Optional[bool] = None,
+    tags: list[str] = Query([]),
+    exclude_tags: list[str] = Query([]),
+    authors: list[str] = Query([]),
+    exclude_authors: list[str] = Query([]),
+    colors: list[str] = Query([]),
+    image_types: list[str] = Query([]),
+    media_types: list[str] = Query([]),
+    gridded: bool | None = None,
     limit: int = 500,
     offset: int = 0,
     # Deprecated aliases kept for backward compat
-    text: Optional[str] = None,
-    semantic: Optional[str] = None,
+    text: str | None = None,
+    semantic: str | None = None,
     db: Session = Depends(get_db),
 ):
     """
@@ -229,8 +231,8 @@ async def search_images(
                 score_threshold=threshold,
             )
             semantic_scores = {r["image_id"]: r["score"] for r in qdrant_results}
-        except Exception as e:
-            print(f"Semantic search error: {e}")
+        except Exception:
+            logger.exception("Semantic search error")
 
     # Merge scores
     all_candidate_ids = set(text_scores.keys()) | set(semantic_scores.keys())

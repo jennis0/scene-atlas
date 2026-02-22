@@ -5,10 +5,7 @@ Tests pure parsing logic with no DB, no filesystem.
 
 import json
 
-import pytest
-
 from backend.app.services.image_parser import ImageParser
-
 
 # ---------------------------------------------------------------------------
 # Helpers

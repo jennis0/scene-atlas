@@ -1,12 +1,11 @@
-from pathlib import Path
 
-from prefect import task, flow
+from prefect import flow, task
 from tqdm import tqdm
 
 from backend.app.config import settings
+from backend.app.models import Image, get_engine, get_session_local
+from backend.app.services import QdrantService, get_image_store
 from backend.app.services.clip_service import CLIPService
-from backend.app.services import ImageStore, QdrantService, get_image_store
-from backend.app.models import get_engine, get_session_local, Image
 
 
 def create_qdrant_data(
@@ -52,7 +51,7 @@ def generate_embeddings(images: list[Image], model_name: str, collection_name: s
                 image["author"],
                 image["group_name"],
             )
-            for embedding, image in zip(embeddings, batch_images)
+            for embedding, image in zip(embeddings, batch_images, strict=True)
         ]
         result &= qdrant.batch_add_embeddings(qdrant_prep)
         print(f"Batch {i // batch_size + 1} Write Result: {result}")

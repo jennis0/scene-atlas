@@ -1,10 +1,9 @@
 """Integration test: analyse_upload flow (direct call, no Prefect server).
 
-Tests that the analyse flow correctly groups files and generates preview
-thumbnails. Uses a real DB (for tag categories) and real filesystem.
+Tests that the analyse flow correctly groups files, computes content hashes,
+and detects duplicates. Uses a real DB (for tag categories) and real filesystem.
 """
 
-from pathlib import Path
 
 import pytest
 
@@ -19,7 +18,7 @@ def _patch_db_for_parser(monkeypatch, tmp_db):
 
 
 class TestAnalyseUpload:
-    """analyse_upload flow: grouping + thumbnail generation."""
+    """analyse_upload flow: grouping, hash computation, and duplicate detection."""
 
     def test_groups_detected(self, tmp_staging, _patch_db_for_parser):
         from backend.flows.ingestion import analyse_upload
@@ -53,7 +52,8 @@ class TestAnalyseUpload:
         assert len(testmap_group["files"]) == 2
         assert testmap_group["author"] == "TestAuthor"
 
-    def test_preview_thumbnails_generated(self, tmp_staging, _patch_db_for_parser):
+    def test_content_hash_computed(self, tmp_staging, _patch_db_for_parser):
+        """analyse_upload computes a SHA-256 content_hash for each staged file."""
         from backend.flows.ingestion import analyse_upload
 
         relative_paths = [
@@ -65,16 +65,11 @@ class TestAnalyseUpload:
             relative_paths=relative_paths,
         )
 
-        # Check that preview thumbnails were created
-        thumbs_dir = tmp_staging / ".thumbs"
-        assert thumbs_dir.exists()
-        thumb_files = list(thumbs_dir.glob("*.jpg"))
-        assert len(thumb_files) >= 1
-
-        # Check that the file entry has a preview_thumbnail field
         file_entry = groups[0]["files"][0]
-        assert "preview_thumbnail" in file_entry
-        assert file_entry["preview_thumbnail"] is not None
+        assert "content_hash" in file_entry
+        # SHA-256 hex digest is 64 characters
+        assert file_entry["content_hash"] is not None
+        assert len(file_entry["content_hash"]) == 64
 
     def test_parsed_metadata_present(self, tmp_staging, _patch_db_for_parser):
         from backend.flows.ingestion import analyse_upload

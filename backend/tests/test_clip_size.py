@@ -6,7 +6,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from backend.app.services import get_clip_service
-
 from backend.tests import FIXTURES_DIR
 
 # Find a test image

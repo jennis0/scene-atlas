@@ -4,7 +4,6 @@ Tests the GET /api/v1/imports/{job_id}/preview/{relative_path} endpoint.
 Uses real filesystem (no DB needed for this endpoint).
 """
 
-from pathlib import Path
 
 import pytest
 

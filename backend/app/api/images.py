@@ -1,6 +1,5 @@
 """Images API endpoints."""
 
-from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
@@ -16,12 +15,12 @@ from ..services import get_image_store, get_thumbnail_store, safe_delete_image
 
 
 class ImagePatch(BaseModel):
-    name: Optional[str] = None
-    subgroup: Optional[str] = None
-    gridded: Optional[bool] = None
-    grid_width: Optional[int] = None
-    grid_height: Optional[int] = None
-    image_type: Optional[str] = None
+    name: str | None = None
+    subgroup: str | None = None
+    gridded: bool | None = None
+    grid_width: int | None = None
+    grid_height: int | None = None
+    image_type: str | None = None
 
 
 router = APIRouter()
@@ -37,7 +36,7 @@ def get_db(request: Request):
         db.close()
 
 
-@router.get("/authors", response_model=List[str])
+@router.get("/authors", response_model=list[str])
 async def list_authors(db: Session = Depends(get_db)):
     """List all distinct non-empty author values."""
     rows = (
@@ -46,7 +45,7 @@ async def list_authors(db: Session = Depends(get_db)):
     return sorted([r[0] for r in rows])
 
 
-@router.get("/", response_model=List[ImageResponse])
+@router.get("/", response_model=list[ImageResponse])
 async def list_images(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     """List all images with pagination."""
     images = db.query(Image).offset(skip).limit(limit).all()
@@ -87,7 +86,7 @@ async def delete_image(image_id: int, db: Session = Depends(get_db)):
     return {"message": "Image deleted successfully"}
 
 
-@router.get("/{image_id}/scenes", response_model=List[ImageResponse])
+@router.get("/{image_id}/scenes", response_model=list[ImageResponse])
 async def get_image_scenes(image_id: int, db: Session = Depends(get_db)):
     """Get all scenes in the same group as this image."""
     image = db.query(Image).filter(Image.id == image_id).first()

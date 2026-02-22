@@ -9,13 +9,14 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
+
 from .config import settings
 
 # Set PREFECT_API_URL before any Prefect imports so the client connects to our server
 os.environ.setdefault("PREFECT_API_URL", settings.prefect_api_url)
 
 from .api import groups, images, imports, search, tags
-from .models import get_engine, init_db, seed_tag_categories, get_session_local
+from .models import get_engine, get_session_local, init_db, seed_tag_categories
 
 # Configure logging
 logging.basicConfig(
@@ -57,7 +58,7 @@ async def lifespan(app: FastAPI):
     logger.info("Pre-loading CLIP model...")
     from .services.clip_service import get_clip_service
 
-    clip_service = get_clip_service()
+    get_clip_service()
     logger.info("CLIP model loaded and ready")
 
     logger.info(f"Server ready on {settings.api_host}:{settings.api_port}")

@@ -9,19 +9,17 @@ manually triggerable from the Prefect UI.
 """
 
 import json
-import logging
 import shutil
 import sqlite3
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from prefect import flow, task
 
 from backend.app.config import settings
-
-logger = logging.getLogger(__name__)
+from backend.flows.logger import get_logger
 
 
 # ---------------------------------------------------------------------------
@@ -40,11 +38,12 @@ def backup_sqlite(backup_dir: Path, db_path: Path | None = None) -> Path:
     Args:
         backup_dir: Directory where the backup will be written.
         db_path: Path to the source SQLite file. Defaults to the application
-            database (``settings.data_dir / "battlemap.db"``).
+            database derived from ``settings.database_url``.
     """
+    logger = get_logger(__name__)
     if db_path is None:
-        db_path = settings.data_dir / "battlemap.db"
-    backup_path = backup_dir / "battlemap.db"
+        db_path = settings.db_path
+    backup_path = backup_dir / db_path.name
     backup_path.parent.mkdir(parents=True, exist_ok=True)
 
     with sqlite3.connect(str(db_path)) as src, sqlite3.connect(str(backup_path)) as dst:
@@ -63,6 +62,7 @@ def backup_qdrant() -> str | None:
     (e.g. not yet populated, or container is down). Non-fatal: the overall
     backup flow still succeeds if only the SQLite backup completed.
     """
+    logger = get_logger(__name__)
     url = (
         f"http://{settings.qdrant_host}:{settings.qdrant_port}"
         f"/collections/{settings.qdrant_collection_name}/snapshots"
@@ -99,6 +99,7 @@ def rotate_backups(backups_root: Path, keep_daily: int = 7, keep_weekly: int = 4
 
     Returns the number of directories deleted.
     """
+    logger = get_logger(__name__)
     if not backups_root.exists():
         return 0
 
@@ -145,7 +146,8 @@ def backup_database() -> dict:
     Scheduled daily at 03:00 UTC. Also manually triggerable from the Prefect UI.
     Failures are retried automatically by Prefect.
     """
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    logger = get_logger(__name__)
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     backups_root = settings.data_dir / "backups"
     backup_dir = backups_root / timestamp
 
@@ -178,19 +180,20 @@ def cleanup_stale_staging(max_age_hours: int = 24) -> int:
 
     Returns the number of directories removed.
     """
+    logger = get_logger(__name__)
     staging_root = settings.staging_dir
     if not staging_root.exists():
         return 0
 
-    cutoff = datetime.utcnow() - timedelta(hours=max_age_hours)
+    cutoff = datetime.now(UTC) - timedelta(hours=max_age_hours)
     deleted = 0
 
     for staging_dir in staging_root.iterdir():
         if not staging_dir.is_dir():
             continue
-        mtime = datetime.utcfromtimestamp(staging_dir.stat().st_mtime)
+        mtime = datetime.fromtimestamp(staging_dir.stat().st_mtime, tz=UTC)
         if mtime < cutoff:
-            age = datetime.utcnow() - mtime
+            age = datetime.now(UTC) - mtime
             shutil.rmtree(staging_dir, ignore_errors=True)
             logger.info(f"Cleaned stale staging dir: {staging_dir.name} (age: {age})")
             deleted += 1
@@ -206,6 +209,7 @@ def cleanup_staging() -> dict:
     of process_import_job — this catches any leftovers from crashes or the
     single-group import path.
     """
+    logger = get_logger(__name__)
     deleted = cleanup_stale_staging()
     logger.info(f"Staging cleanup complete: removed {deleted} stale director(ies)")
     return {"deleted": deleted}

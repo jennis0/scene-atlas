@@ -20,9 +20,9 @@ os.environ.setdefault("PREFECT_API_URL", "http://localhost:4200/api")
 from prefect.client.orchestration import get_client
 
 from backend.app.config import settings
+from backend.flows.backfill_content_hash import backfill_content_hash
 from backend.flows.ingestion import analyse_upload, process_import_group, process_import_job
 from backend.flows.maintenance import backup_database, cleanup_staging
-from backend.flows.backfill_content_hash import backfill_content_hash
 from backend.flows.reparse_names import reparse_names
 from backend.flows.retag_all_images import retag_all_images
 from backend.flows.write_new_embeddings import write_new_embeddings

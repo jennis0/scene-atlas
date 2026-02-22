@@ -123,6 +123,8 @@ class ImageParser:
                 "tiff",
                 "highres",
                 "lowres",
+                "hd",
+                "fr",
                 # Grid folders
                 "gridded",
                 "gridless",
@@ -463,7 +465,7 @@ class ImageParser:
         """Remove leading words that match *prefix_words* (case-insensitive)."""
         if not prefix_words or len(words) < len(prefix_words):
             return words
-        if all(w.lower() == p.lower() for w, p in zip(words, prefix_words)):
+        if all(w.lower() == p.lower() for w, p in zip(words, prefix_words, strict=False)):
             return words[len(prefix_words) :]
         return words
 
@@ -748,7 +750,7 @@ class ImageParser:
         b_words = b_norm.split()
 
         common: list[str] = []
-        for wa, wb in zip(a_words, b_words):
+        for wa, wb in zip(a_words, b_words, strict=False):
             if wa.lower() == wb.lower():
                 common.append(wa)
             else:
@@ -883,7 +885,7 @@ class ImageParser:
                 parent = str(Path(pf["relative_path"]).parent)
                 by_folder.setdefault(parent, []).append(pf)
 
-            for parent_folder, files in by_folder.items():
+            for _parent_folder, files in by_folder.items():
                 # Sort by filename stem for prefix detection
                 files.sort(key=lambda f: Path(f["relative_path"]).stem.lower())
 

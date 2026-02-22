@@ -85,7 +85,7 @@ class TestImportConfirmRequest:
         assert len(req.files) == 1
 
     def test_missing_author_fails(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             ImportConfirmRequest(
                 group_name="Test Map",
                 files=[ImportConfirmFile(relative_path="file.jpg")],

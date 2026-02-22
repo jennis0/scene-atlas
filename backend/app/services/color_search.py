@@ -3,7 +3,6 @@
 import colorsys
 import math
 import time
-from typing import Optional
 
 from sqlalchemy.orm import Session
 
@@ -26,11 +25,11 @@ def hex_to_hsl_cylinder(hex_color: str) -> tuple[float, float, float]:
     """
     h_str = hex_color.lstrip("#")
     r, g, b = int(h_str[0:2], 16) / 255, int(h_str[2:4], 16) / 255, int(h_str[4:6], 16) / 255
-    h, l, s = colorsys.rgb_to_hls(r, g, b)
+    h, lightness, s = colorsys.rgb_to_hls(r, g, b)
     angle = h * 2 * math.pi
     x = s * math.cos(angle)
     y = s * math.sin(angle)
-    return (x, y, l)
+    return (x, y, lightness)
 
 
 def color_distance(v1: tuple[float, float, float], v2: tuple[float, float, float]) -> float:
@@ -64,7 +63,7 @@ class ColorIndex:
         self,
         db: Session,
         target_hex: str,
-        threshold: Optional[float] = None,
+        threshold: float | None = None,
     ) -> set[int]:
         """Find image IDs with at least one dominant color within threshold of target."""
         self._ensure_loaded(db)
@@ -80,7 +79,7 @@ class ColorIndex:
         self,
         db: Session,
         target_hexes: list[str],
-        threshold: Optional[float] = None,
+        threshold: float | None = None,
     ) -> set[int]:
         """Find image IDs matching ANY of the target colors (OR logic)."""
         result: set[int] = set()

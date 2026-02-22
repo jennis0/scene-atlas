@@ -8,7 +8,6 @@ then calls analyse_upload via Prefect deployment.
 import json
 import zipfile
 from io import BytesIO
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest

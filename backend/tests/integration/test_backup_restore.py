@@ -11,12 +11,9 @@ Run with:
 import sqlite3
 from pathlib import Path
 
-import pytest
-
-from backend.app.models.database import init_db, seed_tag_categories, get_engine, get_session_local
-from backend.app.models import Image, ImageGroup, Tag, Color
+from backend.app.models import Color, Image, ImageGroup, Tag
+from backend.app.models.database import get_engine, get_session_local, seed_tag_categories
 from backend.flows.maintenance import backup_sqlite, rotate_backups
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -157,9 +154,10 @@ def test_restore_from_backup_preserves_all_data(tmp_path, tmp_db):
     # Re-open the restored database
     restored_engine = get_engine(db_url)
     # Stamp at head since this is a pre-Alembic-stamped restored DB
-    from alembic.config import Config as AlembicConfig
-    from alembic import command
     from pathlib import Path as _Path
+
+    from alembic import command
+    from alembic.config import Config as AlembicConfig
 
     alembic_ini = _Path(__file__).parent.parent.parent.parent / "alembic.ini"
     alembic_cfg = AlembicConfig(str(alembic_ini))

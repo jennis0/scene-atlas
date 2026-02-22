@@ -1,7 +1,7 @@
 """Services package."""
 
-from .image_parser import ImageParser
 from .deletion_service import safe_delete_image
+from .image_parser import ImageParser
 from .image_store import ImageStore
 from .qdrant_service import QdrantService, qdrant_service
 

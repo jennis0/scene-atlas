@@ -1,7 +1,6 @@
 """Qdrant vector database service."""
 
 import logging
-from typing import List, Optional
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
@@ -60,7 +59,7 @@ class QdrantService:
             raise
 
     def add_image_embedding(
-        self, image_id: int, embedding: List[float], metadata: Optional[dict] = None
+        self, image_id: int, embedding: list[float], metadata: dict | None = None
     ) -> bool:
         """Add or update an image embedding in Qdrant.
 
@@ -94,7 +93,7 @@ class QdrantService:
 
     def batch_add_embeddings(
         self,
-        items: List[dict],
+        items: list[dict],
     ) -> bool:
         """Add or update multiple image embeddings in Qdrant in a single call.
 
@@ -129,10 +128,10 @@ class QdrantService:
 
     def search_similar(
         self,
-        query_embedding: List[float],
+        query_embedding: list[float],
         limit: int = 100,
-        score_threshold: Optional[float] = None,
-    ) -> List[dict]:
+        score_threshold: float | None = None,
+    ) -> list[dict]:
         """Search for similar images by embedding.
 
         Args:

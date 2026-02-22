@@ -1,10 +1,10 @@
 """Tags API endpoints — CRUD for categories and tag values with cascade support."""
 
-from typing import List, Optional
 import json
-from fastapi import APIRouter, Depends, HTTPException, Request, Body
-from sqlalchemy.orm import Session
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from sqlalchemy import func
+from sqlalchemy.orm import Session
 
 from ..models import (
     Tag,
@@ -34,7 +34,7 @@ def get_db(request: Request):
 # ── Tag Categories ────────────────────────────────────────────────────────────
 
 
-@router.get("/categories", response_model=List[TagCategoryResponse])
+@router.get("/categories", response_model=list[TagCategoryResponse])
 async def list_tag_categories(db: Session = Depends(get_db)):
     """List all tag categories, ordered by display_order."""
     categories = db.query(TagCategory).order_by(TagCategory.display_order, TagCategory.name).all()
@@ -147,7 +147,7 @@ async def delete_tag_category(category_name: str, db: Session = Depends(get_db))
 async def upsert_tag_value(
     category_name: str,
     tag_name: str,
-    aliases: Optional[List[str]] = Body(None),
+    aliases: list[str] | None = Body(None),
     db: Session = Depends(get_db),
 ):
     """Add a tag value to a category or update its aliases."""
@@ -280,12 +280,12 @@ async def delete_tag_value(category_name: str, tag_name: str, db: Session = Depe
 @router.get("/values/{category_name}")
 async def get_tag_values_for_category(category_name: str, db: Session = Depends(get_db)):
     """Get all unique tag values used for a specific category."""
-    tags = db.query(Tag).filter(Tag.category == category_name).distinct(Tag.value).all()
-    values = list(set(tag.value for tag in tags))
+    tags = db.query(Tag).filter(Tag.category == category_name).all()
+    values = list({tag.value for tag in tags})
     return {"category": category_name, "values": sorted(values)}
 
 
-@router.get("/image/{image_id}", response_model=List[TagResponse])
+@router.get("/image/{image_id}", response_model=list[TagResponse])
 async def get_image_tags(image_id: int, db: Session = Depends(get_db)):
     """Get all tags for a specific image."""
     tags = db.query(Tag).filter(Tag.image_id == image_id).all()

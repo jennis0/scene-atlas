@@ -5,18 +5,18 @@ Mocks run_deployment (Prefect) — we only check that the endpoint validates
 input, calls the deployment with correct params, and updates the DB.
 """
 
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from backend.app.models import ImportJob, get_session_local
+from backend.app.models import ImportJob
 
 
 @pytest.fixture
 def confirm_env(tmp_path, tmp_db, make_test_image, monkeypatch):
     """Set up staging dir, DB, and mock Prefect. Return client + job_id + mock."""
     from fastapi.testclient import TestClient
+
     from backend.app.main import app
 
     job_id = "confirm-test-job"

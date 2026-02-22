@@ -1,19 +1,16 @@
 """Embedding generation tasks for Prefect flows."""
 
-import logging
 from pathlib import Path
-from typing import List
 
 from prefect import task
 
-from backend.app.services import get_clip_service
 from backend.app.config import settings
-
-logger = logging.getLogger(__name__)
+from backend.app.services import get_clip_service
+from backend.flows.logger import get_logger
 
 
 @task(name="generate_clip_embedding", retries=2, tags=["clip"])
-def generate_clip_embedding(image_path: str) -> List[float]:
+def generate_clip_embedding(image_path: str) -> list[float]:
     """Generate CLIP embedding for a single image.
 
     Args:
@@ -22,6 +19,7 @@ def generate_clip_embedding(image_path: str) -> List[float]:
     Returns:
         CLIP embedding vector (512 dimensions)
     """
+    logger = get_logger(__name__)
     try:
         clip_service = get_clip_service()
         embedding = clip_service.encode_image(Path(image_path))
@@ -34,9 +32,9 @@ def generate_clip_embedding(image_path: str) -> List[float]:
 
 @task(name="batch_generate_clip_embeddings", retries=2, tags=["clip"])
 def batch_generate_clip_embeddings(
-    image_paths: List[str],
+    image_paths: list[str],
     batch_size: int | None = None,
-) -> List[List[float]]:
+) -> list[list[float]]:
     """Generate CLIP embeddings for multiple images using batch inference.
 
     Processes images in sub-batches to manage memory while still benefiting
@@ -49,12 +47,13 @@ def batch_generate_clip_embeddings(
     Returns:
         List of embedding vectors, one per image
     """
+    logger = get_logger(__name__)
     if batch_size is None:
         batch_size = settings.ingestion_batch_size
 
     try:
         clip_service = get_clip_service()
-        all_embeddings: List[List[float]] = []
+        all_embeddings: list[list[float]] = []
 
         for i in range(0, len(image_paths), batch_size):
             chunk = image_paths[i : i + batch_size]
