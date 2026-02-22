@@ -201,6 +201,22 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
       })
     }
 
+    // Media type (image vs video)
+    const mediaTypes = [...new Set(scenes.map((v) => v.media_type ?? 'image'))]
+    if (mediaTypes.length > 1) {
+      groups.push({
+        id: 'media_type',
+        label: 'Media',
+        type: 'media_type',
+        options: mediaTypes.map((m) => ({
+          filterValue: m,
+          label: m === 'image' ? 'Images' : m === 'video' ? 'Videos' : m,
+          filterLabel: `media: ${m === 'image' ? 'Images' : m === 'video' ? 'Videos' : m}`,
+          count: scenes.filter((v) => (v.media_type ?? 'image') === m).length,
+        })),
+      })
+    }
+
     // Tag categories present across scenes
     const tagMap = new Map<string, Map<string, number>>()
     for (const v of scenes) {
@@ -806,6 +822,7 @@ function matchesFilter(v: Image, f: ActiveFilter): boolean {
     const val = f.value.slice(idx + 1)
     return v.tags?.some((t) => t.category === cat && t.value === val) ?? false
   }
+  if (f.type === 'media_type') return (v.media_type ?? 'image') === f.value
   return true
 }
 

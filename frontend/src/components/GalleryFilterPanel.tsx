@@ -47,6 +47,21 @@ export function GalleryFilterPanel({ filters, facets, onFiltersChange }: Gallery
     })
   }
 
+  const mediaTypes = facets?.media_types ?? []
+  if (mediaTypes.length > 1) {
+    groups.push({
+      id: 'media_type',
+      label: 'Media',
+      type: 'media_type',
+      options: mediaTypes.map((m) => ({
+        filterValue: m.value,
+        label: m.value === 'image' ? 'Images' : m.value === 'video' ? 'Videos' : m.value,
+        filterLabel: `media: ${m.value === 'image' ? 'Images' : m.value === 'video' ? 'Videos' : m.value}`,
+        count: m.count,
+      })),
+    })
+  }
+
   groups.push({
     id: 'color',
     label: 'Color',

@@ -61,6 +61,7 @@ export interface SearchParams {
   colors?: string[]
   gridded?: boolean
   image_types?: string[]
+  media_types?: string[]
   limit?: number
   offset?: number
 }
@@ -77,6 +78,7 @@ export interface FacetData {
   gridded: { gridded: number; gridless: number; unknown: number }
   colors: { hex: string; count: number }[]
   image_types: FacetOption[]
+  media_types: FacetOption[]
 }
 
 export interface SearchResult {

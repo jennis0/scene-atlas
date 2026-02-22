@@ -49,6 +49,10 @@ function parseFiltersFromUrl(params: URLSearchParams): ActiveFilter[] {
   for (const val of params.getAll('color')) {
     result.push({ type: 'color', value: val, label: val, exclude: false })
   }
+  for (const val of params.getAll('media_type')) {
+    const label = val === 'image' ? 'Images' : val === 'video' ? 'Videos' : val
+    result.push({ type: 'media_type', value: val, label: `media: ${label}`, exclude: false })
+  }
   return result
 }
 
@@ -61,6 +65,7 @@ function buildUrlParams(query: string, activeFilters: ActiveFilter[], imageType:
     else if (f.type === 'author') params.append(f.exclude ? 'xauthor' : 'author', f.value)
     else if (f.type === 'gridded') params.set('gridded', f.value)
     else if (f.type === 'color') params.append('color', f.value)
+    else if (f.type === 'media_type') params.append('media_type', f.value)
   }
   return params
 }
@@ -149,6 +154,9 @@ export function Gallery() {
     if (colorFilters.length) params.colors = colorFilters
 
     if (imageType !== 'all') params.image_types = [imageType]
+
+    const mediaTypeFilters = filters.filter((f) => f.type === 'media_type').map((f) => f.value)
+    if (mediaTypeFilters.length) params.media_types = mediaTypeFilters
 
     return params
   }, [submittedQuery, filters, imageType])

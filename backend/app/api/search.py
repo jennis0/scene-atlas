@@ -76,6 +76,13 @@ async def get_search_facets(db: Session = Depends(get_db)):
         .all()
     )
 
+    # Media type counts (image vs video)
+    media_type_rows = (
+        db.query(Image.media_type, func.count(Image.id))
+        .group_by(Image.media_type)
+        .all()
+    )
+
     return {
         "total_images": total_images,
         "authors": [{"value": a, "count": c} for a, c in authors],
@@ -87,6 +94,7 @@ async def get_search_facets(db: Session = Depends(get_db)):
         },
         "colors": [{"hex": h, "count": c} for h, c in colors],
         "image_types": [{"value": t or "battlemap", "count": c} for t, c in image_type_rows],
+        "media_types": [{"value": m or "image", "count": c} for m, c in media_type_rows],
     }
 
 
@@ -101,6 +109,7 @@ async def search_images(
     exclude_authors: List[str] = Query([]),
     colors: List[str] = Query([]),
     image_types: List[str] = Query([]),
+    media_types: List[str] = Query([]),
     gridded: Optional[bool] = None,
     limit: int = 500,
     offset: int = 0,
@@ -136,6 +145,9 @@ async def search_images(
 
     if image_types:
         sql_query = sql_query.filter(Image.image_type.in_(image_types))
+
+    if media_types:
+        sql_query = sql_query.filter(Image.media_type.in_(media_types))
 
     if gridded is not None:
         sql_query = sql_query.filter(Image.gridded == gridded)

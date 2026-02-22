@@ -141,6 +141,19 @@ export function FileToolbar({
 
   const hasMixedTypes = new Set(nonExcludedFiles.map((f) => f.image_type ?? 'battlemap')).size > 1
 
+  const mediaTypes = [...new Set(nonExcludedFiles.map((f) => f.media_type ?? 'image'))]
+  if (mediaTypes.length > 1) {
+    filterGroups.push({
+      id: 'media_type',
+      label: 'Media',
+      type: 'media_type',
+      options: [
+        { filterValue: 'image', label: 'Images', filterLabel: 'media: Images' },
+        { filterValue: 'video', label: 'Videos', filterLabel: 'media: Videos' },
+      ],
+    })
+  }
+
   filterGroups.push({
     id: 'gridded',
     label: 'Grid state',

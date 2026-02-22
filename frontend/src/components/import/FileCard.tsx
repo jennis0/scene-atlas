@@ -36,7 +36,10 @@ export function FileCard({
   const [isEditingSubgroup, setIsEditingSubgroup] = useState(false)
   const [subgroupDraft, setSubgroupDraft] = useState('')
 
+  const isVideo = file.media_type === 'video'
   const previewUrl = file.previewUrl ?? `/api/v1/imports/${jobId}/preview/${file.relative_path}`
+  // Blob URLs for videos can't render in <img>; server preview URLs serve JPEG first-frame
+  const useVideoThumb = isVideo && !!file.previewUrl?.startsWith('blob:')
 
   // Allow clicking on non-interactive card areas to toggle selection
   const handleCardClick = (e: React.MouseEvent) => {
@@ -133,21 +136,30 @@ export function FileCard({
           onClick={() => { if (previewUrl) setLightboxOpen(true) }}
           tabIndex={-1}
         >
-          <img
-            src={previewUrl}
-            alt={file.filename}
-            loading="lazy"
-            className="h-full w-full object-cover pointer-events-none"
-            onError={(e) => {
-              const el = e.target as HTMLImageElement
-              el.style.display = 'none'
-              el.parentElement!.classList.add('flex', 'items-center', 'justify-center')
-              const placeholder = document.createElement('span')
-              placeholder.className = 'text-[10px] text-muted-foreground/40 font-medium text-center px-1'
-              placeholder.textContent = 'No preview'
-              el.parentElement!.appendChild(placeholder)
-            }}
-          />
+          {useVideoThumb ? (
+            <video
+              src={previewUrl}
+              muted
+              preload="metadata"
+              className="h-full w-full object-cover pointer-events-none"
+            />
+          ) : (
+            <img
+              src={previewUrl}
+              alt={file.filename}
+              loading="lazy"
+              className="h-full w-full object-cover pointer-events-none"
+              onError={(e) => {
+                const el = e.target as HTMLImageElement
+                el.style.display = 'none'
+                el.parentElement!.classList.add('flex', 'items-center', 'justify-center')
+                const placeholder = document.createElement('span')
+                placeholder.className = 'text-[10px] text-muted-foreground/40 font-medium text-center px-1'
+                placeholder.textContent = 'No preview'
+                el.parentElement!.appendChild(placeholder)
+              }}
+            />
+          )}
         </button>
 
         {/* Content */}
@@ -348,12 +360,23 @@ export function FileCard({
             className="max-w-none max-h-none w-[95vw] h-[95vh] bg-black/95 border-0 p-4 flex items-center justify-center [&>button]:text-white [&>button]:hover:bg-white/20 cursor-pointer"
             onClick={() => setLightboxOpen(false)}
           >
-            <img
-              src={file.fullImageUrl || previewUrl}
-              alt={file.name}
-              className="max-w-full max-h-full object-contain rounded cursor-default"
-              onClick={(e) => e.stopPropagation()}
-            />
+            {isVideo ? (
+              <video
+                src={file.fullImageUrl || previewUrl}
+                controls
+                autoPlay
+                loop
+                className="max-w-full max-h-full object-contain rounded cursor-default"
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <img
+                src={file.fullImageUrl || previewUrl}
+                alt={file.name}
+                className="max-w-full max-h-full object-contain rounded cursor-default"
+                onClick={(e) => e.stopPropagation()}
+              />
+            )}
           </DialogContent>
         </Dialog>
       )}

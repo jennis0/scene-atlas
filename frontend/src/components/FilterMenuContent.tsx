@@ -40,7 +40,7 @@ interface FilterMenuContentProps {
 }
 
 // Groups that are not tag categories — they don't get category colours
-const NON_TAG_GROUPS = new Set(['author', 'gridded', 'subgroup', 'color', 'image_type'])
+const NON_TAG_GROUPS = new Set(['author', 'gridded', 'subgroup', 'color', 'image_type', 'media_type'])
 
 // ─── Main component ────────────────────────────────────────────────────────────
 

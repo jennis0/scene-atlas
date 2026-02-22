@@ -1,8 +1,8 @@
 import type { EditableFileState } from '@/types'
 
 export interface ActiveFilter {
-  type: 'subgroup' | 'tag' | 'gridded' | 'author' | 'color'
-  value: string   // subgroup text | "category:value" | "gridded"/"gridless"/"unknown" | author name | hex color
+  type: 'subgroup' | 'tag' | 'gridded' | 'author' | 'color' | 'media_type'
+  value: string   // subgroup text | "category:value" | "gridded"/"gridless"/"unknown" | author name | hex color | "image"/"video"
   label: string   // display text for chip
   exclude: boolean
 }
@@ -39,6 +39,9 @@ export function applyFileFilter(files: EditableFileState[], filter: FileFilter):
       } else if (af.type === 'gridded') {
         const gv = af.value === 'gridded' ? true : af.value === 'gridless' ? false : null
         const match = f.gridded === gv
+        if (af.exclude ? match : !match) return false
+      } else if (af.type === 'media_type') {
+        const match = (f.media_type ?? 'image') === af.value
         if (af.exclude ? match : !match) return false
       }
     }
