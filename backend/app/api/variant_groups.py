@@ -1,6 +1,7 @@
 """Variant groups API endpoints."""
 
-from typing import List, Optional
+import re
+from typing import List, Optional, Set
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func
@@ -26,6 +27,20 @@ from ..services import safe_delete_image
 router = APIRouter()
 
 
+def _tokenize(name: str) -> Set[str]:
+    """Split a group name into lowercase alphanumeric tokens."""
+    return set(re.findall(r"[a-z0-9]+", name.lower()))
+
+
+def _token_jaccard(a: Set[str], b: Set[str]) -> float:
+    """Token Jaccard similarity: |intersection| / |union|."""
+    if not a and not b:
+        return 1.0
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
 def get_db(request: Request):
     """Dependency to get database session."""
     SessionLocal = get_session_local(request.app.state.db_engine)
@@ -41,9 +56,14 @@ async def search_variant_groups(
     q: str = "",
     exclude_id: Optional[int] = None,
     limit: int = Query(20, ge=1, le=100),
+    reference_name: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    """Search variant groups by base_name for typeahead picker."""
+    """Search variant groups by base_name for typeahead picker.
+
+    When reference_name is provided, results are ranked by token Jaccard
+    similarity to that name rather than returned alphabetically.
+    """
     query = db.query(VariantGroup)
 
     if q.strip():
@@ -52,8 +72,20 @@ async def search_variant_groups(
     if exclude_id is not None:
         query = query.filter(VariantGroup.id != exclude_id)
 
-    total = query.count()
-    groups = query.order_by(VariantGroup.base_name).limit(limit).all()
+    if reference_name:
+        # Fetch all matching rows and rank by similarity in Python.
+        # For thousands of groups this is still fast (in-memory sort).
+        all_groups = query.order_by(VariantGroup.base_name).all()
+        total = len(all_groups)
+        ref_tokens = _tokenize(reference_name)
+        groups = sorted(
+            all_groups,
+            key=lambda g: _token_jaccard(ref_tokens, _tokenize(g.base_name)),
+            reverse=True,
+        )[:limit]
+    else:
+        total = query.count()
+        groups = query.order_by(VariantGroup.base_name).limit(limit).all()
 
     # Batch-compute image counts
     group_ids = [g.id for g in groups]

@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, X, Search, Pencil, Edit, SlidersHorizontal } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { imageApi, tagApi, searchApi, getImageUrl, getThumbnailUrl } from '@/lib/api'
@@ -41,6 +41,7 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
   const { data: variants } = useQuery({
     queryKey: ['variants', image.id],
     queryFn: () => imageApi.getVariants(image.id),
+    placeholderData: keepPreviousData,
   })
 
   const { data: facets } = useQuery({

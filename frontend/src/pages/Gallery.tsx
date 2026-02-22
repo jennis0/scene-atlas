@@ -531,6 +531,7 @@ export function Gallery() {
         open={mergeSourceGroup !== null}
         onClose={() => setMergeSourceGroup(null)}
         excludeGroupId={mergeSourceGroup?.groupId}
+        currentGroupName={mergeSourceGroup?.baseName}
         onSelect={async (targetGroup) => {
           if (!mergeSourceGroup?.groupId) return
           try {

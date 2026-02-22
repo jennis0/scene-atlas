@@ -315,11 +315,15 @@ export function FileCard({
       {/* Lightbox */}
       {lightboxOpen && (
         <Dialog open onOpenChange={setLightboxOpen}>
-          <DialogContent className="max-w-none max-h-none w-[95vw] h-[95vh] bg-black/95 border-0 p-4 flex items-center justify-center [&>button]:text-white [&>button]:hover:bg-white/20">
+          <DialogContent
+            className="max-w-none max-h-none w-[95vw] h-[95vh] bg-black/95 border-0 p-4 flex items-center justify-center [&>button]:text-white [&>button]:hover:bg-white/20 cursor-pointer"
+            onClick={() => setLightboxOpen(false)}
+          >
             <img
               src={file.fullImageUrl || previewUrl}
               alt={file.name}
-              className="max-w-full max-h-full object-contain rounded"
+              className="max-w-full max-h-full object-contain rounded cursor-default"
+              onClick={(e) => e.stopPropagation()}
             />
           </DialogContent>
         </Dialog>

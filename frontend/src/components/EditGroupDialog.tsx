@@ -1103,6 +1103,11 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
         onSelect={(target) =>
           mergeSourceGroupId ? handleMergeGroup(mergeSourceGroupId, target) : handleMerge(target)
         }
+        currentGroupName={
+          mergeSourceGroupId !== null
+            ? groups.find((g) => g.id === mergeSourceGroupId)?.variant_group_name
+            : activeGroup?.variant_group_name
+        }
       />
     </Dialog>
   )

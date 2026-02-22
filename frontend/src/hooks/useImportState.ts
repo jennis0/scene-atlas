@@ -373,7 +373,7 @@ export function useImportState(
         files: vg.files.map((f) => ({
           relative_path: f.relative_path,
           filename: f.filename,
-          name: humanizeFilename(f.filename),
+          name: f.name || humanizeFilename(f.filename),
           tags: [...f.detected_tags],
           gridded: f.gridded,
           grid_width: f.grid_width,

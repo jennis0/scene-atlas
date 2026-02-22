@@ -11,6 +11,7 @@ interface MergeGroupPickerProps {
   excludeGroupId?: number | null
   onSelect: (targetGroup: VariantGroupSearchItem) => void
   title?: string
+  currentGroupName?: string
 }
 
 export function MergeGroupPicker({
@@ -19,6 +20,7 @@ export function MergeGroupPicker({
   excludeGroupId,
   onSelect,
   title = 'Merge into Group',
+  currentGroupName,
 }: MergeGroupPickerProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
@@ -42,8 +44,8 @@ export function MergeGroupPicker({
   }, [open])
 
   const { data, isLoading } = useQuery({
-    queryKey: ['variantGroupSearch', debouncedQuery, excludeGroupId],
-    queryFn: () => variantGroupApi.search(debouncedQuery, excludeGroupId ?? undefined),
+    queryKey: ['variantGroupSearch', debouncedQuery, excludeGroupId, currentGroupName],
+    queryFn: () => variantGroupApi.search(debouncedQuery, excludeGroupId ?? undefined, 20, currentGroupName || undefined),
     enabled: open,
   })
 
@@ -85,7 +87,7 @@ export function MergeGroupPicker({
             <div className="flex flex-col items-center justify-center h-[200px] text-muted-foreground/50">
               <Layers className="h-8 w-8 mb-2 opacity-40" />
               <p className="text-sm">
-                {debouncedQuery ? 'No groups found' : 'Type to search groups'}
+                {debouncedQuery || currentGroupName ? 'No groups found' : 'Type to search groups'}
               </p>
             </div>
           ) : (

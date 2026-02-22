@@ -136,6 +136,7 @@ export interface DuplicateInfo {
 export interface ImportFileInfo {
   relative_path: string
   filename: string
+  name: string | null
   detected_tags: TagData[]
   gridded: boolean | null
   grid_width: number | null

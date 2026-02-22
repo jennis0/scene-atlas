@@ -320,6 +320,7 @@ async def upload_files(
                     ImportFileInfo(
                         relative_path=f["relative_path"],
                         filename=parsed["filename"],
+                        name=parsed.get("map_name"),
                         detected_tags=[
                             {
                                 "category": t["category"],
