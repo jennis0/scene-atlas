@@ -34,15 +34,11 @@ def check_zip_safety(zip_path: Path, max_files: int, max_uncompressed_bytes: int
         raise ValueError("Invalid or corrupt ZIP file") from exc
 
     if file_count > max_files:
-        raise ValueError(
-            f"ZIP contains {file_count} files; limit is {max_files}"
-        )
+        raise ValueError(f"ZIP contains {file_count} files; limit is {max_files}")
     if total_uncompressed > max_uncompressed_bytes:
         limit_mb = max_uncompressed_bytes // (1024 * 1024)
         actual_mb = total_uncompressed // (1024 * 1024)
-        raise ValueError(
-            f"ZIP uncompressed size ({actual_mb} MB) exceeds limit of {limit_mb} MB"
-        )
+        raise ValueError(f"ZIP uncompressed size ({actual_mb} MB) exceeds limit of {limit_mb} MB")
 
 
 def verify_image_mime(data: bytes) -> bool:

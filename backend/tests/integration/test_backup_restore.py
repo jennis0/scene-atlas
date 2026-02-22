@@ -41,7 +41,8 @@ def _seed_test_data(engine) -> dict:
             storage_key="abc123_night.jpg",
             name="Forest Map",
             author="TestAuthor",
-            width=800, height=600,
+            width=800,
+            height=600,
             file_size=100_000,
             content_hash="a" * 64,
             variant_group_id=group.id,
@@ -51,7 +52,8 @@ def _seed_test_data(engine) -> dict:
             storage_key="abc123_day.jpg",
             name="Forest Map",
             author="TestAuthor",
-            width=800, height=600,
+            width=800,
+            height=600,
             file_size=90_000,
             content_hash="b" * 64,
             variant_group_id=group.id,
@@ -84,17 +86,21 @@ def _seed_test_data(engine) -> dict:
 def _query_counts(engine) -> dict:
     """Query current record counts from the database."""
     from sqlalchemy import text
+
     with engine.connect() as conn:
         return {
             "image_count": conn.execute(text("SELECT COUNT(*) FROM images")).scalar(),
             "tag_count": conn.execute(text("SELECT COUNT(*) FROM tags")).scalar(),
             "color_count": conn.execute(text("SELECT COUNT(*) FROM colors")).scalar(),
-            "variant_group_count": conn.execute(text("SELECT COUNT(*) FROM variant_groups")).scalar(),
+            "variant_group_count": conn.execute(
+                text("SELECT COUNT(*) FROM variant_groups")
+            ).scalar(),
         }
 
 
 def _query_content_hashes(engine) -> set[str]:
     from sqlalchemy import text
+
     with engine.connect() as conn:
         rows = conn.execute(text("SELECT content_hash FROM images")).fetchall()
     return {r[0] for r in rows}
@@ -145,6 +151,7 @@ def test_restore_from_backup_preserves_all_data(tmp_path, tmp_db):
 
     # Restore: copy backup back and re-open
     import shutil
+
     shutil.copy2(backup_path, db_path)
 
     # Re-open the restored database
@@ -153,6 +160,7 @@ def test_restore_from_backup_preserves_all_data(tmp_path, tmp_db):
     from alembic.config import Config as AlembicConfig
     from alembic import command
     from pathlib import Path as _Path
+
     alembic_ini = _Path(__file__).parent.parent.parent.parent / "alembic.ini"
     alembic_cfg = AlembicConfig(str(alembic_ini))
     alembic_cfg.set_main_option("sqlalchemy.url", str(restored_engine.url))

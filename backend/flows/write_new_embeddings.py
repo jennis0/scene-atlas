@@ -24,9 +24,7 @@ def create_qdrant_data(
 
 
 @task(name="write_embeddings_batch")
-def generate_embeddings(
-    images: list[Image], model_name: str, collection_name: str
-):
+def generate_embeddings(images: list[Image], model_name: str, collection_name: str):
     qdrant = QdrantService(collection_name=collection_name)
     qdrant.ensure_collection()
     print("Retrieved Qdrant collection")
@@ -40,22 +38,27 @@ def generate_embeddings(
     result = True
     for i in range(0, len(images), batch_size):
         print(f"Starting batch {i // batch_size + 1} of {len(images) // batch_size + 1}")
-        batch_images =images[i : i + batch_size]
+        batch_images = images[i : i + batch_size]
         embeddings = [
-            clip_service.encode_image(image_store.get_path(image['storage_key'])) 
-                for image in tqdm(batch_images)
+            clip_service.encode_image(image_store.get_path(image["storage_key"]))
+            for image in tqdm(batch_images)
         ]
-        
+
         qdrant_prep = [
             create_qdrant_data(
-                embedding, image['id'], image['filename'], image['author'], image['variant_group_name']
+                embedding,
+                image["id"],
+                image["filename"],
+                image["author"],
+                image["variant_group_name"],
             )
             for embedding, image in zip(embeddings, batch_images)
         ]
         result &= qdrant.batch_add_embeddings(qdrant_prep)
         print(f"Batch {i // batch_size + 1} Write Result: {result}")
-        
+
     return result
+
 
 @task(name="fetch_images_from_db")
 def get_all_images() -> list[Image]:
@@ -67,28 +70,29 @@ def get_all_images() -> list[Image]:
     skip = 0
     batch = 1000
     print("Fetching images from database...")
-    
+
     images = []
     while True:
         new_images = db.query(Image).offset(skip).limit(batch).all()
-        
+
         if not new_images:
             break
-        
+
         skip += batch
         images += [
-        {
-            "id": image.id,
-            "storage_key": image.storage_key,
-            "filename": image.filename,
-            "author": image.author,
-            "variant_group_name": image.variant_group_name,
-        }
-        for image in new_images
-]
+            {
+                "id": image.id,
+                "storage_key": image.storage_key,
+                "filename": image.filename,
+                "author": image.author,
+                "variant_group_name": image.variant_group_name,
+            }
+            for image in new_images
+        ]
 
     print(f"Total images fetched: {len(images)}")
     return images
+
 
 @flow(name="write_new_embeddings_flow", log_prints=True)
 def write_new_embeddings(

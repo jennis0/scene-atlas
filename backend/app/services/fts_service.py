@@ -73,14 +73,16 @@ def backfill_search_text(db: Session) -> int:
     Returns the number of rows updated.
     """
     # LEFT JOIN to get images + their tags in one query
-    rows = db.execute(text("""
+    rows = db.execute(
+        text("""
         SELECT i.id, i.name, i.filename, i.author, i.sub_variant,
                t.category, t.value
         FROM images i
         LEFT JOIN tags t ON t.image_id = i.id
         WHERE i.search_text IS NULL OR i.search_text = ''
         ORDER BY i.id
-    """)).fetchall()
+    """)
+    ).fetchall()
 
     if not rows:
         return 0
@@ -91,8 +93,10 @@ def backfill_search_text(db: Session) -> int:
         img_id = row[0]
         if img_id not in images:
             images[img_id] = {
-                "name": row[1], "filename": row[2],
-                "author": row[3], "sub_variant": row[4],
+                "name": row[1],
+                "filename": row[2],
+                "author": row[3],
+                "sub_variant": row[4],
                 "tags": [],
             }
         if row[5] is not None:  # tag category
@@ -121,26 +125,32 @@ def backfill_search_text(db: Session) -> int:
     logger.info(f"Backfilled search_text for {len(images)} images")
 
     # Recreate triggers and rebuild FTS index
-    db.execute(text("""
+    db.execute(
+        text("""
         CREATE TRIGGER image_fts_ai AFTER INSERT ON images BEGIN
             INSERT INTO image_fts(rowid, name, filename, author, search_text)
             VALUES (new.id, new.name, new.filename, new.author, new.search_text);
         END
-    """))
-    db.execute(text("""
+    """)
+    )
+    db.execute(
+        text("""
         CREATE TRIGGER image_fts_ad AFTER DELETE ON images BEGIN
             INSERT INTO image_fts(image_fts, rowid, name, filename, author, search_text)
             VALUES ('delete', old.id, old.name, old.filename, old.author, old.search_text);
         END
-    """))
-    db.execute(text("""
+    """)
+    )
+    db.execute(
+        text("""
         CREATE TRIGGER image_fts_au AFTER UPDATE ON images BEGIN
             INSERT INTO image_fts(image_fts, rowid, name, filename, author, search_text)
             VALUES ('delete', old.id, old.name, old.filename, old.author, old.search_text);
             INSERT INTO image_fts(rowid, name, filename, author, search_text)
             VALUES (new.id, new.name, new.filename, new.author, new.search_text);
         END
-    """))
+    """)
+    )
     db.commit()
 
     fts_rebuild(db)

@@ -73,9 +73,7 @@ class ColorIndex:
 
         target = hex_to_hsl_cylinder(target_hex)
         return {
-            image_id
-            for image_id, vec in self._cache
-            if color_distance(target, vec) <= threshold
+            image_id for image_id, vec in self._cache if color_distance(target, vec) <= threshold
         }
 
     def find_images_by_colors(

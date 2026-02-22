@@ -76,7 +76,8 @@ def main():
 
     # backfill_content_hash: one-off flow to compute SHA-256 for existing images
     backfill_content_hash.from_source(
-        source=PROJECT_ROOT, entrypoint="backend/flows/backfill_content_hash.py:backfill_content_hash"
+        source=PROJECT_ROOT,
+        entrypoint="backend/flows/backfill_content_hash.py:backfill_content_hash",
     ).deploy(
         name="backfill-content-hash-deployment",
         work_pool_name=WORK_POOL,

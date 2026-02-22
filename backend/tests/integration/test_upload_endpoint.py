@@ -149,9 +149,7 @@ class TestUploadEndpoint:
 
     def test_zip_bomb_rejected(self, test_client, _setup_upload, tmp_path, monkeypatch):
         """A ZIP whose uncompressed size exceeds the limit is rejected with 413."""
-        monkeypatch.setattr(
-            "backend.app.config.settings.max_import_total_size", 50_000
-        )
+        monkeypatch.setattr("backend.app.config.settings.max_import_total_size", 50_000)
         # Build a ZIP with a file that reports 100KB uncompressed
         zip_path = tmp_path / "bomb.zip"
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:

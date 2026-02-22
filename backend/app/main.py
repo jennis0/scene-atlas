@@ -45,6 +45,7 @@ async def lifespan(app: FastAPI):
         logger.info("Tag categories seeded")
 
         from .services.fts_service import backfill_search_text
+
         backfill_search_text(session)
     finally:
         session.close()

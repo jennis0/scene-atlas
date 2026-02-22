@@ -264,16 +264,18 @@ def prepare_single_image(
             db = SessionLocal()
             try:
                 source_image = (
-                    db.query(Image)
-                    .filter(Image.storage_key == reuse_storage_key)
-                    .first()
+                    db.query(Image).filter(Image.storage_key == reuse_storage_key).first()
                 )
                 if source_image:
                     width = source_image.width
                     height = source_image.height
                     file_size = source_image.file_size
                     colors = [
-                        {"color_hex": c.color_hex, "percentage": c.percentage, "color_order": c.color_order}
+                        {
+                            "color_hex": c.color_hex,
+                            "percentage": c.percentage,
+                            "color_order": c.color_order,
+                        }
                         for c in source_image.colors
                     ]
                     reuse_embedding_from = source_image.id
@@ -570,6 +572,7 @@ def _process_batch(
             stored_path = get_image_store().get_path(prep["image_data"]["storage_key"])
             if stored_path.exists():
                 from .tasks.embedding_generation import generate_clip_embedding
+
                 prep["embedding"] = generate_clip_embedding.fn(str(stored_path))
             else:
                 logger.error(f"Stored file not found for reuse: {stored_path}")
@@ -801,11 +804,7 @@ def analyse_upload(
         # Batch-query DB for any server-computed hashes
         if hashes_to_check:
             all_hashes = list(hashes_to_check.keys())
-            existing_images = (
-                db.query(Image)
-                .filter(Image.content_hash.in_(all_hashes))
-                .all()
-            )
+            existing_images = db.query(Image).filter(Image.content_hash.in_(all_hashes)).all()
             hash_to_image: dict[str, Image] = {}
             for img in existing_images:
                 if img.content_hash and img.content_hash not in hash_to_image:

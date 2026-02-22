@@ -84,11 +84,7 @@ async def check_hashes(
 
     # Collect unique hashes and batch-query DB
     unique_hashes = list({f.content_hash for f in body.files})
-    existing_images = (
-        db.query(Image)
-        .filter(Image.content_hash.in_(unique_hashes))
-        .all()
-    )
+    existing_images = db.query(Image).filter(Image.content_hash.in_(unique_hashes)).all()
 
     # Build hash → DuplicateInfo map (first match wins)
     hash_to_dup: dict[str, DuplicateInfo] = {}
@@ -110,11 +106,13 @@ async def check_hashes(
         dup = hash_to_dup.get(f.content_hash)
         if dup:
             duplicates_found += 1
-        results.append(HashCheckResultItem(
-            relative_path=f.relative_path,
-            content_hash=f.content_hash,
-            duplicate_of=dup,
-        ))
+        results.append(
+            HashCheckResultItem(
+                relative_path=f.relative_path,
+                content_hash=f.content_hash,
+                duplicate_of=dup,
+            )
+        )
 
     return HashCheckResponse(
         results=results,
@@ -484,7 +482,8 @@ async def confirm_all_groups(
     group_statuses: list[ImportGroupStatus] = []
     for group_req in body.groups:
         valid_files = [
-            f.model_dump() for f in group_req.files
+            f.model_dump()
+            for f in group_req.files
             if (staging_dir / f.relative_path).exists() or f.reuse_storage_key
         ]
         if not valid_files:
@@ -629,18 +628,16 @@ async def get_active_imports(db: Session = Depends(get_db)):
 
     summaries = []
     for job in all_jobs:
-        groups = (
-            db.query(ImportGroupJob)
-            .filter(ImportGroupJob.job_id == job.id)
-            .all()
-        )
+        groups = db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job.id).all()
 
         # Derive effective status from groups (more accurate than stale job.status)
         if not groups:
             effective_status = job.status
             completed_at = job.completed_at
         elif all(g.status in terminal_statuses for g in groups):
-            effective_status = "failed" if any(g.status == "failed" for g in groups) else "completed"
+            effective_status = (
+                "failed" if any(g.status == "failed" for g in groups) else "completed"
+            )
             completed_at = max(
                 (g.completed_at for g in groups if g.completed_at),
                 default=job.completed_at,

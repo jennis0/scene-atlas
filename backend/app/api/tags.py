@@ -128,8 +128,7 @@ async def delete_tag_category(category_name: str, db: Session = Depends(get_db))
     ) or 0
 
     deleted_tags = (
-        db.query(Tag).filter(Tag.category == category_name)
-        .delete(synchronize_session=False)
+        db.query(Tag).filter(Tag.category == category_name).delete(synchronize_session=False)
     )
     db.delete(category)
     db.commit()
@@ -239,9 +238,7 @@ async def rename_tag_value(
 
 
 @router.delete("/categories/{category_name}/tags/{tag_name}")
-async def delete_tag_value(
-    category_name: str, tag_name: str, db: Session = Depends(get_db)
-):
+async def delete_tag_value(category_name: str, tag_name: str, db: Session = Depends(get_db)):
     """Delete a tag value from a category's vocabulary AND from all images."""
     category = db.query(TagCategory).filter(TagCategory.name == category_name).first()
     if not category:
@@ -250,10 +247,7 @@ async def delete_tag_value(
     # Remove from vocabulary
     values = json.loads(category.common_values or "[]")
     original_len = len(values)
-    values = [
-        v for v in values
-        if (v if isinstance(v, str) else v["value"]) != tag_name
-    ]
+    values = [v for v in values if (v if isinstance(v, str) else v["value"]) != tag_name]
     if len(values) == original_len:
         raise HTTPException(status_code=404, detail="Tag not found in category vocabulary")
 

@@ -32,9 +32,7 @@ def safe_delete_image(db: Session, image: Image) -> None:
 
     # Count other records sharing this storage_key
     ref_count = (
-        db.query(Image)
-        .filter(Image.storage_key == storage_key, Image.id != image_id)
-        .count()
+        db.query(Image).filter(Image.storage_key == storage_key, Image.id != image_id).count()
     )
 
     # Delete the DB record (cascades tags, colors)

@@ -54,13 +54,7 @@ def retag_all_images():
         offset = 0
 
         while offset < total_images:
-            images = (
-                db.query(Image)
-                .order_by(Image.id)
-                .offset(offset)
-                .limit(BATCH_SIZE)
-                .all()
-            )
+            images = db.query(Image).order_by(Image.id).offset(offset).limit(BATCH_SIZE).all()
             if not images:
                 break
 

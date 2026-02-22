@@ -79,11 +79,7 @@ def backfill_content_hash():
     db = SessionLocal()
 
     try:
-        missing = (
-            db.query(Image.id)
-            .filter(Image.content_hash.is_(None))
-            .all()
-        )
+        missing = db.query(Image.id).filter(Image.content_hash.is_(None)).all()
         image_ids = [row[0] for row in missing]
     finally:
         db.close()
