@@ -1,9 +1,11 @@
+import { useState } from 'react'
 import {
-  Upload,
+  UploadCloud,
   Loader2,
   AlertCircle,
   AlertTriangle,
   FolderOpen,
+  Files,
   ChevronDown,
   Grid3X3,
   Image,
@@ -15,7 +17,9 @@ interface ImportUploadPaneProps {
   uploadPhase: string | null
   skippedFiles: string[]
   fileInputRef: React.RefObject<HTMLInputElement>
+  folderInputRef: React.RefObject<HTMLInputElement>
   onFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => void
+  onDrop: (e: React.DragEvent) => void
   defaultImageType: 'battlemap' | 'scene'
   onDefaultImageTypeChange: (type: 'battlemap' | 'scene') => void
 }
@@ -26,16 +30,16 @@ export function ImportUploadPane({
   uploadPhase,
   skippedFiles,
   fileInputRef,
+  folderInputRef,
   onFileSelect,
+  onDrop,
   defaultImageType,
   onDefaultImageTypeChange,
 }: ImportUploadPaneProps) {
-  return (
-    <div className="px-6 py-5 space-y-5">
-      <p className="text-sm text-muted-foreground">
-        Select image or video files, a folder, or a .zip archive to import.
-      </p>
+  const [isDragOver, setIsDragOver] = useState(false)
 
+  return (
+    <div className="px-6 py-5 space-y-4">
       {/* Image type selector */}
       <div className="space-y-1.5">
         <label className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-semibold block">
@@ -74,51 +78,97 @@ export function ImportUploadPane({
         </p>
       </div>
 
-      <div className="flex gap-3">
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept=".jpg,.jpeg,.png,.webp,.mp4,.webm,.zip"
-          onChange={onFileSelect}
-          className="hidden"
-          id="import-files"
-        />
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-md border border-primary/40 bg-primary/20 text-primary hover:bg-primary/30 transition-colors disabled:opacity-50"
-        >
-          {uploading ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
+      {/* Hidden file inputs */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept=".jpg,.jpeg,.png,.webp,.mp4,.webm,.zip"
+        onChange={onFileSelect}
+        className="hidden"
+      />
+      <input
+        ref={folderInputRef}
+        type="file"
+        // @ts-expect-error webkitdirectory is not in HTMLInputElement type
+        webkitdirectory=""
+        multiple
+        onChange={onFileSelect}
+        className="hidden"
+      />
+
+      {/* Drop zone */}
+      <div
+        onDragOver={(e) => {
+          e.preventDefault()
+          if (!uploading) setIsDragOver(true)
+        }}
+        onDragLeave={() => setIsDragOver(false)}
+        onDrop={(e) => {
+          setIsDragOver(false)
+          onDrop(e)
+        }}
+        onClick={() => !uploading && fileInputRef.current?.click()}
+        className={`
+          relative flex flex-col items-center justify-center gap-3
+          rounded-xl border-2 border-dashed px-6 py-10
+          transition-all duration-150 select-none
+          ${uploading
+            ? 'border-border/40 bg-secondary/20 cursor-default'
+            : isDragOver
+              ? 'border-primary bg-primary/8 cursor-copy scale-[1.005]'
+              : 'border-border/60 hover:border-primary/50 hover:bg-secondary/40 cursor-pointer'
+          }
+        `}
+      >
+        {uploading ? (
+          <>
+            <Loader2 className="h-9 w-9 animate-spin text-primary/60" />
+            <p className="text-sm font-medium text-muted-foreground">
               {uploadPhase || 'Analysing\u2026'}
-            </>
-          ) : (
-            <>
-              <Upload className="h-4 w-4" />
-              Select Files
-            </>
-          )}
-        </button>
-        <input
-          type="file"
-          // @ts-expect-error webkitdirectory is not in HTMLInputElement type
-          webkitdirectory=""
-          multiple
-          onChange={onFileSelect}
-          className="hidden"
-          id="import-folder"
-        />
-        <button
-          onClick={() => document.getElementById('import-folder')?.click()}
-          disabled={uploading}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-md border border-border bg-secondary text-muted-foreground hover:text-foreground hover:border-border/80 transition-colors disabled:opacity-50"
-        >
-          <FolderOpen className="h-4 w-4" />
-          Select Folder
-        </button>
+            </p>
+          </>
+        ) : (
+          <>
+            <UploadCloud
+              className={`h-10 w-10 transition-colors ${
+                isDragOver ? 'text-primary' : 'text-muted-foreground/40'
+              }`}
+            />
+            <div className="text-center space-y-0.5">
+              <p className={`text-sm font-medium transition-colors ${isDragOver ? 'text-primary' : 'text-foreground'}`}>
+                {isDragOver ? 'Drop to import' : 'Drop files or folders here'}
+              </p>
+              <p className="text-xs text-muted-foreground/60">
+                Images, videos, and .zip archives — any mix
+              </p>
+            </div>
+
+            {/* Secondary browse buttons */}
+            <div
+              className="flex items-center gap-2 mt-1"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <span className="text-xs text-muted-foreground/40">or</span>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-border/60 bg-secondary/60 text-muted-foreground hover:text-foreground hover:border-border hover:bg-secondary transition-colors"
+              >
+                <Files className="h-3.5 w-3.5" />
+                Browse files
+              </button>
+              <button
+                onClick={() => folderInputRef.current?.click()}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-border/60 bg-secondary/60 text-muted-foreground hover:text-foreground hover:border-border hover:bg-secondary transition-colors"
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+                Browse folder
+              </button>
+            </div>
+          </>
+        )}
       </div>
+
       {uploadError && (
         <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2">
           <AlertCircle className="h-4 w-4 shrink-0" />

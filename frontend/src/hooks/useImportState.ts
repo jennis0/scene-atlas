@@ -39,6 +39,7 @@ export interface UseImportStateReturn {
 
   // Refs
   fileInputRef: React.RefObject<HTMLInputElement>
+  folderInputRef: React.RefObject<HTMLInputElement>
 
   // Derived values
   isAllTab: boolean
@@ -72,6 +73,7 @@ export interface UseImportStateReturn {
   // Actions
   reset: () => void
   handleFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => Promise<void>
+  handleDrop: (e: React.DragEvent) => Promise<void>
   updateGroup: (index: number, updates: Partial<EditableGroupState>) => void
   updateFile: (
     groupIndex: number,
@@ -145,6 +147,7 @@ export function useImportState(
   // ── Upload pipeline ─────────────────────────────────────────────
   const {
     fileInputRef,
+    folderInputRef,
     blobUrlsRef,
     uploading,
     uploadError,
@@ -153,6 +156,7 @@ export function useImportState(
     defaultImageType,
     setDefaultImageType,
     handleFileSelect,
+    handleDrop,
   } = useImportUpload({ setGroups, setJobId: (id) => setJobId(id), setState, setActiveTab })
 
   // ── Polling ─────────────────────────────────────────────────────
@@ -449,6 +453,7 @@ export function useImportState(
     editingSvHeading,
     defaultImageType,
     fileInputRef,
+    folderInputRef,
     isAllTab,
     activeGroup,
     activeGroupId,
@@ -476,6 +481,7 @@ export function useImportState(
     setDefaultImageType,
     reset,
     handleFileSelect,
+    handleDrop,
     updateGroup,
     updateFile,
     updateFileAnyGroup,

@@ -138,7 +138,9 @@ export function ImportDialog({
             uploadPhase={s.uploadPhase}
             skippedFiles={s.skippedFiles}
             fileInputRef={s.fileInputRef}
+            folderInputRef={s.folderInputRef}
             onFileSelect={s.handleFileSelect}
+            onDrop={s.handleDrop}
             defaultImageType={s.defaultImageType}
             onDefaultImageTypeChange={s.setDefaultImageType}
           />
