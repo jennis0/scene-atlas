@@ -50,9 +50,10 @@ data/*.db-journal
 
 test_data/*
 
-# Logs
+# Logs and runtime state
 *.log
 logs/
+.pids/
 .prefect/
 
 # Node.js (for frontend)

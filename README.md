@@ -1,279 +1,229 @@
-# Battlemap Explorer
+# Scene Atlas
 
-A powerful local system for managing, searching, and exploring tens of thousands of RPG battlemap images with advanced features including semantic image search, multi-dimensional tag-based filtering, and color search.
+A local system for managing, searching, and exploring large collections of RPG battlemap images.
 
 ## Features
 
-- **Semantic Image Search**: Search images using natural language queries (e.g., "dark forest cave with water")
-- **Multi-dimensional Tag System**: Filter by grid type, season, lighting, state, theme, weather, and more
-- **Color Search**: Find maps by dominant colors
-- **Variant Management**: Group related map variants together
-- **Metadata Extraction**: Automatically infer tags, author, and base name from file paths and names
-- **Scalable**: Built to handle tens of thousands of images efficiently
-- **100% Local**: No cloud services required, runs entirely on your machine
+- **Hybrid search** — natural-language semantic search (CLIP) combined with keyword full-text search (FTS5 + Porter stemmer)
+- **Tag-based filtering** — grid state, season, lighting, weather, terrain, and more; auto-extracted from filenames
+- **Variant groups** — related maps (different lighting, grid, weather variants) grouped automatically from folder structure
+- **Web import** — drag-and-drop uploader with browser-side duplicate detection, ZIP support, and preview
+- **Color search** — filter by dominant colours extracted from each image
+- **100% local** — no cloud services; runs on your home server or laptop
 
 ## Tech Stack
 
-- **Backend**: Python, FastAPI, SQLite, Qdrant
-- **ML**: CLIP (OpenAI) for semantic embeddings
-- **Orchestration**: Prefect for image processing workflows
-- **Frontend**: React + Vite (Phase 2)
+| Layer | Technology |
+|---|---|
+| Backend API | FastAPI + SQLAlchemy (SQLite) |
+| Semantic search | CLIP ViT-B/32 → Qdrant vector DB |
+| Full-text search | SQLite FTS5 with Porter stemmer |
+| Orchestration | Prefect 3 (scheduled + on-demand flows) |
+| Frontend | React 18 + TypeScript + Vite + Tailwind + Radix UI |
+| Infrastructure | Docker Compose (Qdrant, Prefect server, Postgres, Redis) |
+
+---
 
 ## Prerequisites
 
-- Python 3.11+
-- Docker (for Qdrant)
-- UV package manager
-- (Optional) CUDA-capable GPU for faster embedding generation
+- **Python 3.11+** with [uv](https://docs.astral.sh/uv/)
+- **Node.js 20+** with npm
+- **Docker Desktop** (or Docker + Docker Compose v2)
 
-## Installation
+---
 
-### 1. Install UV
+## First-time installation
 
-UV is already installed based on your previous message.
-
-### 2. Install Dependencies
+### 1. Install dependencies
 
 ```bash
-# Install Python dependencies
-uv sync
+# Python dependencies
+uv sync --extra dev
+
+# Frontend dependencies
+cd frontend && npm ci && cd ..
 ```
 
-### 3. Start Qdrant
+### 2. Start the Docker infrastructure
 
 ```bash
-# Start Qdrant vector database
-docker-compose up -d
+docker compose up -d
 ```
 
-### 4. Configure Environment
+This starts: Qdrant, Prefect server + services, Postgres (Prefect backend), Redis (Prefect messaging).
+
+Wait ~60 seconds for the Prefect server to become healthy (http://localhost:4200).
+
+### 3. Run one-time setup
 
 ```bash
-# Copy example environment file
+uv run python scripts/setup.py
+```
+
+This creates the Prefect work pool (`battlemap-pool`) and registers all seven flow deployments (import pipeline, scheduled backups, staging cleanup, etc.).
+
+**Only needs to run once per installation.** Re-run it if you reset the Prefect database or add new flows.
+
+---
+
+## Daily use
+
+### Start
+
+```bash
+uv run python scripts/start.py
+```
+
+This starts Docker (if not already running), the Prefect worker, and the FastAPI server as background processes. Logs go to `logs/worker.log` and `logs/api.log`.
+
+Then start the frontend in a second terminal:
+
+```bash
+cd frontend && npm run dev
+```
+
+| Service | URL |
+|---|---|
+| Gallery | http://localhost:5173 |
+| API docs | http://localhost:8000/docs |
+| Health check | http://localhost:8000/health |
+| Prefect UI | http://localhost:4200 |
+
+### Stop
+
+```bash
+uv run python scripts/stop.py
+```
+
+Leave Docker running for a faster restart next time:
+
+```bash
+uv run python scripts/stop.py --keep-docker
+```
+
+### Tail logs
+
+```bash
+tail -f logs/api.log       # FastAPI server
+tail -f logs/worker.log    # Prefect worker (flow execution)
+```
+
+---
+
+## Prefect deployments
+
+All async processing runs through Prefect. Deployments are registered by `scripts/setup.py`.
+
+| Deployment | Trigger | Purpose |
+|---|---|---|
+| `analyse-deployment` | Upload endpoint (sync) | Parse uploaded files, detect variant groups |
+| `import-deployment` | Confirm endpoint (async) | Process a single variant group through the full pipeline |
+| `import-job-deployment` | Confirm-all endpoint (async) | Process all groups in one run (CLIP loaded once) |
+| `write-new-embeddings-deployment` | Manual (Prefect UI) | Backfill Qdrant with CLIP embeddings for existing images |
+| `backfill-content-hash-deployment` | Manual (Prefect UI) | Compute SHA-256 hashes for existing images |
+| `backup-deployment` | Scheduled — daily 03:00 UTC | SQLite snapshot + Qdrant snapshot + backup rotation |
+| `cleanup-staging-deployment` | Scheduled — every 6 hours | Remove abandoned import staging directories |
+
+Any deployment can be triggered manually from the Prefect UI at http://localhost:4200 → Deployments.
+
+To re-register deployments after a change:
+
+```bash
+uv run python scripts/setup.py
+```
+
+---
+
+## Configuration
+
+Copy `.env.example` to `.env` and edit as needed:
+
+```bash
 cp .env.example .env
-
-# Edit .env if needed (defaults should work for local development)
 ```
 
-## Usage
+| Variable | Default | Description |
+|---|---|---|
+| `CORS_ORIGINS` | `["http://localhost:5173"]` | Add your LAN IP for remote access |
+| `CLIP_DEVICE` | `cpu` | Set to `cuda` if a GPU is available |
+| `MAX_IMPORT_FILE_SIZE` | `52428800` (50 MB) | Per-file upload limit |
+| `MAX_IMPORT_TOTAL_SIZE` | `524288000` (500 MB) | Total upload size per import job |
 
-### Start the API Server
+---
+
+## Database & backups
+
+Schema is managed by **Alembic** (applied automatically on API startup):
 
 ```bash
-# From the project root
-cd backend
-uv run python -m app.main
+uv run alembic upgrade head   # apply pending migrations manually
 ```
 
-The API will be available at `http://localhost:8000`
+**Backups** run daily via Prefect and are written to `data/backups/{timestamp}/`:
+- `battlemap.db` — consistent SQLite snapshot
+- Qdrant snapshot — stored in Qdrant's own storage
 
-- API docs: `http://localhost:8000/docs`
-- Health check: `http://localhost:8000/health`
+Rotation keeps 7 daily + 4 weekly snapshots.
 
-### Run Image Ingestion
+**Restore from backup:** copy `battlemap.db` from a backup directory to `data/battlemap.db`, then run `uv run alembic upgrade head`.
 
-#### Option 1: Using Python Script
+Image files in `data/store/` are not backed up by the script — the originals typically exist elsewhere. Qdrant embeddings can be regenerated with the `write-new-embeddings` deployment if needed.
 
-```python
-from pathlib import Path
-from backend.flows import bulk_image_ingestion
-
-# Ingest images from directories
-result = bulk_image_ingestion(
-    source_dirs=[
-        "/path/to/your/battlemaps",
-        "/path/to/more/maps",
-    ]
-)
-
-print(f"Processed: {result['successful']} successful, {result['failed']} failed")
-```
-
-#### Option 2: Using Prefect UI (Recommended)
-
-```bash
-# Start Prefect server
-uv run prefect server start
-
-# In another terminal, run the flow
-uv run python -c "from backend.flows import bulk_image_ingestion; bulk_image_ingestion(['/path/to/maps'])"
-```
-
-Visit `http://localhost:4200` to see the Prefect UI with flow runs and logs.
-
-### API Examples
-
-#### Search Images
-
-```bash
-# Text search
-curl "http://localhost:8000/api/v1/search/?text=forest"
-
-# Semantic search
-curl "http://localhost:8000/api/v1/search/?semantic=dark+cave+with+water"
-
-# Filter by tags
-curl "http://localhost:8000/api/v1/search/?tags=season:winter&tags=lighting:night"
-
-# Combined search
-curl "http://localhost:8000/api/v1/search/?semantic=tavern&tags=grid:gridded&author=DungeonDraft"
-```
-
-#### List Tag Categories
-
-```bash
-curl "http://localhost:8000/api/v1/tags/categories"
-```
-
-#### Get Tag Statistics
-
-```bash
-curl "http://localhost:8000/api/v1/tags/stats"
-```
-
-## Project Structure
-
-```
-battlemap-explorer/
-├── backend/
-│   ├── app/                    # FastAPI application
-│   │   ├── api/               # API endpoints
-│   │   ├── models/            # Database models & schemas
-│   │   ├── services/          # Business logic (CLIP, Qdrant)
-│   │   ├── config.py          # Configuration
-│   │   └── main.py            # FastAPI app entry point
-│   └── flows/                 # Prefect workflows
-│       ├── tasks/             # Individual processing tasks
-│       ├── parsers/           # Creator-specific parsers
-│       └── ingestion.py       # Main ingestion flow
-├── frontend/                  # React frontend (Phase 2)
-├── data/
-│   ├── images/               # Original images
-│   ├── thumbnails/           # Generated thumbnails
-│   ├── battlemap.db          # SQLite database
-│   └── qdrant_storage/       # Qdrant vector database
-├── config/
-│   └── parser_rules.yaml     # Custom parsing rules
-├── docker-compose.yml        # Qdrant container
-├── pyproject.toml           # Python dependencies
-└── README.md
-```
-
-## Tag System
-
-The tag system supports multidimensional variant categorization:
-
-- **grid**: gridded, no-grid, hex-grid
-- **lighting**: day, night, dusk, dawn, twilight
-- **season**: spring, summer, fall, winter
-- **state**: normal, bloody, ruined, abandoned, overgrown, burned
-- **theme**: fey, shadow, fire, ice, underdark, astral, ethereal
-- **weather**: clear, rain, snow, fog, storm, mist
-- **population**: empty, furnished, populated, battle
-- **perspective**: top-down, isometric, side-view
-- **quality**: line-art, colored, rendered, sketch
-
-Tags are automatically extracted from filenames and paths using pattern matching.
-
-## Database Schema
-
-### SQLite Tables
-
-- **images**: Main image metadata
-- **tags**: Tag assignments (category + value)
-- **colors**: Dominant colors per image
-- **variant_groups**: Groups related image variants
-- **tag_categories**: Tag taxonomy definitions
-
-### Qdrant Collection
-
-- **battlemap_images**: CLIP embeddings (512-dim vectors) with metadata
+---
 
 ## Development
+
+### Running tests
+
+```bash
+# Unit tests (fast, no infrastructure needed)
+uv run --extra dev python -m pytest backend/tests/unit/ -v
+
+# Integration tests (self-contained, no Prefect server needed)
+uv run --extra dev python -m pytest \
+  backend/tests/integration/test_backup_restore.py \
+  backend/tests/integration/test_upload_endpoint.py \
+  backend/tests/integration/test_preview_endpoint.py \
+  backend/tests/integration/test_confirm_endpoint.py \
+  -v
+```
 
 ### Linting
 
 ```bash
-# Run Ruff linter
-uv run ruff check .
-
-# Auto-fix issues
-uv run ruff check . --fix
-
-# Format code
-uv run ruff format .
+uv run ruff check backend/
+uv run ruff format backend/
 ```
 
-### Testing
+### Reset database (destructive)
 
 ```bash
-# Run tests (when implemented)
-uv run pytest
+uv run python reset_database.py
 ```
 
-## Roadmap
+Drops and recreates the SQLite database. **All image metadata will be lost.** Image files in `data/store/` are not affected.
 
-### Phase 1: Core Infrastructure ✅ (Current)
-- [x] Backend API with FastAPI
-- [x] SQLite database with tag system
-- [x] Qdrant vector database
-- [x] CLIP embedding generation
-- [x] Prefect ingestion pipeline
-- [x] Multi-faceted search API
-
-### Phase 2: Frontend (Next)
-- [ ] React frontend with Vite
-- [ ] Virtual scrolling image grid
-- [ ] Search and filter UI
-- [ ] Image viewer with variants
-- [ ] Manual metadata editor
-
-### Phase 3: Advanced Features
-- [ ] Variant detection and auto-grouping
-- [ ] Creator-specific parser rules
-- [ ] Bulk metadata operations
-- [ ] Import/export functionality
-- [ ] Performance optimizations
-
-## Configuration
-
-### Custom Parser Rules
-
-Create custom parsing rules for specific creators in `config/parser_rules.yaml`:
-
-```yaml
-creators:
-  - name: "Dungeon Alchemist"
-    path_pattern: "**/DungeonAlchemist/**"
-    filename_pattern: "{mapname}_{variant1}_{variant2}_{grid}.png"
-    tag_mappings:
-      grid:
-        - pattern: "Grid"
-          value: "gridded"
-```
+---
 
 ## Troubleshooting
 
-### Qdrant Connection Errors
-
-Make sure Qdrant is running:
+**Prefect server not ready during setup:**
 ```bash
-docker-compose ps
-docker-compose logs qdrant
+docker compose ps          # check all containers are Up
+docker compose logs prefect-server --tail=50
 ```
 
-### CLIP Model Download
+**CLIP model slow to load:**
+On first start, the CLIP model (~600 MB) downloads from HuggingFace. Subsequent starts use the local cache in `.cache/`.
 
-On first run, CLIP model will download (~600MB). This may take time.
+**Import fails silently:**
+Check the worker log — CLIP and PIL errors appear there, not in the API log:
+```bash
+tail -f logs/worker.log
+```
 
-### Out of Memory
-
-If processing large batches, reduce parallel processing or use smaller thumbnail sizes in `config.py`.
-
-## License
-
-MIT
-
-## Contributing
-
-Contributions welcome! Please open an issue first to discuss changes.
+**Qdrant not healthy:**
+```bash
+docker compose logs qdrant
+curl http://localhost:6333/healthz
+```
