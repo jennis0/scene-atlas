@@ -39,6 +39,7 @@ from backend.app.models import (
     get_session_local,
 )
 from backend.app.services import BattlemapParser, get_image_store, qdrant_service
+from backend.app.services.battlemap_parser import build_search_text
 from backend.app.services.fts_service import fts_rebuild
 
 from .tasks.embedding_generation import (
@@ -106,6 +107,13 @@ def _save_image_to_db(db: Session, image_data: dict) -> int:
         grid_height=image_data.get("grid_height"),
         sub_variant=image_data.get("sub_variant"),
         content_hash=image_data.get("content_hash"),
+        search_text=build_search_text(
+            name=image_data.get("name"),
+            filename=image_data.get("filename"),
+            author=image_data.get("author"),
+            tags=image_data.get("tags"),
+            sub_variant=image_data.get("sub_variant"),
+        ),
     )
     db.add(image)
     db.flush()

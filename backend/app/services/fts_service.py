@@ -1,7 +1,13 @@
 """FTS5 full-text search helpers."""
 
+import logging
+
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
+from backend.app.services.battlemap_parser import build_search_text
+
+logger = logging.getLogger(__name__)
 
 
 def fts_rebuild(db: Session) -> None:
@@ -42,3 +48,85 @@ def fts_search(db: Session, query: str, limit: int = 500) -> list[tuple[int, flo
         # FTS5 MATCH syntax can raise if the query contains special chars.
         # Fall back gracefully to an empty result.
         return []
+
+
+def backfill_search_text(db: Session) -> int:
+    """Populate search_text column for all images that don't have it yet.
+
+    Reads name, filename, author, sub_variant, and tag values for each image,
+    builds the CamelCase-split search text, and updates the column.
+    Returns the number of rows updated.
+    """
+    # LEFT JOIN to get images + their tags in one query
+    rows = db.execute(text("""
+        SELECT i.id, i.name, i.filename, i.author, i.sub_variant,
+               t.category, t.value
+        FROM images i
+        LEFT JOIN tags t ON t.image_id = i.id
+        WHERE i.search_text IS NULL OR i.search_text = ''
+        ORDER BY i.id
+    """)).fetchall()
+
+    if not rows:
+        return 0
+
+    # Group tags by image ID
+    images: dict[int, dict] = {}
+    for row in rows:
+        img_id = row[0]
+        if img_id not in images:
+            images[img_id] = {
+                "name": row[1], "filename": row[2],
+                "author": row[3], "sub_variant": row[4],
+                "tags": [],
+            }
+        if row[5] is not None:  # tag category
+            images[img_id]["tags"].append({"category": row[5], "value": row[6]})
+
+    # Temporarily drop FTS triggers to avoid "malformed" errors during bulk UPDATE.
+    # The FTS index will be rebuilt from scratch at the end.
+    db.execute(text("DROP TRIGGER IF EXISTS image_fts_ai"))
+    db.execute(text("DROP TRIGGER IF EXISTS image_fts_ad"))
+    db.execute(text("DROP TRIGGER IF EXISTS image_fts_au"))
+
+    for img_id, data in images.items():
+        st = build_search_text(
+            name=data["name"],
+            filename=data["filename"],
+            author=data["author"],
+            tags=data["tags"],
+            sub_variant=data["sub_variant"],
+        )
+        db.execute(
+            text("UPDATE images SET search_text = :st WHERE id = :id"),
+            {"st": st, "id": img_id},
+        )
+
+    db.commit()
+    logger.info(f"Backfilled search_text for {len(images)} images")
+
+    # Recreate triggers and rebuild FTS index
+    db.execute(text("""
+        CREATE TRIGGER image_fts_ai AFTER INSERT ON images BEGIN
+            INSERT INTO image_fts(rowid, name, filename, author, search_text)
+            VALUES (new.id, new.name, new.filename, new.author, new.search_text);
+        END
+    """))
+    db.execute(text("""
+        CREATE TRIGGER image_fts_ad AFTER DELETE ON images BEGIN
+            INSERT INTO image_fts(image_fts, rowid, name, filename, author, search_text)
+            VALUES ('delete', old.id, old.name, old.filename, old.author, old.search_text);
+        END
+    """))
+    db.execute(text("""
+        CREATE TRIGGER image_fts_au AFTER UPDATE ON images BEGIN
+            INSERT INTO image_fts(image_fts, rowid, name, filename, author, search_text)
+            VALUES ('delete', old.id, old.name, old.filename, old.author, old.search_text);
+            INSERT INTO image_fts(rowid, name, filename, author, search_text)
+            VALUES (new.id, new.name, new.filename, new.author, new.search_text);
+        END
+    """))
+    db.commit()
+
+    fts_rebuild(db)
+    return len(images)

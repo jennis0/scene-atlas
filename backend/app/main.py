@@ -34,12 +34,15 @@ async def lifespan(app: FastAPI):
     init_db(engine)
     logger.info("Database initialized")
 
-    # Seed tag categories
+    # Seed tag categories + backfill search_text for FTS5
     SessionLocal = get_session_local(engine)
     session = SessionLocal()
     try:
         seed_tag_categories(session)
         logger.info("Tag categories seeded")
+
+        from .services.fts_service import backfill_search_text
+        backfill_search_text(session)
     finally:
         session.close()
 

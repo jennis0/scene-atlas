@@ -234,6 +234,27 @@ export interface EditableGroupState {
   total: number
 }
 
+// Variant group search/merge types
+export interface VariantGroupSearchItem {
+  id: number
+  base_name: string
+  author: string | null
+  primary_image_id: number | null
+  image_count: number
+}
+
+export interface VariantGroupSearchResponse {
+  groups: VariantGroupSearchItem[]
+  total: number
+}
+
+export interface VariantGroupMergeResponse {
+  target_group_id: number
+  target_group_name: string
+  images_moved: number
+  source_group_deleted: boolean
+}
+
 // Variant group edit types
 export interface VariantGroupDetail {
   id: number

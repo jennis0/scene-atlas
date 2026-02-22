@@ -6,6 +6,9 @@ import type { ImageGroup } from '@/types'
 interface GroupGridProps {
   groups: ImageGroup[]
   onGroupClick: (group: ImageGroup) => void
+  onEditGroup?: (group: ImageGroup) => void
+  onDeleteGroup?: (group: ImageGroup) => void
+  onMergeGroup?: (group: ImageGroup) => void
 }
 
 const CARD_WIDTH = 420
@@ -13,7 +16,7 @@ const CARD_HEIGHT = 160 // image area only — metadata lives in gradient overla
 const GAP = 24
 const PADDING = 16
 
-export function GroupGrid({ groups, onGroupClick }: GroupGridProps) {
+export function GroupGrid({ groups, onGroupClick, onEditGroup, onDeleteGroup, onMergeGroup }: GroupGridProps) {
   const parentRef = useRef<HTMLDivElement>(null)
   const [columnsPerRow, setColumnsPerRow] = useState(3)
 
@@ -83,6 +86,9 @@ export function GroupGrid({ groups, onGroupClick }: GroupGridProps) {
                     key={group.groupId ?? `solo-${group.heroImage.id}`}
                     group={group}
                     onClick={() => onGroupClick(group)}
+                    onEdit={() => onEditGroup?.(group)}
+                    onDelete={() => onDeleteGroup?.(group)}
+                    onMerge={() => onMergeGroup?.(group)}
                   />
                 ))}
               </div>

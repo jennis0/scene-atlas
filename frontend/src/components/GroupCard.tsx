@@ -1,12 +1,23 @@
+import { MoreHorizontal, Pencil, Merge, Trash2, Layers } from 'lucide-react'
 import { getThumbnailUrl } from '@/lib/api'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
 import type { ImageGroup } from '@/types'
 
 interface GroupCardProps {
   group: ImageGroup
   onClick: () => void
+  onEdit?: () => void
+  onDelete?: () => void
+  onMerge?: () => void
 }
 
-export function GroupCard({ group, onClick }: GroupCardProps) {
+export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCardProps) {
   const {
     heroImage,
     mosaicImages,
@@ -14,6 +25,7 @@ export function GroupCard({ group, onClick }: GroupCardProps) {
     matchingCount,
     baseName,
     author,
+    groupId,
   } = group
 
   const maxMosaic = mosaicImages.length >= 4 ? 4 : mosaicImages.length >= 2 ? 2 : mosaicImages.length
@@ -21,12 +33,45 @@ export function GroupCard({ group, onClick }: GroupCardProps) {
   const displayedCount = 1 + visibleMosaic.length
   const overflowCount = totalVariants - displayedCount
   const hasMosaic = visibleMosaic.length > 0
+  const hasActions = groupId !== null
 
   return (
     <div
       className="group/card relative cursor-pointer overflow-hidden rounded-lg border border-border/30 bg-card transition-all duration-200 hover:border-primary/40 hover:shadow-xl hover:shadow-black/40"
       onClick={onClick}
     >
+      {/* Action menu — top-right, visible on hover */}
+      {hasActions && (
+        <div className="absolute top-2 right-2 z-10">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="opacity-0 group-hover/card:opacity-100 h-7 w-7 rounded-md flex items-center justify-center bg-black/50 text-white/80 hover:text-white hover:bg-black/70 backdrop-blur-sm transition-all"
+                onClick={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+              <DropdownMenuItem onClick={() => onEdit?.()}>
+                <Pencil className="h-4 w-4 mr-2" />Edit
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onMerge?.()}>
+                <Merge className="h-4 w-4 mr-2" />Merge into...
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => onDelete?.()}
+                className="text-destructive focus:text-destructive"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      )}
+
       {/* Image area */}
       <div className="flex" style={{ height: '160px' }}>
         {/* Hero image */}
@@ -79,19 +124,27 @@ export function GroupCard({ group, onClick }: GroupCardProps) {
         )}
       </div>
 
-      {/* Gradient overlay — name + variant count + author */}
+      {/* Gradient overlay — full width for visual continuity, text constrained to hero area */}
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/55 to-transparent pt-10 pb-2.5 px-3 pointer-events-none">
-        <div className="flex items-center gap-2">
-          <p className="text-[13px] font-medium text-white leading-snug line-clamp-1 drop-shadow flex-1 truncate">
+        <div style={{ maxWidth: hasMosaic ? '60%' : '100%' }}>
+          <p className="text-[13px] font-medium text-white leading-snug line-clamp-1 drop-shadow truncate">
             {baseName}
           </p>
+          {author && (
+            <p className="text-[11px] text-white/60 truncate mt-0.5">{author}</p>
+          )}
           {totalVariants > 1 && (
-            <span className="shrink-0 tabular-nums text-[11px] bg-black/50 text-white/75 px-1.5 py-px rounded-full border border-white/10">
-              {matchingCount < totalVariants ? `${matchingCount}/${totalVariants}` : totalVariants}
-            </span>
+            <div className="flex items-center gap-1 mt-0.5">
+              <Layers className="h-3 w-3 text-white/40" />
+              <span className="text-[11px] tabular-nums text-white/50">
+                {matchingCount < totalVariants
+                  ? `${matchingCount} of ${totalVariants} variants`
+                  : `${totalVariants} variants`
+                }
+              </span>
+            </div>
           )}
         </div>
-        <p className="text-[11px] text-white/60 truncate mt-0.5">{author}</p>
       </div>
     </div>
   )

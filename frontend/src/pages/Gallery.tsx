@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Search, Sparkles, X, Upload, LayoutGrid, Layers, Pencil, AlignLeft, Tag } from 'lucide-react'
-import { searchApi } from '@/lib/api'
+import { Search, Sparkles, X, Upload, LayoutGrid, Layers, Pencil, AlignLeft, Tag, Loader2 } from 'lucide-react'
+import { searchApi, variantGroupApi } from '@/lib/api'
 import { ImageGrid } from '@/components/ImageGrid'
 import { GroupGrid } from '@/components/GroupGrid'
 import { ImageViewer } from '@/components/ImageViewer'
@@ -9,13 +9,15 @@ import { ImportDialog } from '@/components/ImportDialog'
 import { ImportTray } from '@/components/ImportTray'
 import { EditGroupDialog } from '@/components/EditGroupDialog'
 import { TagManagementDialog } from '@/components/TagManagementDialog'
+import { MergeGroupPicker } from '@/components/MergeGroupPicker'
 import { GalleryFilterPanel } from '@/components/GalleryFilterPanel'
 import { FilterChipList } from '@/components/FilterMenuContent'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useImageGrouping } from '@/hooks/useImageGrouping'
 import { useActiveImports } from '@/hooks/useActiveImports'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import type { Image, SearchParams, ViewMode } from '@/types'
+import type { Image, ImageGroup, SearchParams, ViewMode } from '@/types'
 import type { ActiveFilter } from '@/components/import/fileFilter'
 
 export function Gallery() {
@@ -25,7 +27,14 @@ export function Gallery() {
   const [selectedImage, setSelectedImage] = useState<{ image: Image; index: number } | null>(null)
   const [editGroupId, setEditGroupId] = useState<number | null>(null)
   const [showMassEdit, setShowMassEdit] = useState(false)
-  const [viewMode, setViewMode] = useState<ViewMode>('individual')
+  const [viewMode, setViewMode] = useState<ViewMode>(
+    () => (localStorage.getItem('gallery-view-mode') as ViewMode) || 'individual'
+  )
+
+  // Group action menu state
+  const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<ImageGroup | null>(null)
+  const [mergeSourceGroup, setMergeSourceGroup] = useState<ImageGroup | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   // Import state: null = closed, 'new' = fresh import, '{jobId}' = reconnect
   const [importDialogJobId, setImportDialogJobId] = useState<string | null>(null)
@@ -120,6 +129,25 @@ export function Gallery() {
     e.preventDefault()
     setSubmittedQuery(searchInput)
     setMinScore(0.2) // reset threshold on new search
+  }
+
+  const invalidateGallery = () => {
+    queryClient.invalidateQueries({ queryKey: ['search'] })
+    queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
+  }
+
+  const handleGroupDeleteConfirm = async () => {
+    if (!deleteConfirmGroup?.groupId) return
+    setDeleting(true)
+    try {
+      await variantGroupApi.delete(deleteConfirmGroup.groupId)
+      setDeleteConfirmGroup(null)
+      invalidateGallery()
+    } catch (err) {
+      console.error('Failed to delete group:', err)
+    } finally {
+      setDeleting(false)
+    }
   }
 
   const clearAll = () => {
@@ -235,7 +263,7 @@ export function Gallery() {
             {/* Segmented view toggle */}
             <div className="flex rounded-md overflow-hidden border border-border shrink-0">
               <button
-                onClick={() => setViewMode('individual')}
+                onClick={() => { setViewMode('individual'); localStorage.setItem('gallery-view-mode', 'individual') }}
                 title="Individual images"
                 className={`h-10 w-10 flex items-center justify-center border-r border-border transition-colors
                   ${viewMode === 'individual' ? 'bg-secondary text-foreground' : 'text-foreground/50 hover:text-foreground hover:bg-secondary/50'}`}
@@ -243,7 +271,7 @@ export function Gallery() {
                 <LayoutGrid className="h-4 w-4" />
               </button>
               <button
-                onClick={() => setViewMode('grouped')}
+                onClick={() => { setViewMode('grouped'); localStorage.setItem('gallery-view-mode', 'grouped') }}
                 title="Variant groups"
                 className={`h-10 w-10 flex items-center justify-center transition-colors
                   ${viewMode === 'grouped' ? 'bg-secondary text-foreground' : 'text-foreground/50 hover:text-foreground hover:bg-secondary/50'}`}
@@ -339,6 +367,9 @@ export function Gallery() {
             <GroupGrid
               groups={imageGroups}
               onGroupClick={(group) => setSelectedImage({ image: group.heroImage, index: 0 })}
+              onEditGroup={(g) => g.groupId !== null && setEditGroupId(g.groupId)}
+              onDeleteGroup={(g) => setDeleteConfirmGroup(g)}
+              onMergeGroup={(g) => setMergeSourceGroup(g)}
             />
           </div>
         )}
@@ -365,8 +396,7 @@ export function Gallery() {
         onClose={() => setEditGroupId(null)}
         onSave={() => {
           setEditGroupId(null)
-          queryClient.invalidateQueries({ queryKey: ['search'] })
-          queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
+          invalidateGallery()
         }}
       />
 
@@ -377,8 +407,7 @@ export function Gallery() {
         onClose={() => setShowMassEdit(false)}
         onSave={() => {
           setShowMassEdit(false)
-          queryClient.invalidateQueries({ queryKey: ['search'] })
-          queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
+          invalidateGallery()
         }}
       />
 
@@ -408,6 +437,45 @@ export function Gallery() {
         onDismissJob={activeImports.dismissJob}
         onCancelJob={activeImports.cancelJob}
         onRefresh={activeImports.refresh}
+      />
+
+      {/* Delete group confirmation */}
+      <Dialog open={deleteConfirmGroup !== null} onOpenChange={(v) => !v && !deleting && setDeleteConfirmGroup(null)}>
+        <DialogContent className="max-w-sm" onClose={() => !deleting && setDeleteConfirmGroup(null)}>
+          <DialogHeader>
+            <DialogTitle>Delete Group</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Are you sure you want to delete <strong>{deleteConfirmGroup?.baseName}</strong> and
+            all {deleteConfirmGroup?.totalVariants} image{deleteConfirmGroup?.totalVariants !== 1 ? 's' : ''}?
+            This cannot be undone.
+          </p>
+          <div className="flex justify-end gap-2 mt-2">
+            <Button variant="outline" onClick={() => setDeleteConfirmGroup(null)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleGroupDeleteConfirm} disabled={deleting}>
+              {deleting ? <><Loader2 className="h-4 w-4 animate-spin mr-1" />Deleting...</> : 'Delete'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Merge group picker */}
+      <MergeGroupPicker
+        open={mergeSourceGroup !== null}
+        onClose={() => setMergeSourceGroup(null)}
+        excludeGroupId={mergeSourceGroup?.groupId}
+        onSelect={async (targetGroup) => {
+          if (!mergeSourceGroup?.groupId) return
+          try {
+            await variantGroupApi.merge(mergeSourceGroup.groupId, targetGroup.id)
+            setMergeSourceGroup(null)
+            invalidateGallery()
+          } catch (err) {
+            console.error('Failed to merge groups:', err)
+          }
+        }}
       />
     </div>
   )

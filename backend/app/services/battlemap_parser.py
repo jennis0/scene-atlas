@@ -17,6 +17,56 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+_CAMEL_RE = re.compile(r"([a-z])([A-Z])|([a-zA-Z])([0-9])|([0-9])([a-zA-Z])")
+
+
+def _split_camel_static(text: str) -> str:
+    """Split CamelCase boundaries into spaces (module-level helper)."""
+    return _CAMEL_RE.sub(
+        lambda m: (
+            f"{m.group(1) or m.group(3) or m.group(5)} {m.group(2) or m.group(4) or m.group(6)}"
+        ),
+        text,
+    )
+
+
+def build_search_text(
+    name: str | None,
+    filename: str | None,
+    author: str | None = None,
+    tags: list[dict] | None = None,
+    sub_variant: str | None = None,
+) -> str:
+    """Build a pre-tokenized search string for FTS5 indexing.
+
+    CamelCase-splits name and filename so that "desertCanyon" becomes
+    "desert Canyon", letting FTS5's unicode61 tokenizer index each word
+    separately.  Also appends tag values and sub-variant text.
+    """
+    parts: list[str] = []
+
+    for raw in (name, filename, sub_variant):
+        if not raw:
+            continue
+        # Strip file extension from filename
+        cleaned = re.sub(r"\.[^.]+$", "", raw)
+        # Replace separators with spaces, then split CamelCase
+        cleaned = cleaned.replace("_", " ").replace("-", " ").replace("$", " ")
+        cleaned = _split_camel_static(cleaned)
+        parts.append(cleaned)
+
+    if author:
+        parts.append(_split_camel_static(author))
+
+    if tags:
+        for t in tags:
+            val = t.get("value", "")
+            if val:
+                parts.append(val)
+
+    return " ".join(parts)
+
+
 class BattlemapParser:
     """Parses battlemap image paths into structured metadata.
 
