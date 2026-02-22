@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { SceneTile } from '@/components/SceneTile'
+import { SubgroupDropdown } from '@/components/SubgroupDropdown'
 import { imageApi, tagApi, getImageUrl } from '@/lib/api'
 import { useGetTagColor } from '@/contexts/TagColorContext'
 import { TagPicker } from '@/components/import/TagPicker'
@@ -86,7 +87,6 @@ export function ImageViewer({
   const [editingName, setEditingName] = useState(false)
   const [nameDraft, setNameDraft] = useState(image.name)
   const [editingSV, setEditingSV] = useState(false)
-  const [subgroupDraft, setSubVariantDraft] = useState(image.subgroup ?? '')
   const [gridWidthDraft, setGridWidthDraft] = useState<string>(image.grid_width?.toString() ?? '')
   const [gridHeightDraft, setGridHeightDraft] = useState<string>(
     image.grid_height?.toString() ?? '',
@@ -107,7 +107,6 @@ export function ImageViewer({
     const src = displayImage ?? image
     setNameDraft(src.name)
     setEditingName(false)
-    setSubVariantDraft(src.subgroup ?? '')
     setEditingSV(false)
     setVariantSearch('')
     setSceneTypeFilter('all')
@@ -122,7 +121,6 @@ export function ImageViewer({
   // Sync drafts when fresh image data arrives (e.g. after a patch succeeds)
   useEffect(() => {
     if (!editingName) setNameDraft(displayImage?.name ?? '')
-    if (!editingSV) setSubVariantDraft(displayImage?.subgroup ?? '')
     setGridWidthDraft(displayImage?.grid_width?.toString() ?? '')
     setGridHeightDraft(displayImage?.grid_height?.toString() ?? '')
     // editingName/editingSV intentionally omitted: adding them would overwrite in-progress edits
@@ -173,6 +171,8 @@ export function ImageViewer({
       imageApi.patch(image.id, payload),
     onSuccess: (updated) => {
       queryClient.setQueryData(['image', image.id], updated)
+      queryClient.invalidateQueries({ queryKey: ['scenes'] })
+      queryClient.invalidateQueries({ queryKey: ['search'] })
       onImageChange?.(updated)
     },
   })
@@ -344,20 +344,6 @@ export function ImageViewer({
     }
   }
 
-  const saveSubgroup = () => {
-    const trimmed = subgroupDraft.trim() || null
-    if (trimmed !== img.subgroup) patchMutation.mutate({ subgroup: trimmed })
-    setEditingSV(false)
-  }
-
-  const handleSVKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') saveSubgroup()
-    if (e.key === 'Escape') {
-      setSubVariantDraft(img.subgroup ?? '')
-      setEditingSV(false)
-    }
-  }
-
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div
@@ -446,6 +432,13 @@ export function ImageViewer({
 
           {/* ── Image info (fixed — stays visible while scenes scroll) ── */}
           <div className="px-4 pb-2 shrink-0 border-b border-border/30">
+            {/* Group name — shown when the image belongs to a named group */}
+            {img.group_name && img.group_name !== img.name && (
+              <p className="font-display text-xl font-semibold text-muted-foreground truncate mb-0.5">
+                {img.group_name}
+              </p>
+            )}
+
             {/* Name (inline-editable) */}
             <div className="group/name flex items-start gap-2 mb-0.5">
               {editingName ? (
@@ -498,65 +491,44 @@ export function ImageViewer({
             </p>
 
             {/* Sub-variant — inline editable property row */}
-            <div className="group/sv flex items-center gap-2 mb-2 min-w-0">
+            <div className="group/sv relative flex items-center gap-2 mb-2 min-w-0">
               <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 w-[72px] shrink-0">
                 Subgroup
               </span>
-              {editingSV ? (
-                <>
-                  <input
-                    autoFocus
-                    value={subgroupDraft}
-                    onChange={(e) => setSubVariantDraft(e.target.value)}
-                    onBlur={saveSubgroup}
-                    onKeyDown={handleSVKeyDown}
-                    list="sv-suggestions"
-                    placeholder="e.g. MA / No Grid"
-                    className="flex-1 min-w-0 text-xs bg-transparent border-b border-primary/70 focus:outline-none text-foreground pb-px"
-                  />
-                  <datalist id="sv-suggestions">
-                    {existingSubgroups.map((sv) => (
-                      <option key={sv} value={sv} />
-                    ))}
-                  </datalist>
-                </>
-              ) : (
-                <>
-                  <span
-                    onClick={() => {
-                      setSubVariantDraft(img.subgroup ?? '')
-                      setEditingSV(true)
-                    }}
-                    className="flex-1 min-w-0 text-xs cursor-text truncate"
-                    title={img.subgroup ?? undefined}
-                  >
-                    {img.subgroup ? (
-                      <span className="text-foreground/80">{img.subgroup}</span>
-                    ) : (
-                      <span className="text-muted-foreground/30 italic">none</span>
-                    )}
-                  </span>
-                  <button
-                    onClick={() => {
-                      setSubVariantDraft(img.subgroup ?? '')
-                      setEditingSV(true)
-                    }}
-                    className="opacity-0 group-hover/sv:opacity-40 hover:!opacity-100 transition-opacity text-muted-foreground shrink-0"
-                    title="Edit subgroup"
-                  >
-                    <Pencil className="h-3 w-3" />
-                  </button>
-                  {img.subgroup && (
-                    <button
-                      onClick={() => patchMutation.mutate({ subgroup: null })}
-                      className="opacity-0 group-hover/sv:opacity-40 hover:!opacity-100 transition-opacity text-muted-foreground shrink-0"
-                      title="Clear subgroup"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
+              <div className="relative flex-1 min-w-0">
+                <button
+                  onClick={() => !editingSV && setEditingSV(true)}
+                  className="w-full h-6 px-2 text-left text-xs bg-secondary border border-border rounded flex items-center hover:border-primary/40 transition-colors"
+                  title={img.subgroup ?? undefined}
+                >
+                  {img.subgroup ? (
+                    <span className="text-foreground/80 capitalize truncate pr-3">
+                      {img.subgroup}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground/30 italic">—</span>
                   )}
-                </>
-              )}
+                </button>
+                {img.subgroup && (
+                  <button
+                    onClick={() => patchMutation.mutate({ subgroup: null })}
+                    className="absolute right-1 top-1/2 -translate-y-1/2 z-10 opacity-0 group-hover/sv:opacity-40 hover:!opacity-100 transition-opacity text-muted-foreground"
+                    title="Clear subgroup"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+                <SubgroupDropdown
+                  isOpen={editingSV}
+                  existingSubgroups={existingSubgroups}
+                  initialValue={img.subgroup ?? ''}
+                  onCommit={(val) => {
+                    patchMutation.mutate({ subgroup: val || null })
+                    setEditingSV(false)
+                  }}
+                  onCancel={() => setEditingSV(false)}
+                />
+              </div>
             </div>
 
             {/* Image type toggle */}

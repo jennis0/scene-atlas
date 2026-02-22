@@ -35,7 +35,6 @@ export interface UseImportStateReturn {
   fileFilter: FileFilter
   authorSuggestions: string[]
   editingSvHeading: string | null
-  svHeadingDraft: string
   defaultImageType: 'battlemap' | 'scene'
 
   // Refs
@@ -67,7 +66,6 @@ export interface UseImportStateReturn {
   setActiveTab: (tab: number) => void
   setFileFilter: (filter: FileFilter) => void
   setEditingSvHeading: (heading: string | null) => void
-  setSvHeadingDraft: (draft: string) => void
   setGroups: React.Dispatch<React.SetStateAction<EditableGroupState[]>>
   setDefaultImageType: (type: 'battlemap' | 'scene') => void
 
@@ -121,8 +119,6 @@ export function useImportState(
     setFileFilter,
     editingSvHeading,
     setEditingSvHeading,
-    svHeadingDraft,
-    setSvHeadingDraft,
     tagVocab,
     setTagVocab,
     authorSuggestions,
@@ -451,7 +447,6 @@ export function useImportState(
     fileFilter,
     authorSuggestions,
     editingSvHeading,
-    svHeadingDraft,
     defaultImageType,
     fileInputRef,
     isAllTab,
@@ -477,7 +472,6 @@ export function useImportState(
     setActiveTab,
     setFileFilter,
     setEditingSvHeading,
-    setSvHeadingDraft,
     setGroups,
     setDefaultImageType,
     reset,

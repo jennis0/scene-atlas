@@ -1,0 +1,94 @@
+import { useEffect, useRef, useState } from 'react'
+import { Button } from '@/components/ui/button'
+
+interface SubgroupDropdownProps {
+  /** Whether the dropdown is visible */
+  isOpen: boolean
+  /** All existing subgroup labels — shown as quick-pick options */
+  existingSubgroups: string[]
+  /** Pre-filled value for the rename input (current subgroup label) */
+  initialValue?: string
+  /** Called with the chosen value — either an existing pick or a typed name */
+  onCommit: (value: string) => void
+  /** Called on Escape or click outside */
+  onCancel: () => void
+}
+
+export function SubgroupDropdown({
+  isOpen,
+  existingSubgroups,
+  initialValue = '',
+  onCommit,
+  onCancel,
+}: SubgroupDropdownProps) {
+  const [draft, setDraft] = useState(initialValue)
+  const ref = useRef<HTMLDivElement>(null)
+
+  // Sync draft when opening
+  useEffect(() => {
+    if (isOpen) setDraft(initialValue)
+  }, [isOpen, initialValue])
+
+  // Click outside to cancel
+  useEffect(() => {
+    if (!isOpen) return
+    const onMouseDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onCancel()
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    return () => document.removeEventListener('mousedown', onMouseDown)
+  }, [isOpen, onCancel])
+
+  if (!isOpen) return null
+
+  const others = existingSubgroups.filter((s) => s !== initialValue)
+
+  return (
+    <div
+      ref={ref}
+      className="absolute left-0 top-full mt-1 z-50 w-52 rounded-lg border border-border bg-card shadow-2xl shadow-black/40 overflow-hidden"
+    >
+      {others.length > 0 && (
+        <div className="py-1">
+          <div className="px-3 pt-2 pb-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+            Existing
+          </div>
+          {others.map((sv) => (
+            <button
+              key={sv}
+              onClick={() => onCommit(sv)}
+              className="flex w-full items-center px-3 py-1.5 text-sm text-foreground hover:bg-primary/10 hover:text-primary transition-colors capitalize text-left"
+            >
+              {sv}
+            </button>
+          ))}
+          <div className="h-px bg-border mx-2 mt-1" />
+        </div>
+      )}
+      <div className="p-2">
+        <div className="flex gap-1.5">
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="Rename…"
+            autoFocus
+            className="flex-1 min-w-0 h-7 px-2 text-sm bg-secondary border border-border rounded text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && draft.trim()) onCommit(draft.trim())
+              if (e.key === 'Escape') onCancel()
+            }}
+          />
+          <Button
+            size="sm"
+            className="h-7 text-xs flex-shrink-0"
+            onClick={() => {
+              if (draft.trim()) onCommit(draft.trim())
+            }}
+          >
+            Set
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}

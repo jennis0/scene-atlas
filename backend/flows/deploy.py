@@ -139,7 +139,7 @@ def main():
 
     print()
     print("Deployments registered successfully.")
-    print(f"Start a worker: uv run prefect worker start --pool {WORK_POOL}")
+    print(f"Start a worker: uv run prefect worker start --pool {WORK_POOL} --polling-interval 0.5")
 
 
 if __name__ == "__main__":

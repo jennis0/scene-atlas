@@ -23,8 +23,6 @@ export interface UseFileEditingReturn {
   setFileFilter: (filter: FileFilter) => void
   editingSvHeading: string | null
   setEditingSvHeading: (heading: string | null) => void
-  svHeadingDraft: string
-  setSvHeadingDraft: (draft: string) => void
   tagVocab: ParsedTagVocab[]
   setTagVocab: React.Dispatch<React.SetStateAction<ParsedTagVocab[]>>
   authorSuggestions: string[]
@@ -70,7 +68,6 @@ export function useFileEditing({
   const [selections, setSelections] = useState<Record<string, Set<string>>>({})
   const [fileFilter, setFileFilter] = useState<FileFilter>(EMPTY_FILTER)
   const [editingSvHeading, setEditingSvHeading] = useState<string | null>(null)
-  const [svHeadingDraft, setSvHeadingDraft] = useState('')
   const [tagVocab, setTagVocab] = useState<ParsedTagVocab[]>([])
   const [authorSuggestions, setAuthorSuggestions] = useState<string[]>([])
 
@@ -267,8 +264,6 @@ export function useFileEditing({
     setFileFilter,
     editingSvHeading,
     setEditingSvHeading,
-    svHeadingDraft,
-    setSvHeadingDraft,
     tagVocab,
     setTagVocab,
     authorSuggestions,

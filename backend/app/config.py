@@ -92,10 +92,10 @@ class Settings(BaseSettings):
 
     # Import limits
     staging_dir: Path = data_dir / "staging"
-    max_import_file_size: int = 50 * 1024 * 1024  # 50MB per image file
+    max_import_file_size: int = 200 * 1024 * 1024  # 50MB per image file
     max_video_file_size: int = 200 * 1024 * 1024  # 200MB per video file
-    max_import_files: int = 200  # Max images per import
-    max_import_total_size: int = 500 * 1024 * 1024  # 500MB total
+    max_import_files: int = 1000  # Max images per import
+    max_import_total_size: int = 2048 * 1024 * 1024  # 500MB total
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

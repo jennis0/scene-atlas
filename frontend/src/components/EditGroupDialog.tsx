@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   AlertCircle,
   Check,
@@ -31,6 +32,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { FileCard } from './import/FileCard'
 import { FileToolbar } from './import/FileToolbar'
+import { MetadataForm } from './import/MetadataForm'
 import { SubgroupHeading } from './SubgroupHeading'
 import { parseTagVocabulary } from './import/types'
 import { EMPTY_FILTER, applyFileFilter } from './import/fileFilter'
@@ -96,6 +98,12 @@ export function EditGroupDialog({
   onSave,
 }: EditGroupDialogProps) {
   const isMassEdit = !!seedImages && seedImages.length > 0
+  const queryClient = useQueryClient()
+
+  const invalidateGallery = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['search'] })
+    queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
+  }, [queryClient])
 
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -127,6 +135,7 @@ export function EditGroupDialog({
     setSaveError(null)
     try {
       await groupApi.edit(gId, buildPayload(group))
+      invalidateGallery()
       setGroupSaved((prev) => {
         const s = new Set(prev)
         s.add(group.id)
@@ -162,8 +171,6 @@ export function EditGroupDialog({
     setFileFilter,
     editingSvHeading,
     setEditingSvHeading,
-    svHeadingDraft,
-    setSvHeadingDraft,
     tagVocab,
     setTagVocab,
     authorSuggestions,
@@ -402,6 +409,7 @@ export function EditGroupDialog({
       ]
       setGroups(newGroups)
       setActiveTab(newGroups.length - 1)
+      invalidateGallery()
     } catch (err) {
       setSaveError(getApiErrorMessage(err, 'Split failed'))
     } finally {
@@ -457,6 +465,7 @@ export function EditGroupDialog({
         if (idx < activeTab) setActiveTab(activeTab - 1)
         else if (idx === activeTab) setActiveTab(Math.max(0, activeTab - 1))
       }
+      invalidateGallery()
     } catch (err) {
       setSaveError(getApiErrorMessage(err, 'Delete failed'))
     } finally {
@@ -499,6 +508,7 @@ export function EditGroupDialog({
         if (idx < activeTab) setActiveTab(activeTab - 1)
         else if (idx === activeTab) setActiveTab(Math.max(0, activeTab - 1))
       }
+      invalidateGallery()
     } catch (err) {
       setSaveError(getApiErrorMessage(err, 'Merge failed'))
     } finally {
@@ -603,13 +613,6 @@ export function EditGroupDialog({
         </div>
         {/* Amber rule */}
         <div className="h-px bg-gradient-to-r from-primary/60 via-primary/20 to-transparent mx-6 shrink-0" />
-
-        {/* Author datalist */}
-        <datalist id="author-suggestions-edit">
-          {authorSuggestions.map((a) => (
-            <option key={a} value={a} />
-          ))}
-        </datalist>
 
         {/* ── Loading ── */}
         {loading && (
@@ -745,64 +748,40 @@ export function EditGroupDialog({
             <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
               {/* Group metadata */}
               <div className="px-5 pt-4 pb-3 border-b border-border/30 shrink-0">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1.5 block font-semibold">
-                      Author
-                    </label>
-                    <input
-                      value={isAllTab ? allSameAuthor : (activeGroup?.author ?? '')}
-                      onChange={(e) => {
-                        if (isAllTab) {
-                          setGroups((prev) => prev.map((g) => ({ ...g, author: e.target.value })))
-                        } else {
-                          updateGroup(activeTab, { author: e.target.value })
-                        }
-                      }}
-                      onBlur={() => {
-                        if (isAllTab) {
-                          groups.forEach(autoSaveGroup)
-                        } else if (activeGroup) {
-                          autoSaveGroup(activeGroup)
-                        }
-                      }}
-                      placeholder={
-                        isAllTab && !allSameAuthor
-                          ? 'Multiple — type to set for all groups'
-                          : 'Author name'
-                      }
-                      list="author-suggestions-edit"
-                      className="w-full h-8 px-3 text-sm rounded border border-border bg-secondary text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/40 transition-colors"
-                    />
-                    {isMassEdit && (
-                      <p className="text-[10px] text-muted-foreground/40 mt-1">
-                        Applies to all images in {isAllTab ? 'each' : 'this'} group
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1.5 block font-semibold">
-                      Group Name
-                    </label>
-                    <input
-                      value={isAllTab ? '' : (activeGroup?.group_name ?? '')}
-                      onChange={(e) =>
-                        !isAllTab && updateGroup(activeTab, { group_name: e.target.value })
-                      }
-                      onBlur={() => {
-                        if (!isAllTab && activeGroup) autoSaveGroup(activeGroup)
-                      }}
-                      placeholder={isAllTab ? '— (select a group to rename)' : 'Group name'}
-                      disabled={isAllTab}
-                      className="w-full h-8 px-3 text-sm rounded border border-border bg-secondary text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                    />
-                    {isMassEdit && (
-                      <p className="text-[10px] text-muted-foreground/40 mt-1">
-                        Applies to all images in {isAllTab ? 'each' : 'this'} group
-                      </p>
-                    )}
-                  </div>
-                </div>
+                <MetadataForm
+                  author={isAllTab ? allSameAuthor : (activeGroup?.author ?? '')}
+                  groupName={isAllTab ? '' : (activeGroup?.group_name ?? '')}
+                  authorPlaceholder={
+                    isAllTab && !allSameAuthor
+                      ? 'Multiple — type to set for all groups'
+                      : 'Author name'
+                  }
+                  groupNamePlaceholder={
+                    isAllTab ? '— (select a group to rename)' : 'Group name'
+                  }
+                  groupNameDisabled={isAllTab}
+                  isMassEdit={isMassEdit}
+                  isAllTab={isAllTab}
+                  authorSuggestions={authorSuggestions}
+                  suggestionsListId="author-suggestions-edit"
+                  onAuthorChange={(val) => {
+                    if (isAllTab) {
+                      setGroups((prev) => prev.map((g) => ({ ...g, author: val })))
+                    } else {
+                      updateGroup(activeTab, { author: val })
+                    }
+                  }}
+                  onGroupNameChange={(val) =>
+                    !isAllTab && updateGroup(activeTab, { group_name: val })
+                  }
+                  onBlur={() => {
+                    if (isAllTab) {
+                      groups.forEach(autoSaveGroup)
+                    } else if (activeGroup) {
+                      autoSaveGroup(activeGroup)
+                    }
+                  }}
+                />
               </div>
 
               {/* File toolbar */}
@@ -846,14 +825,10 @@ export function EditGroupDialog({
                           subgroup={svGroup.subVariant}
                           count={nonExcluded}
                           isEditing={isEditing}
-                          draft={svHeadingDraft}
-                          onDraftChange={setSvHeadingDraft}
-                          onStartEdit={() => {
-                            setSvHeadingDraft(svGroup.subVariant!)
-                            setEditingSvHeading(svGroup.subVariant!)
-                          }}
-                          onCommit={() => {
-                            renameSubgroup(activeGroup!.id, svGroup.subVariant!, svHeadingDraft)
+                          existingSubgroups={groupSubVariants}
+                          onStartEdit={() => setEditingSvHeading(svGroup.subVariant!)}
+                          onCommit={(val) => {
+                            renameSubgroup(activeGroup!.id, svGroup.subVariant!, val)
                             setEditingSvHeading(null)
                           }}
                           onCancel={() => setEditingSvHeading(null)}

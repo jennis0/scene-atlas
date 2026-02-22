@@ -1,6 +1,7 @@
 import { Check, AlertCircle, Loader2, SkipForward, Undo2, Search } from 'lucide-react'
 import { FileCard } from './FileCard'
 import { FileToolbar } from './FileToolbar'
+import { MetadataForm } from './MetadataForm'
 import { SubgroupHeading } from '@/components/SubgroupHeading'
 import type { UseImportStateReturn } from '@/hooks/useImportState'
 
@@ -33,11 +34,9 @@ export function ImportGroupContent({ s }: ImportGroupContentProps) {
     state,
     authorSuggestions,
     editingSvHeading,
-    svHeadingDraft,
     setFileFilter,
     setGroups,
     setEditingSvHeading,
-    setSvHeadingDraft,
     updateGroup,
     updateFile,
     updateFileAnyGroup,
@@ -63,51 +62,29 @@ export function ImportGroupContent({ s }: ImportGroupContentProps) {
     <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
       {/* Group metadata */}
       <div className="px-5 pt-4 pb-3 border-b border-border/30 shrink-0">
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1.5 block font-semibold">
-              Author
-            </label>
-            {/* Author datalist */}
-            <datalist id="author-suggestions">
-              {authorSuggestions.map((a) => (
-                <option key={a} value={a} />
-              ))}
-            </datalist>
-            <input
-              value={isAllTab ? allSameAuthor : (activeGroup?.author ?? '')}
-              onChange={(e) => {
-                if (isAllTab) {
-                  setGroups((prev) => prev.map((g) => ({ ...g, author: e.target.value })))
-                } else {
-                  updateGroup(activeTab, { author: e.target.value })
-                }
-              }}
-              placeholder={
-                isAllTab && !allSameAuthor ? 'Multiple — type to set for all groups' : 'Author name'
-              }
-              list="author-suggestions"
-              disabled={!isAllTab && activeGroup?.status !== 'pending'}
-              className={`w-full h-8 px-3 text-sm rounded border bg-secondary text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                !isAllTab && activeGroup?.author === '' && activeGroup?.status === 'pending'
-                  ? 'border-primary/50'
-                  : 'border-border'
-              }`}
-            />
-          </div>
-          <div>
-            <label className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1.5 block font-semibold">
-              Group Name
-            </label>
-            <input
-              value={isAllTab ? '' : (activeGroup?.group_name ?? '')}
-              onChange={(e) => !isAllTab && updateGroup(activeTab, { group_name: e.target.value })}
-              placeholder={isAllTab ? '— (varies by group)' : 'Group name'}
-              disabled={isAllTab || activeGroup?.status !== 'pending'}
-              className="w-full h-8 px-3 text-sm rounded border border-border bg-secondary text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            />
-          </div>
-        </div>
+        <MetadataForm
+          author={isAllTab ? allSameAuthor : (activeGroup?.author ?? '')}
+          groupName={isAllTab ? '' : (activeGroup?.group_name ?? '')}
+          authorPlaceholder={
+            isAllTab && !allSameAuthor ? 'Multiple — type to set for all groups' : 'Author name'
+          }
+          groupNamePlaceholder={isAllTab ? '— (varies by group)' : 'Group name'}
+          authorDisabled={!isAllTab && activeGroup?.status !== 'pending'}
+          groupNameDisabled={isAllTab || activeGroup?.status !== 'pending'}
+          authorHighlight={
+            !isAllTab && activeGroup?.author === '' && activeGroup?.status === 'pending'
+          }
+          authorSuggestions={authorSuggestions}
+          suggestionsListId="author-suggestions"
+          onAuthorChange={(val) => {
+            if (isAllTab) {
+              setGroups((prev) => prev.map((g) => ({ ...g, author: val })))
+            } else {
+              updateGroup(activeTab, { author: val })
+            }
+          }}
+          onGroupNameChange={(val) => !isAllTab && updateGroup(activeTab, { group_name: val })}
+        />
       </div>
 
       {/* Skip state placeholder */}
@@ -169,14 +146,10 @@ export function ImportGroupContent({ s }: ImportGroupContentProps) {
                       subgroup={svGroup.subgroup}
                       count={nonExcluded}
                       isEditing={isEditing}
-                      draft={svHeadingDraft}
-                      onDraftChange={setSvHeadingDraft}
-                      onStartEdit={() => {
-                        setSvHeadingDraft(svGroup.subgroup!)
-                        setEditingSvHeading(svGroup.subgroup!)
-                      }}
-                      onCommit={() => {
-                        renameSubgroup(activeGroup!.id, svGroup.subgroup!, svHeadingDraft)
+                      existingSubgroups={groupSubgroups}
+                      onStartEdit={() => setEditingSvHeading(svGroup.subgroup!)}
+                      onCommit={(val) => {
+                        renameSubgroup(activeGroup!.id, svGroup.subgroup!, val)
                         setEditingSvHeading(null)
                       }}
                       onCancel={() => setEditingSvHeading(null)}
