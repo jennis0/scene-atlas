@@ -6,6 +6,7 @@ then calls analyse_upload via Prefect deployment.
 """
 
 import json
+import zipfile
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -114,3 +115,53 @@ class TestUploadEndpoint:
             ],
         )
         assert resp.status_code == 200
+
+    def test_file_exceeds_size_limit_rejected(self, test_client, _setup_upload, monkeypatch):
+        """Files larger than max_import_file_size return 413."""
+        monkeypatch.setattr("backend.app.config.settings.max_import_file_size", 100)
+        jpeg = _make_jpeg_bytes()  # ~1 KB, way over 100 bytes
+        resp = test_client.post(
+            "/api/v1/imports/upload",
+            files=[("files", ("big.jpg", jpeg, "image/jpeg"))],
+        )
+        assert resp.status_code == 413
+        assert "size limit" in resp.json()["detail"]
+
+    def test_too_many_files_rejected(self, test_client, _setup_upload, monkeypatch):
+        """Uploading more files than max_import_files returns 413."""
+        monkeypatch.setattr("backend.app.config.settings.max_import_files", 2)
+        jpeg = _make_jpeg_bytes()
+        files = [("files", (f"map{i}.jpg", jpeg, "image/jpeg")) for i in range(3)]
+        resp = test_client.post("/api/v1/imports/upload", files=files)
+        assert resp.status_code == 413
+        assert "Too many files" in resp.json()["detail"]
+
+    def test_renamed_binary_rejected(self, test_client, _setup_upload):
+        """A renamed executable with a .jpg extension is rejected."""
+        fake_exe = b"MZ" + b"\x00" * 200  # Windows PE magic bytes
+        resp = test_client.post(
+            "/api/v1/imports/upload",
+            files=[("files", ("malware.jpg", fake_exe, "image/jpeg"))],
+        )
+        # Either 400 (no valid files) or the file is skipped
+        assert resp.status_code == 400
+        assert "non-image content" in resp.json()["detail"]
+
+    def test_zip_bomb_rejected(self, test_client, _setup_upload, tmp_path, monkeypatch):
+        """A ZIP whose uncompressed size exceeds the limit is rejected with 413."""
+        monkeypatch.setattr(
+            "backend.app.config.settings.max_import_total_size", 50_000
+        )
+        # Build a ZIP with a file that reports 100KB uncompressed
+        zip_path = tmp_path / "bomb.zip"
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
+            info = zipfile.ZipInfo("big.jpg")
+            info.file_size = 100_000
+            zf.writestr(info, b"x" * 100_000)
+
+        resp = test_client.post(
+            "/api/v1/imports/upload",
+            files=[("files", ("bomb.zip", zip_path.read_bytes(), "application/zip"))],
+        )
+        assert resp.status_code == 413
+        assert "exceeds limit" in resp.json()["detail"]

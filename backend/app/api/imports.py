@@ -22,6 +22,7 @@ from prefect.deployments import run_deployment
 from sqlalchemy.orm import Session
 
 from ..config import settings
+from ..services.validation import check_zip_safety, verify_image_mime
 from ..models import (
     ImportGroupJob,
     ImportJob,
@@ -162,7 +163,17 @@ async def upload_files(
         except (json.JSONDecodeError, TypeError):
             manifest_entries = []
 
+    # Early count guard — catches obvious over-limit requests before reading content
+    if len(files) > settings.max_import_files:
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        raise HTTPException(
+            status_code=413,
+            detail=f"Too many files: {len(files)} uploaded, limit is {settings.max_import_files}",
+        )
+
     saved_relative_paths: list[str] = []
+    total_upload_bytes = 0
+    skipped_invalid: list[str] = []
 
     try:
         for i, upload_file in enumerate(files):
@@ -172,10 +183,34 @@ async def upload_files(
             rel_path = rel_paths_list[i] if i < len(rel_paths_list) else filename
 
             if filename.lower().endswith(".zip"):
-                # Extract zip into staging dir
-                zip_path = staging_dir / filename
+                # Read ZIP into memory and check compressed size
                 content = await upload_file.read()
+                if len(content) > settings.max_import_file_size:
+                    limit_mb = settings.max_import_file_size // (1024 * 1024)
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File '{filename}' exceeds size limit of {limit_mb} MB",
+                    )
+                total_upload_bytes += len(content)
+                if total_upload_bytes > settings.max_import_total_size:
+                    limit_mb = settings.max_import_total_size // (1024 * 1024)
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Total upload size exceeds limit of {limit_mb} MB",
+                    )
+
+                # Save ZIP and check for bombs before extraction
+                zip_path = staging_dir / filename
                 zip_path.write_bytes(content)
+                try:
+                    check_zip_safety(
+                        zip_path,
+                        max_files=settings.max_import_files,
+                        max_uncompressed_bytes=settings.max_import_total_size,
+                    )
+                except ValueError as exc:
+                    zip_path.unlink(missing_ok=True)
+                    raise HTTPException(status_code=413, detail=str(exc))
 
                 with zipfile.ZipFile(zip_path, "r") as zf:
                     for member in zf.infolist():
@@ -197,15 +232,36 @@ async def upload_files(
                 # Remove the zip file after extraction
                 zip_path.unlink()
             else:
-                # Regular image file
+                # Regular image file — check extension first (cheap)
                 ext = Path(filename).suffix.lower()
                 if ext not in settings.supported_formats:
+                    continue
+
+                # Read content and enforce size limits
+                content = await upload_file.read()
+                if len(content) > settings.max_import_file_size:
+                    limit_mb = settings.max_import_file_size // (1024 * 1024)
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File '{filename}' exceeds size limit of {limit_mb} MB",
+                    )
+                total_upload_bytes += len(content)
+                if total_upload_bytes > settings.max_import_total_size:
+                    limit_mb = settings.max_import_total_size // (1024 * 1024)
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Total upload size exceeds limit of {limit_mb} MB",
+                    )
+
+                # Validate it's actually an image (not a renamed binary)
+                if not verify_image_mime(content):
+                    logger.warning(f"Skipping non-image file: {filename}")
+                    skipped_invalid.append(filename)
                     continue
 
                 # Save file preserving relative path structure
                 dest = staging_dir / rel_path
                 dest.parent.mkdir(parents=True, exist_ok=True)
-                content = await upload_file.read()
                 dest.write_bytes(content)
                 saved_relative_paths.append(rel_path)
 
@@ -215,7 +271,10 @@ async def upload_files(
 
         if not all_relative_paths:
             shutil.rmtree(staging_dir, ignore_errors=True)
-            raise HTTPException(status_code=400, detail="No supported image files found in upload")
+            detail = "No supported image files found in upload"
+            if skipped_invalid:
+                detail += f"; {len(skipped_invalid)} file(s) rejected as non-image content"
+            raise HTTPException(status_code=400, detail=detail)
 
         # Build precomputed hashes dict from manifest entries
         precomputed_hashes: dict[str, dict] = {}
