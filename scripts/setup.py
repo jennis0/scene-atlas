@@ -67,6 +67,7 @@ async def _ensure_work_pool() -> None:
 
 def _register_deployments() -> None:
     from backend.flows.deploy import main as deploy_main
+
     deploy_main()
 
 

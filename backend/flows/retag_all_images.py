@@ -9,6 +9,11 @@ Usage:
 """
 
 import logging
+import os
+
+from prefect import flow, task
+
+os.environ.setdefault("PREFECT_API_URL", "http://localhost:4200/api")
 
 from backend.app.config import settings
 from backend.app.models.database import (
@@ -32,6 +37,44 @@ def _build_parser(db):
     return BattlemapParser(tag_categories=cat_dicts)
 
 
+@task(name="retag_batch")
+def retag_batch(image_ids: list[int], parser: BattlemapParser) -> dict:
+    """Retag a batch of images."""
+    engine = get_engine(settings.database_url)
+    SessionLocal = get_session_local(engine)
+    db = SessionLocal()
+
+    tags_created = 0
+    errors = 0
+
+    try:
+        images = db.query(Image).filter(Image.id.in_(image_ids)).all()
+        for image in images:
+            try:
+                parsed = parser.parse(image.filename)
+                for tag_data in parsed["tags"]:
+                    db.add(
+                        Tag(
+                            image_id=image.id,
+                            category=tag_data["category"],
+                            value=tag_data["value"],
+                            confidence=tag_data["confidence"],
+                            source="auto",
+                        )
+                    )
+                    tags_created += 1
+            except Exception as e:
+                logger.error(f"Image {image.id}: error retagging: {e}")
+                errors += 1
+
+        db.commit()
+    finally:
+        db.close()
+
+    return {"tags_created": tags_created, "errors": errors}
+
+
+@flow(name="retag_all_images", log_prints=True)
 def retag_all_images():
     """Delete all auto tags and regenerate them from filenames."""
     engine = get_engine(settings.database_url)
@@ -46,40 +89,32 @@ def retag_all_images():
         db.commit()
         print(f"Deleted {deleted} auto-assigned tag(s).")
 
-        # Process images in batches
-        total_images = db.query(Image).count()
-        print(f"Retagging {total_images} image(s)...")
-
-        total_tags = 0
-        offset = 0
-
-        while offset < total_images:
-            images = db.query(Image).order_by(Image.id).offset(offset).limit(BATCH_SIZE).all()
-            if not images:
-                break
-
-            for image in images:
-                parsed = parser.parse(image.filename)
-                for tag_data in parsed["tags"]:
-                    db.add(
-                        Tag(
-                            image_id=image.id,
-                            category=tag_data["category"],
-                            value=tag_data["value"],
-                            confidence=tag_data["confidence"],
-                            source="auto",
-                        )
-                    )
-                    total_tags += 1
-
-            db.commit()
-            offset += BATCH_SIZE
-            print(f"  Processed {min(offset, total_images)}/{total_images} images...")
-
-        print(f"Done. Created {total_tags} new auto tag(s) across {total_images} image(s).")
-
+        # Collect all image IDs
+        all_ids = [row[0] for row in db.query(Image.id).order_by(Image.id).all()]
     finally:
         db.close()
+
+    total = len(all_ids)
+    print(f"Retagging {total} image(s)...")
+
+    if total == 0:
+        print("Nothing to retag")
+        return {"total": 0, "tags_created": 0, "errors": 0}
+
+    # Process in batches
+    totals = {"tags_created": 0, "errors": 0}
+    for i in range(0, total, BATCH_SIZE):
+        batch_ids = all_ids[i : i + BATCH_SIZE]
+        result = retag_batch(batch_ids, parser)
+        totals["tags_created"] += result["tags_created"]
+        totals["errors"] += result["errors"]
+        print(f"  Processed {min(i + BATCH_SIZE, total)}/{total}")
+
+    print(
+        f"Done. Created {totals['tags_created']} new auto tag(s) "
+        f"across {total} image(s)."
+    )
+    return {"total": total, **totals}
 
 
 if __name__ == "__main__":

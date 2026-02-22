@@ -287,6 +287,12 @@ export interface VariantGroupEditRequest {
   new_groups: NewGroupPayload[]
 }
 
+export interface VariantGroupEditResponse {
+  id: number
+  new_group_ids: number[]
+  deleted_image_ids: number[]
+}
+
 // Import types — status response
 export interface ImportGroupStatus {
   variant_group_name: string

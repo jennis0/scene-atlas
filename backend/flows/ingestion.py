@@ -236,7 +236,7 @@ def prepare_single_image(
             parsed = parser.parse(str(relative))
             author = parsed["author"]
             variant_group_name = parsed["variant_group_name"]
-            name = variant_group_name
+            name = parsed.get("map_name") or variant_group_name
             sub_variant = parsed["sub_variant"]
             gridded = parsed["gridded"]
             grid_width = parsed["grid_width"]

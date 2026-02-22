@@ -1,6 +1,6 @@
 # Visual Language & Component Design
 
-A comprehensive reference for the Library of Worlds UI. All new components must conform to these principles. When in doubt, follow existing patterns rather than introduce new ones.
+A comprehensive reference for the Scene Atlas UI. All new components must conform to these principles. When in doubt, follow existing patterns rather than introduce new ones.
 
 ---
 

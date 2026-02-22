@@ -23,6 +23,8 @@ from backend.app.config import settings
 from backend.flows.ingestion import analyse_upload, process_import_group, process_import_job
 from backend.flows.maintenance import backup_database, cleanup_staging
 from backend.flows.backfill_content_hash import backfill_content_hash
+from backend.flows.reparse_names import reparse_names
+from backend.flows.retag_all_images import retag_all_images
 from backend.flows.write_new_embeddings import write_new_embeddings
 
 # Project root for from_source entrypoints
@@ -84,6 +86,26 @@ def main():
     )
     print("  Registered: backfill-content-hash-deployment/backfill-content-hash")
 
+    # reparse_names: one-off flow to re-clean VG names and rebuild image display names
+    reparse_names.from_source(
+        source=PROJECT_ROOT,
+        entrypoint="backend/flows/reparse_names.py:reparse_names",
+    ).deploy(
+        name="reparse-names-deployment",
+        work_pool_name=WORK_POOL,
+    )
+    print("  Registered: reparse-names-deployment/reparse-names")
+
+    # retag_all_images: one-off flow to regenerate auto tags from filenames
+    retag_all_images.from_source(
+        source=PROJECT_ROOT,
+        entrypoint="backend/flows/retag_all_images.py:retag_all_images",
+    ).deploy(
+        name="retag-all-images-deployment",
+        work_pool_name=WORK_POOL,
+    )
+    print("  Registered: retag-all-images-deployment/retag-all-images")
+
     # backup_database: runs daily at 03:00 UTC
     backup_database.from_source(
         source=PROJECT_ROOT,
@@ -91,7 +113,7 @@ def main():
     ).deploy(
         name="backup-deployment",
         work_pool_name=WORK_POOL,
-        schedules=[{"cron": "0 3 * * *", "timezone": "UTC"}],
+        cron="0 3 * * *",
     )
     print("  Registered: backup-deployment/backup-database (daily 03:00 UTC)")
 
@@ -102,7 +124,7 @@ def main():
     ).deploy(
         name="cleanup-staging-deployment",
         work_pool_name=WORK_POOL,
-        schedules=[{"cron": "0 */6 * * *", "timezone": "UTC"}],
+        cron="0 */6 * * *",
     )
     print("  Registered: cleanup-staging-deployment/cleanup-staging (every 6h)")
 

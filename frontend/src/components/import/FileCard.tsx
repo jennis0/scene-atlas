@@ -31,6 +31,7 @@ export function FileCard({
 }: FileCardProps) {
   const getTagColor = useGetTagColor()
   const [isEditingName, setIsEditingName] = useState(false)
+  const [nameDraft, setNameDraft] = useState('')
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [isEditingSubVariant, setIsEditingSubVariant] = useState(false)
   const [subVariantDraft, setSubVariantDraft] = useState('')
@@ -155,10 +156,13 @@ export function FileCard({
           <div className="flex items-start justify-between gap-2">
             {isEditingName && !disabled ? (
               <input
-                value={file.name}
-                onChange={(e) => onUpdate({ name: e.target.value })}
-                onBlur={() => setIsEditingName(false)}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') setIsEditingName(false) }}
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                onBlur={() => { onUpdate({ name: nameDraft }); setIsEditingName(false) }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') { onUpdate({ name: nameDraft }); setIsEditingName(false) }
+                  if (e.key === 'Escape') setIsEditingName(false)
+                }}
                 className="font-display text-sm font-semibold text-foreground bg-transparent border-b border-primary/70 focus:outline-none flex-1 min-w-0 pb-px"
                 autoFocus
                 title={file.relative_path}
@@ -167,7 +171,7 @@ export function FileCard({
               <div
                 data-no-select=""
                 className="group/name flex items-center gap-1.5 flex-1 min-w-0 cursor-text"
-                onClick={() => { if (!disabled) setIsEditingName(true) }}
+                onClick={() => { if (!disabled) { setNameDraft(file.name); setIsEditingName(true) } }}
                 title={file.relative_path}
               >
                 <span className="font-display text-sm font-semibold text-foreground truncate leading-snug">

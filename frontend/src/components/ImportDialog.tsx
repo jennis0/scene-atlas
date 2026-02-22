@@ -108,6 +108,7 @@ export function ImportDialog({ open, onOpenChange, onActiveChange, reconnectJobI
             uploading={s.uploading}
             uploadError={s.uploadError}
             uploadPhase={s.uploadPhase}
+            skippedFiles={s.skippedFiles}
             fileInputRef={s.fileInputRef}
             onFileSelect={s.handleFileSelect}
           />

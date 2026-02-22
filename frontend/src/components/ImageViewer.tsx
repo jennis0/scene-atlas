@@ -665,8 +665,6 @@ function VariantTile({
   isActive: boolean
   onClick: () => void
 }) {
-  const label = filenameStem(variant.filename)
-
   return (
     <div
       className={`relative cursor-pointer overflow-hidden rounded-md transition-all duration-200 hover:scale-[1.03] ${
@@ -679,13 +677,13 @@ function VariantTile({
       <div className="aspect-[4/3]">
         <img
           src={getThumbnailUrl(variant)}
-          alt={label}
+          alt={variant.name}
           className="h-full w-full object-cover"
           loading="lazy"
         />
       </div>
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent pt-8 pb-1.5 px-1.5 pointer-events-none">
-        <p className="text-[10px] text-white/90 truncate leading-tight">{label}</p>
+        <p className="text-[10px] text-white/90 truncate leading-tight">{variant.name}</p>
         {variant.gridded && (
           <p className="text-[9px] text-white/50 leading-tight">
             {variant.grid_width && variant.grid_height

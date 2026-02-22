@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import { filterByMagicBytes } from '@/lib/mimeCheck'
 import { importApi, tagApi, imageApi } from '@/lib/api'
 import { parseTagVocabulary, humanizeFilename } from '@/components/import/types'
 import { EMPTY_FILTER, applyFileFilter } from '@/components/import/fileFilter'
@@ -28,6 +29,7 @@ export interface UseImportStateReturn {
   uploading: boolean
   uploadError: string | null
   uploadPhase: string | null
+  skippedFiles: string[]
   jobId: string | null
   groups: EditableGroupState[]
   activeTab: number
@@ -114,6 +116,7 @@ export function useImportState(
   const [editingSvHeading, setEditingSvHeading] = useState<string | null>(null)
   const [svHeadingDraft, setSvHeadingDraft] = useState('')
   const [uploadPhase, setUploadPhase] = useState<string | null>(null)
+  const [skippedFiles, setSkippedFiles] = useState<string[]>([])
 
   useEffect(() => { onActiveChange?.(state === 'processing') }, [state, onActiveChange])
   useEffect(() => { setFileFilter(EMPTY_FILTER); setEditingSvHeading(null) }, [activeTab])
@@ -237,6 +240,7 @@ export function useImportState(
     setFileFilter(EMPTY_FILTER)
     setEditingSvHeading(null)
     setAuthorSuggestions([])
+    setSkippedFiles([])
   }, [])
 
   // ── Upload ────────────────────────────────────────────────────────
@@ -247,7 +251,21 @@ export function useImportState(
     setUploading(true)
     setUploadError(null)
     setUploadPhase(null)
+    setSkippedFiles([])
     try {
+      // ── Phase 0: Magic-byte validation ───────────────────────────
+      // Reads only the first 12 bytes of every file in parallel — near-instant.
+      const { valid: validFiles, skipped: invalidFiles } = await filterByMagicBytes(
+        Array.from(fileList),
+      )
+      if (invalidFiles.length > 0) {
+        setSkippedFiles(invalidFiles)
+      }
+      if (validFiles.length === 0) {
+        setUploadError('No valid image or ZIP files found. Only JPEG, PNG, WebP, GIF, and ZIP are accepted.')
+        return
+      }
+
       // Build relative paths, blob URLs, and separate ZIPs from image files
       const imageFiles: File[] = []
       const imageRelPaths: string[] = []
@@ -256,8 +274,8 @@ export function useImportState(
       const blobUrlMap: Record<string, string> = {}
       const fileByPath: Record<string, File> = {}
 
-      for (let i = 0; i < fileList.length; i++) {
-        const file = fileList[i]
+      for (let i = 0; i < validFiles.length; i++) {
+        const file = validFiles[i]
         const relPath = (file as any).webkitRelativePath || file.name
         fileByPath[relPath] = file
 
@@ -279,12 +297,12 @@ export function useImportState(
       let hashMap = new Map<string, string>()
 
       if (imageFiles.length > 0) {
-        setUploadPhase(`Hashing files\u2026 0/${imageFiles.length}`)
+        setUploadPhase(`Validating\u2026 0/${imageFiles.length}`)
         const { hashFiles } = await import('@/lib/hashFile')
         const hashed = await hashFiles(
           imageFiles,
           (_file, i) => imageRelPaths[i],
-          (p) => setUploadPhase(`Hashing files\u2026 ${p.current}/${p.total}`),
+          (p) => setUploadPhase(`Validating\u2026 ${p.current}/${p.total}`),
         )
 
         // ── Phase 2: Pre-flight duplicate check ──────────────────
@@ -688,7 +706,7 @@ export function useImportState(
   const canImportAll = pendingGroups.length > 0 && pendingGroups.every((g) => !!g.author)
 
   return {
-    state, uploading, uploadError, uploadPhase, jobId, groups, activeTab, tagVocab,
+    state, uploading, uploadError, uploadPhase, skippedFiles, jobId, groups, activeTab, tagVocab,
     selections, fileFilter, authorSuggestions, editingSvHeading, svHeadingDraft,
     fileInputRef,
     isAllTab, activeGroup, activeGroupId, allPendingFiles, sourceFiles,

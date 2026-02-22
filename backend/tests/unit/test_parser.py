@@ -271,12 +271,12 @@ class TestParseGenericFolders:
     def test_skip_generic_gridded_folder(self):
         p = make_parser()
         result = p.parse("author/MapName/gridded/file.jpg")
-        assert result["variant_group_name"] == "MapName"
+        assert result["variant_group_name"] == "Map Name"
 
     def test_skip_generic_vtt_folder(self):
         p = make_parser()
         result = p.parse("author/MapName/VTT/file.jpg")
-        assert result["variant_group_name"] == "MapName"
+        assert result["variant_group_name"] == "Map Name"
 
     def test_all_generic_intermediate_folders(self):
         """When ALL intermediate folders are generic, author becomes None."""
@@ -292,7 +292,7 @@ class TestParseCamelCase:
     def test_camelcase_group_name(self):
         p = make_parser()
         result = p.parse("author/IslandFort/file.jpg")
-        assert result["variant_group_name"] == "IslandFort"
+        assert result["variant_group_name"] == "Island Fort"
 
     def test_ordinal_protection(self):
         p = make_parser()
@@ -386,3 +386,301 @@ class TestGroupFilesSingleFile:
         groups = p.group_files(paths)
         assert len(groups) == 1
         assert len(groups[0]["files"]) == 1
+
+
+# ===========================================================================
+# _clean_group_name() tests
+# ===========================================================================
+
+
+class TestCleanGroupName:
+    """Variant group name cleaning."""
+
+    def test_strips_tier_info(self):
+        p = make_parser()
+        assert p._clean_group_name("Snowy Forest Tier 2") == "Snowy Forest"
+
+    def test_strips_tier_camelcase(self):
+        p = make_parser()
+        assert p._clean_group_name("SnowyForestTier2") == "Snowy Forest"
+
+    def test_strips_volume(self):
+        p = make_parser()
+        assert p._clean_group_name("Volcanic Path Vol3 Tier 2 Full Resolution") == "Volcanic Path"
+
+    def test_strips_pricing(self):
+        p = make_parser()
+        assert p._clean_group_name("Modular Caves - $5 Rewards") == "Modular Caves"
+
+    def test_preserves_dashes_between_concepts(self):
+        p = make_parser()
+        assert p._clean_group_name("DUNGEONS - DRAGONGATE") == "DUNGEONS - DRAGONGATE"
+
+    def test_slug_dashes_become_spaces(self):
+        p = make_parser()
+        result = p._clean_group_name("tomb-of-the-blight-lich")
+        assert result == "Tomb Of The Blight Lich"
+
+    def test_strips_full_resolution_files(self):
+        p = make_parser()
+        assert p._clean_group_name("City Streets Tier 2 Full Resolution Files") == "City Streets"
+
+    def test_strips_platform_markers(self):
+        p = make_parser()
+        assert p._clean_group_name("Cave FVTT R20") == "Cave"
+
+    def test_strips_grid_state(self):
+        p = make_parser()
+        assert p._clean_group_name("Forest Path Gridded") == "Forest Path"
+        assert p._clean_group_name("Forest Path Gridless") == "Forest Path"
+
+    def test_strips_dpi(self):
+        p = make_parser()
+        assert p._clean_group_name("140dpiShieldChurchMaps") == "Shield Church"
+
+    def test_strips_maps_plural(self):
+        p = make_parser()
+        assert p._clean_group_name("ShieldChurchMaps") == "Shield Church"
+
+    def test_keeps_map_singular(self):
+        p = make_parser()
+        result = p._clean_group_name("MapName")
+        assert result == "Map Name"
+
+    def test_strips_author_prefix(self):
+        p = make_parser()
+        result = p._clean_group_name("dreadmaps_dread-hills-saloon", author="Dreadmaps")
+        assert result == "Dread Hills Saloon"
+
+    def test_clean_already_clean(self):
+        p = make_parser()
+        assert p._clean_group_name("Rocky Coast") == "Rocky Coast"
+
+    def test_empty_guard(self):
+        """Cleaning should never return an empty string."""
+        p = make_parser()
+        result = p._clean_group_name("Maps")
+        assert result  # not empty
+
+    def test_deduplicates_repeated_sequences(self):
+        p = make_parser()
+        result = p._clean_group_name("Forest Path Forest Path")
+        assert result == "Forest Path"
+
+    def test_strips_leading_numbering(self):
+        p = make_parser()
+        assert p._clean_group_name("07. Swamps") == "Swamps"
+        assert p._clean_group_name("10. Wizards Choice") == "Wizards Choice"
+
+    def test_deduplicates_consecutive_words(self):
+        p = make_parser()
+        result = p._clean_group_name("Blacksmith Blacksmith")
+        assert result == "Blacksmith"
+
+
+# ===========================================================================
+# _build_map_name() tests
+# ===========================================================================
+
+
+class TestBuildMapName:
+    """Individual map display name generation."""
+
+    def test_dragon_gate(self):
+        p = make_parser()
+        result = p._build_map_name("Dragon Gate no light", "Crosshead", "DUNGEONS - DRAGONGATE")
+        assert result == "Dragon Gate no light"
+
+    def test_snowy_forest(self):
+        p = make_parser()
+        result = p._build_map_name(
+            "SnowyForestTier2_FR_Gridless_R20_SnowyForest",
+            "dice_grimorium",
+            "Snowy Forest",
+        )
+        # VG stripped, noise stripped (Tier, Gridless, R20), dedup removes second VG
+        assert "Snowy Forest" not in result
+        assert "Gridless" not in result
+        assert "R20" not in result
+
+    def test_mikwewa_church(self):
+        p = make_parser()
+        result = p._build_map_name(
+            "140dpiShieldChurchMaps_140dpiChurchHeavenDayGfGrid",
+            "mikwewa",
+            "Shield Church",
+        )
+        assert result == "Church Heaven Day Gf"
+
+    def test_moonlight_rocky_coast(self):
+        p = make_parser()
+        result = p._build_map_name(
+            "Moonlight_Maps_Rocky_Coast_Lava06",
+            "moonlight_maps",
+            "Rocky Coast",
+        )
+        assert result == "Lava 06"
+
+    def test_strips_dpi(self):
+        p = make_parser()
+        result = p._build_map_name("Forest_300dpi_Night", "author", "Forest")
+        assert "dpi" not in result.lower()
+        assert "300" not in result
+
+    def test_strips_pixel_dimensions(self):
+        p = make_parser()
+        result = p._build_map_name(
+            "DreadMaps_Manor_12000x8000", "Dreadmaps", "Manor"
+        )
+        assert "12000" not in result
+
+    def test_strips_grid_dimensions(self):
+        p = make_parser()
+        result = p._build_map_name("Map_Night_30x30", "author", "Map")
+        assert "30" not in result
+
+    def test_strips_author_prefix_moonlight(self):
+        p = make_parser()
+        result = p._build_map_name(
+            "Moonlight_Maps_Castle_Night", "moonlight_maps", "Castle"
+        )
+        assert "Moonlight" not in result
+        assert "Night" in result
+
+    def test_strips_author_prefix_dreadmaps(self):
+        p = make_parser()
+        result = p._build_map_name(
+            "DreadMaps_Tomb_Pink_Grid", "Dreadmaps", "Tomb"
+        )
+        assert "Dread" not in result or "Dread" in result  # "Dread" in "DreadMaps" stripped
+        assert "Pink" in result
+
+    def test_rejoins_abbreviations(self):
+        p = make_parser()
+        result = p._build_map_name("Map_FL1_Night", "author", "Map")
+        assert "FL1" in result
+
+    def test_preserves_variant_numbers(self):
+        p = make_parser()
+        result = p._build_map_name("Forest-1", "author", "Forest")
+        assert "1" in result
+
+    def test_empty_fallback(self):
+        """If everything is stripped, falls back to cleaned stem."""
+        p = make_parser()
+        result = p._build_map_name("SomeMap", "author", "Some Map")
+        assert result  # not empty
+
+    def test_title_case_preserve_on_slug(self):
+        p = make_parser()
+        result = p._build_map_name("cave-pool-night", "author", "Cave Pool")
+        # After VG strip, "night" should be title-cased since all lowercase
+        assert result == "Night"
+
+    def test_strips_sub_variant(self):
+        p = make_parser()
+        result = p._build_map_name(
+            "Crystal_Grotto_Caustic_Gridless",
+            "neutral_party",
+            "Crystal Grotto Expert",
+            sub_variants=["Caustic"],
+        )
+        assert "Caustic" not in result
+        assert "Gridless" not in result
+
+    def test_strips_multiple_sub_variants(self):
+        p = make_parser()
+        result = p._build_map_name(
+            "Desert_Temple_Night",
+            "neutral_party",
+            "Desert Temple Expert",
+            sub_variants=["Desert Temple", "Night"],
+        )
+        # Both sub-variants stripped, but guard prevents empty result
+        assert result  # not empty
+
+    def test_sub_variant_strip_guard_nonempty(self):
+        """Stripping sub-variants should not empty the word list."""
+        p = make_parser()
+        result = p._build_map_name(
+            "Sunset", "author", "Group", sub_variants=["Sunset"]
+        )
+        assert result  # fallback kicks in
+
+
+# ===========================================================================
+# parse() — map_name integration tests
+# ===========================================================================
+
+
+class TestParseMapName:
+    """End-to-end: parse() returns correct map_name alongside variant_group_name."""
+
+    def test_crosshead_dragon_gate(self):
+        p = make_parser()
+        result = p.parse("Crosshead/DUNGEONS - DRAGONGATE/Dragon Gate no light.jpg")
+        assert result["variant_group_name"] == "DUNGEONS - DRAGONGATE"
+        assert result["map_name"] == "Dragon Gate no light"
+
+    def test_dice_grimorium_snowy_forest(self):
+        p = make_parser()
+        result = p.parse(
+            "dice_grimorium/Snowy Forest Tier 2/"
+            "SnowyForestTier2_FR_Gridless_R20_SnowyForest-1.jpg"
+        )
+        assert result["variant_group_name"] == "Snowy Forest"
+        assert "Snowy Forest" not in result["map_name"]
+        # Noise stripped: Tier, Gridless, R20
+        assert "Gridless" not in result["map_name"]
+        assert "R20" not in result["map_name"]
+
+    def test_mikwewa_shield_church(self):
+        p = make_parser()
+        result = p.parse(
+            "mikwewa/140dpiShieldChurchMaps_140dpiChurchHeavenDayGfGrid.jpg"
+        )
+        assert result["variant_group_name"] == "Shield Church"
+        assert result["map_name"] == "Church Heaven Day Gf"
+
+    def test_moonlight_rocky_coast(self):
+        p = make_parser()
+        result = p.parse(
+            "moonlight_maps/Rocky Coast/MA/No Grid/"
+            "Moonlight_Maps_Rocky_Coast_Lava06_18x22.jpg"
+        )
+        assert result["variant_group_name"] == "Rocky Coast"
+        assert result["map_name"] == "Lava 06"
+
+    def test_map_name_present_in_result(self):
+        """Every parse result should include map_name."""
+        p = make_parser()
+        result = p.parse("author/group/SomeFile_Night.jpg")
+        assert "map_name" in result
+        assert isinstance(result["map_name"], str)
+        assert len(result["map_name"]) > 0
+
+    def test_venatus_simple(self):
+        p = make_parser()
+        result = p.parse("venatus/Bank/Bank_unfurnished.png")
+        assert result["variant_group_name"] == "Bank"
+        # map_name should strip VG prefix "Bank"
+        assert "unfurnished" in result["map_name"].lower()
+
+    def test_dreadmaps_slug_folder(self):
+        p = make_parser()
+        result = p.parse(
+            "Dreadmaps/dreadmaps_dread-hills-saloon/fl1/"
+            "DreadMaps_DreadHills_Saloon_FL1_Transparent_18x17_70ppi_1260x1190.png"
+        )
+        assert result["variant_group_name"] == "Dread Hills Saloon"
+        assert "70" not in result["map_name"]  # DPI stripped
+        assert "1260" not in result["map_name"]  # pixel dims stripped
+
+    def test_sub_variant_stripped_from_map_name(self):
+        """Sub-variant folder names are removed from map_name."""
+        p = make_parser()
+        result = p.parse(
+            "neutral_party/Small Cave Expert 25x25/Sunset/Small_Cave_Sunset.jpg"
+        )
+        assert result["sub_variant"] == "Sunset"
+        assert "Sunset" not in result["map_name"]

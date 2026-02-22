@@ -249,18 +249,6 @@ export function Gallery() {
               <div className="mt-3 h-[2px] w-24 rounded-full bg-primary/50" />
             </div>
             <div className="flex items-center gap-2 mt-1">
-              {displayImages.length > 0 && (
-                <Button
-                  variant="outline"
-                  onClick={() => setShowMassEdit(true)}
-                  className="gap-2"
-                  title="Bulk-edit all maps in current results"
-                >
-                  <Pencil className="h-4 w-4" />
-                  Bulk Edit Results
-                  <span className="text-muted-foreground text-xs">({displayImages.length})</span>
-                </Button>
-              )}
               <Button
                 variant="outline"
                 onClick={() => setShowTagManagement(true)}
@@ -284,24 +272,29 @@ export function Gallery() {
 
           {/* Search + tools row */}
           <div className="flex items-center gap-3 pb-5">
-            <form onSubmit={handleSubmit} className="flex-1 flex gap-2 min-w-0">
+            <form onSubmit={handleSubmit} className="flex-1 flex min-w-0">
               <div className="relative flex-1 min-w-0">
                 {isSemantic ? (
-                  <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                 ) : isTextOnly ? (
-                  <AlignLeft className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <AlignLeft className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                 ) : (
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                 )}
                 <Input
                   type="text"
-                  placeholder="Search worlds…  ~ visual  ·  = keyword"
+                  placeholder="Search scenes… prefix ~ for visual, = for keyword"
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
-                  className="pl-9 w-full"
+                  className="pl-9 w-full rounded-r-none border-r-0 focus-visible:z-10"
                 />
               </div>
-              <Button type="submit" disabled={isSearching} variant="secondary">
+              <Button
+                type="submit"
+                disabled={isSearching}
+                variant="secondary"
+                className="rounded-l-none border border-input shrink-0"
+              >
                 {isSearching ? 'Searching…' : 'Search'}
               </Button>
             </form>
@@ -311,11 +304,15 @@ export function Gallery() {
               facets={facets}
               onFiltersChange={handleFiltersChange}
             />
-            {hasActiveSearch && (
-              <Button variant="ghost" size="icon" onClick={clearAll} title="Clear search and filters">
-                <X className="h-4 w-4" />
-              </Button>
-            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={clearAll}
+              title="Clear search and filters"
+              className={hasActiveSearch ? '' : 'invisible pointer-events-none'}
+            >
+              <X className="h-4 w-4" />
+            </Button>
 
             {/* Segmented view toggle */}
             <div className="flex rounded-md overflow-hidden border border-border shrink-0">
@@ -341,43 +338,54 @@ export function Gallery() {
           {/* Chips + count row */}
           <div className="flex items-center gap-3 pb-4 min-h-[28px]">
             <FilterChipList filters={filters} onFiltersChange={handleFiltersChange} />
-            {showRelevanceSlider && (
-              <div
-                className="flex items-center gap-2 ml-auto shrink-0"
-                title="Minimum relevance threshold"
-              >
-                <span className="text-xs text-muted-foreground">Relevance</span>
-                <input
-                  type="range"
-                  min="0.1"
-                  max="0.5"
-                  step="0.01"
-                  value={minScore}
-                  onChange={(e) => setMinScore(parseFloat(e.target.value))}
-                  className="w-24 cursor-pointer accent-primary"
-                  style={{ height: '4px' }}
-                />
-                <span className="text-xs text-muted-foreground tabular-nums w-8 text-right">
-                  {minScore > 0 ? `${Math.round((minScore / 0.4 - 0.25) * 100)}%` : 'All'}
+
+            {/* Right-side cluster: bulk edit · relevance · count */}
+            <div className="flex items-center gap-3 ml-auto shrink-0">
+              {displayImages.length > 0 && (
+                <button
+                  onClick={() => setShowMassEdit(true)}
+                  title="Bulk-edit all maps in current results"
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Pencil className="h-3 w-3" />
+                  Edit all ({displayImages.length})
+                </button>
+              )}
+              {showRelevanceSlider && (
+                <div className="flex items-center gap-2" title="Minimum relevance threshold">
+                  <span className="text-xs text-muted-foreground">Relevance</span>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="0.5"
+                    step="0.01"
+                    value={minScore}
+                    onChange={(e) => setMinScore(parseFloat(e.target.value))}
+                    className="w-24 cursor-pointer accent-primary"
+                    style={{ height: '4px' }}
+                  />
+                  <span className="text-xs text-muted-foreground tabular-nums w-8 text-right">
+                    {minScore > 0 ? `${Math.round((minScore / 0.4 - 0.25) * 100)}%` : 'All'}
+                  </span>
+                </div>
+              )}
+              {!isSearching && (
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {hasActiveSearch ? (
+                    showRelevanceSlider ? (
+                      <>
+                        <span
+                          style={{ display: 'inline-block', minWidth: `${String(totalBeforeFilter).length}ch`, textAlign: 'right' }}
+                        >{filteredCount}</span>
+                        {` / ${totalBeforeFilter} result${totalBeforeFilter !== 1 ? 's' : ''}${searchModeSuffix}`}
+                      </>
+                    ) : (
+                      `${filteredCount} result${filteredCount !== 1 ? 's' : ''}${searchModeSuffix}`
+                    )
+                  ) : `${facets?.total_images ?? 0} scenes`}
                 </span>
-              </div>
-            )}
-            {!isSearching && (
-              <span className={`text-xs text-muted-foreground tabular-nums shrink-0 ${showRelevanceSlider ? '' : 'ml-auto'}`}>
-                {hasActiveSearch ? (
-                  showRelevanceSlider ? (
-                    <>
-                      <span
-                        style={{ display: 'inline-block', minWidth: `${String(totalBeforeFilter).length}ch`, textAlign: 'right' }}
-                      >{filteredCount}</span>
-                      {` / ${totalBeforeFilter} result${totalBeforeFilter !== 1 ? 's' : ''}${searchModeSuffix}`}
-                    </>
-                  ) : (
-                    `${filteredCount} result${filteredCount !== 1 ? 's' : ''}${searchModeSuffix}`
-                  )
-                ) : `${facets?.total_images ?? 0} worlds`}
-              </span>
-            )}
+              )}
+            </div>
           </div>
 
         </div>

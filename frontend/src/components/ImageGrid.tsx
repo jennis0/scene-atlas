@@ -93,6 +93,15 @@ function ImageCard({ image, onClick }: { image: Image; onClick: () => void }) {
   // the card doesn't flash a harsh grey before the thumbnail loads.
   const placeholderBg = image.colors?.[0]?.color_hex ?? undefined
 
+  // When in a group: primary = group name; secondary = sub-variant + image name (if distinct)
+  // When standalone: primary = image name; no secondary
+  const primaryText = image.variant_group_name ?? image.name
+  const secondaryText = image.variant_group_name
+    ? [image.sub_variant, image.name !== image.variant_group_name ? image.name : null]
+        .filter(Boolean)
+        .join(' · ')
+    : ''
+
   return (
     <div
       className="group relative cursor-pointer overflow-hidden rounded-lg border border-border/30 bg-card transition-all duration-200 hover:border-primary/40 hover:shadow-xl hover:shadow-black/40"
@@ -117,12 +126,17 @@ function ImageCard({ image, onClick }: { image: Image; onClick: () => void }) {
         />
       </div>
 
-      {/* Gradient overlay — name + author, always readable */}
+      {/* Gradient overlay */}
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/50 to-transparent pt-12 pb-3 px-2.5 pointer-events-none">
         <p className="text-[13px] font-medium text-white leading-snug line-clamp-1 drop-shadow">
-          {image.name}
+          {primaryText}
         </p>
-        <p className="text-[11px] text-white/60 truncate mt-0.5">{image.author}</p>
+        {secondaryText && (
+          <p className="text-[11px] text-white/60 truncate mt-0.5">{secondaryText}</p>
+        )}
+        {image.author && (
+          <p className="text-[11px] text-white/60 truncate mt-0.5">{image.author}</p>
+        )}
       </div>
     </div>
   )

@@ -85,7 +85,9 @@ class BattlemapParser:
         # Regex patterns
         self._ordinal_re = re.compile(r"(\d+)(st|nd|rd|th)\b", re.IGNORECASE)
         self._camel_re = re.compile(r"([a-z])([A-Z])|([a-zA-Z])([0-9])|([0-9])([a-zA-Z])")
-        self._dim_re = re.compile(r"[\(\[ ]?(\d{1,3})\s*[xX]\s*(\d{1,3})[\)\] ]?")
+        self._dim_re = re.compile(
+            r"(?<!\d)[\(\[ ]?(\d{1,3})\s*[xX]\s*(\d{1,3})[\)\] ]?(?!\d)"
+        )
         self._by_author_re = re.compile(r"[bB]y([A-Z][a-z]+|[A-Z]+|[a-z]+)")
         self._bracket_re = re.compile(r"[\(\[](.*?)[\)\]]")
         self._grid_negative_re = re.compile(r"\b(no[-_ ]?grid|gridless|ungridded|gl)\b")
@@ -205,6 +207,27 @@ class BattlemapParser:
             }
         )
 
+        # --- Name-cleaning patterns ---
+        self._dpi_re = re.compile(r"\b\d+\s*(dpi|ppi)\b", re.IGNORECASE)
+        self._pixel_dim_re = re.compile(r"\b\d{4,}\s*[xX]\s*\d{4,}\b")
+        self._tier_re = re.compile(r"\bTier\s*\d+\b", re.IGNORECASE)
+        self._vol_re = re.compile(r"\bVol(ume)?\s*\d*\b", re.IGNORECASE)
+        self._pricing_re = re.compile(r"\$\d*\s*Rewards?\b", re.IGNORECASE)
+        self._full_res_re = re.compile(
+            r"\bFull\s+Resolution\s*(Files?)?\b", re.IGNORECASE
+        )
+        self._fr_files_re = re.compile(r"\bFR\s+Files?\b", re.IGNORECASE)
+        self._platform_re = re.compile(
+            r"\b(FVTT|Roll\s*20|R20|VTT)\b", re.IGNORECASE
+        )
+        self._maps_word_re = re.compile(r"\bMaps\b", re.IGNORECASE)
+        self._grid_name_re = re.compile(
+            r"\b(No\s*Grid|Grid(ded|less)?|Ungridded|GL|GD)\b", re.IGNORECASE
+        )
+        self._abbrev_rejoin_re = re.compile(r"\b([A-Z]{1,2})\s+(\d+)\b")
+        self._tight_alpha_dash_re = re.compile(r"(?<=[a-zA-Z])-(?=[a-zA-Z])")
+        self._multi_space_re = re.compile(r"\s+")
+
         # Build tag vocabulary from DB categories
         self._vocabulary: dict[str, tuple[str, str]] = {}
         if tag_categories:
@@ -246,23 +269,35 @@ class BattlemapParser:
         return normalized in self._generic_folders
 
     def _split_camel(self, text: str) -> str:
-        """Split CamelCase while protecting ordinals like 1st, 2nd, 3rd."""
-        ordinals: list[str] = []
+        """Split CamelCase while protecting ordinals like 1st, 2nd, 3rd.
 
-        def save_ordinal(m: re.Match) -> str:
-            ordinals.append(m.group(0))
-            return f" __ORD{len(ordinals) - 1}__ "
+        Runs two passes so adjacent transitions are caught (e.g. "Night3Grid"
+        → "Night 3Grid" on pass 1, "Night 3 Grid" on pass 2).  Ordinals are
+        re-protected between passes so "1st" doesn't get split.
+        """
 
-        text = self._ordinal_re.sub(save_ordinal, text)
-        text = self._camel_re.sub(
-            lambda m: (
-                f"{m.group(1) or m.group(3) or m.group(5)} {m.group(2) or m.group(4) or m.group(6)}"
-            ),
-            text,
-        )
-        for i, ordinal in enumerate(ordinals):
-            text = text.replace(f"__ORD{i}__", ordinal)
-            text = text.replace(f"__ORD {i}__", ordinal)
+        def _one_pass(t: str) -> str:
+            ordinals: list[str] = []
+
+            def save_ordinal(m: re.Match) -> str:
+                ordinals.append(m.group(0))
+                return f" __ORD{len(ordinals) - 1}__ "
+
+            t = self._ordinal_re.sub(save_ordinal, t)
+            t = self._camel_re.sub(
+                lambda m: (
+                    f"{m.group(1) or m.group(3) or m.group(5)} "
+                    f"{m.group(2) or m.group(4) or m.group(6)}"
+                ),
+                t,
+            )
+            for i, ordinal in enumerate(ordinals):
+                t = t.replace(f"__ORD{i}__", ordinal)
+                t = t.replace(f"__ORD {i}__", ordinal)
+            return t
+
+        text = _one_pass(text)
+        text = _one_pass(text)
         return text
 
     def _get_token_set(self, text: str) -> set[str]:
@@ -331,6 +366,207 @@ class BattlemapParser:
                         }
 
         return list(seen.values())
+
+    # -------------------------------------------------------------------
+    # Name-cleaning helpers
+    # -------------------------------------------------------------------
+
+    def _normalize_text(self, text: str) -> str:
+        """Shared formatting: separators → spaces, CamelCase split, rejoin abbreviations."""
+        name = text.replace("_", " ")
+        # Slug-style dashes (alpha-alpha): replace with space
+        name = self._tight_alpha_dash_re.sub(" ", name)
+        # Alpha-digit dashes: replace with " - " to separate but keep dash
+        name = re.sub(r"(?<=[a-zA-Z])-(?=\d)", " - ", name)
+        name = re.sub(r"(?<=\d)-(?=[a-zA-Z])", " - ", name)
+        name = self._split_camel(name)
+        name = self._abbrev_rejoin_re.sub(r"\1\2", name)
+        return name
+
+    def _remove_noise(self, text: str, *, keep_grid: bool = False) -> str:
+        """Remove resolution, tier, pricing, platform markers from a normalised string."""
+        name = self._dpi_re.sub("", text)
+        name = self._pixel_dim_re.sub("", name)
+        name = self._dim_re.sub("", name)
+        name = self._tier_re.sub("", name)
+        name = self._vol_re.sub("", name)
+        name = self._pricing_re.sub("", name)
+        name = name.replace("$", "")
+        name = self._full_res_re.sub("", name)
+        name = self._fr_files_re.sub("", name)
+        name = self._platform_re.sub("", name)
+        name = self._maps_word_re.sub("", name)
+        if not keep_grid:
+            name = self._grid_name_re.sub("", name)
+        return name
+
+    def _deduplicate_sequences(self, words: list[str]) -> list[str]:
+        """Remove repeated multi-word sequences (later occurrence removed)
+        AND consecutive identical single words."""
+        result = self._dedup_multi_word(words)
+        return self._dedup_consecutive(result)
+
+    def _dedup_multi_word(self, words: list[str]) -> list[str]:
+        """Remove repeated multi-word sequences (length >= 2, longest first)."""
+        result = list(words)
+        for length in range(len(result) // 2, 1, -1):
+            i = 0
+            while i <= len(result) - 2 * length:
+                seq = [w.lower() for w in result[i : i + length]]
+                removed = False
+                for j in range(i + length, len(result) - length + 1):
+                    candidate = [w.lower() for w in result[j : j + length]]
+                    if seq == candidate:
+                        result = result[:j] + result[j + length :]
+                        removed = True
+                        break
+                if not removed:
+                    i += 1
+        return result
+
+    @staticmethod
+    def _dedup_consecutive(words: list[str]) -> list[str]:
+        """Remove adjacent identical words (e.g. 'Blacksmith Blacksmith' → 'Blacksmith')."""
+        result: list[str] = []
+        for w in words:
+            if not result or w.lower() != result[-1].lower():
+                result.append(w)
+        return result
+
+    def _strip_author_prefix(self, words: list[str], author: str | None) -> list[str]:
+        """Remove leading words that concatenate to the author name."""
+        if not author or not words:
+            return words
+        author_norm = re.sub(
+            r"[^a-z0-9]",
+            "",
+            self._split_camel(author.replace("_", " ").replace("-", " ")).lower(),
+        )
+        for n in range(1, min(len(words) + 1, 5)):
+            prefix = re.sub(r"[^a-z0-9]", "", "".join(words[:n]).lower())
+            if prefix == author_norm:
+                return words[n:]
+        return words
+
+    def _strip_word_prefix(self, words: list[str], prefix_words: list[str]) -> list[str]:
+        """Remove leading words that match *prefix_words* (case-insensitive)."""
+        if not prefix_words or len(words) < len(prefix_words):
+            return words
+        if all(w.lower() == p.lower() for w, p in zip(words, prefix_words)):
+            return words[len(prefix_words) :]
+        return words
+
+    def _strip_word_sequence(
+        self, words: list[str], seq_words: list[str]
+    ) -> list[str]:
+        """Remove first occurrence of a contiguous word sequence (anywhere)."""
+        if not seq_words:
+            return words
+        seq_lower = [w.lower() for w in seq_words]
+        seq_len = len(seq_lower)
+        for i in range(len(words) - seq_len + 1):
+            if [w.lower() for w in words[i : i + seq_len]] == seq_lower:
+                return words[:i] + words[i + seq_len :]
+        return words
+
+    @staticmethod
+    def _title_case_preserve(text: str) -> str:
+        """Title-case words that are entirely lowercase, leave others untouched.
+
+        'dread hills saloon' → 'Dread Hills Saloon'
+        'DUNGEONS - DRAGONGATE' → 'DUNGEONS - DRAGONGATE'
+        'Rocky Coast' → 'Rocky Coast'   (already mixed-case)
+        """
+        parts: list[str] = []
+        for word in text.split():
+            if word == word.lower() and word.isalpha():
+                parts.append(word.capitalize())
+            else:
+                parts.append(word)
+        return " ".join(parts)
+
+    def _finalize_name(self, words: list[str], fallback: str) -> str:
+        """Join words, normalize dashes/spaces, guard against empty result."""
+        name = " ".join(words)
+        # Normalize: each dash gets " - " around it, collapse spaces, then
+        # collapse consecutive dashes ("- - " → "- ")
+        name = re.sub(r"\s*-\s*", " - ", name)
+        name = self._multi_space_re.sub(" ", name).strip()
+        name = re.sub(r"(- ){2,}", "- ", name)
+        name = name.strip(" -")
+        if not name:
+            name = self._normalize_text(fallback)
+            name = self._multi_space_re.sub(" ", name).strip()
+        return name
+
+    def _clean_group_name(self, raw: str, author: str | None = None) -> str:
+        """Clean a raw folder/filename-derived name into a variant group name.
+
+        Strips noise (Tier, DPI, dimensions, pricing, platform markers, grid
+        state) and normalises formatting (CamelCase → spaces, slug-dashes → spaces).
+        """
+        name = self._normalize_text(raw)
+        name = self._remove_noise(name)
+        # Strip leading numbering like "07. " or "10. "
+        name = re.sub(r"^\d+\.\s*", "", name)
+        words = name.split()
+        words = self._strip_author_prefix(words, author)
+        words = self._deduplicate_sequences(words)
+        result = self._finalize_name(words, raw)
+        # Title-case words that are all-lowercase (slug-style input)
+        if result == result.lower():
+            result = self._title_case_preserve(result)
+        return result
+
+    def _build_map_name(
+        self,
+        stem: str,
+        author: str | None,
+        variant_group_name: str,
+        sub_variants: list[str] | None = None,
+    ) -> str:
+        """Build a display name for an individual map from the filename stem.
+
+        Removes all noise (grid state, DPI, pricing, platform markers, etc.),
+        author prefix, duplicate sequences, the variant-group name, and
+        sub-variant folder names.
+        """
+        name = self._normalize_text(stem)
+        # Strip author BEFORE noise removal so compound names like
+        # "DreadMaps" → "Dread Maps" still match the author "Dreadmaps"
+        words = name.split()
+        words = self._strip_author_prefix(words, author)
+        name = " ".join(words)
+        name = self._remove_noise(name)
+
+        words = name.split()
+        # Multi-word dedup first (e.g. "Snowy Forest...Snowy Forest")
+        words = self._dedup_multi_word(words)
+        # Strip VG name (sequence match — finds it anywhere, not just prefix,
+        # so it works even when noise like "G_" precedes the group name)
+        vg_words = [w for w in variant_group_name.split() if w != "-"] if variant_group_name else []
+        candidate = self._strip_word_sequence(words, vg_words)
+        if candidate:  # guard: don't strip if it empties the list
+            words = candidate
+        # Strip sub-variant folder names (already captured in sub_variant field)
+        if sub_variants:
+            for sv in sub_variants:
+                sv_cleaned = self._normalize_text(sv)
+                sv_cleaned = self._remove_noise(sv_cleaned)
+                # Strip leading numbering (e.g. "02 Apple Press" → "Apple Press")
+                sv_cleaned = re.sub(r"^\d+\.?\s*", "", sv_cleaned).strip()
+                sv_words = [w for w in sv_cleaned.split() if w != "-"]
+                if not sv_words:
+                    continue
+                stripped = self._strip_word_sequence(words, sv_words)
+                if stripped:  # guard: don't strip if it empties the list
+                    words = stripped
+        words = self._dedup_consecutive(words)
+
+        result = self._finalize_name(words, name)
+        if result == result.lower():
+            result = self._title_case_preserve(result)
+        return result
 
     def parse(self, relative_path: str) -> dict:
         """Parse a battlemap image path into structured metadata.
@@ -412,12 +648,23 @@ class BattlemapParser:
 
         # Fallback: infer group from filename stem
         if self._is_generic_folder(group_raw) or group_raw == "Unknown":
-            group_raw = re.split(r"[\-\(\[\,]", stem)[0].strip()
+            # Take first underscore segment (or first dash segment, or whole stem)
+            if "_" in stem:
+                group_raw = stem.split("_")[0]
+            elif "-" in stem:
+                group_raw = stem.split("-")[0]
+            else:
+                group_raw = stem
             group_from_folder = False
 
-        group_name = group_raw.replace("_", " ").strip()
+        # --- Clean group name & build map name ---
+        effective_author = author if group_from_folder else None
+        group_name = self._clean_group_name(group_raw, author=effective_author)
+
         sub_variants = [s.replace("_", " ").strip() for s in sub_variants_raw]
         sub_variant = " / ".join(sub_variants) if sub_variants else None
+
+        map_name = self._build_map_name(stem, author, group_name, sub_variants)
 
         # --- Build exclusion set for tag extraction ---
         # Note: we intentionally do NOT exclude group name or sub-variant tokens —
@@ -454,7 +701,8 @@ class BattlemapParser:
 
         return {
             "author": author,
-            "variant_group_name": group_name.split("[(")[0].strip(),
+            "variant_group_name": group_name,
+            "map_name": map_name,
             "group_from_folder": group_from_folder,
             "sub_variants": sub_variants,
             "sub_variant": sub_variant,

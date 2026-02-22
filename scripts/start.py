@@ -96,8 +96,10 @@ def main() -> None:
 
     # 3. FastAPI server
     print("\n[3/3] Starting FastAPI server...")
-    api_pid = _spawn("api", [PYTHON, "-m", "uvicorn", "backend.app.main:app",
-                              "--host", "0.0.0.0", "--port", "8000"])
+    api_pid = _spawn(
+        "api",
+        [PYTHON, "-m", "uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"],
+    )
     print(f"  PID {api_pid}  →  logs/api.log")
 
     print()

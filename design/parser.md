@@ -19,6 +19,7 @@ Given a relative path like `czepeku/Island Fort/Gridded/IslandFort_Night_Rain_30
 | `grid_width` | `30` | NxN dimension pattern |
 | `grid_height` | `30` | NxN dimension pattern |
 | `tags` | `[{category: "lighting", value: "night"}, {category: "weather", value: "rain"}]` | Vocabulary match |
+| `map_name` | `"Night Rain"` | Display name for the individual map |
 | `filename` | `"IslandFort_Night_Rain_30x30.jpg"` | Path leaf |
 
 ## Parsing Pipeline
@@ -66,15 +67,65 @@ The parser interprets path structure as: `author / [generic...] / group / [sub-v
 4. Also extract from path components (not filename) at confidence 0.7
 5. Merge: filename tags take priority over path tags (by category+value key)
 
-### 5. CamelCase Handling
+### 5. Name Cleaning (`_clean_group_name`, `_build_map_name`)
+
+The parser generates two cleaned names:
+
+**Variant group name** (`_clean_group_name`): The "proper name" of the map collection, with noise stripped.
+
+Removals (in order):
+1. DPI/PPI markers: `140dpi`, `70ppi`
+2. Pixel dimensions: `12000x8000`
+3. Grid dimensions: `30x30`
+4. Tier info: `Tier 2`
+5. Volume info: `Vol3`
+6. Pricing: `$5 Rewards`
+7. `Full Resolution` / `FR Files`
+8. Platform markers: `FVTT`, `Roll20`, `R20`, `VTT`
+9. `Maps` (plural only — singular `Map` preserved)
+10. Grid state: `Gridded`, `Gridless`, `No Grid`, `GL`, `GD`
+11. Leading numbering: `07. Swamps` → `Swamps`
+12. Author prefix (concatenated word matching)
+13. Repeated word sequences
+
+Formatting: underscore/slug-dash → spaces, CamelCase split, abbreviation+number rejoin (`FL 1` → `FL1`), title-case-preserve (only capitalize all-lowercase words, preserving acronyms).
+
+**Map name** (`_build_map_name`): A display name for the individual map image.
+
+Steps:
+1. Normalize text (underscores → spaces, CamelCase split, dash handling)
+2. Strip DPI/PPI, pixel dimensions, grid dimensions
+3. Strip author prefix
+4. Remove `Maps` (plural)
+5. Multi-word sequence deduplication
+6. Strip variant group name prefix (always stripped)
+7. Strip sub-variant folder names (contiguous word-sequence matching, guarded against emptying)
+8. Consecutive duplicate word removal
+9. Title-case-preserve on all-lowercase results
+
+The VG prefix and sub-variant names are always stripped since names are displayed alongside their VG and sub-variant context. If stripping leaves an empty result, the cleaned stem is used as fallback.
+
+**Examples:**
+| Path | VG | Map Name |
+|------|-----|----------|
+| `Crosshead/DUNGEONS - DRAGONGATE/Dragon Gate no light.jpg` | DUNGEONS - DRAGONGATE | Dragon Gate no light |
+| `dice_grimorium/Snowy Forest Tier 2/SnowyForestTier2_FR_Gridless_R20_SnowyForest-1.jpg` | Snowy Forest | Tier 2 FR Gridless R20 - 1 |
+| `mikwewa/140dpiShieldChurchMaps_140dpiChurchHeavenDayGfGrid.jpg` | Shield Church | Church Heaven Day Gf Grid |
+| `moonlight_maps/Rocky Coast/MA/No Grid/Moonlight_Maps_Rocky_Coast_Lava06_18x22.jpg` | Rocky Coast | Lava 06 |
+
+### 6. CamelCase Handling
 
 `_split_camel()` inserts spaces at:
 - `lowercase → Uppercase` transitions
 - `letter → digit` and `digit → letter` transitions
 
-Ordinals (1st, 2nd, 3rd) are protected from splitting via placeholder substitution.
+Runs two passes to catch adjacent transitions (e.g. `Night3Grid` → `Night 3Grid` → `Night 3 Grid`). Ordinals (1st, 2nd, 3rd) are re-protected between passes via placeholder substitution.
 
 Example: `AbandonedCampsiteNight30x30` → `Abandoned Campsite Night 30 x 30`
+
+### Integration with Ingestion
+
+In `flows/ingestion.py`, the `Image.name` field is populated from `parsed["map_name"]` (falling back to `variant_group_name` if absent). This gives each image a distinct, human-readable display name separate from its variant group.
 
 ## Variant Group Detection (`group_files()`)
 

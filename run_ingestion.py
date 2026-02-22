@@ -49,7 +49,9 @@ if __name__ == "__main__":
     print()
 
     if "PREFECT_API_URL" not in str(sys.argv):
-        print("TIP: To view this in Prefect UI, run 'python start_prefect_ui.py' in another terminal")
+        print(
+            "TIP: To view this in Prefect UI, run 'python start_prefect_ui.py' in another terminal"
+        )
         print()
 
     # Run the flow
@@ -64,9 +66,9 @@ if __name__ == "__main__":
     print(f"  Failed: {result['failed']}")
     print()
 
-    if result['failed'] > 0:
+    if result["failed"] > 0:
         print("Failed images:")
-        for r in result['results']:
-            if r['status'] == 'failed':
+        for r in result["results"]:
+            if r["status"] == "failed":
                 print(f"  - {r.get('filename', 'unknown')}: {r.get('error', 'unknown error')}")
         print()
