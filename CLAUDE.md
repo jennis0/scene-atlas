@@ -1,5 +1,5 @@
 # Goal
-You are helping to build Battlemap Explorer - a tool to help users view and search a large quantity of battlemaps for tabletop RPGs.
+You are helping to build Scene Atlas - a tool to help users view and search a large quantity of battlemaps for tabletop RPGs.
 
 The key features are:
 - Search battlemaps by name, author, features, 'tags', and semantic description of the image via web UI in a clean, modern interface

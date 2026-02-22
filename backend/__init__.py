@@ -1,3 +1,3 @@
-"""Battlemap Explorer backend package."""
+"""Scene Atlas backend package."""
 
 __version__ = "0.1.0"

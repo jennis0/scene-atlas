@@ -11,8 +11,8 @@
  *  Popover stays open so users can add multiple filters in one session
  */
 
-import { useState, useMemo } from 'react'
-import { Search, X, Check, Minus } from 'lucide-react'
+import { useState, useMemo, useRef, useEffect } from 'react'
+import { Search, X, Check, Minus, Plus } from 'lucide-react'
 import { DEFAULT_TAG_COLOR } from '@/components/import/tagColors'
 import { useGetTagColor } from '@/contexts/TagColorContext'
 import type { ActiveFilter } from '@/components/import/fileFilter'
@@ -40,7 +40,7 @@ interface FilterMenuContentProps {
 }
 
 // Groups that are not tag categories — they don't get category colours
-const NON_TAG_GROUPS = new Set(['author', 'gridded', 'subVariant'])
+const NON_TAG_GROUPS = new Set(['author', 'gridded', 'subVariant', 'color'])
 
 // ─── Main component ────────────────────────────────────────────────────────────
 
@@ -48,6 +48,7 @@ export function FilterMenuContent({ groups, activeFilters, onFiltersChange }: Fi
   const getTagColor = useGetTagColor()
   const [search, setSearch] = useState('')
   const [tab, setTab] = useState('all')
+  const [customColors, setCustomColors] = useState<string[]>(loadCustomColors)
 
   const searchLower = search.toLowerCase()
 
@@ -120,8 +121,11 @@ export function FilterMenuContent({ groups, activeFilters, onFiltersChange }: Fi
   }
 
   // How many active filters exist for a given group
+  // For color groups, count all color filters (including custom colors not in the palette)
   const groupActiveCount = (group: FilterOptionGroup) =>
-    activeFilters.filter((af) => af.type === group.type && group.options.some((o) => o.filterValue === af.value)).length
+    group.type === 'color'
+      ? activeFilters.filter((af) => af.type === 'color').length
+      : activeFilters.filter((af) => af.type === group.type && group.options.some((o) => o.filterValue === af.value)).length
 
   const totalActive = activeFilters.length
 
@@ -180,6 +184,7 @@ export function FilterMenuContent({ groups, activeFilters, onFiltersChange }: Fi
           ))}
         </div>
 
+
         {/* Right — option pills */}
         <div className="flex-1 overflow-y-auto min-w-0">
           {visibleGroups.length === 0 && (
@@ -203,22 +208,69 @@ export function FilterMenuContent({ groups, activeFilters, onFiltersChange }: Fi
                   </div>
                 )}
 
-                <div className={`flex flex-wrap gap-1.5 pl-3 pr-3 pb-3 ${tab !== 'all' ? 'pt-3' : ''}`}>
-                  {group.options.map((opt) => {
-                    const state = getActiveState(group.type, opt.filterValue)
-                    return (
-                      <OptionPill
-                        key={opt.filterValue}
-                        label={opt.label}
-                        count={opt.count}
-                        activeState={state}
-                        colorId={colorId}
-                        onInclude={() => handleInclude(group, opt)}
-                        onExclude={(e) => handleExclude(e, group, opt)}
-                      />
-                    )
-                  })}
-                </div>
+                {group.type === 'color' ? (
+                  <div className={`grid grid-cols-6 gap-2 px-3 pb-3 ${tab !== 'all' ? 'pt-3' : ''}`}>
+                    {group.options.map((opt) => {
+                      const state = getActiveState(group.type, opt.filterValue)
+                      return (
+                        <ColorSwatch
+                          key={opt.filterValue}
+                          hex={opt.filterValue}
+                          label={opt.label}
+                          activeState={state}
+                          onInclude={() => handleInclude(group, opt)}
+                          onExclude={(e) => handleExclude(e, group, opt)}
+                        />
+                      )
+                    })}
+                    {customColors.map((hex) => {
+                      const state = getActiveState(group.type, hex)
+                      const opt: FilterOption = { filterValue: hex, label: hex, filterLabel: hex }
+                      return (
+                        <ColorSwatch
+                          key={`custom-${hex}`}
+                          hex={hex}
+                          label={hex}
+                          activeState={state}
+                          onInclude={() => handleInclude(group, opt)}
+                          onExclude={(e) => handleExclude(e, group, opt)}
+                          onRemove={() => {
+                            const updated = customColors.filter((c) => c !== hex)
+                            setCustomColors(updated)
+                            saveCustomColors(updated)
+                            // Also remove filter if active
+                            onFiltersChange(activeFilters.filter((af) => !(af.type === 'color' && af.value === hex)))
+                          }}
+                        />
+                      )
+                    })}
+                    <CustomColorPicker
+                      onSelect={(hex) => {
+                        const opt: FilterOption = { filterValue: hex, label: hex, filterLabel: hex }
+                        handleInclude(group, opt)
+                      }}
+                      customColors={customColors}
+                      onCustomColorsChange={setCustomColors}
+                    />
+                  </div>
+                ) : (
+                  <div className={`flex flex-wrap gap-1.5 pl-3 pr-3 pb-3 ${tab !== 'all' ? 'pt-3' : ''}`}>
+                    {group.options.map((opt) => {
+                      const state = getActiveState(group.type, opt.filterValue)
+                      return (
+                        <OptionPill
+                          key={opt.filterValue}
+                          label={opt.label}
+                          count={opt.count}
+                          activeState={state}
+                          colorId={colorId}
+                          onInclude={() => handleInclude(group, opt)}
+                          onExclude={(e) => handleExclude(e, group, opt)}
+                        />
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             )
           })}
@@ -364,6 +416,117 @@ function OptionPill({
   )
 }
 
+function ColorSwatch({
+  hex,
+  label,
+  activeState,
+  onInclude,
+  onExclude,
+  onRemove,
+}: {
+  hex: string
+  label: string
+  activeState: 'include' | 'exclude' | null
+  onInclude: () => void
+  onExclude: (e: React.MouseEvent) => void
+  onRemove?: () => void
+}) {
+  return (
+    <div className="relative group">
+      <button
+        onClick={onInclude}
+        onContextMenu={onExclude}
+        title={`${label} — ${activeState === 'include' ? 'click to remove' : activeState === 'exclude' ? 'click to include' : 'right-click to exclude'}`}
+        className={`aspect-square w-full rounded border-2 transition-all ${
+          activeState === 'include'
+            ? 'ring-2 ring-primary ring-offset-2 ring-offset-background border-primary scale-105'
+            : activeState === 'exclude'
+              ? 'ring-2 ring-destructive ring-offset-2 ring-offset-background border-destructive opacity-30'
+              : 'border-border/40 hover:border-foreground/50 hover:scale-105'
+        }`}
+        style={{ backgroundColor: hex }}
+      />
+      {onRemove && (
+        <button
+          onClick={onRemove}
+          className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+          title="Remove custom color"
+        >
+          <X className="h-2 w-2" />
+        </button>
+      )}
+    </div>
+  )
+}
+
+const CUSTOM_COLORS_KEY = 'color-filter-custom-colors'
+
+function loadCustomColors(): string[] {
+  try {
+    const stored = localStorage.getItem(CUSTOM_COLORS_KEY)
+    return stored ? JSON.parse(stored) : []
+  } catch {
+    return []
+  }
+}
+
+function saveCustomColors(colors: string[]) {
+  localStorage.setItem(CUSTOM_COLORS_KEY, JSON.stringify(colors))
+}
+
+function CustomColorPicker({
+  onSelect,
+  customColors,
+  onCustomColorsChange,
+}: {
+  onSelect: (hex: string) => void
+  customColors: string[]
+  onCustomColorsChange: (colors: string[]) => void
+}) {
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Use native 'change' event (fires on dialog close) instead of React onChange
+  // (which maps to DOM 'input' and fires on every drag)
+  const onSelectRef = useRef(onSelect)
+  onSelectRef.current = onSelect
+  const customColorsRef = useRef(customColors)
+  customColorsRef.current = customColors
+  const onCustomColorsChangeRef = useRef(onCustomColorsChange)
+  onCustomColorsChangeRef.current = onCustomColorsChange
+
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    const handler = () => {
+      const hex = el.value
+      const cc = customColorsRef.current
+      if (!cc.includes(hex)) {
+        const updated = [...cc, hex]
+        onCustomColorsChangeRef.current(updated)
+        saveCustomColors(updated)
+      }
+      onSelectRef.current(hex)
+    }
+    el.addEventListener('change', handler)
+    return () => el.removeEventListener('change', handler)
+  }, [])
+
+  return (
+    <button
+      onClick={() => inputRef.current?.click()}
+      title="Pick a custom color"
+      className="aspect-square w-full rounded border-2 border-dashed border-border/60 hover:border-foreground/50 transition-all flex items-center justify-center bg-secondary/50 hover:bg-secondary"
+    >
+      <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+      <input
+        ref={inputRef}
+        type="color"
+        className="sr-only"
+      />
+    </button>
+  )
+}
+
 function FilterChip({
   filter,
   onToggle,
@@ -380,6 +543,12 @@ function FilterChip({
   if (filter.exclude) {
     return (
       <span className="inline-flex items-center gap-1 text-xs rounded-full border border-destructive/30 bg-destructive/10 text-destructive px-2 py-0.5" title={filter.label}>
+        {filter.type === 'color' && (
+          <span
+            className="h-3 w-3 rounded-sm border border-black/25 shrink-0 opacity-50"
+            style={{ backgroundColor: filter.value }}
+          />
+        )}
         <span className="capitalize opacity-75 line-through max-w-[130px] truncate">{filter.label}</span>
         <button
           onClick={onToggle}
@@ -401,6 +570,12 @@ function FilterChip({
 
   return (
     <span className={`inline-flex items-center gap-1 text-xs rounded-full px-2 py-0.5 ${chipClasses}`} title={filter.label}>
+      {filter.type === 'color' && (
+        <span
+          className="h-3 w-3 rounded-sm border border-black/25 shrink-0"
+          style={{ backgroundColor: filter.value }}
+        />
+      )}
       <span className="capitalize max-w-[130px] truncate">{filter.label}</span>
       <button
         onClick={onToggle}

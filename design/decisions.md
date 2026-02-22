@@ -1,6 +1,6 @@
 # Architecture Decision Log
 
-This document records all significant architectural decisions for the Battlemap Explorer project. Each decision is numbered, dated, and includes context, the decision itself, and consequences.
+This document records all significant architectural decisions for the Scene Atlas project. Each decision is numbered, dated, and includes context, the decision itself, and consequences.
 
 ---
 

@@ -1,4 +1,4 @@
-"""FastAPI application for Battlemap Explorer."""
+"""FastAPI application for Scene Atlas."""
 
 import logging
 import os

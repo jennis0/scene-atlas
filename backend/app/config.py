@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     )
 
     # Application
-    app_name: str = "Battlemap Explorer"
+    app_name: str = "Scene Atlas"
     app_version: str = "0.1.0"
     debug: bool = False
 
@@ -48,8 +48,9 @@ class Settings(BaseSettings):
     max_image_size: int = 10 * 1024 * 1024  # 10MB
     supported_formats: list[str] = [".jpg", ".jpeg", ".png", ".webp"]
 
-    # Color Extraction
+    # Color Extraction & Search
     num_dominant_colors: int = 5
+    color_distance_threshold: float = 0.35  # HSL cylindrical distance for proximity search
     color_clustering_samples: int = 5000  # Pixels to sample for k-means
     color_kmeans_n_init: int = (
         3  # K-means random initializations (3 is sufficient for color extraction)

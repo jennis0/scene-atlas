@@ -5,6 +5,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { FilterMenuContent, type FilterOptionGroup } from '@/components/FilterMenuContent'
 import type { ActiveFilter } from '@/components/import/fileFilter'
 import type { FacetData } from '@/types'
+import { COLOR_FILTER_PALETTE } from '@/lib/colorPalette'
 
 interface GalleryFilterPanelProps {
   filters: ActiveFilter[]
@@ -45,6 +46,17 @@ export function GalleryFilterPanel({ filters, facets, onFiltersChange }: Gallery
       ].filter((o) => o.count > 0),
     })
   }
+
+  groups.push({
+    id: 'color',
+    label: 'Color',
+    type: 'color',
+    options: COLOR_FILTER_PALETTE.map((c) => ({
+      filterValue: c.hex,
+      label: c.label,
+      filterLabel: c.label,
+    })),
+  })
 
   for (const [cat, values] of Object.entries(facets?.tags ?? {})) {
     if (values.length === 0) continue

@@ -1,4 +1,4 @@
-"""Comprehensive API tests for Battlemap Explorer."""
+"""Comprehensive API tests for Scene Atlas."""
 
 import sys
 from pathlib import Path
@@ -48,7 +48,7 @@ class TestHealthEndpoints:
         response = client.get("/")
         assert response.status_code == 200
         data = response.json()
-        assert data["app"] == "Battlemap Explorer"
+        assert data["app"] == "Scene Atlas"
         assert data["status"] == "running"
         assert "version" in data
 

@@ -162,8 +162,13 @@ async def search_images(
                 sql_query = sql_query.filter(~Image.id.in_(excluded_ids))
 
     if colors:
-        color_filters = [Color.color_hex == c for c in colors]
-        sql_query = sql_query.join(Image.colors).filter(or_(*color_filters))
+        from ..services.color_search import color_index
+
+        matching_ids = color_index.find_images_by_colors(db, colors)
+        if matching_ids:
+            sql_query = sql_query.filter(Image.id.in_(matching_ids))
+        else:
+            sql_query = sql_query.filter(Image.id == -1)  # No matches
 
     # --- No search query: return filtered results sorted by name ---
     if not effective_query:

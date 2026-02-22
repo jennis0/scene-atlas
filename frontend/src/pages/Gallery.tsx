@@ -46,6 +46,9 @@ function parseFiltersFromUrl(params: URLSearchParams): ActiveFilter[] {
     const displayLabel = gridded[0].toUpperCase() + gridded.slice(1)
     result.push({ type: 'gridded', value: gridded, label: `grid: ${displayLabel}`, exclude: false })
   }
+  for (const val of params.getAll('color')) {
+    result.push({ type: 'color', value: val, label: val, exclude: false })
+  }
   return result
 }
 
@@ -56,6 +59,7 @@ function buildUrlParams(query: string, activeFilters: ActiveFilter[]): URLSearch
     if (f.type === 'tag') params.append(f.exclude ? 'xtag' : 'tag', f.value)
     else if (f.type === 'author') params.append(f.exclude ? 'xauthor' : 'author', f.value)
     else if (f.type === 'gridded') params.set('gridded', f.value)
+    else if (f.type === 'color') params.append('color', f.value)
   }
   return params
 }
@@ -136,6 +140,9 @@ export function Gallery() {
         : griddedFilter.value === 'gridless' ? false
         : undefined
     }
+
+    const colorFilters = filters.filter((f) => f.type === 'color').map((f) => f.value)
+    if (colorFilters.length) params.colors = colorFilters
 
     return params
   }, [submittedQuery, filters])
@@ -237,7 +244,7 @@ export function Gallery() {
           <div className="pt-8 pb-4 flex items-start justify-between">
             <div>
               <h1 className="font-display text-4xl font-semibold tracking-wide text-foreground">
-                Library of Worlds
+                Scene Atlas
               </h1>
               <div className="mt-3 h-[2px] w-24 rounded-full bg-primary/50" />
             </div>

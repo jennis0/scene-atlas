@@ -1,6 +1,6 @@
 # Design Documentation
 
-Architecture and design documentation for the Battlemap Explorer project. These documents describe how each component works, the intent behind design choices, and known gaps.
+Architecture and design documentation for the Scene Atlas project. These documents describe how each component works, the intent behind design choices, and known gaps.
 
 ## Documents
 

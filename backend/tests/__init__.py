@@ -1,4 +1,4 @@
-"""Test suite for battlemap explorer backend."""
+"""Test suite for Scene Atlas backend."""
 
 from pathlib import Path
 
