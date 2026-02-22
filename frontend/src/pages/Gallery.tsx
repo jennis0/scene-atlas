@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Search, Sparkles, X, Upload, LayoutGrid, Layers, Pencil, AlignLeft, Tag, Loader2 } from 'lucide-react'
 import { searchApi, variantGroupApi } from '@/lib/api'
@@ -20,8 +21,50 @@ import { Input } from '@/components/ui/input'
 import type { Image, ImageGroup, SearchParams, ViewMode } from '@/types'
 import type { ActiveFilter } from '@/components/import/fileFilter'
 
+// ---------------------------------------------------------------------------
+// URL ↔ filter serialisation helpers
+// ---------------------------------------------------------------------------
+
+function parseFiltersFromUrl(params: URLSearchParams): ActiveFilter[] {
+  const result: ActiveFilter[] = []
+  for (const val of params.getAll('tag')) {
+    const label = val.includes(':') ? val.split(':').slice(1).join(':') : val
+    result.push({ type: 'tag', value: val, label, exclude: false })
+  }
+  for (const val of params.getAll('xtag')) {
+    const label = val.includes(':') ? val.split(':').slice(1).join(':') : val
+    result.push({ type: 'tag', value: val, label, exclude: true })
+  }
+  for (const val of params.getAll('author')) {
+    result.push({ type: 'author', value: val, label: val, exclude: false })
+  }
+  for (const val of params.getAll('xauthor')) {
+    result.push({ type: 'author', value: val, label: val, exclude: true })
+  }
+  const gridded = params.get('gridded')
+  if (gridded) {
+    const displayLabel = gridded[0].toUpperCase() + gridded.slice(1)
+    result.push({ type: 'gridded', value: gridded, label: `grid: ${displayLabel}`, exclude: false })
+  }
+  return result
+}
+
+function buildUrlParams(query: string, activeFilters: ActiveFilter[]): URLSearchParams {
+  const params = new URLSearchParams()
+  if (query) params.set('q', query)
+  for (const f of activeFilters) {
+    if (f.type === 'tag') params.append(f.exclude ? 'xtag' : 'tag', f.value)
+    else if (f.type === 'author') params.append(f.exclude ? 'xauthor' : 'author', f.value)
+    else if (f.type === 'gridded') params.set('gridded', f.value)
+  }
+  return params
+}
+
+// ---------------------------------------------------------------------------
+
 export function Gallery() {
   const queryClient = useQueryClient()
+  const [urlParams, setUrlParams] = useSearchParams()
 
   // UI state
   const [selectedImage, setSelectedImage] = useState<{ image: Image; index: number } | null>(null)
@@ -42,10 +85,10 @@ export function Gallery() {
   const [showTagManagement, setShowTagManagement] = useState(false)
   const activeImports = useActiveImports()
 
-  // Search state — separate controlled input from submitted query
-  const [searchInput, setSearchInput] = useState('')
-  const [submittedQuery, setSubmittedQuery] = useState('')
-  const [filters, setFilters] = useState<ActiveFilter[]>([])
+  // Search state — initialised from URL so searches are bookmarkable
+  const [searchInput, setSearchInput] = useState(() => urlParams.get('q') ?? '')
+  const [submittedQuery, setSubmittedQuery] = useState(() => urlParams.get('q') ?? '')
+  const [filters, setFilters] = useState<ActiveFilter[]>(() => parseFiltersFromUrl(urlParams))
 
   // Relevance threshold — slider value 0–0.85, applied client-side against returned scores
   const [minScore, setMinScore] = useState(0.2)
@@ -129,6 +172,12 @@ export function Gallery() {
     e.preventDefault()
     setSubmittedQuery(searchInput)
     setMinScore(0.2) // reset threshold on new search
+    setUrlParams(buildUrlParams(searchInput, filters))
+  }
+
+  const handleFiltersChange = (newFilters: ActiveFilter[]) => {
+    setFilters(newFilters)
+    setUrlParams(buildUrlParams(submittedQuery, newFilters))
   }
 
   const invalidateGallery = () => {
@@ -155,6 +204,7 @@ export function Gallery() {
     setSubmittedQuery('')
     setFilters([])
     setMinScore(0.2)
+    setUrlParams(new URLSearchParams())
   }
 
   const handleNext = () => {
@@ -252,7 +302,7 @@ export function Gallery() {
             <GalleryFilterPanel
               filters={filters}
               facets={facets}
-              onFiltersChange={setFilters}
+              onFiltersChange={handleFiltersChange}
             />
             {hasActiveSearch && (
               <Button variant="ghost" size="icon" onClick={clearAll} title="Clear search and filters">
@@ -283,7 +333,7 @@ export function Gallery() {
 
           {/* Chips + count row */}
           <div className="flex items-center gap-3 pb-4 min-h-[28px]">
-            <FilterChipList filters={filters} onFiltersChange={setFilters} />
+            <FilterChipList filters={filters} onFiltersChange={handleFiltersChange} />
             {showRelevanceSlider && (
               <div
                 className="flex items-center gap-2 ml-auto shrink-0"

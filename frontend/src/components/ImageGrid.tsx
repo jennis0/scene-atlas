@@ -86,18 +86,34 @@ export function ImageGrid({ images, onImageClick }: ImageGridProps) {
 }
 
 function ImageCard({ image, onClick }: { image: Image; onClick: () => void }) {
+  const [loaded, setLoaded] = useState(false)
+  const [errored, setErrored] = useState(false)
+
+  // Use the most dominant extracted color as the placeholder background so
+  // the card doesn't flash a harsh grey before the thumbnail loads.
+  const placeholderBg = image.colors?.[0]?.color_hex ?? undefined
+
   return (
     <div
       className="group relative cursor-pointer overflow-hidden rounded-lg border border-border/30 bg-card transition-all duration-200 hover:border-primary/40 hover:shadow-xl hover:shadow-black/40"
       onClick={onClick}
     >
       {/* Image — 4:3 landscape, scales subtly on hover */}
-      <div className="aspect-[4/3] overflow-hidden">
+      <div
+        className="aspect-[4/3] overflow-hidden"
+        style={!loaded && !errored && placeholderBg ? { backgroundColor: placeholderBg } : undefined}
+      >
+        {/* Shimmer skeleton shown until the image loads */}
+        {!loaded && !errored && (
+          <div className="absolute inset-0 animate-pulse bg-muted/60" />
+        )}
         <img
           src={getThumbnailUrl(image)}
           alt={image.name}
-          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.05]"
+          className={`h-full w-full object-cover transition-all duration-300 group-hover:scale-[1.05] ${loaded ? 'opacity-100' : 'opacity-0'}`}
           loading="lazy"
+          onLoad={() => setLoaded(true)}
+          onError={() => { setErrored(true); setLoaded(true) }}
         />
       </div>
 
