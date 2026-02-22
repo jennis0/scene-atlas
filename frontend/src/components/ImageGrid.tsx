@@ -126,7 +126,7 @@ function ImageCard({ image, onClick }: { image: Image; onClick: () => void }) {
           onError={() => { setErrored(true); setLoaded(true) }}
         />
         {image.media_type === 'video' && (
-          <div className="absolute top-2 left-2 z-10 flex items-center justify-center h-6 w-6 rounded-full bg-black/60 text-white/90 backdrop-blur-sm">
+          <div className="absolute top-2 left-2 z-10 flex items-center justify-center h-6 w-6 rounded-full bg-black/35 text-white/60 backdrop-blur-sm">
             <Play className="h-3 w-3 fill-current" />
           </div>
         )}

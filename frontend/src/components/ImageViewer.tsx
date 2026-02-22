@@ -694,7 +694,7 @@ function VariantTile({
           loading="lazy"
         />
         {variant.media_type === 'video' && (
-          <div className="absolute top-1 left-1 flex items-center justify-center h-5 w-5 rounded-full bg-black/60 text-white/90 backdrop-blur-sm">
+          <div className="absolute top-1 left-1 flex items-center justify-center h-5 w-5 rounded-full bg-black/35 text-white/60 backdrop-blur-sm">
             <Play className="h-2.5 w-2.5 fill-current" />
           </div>
         )}
