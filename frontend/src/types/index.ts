@@ -18,6 +18,7 @@ export interface Image {
   sub_variant: string | null
   thumbnail_key: string | null
   needs_review: boolean
+  media_type: 'image' | 'video'
   tags: Tag[]
   colors: Color[]
 }
@@ -137,6 +138,7 @@ export interface ImportFileInfo {
   relative_path: string
   filename: string
   name: string | null
+  media_type: string | null
   detected_tags: TagData[]
   gridded: boolean | null
   grid_width: number | null
@@ -188,6 +190,7 @@ export interface TagData {
 export interface ImportConfirmFile {
   relative_path: string
   name?: string
+  media_type?: string
   tags: TagData[]
   gridded: boolean | null
   grid_width: number | null
@@ -209,6 +212,7 @@ export interface EditableFileState {
   relative_path: string
   filename: string
   name: string
+  media_type?: string
   tags: TagData[]
   gridded: boolean | null
   grid_width: number | null

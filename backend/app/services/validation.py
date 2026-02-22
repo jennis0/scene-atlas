@@ -41,6 +41,20 @@ def check_zip_safety(zip_path: Path, max_files: int, max_uncompressed_bytes: int
         raise ValueError(f"ZIP uncompressed size ({actual_mb} MB) exceeds limit of {limit_mb} MB")
 
 
+def verify_media_mime(data: bytes, ext: str) -> bool:
+    """Verify file content matches its claimed extension.
+
+    Routes to video or image verification based on extension.
+    """
+    from backend.app.config import settings
+
+    if ext.lower() in settings.supported_video_formats:
+        from backend.app.services.video_utils import verify_video_mime
+
+        return verify_video_mime(data)
+    return verify_image_mime(data)
+
+
 def verify_image_mime(data: bytes) -> bool:
     """Return True if *data* is a valid image file, False otherwise.
 

@@ -13,10 +13,10 @@ export function ImportUploadPane({ uploading, uploadError, uploadPhase, skippedF
   return (
     <div className="px-6 py-5 space-y-5">
       <p className="text-sm text-muted-foreground">
-        Select image files, a folder, or a .zip archive to import.
+        Select image or video files, a folder, or a .zip archive to import.
       </p>
       <div className="flex gap-3">
-        <input ref={fileInputRef} type="file" multiple accept=".jpg,.jpeg,.png,.webp,.zip"
+        <input ref={fileInputRef} type="file" multiple accept=".jpg,.jpeg,.png,.webp,.mp4,.webm,.zip"
           onChange={onFileSelect} className="hidden" id="import-files" />
         <button
           onClick={() => fileInputRef.current?.click()}
@@ -49,7 +49,7 @@ export function ImportUploadPane({ uploading, uploadError, uploadPhase, skippedF
           <summary className="flex cursor-pointer select-none items-center gap-2 px-3 py-2 text-yellow-600 dark:text-yellow-400 marker:content-none list-none">
             <AlertTriangle className="h-4 w-4 shrink-0" />
             <span className="flex-1">
-              {skippedFiles.length} file{skippedFiles.length !== 1 ? 's' : ''} skipped — not an image or ZIP
+              {skippedFiles.length} file{skippedFiles.length !== 1 ? 's' : ''} skipped — not an image, video, or ZIP
             </span>
             <ChevronDown className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-180" />
           </summary>

@@ -1,4 +1,4 @@
-import { MoreHorizontal, Pencil, Merge, Trash2, Layers } from 'lucide-react'
+import { MoreHorizontal, Pencil, Merge, Trash2, Layers, Play } from 'lucide-react'
 import { getThumbnailUrl } from '@/lib/api'
 import {
   DropdownMenu,
@@ -85,6 +85,11 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
             loading="lazy"
           />
+          {heroImage.media_type === 'video' && (
+            <div className="absolute top-2 left-2 z-10 flex items-center justify-center h-6 w-6 rounded-full bg-black/60 text-white/90 backdrop-blur-sm">
+              <Play className="h-3 w-3 fill-current" />
+            </div>
+          )}
           {hasMosaic && <div className="absolute inset-y-0 right-0 w-px bg-black/30" />}
         </div>
 
@@ -102,6 +107,11 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
                       className="h-full w-full object-cover"
                       loading="lazy"
                     />
+                    {img.media_type === 'video' && !isOverflowTile && (
+                      <div className="absolute top-1 left-1 z-10 flex items-center justify-center h-5 w-5 rounded-full bg-black/60 text-white/90 backdrop-blur-sm">
+                        <Play className="h-2.5 w-2.5 fill-current" />
+                      </div>
+                    )}
                     {img.sub_variant && !isOverflowTile && (
                       <div className="absolute bottom-0 left-0 right-0 bg-black/50 px-1.5 py-0.5">
                         <span className="text-[10px] leading-tight text-white/90 line-clamp-1">

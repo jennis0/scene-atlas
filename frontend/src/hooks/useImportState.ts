@@ -374,6 +374,7 @@ export function useImportState(
           relative_path: f.relative_path,
           filename: f.filename,
           name: f.name || humanizeFilename(f.filename),
+          media_type: f.media_type ?? 'image',
           tags: [...f.detected_tags],
           gridded: f.gridded,
           grid_width: f.grid_width,
@@ -598,6 +599,7 @@ export function useImportState(
         const base: ImportConfirmFile = {
           relative_path: f.relative_path,
           name: f.name,
+          media_type: f.media_type,
           tags: f.tags,
           gridded: f.gridded,
           grid_width: f.grid_width,

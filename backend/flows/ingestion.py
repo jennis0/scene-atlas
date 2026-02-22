@@ -108,6 +108,7 @@ def _save_image_to_db(db: Session, image_data: dict) -> int:
         grid_height=image_data.get("grid_height"),
         sub_variant=image_data.get("sub_variant"),
         content_hash=image_data.get("content_hash"),
+        media_type=image_data.get("media_type", "image"),
         search_text=build_search_text(
             name=image_data.get("name"),
             filename=image_data.get("filename"),
@@ -175,13 +176,13 @@ def scan_directory(directory: str) -> List[str]:
     logger.info(f"Scanning directory: {directory_obj}")
     image_paths = []
 
-    for ext in settings.supported_formats:
+    for ext in settings.all_supported_formats:
         for path in directory_obj.rglob(f"*{ext}"):
             if "__MACOSX" in path.parts or path.name.startswith("._"):
                 continue
             image_paths.append(str(path))
 
-    logger.info(f"Found {len(image_paths)} images in {directory_obj}")
+    logger.info(f"Found {len(image_paths)} images/videos in {directory_obj}")
     return image_paths
 
 
@@ -287,6 +288,7 @@ def prepare_single_image(
                 db.close()
 
         if reuse_storage_key:
+            reuse_ext = image_path_obj.suffix.lower()
             image_data = {
                 "filename": image_path_obj.name,
                 "storage_key": reuse_storage_key,
@@ -302,6 +304,7 @@ def prepare_single_image(
                 "grid_height": grid_height,
                 "sub_variant": sub_variant,
                 "content_hash": content_hash,
+                "media_type": "video" if reuse_ext in settings.supported_video_formats else "image",
                 "tags": tags,
                 "colors": colors,
             }
@@ -320,7 +323,7 @@ def prepare_single_image(
                 "reuse_embedding_from": reuse_embedding_from,
             }
 
-        # --- Normal path: Copy image into ImageStore ---
+        # --- Normal path: Copy image/video into ImageStore ---
         image_store = get_image_store()
         storage_key_stem = uuid.uuid4().hex[:12]
         ext = image_path_obj.suffix.lower()
@@ -334,19 +337,37 @@ def prepare_single_image(
         # --- File size (inline, fast) ---
         file_size = image_path_obj.stat().st_size
 
-        # --- Generate thumbnails + get dimensions (inline call to the function) ---
+        # --- Generate thumbnails + get dimensions ---
         # Call the underlying function directly (not as Prefect task) to avoid overhead
         from backend.flows.tasks.image_processing import generate_thumbnails as _gen_thumbs
 
-        thumbnail_result = _gen_thumbs.fn(image_path, storage_key_stem)
-        thumbnail_keys = thumbnail_result["keys"]
-        width, height = thumbnail_result["dimensions"]
-        thumbnail_key = thumbnail_keys.get("medium", thumbnail_keys.get("small"))
-
-        # --- Extract colors (inline call) ---
+        # --- Extract colors ---
         from backend.flows.tasks.color_extraction import extract_dominant_colors as _extract_colors
 
-        colors = _extract_colors.fn(image_path)
+        is_video = ext in settings.supported_video_formats
+
+        if is_video:
+            # Extract first frame to a temp JPEG for thumbnail/color/CLIP processing
+            from backend.app.services.video_utils import extract_first_frame, get_video_dimensions
+
+            frame_img = extract_first_frame(image_path_obj)
+            frame_path = image_path_obj.parent / f".{storage_key_stem}_frame.jpg"
+            frame_img.save(str(frame_path), format="JPEG", quality=95)
+            frame_img.close()
+
+            thumbnail_result = _gen_thumbs.fn(str(frame_path), storage_key_stem)
+            thumbnail_keys = thumbnail_result["keys"]
+            colors = _extract_colors.fn(str(frame_path))
+            width, height = get_video_dimensions(image_path_obj)
+            clip_image_path = str(frame_path)  # keep alive for CLIP in _process_batch
+        else:
+            thumbnail_result = _gen_thumbs.fn(image_path, storage_key_stem)
+            thumbnail_keys = thumbnail_result["keys"]
+            colors = _extract_colors.fn(image_path)
+            width, height = thumbnail_result["dimensions"]
+            clip_image_path = None
+
+        thumbnail_key = thumbnail_keys.get("medium", thumbnail_keys.get("small"))
 
         # --- Build result ---
         image_data = {
@@ -364,6 +385,7 @@ def prepare_single_image(
             "grid_height": grid_height,
             "sub_variant": sub_variant,
             "content_hash": content_hash,
+            "media_type": "video" if is_video else "image",
             "tags": tags,
             "colors": colors,
         }
@@ -378,6 +400,7 @@ def prepare_single_image(
             "status": "success",
             "image_data": image_data,
             "original_image_path": image_path,
+            "clip_image_path": clip_image_path,  # None for images, temp frame path for videos
             "qdrant_metadata": qdrant_metadata,
         }
 
@@ -551,11 +574,16 @@ def _process_batch(
     reuse_images = [r for r in successful if "reuse_embedding_from" in r]
 
     # --- New images: batch CLIP embedding ---
+    # For videos, use the extracted first-frame JPEG (clip_image_path); for images use original
     if new_images:
-        image_paths = [r["original_image_path"] for r in new_images]
+        image_paths = [r.get("clip_image_path") or r["original_image_path"] for r in new_images]
         embeddings = batch_generate_clip_embeddings(image_paths)
         for prep, embedding in zip(new_images, embeddings):
             prep["embedding"] = embedding
+        # Clean up temp frame files now that CLIP is done
+        for prep in new_images:
+            if prep.get("clip_image_path"):
+                Path(prep["clip_image_path"]).unlink(missing_ok=True)
 
     # --- Reuse images: retrieve existing embeddings from Qdrant ---
     for prep in reuse_images:
@@ -903,6 +931,7 @@ def _run_group(
                         "grid_height": file_info.get("grid_height"),
                         "sub_variant": file_info.get("sub_variant"),
                         "content_hash": file_info.get("content_hash"),
+                        "media_type": file_info.get("media_type"),
                         "reuse_storage_key": file_info.get("reuse_storage_key"),
                         "reuse_thumbnail_key": file_info.get("reuse_thumbnail_key"),
                     },

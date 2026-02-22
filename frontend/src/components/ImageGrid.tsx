@@ -1,5 +1,6 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useRef, useState, useEffect } from 'react'
+import { Play } from 'lucide-react'
 import { getThumbnailUrl } from '@/lib/api'
 import type { Image } from '@/types'
 
@@ -124,6 +125,11 @@ function ImageCard({ image, onClick }: { image: Image; onClick: () => void }) {
           onLoad={() => setLoaded(true)}
           onError={() => { setErrored(true); setLoaded(true) }}
         />
+        {image.media_type === 'video' && (
+          <div className="absolute top-2 left-2 z-10 flex items-center justify-center h-6 w-6 rounded-full bg-black/60 text-white/90 backdrop-blur-sm">
+            <Play className="h-3 w-3 fill-current" />
+          </div>
+        )}
       </div>
 
       {/* Gradient overlay */}

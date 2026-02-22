@@ -22,7 +22,7 @@ from prefect.deployments import run_deployment
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..services.validation import check_zip_safety, verify_image_mime
+from ..services.validation import check_zip_safety, verify_media_mime
 from ..models import (
     ImportGroupJob,
     ImportJob,
@@ -219,9 +219,9 @@ async def upload_files(
                             "._"
                         ):
                             continue
-                        # Only extract supported image formats
+                        # Only extract supported image/video formats
                         ext = Path(member.filename).suffix.lower()
-                        if ext not in settings.supported_formats:
+                        if ext not in settings.all_supported_formats:
                             continue
 
                         zf.extract(member, staging_dir)
@@ -230,15 +230,21 @@ async def upload_files(
                 # Remove the zip file after extraction
                 zip_path.unlink()
             else:
-                # Regular image file — check extension first (cheap)
+                # Regular image/video file — check extension first (cheap)
                 ext = Path(filename).suffix.lower()
-                if ext not in settings.supported_formats:
+                if ext not in settings.all_supported_formats:
                     continue
+
+                # Apply per-type size limit
+                is_video = ext in settings.supported_video_formats
+                file_size_limit = (
+                    settings.max_video_file_size if is_video else settings.max_import_file_size
+                )
 
                 # Read content and enforce size limits
                 content = await upload_file.read()
-                if len(content) > settings.max_import_file_size:
-                    limit_mb = settings.max_import_file_size // (1024 * 1024)
+                if len(content) > file_size_limit:
+                    limit_mb = file_size_limit // (1024 * 1024)
                     raise HTTPException(
                         status_code=413,
                         detail=f"File '{filename}' exceeds size limit of {limit_mb} MB",
@@ -251,9 +257,9 @@ async def upload_files(
                         detail=f"Total upload size exceeds limit of {limit_mb} MB",
                     )
 
-                # Validate it's actually an image (not a renamed binary)
-                if not verify_image_mime(content):
-                    logger.warning(f"Skipping non-image file: {filename}")
+                # Validate it's actually an image/video (not a renamed binary)
+                if not verify_media_mime(content, ext):
+                    logger.warning(f"Skipping invalid file (bad magic bytes): {filename}")
                     skipped_invalid.append(filename)
                     continue
 
@@ -269,9 +275,9 @@ async def upload_files(
 
         if not all_relative_paths:
             shutil.rmtree(staging_dir, ignore_errors=True)
-            detail = "No supported image files found in upload"
+            detail = "No supported image or video files found in upload"
             if skipped_invalid:
-                detail += f"; {len(skipped_invalid)} file(s) rejected as non-image content"
+                detail += f"; {len(skipped_invalid)} file(s) rejected (invalid content)"
             raise HTTPException(status_code=400, detail=detail)
 
         # Build precomputed hashes dict from manifest entries
@@ -321,6 +327,12 @@ async def upload_files(
                         relative_path=f["relative_path"],
                         filename=parsed["filename"],
                         name=parsed.get("map_name"),
+                        media_type=(
+                            "video"
+                            if Path(f["relative_path"]).suffix.lower()
+                            in settings.supported_video_formats
+                            else "image"
+                        ),
                         detected_tags=[
                             {
                                 "category": t["category"],

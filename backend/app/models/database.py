@@ -46,6 +46,7 @@ class Image(Base):
     sub_variant = Column(String, nullable=True)  # Sub-variant path (e.g. "MA / No Grid")
     content_hash = Column(String(64), nullable=True, index=True)  # SHA-256 hex digest
     search_text = Column(Text, nullable=True)  # Pre-tokenized text for FTS5 (CamelCase-split)
+    media_type = Column(String, nullable=True, default="image")  # "image" or "video"
 
     # Storage keys (resolved via ImageStore at runtime)
     thumbnail_key = Column(String)  # Key into thumbnail store (e.g., "a1b2c3d4_400x400.jpg")

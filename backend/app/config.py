@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     ]
     max_image_size: int = 10 * 1024 * 1024  # 10MB
     supported_formats: list[str] = [".jpg", ".jpeg", ".png", ".webp"]
+    supported_video_formats: list[str] = [".mp4", ".webm"]
+
+    @property
+    def all_supported_formats(self) -> list[str]:
+        return self.supported_formats + self.supported_video_formats
 
     # Color Extraction & Search
     num_dominant_colors: int = 5
@@ -79,7 +84,8 @@ class Settings(BaseSettings):
 
     # Import limits
     staging_dir: Path = data_dir / "staging"
-    max_import_file_size: int = 50 * 1024 * 1024  # 50MB per file
+    max_import_file_size: int = 50 * 1024 * 1024  # 50MB per image file
+    max_video_file_size: int = 200 * 1024 * 1024  # 200MB per video file
     max_import_files: int = 200  # Max images per import
     max_import_total_size: int = 500 * 1024 * 1024  # 500MB total
 

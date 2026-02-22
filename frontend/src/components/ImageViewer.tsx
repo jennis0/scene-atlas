@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { ChevronLeft, ChevronRight, X, Search, Pencil, Edit, SlidersHorizontal } from 'lucide-react'
+import { ChevronLeft, ChevronRight, X, Search, Pencil, Edit, SlidersHorizontal, Play } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { imageApi, tagApi, searchApi, getImageUrl, getThumbnailUrl } from '@/lib/api'
 import { useGetTagColor } from '@/contexts/TagColorContext'
@@ -310,11 +310,22 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
           {/* Amber stripe — canvas half: transparent at left edge, full at join */}
           <div className="absolute top-0 inset-x-0 h-0.5 bg-gradient-to-r from-transparent to-primary/80 pointer-events-none z-10" />
 
-          <img
-            src={getImageUrl(img)}
-            alt={img.name}
-            className="max-h-full max-w-full object-contain shadow-2xl shadow-black/60"
-          />
+          {img.media_type === 'video' ? (
+            <video
+              key={img.id}
+              src={getImageUrl(img)}
+              controls
+              autoPlay
+              loop
+              className="max-h-full max-w-full object-contain shadow-2xl shadow-black/60"
+            />
+          ) : (
+            <img
+              src={getImageUrl(img)}
+              alt={img.name}
+              className="max-h-full max-w-full object-contain shadow-2xl shadow-black/60"
+            />
+          )}
           {onPrevious && (
             <button
               onClick={(e) => { e.stopPropagation(); onPrevious() }}
@@ -675,13 +686,18 @@ function VariantTile({
       }`}
       onClick={onClick}
     >
-      <div className="aspect-[4/3]">
+      <div className="aspect-[4/3] relative">
         <img
           src={getThumbnailUrl(variant)}
           alt={variant.name}
           className="h-full w-full object-cover"
           loading="lazy"
         />
+        {variant.media_type === 'video' && (
+          <div className="absolute top-1 left-1 flex items-center justify-center h-5 w-5 rounded-full bg-black/60 text-white/90 backdrop-blur-sm">
+            <Play className="h-2.5 w-2.5 fill-current" />
+          </div>
+        )}
       </div>
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent pt-8 pb-1.5 px-1.5 pointer-events-none">
         <p className="text-[10px] text-white/90 truncate leading-tight">{variant.name}</p>

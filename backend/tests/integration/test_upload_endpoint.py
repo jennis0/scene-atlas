@@ -145,7 +145,7 @@ class TestUploadEndpoint:
         )
         # Either 400 (no valid files) or the file is skipped
         assert resp.status_code == 400
-        assert "non-image content" in resp.json()["detail"]
+        assert "invalid content" in resp.json()["detail"]
 
     def test_zip_bomb_rejected(self, test_client, _setup_upload, tmp_path, monkeypatch):
         """A ZIP whose uncompressed size exceeds the limit is rejected with 413."""
