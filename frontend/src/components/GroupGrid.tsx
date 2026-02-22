@@ -16,7 +16,13 @@ const CARD_HEIGHT = 160 // image area only — metadata lives in gradient overla
 const GAP = 24
 const PADDING = 16
 
-export function GroupGrid({ groups, onGroupClick, onEditGroup, onDeleteGroup, onMergeGroup }: GroupGridProps) {
+export function GroupGrid({
+  groups,
+  onGroupClick,
+  onEditGroup,
+  onDeleteGroup,
+  onMergeGroup,
+}: GroupGridProps) {
   const parentRef = useRef<HTMLDivElement>(null)
   const [columnsPerRow, setColumnsPerRow] = useState(3)
 
@@ -24,10 +30,7 @@ export function GroupGrid({ groups, onGroupClick, onEditGroup, onDeleteGroup, on
     const updateColumns = () => {
       if (parentRef.current) {
         const availableWidth = parentRef.current.clientWidth - PADDING * 2
-        const columns = Math.max(
-          1,
-          Math.floor((availableWidth + GAP) / (CARD_WIDTH + GAP))
-        )
+        const columns = Math.max(1, Math.floor((availableWidth + GAP) / (CARD_WIDTH + GAP)))
         setColumnsPerRow(columns)
       }
     }

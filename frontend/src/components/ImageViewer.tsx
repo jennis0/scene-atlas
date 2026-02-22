@@ -1,12 +1,25 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { ChevronLeft, ChevronRight, X, Search, Pencil, Edit, SlidersHorizontal, Play } from 'lucide-react'
+import {
+  ChevronLeft,
+  ChevronRight,
+  X,
+  Search,
+  Pencil,
+  Edit,
+  SlidersHorizontal,
+  Play,
+} from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { imageApi, tagApi, getImageUrl, getThumbnailUrl } from '@/lib/api'
 import { useGetTagColor } from '@/contexts/TagColorContext'
 import { TagPicker } from '@/components/import/TagPicker'
 import { GridToggle } from '@/components/import/GridToggle'
-import { FilterMenuContent, FilterChipList, type FilterOptionGroup } from '@/components/FilterMenuContent'
+import {
+  FilterMenuContent,
+  FilterChipList,
+  type FilterOptionGroup,
+} from '@/components/FilterMenuContent'
 import type { ActiveFilter, ImageTypeFilter } from '@/components/import/fileFilter'
 import type { Image, TagData } from '@/types'
 import { parseTagVocabulary, type ParsedTagVocab } from '@/components/import/types'
@@ -27,7 +40,14 @@ const CANVAS_STYLE: React.CSSProperties = {
   backgroundSize: '24px 24px',
 }
 
-export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange, onEditGroup }: ImageViewerProps) {
+export function ImageViewer({
+  image,
+  onClose,
+  onNext,
+  onPrevious,
+  onImageChange,
+  onEditGroup,
+}: ImageViewerProps) {
   const getTagColor = useGetTagColor()
   const queryClient = useQueryClient()
 
@@ -68,7 +88,9 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
   const [editingSV, setEditingSV] = useState(false)
   const [subgroupDraft, setSubVariantDraft] = useState(image.subgroup ?? '')
   const [gridWidthDraft, setGridWidthDraft] = useState<string>(image.grid_width?.toString() ?? '')
-  const [gridHeightDraft, setGridHeightDraft] = useState<string>(image.grid_height?.toString() ?? '')
+  const [gridHeightDraft, setGridHeightDraft] = useState<string>(
+    image.grid_height?.toString() ?? '',
+  )
 
   // Reset UI state on image navigation (not on within-group variant click).
   // lastProcessedIdRef guards against React Strict Mode running this effect twice
@@ -93,6 +115,8 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
     setGridWidthDraft(src.grid_width?.toString() ?? '')
     setGridHeightDraft(src.grid_height?.toString() ?? '')
     if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0
+    // image.id is the correct dep — displayImage/image body is intentionally not tracked here
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [image.id])
 
   // Sync drafts when fresh image data arrives (e.g. after a patch succeeds)
@@ -101,14 +125,26 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
     if (!editingSV) setSubVariantDraft(displayImage?.subgroup ?? '')
     setGridWidthDraft(displayImage?.grid_width?.toString() ?? '')
     setGridHeightDraft(displayImage?.grid_height?.toString() ?? '')
-  }, [displayImage?.name, displayImage?.subgroup, displayImage?.grid_width, displayImage?.grid_height])
+    // editingName/editingSV intentionally omitted: adding them would overwrite in-progress edits
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    displayImage?.name,
+    displayImage?.subgroup,
+    displayImage?.grid_width,
+    displayImage?.grid_height,
+  ])
 
   // Keyboard shortcuts — skip when any input/select/textarea is focused
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (editingName || editingSV) return
       const target = e.target as HTMLElement
-      if (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA') return
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'SELECT' ||
+        target.tagName === 'TEXTAREA'
+      )
+        return
       if (e.key === 'Escape') onClose()
       if (e.key === 'ArrowRight') onNext?.()
       if (e.key === 'ArrowLeft') onPrevious?.()
@@ -133,7 +169,8 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
   })
 
   const patchMutation = useMutation({
-    mutationFn: (payload: Parameters<typeof imageApi.patch>[1]) => imageApi.patch(image.id, payload),
+    mutationFn: (payload: Parameters<typeof imageApi.patch>[1]) =>
+      imageApi.patch(image.id, payload),
     onSuccess: (updated) => {
       queryClient.setQueryData(['image', image.id], updated)
       onImageChange?.(updated)
@@ -156,26 +193,30 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
 
   // Build tag vocabulary from full category list (not facets) so new vocabulary
   // values with zero images are still selectable in the tag picker.
-  const tagVocab = useMemo((): ParsedTagVocab[] =>
-    tagCategories ? parseTagVocabulary(tagCategories) : [],
-    [tagCategories]
+  const tagVocab = useMemo(
+    (): ParsedTagVocab[] => (tagCategories ? parseTagVocabulary(tagCategories) : []),
+    [tagCategories],
   )
 
   // Convert Image tags → TagData for TagPicker deduplication
-  const existingTagData = useMemo((): TagData[] =>
-    (img.tags ?? []).map((t) => ({
-      category: t.category,
-      value: t.value,
-      confidence: t.confidence,
-      source: t.source,
-    })),
-    [img.tags]
+  const existingTagData = useMemo(
+    (): TagData[] =>
+      (img.tags ?? []).map((t) => ({
+        category: t.category,
+        value: t.value,
+        confidence: t.confidence,
+        source: t.source,
+      })),
+    [img.tags],
   )
 
   // Unique subgroups across the loaded variant group (datalist suggestions)
-  const existingSubgroups = useMemo(() =>
-    [...new Set((scenes ?? []).map((v) => v.subgroup).filter((sv): sv is string => sv != null))].sort(),
-    [scenes]
+  const existingSubgroups = useMemo(
+    () =>
+      [
+        ...new Set((scenes ?? []).map((v) => v.subgroup).filter((sv): sv is string => sv != null)),
+      ].sort(),
+    [scenes],
   )
 
   // Filter options derived from the loaded variant list
@@ -297,7 +338,10 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
 
   const handleNameKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') saveName()
-    if (e.key === 'Escape') { setNameDraft(img.name); setEditingName(false) }
+    if (e.key === 'Escape') {
+      setNameDraft(img.name)
+      setEditingName(false)
+    }
   }
 
   const saveSubgroup = () => {
@@ -308,7 +352,10 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
 
   const handleSVKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') saveSubgroup()
-    if (e.key === 'Escape') { setSubVariantDraft(img.subgroup ?? ''); setEditingSV(false) }
+    if (e.key === 'Escape') {
+      setSubVariantDraft(img.subgroup ?? '')
+      setEditingSV(false)
+    }
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -349,7 +396,10 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
           )}
           {onPrevious && (
             <button
-              onClick={(e) => { e.stopPropagation(); onPrevious() }}
+              onClick={(e) => {
+                e.stopPropagation()
+                onPrevious()
+              }}
               className="absolute left-3 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-black/50 hover:bg-black/75 text-white/80 hover:text-white flex items-center justify-center transition-all"
             >
               <ChevronLeft className="h-5 w-5" />
@@ -357,7 +407,10 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
           )}
           {onNext && (
             <button
-              onClick={(e) => { e.stopPropagation(); onNext() }}
+              onClick={(e) => {
+                e.stopPropagation()
+                onNext()
+              }}
               className="absolute right-3 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-black/50 hover:bg-black/75 text-white/80 hover:text-white flex items-center justify-center transition-all"
             >
               <ChevronRight className="h-5 w-5" />
@@ -393,198 +446,219 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
 
           {/* ── Image info (fixed — stays visible while scenes scroll) ── */}
           <div className="px-4 pb-2 shrink-0 border-b border-border/30">
+            {/* Name (inline-editable) */}
+            <div className="group/name flex items-start gap-2 mb-0.5">
+              {editingName ? (
+                <input
+                  autoFocus
+                  value={nameDraft}
+                  onChange={(e) => setNameDraft(e.target.value)}
+                  onBlur={saveName}
+                  onKeyDown={handleNameKeyDown}
+                  className="font-display text-xl font-semibold bg-transparent border-b border-primary/70 focus:outline-none text-foreground flex-1 min-w-0 pb-px"
+                />
+              ) : (
+                <h2
+                  className="font-display text-xl font-semibold text-foreground cursor-text flex-1 min-w-0 leading-tight"
+                  onClick={() => {
+                    setNameDraft(img.name)
+                    setEditingName(true)
+                  }}
+                  title="Click to rename"
+                >
+                  {img.name}
+                </h2>
+              )}
+              {!editingName && (
+                <button
+                  onClick={() => {
+                    setNameDraft(img.name)
+                    setEditingName(true)
+                  }}
+                  className="opacity-0 group-hover/name:opacity-60 hover:!opacity-100 transition-opacity mt-1 text-muted-foreground shrink-0"
+                  title="Rename"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
 
-              {/* Name (inline-editable) */}
-              <div className="group/name flex items-start gap-2 mb-0.5">
-                {editingName ? (
+            {/* Author */}
+            <p className="text-sm text-muted-foreground">by {img.author}</p>
+
+            {/* File metadata — filename, dimensions, size */}
+            <p
+              className="text-[10px] text-muted-foreground/40 font-mono truncate mt-1"
+              title={img.filename}
+            >
+              {filenameStem(img.filename)}
+            </p>
+            <p className="text-[10px] text-muted-foreground/40 mb-3">
+              {img.width}×{img.height} · {(img.file_size / 1024 / 1024).toFixed(1)} MB
+            </p>
+
+            {/* Sub-variant — inline editable property row */}
+            <div className="group/sv flex items-center gap-2 mb-2 min-w-0">
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 w-[72px] shrink-0">
+                Subgroup
+              </span>
+              {editingSV ? (
+                <>
                   <input
                     autoFocus
-                    value={nameDraft}
-                    onChange={(e) => setNameDraft(e.target.value)}
-                    onBlur={saveName}
-                    onKeyDown={handleNameKeyDown}
-                    className="font-display text-xl font-semibold bg-transparent border-b border-primary/70 focus:outline-none text-foreground flex-1 min-w-0 pb-px"
+                    value={subgroupDraft}
+                    onChange={(e) => setSubVariantDraft(e.target.value)}
+                    onBlur={saveSubgroup}
+                    onKeyDown={handleSVKeyDown}
+                    list="sv-suggestions"
+                    placeholder="e.g. MA / No Grid"
+                    className="flex-1 min-w-0 text-xs bg-transparent border-b border-primary/70 focus:outline-none text-foreground pb-px"
                   />
-                ) : (
-                  <h2
-                    className="font-display text-xl font-semibold text-foreground cursor-text flex-1 min-w-0 leading-tight"
-                    onClick={() => { setNameDraft(img.name); setEditingName(true) }}
-                    title="Click to rename"
+                  <datalist id="sv-suggestions">
+                    {existingSubgroups.map((sv) => (
+                      <option key={sv} value={sv} />
+                    ))}
+                  </datalist>
+                </>
+              ) : (
+                <>
+                  <span
+                    onClick={() => {
+                      setSubVariantDraft(img.subgroup ?? '')
+                      setEditingSV(true)
+                    }}
+                    className="flex-1 min-w-0 text-xs cursor-text truncate"
+                    title={img.subgroup ?? undefined}
                   >
-                    {img.name}
-                  </h2>
-                )}
-                {!editingName && (
-                  <button
-                    onClick={() => { setNameDraft(img.name); setEditingName(true) }}
-                    className="opacity-0 group-hover/name:opacity-60 hover:!opacity-100 transition-opacity mt-1 text-muted-foreground shrink-0"
-                    title="Rename"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-
-              {/* Author */}
-              <p className="text-sm text-muted-foreground">by {img.author}</p>
-
-              {/* File metadata — filename, dimensions, size */}
-              <p className="text-[10px] text-muted-foreground/40 font-mono truncate mt-1" title={img.filename}>
-                {filenameStem(img.filename)}
-              </p>
-              <p className="text-[10px] text-muted-foreground/40 mb-3">
-                {img.width}×{img.height} · {(img.file_size / 1024 / 1024).toFixed(1)} MB
-              </p>
-
-              {/* Sub-variant — inline editable property row */}
-              <div className="group/sv flex items-center gap-2 mb-2 min-w-0">
-                <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 w-[72px] shrink-0">
-                  Subgroup
-                </span>
-                {editingSV ? (
-                  <>
-                    <input
-                      autoFocus
-                      value={subgroupDraft}
-                      onChange={(e) => setSubVariantDraft(e.target.value)}
-                      onBlur={saveSubgroup}
-                      onKeyDown={handleSVKeyDown}
-                      list="sv-suggestions"
-                      placeholder="e.g. MA / No Grid"
-                      className="flex-1 min-w-0 text-xs bg-transparent border-b border-primary/70 focus:outline-none text-foreground pb-px"
-                    />
-                    <datalist id="sv-suggestions">
-                      {existingSubgroups.map((sv) => <option key={sv} value={sv} />)}
-                    </datalist>
-                  </>
-                ) : (
-                  <>
-                    <span
-                      onClick={() => { setSubVariantDraft(img.subgroup ?? ''); setEditingSV(true) }}
-                      className="flex-1 min-w-0 text-xs cursor-text truncate"
-                      title={img.subgroup ?? undefined}
-                    >
-                      {img.subgroup
-                        ? <span className="text-foreground/80">{img.subgroup}</span>
-                        : <span className="text-muted-foreground/30 italic">none</span>
-                      }
-                    </span>
-                    <button
-                      onClick={() => { setSubVariantDraft(img.subgroup ?? ''); setEditingSV(true) }}
-                      className="opacity-0 group-hover/sv:opacity-40 hover:!opacity-100 transition-opacity text-muted-foreground shrink-0"
-                      title="Edit subgroup"
-                    >
-                      <Pencil className="h-3 w-3" />
-                    </button>
-                    {img.subgroup && (
-                      <button
-                        onClick={() => patchMutation.mutate({ subgroup: null })}
-                        className="opacity-0 group-hover/sv:opacity-40 hover:!opacity-100 transition-opacity text-muted-foreground shrink-0"
-                        title="Clear subgroup"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
+                    {img.subgroup ? (
+                      <span className="text-foreground/80">{img.subgroup}</span>
+                    ) : (
+                      <span className="text-muted-foreground/30 italic">none</span>
                     )}
-                  </>
-                )}
-              </div>
+                  </span>
+                  <button
+                    onClick={() => {
+                      setSubVariantDraft(img.subgroup ?? '')
+                      setEditingSV(true)
+                    }}
+                    className="opacity-0 group-hover/sv:opacity-40 hover:!opacity-100 transition-opacity text-muted-foreground shrink-0"
+                    title="Edit subgroup"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                  {img.subgroup && (
+                    <button
+                      onClick={() => patchMutation.mutate({ subgroup: null })}
+                      className="opacity-0 group-hover/sv:opacity-40 hover:!opacity-100 transition-opacity text-muted-foreground shrink-0"
+                      title="Clear subgroup"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
 
-              {/* Image type toggle */}
+            {/* Image type toggle */}
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 w-[72px] shrink-0">
+                Type
+              </span>
+              <div className="inline-flex rounded border border-border p-px bg-secondary/50">
+                <button
+                  onClick={() => patchMutation.mutate({ image_type: 'battlemap' })}
+                  disabled={patchMutation.isPending}
+                  className={`px-2 py-0.5 text-[11px] rounded-sm transition-colors ${
+                    img.image_type !== 'scene'
+                      ? 'bg-primary/20 text-primary font-medium'
+                      : 'text-muted-foreground/60 hover:text-muted-foreground'
+                  }`}
+                >
+                  Map
+                </button>
+                <button
+                  onClick={() => patchMutation.mutate({ image_type: 'scene' })}
+                  disabled={patchMutation.isPending}
+                  className={`px-2 py-0.5 text-[11px] rounded-sm transition-colors ${
+                    img.image_type === 'scene'
+                      ? 'bg-primary/20 text-primary font-medium'
+                      : 'text-muted-foreground/60 hover:text-muted-foreground'
+                  }`}
+                >
+                  Scene
+                </button>
+              </div>
+            </div>
+
+            {/* Gridded toggle + optional grid size inputs (hidden for scenes) */}
+            {img.image_type !== 'scene' && (
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 w-[72px] shrink-0">
-                  Type
+                  Grid
                 </span>
-                <div className="inline-flex rounded border border-border p-px bg-secondary/50">
-                  <button
-                    onClick={() => patchMutation.mutate({ image_type: 'battlemap' })}
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  <GridToggle
+                    value={img.gridded ?? null}
+                    onChange={(v) => patchMutation.mutate({ gridded: v })}
                     disabled={patchMutation.isPending}
-                    className={`px-2 py-0.5 text-[11px] rounded-sm transition-colors ${
-                      img.image_type !== 'scene'
-                        ? 'bg-primary/20 text-primary font-medium'
-                        : 'text-muted-foreground/60 hover:text-muted-foreground'
-                    }`}
-                  >
-                    Map
-                  </button>
-                  <button
-                    onClick={() => patchMutation.mutate({ image_type: 'scene' })}
-                    disabled={patchMutation.isPending}
-                    className={`px-2 py-0.5 text-[11px] rounded-sm transition-colors ${
-                      img.image_type === 'scene'
-                        ? 'bg-primary/20 text-primary font-medium'
-                        : 'text-muted-foreground/60 hover:text-muted-foreground'
-                    }`}
-                  >
-                    Scene
-                  </button>
+                  />
+                  {img.gridded === true && (
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <input
+                        type="number"
+                        value={gridWidthDraft}
+                        onChange={(e) => setGridWidthDraft(e.target.value)}
+                        onBlur={() => {
+                          const w = parseInt(gridWidthDraft) || null
+                          if (w !== img.grid_width) patchMutation.mutate({ grid_width: w })
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                        }}
+                        placeholder="W"
+                        min={1}
+                        className="w-11 bg-secondary border border-border rounded px-1.5 py-0.5 text-foreground text-center placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 text-[11px] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                      <span className="text-[11px]">×</span>
+                      <input
+                        type="number"
+                        value={gridHeightDraft}
+                        onChange={(e) => setGridHeightDraft(e.target.value)}
+                        onBlur={() => {
+                          const h = parseInt(gridHeightDraft) || null
+                          if (h !== img.grid_height) patchMutation.mutate({ grid_height: h })
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                        }}
+                        placeholder="H"
+                        min={1}
+                        className="w-11 bg-secondary border border-border rounded px-1.5 py-0.5 text-foreground text-center placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 text-[11px] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
+            )}
 
-              {/* Gridded toggle + optional grid size inputs (hidden for scenes) */}
-              {img.image_type !== 'scene' && (
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 w-[72px] shrink-0">
-                    Grid
-                  </span>
-                  <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <GridToggle
-                      value={img.gridded ?? null}
-                      onChange={(v) => patchMutation.mutate({ gridded: v })}
-                      disabled={patchMutation.isPending}
-                    />
-                    {img.gridded === true && (
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <input
-                          type="number"
-                          value={gridWidthDraft}
-                          onChange={(e) => setGridWidthDraft(e.target.value)}
-                          onBlur={() => {
-                            const w = parseInt(gridWidthDraft) || null
-                            if (w !== img.grid_width) patchMutation.mutate({ grid_width: w })
-                          }}
-                          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                          placeholder="W"
-                          min={1}
-                          className="w-11 bg-secondary border border-border rounded px-1.5 py-0.5 text-foreground text-center placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 text-[11px] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
-                        <span className="text-[11px]">×</span>
-                        <input
-                          type="number"
-                          value={gridHeightDraft}
-                          onChange={(e) => setGridHeightDraft(e.target.value)}
-                          onBlur={() => {
-                            const h = parseInt(gridHeightDraft) || null
-                            if (h !== img.grid_height) patchMutation.mutate({ grid_height: h })
-                          }}
-                          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                          placeholder="H"
-                          min={1}
-                          className="w-11 bg-secondary border border-border rounded px-1.5 py-0.5 text-foreground text-center placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 text-[11px] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
-                      </div>
-                    )}
-                  </div>
+            {/* Divider + color swatches + tags */}
+            <div className="border-t border-border/30 pt-3 mt-1">
+              {img.colors && img.colors.length > 0 && (
+                <div className="flex gap-1 mb-2">
+                  {img.colors
+                    .sort((a, b) => a.color_order - b.color_order)
+                    .map((color) => (
+                      <div
+                        key={color.id}
+                        className="h-5 w-5 rounded-full ring-1 ring-white/15 shadow-sm"
+                        style={{ backgroundColor: color.color_hex }}
+                        title={`${color.color_hex} (${(color.percentage * 100).toFixed(1)}%)`}
+                      />
+                    ))}
                 </div>
               )}
 
-              {/* Divider + color swatches + tags */}
-              <div className="border-t border-border/30 pt-3 mt-1">
-                {img.colors && img.colors.length > 0 && (
-                  <div className="flex gap-1 mb-2">
-                    {img.colors
-                      .sort((a, b) => a.color_order - b.color_order)
-                      .map((color) => (
-                        <div
-                          key={color.id}
-                          className="h-5 w-5 rounded-full ring-1 ring-white/15 shadow-sm"
-                          style={{ backgroundColor: color.color_hex }}
-                          title={`${color.color_hex} (${(color.percentage * 100).toFixed(1)}%)`}
-                        />
-                      ))}
-                  </div>
-                )}
-
-                <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap gap-1.5">
                 {img.tags?.map((tag) => {
                   const colors = getTagColor(tag.category)
                   return (
@@ -609,10 +683,12 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
                 <TagPicker
                   vocab={tagVocab}
                   existingTags={existingTagData}
-                  onAdd={(tag) => addTagMutation.mutate({ category: tag.category, value: tag.value })}
+                  onAdd={(tag) =>
+                    addTagMutation.mutate({ category: tag.category, value: tag.value })
+                  }
                 />
-                </div>
               </div>
+            </div>
           </div>
 
           {/* ── Variants section (only this scrolls) ── */}
@@ -620,135 +696,142 @@ export function ImageViewer({ image, onClose, onNext, onPrevious, onImageChange,
             <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto">
               {/* Sticky header: label + search + filter button */}
               <div className="sticky top-0 z-10 bg-card border-b border-border/30">
-                  <div className="px-4 py-2 flex items-center gap-2">
-                    <span className="text-sm font-semibold shrink-0">
-                      Scenes
-                      <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                        ({filteredScenes.length}
-                        {(sceneSearch || sceneTypeFilter !== 'all' || hasActiveFilters) && scenes
-                          ? `/${scenes.length}`
-                          : ''})
-                      </span>
+                <div className="px-4 py-2 flex items-center gap-2">
+                  <span className="text-sm font-semibold shrink-0">
+                    Scenes
+                    <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                      ({filteredScenes.length}
+                      {(sceneSearch || sceneTypeFilter !== 'all' || hasActiveFilters) && scenes
+                        ? `/${scenes.length}`
+                        : ''}
+                      )
                     </span>
+                  </span>
 
-                    {/* Search */}
-                    <div className="relative flex-1">
-                      <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
-                      <input
-                        value={sceneSearch}
-                        onChange={(e) => setVariantSearch(e.target.value)}
-                        placeholder="Filter…"
-                        className={`w-full h-6 pl-6 text-xs bg-secondary border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary/40 text-foreground placeholder:text-muted-foreground ${
-                          sceneSearch || sceneTypeFilter !== 'all' ? 'pr-6' : 'pr-2'
-                        }`}
-                      />
-                      {(sceneSearch || sceneTypeFilter !== 'all') && (
-                        <button
-                          onClick={() => { setVariantSearch(''); setSceneTypeFilter('all') }}
-                          className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Type toggle — only when group has mixed types */}
-                    {hasMixedSceneTypes && (
-                      <div className="inline-flex rounded border border-border overflow-hidden shrink-0">
-                        {([['All', 'all'], ['Maps', 'battlemap'], ['Scenes', 'scene']] as const).map(([label, val]) => (
-                          <button
-                            key={val}
-                            onClick={() => setSceneTypeFilter(val)}
-                            className={`px-1.5 py-0.5 text-[10px] transition-colors ${
-                              sceneTypeFilter === val
-                                ? 'bg-secondary text-foreground font-medium'
-                                : 'text-muted-foreground/60 hover:text-muted-foreground hover:bg-secondary/50'
-                            }`}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
+                  {/* Search */}
+                  <div className="relative flex-1">
+                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
+                    <input
+                      value={sceneSearch}
+                      onChange={(e) => setVariantSearch(e.target.value)}
+                      placeholder="Filter…"
+                      className={`w-full h-6 pl-6 text-xs bg-secondary border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary/40 text-foreground placeholder:text-muted-foreground ${
+                        sceneSearch || sceneTypeFilter !== 'all' ? 'pr-6' : 'pr-2'
+                      }`}
+                    />
+                    {(sceneSearch || sceneTypeFilter !== 'all') && (
+                      <button
+                        onClick={() => {
+                          setVariantSearch('')
+                          setSceneTypeFilter('all')
+                        }}
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
                     )}
-
-                    {/* Filter button — always present, greyed when nothing to filter on */}
-                    <Popover
-                      open={hasFilterableData ? filterPopoverOpen : false}
-                      onOpenChange={hasFilterableData ? setFilterPopoverOpen : undefined}
-                    >
-                      <PopoverTrigger asChild>
-                        <button
-                          disabled={!hasFilterableData}
-                          className={`relative h-6 w-6 rounded flex items-center justify-center shrink-0 transition-colors ${
-                            hasActiveFilters
-                              ? 'bg-primary/20 text-primary border border-primary/40'
-                              : hasFilterableData
-                                ? 'text-muted-foreground hover:text-foreground hover:bg-secondary border border-transparent'
-                                : 'text-muted-foreground/25 border border-transparent cursor-not-allowed'
-                          }`}
-                          title={hasFilterableData ? 'Filter scenes' : 'No filterable dimensions'}
-                        >
-                          <SlidersHorizontal className="h-3 w-3" />
-                          {hasActiveFilters && (
-                            <span className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-primary text-[9px] font-bold text-primary-foreground flex items-center justify-center">
-                              {sceneFilters.length}
-                            </span>
-                          )}
-                        </button>
-                      </PopoverTrigger>
-                      {hasFilterableData && (
-                        <PopoverContent
-                          align="end"
-                          side="left"
-                          className="w-[320px] p-0 h-[360px] flex flex-col"
-                        >
-                          <FilterMenuContent
-                            groups={sceneFilterGroups}
-                            activeFilters={sceneFilters}
-                            onFiltersChange={setVariantFilters}
-                          />
-                        </PopoverContent>
-                      )}
-                    </Popover>
                   </div>
 
-                  {/* Active filter chips */}
-                  {hasActiveFilters && (
-                    <div className="px-4 pb-2">
-                      <FilterChipList
-                        filters={sceneFilters}
-                        onFiltersChange={setVariantFilters}
-                      />
+                  {/* Type toggle — only when group has mixed types */}
+                  {hasMixedSceneTypes && (
+                    <div className="inline-flex rounded border border-border overflow-hidden shrink-0">
+                      {(
+                        [
+                          ['All', 'all'],
+                          ['Maps', 'battlemap'],
+                          ['Scenes', 'scene'],
+                        ] as const
+                      ).map(([label, val]) => (
+                        <button
+                          key={val}
+                          onClick={() => setSceneTypeFilter(val)}
+                          className={`px-1.5 py-0.5 text-[10px] transition-colors ${
+                            sceneTypeFilter === val
+                              ? 'bg-secondary text-foreground font-medium'
+                              : 'text-muted-foreground/60 hover:text-muted-foreground hover:bg-secondary/50'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
                     </div>
                   )}
+
+                  {/* Filter button — always present, greyed when nothing to filter on */}
+                  <Popover
+                    open={hasFilterableData ? filterPopoverOpen : false}
+                    onOpenChange={hasFilterableData ? setFilterPopoverOpen : undefined}
+                  >
+                    <PopoverTrigger asChild>
+                      <button
+                        disabled={!hasFilterableData}
+                        className={`relative h-6 w-6 rounded flex items-center justify-center shrink-0 transition-colors ${
+                          hasActiveFilters
+                            ? 'bg-primary/20 text-primary border border-primary/40'
+                            : hasFilterableData
+                              ? 'text-muted-foreground hover:text-foreground hover:bg-secondary border border-transparent'
+                              : 'text-muted-foreground/25 border border-transparent cursor-not-allowed'
+                        }`}
+                        title={hasFilterableData ? 'Filter scenes' : 'No filterable dimensions'}
+                      >
+                        <SlidersHorizontal className="h-3 w-3" />
+                        {hasActiveFilters && (
+                          <span className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-primary text-[9px] font-bold text-primary-foreground flex items-center justify-center">
+                            {sceneFilters.length}
+                          </span>
+                        )}
+                      </button>
+                    </PopoverTrigger>
+                    {hasFilterableData && (
+                      <PopoverContent
+                        align="end"
+                        side="left"
+                        className="w-[320px] p-0 h-[360px] flex flex-col"
+                      >
+                        <FilterMenuContent
+                          groups={sceneFilterGroups}
+                          activeFilters={sceneFilters}
+                          onFiltersChange={setVariantFilters}
+                        />
+                      </PopoverContent>
+                    )}
+                  </Popover>
                 </div>
 
-                {/* Variant grid */}
-                <div className="px-4 pt-3 pb-4">
-                  {filteredScenes.length === 0 ? (
-                    <p className="text-xs text-muted-foreground text-center py-6">No scenes match</p>
-                  ) : (
-                    sceneSections.map((section) => (
-                      <div key={section.label} className="mb-3 last:mb-0">
-                        {sceneSections.length > 1 && (
-                          <p className="text-[11px] font-medium text-muted-foreground mb-2 uppercase tracking-wider">
-                            {section.label}
-                          </p>
-                        )}
-                        <div className="grid grid-cols-2 gap-2">
-                          {section.images.map((variant) => (
-                            <SceneTile
-                              key={variant.id}
-                              variant={variant}
-                              isActive={variant.id === img.id}
-                              onClick={() => handleSceneClick(variant)}
-                            />
-                          ))}
-                        </div>
+                {/* Active filter chips */}
+                {hasActiveFilters && (
+                  <div className="px-4 pb-2">
+                    <FilterChipList filters={sceneFilters} onFiltersChange={setVariantFilters} />
+                  </div>
+                )}
+              </div>
+
+              {/* Variant grid */}
+              <div className="px-4 pt-3 pb-4">
+                {filteredScenes.length === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center py-6">No scenes match</p>
+                ) : (
+                  sceneSections.map((section) => (
+                    <div key={section.label} className="mb-3 last:mb-0">
+                      {sceneSections.length > 1 && (
+                        <p className="text-[11px] font-medium text-muted-foreground mb-2 uppercase tracking-wider">
+                          {section.label}
+                        </p>
+                      )}
+                      <div className="grid grid-cols-2 gap-2">
+                        {section.images.map((variant) => (
+                          <SceneTile
+                            key={variant.id}
+                            variant={variant}
+                            isActive={variant.id === img.id}
+                            onClick={() => handleSceneClick(variant)}
+                          />
+                        ))}
                       </div>
-                    ))
-                  )}
-                </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -832,7 +915,10 @@ function partitionBySubgroup(scenes: Image[]): SceneSection[] {
 
   for (const v of scenes) {
     const key = v.subgroup || 'Other'
-    if (!groups.has(key)) { groups.set(key, []); order.push(key) }
+    if (!groups.has(key)) {
+      groups.set(key, [])
+      order.push(key)
+    }
     groups.get(key)!.push(v)
   }
 

@@ -6,10 +6,7 @@ interface UseImageGroupingOptions {
   scores?: Record<number, number>
 }
 
-export function useImageGrouping({
-  images,
-  scores,
-}: UseImageGroupingOptions): ImageGroup[] {
+export function useImageGrouping({ images, scores }: UseImageGroupingOptions): ImageGroup[] {
   return useMemo(() => {
     // Bucket images by group
     const grouped = new Map<number, Image[]>()
@@ -64,7 +61,7 @@ export function useImageGrouping({
 function buildGroup(
   groupId: number,
   groupImages: Image[],
-  scores?: Record<number, number>
+  scores?: Record<number, number>,
 ): ImageGroup {
   // Sort by score descending if available
   const sorted = [...groupImages]
@@ -76,9 +73,7 @@ function buildGroup(
   const remaining = sorted.slice(1)
   const mosaicImages = remaining.slice(0, 5)
 
-  const bestScore = scores
-    ? Math.max(...groupImages.map((img) => scores[img.id] ?? 0))
-    : null
+  const bestScore = scores ? Math.max(...groupImages.map((img) => scores[img.id] ?? 0)) : null
 
   // Aggregate tags (deduplicated by category:value)
   const tagSet = new Set<string>()

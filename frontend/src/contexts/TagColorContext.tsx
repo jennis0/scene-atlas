@@ -26,14 +26,11 @@ export function TagColorProvider({ children }: { children: React.ReactNode }) {
     return map
   }, [categories])
 
-  return (
-    <TagColorContext.Provider value={colorMap}>
-      {children}
-    </TagColorContext.Provider>
-  )
+  return <TagColorContext.Provider value={colorMap}>{children}</TagColorContext.Provider>
 }
 
 /** Get the raw map: category name → Tailwind color name */
+// eslint-disable-next-line react-refresh/only-export-components -- context hooks intentionally co-exported with provider
 export function useCategoryColorMap(): CategoryColorMap {
   return useContext(TagColorContext)
 }
@@ -42,12 +39,10 @@ export function useCategoryColorMap(): CategoryColorMap {
  * Returns a function: (categoryName: string) => TagColor
  * Drop-in replacement for the old getTagColor(categoryName) pattern.
  */
+// eslint-disable-next-line react-refresh/only-export-components -- context hooks intentionally co-exported with provider
 export function useGetTagColor(): (categoryName: string) => TagColor {
   const map = useContext(TagColorContext)
-  return useCallback(
-    (categoryName: string) => getTagColor(map.get(categoryName) ?? null),
-    [map],
-  )
+  return useCallback((categoryName: string) => getTagColor(map.get(categoryName) ?? null), [map])
 }
 
 /**
@@ -55,6 +50,7 @@ export function useGetTagColor(): (categoryName: string) => TagColor {
  * Use this in components that already have categories loaded
  * (e.g. FilterMenuContent receives them as props).
  */
+// eslint-disable-next-line react-refresh/only-export-components -- utility function intentionally co-exported with provider
 export function buildColorLookup(categories: TagCategory[]): (categoryName: string) => TagColor {
   const map = new Map<string, string>()
   for (const cat of categories) {

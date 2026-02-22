@@ -1,8 +1,20 @@
 import { useState, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Search, Sparkles, X, Upload, LayoutGrid, Layers, Pencil, AlignLeft, Tag, Loader2 } from 'lucide-react'
+import {
+  Search,
+  Sparkles,
+  X,
+  Upload,
+  LayoutGrid,
+  Layers,
+  Pencil,
+  AlignLeft,
+  Tag,
+  Loader2,
+} from 'lucide-react'
 import { searchApi, groupApi } from '@/lib/api'
+import { RELEVANCE_MIN, RELEVANCE_MAX, RELEVANCE_STEP, relevanceToPercent } from '@/lib/constants'
 import { ImageGrid } from '@/components/ImageGrid'
 import { GroupGrid } from '@/components/GroupGrid'
 import { ImageViewer } from '@/components/ImageViewer'
@@ -56,7 +68,11 @@ function parseFiltersFromUrl(params: URLSearchParams): ActiveFilter[] {
   return result
 }
 
-function buildUrlParams(query: string, activeFilters: ActiveFilter[], imageType: ImageTypeFilter = 'all'): URLSearchParams {
+function buildUrlParams(
+  query: string,
+  activeFilters: ActiveFilter[],
+  imageType: ImageTypeFilter = 'all',
+): URLSearchParams {
   const params = new URLSearchParams()
   if (query) params.set('q', query)
   if (imageType !== 'all') params.set('image_type', imageType)
@@ -81,7 +97,7 @@ export function Gallery() {
   const [editGroupId, setEditGroupId] = useState<number | null>(null)
   const [showMassEdit, setShowMassEdit] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>(
-    () => (localStorage.getItem('gallery-view-mode') as ViewMode) || 'individual'
+    () => (localStorage.getItem('gallery-view-mode') as ViewMode) || 'individual',
   )
 
   // Group action menu state
@@ -100,7 +116,7 @@ export function Gallery() {
   const [submittedQuery, setSubmittedQuery] = useState(() => urlParams.get('q') ?? '')
   const [filters, setFilters] = useState<ActiveFilter[]>(() => parseFiltersFromUrl(urlParams))
   const [imageType, setImageType] = useState<ImageTypeFilter>(
-    () => (urlParams.get('image_type') as ImageTypeFilter) || 'all'
+    () => (urlParams.get('image_type') as ImageTypeFilter) || 'all',
   )
 
   // Relevance threshold — slider value 0–0.85, applied client-side against returned scores
@@ -135,8 +151,12 @@ export function Gallery() {
 
     const includeTags = filters.filter((f) => f.type === 'tag' && !f.exclude).map((f) => f.value)
     const excludeTags = filters.filter((f) => f.type === 'tag' && f.exclude).map((f) => f.value)
-    const includeAuthors = filters.filter((f) => f.type === 'author' && !f.exclude).map((f) => f.value)
-    const excludeAuthors = filters.filter((f) => f.type === 'author' && f.exclude).map((f) => f.value)
+    const includeAuthors = filters
+      .filter((f) => f.type === 'author' && !f.exclude)
+      .map((f) => f.value)
+    const excludeAuthors = filters
+      .filter((f) => f.type === 'author' && f.exclude)
+      .map((f) => f.value)
     const griddedFilter = filters.find((f) => f.type === 'gridded')
 
     if (includeTags.length) params.tags = includeTags
@@ -145,9 +165,11 @@ export function Gallery() {
     if (excludeAuthors.length) params.exclude_authors = excludeAuthors
     if (griddedFilter) {
       params.gridded =
-        griddedFilter.value === 'gridded' ? true
-        : griddedFilter.value === 'gridless' ? false
-        : undefined
+        griddedFilter.value === 'gridded'
+          ? true
+          : griddedFilter.value === 'gridless'
+            ? false
+            : undefined
     }
 
     const colorFilters = filters.filter((f) => f.type === 'color').map((f) => f.value)
@@ -161,8 +183,11 @@ export function Gallery() {
     return params
   }, [submittedQuery, filters, imageType])
 
-  const hasActiveSearch = !!searchParams.query || filters.length > 0 ||
-    (searchParams.tags?.length ?? 0) > 0 || (searchParams.authors?.length ?? 0) > 0
+  const hasActiveSearch =
+    !!searchParams.query ||
+    filters.length > 0 ||
+    (searchParams.tags?.length ?? 0) > 0 ||
+    (searchParams.authors?.length ?? 0) > 0
 
   // Search query — always enabled, returns full library when no params
   const { data: searchResults, isLoading: isSearching } = useQuery({
@@ -255,11 +280,11 @@ export function Gallery() {
       <header
         className="border-b border-border/70 backdrop-blur-md"
         style={{
-          background: 'linear-gradient(180deg, hsl(38 60% 58% / 0.08) 0%, hsl(222 22% 12% / 0.97) 65%)',
+          background:
+            'linear-gradient(180deg, hsl(38 60% 58% / 0.08) 0%, hsl(222 22% 12% / 0.97) 65%)',
         }}
       >
         <div className="container mx-auto px-4">
-
           {/* Title row */}
           <div className="pt-8 pb-4 flex items-start justify-between">
             <div>
@@ -280,7 +305,10 @@ export function Gallery() {
               </Button>
               <Button
                 variant="outline"
-                onClick={() => { setImportDialogKey((k) => k + 1); setImportDialogJobId('new') }}
+                onClick={() => {
+                  setImportDialogKey((k) => k + 1)
+                  setImportDialogJobId('new')
+                }}
                 title="Import images"
                 className="gap-2"
               >
@@ -362,7 +390,10 @@ export function Gallery() {
             {/* Segmented view toggle */}
             <div className="flex rounded-md overflow-hidden border border-border shrink-0">
               <button
-                onClick={() => { setViewMode('individual'); localStorage.setItem('gallery-view-mode', 'individual') }}
+                onClick={() => {
+                  setViewMode('individual')
+                  localStorage.setItem('gallery-view-mode', 'individual')
+                }}
                 title="Individual images"
                 className={`h-10 w-10 flex items-center justify-center border-r border-border transition-colors
                   ${viewMode === 'individual' ? 'bg-secondary text-foreground' : 'text-foreground/50 hover:text-foreground hover:bg-secondary/50'}`}
@@ -370,7 +401,10 @@ export function Gallery() {
                 <LayoutGrid className="h-4 w-4" />
               </button>
               <button
-                onClick={() => { setViewMode('grouped'); localStorage.setItem('gallery-view-mode', 'grouped') }}
+                onClick={() => {
+                  setViewMode('grouped')
+                  localStorage.setItem('gallery-view-mode', 'grouped')
+                }}
                 title="Groups"
                 className={`h-10 w-10 flex items-center justify-center transition-colors
                   ${viewMode === 'grouped' ? 'bg-secondary text-foreground' : 'text-foreground/50 hover:text-foreground hover:bg-secondary/50'}`}
@@ -401,16 +435,16 @@ export function Gallery() {
                   <span className="text-xs text-muted-foreground">Relevance</span>
                   <input
                     type="range"
-                    min="0.1"
-                    max="0.5"
-                    step="0.01"
+                    min={RELEVANCE_MIN}
+                    max={RELEVANCE_MAX}
+                    step={RELEVANCE_STEP}
                     value={minScore}
                     onChange={(e) => setMinScore(parseFloat(e.target.value))}
                     className="w-24 cursor-pointer accent-primary"
                     style={{ height: '4px' }}
                   />
                   <span className="text-xs text-muted-foreground tabular-nums w-8 text-right">
-                    {minScore > 0 ? `${Math.round((minScore / 0.4 - 0.25) * 100)}%` : 'All'}
+                    {minScore > 0 ? `${relevanceToPercent(minScore)}%` : 'All'}
                   </span>
                 </div>
               )}
@@ -420,24 +454,34 @@ export function Gallery() {
                     showRelevanceSlider ? (
                       <>
                         <span
-                          style={{ display: 'inline-block', minWidth: `${String(totalBeforeFilter).length}ch`, textAlign: 'right' }}
-                        >{filteredCount}</span>
+                          style={{
+                            display: 'inline-block',
+                            minWidth: `${String(totalBeforeFilter).length}ch`,
+                            textAlign: 'right',
+                          }}
+                        >
+                          {filteredCount}
+                        </span>
                         {` / ${totalBeforeFilter} result${totalBeforeFilter !== 1 ? 's' : ''}${searchModeSuffix}`}
                       </>
                     ) : (
                       `${filteredCount} result${filteredCount !== 1 ? 's' : ''}${searchModeSuffix}`
                     )
-                  ) : `${facets?.total_images ?? 0} scenes`}
+                  ) : (
+                    `${facets?.total_images ?? 0} scenes`
+                  )}
                 </span>
               )}
             </div>
           </div>
-
         </div>
       </header>
 
       {/* Main content */}
-      <main className="flex-1 overflow-hidden" style={{ boxShadow: 'inset 0 8px 24px rgba(0,0,0,0.4)' }}>
+      <main
+        className="flex-1 overflow-hidden"
+        style={{ boxShadow: 'inset 0 8px 24px rgba(0,0,0,0.4)' }}
+      >
         {isSearching ? (
           <div className="flex h-full items-center justify-center">
             <p className="text-muted-foreground">Searching…</p>
@@ -493,9 +537,12 @@ export function Gallery() {
           onNext={selectedImage.index < displayImages.length - 1 ? handleNext : undefined}
           onPrevious={selectedImage.index > 0 ? handlePrevious : undefined}
           onImageChange={(newImage) => {
-            setSelectedImage((prev) => prev ? { ...prev, image: newImage } : null)
+            setSelectedImage((prev) => (prev ? { ...prev, image: newImage } : null))
           }}
-          onEditGroup={(id) => { setSelectedImage(null); setEditGroupId(id) }}
+          onEditGroup={(id) => {
+            setSelectedImage(null)
+            setEditGroupId(id)
+          }}
         />
       )}
 
@@ -525,7 +572,7 @@ export function Gallery() {
       <ImportDialog
         key={importDialogKey}
         open={importDialogJobId !== null}
-        reconnectJobId={importDialogJobId === 'new' ? undefined : importDialogJobId ?? undefined}
+        reconnectJobId={importDialogJobId === 'new' ? undefined : (importDialogJobId ?? undefined)}
         onOpenChange={(open) => {
           if (!open) {
             setImportDialogJobId(null)
@@ -534,38 +581,55 @@ export function Gallery() {
         }}
       />
 
-      <TagManagementDialog
-        open={showTagManagement}
-        onClose={() => setShowTagManagement(false)}
-      />
+      <TagManagementDialog open={showTagManagement} onClose={() => setShowTagManagement(false)} />
 
       {/* Import tray — right-side overlay showing active imports */}
       <ImportTray
         jobs={activeImports.jobs}
         hasActive={activeImports.hasActive}
-        onOpenJob={(jobId) => { setImportDialogKey((k) => k + 1); setImportDialogJobId(jobId) }}
+        onOpenJob={(jobId) => {
+          setImportDialogKey((k) => k + 1)
+          setImportDialogJobId(jobId)
+        }}
         onDismissJob={activeImports.dismissJob}
         onCancelJob={activeImports.cancelJob}
         onRefresh={activeImports.refresh}
       />
 
       {/* Delete group confirmation */}
-      <Dialog open={deleteConfirmGroup !== null} onOpenChange={(v) => !v && !deleting && setDeleteConfirmGroup(null)}>
-        <DialogContent className="max-w-sm" onClose={() => !deleting && setDeleteConfirmGroup(null)}>
+      <Dialog
+        open={deleteConfirmGroup !== null}
+        onOpenChange={(v) => !v && !deleting && setDeleteConfirmGroup(null)}
+      >
+        <DialogContent
+          className="max-w-sm"
+          onClose={() => !deleting && setDeleteConfirmGroup(null)}
+        >
           <DialogHeader>
             <DialogTitle>Delete Group</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Are you sure you want to delete <strong>{deleteConfirmGroup?.baseName}</strong> and
-            all {deleteConfirmGroup?.totalScenes} image{deleteConfirmGroup?.totalScenes !== 1 ? 's' : ''}?
-            This cannot be undone.
+            Are you sure you want to delete <strong>{deleteConfirmGroup?.baseName}</strong> and all{' '}
+            {deleteConfirmGroup?.totalScenes} image
+            {deleteConfirmGroup?.totalScenes !== 1 ? 's' : ''}? This cannot be undone.
           </p>
           <div className="flex justify-end gap-2 mt-2">
-            <Button variant="outline" onClick={() => setDeleteConfirmGroup(null)} disabled={deleting}>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteConfirmGroup(null)}
+              disabled={deleting}
+            >
               Cancel
             </Button>
             <Button variant="destructive" onClick={handleGroupDeleteConfirm} disabled={deleting}>
-              {deleting ? <><Loader2 className="h-4 w-4 animate-spin mr-1" />Deleting...</> : 'Delete'}
+              {deleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
             </Button>
           </div>
         </DialogContent>

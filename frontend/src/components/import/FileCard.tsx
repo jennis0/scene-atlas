@@ -61,7 +61,10 @@ export function FileCard({
           />
         </div>
         <div className="flex-1 min-w-0">
-          <span className="font-display text-sm font-semibold text-foreground/60 truncate block" title={file.relative_path}>
+          <span
+            className="font-display text-sm font-semibold text-foreground/60 truncate block"
+            title={file.relative_path}
+          >
             {file.name || file.filename}
           </span>
           {file.tags.length > 0 && (
@@ -69,7 +72,10 @@ export function FileCard({
               {file.tags.slice(0, 6).map((tag, i) => {
                 const color = getTagColor(tag.category)
                 return (
-                  <span key={i} className={`inline-flex items-center rounded-full border px-1.5 py-px text-[11px] ${color.bg} ${color.text} ${color.border} opacity-60`}>
+                  <span
+                    key={i}
+                    className={`inline-flex items-center rounded-full border px-1.5 py-px text-[11px] ${color.bg} ${color.text} ${color.border} opacity-60`}
+                  >
                     <span className="capitalize">{tag.value}</span>
                   </span>
                 )
@@ -98,7 +104,10 @@ export function FileCard({
           <X className="h-4 w-4 text-muted-foreground/30" />
         </div>
         <div className="flex-1 min-w-0">
-          <span className="font-display text-sm text-muted-foreground/40 line-through truncate block" title={file.relative_path}>
+          <span
+            className="font-display text-sm text-muted-foreground/40 line-through truncate block"
+            title={file.relative_path}
+          >
             {file.name || file.filename}
           </span>
         </div>
@@ -124,16 +133,16 @@ export function FileCard({
           selected
             ? 'border-primary/50 bg-primary/5'
             : 'border-border/40 bg-card hover:border-border/70'
-        } ${
-          file.duplicate_action === 'skip' ? 'opacity-40' : ''
-        }`}
+        } ${file.duplicate_action === 'skip' ? 'opacity-40' : ''}`}
         onClick={handleCardClick}
       >
         {/* Thumbnail — button so closest('button') excludes from selection toggle */}
         <button
           type="button"
           className="h-20 w-20 rounded overflow-hidden bg-secondary shrink-0 ring-1 ring-border/30 cursor-zoom-in self-center"
-          onClick={() => { if (previewUrl) setLightboxOpen(true) }}
+          onClick={() => {
+            if (previewUrl) setLightboxOpen(true)
+          }}
           tabIndex={-1}
         >
           {useVideoThumb ? (
@@ -154,7 +163,8 @@ export function FileCard({
                 el.style.display = 'none'
                 el.parentElement!.classList.add('flex', 'items-center', 'justify-center')
                 const placeholder = document.createElement('span')
-                placeholder.className = 'text-[10px] text-muted-foreground/40 font-medium text-center px-1'
+                placeholder.className =
+                  'text-[10px] text-muted-foreground/40 font-medium text-center px-1'
                 placeholder.textContent = 'No preview'
                 el.parentElement!.appendChild(placeholder)
               }}
@@ -170,9 +180,15 @@ export function FileCard({
               <input
                 value={nameDraft}
                 onChange={(e) => setNameDraft(e.target.value)}
-                onBlur={() => { onUpdate({ name: nameDraft }); setIsEditingName(false) }}
+                onBlur={() => {
+                  onUpdate({ name: nameDraft })
+                  setIsEditingName(false)
+                }}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') { onUpdate({ name: nameDraft }); setIsEditingName(false) }
+                  if (e.key === 'Enter') {
+                    onUpdate({ name: nameDraft })
+                    setIsEditingName(false)
+                  }
                   if (e.key === 'Escape') setIsEditingName(false)
                 }}
                 className="font-display text-sm font-semibold text-foreground bg-transparent border-b border-primary/70 focus:outline-none flex-1 min-w-0 pb-px"
@@ -183,7 +199,12 @@ export function FileCard({
               <div
                 data-no-select=""
                 className="group/name flex items-center gap-1.5 flex-1 min-w-0 cursor-text"
-                onClick={() => { if (!disabled) { setNameDraft(file.name); setIsEditingName(true) } }}
+                onClick={() => {
+                  if (!disabled) {
+                    setNameDraft(file.name)
+                    setIsEditingName(true)
+                  }
+                }}
                 title={file.relative_path}
               >
                 <span className="font-display text-sm font-semibold text-foreground truncate leading-snug">
@@ -210,7 +231,8 @@ export function FileCard({
             <div className="flex items-center gap-2">
               <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-400">
                 <Copy className="h-3 w-3" />
-                Duplicate of <span className="font-medium">{file.duplicate_of.name || 'existing image'}</span>
+                Duplicate of{' '}
+                <span className="font-medium">{file.duplicate_of.name || 'existing image'}</span>
                 {file.duplicate_of.author && (
                   <span className="text-amber-400/60">by {file.duplicate_of.author}</span>
                 )}
@@ -218,9 +240,11 @@ export function FileCard({
               {!disabled && (
                 <button
                   data-no-select=""
-                  onClick={() => onUpdate({
-                    duplicate_action: file.duplicate_action === 'skip' ? 'import' : 'skip',
-                  })}
+                  onClick={() =>
+                    onUpdate({
+                      duplicate_action: file.duplicate_action === 'skip' ? 'import' : 'skip',
+                    })
+                  }
                   className={`text-[11px] rounded border px-1.5 py-0.5 transition-colors ${
                     file.duplicate_action === 'skip'
                       ? 'border-amber-500/30 text-amber-400/80 hover:bg-amber-500/10'
@@ -328,7 +352,10 @@ export function FileCard({
                       <button
                         className="ml-0.5 opacity-0 group-hover/sv:opacity-60 hover:!opacity-100 transition-opacity"
                         title="Rename subgroup"
-                        onClick={() => { setSubgroupDraft(file.subgroup!); setIsEditingSubgroup(true) }}
+                        onClick={() => {
+                          setSubgroupDraft(file.subgroup!)
+                          setIsEditingSubgroup(true)
+                        }}
                       >
                         <Pencil className="h-2.5 w-2.5" />
                       </button>

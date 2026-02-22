@@ -45,7 +45,13 @@ export function MergeGroupPicker({
 
   const { data, isLoading } = useQuery({
     queryKey: ['groupSearch', debouncedQuery, excludeGroupId, currentGroupName],
-    queryFn: () => groupApi.search(debouncedQuery, excludeGroupId ?? undefined, 20, currentGroupName || undefined),
+    queryFn: () =>
+      groupApi.search(
+        debouncedQuery,
+        excludeGroupId ?? undefined,
+        20,
+        currentGroupName || undefined,
+      ),
     enabled: open,
   })
 
@@ -53,10 +59,7 @@ export function MergeGroupPicker({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent
-        className="max-w-md p-0 overflow-hidden gap-0"
-        onClose={onClose}
-      >
+      <DialogContent className="max-w-md p-0 overflow-hidden gap-0" onClose={onClose}>
         {/* Header */}
         <DialogHeader className="px-5 pt-5 pb-0">
           <DialogTitle className="text-[15px] tracking-wide">{title}</DialogTitle>
@@ -99,9 +102,7 @@ export function MergeGroupPicker({
                     key={group.id}
                     onClick={() => setSelected(group)}
                     className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-left transition-all duration-100 ${
-                      isSelected
-                        ? 'bg-primary/15 ring-1 ring-primary/40'
-                        : 'hover:bg-muted/50'
+                      isSelected ? 'bg-primary/15 ring-1 ring-primary/40' : 'hover:bg-muted/50'
                     }`}
                   >
                     {/* Thumbnail */}
@@ -121,9 +122,11 @@ export function MergeGroupPicker({
 
                     {/* Group info */}
                     <div className="flex-1 min-w-0">
-                      <p className={`text-[13px] font-medium leading-tight truncate ${
-                        isSelected ? 'text-primary' : 'text-foreground'
-                      }`}>
+                      <p
+                        className={`text-[13px] font-medium leading-tight truncate ${
+                          isSelected ? 'text-primary' : 'text-foreground'
+                        }`}
+                      >
                         {group.base_name}
                       </p>
                       {group.author && (

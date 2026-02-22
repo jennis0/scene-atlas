@@ -19,7 +19,9 @@ export function SubgroupPicker({ existingSubgroups, onSelect }: SubgroupPickerPr
         setOpen(false)
       }
     }
-    const handleEscape = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
     document.addEventListener('mousedown', handleClickOutside)
     document.addEventListener('keydown', handleEscape)
     return () => {
@@ -78,7 +80,9 @@ export function SubgroupPicker({ existingSubgroups, onSelect }: SubgroupPickerPr
               <Button
                 size="sm"
                 className="h-7 text-xs flex-shrink-0"
-                onClick={() => { if (input.trim()) apply(input.trim()) }}
+                onClick={() => {
+                  if (input.trim()) apply(input.trim())
+                }}
               >
                 Set
               </Button>

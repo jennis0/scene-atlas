@@ -1,11 +1,4 @@
-import {
-  Check,
-  Loader2,
-  AlertCircle,
-  MoreHorizontal,
-  SkipForward,
-  Merge,
-} from 'lucide-react'
+import { Check, Loader2, AlertCircle, MoreHorizontal, SkipForward, Merge } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,8 +25,16 @@ interface ImportGroupNavProps {
 }
 
 export function ImportGroupNav({
-  groups, activeTab, state, totalFiles, pendingGroupCount,
-  canImportAll, onSelectTab, onUpdateGroup, onMergeGroups, onConfirmAll,
+  groups,
+  activeTab,
+  state,
+  totalFiles,
+  pendingGroupCount,
+  canImportAll,
+  onSelectTab,
+  onUpdateGroup,
+  onMergeGroups,
+  onConfirmAll,
 }: ImportGroupNavProps) {
   const isAllTab = activeTab === ALL_TAB
 
@@ -77,7 +78,9 @@ export function ImportGroupNav({
                 {g.status === 'completed' && <Check className="h-3 w-3" />}
                 {g.status === 'running' && <Loader2 className="h-3 w-3 animate-spin" />}
                 {g.status === 'failed' && <AlertCircle className="h-3 w-3 text-destructive" />}
-                {g.status === 'pending' && !g.skip && <span className="h-1.5 w-1.5 rounded-full bg-current opacity-50 inline-block" />}
+                {g.status === 'pending' && !g.skip && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-current opacity-50 inline-block" />
+                )}
                 {g.skip && <SkipForward className="h-3 w-3" />}
               </span>
               <span className={`flex-1 text-[12px] truncate ${g.skip ? 'line-through' : ''}`}>
@@ -102,13 +105,16 @@ export function ImportGroupNav({
                   {groups.length > 1 && (
                     <>
                       <DropdownMenuSeparator />
-                      <DropdownMenuLabel className="text-xs text-muted-foreground">Merge into…</DropdownMenuLabel>
+                      <DropdownMenuLabel className="text-xs text-muted-foreground">
+                        Merge into…
+                      </DropdownMenuLabel>
                       {groups.map((target, j) =>
                         j !== i ? (
                           <DropdownMenuItem key={target.id} onClick={() => onMergeGroups(i, j)}>
-                            <Merge className="h-4 w-4 mr-2" />{target.group_name}
+                            <Merge className="h-4 w-4 mr-2" />
+                            {target.group_name}
                           </DropdownMenuItem>
-                        ) : null
+                        ) : null,
                       )}
                     </>
                   )}

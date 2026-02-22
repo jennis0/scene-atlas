@@ -2,17 +2,13 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { useRef, useState, useEffect } from 'react'
 import { Play } from 'lucide-react'
 import { getThumbnailUrl } from '@/lib/api'
+import { IMAGE_SIZE, CARD_HEIGHT, GRID_GAP, GRID_PADDING } from '@/lib/constants'
 import type { Image } from '@/types'
 
 interface ImageGridProps {
   images: Image[]
   onImageClick: (image: Image, index: number) => void
 }
-
-const IMAGE_SIZE = 240  // card width in pixels
-const CARD_HEIGHT = 180 // card height — 4:3 landscape ratio (240 × 0.75)
-const GAP = 16          // gap-4 = 1rem = 16px
-const PADDING = 16      // p-4 = 1rem = 16px
 
 export function ImageGrid({ images, onImageClick }: ImageGridProps) {
   const parentRef = useRef<HTMLDivElement>(null)
@@ -22,8 +18,11 @@ export function ImageGrid({ images, onImageClick }: ImageGridProps) {
     const updateColumns = () => {
       if (parentRef.current) {
         const containerWidth = parentRef.current.clientWidth
-        const availableWidth = containerWidth - PADDING * 2
-        const columns = Math.max(1, Math.floor((availableWidth + GAP) / (IMAGE_SIZE + GAP)))
+        const availableWidth = containerWidth - GRID_PADDING * 2
+        const columns = Math.max(
+          1,
+          Math.floor((availableWidth + GRID_GAP) / (IMAGE_SIZE + GRID_GAP)),
+        )
         setColumnsPerRow(columns)
       }
     }
@@ -37,14 +36,20 @@ export function ImageGrid({ images, onImageClick }: ImageGridProps) {
   const rowVirtualizer = useVirtualizer({
     count: Math.ceil(images.length / columnsPerRow),
     getScrollElement: () => parentRef.current,
-    estimateSize: () => CARD_HEIGHT + GAP,
+    estimateSize: () => CARD_HEIGHT + GRID_GAP,
     overscan: 5,
     measureElement: (element) => element.getBoundingClientRect().height,
   })
 
   return (
     <div ref={parentRef} className="h-full overflow-auto pt-8 px-4 pb-4">
-      <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }}>
+      <div
+        style={{
+          height: `${rowVirtualizer.getTotalSize()}px`,
+          width: '100%',
+          position: 'relative',
+        }}
+      >
         {rowVirtualizer.getVirtualItems().map((virtualRow) => {
           const startIdx = virtualRow.index * columnsPerRow
           const rowImages = images.slice(startIdx, startIdx + columnsPerRow)
@@ -60,7 +65,7 @@ export function ImageGrid({ images, onImageClick }: ImageGridProps) {
                 left: 0,
                 width: '100%',
                 transform: `translateY(${virtualRow.start}px)`,
-                paddingBottom: `${GAP}px`,
+                paddingBottom: `${GRID_GAP}px`,
               }}
             >
               <div
@@ -111,19 +116,22 @@ function ImageCard({ image, onClick }: { image: Image; onClick: () => void }) {
       {/* Image — 4:3 landscape, scales subtly on hover */}
       <div
         className="aspect-[4/3] overflow-hidden"
-        style={!loaded && !errored && placeholderBg ? { backgroundColor: placeholderBg } : undefined}
+        style={
+          !loaded && !errored && placeholderBg ? { backgroundColor: placeholderBg } : undefined
+        }
       >
         {/* Shimmer skeleton shown until the image loads */}
-        {!loaded && !errored && (
-          <div className="absolute inset-0 animate-pulse bg-muted/60" />
-        )}
+        {!loaded && !errored && <div className="absolute inset-0 animate-pulse bg-muted/60" />}
         <img
           src={getThumbnailUrl(image)}
           alt={image.name}
           className={`h-full w-full object-cover transition-all duration-300 group-hover:scale-[1.05] ${loaded ? 'opacity-100' : 'opacity-0'}`}
           loading="lazy"
           onLoad={() => setLoaded(true)}
-          onError={() => { setErrored(true); setLoaded(true) }}
+          onError={() => {
+            setErrored(true)
+            setLoaded(true)
+          }}
         />
         {image.media_type === 'video' && (
           <div className="absolute top-2 left-2 z-10 flex items-center justify-center h-6 w-6 rounded-full bg-black/35 text-white/60 backdrop-blur-sm">

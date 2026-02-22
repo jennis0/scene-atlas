@@ -10,11 +10,8 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { importApi } from '@/lib/api'
-import {
-  loadImportJobsIndex,
-  cleanupExpiredImports,
-  removeImportState,
-} from '@/lib/importStorage'
+import { ACTIVE_POLL_INTERVAL_MS } from '@/lib/constants'
+import { loadImportJobsIndex, cleanupExpiredImports, removeImportState } from '@/lib/importStorage'
 import type { ImportJobSummary } from '@/types'
 import type { ImportJobIndexEntry } from '@/lib/importStorage'
 
@@ -49,14 +46,17 @@ export function useActiveImports(): UseActiveImportsReturn {
     const localIndex = loadImportJobsIndex()
 
     // Fetch backend active imports
-    importApi.active().then((response) => {
-      const merged = mergeJobs(localIndex.jobs, response.jobs)
-      setJobs(merged)
-    }).catch(() => {
-      // Backend unavailable — just use localStorage
-      const localJobs = localIndex.jobs.map(localToActiveJob)
-      setJobs(localJobs)
-    })
+    importApi
+      .active()
+      .then((response) => {
+        const merged = mergeJobs(localIndex.jobs, response.jobs)
+        setJobs(merged)
+      })
+      .catch(() => {
+        // Backend unavailable — just use localStorage
+        const localJobs = localIndex.jobs.map(localToActiveJob)
+        setJobs(localJobs)
+      })
   }, [])
 
   // Initial load
@@ -68,7 +68,7 @@ export function useActiveImports(): UseActiveImportsReturn {
   useEffect(() => {
     const hasRunning = jobs.some((j) => j.status === 'running' || j.runningGroups > 0)
     if (!hasRunning) return
-    const interval = setInterval(refresh, 10_000)
+    const interval = setInterval(refresh, ACTIVE_POLL_INTERVAL_MS)
     return () => clearInterval(interval)
   }, [jobs, refresh])
 
@@ -77,19 +77,24 @@ export function useActiveImports(): UseActiveImportsReturn {
     setJobs((prev) => prev.filter((j) => j.jobId !== jobId))
   }, [])
 
-  const cancelJob = useCallback(async (jobId: string) => {
-    const job = jobs.find((j) => j.jobId === jobId)
-    if (!job?.localOnly) {
-      try {
-        await importApi.cancel(jobId)
-      } catch { /* ignore errors */ }
-    }
-    removeImportState(jobId)
-    setJobs((prev) => prev.filter((j) => j.jobId !== jobId))
-  }, [jobs])
+  const cancelJob = useCallback(
+    async (jobId: string) => {
+      const job = jobs.find((j) => j.jobId === jobId)
+      if (!job?.localOnly) {
+        try {
+          await importApi.cancel(jobId)
+        } catch {
+          /* ignore errors */
+        }
+      }
+      removeImportState(jobId)
+      setJobs((prev) => prev.filter((j) => j.jobId !== jobId))
+    },
+    [jobs],
+  )
 
-  const hasActive = jobs.some((j) =>
-    j.status === 'staging' || j.status === 'running' || j.pendingGroups > 0
+  const hasActive = jobs.some(
+    (j) => j.status === 'staging' || j.status === 'running' || j.pendingGroups > 0,
   )
 
   return { jobs, hasActive, refresh, dismissJob, cancelJob }
@@ -157,6 +162,6 @@ function mergeJobs(
 
   // Sort by creation date, newest first
   return Array.from(result.values()).sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   )
 }

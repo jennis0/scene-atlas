@@ -2,8 +2,8 @@ import type { EditableFileState } from '@/types'
 
 export interface ActiveFilter {
   type: 'subgroup' | 'tag' | 'gridded' | 'author' | 'color' | 'media_type'
-  value: string   // subgroup text | "category:value" | "gridded"/"gridless"/"unknown" | author name | hex color | "image"/"video"
-  label: string   // display text for chip
+  value: string // subgroup text | "category:value" | "gridded"/"gridless"/"unknown" | author name | hex color | "image"/"video"
+  label: string // display text for chip
   exclude: boolean
 }
 
@@ -17,7 +17,10 @@ export interface FileFilter {
 
 export const EMPTY_FILTER: FileFilter = { text: '', imageType: 'all', active: [] }
 
-export function applyFileFilter(files: EditableFileState[], filter: FileFilter): EditableFileState[] {
+export function applyFileFilter(
+  files: EditableFileState[],
+  filter: FileFilter,
+): EditableFileState[] {
   return files.filter((f) => {
     if (filter.text) {
       const t = filter.text.toLowerCase()

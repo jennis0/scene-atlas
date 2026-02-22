@@ -1,6 +1,6 @@
-import * as React from "react"
-import { X } from "lucide-react"
-import { cn } from "@/lib/utils"
+import * as React from 'react'
+import { X } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 interface DialogProps {
   open?: boolean
@@ -11,22 +11,19 @@ interface DialogProps {
 const Dialog = ({ open, onOpenChange, children }: DialogProps) => {
   React.useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && open) {
+      if (e.key === 'Escape' && open) {
         onOpenChange?.(false)
       }
     }
-    window.addEventListener("keydown", handleEscape)
-    return () => window.removeEventListener("keydown", handleEscape)
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
   }, [open, onOpenChange])
 
   if (!open) return null
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div
-        className="fixed inset-0 bg-black/80"
-        onClick={() => onOpenChange?.(false)}
-      />
+      <div className="fixed inset-0 bg-black/80" onClick={() => onOpenChange?.(false)} />
       {children}
     </div>
   )
@@ -39,8 +36,8 @@ const DialogContent = React.forwardRef<
   <div
     ref={ref}
     className={cn(
-      "relative z-50 grid w-full max-w-lg gap-4 border bg-background p-6 shadow-lg sm:rounded-lg",
-      className
+      'relative z-50 grid w-full max-w-lg gap-4 border bg-background p-6 shadow-lg sm:rounded-lg',
+      className,
     )}
     {...props}
   >
@@ -56,21 +53,12 @@ const DialogContent = React.forwardRef<
     )}
   </div>
 ))
-DialogContent.displayName = "DialogContent"
+DialogContent.displayName = 'DialogContent'
 
-const DialogHeader = ({
-  className,
-  ...props
-}: React.HTMLAttributes<HTMLDivElement>) => (
-  <div
-    className={cn(
-      "flex flex-col space-y-1.5 text-center sm:text-left",
-      className
-    )}
-    {...props}
-  />
+const DialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+  <div className={cn('flex flex-col space-y-1.5 text-center sm:text-left', className)} {...props} />
 )
-DialogHeader.displayName = "DialogHeader"
+DialogHeader.displayName = 'DialogHeader'
 
 const DialogTitle = React.forwardRef<
   HTMLParagraphElement,
@@ -78,13 +66,10 @@ const DialogTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <h2
     ref={ref}
-    className={cn(
-      "text-lg font-semibold leading-none tracking-tight",
-      className
-    )}
+    className={cn('text-lg font-semibold leading-none tracking-tight', className)}
     {...props}
   />
 ))
-DialogTitle.displayName = "DialogTitle"
+DialogTitle.displayName = 'DialogTitle'
 
 export { Dialog, DialogContent, DialogHeader, DialogTitle }

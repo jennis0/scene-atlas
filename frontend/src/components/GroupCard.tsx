@@ -18,17 +18,10 @@ interface GroupCardProps {
 }
 
 export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCardProps) {
-  const {
-    heroImage,
-    mosaicImages,
-    totalScenes,
-    matchingCount,
-    baseName,
-    author,
-    groupId,
-  } = group
+  const { heroImage, mosaicImages, totalScenes, matchingCount, baseName, author, groupId } = group
 
-  const maxMosaic = mosaicImages.length >= 4 ? 4 : mosaicImages.length >= 2 ? 2 : mosaicImages.length
+  const maxMosaic =
+    mosaicImages.length >= 4 ? 4 : mosaicImages.length >= 2 ? 2 : mosaicImages.length
   const visibleMosaic = mosaicImages.slice(0, maxMosaic)
   const displayedCount = 1 + visibleMosaic.length
   const overflowCount = totalScenes - displayedCount
@@ -55,17 +48,20 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
               <DropdownMenuItem onClick={() => onEdit?.()}>
-                <Pencil className="h-4 w-4 mr-2" />Edit
+                <Pencil className="h-4 w-4 mr-2" />
+                Edit
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => onMerge?.()}>
-                <Merge className="h-4 w-4 mr-2" />Merge into...
+                <Merge className="h-4 w-4 mr-2" />
+                Merge into...
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => onDelete?.()}
                 className="text-destructive focus:text-destructive"
               >
-                <Trash2 className="h-4 w-4 mr-2" />Delete
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -140,17 +136,14 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
           <p className="text-[13px] font-medium text-white leading-snug line-clamp-1 drop-shadow truncate">
             {baseName}
           </p>
-          {author && (
-            <p className="text-[11px] text-white/60 truncate mt-0.5">{author}</p>
-          )}
+          {author && <p className="text-[11px] text-white/60 truncate mt-0.5">{author}</p>}
           {totalScenes > 1 && (
             <div className="flex items-center gap-1 mt-0.5">
               <Layers className="h-3 w-3 text-white/40" />
               <span className="text-[11px] tabular-nums text-white/50">
                 {matchingCount < totalScenes
                   ? `${matchingCount} of ${totalScenes} scenes`
-                  : `${totalScenes} scenes`
-                }
+                  : `${totalScenes} scenes`}
               </span>
             </div>
           )}
@@ -162,8 +155,11 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
 
 function mosaicGridClasses(count: number): string {
   switch (count) {
-    case 1: return 'grid-rows-1 grid-cols-1'
-    case 2: return 'grid-rows-2 grid-cols-1'
-    default: return 'grid-rows-2 grid-cols-2'
+    case 1:
+      return 'grid-rows-1 grid-cols-1'
+    case 2:
+      return 'grid-rows-2 grid-cols-1'
+    default:
+      return 'grid-rows-2 grid-cols-2'
   }
 }

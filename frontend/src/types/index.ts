@@ -37,7 +37,7 @@ export interface TagCategory {
   id: number
   name: string
   description: string | null
-  color: string | null  // Tailwind color preset name
+  color: string | null // Tailwind color preset name
   display_order: number
   common_values: string | null // JSON string of tag values
 }
@@ -51,9 +51,9 @@ export interface Color {
 }
 
 export interface SearchParams {
-  query?: string            // hybrid: FTS5 + semantic
-  semantic_only?: boolean   // skip FTS5, pure semantic (from ~ prefix)
-  text_only?: boolean       // skip CLIP, FTS keyword only (from = prefix)
+  query?: string // hybrid: FTS5 + semantic
+  semantic_only?: boolean // skip FTS5, pure semantic (from ~ prefix)
+  text_only?: boolean // skip CLIP, FTS keyword only (from = prefix)
   authors?: string[]
   exclude_authors?: string[]
   tags?: string[]
@@ -74,7 +74,7 @@ export interface FacetOption {
 export interface FacetData {
   total_images: number
   authors: FacetOption[]
-  tags: Record<string, FacetOption[]>  // category → values sorted by count
+  tags: Record<string, FacetOption[]> // category → values sorted by count
   gridded: { gridded: number; gridless: number; unknown: number }
   colors: { hex: string; count: number }[]
   image_types: FacetOption[]
@@ -86,7 +86,7 @@ export interface SearchResult {
   images: Image[]
   limit: number
   offset: number
-  scores?: Record<number, number>  // image_id -> semantic score
+  scores?: Record<number, number> // image_id -> semantic score
 }
 
 export type ViewMode = 'individual' | 'grouped'
@@ -103,7 +103,6 @@ export interface ImageGroup {
   aggregatedTags: Tag[]
 }
 
-
 export interface TagValue {
   category: string
   value: string
@@ -112,10 +111,13 @@ export interface TagValue {
 
 export interface TagStats {
   total_tags: number
-  categories: Record<string, {
-    total_tags: number
-    unique_values: number
-  }>
+  categories: Record<
+    string,
+    {
+      total_tags: number
+      unique_values: number
+    }
+  >
 }
 
 // Import types — duplicate detection
@@ -217,12 +219,12 @@ export interface EditableFileState {
   subgroup: string | null
   image_type?: 'battlemap' | 'scene'
   excluded: boolean
-  outOfScope?: boolean  // true = in group but not in search results (mass-edit context only)
-  previewUrl?: string  // Browser blob URL (for direct uploads) or server preview URL (for ZIP)
-  fullImageUrl?: string  // Full-res URL (edit mode); falls back to previewUrl in lightbox
-  content_hash?: string  // SHA-256 content hash
-  duplicate_of?: DuplicateInfo | null  // Existing image this file matches
-  duplicate_action?: 'skip' | 'import'  // User's choice for duplicate files
+  outOfScope?: boolean // true = in group but not in search results (mass-edit context only)
+  previewUrl?: string // Browser blob URL (for direct uploads) or server preview URL (for ZIP)
+  fullImageUrl?: string // Full-res URL (edit mode); falls back to previewUrl in lightbox
+  content_hash?: string // SHA-256 content hash
+  duplicate_of?: DuplicateInfo | null // Existing image this file matches
+  duplicate_action?: 'skip' | 'import' // User's choice for duplicate files
 }
 
 export interface EditableGroupState {
@@ -329,4 +331,11 @@ export interface ImportJobSummary {
 
 export interface ActiveImportsResponse {
   jobs: ImportJobSummary[]
+}
+
+// ── Tag vocabulary (parsed from TagCategory.common_values) ───────────────────
+
+export interface ParsedTagVocab {
+  category: string
+  values: string[]
 }

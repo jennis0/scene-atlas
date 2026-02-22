@@ -18,49 +18,57 @@ interface ImportDialogProps {
   reconnectJobId?: string
 }
 
-export function ImportDialog({ open, onOpenChange, onActiveChange, reconnectJobId }: ImportDialogProps) {
+export function ImportDialog({
+  open,
+  onOpenChange,
+  onActiveChange,
+  reconnectJobId,
+}: ImportDialogProps) {
   const queryClient = useQueryClient()
   const s = useImportState(onActiveChange, reconnectJobId)
+  const { jobId, reset, state, groups, saveNow } = s
 
   const handleCancel = useCallback(async () => {
-    if (s.jobId) {
+    if (jobId) {
       try {
-        await importApi.cancel(s.jobId)
-      } catch { /* ignore */ }
-      removeImportState(s.jobId)
+        await importApi.cancel(jobId)
+      } catch {
+        /* ignore */
+      }
+      removeImportState(jobId)
     }
-    s.reset()
+    reset()
     onOpenChange(false)
-  }, [s.jobId, s.reset, onOpenChange]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [jobId, reset, onOpenChange])
 
   const handleClose = useCallback(() => {
     // If processing, just hide the dialog — tray will show progress
-    if (s.state === 'processing') {
-      s.saveNow()
+    if (state === 'processing') {
+      saveNow()
       onOpenChange(false)
       return
     }
     // If done, clean up localStorage entry and invalidate queries
-    if (s.state === 'done') {
-      if (s.jobId) removeImportState(s.jobId)
+    if (state === 'done') {
+      if (jobId) removeImportState(jobId)
       queryClient.invalidateQueries({ queryKey: ['images'] })
       queryClient.invalidateQueries({ queryKey: ['search'] })
       queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
-      s.reset()
+      reset()
       onOpenChange(false)
       return
     }
     // If in preview with pending groups, save state for later
-    if (s.state === 'preview' && s.groups.some((g) => g.status === 'pending' && !g.skip)) {
-      s.saveNow()
-      s.reset()
+    if (state === 'preview' && groups.some((g) => g.status === 'pending' && !g.skip)) {
+      saveNow()
+      reset()
       onOpenChange(false)
       return
     }
     // Otherwise (upload state, or preview with no pending groups), just reset
-    s.reset()
+    reset()
     onOpenChange(false)
-  }, [s.state, s.jobId, s.groups, queryClient, s.reset, s.saveNow, onOpenChange]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [state, jobId, groups, queryClient, reset, saveNow, onOpenChange])
 
   const isWide = s.state === 'preview' || s.state === 'processing'
 
@@ -75,10 +83,30 @@ export function ImportDialog({ open, onOpenChange, onActiveChange, reconnectJobI
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-3 shrink-0">
           <h2 className="font-display text-lg font-semibold flex items-center gap-2 text-foreground">
-            {s.state === 'upload' && <><Upload className="h-5 w-5 text-primary shrink-0" />Import Scenes</>}
-            {s.state === 'preview' && <><FolderOpen className="h-5 w-5 text-primary shrink-0" />Review Import</>}
-            {s.state === 'processing' && <><Loader2 className="h-5 w-5 text-primary animate-spin shrink-0" />Processing…</>}
-            {s.state === 'done' && <><Check className="h-5 w-5 text-primary shrink-0" />Import Complete</>}
+            {s.state === 'upload' && (
+              <>
+                <Upload className="h-5 w-5 text-primary shrink-0" />
+                Import Scenes
+              </>
+            )}
+            {s.state === 'preview' && (
+              <>
+                <FolderOpen className="h-5 w-5 text-primary shrink-0" />
+                Review Import
+              </>
+            )}
+            {s.state === 'processing' && (
+              <>
+                <Loader2 className="h-5 w-5 text-primary animate-spin shrink-0" />
+                Processing…
+              </>
+            )}
+            {s.state === 'done' && (
+              <>
+                <Check className="h-5 w-5 text-primary shrink-0" />
+                Import Complete
+              </>
+            )}
           </h2>
           <div className="flex items-center gap-1">
             {s.state === 'preview' && s.jobId && (

@@ -36,7 +36,14 @@ interface ImportTrayProps {
   onRefresh: () => void
 }
 
-export function ImportTray({ jobs, hasActive, onOpenJob, onDismissJob, onCancelJob, onRefresh }: ImportTrayProps) {
+export function ImportTray({
+  jobs,
+  hasActive,
+  onOpenJob,
+  onDismissJob,
+  onCancelJob,
+  onRefresh,
+}: ImportTrayProps) {
   const [expanded, setExpanded] = useState(false)
   const [cleaning, setCleaning] = useState(false)
 
@@ -57,22 +64,17 @@ export function ImportTray({ jobs, hasActive, onOpenJob, onDismissJob, onCancelJ
 
   if (jobs.length === 0) return null
 
-  const activeCount = jobs.filter((j) =>
-    j.status === 'staging' || j.status === 'running' || j.pendingGroups > 0
+  const activeCount = jobs.filter(
+    (j) => j.status === 'staging' || j.status === 'running' || j.pendingGroups > 0,
   ).length
-  const terminalCount = jobs.filter((j) =>
-    j.status === 'completed' || j.status === 'failed' || j.status === 'cancelled'
+  const terminalCount = jobs.filter(
+    (j) => j.status === 'completed' || j.status === 'failed' || j.status === 'cancelled',
   ).length
 
   return (
     <>
       {/* Click-away overlay — closes tray when clicking outside */}
-      {expanded && (
-        <div
-          className="fixed inset-0 z-20"
-          onClick={() => setExpanded(false)}
-        />
-      )}
+      {expanded && <div className="fixed inset-0 z-20" onClick={() => setExpanded(false)} />}
 
       {/* Collapsed toggle tab — visible when tray is hidden */}
       {!expanded && (
@@ -88,9 +90,11 @@ export function ImportTray({ jobs, hasActive, onOpenJob, onDismissJob, onCancelJ
         >
           <Package className="h-4 w-4" />
           {activeCount > 0 && (
-            <span className="min-w-[18px] h-[18px] flex items-center justify-center
+            <span
+              className="min-w-[18px] h-[18px] flex items-center justify-center
               rounded-full bg-primary text-primary-foreground
-              text-[10px] font-semibold tabular-nums leading-none">
+              text-[10px] font-semibold tabular-nums leading-none"
+            >
               {activeCount}
             </span>
           )}
@@ -119,9 +123,11 @@ export function ImportTray({ jobs, hasActive, onOpenJob, onDismissJob, onCancelJ
               Imports
             </span>
             {activeCount > 0 && (
-              <span className="min-w-[18px] h-[18px] flex items-center justify-center
+              <span
+                className="min-w-[18px] h-[18px] flex items-center justify-center
                 rounded-full bg-primary/20 text-primary
-                text-[10px] font-semibold tabular-nums leading-none">
+                text-[10px] font-semibold tabular-nums leading-none"
+              >
                 {activeCount}
               </span>
             )}
@@ -136,10 +142,11 @@ export function ImportTray({ jobs, hasActive, onOpenJob, onDismissJob, onCancelJ
                   transition-colors"
                 title="Clear completed imports"
               >
-                {cleaning
-                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  : <Trash2 className="h-3.5 w-3.5" />
-                }
+                {cleaning ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3.5 w-3.5" />
+                )}
               </button>
             )}
             <button
@@ -187,18 +194,18 @@ function ImportTrayCard({
   onDismiss: () => void
   onCancel: () => void
 }) {
-  const isTerminal = job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled'
+  const isTerminal =
+    job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled'
   const canCancel = job.status === 'staging'
-  const progressRatio = job.totalGroups > 0
-    ? (job.completedGroups / job.totalGroups)
-    : 0
+  const progressRatio = job.totalGroups > 0 ? job.completedGroups / job.totalGroups : 0
 
   return (
     <div
       className={`group relative rounded-md border transition-colors cursor-pointer
-        ${isTerminal
-          ? 'border-border/20 bg-muted/10 hover:bg-secondary/30'
-          : 'border-border/30 bg-secondary/20 hover:bg-secondary/40 hover:border-border/50'
+        ${
+          isTerminal
+            ? 'border-border/20 bg-muted/10 hover:bg-secondary/30'
+            : 'border-border/30 bg-secondary/20 hover:bg-secondary/40 hover:border-border/50'
         }`}
       onClick={onOpen}
     >
@@ -207,13 +214,18 @@ function ImportTrayCard({
         {/* Top row: label + status icon */}
         <div className="flex items-start gap-2">
           <StatusIcon status={job.status} />
-          <span className={`flex-1 text-[12px] font-medium truncate leading-tight
-            ${isTerminal ? 'text-muted-foreground' : 'text-foreground'}`}>
+          <span
+            className={`flex-1 text-[12px] font-medium truncate leading-tight
+            ${isTerminal ? 'text-muted-foreground' : 'text-foreground'}`}
+          >
             {job.label}
           </span>
           {isTerminal && (
             <button
-              onClick={(e) => { e.stopPropagation(); onDismiss() }}
+              onClick={(e) => {
+                e.stopPropagation()
+                onDismiss()
+              }}
               className="opacity-0 group-hover:opacity-100 shrink-0
                 h-5 w-5 rounded flex items-center justify-center
                 text-muted-foreground/40 hover:text-foreground hover:bg-secondary
@@ -225,7 +237,10 @@ function ImportTrayCard({
           )}
           {canCancel && (
             <button
-              onClick={(e) => { e.stopPropagation(); onCancel() }}
+              onClick={(e) => {
+                e.stopPropagation()
+                onCancel()
+              }}
               className="opacity-0 group-hover:opacity-100 shrink-0
                 h-5 w-5 rounded flex items-center justify-center
                 text-muted-foreground/40 hover:text-destructive hover:bg-secondary
@@ -243,9 +258,13 @@ function ImportTrayCard({
           <div className="flex-1 h-1 rounded-full bg-border/30 overflow-hidden">
             <div
               className={`h-full rounded-full transition-all duration-700 ease-out
-                ${job.status === 'failed' ? 'bg-destructive/60' :
-                  job.status === 'completed' ? 'bg-primary/50' :
-                  'bg-primary/70'}`}
+                ${
+                  job.status === 'failed'
+                    ? 'bg-destructive/60'
+                    : job.status === 'completed'
+                      ? 'bg-primary/50'
+                      : 'bg-primary/70'
+                }`}
               style={{ width: `${Math.round(progressRatio * 100)}%` }}
             />
           </div>
@@ -259,20 +278,28 @@ function ImportTrayCard({
         {/* Status summary line */}
         <div className="mt-1.5 text-[10px] text-muted-foreground/50 leading-tight">
           {job.status === 'running' && (
-            <span>{job.runningGroups} processing{job.pendingGroups > 0 ? `, ${job.pendingGroups} pending` : ''}</span>
+            <span>
+              {job.runningGroups} processing
+              {job.pendingGroups > 0 ? `, ${job.pendingGroups} pending` : ''}
+            </span>
           )}
           {job.status === 'staging' && (
-            <span>{job.pendingGroups} group{job.pendingGroups !== 1 ? 's' : ''} ready to review</span>
+            <span>
+              {job.pendingGroups} group{job.pendingGroups !== 1 ? 's' : ''} ready to review
+            </span>
           )}
           {job.status === 'completed' && (
-            <span>{job.completedGroups} group{job.completedGroups !== 1 ? 's' : ''} imported</span>
+            <span>
+              {job.completedGroups} group{job.completedGroups !== 1 ? 's' : ''} imported
+            </span>
           )}
           {job.status === 'failed' && (
-            <span>{job.failedGroups} failed{job.completedGroups > 0 ? `, ${job.completedGroups} completed` : ''}</span>
+            <span>
+              {job.failedGroups} failed
+              {job.completedGroups > 0 ? `, ${job.completedGroups} completed` : ''}
+            </span>
           )}
-          {job.status === 'cancelled' && (
-            <span>Cancelled</span>
-          )}
+          {job.status === 'cancelled' && <span>Cancelled</span>}
         </div>
       </div>
     </div>

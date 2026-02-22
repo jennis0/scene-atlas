@@ -7,16 +7,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import type { EditableFileState, TagData } from '@/types'
 import { TagPicker } from './TagPicker'
 import type { ParsedTagVocab } from './types'
 import type { FileFilter, ActiveFilter, ImageTypeFilter } from './fileFilter'
-import { FilterMenuContent, FilterChipList, type FilterOptionGroup } from '@/components/FilterMenuContent'
+import {
+  FilterMenuContent,
+  FilterChipList,
+  type FilterOptionGroup,
+} from '@/components/FilterMenuContent'
 
 interface FileToolbarProps {
   files: EditableFileState[]
@@ -67,9 +67,12 @@ export function FileToolbar({
 
   const visibleNonExcluded = filteredFiles.filter((f) => !f.excluded && !f.outOfScope)
   const selectedVisible = visibleNonExcluded.filter((f) => selection.has(f.relative_path))
-  const totalSelected = files.filter((f) => !f.excluded && !f.outOfScope && selection.has(f.relative_path)).length
+  const totalSelected = files.filter(
+    (f) => !f.excluded && !f.outOfScope && selection.has(f.relative_path),
+  ).length
   const totalNonExcluded = files.filter((f) => !f.excluded && !f.outOfScope).length
-  const isAllSelected = visibleNonExcluded.length > 0 && selectedVisible.length === visibleNonExcluded.length
+  const isAllSelected =
+    visibleNonExcluded.length > 0 && selectedVisible.length === visibleNonExcluded.length
   const isIndeterminate = selectedVisible.length > 0 && !isAllSelected
 
   const handleCheckboxChange = () => {
@@ -80,9 +83,9 @@ export function FileToolbar({
     }
   }
 
-  const existingSubgroups = [...new Set(
-    files.filter((f) => !f.excluded && f.subgroup).map((f) => f.subgroup as string)
-  )].sort()
+  const existingSubgroups = [
+    ...new Set(files.filter((f) => !f.excluded && f.subgroup).map((f) => f.subgroup as string)),
+  ].sort()
 
   const applySubgroup = (value: string) => {
     onBulkSetSubgroup(value)
@@ -94,14 +97,14 @@ export function FileToolbar({
 
   const nonExcludedFiles = files.filter((f) => !f.excluded && !f.outOfScope)
 
-  const availableSubgroups = [...new Set(
-    nonExcludedFiles.filter((f) => f.subgroup).map((f) => f.subgroup as string)
-  )].sort()
+  const availableSubgroups = [
+    ...new Set(nonExcludedFiles.filter((f) => f.subgroup).map((f) => f.subgroup as string)),
+  ].sort()
 
   const gridStates: FilterOptionGroup['options'] = [
-    { filterValue: 'gridded',  label: 'Gridded',  filterLabel: 'grid: Gridded' },
+    { filterValue: 'gridded', label: 'Gridded', filterLabel: 'grid: Gridded' },
     { filterValue: 'gridless', label: 'Gridless', filterLabel: 'grid: Gridless' },
-    { filterValue: 'unknown',  label: 'Unknown',  filterLabel: 'grid: Unknown' },
+    { filterValue: 'unknown', label: 'Unknown', filterLabel: 'grid: Unknown' },
   ]
 
   const tagFreq = new Map<string, { category: string; value: string; count: number }>()
@@ -194,10 +197,16 @@ export function FileToolbar({
             className="h-3.5 w-3.5 rounded-[3px]"
           />
           <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
-            {totalSelected > 0
-              ? <><span className="text-foreground font-medium">{totalSelected}</span> / {totalNonExcluded}</>
-              : <>{totalNonExcluded} file{totalNonExcluded !== 1 ? 's' : ''}</>
-            }
+            {totalSelected > 0 ? (
+              <>
+                <span className="text-foreground font-medium">{totalSelected}</span> /{' '}
+                {totalNonExcluded}
+              </>
+            ) : (
+              <>
+                {totalNonExcluded} file{totalNonExcluded !== 1 ? 's' : ''}
+              </>
+            )}
           </span>
         </div>
 
@@ -254,9 +263,7 @@ export function FileToolbar({
         {/* Bulk actions — only shown when something is selected */}
         {totalSelected > 0 && (
           <div className="flex items-center gap-0.5 shrink-0">
-            {vocab.length > 0 && (
-              <TagPicker vocab={vocab} existingTags={[]} onAdd={onBulkAddTag} />
-            )}
+            {vocab.length > 0 && <TagPicker vocab={vocab} existingTags={[]} onAdd={onBulkAddTag} />}
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -265,8 +272,12 @@ export function FileToolbar({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => onBulkSetImageType('battlemap')}>Battlemap</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onBulkSetImageType('scene')}>Scene</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onBulkSetImageType('battlemap')}>
+                  Battlemap
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onBulkSetImageType('scene')}>
+                  Scene
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
 
@@ -292,7 +303,9 @@ export function FileToolbar({
               <PopoverContent
                 align="end"
                 className="w-52 p-0"
-                onOpenAutoFocus={(e: Event) => { e.preventDefault() }}
+                onOpenAutoFocus={(e: Event) => {
+                  e.preventDefault()
+                }}
               >
                 {existingSubgroups.length > 0 && (
                   <>
@@ -320,13 +333,16 @@ export function FileToolbar({
                     className="flex-1 min-w-0 h-7 px-2 text-sm bg-secondary border border-border rounded text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
                     onKeyDown={(e) => {
                       e.stopPropagation()
-                      if (e.key === 'Enter' && subgroupInput.trim()) applySubgroup(subgroupInput.trim())
+                      if (e.key === 'Enter' && subgroupInput.trim())
+                        applySubgroup(subgroupInput.trim())
                       if (e.key === 'Escape') setSubOpen(false)
                     }}
                   />
                   <button
                     className="h-7 px-2.5 text-xs shrink-0 rounded border border-border bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-                    onClick={() => { if (subgroupInput.trim()) applySubgroup(subgroupInput.trim()) }}
+                    onClick={() => {
+                      if (subgroupInput.trim()) applySubgroup(subgroupInput.trim())
+                    }}
                   >
                     Set
                   </button>
@@ -361,7 +377,8 @@ export function FileToolbar({
         <div className="flex items-center gap-2 pt-1.5">
           <Copy className="h-3.5 w-3.5 text-amber-400/70 shrink-0" />
           <span className="text-xs text-amber-400/80">
-            {skippedDuplicateCount}/{duplicateCount} duplicate{duplicateCount !== 1 ? 's' : ''} skipped
+            {skippedDuplicateCount}/{duplicateCount} duplicate{duplicateCount !== 1 ? 's' : ''}{' '}
+            skipped
           </span>
           <button
             className="text-[11px] rounded border border-amber-500/30 px-1.5 py-0.5 text-amber-400/80 hover:bg-amber-500/10 transition-colors"
@@ -377,7 +394,13 @@ export function FileToolbar({
   )
 }
 
-function TypeToggle({ value, onChange }: { value: ImageTypeFilter; onChange: (v: ImageTypeFilter) => void }) {
+function TypeToggle({
+  value,
+  onChange,
+}: {
+  value: ImageTypeFilter
+  onChange: (v: ImageTypeFilter) => void
+}) {
   const opts: { label: string; val: ImageTypeFilter }[] = [
     { label: 'All', val: 'all' },
     { label: 'Maps', val: 'battlemap' },

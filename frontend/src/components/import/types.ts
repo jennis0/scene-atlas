@@ -1,9 +1,7 @@
-import type { TagCategory } from '@/types'
+import type { TagCategory, ParsedTagVocab } from '@/types'
 
-export interface ParsedTagVocab {
-  category: string
-  values: string[]
-}
+// Re-export so component-layer files can import from this module
+export type { ParsedTagVocab }
 
 export function parseTagVocabulary(categories: TagCategory[]): ParsedTagVocab[] {
   return categories
@@ -13,9 +11,11 @@ export function parseTagVocabulary(categories: TagCategory[]): ParsedTagVocab[] 
         try {
           const parsed = JSON.parse(cat.common_values)
           values = parsed.map((entry: string | { value: string }) =>
-            typeof entry === 'string' ? entry : entry.value
+            typeof entry === 'string' ? entry : entry.value,
           )
-        } catch { /* skip malformed */ }
+        } catch {
+          /* skip malformed */
+        }
       }
       return { category: cat.name, values }
     })
@@ -24,8 +24,8 @@ export function parseTagVocabulary(categories: TagCategory[]): ParsedTagVocab[] 
 
 export function humanizeFilename(filename: string): string {
   return filename
-    .replace(/\.[^.]+$/, '')        // strip extension
-    .replace(/[_-]+/g, ' ')         // underscores/dashes → spaces
+    .replace(/\.[^.]+$/, '') // strip extension
+    .replace(/[_-]+/g, ' ') // underscores/dashes → spaces
     .replace(/\s+/g, ' ')
     .trim()
 }

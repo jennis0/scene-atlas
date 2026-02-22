@@ -8,7 +8,7 @@ interface SearchBarProps {
   placeholder?: string
 }
 
-export function SearchBar({ onSearch, placeholder = "Search images..." }: SearchBarProps) {
+export function SearchBar({ onSearch, placeholder = 'Search images...' }: SearchBarProps) {
   const [query, setQuery] = useState('')
 
   const handleSubmit = (e: React.FormEvent) => {

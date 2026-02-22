@@ -40,9 +40,24 @@ export function GalleryFilterPanel({ filters, facets, onFiltersChange }: Gallery
       label: 'Grid state',
       type: 'gridded',
       options: [
-        { filterValue: 'gridded',  label: 'Gridded',  filterLabel: 'grid: Gridded',  count: gridded.gridded },
-        { filterValue: 'gridless', label: 'Gridless', filterLabel: 'grid: Gridless', count: gridded.gridless },
-        { filterValue: 'unknown',  label: 'Unknown',  filterLabel: 'grid: Unknown',  count: gridded.unknown },
+        {
+          filterValue: 'gridded',
+          label: 'Gridded',
+          filterLabel: 'grid: Gridded',
+          count: gridded.gridded,
+        },
+        {
+          filterValue: 'gridless',
+          label: 'Gridless',
+          filterLabel: 'grid: Gridless',
+          count: gridded.gridless,
+        },
+        {
+          filterValue: 'unknown',
+          label: 'Unknown',
+          filterLabel: 'grid: Unknown',
+          count: gridded.unknown,
+        },
       ].filter((o) => o.count > 0),
     })
   }
@@ -114,7 +129,9 @@ export function GalleryFilterPanel({ filters, facets, onFiltersChange }: Gallery
             onFiltersChange={onFiltersChange}
           />
         ) : (
-          <p className="px-3 py-6 text-xs text-muted-foreground text-center">No filters available</p>
+          <p className="px-3 py-6 text-xs text-muted-foreground text-center">
+            No filters available
+          </p>
         )}
       </PopoverContent>
     </Popover>

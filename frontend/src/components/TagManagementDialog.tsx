@@ -28,7 +28,9 @@ function parseCommonValues(raw: string | null): TagValueEntry[] {
   try {
     const arr = JSON.parse(raw) as (string | { value: string; aliases?: string[] })[]
     return arr.map((v) =>
-      typeof v === 'string' ? { value: v, aliases: [] } : { value: v.value, aliases: v.aliases ?? [] },
+      typeof v === 'string'
+        ? { value: v, aliases: [] }
+        : { value: v.value, aliases: v.aliases ?? [] },
     )
   } catch {
     return []
@@ -76,7 +78,7 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
 
   // Auto-select first category
   const activeCat = categories.find((c) => c.name === selectedCategory) ?? null
-  const effectiveSelection = activeCat ? activeCat.name : categories[0]?.name ?? null
+  const effectiveSelection = activeCat ? activeCat.name : (categories[0]?.name ?? null)
 
   // Sync selection when categories change
   useEffect(() => {
@@ -87,13 +89,13 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent
-        className="max-w-3xl w-full h-[75vh] flex flex-col gap-0 border-zinc-700/50 bg-zinc-900 p-0 overflow-hidden"
-      >
+      <DialogContent className="max-w-3xl w-full h-[75vh] flex flex-col gap-0 border-zinc-700/50 bg-zinc-900 p-0 overflow-hidden">
         {/* Header */}
         <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-800">
           <Tag className="w-3.5 h-3.5 text-amber-400" />
-          <h2 className="text-xs font-semibold text-zinc-300 tracking-wide uppercase">Tag Management</h2>
+          <h2 className="text-xs font-semibold text-zinc-300 tracking-wide uppercase">
+            Tag Management
+          </h2>
           <button
             onClick={onClose}
             className="ml-auto rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 text-zinc-400 hover:text-zinc-100"
@@ -217,7 +219,8 @@ function CategoryList({
                   e.stopPropagation()
                   setConfirmAction({
                     label: `Delete "${cat.name}"?`,
-                    detail: 'This will permanently remove the category and delete all its tags from every image.',
+                    detail:
+                      'This will permanently remove the category and delete all its tags from every image.',
                     onConfirm: () => {
                       deleteMut.mutate(cat.name)
                       setConfirmAction(null)
@@ -241,7 +244,10 @@ function CategoryList({
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleCreate()
-                if (e.key === 'Escape') { setCreating(false); setNewName('') }
+                if (e.key === 'Escape') {
+                  setCreating(false)
+                  setNewName('')
+                }
               }}
               placeholder="name"
               className="flex-1 min-w-0 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500/50"
@@ -249,7 +255,13 @@ function CategoryList({
             <button onClick={handleCreate} className="p-0.5 text-amber-400 hover:text-amber-300">
               <Check className="w-3 h-3" />
             </button>
-            <button onClick={() => { setCreating(false); setNewName('') }} className="p-0.5 text-zinc-500 hover:text-zinc-300">
+            <button
+              onClick={() => {
+                setCreating(false)
+                setNewName('')
+              }}
+              className="p-0.5 text-zinc-500 hover:text-zinc-300"
+            >
               <X className="w-3 h-3" />
             </button>
           </div>
@@ -333,14 +345,23 @@ function CategoryEditor({
               onChange={(e) => setNameInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleNameSave()
-                if (e.key === 'Escape') { setEditingName(false); setNameInput(category.name) }
+                if (e.key === 'Escape') {
+                  setEditingName(false)
+                  setNameInput(category.name)
+                }
               }}
               className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm font-semibold text-zinc-100 focus:outline-none focus:border-amber-500/50"
             />
             <button onClick={handleNameSave} className="p-0.5 text-amber-400 hover:text-amber-300">
               <Check className="w-3.5 h-3.5" />
             </button>
-            <button onClick={() => { setEditingName(false); setNameInput(category.name) }} className="p-0.5 text-zinc-500 hover:text-zinc-300">
+            <button
+              onClick={() => {
+                setEditingName(false)
+                setNameInput(category.name)
+              }}
+              className="p-0.5 text-zinc-500 hover:text-zinc-300"
+            >
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -359,7 +380,9 @@ function CategoryEditor({
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           onBlur={handleDescSave}
-          onKeyDown={(e) => { if (e.key === 'Enter') handleDescSave() }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleDescSave()
+          }}
           placeholder="Add a description..."
           className="mt-1 w-full bg-transparent border-none text-sm text-zinc-500 placeholder-zinc-600 focus:outline-none focus:text-zinc-300"
         />
@@ -481,7 +504,10 @@ function TagValueList({
             onChange={(e) => setNewValue(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleAdd()
-              if (e.key === 'Escape') { setAddingValue(false); setNewValue('') }
+              if (e.key === 'Escape') {
+                setAddingValue(false)
+                setNewValue('')
+              }
             }}
             placeholder="tag value"
             className="flex-1 min-w-0 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500/50"
@@ -489,7 +515,13 @@ function TagValueList({
           <button onClick={handleAdd} className="p-1 text-amber-400 hover:text-amber-300">
             <Check className="w-4 h-4" />
           </button>
-          <button onClick={() => { setAddingValue(false); setNewValue('') }} className="p-1 text-zinc-500 hover:text-zinc-300">
+          <button
+            onClick={() => {
+              setAddingValue(false)
+              setNewValue('')
+            }}
+            className="p-1 text-zinc-500 hover:text-zinc-300"
+          >
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -581,14 +613,23 @@ function TagValueRow({
               onChange={(e) => setEditValue(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleRename()
-                if (e.key === 'Escape') { setEditing(false); setEditValue(entry.value) }
+                if (e.key === 'Escape') {
+                  setEditing(false)
+                  setEditValue(entry.value)
+                }
               }}
               className="flex-1 min-w-0 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-100 focus:outline-none focus:border-amber-500/50"
             />
             <button onClick={handleRename} className="p-0.5 text-amber-400 hover:text-amber-300">
               <Check className="w-3 h-3" />
             </button>
-            <button onClick={() => { setEditing(false); setEditValue(entry.value) }} className="p-0.5 text-zinc-500 hover:text-zinc-300">
+            <button
+              onClick={() => {
+                setEditing(false)
+                setEditValue(entry.value)
+              }}
+              className="p-0.5 text-zinc-500 hover:text-zinc-300"
+            >
               <X className="w-3 h-3" />
             </button>
           </>
@@ -605,13 +646,25 @@ function TagValueRow({
               {count}
             </span>
             <div className="flex items-center gap-1 opacity-20 group-hover:opacity-100 transition-opacity ml-2">
-              <button onClick={() => setShowAliases(!showAliases)} className="p-1 text-zinc-400 hover:text-zinc-100" title="Edit aliases">
+              <button
+                onClick={() => setShowAliases(!showAliases)}
+                className="p-1 text-zinc-400 hover:text-zinc-100"
+                title="Edit aliases"
+              >
                 <GripVertical className="w-4 h-4" />
               </button>
-              <button onClick={() => setEditing(true)} className="p-1 text-zinc-400 hover:text-zinc-100" title="Rename">
+              <button
+                onClick={() => setEditing(true)}
+                className="p-1 text-zinc-400 hover:text-zinc-100"
+                title="Rename"
+              >
                 <Pencil className="w-4 h-4" />
               </button>
-              <button onClick={onDelete} className="p-1 text-zinc-400 hover:text-red-400" title="Delete">
+              <button
+                onClick={onDelete}
+                className="p-1 text-zinc-400 hover:text-red-400"
+                title="Delete"
+              >
                 <Trash2 className="w-4 h-4" />
               </button>
             </div>
@@ -623,9 +676,15 @@ function TagValueRow({
         <div className="px-3 pb-1 ml-3 border-l border-zinc-700/40">
           <div className="flex flex-wrap gap-1 pt-0.5">
             {entry.aliases.map((alias) => (
-              <span key={alias} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs bg-zinc-800 text-zinc-400 border border-zinc-700/40 capitalize">
+              <span
+                key={alias}
+                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs bg-zinc-800 text-zinc-400 border border-zinc-700/40 capitalize"
+              >
                 {alias}
-                <button onClick={() => removeAlias(alias)} className="text-zinc-600 hover:text-red-400">
+                <button
+                  onClick={() => removeAlias(alias)}
+                  className="text-zinc-600 hover:text-red-400"
+                >
                   <X className="w-2.5 h-2.5" />
                 </button>
               </span>
@@ -655,13 +714,7 @@ function TagValueRow({
 
 // ── Confirm Overlay ──────────────────────────────────────────────────────────
 
-function ConfirmOverlay({
-  action,
-  onCancel,
-}: {
-  action: ConfirmAction
-  onCancel: () => void
-}) {
+function ConfirmOverlay({ action, onCancel }: { action: ConfirmAction; onCancel: () => void }) {
   return (
     <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-5 max-w-sm mx-4 shadow-xl">

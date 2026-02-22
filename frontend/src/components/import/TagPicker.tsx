@@ -27,7 +27,11 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
       }
     }
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setOpen(false); setSelectedCategory(null); setSearch('') }
+      if (e.key === 'Escape') {
+        setOpen(false)
+        setSelectedCategory(null)
+        setSearch('')
+      }
     }
     document.addEventListener('mousedown', handleClickOutside)
     document.addEventListener('keydown', handleEscape)
@@ -37,7 +41,10 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
     }
   }, [open])
 
-  const existingKeys = new Set(existingTags.map((t) => `${t.category}:${t.value}`))
+  const existingKeys = useMemo(
+    () => new Set(existingTags.map((t) => `${t.category}:${t.value}`)),
+    [existingTags],
+  )
   const selectedVocab = vocab.find((v) => v.category === selectedCategory)
   const availableValues = selectedVocab
     ? selectedVocab.values.filter((v) => !existingKeys.has(`${selectedCategory}:${v}`))
@@ -56,7 +63,7 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
       }
     }
     return results
-  }, [search, vocab, existingKeys]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [search, vocab, existingKeys])
 
   const handleAdd = (category: string, value: string) => {
     onAdd({ category, value, confidence: 1.0, source: 'manual' })
@@ -70,7 +77,11 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
   return (
     <div className="relative inline-block" ref={containerRef}>
       <button
-        onClick={() => { setOpen(!open); setSelectedCategory(null); setSearch('') }}
+        onClick={() => {
+          setOpen(!open)
+          setSelectedCategory(null)
+          setSearch('')
+        }}
         className="inline-flex items-center gap-1 rounded-full border border-dashed border-border/50 px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:border-border hover:bg-secondary/50 transition-all"
       >
         <Plus className="h-3 w-3" />
@@ -86,7 +97,10 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
               <input
                 autoFocus
                 value={search}
-                onChange={(e) => { setSearch(e.target.value); setSelectedCategory(null) }}
+                onChange={(e) => {
+                  setSearch(e.target.value)
+                  setSelectedCategory(null)
+                }}
                 placeholder="Search tags…"
                 className="w-full h-6 pl-6 pr-5 text-xs bg-secondary border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary/40 text-foreground placeholder:text-muted-foreground"
                 onKeyDown={(e) => {
@@ -111,7 +125,9 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
           <div className="overflow-y-auto max-h-[240px] py-1">
             {isSearching ? (
               searchResults.length === 0 ? (
-                <p className="px-3 py-3 text-xs text-muted-foreground text-center">No matching tags</p>
+                <p className="px-3 py-3 text-xs text-muted-foreground text-center">
+                  No matching tags
+                </p>
               ) : (
                 searchResults.map(({ category, value }) => {
                   const color = getTagColor(category)
@@ -123,7 +139,9 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
                     >
                       <span className={`w-2 h-2 rounded-full shrink-0 ${color.dot}`} />
                       <span className="text-foreground capitalize flex-1 truncate">{value}</span>
-                      <span className="text-[10px] text-muted-foreground/50 capitalize shrink-0">{category}</span>
+                      <span className="text-[10px] text-muted-foreground/50 capitalize shrink-0">
+                        {category}
+                      </span>
                     </button>
                   )
                 })
@@ -143,7 +161,9 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
                     >
                       <span className={`w-2 h-2 rounded-full shrink-0 ${color.dot}`} />
                       <span className="capitalize text-foreground">{v.category}</span>
-                      <span className="ml-auto text-xs text-muted-foreground/60">{v.values.length}</span>
+                      <span className="ml-auto text-xs text-muted-foreground/60">
+                        {v.values.length}
+                      </span>
                     </button>
                   )
                 })}
@@ -160,7 +180,9 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
                 <div className="h-px bg-border mx-2" />
                 <div className="py-1">
                   {availableValues.length === 0 ? (
-                    <div className="px-3 py-3 text-xs text-muted-foreground italic text-center">All values applied</div>
+                    <div className="px-3 py-3 text-xs text-muted-foreground italic text-center">
+                      All values applied
+                    </div>
                   ) : (
                     availableValues.map((value) => (
                       <button

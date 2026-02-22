@@ -11,14 +11,12 @@ import {
   MoreHorizontal,
 } from 'lucide-react'
 import { groupApi, tagApi, imageApi, getThumbnailUrlById, getImageUrlById } from '@/lib/api'
-import {
-  Dialog,
-  DialogContent,
-} from '@/components/ui/dialog'
+import { getApiErrorMessage } from '@/lib/getErrorMessage'
+import { SAVED_INDICATOR_DURATION_MS } from '@/lib/constants'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
 import type {
   EditableFileState,
   EditableGroupState,
-  TagData,
   Image,
   GroupEditRequest,
   GroupSearchItem,
@@ -34,12 +32,8 @@ import {
 import { FileCard } from './import/FileCard'
 import { FileToolbar } from './import/FileToolbar'
 import { parseTagVocabulary } from './import/types'
-import type { ParsedTagVocab } from './import/types'
 import { EMPTY_FILTER, applyFileFilter } from './import/fileFilter'
-import type { FileFilter } from './import/fileFilter'
-
-const ALL_TAB = -1
-const ALL_GROUP_ID = '__all__'
+import { useFileEditing, ALL_TAB } from '@/hooks/useFileEditing'
 
 interface EditGroupDialogProps {
   // Single-group mode: pass groupId
@@ -93,7 +87,13 @@ function buildPayload(group: EditableGroupState): GroupEditRequest {
   }
 }
 
-export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: EditGroupDialogProps) {
+export function EditGroupDialog({
+  groupId,
+  seedImages,
+  open,
+  onClose,
+  onSave,
+}: EditGroupDialogProps) {
   const isMassEdit = !!seedImages && seedImages.length > 0
 
   const [loading, setLoading] = useState(false)
@@ -112,16 +112,79 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
   const [deleteConfirmGroupId, setDeleteConfirmGroupId] = useState<string | null>(null)
   const [ungroupedCount, setUngroupedCount] = useState(0)
 
-  const [groups, setGroups] = useState<EditableGroupState[]>([])
-  const [activeTab, setActiveTab] = useState(0)
-  const [tagVocab, setTagVocab] = useState<ParsedTagVocab[]>([])
-  const [selections, setSelections] = useState<Record<string, Set<string>>>({})
-  const [fileFilter, setFileFilter] = useState<FileFilter>(EMPTY_FILTER)
-  const [authorSuggestions, setAuthorSuggestions] = useState<string[]>([])
+  // ── Auto-save ────────────────────────────────────────────────────────
 
-  // Sub-variant heading inline rename state
-  const [editingSvHeading, setEditingSvHeading] = useState<string | null>(null)
-  const [svHeadingDraft, setSvHeadingDraft] = useState('')
+  const autoSaveGroup = useCallback(async (group: EditableGroupState) => {
+    const gId = Number(group.id)
+    if (isNaN(gId)) return // Skip locally-created groups (UUID keys — not in DB yet)
+
+    setGroupSaving((prev) => {
+      const s = new Set(prev)
+      s.add(group.id)
+      return s
+    })
+    setSaveError(null)
+    try {
+      await groupApi.edit(gId, buildPayload(group))
+      setGroupSaved((prev) => {
+        const s = new Set(prev)
+        s.add(group.id)
+        return s
+      })
+      setTimeout(() => {
+        setGroupSaved((prev) => {
+          const s = new Set(prev)
+          s.delete(group.id)
+          return s
+        })
+      }, SAVED_INDICATOR_DURATION_MS)
+    } catch (err) {
+      setSaveError(getApiErrorMessage(err, 'Auto-save failed'))
+    } finally {
+      setGroupSaving((prev) => {
+        const s = new Set(prev)
+        s.delete(group.id)
+        return s
+      })
+    }
+  }, [])
+
+  // ── Shared file editing state and mutations ───────────────────────
+
+  const {
+    groups,
+    setGroups,
+    activeTab,
+    setActiveTab,
+    selections,
+    fileFilter,
+    setFileFilter,
+    editingSvHeading,
+    setEditingSvHeading,
+    svHeadingDraft,
+    setSvHeadingDraft,
+    tagVocab,
+    setTagVocab,
+    authorSuggestions,
+    setAuthorSuggestions,
+    updateGroup,
+    updateFile,
+    updateFileAnyGroup,
+    toggleFileSelection,
+    selectAllVisible,
+    deselectAll,
+    bulkAddTag,
+    bulkSetGrid,
+    bulkSetImageType,
+    bulkSetSubgroup,
+    bulkExclude,
+    clearSubgroupLabel,
+    renameSubgroup,
+    isAllTab,
+    activeGroup,
+    activeGroupId,
+    allSameAuthor,
+  } = useFileEditing({ onGroupChange: (affected) => affected.forEach(autoSaveGroup) })
 
   const reset = useCallback(() => {
     setLoading(false)
@@ -138,51 +201,51 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
     setUngroupedCount(0)
     setGroups([])
     setActiveTab(0)
-    setSelections({})
     setFileFilter(EMPTY_FILTER)
     setEditingSvHeading(null)
-  }, [])
+  }, [setGroups, setActiveTab, setFileFilter, setEditingSvHeading])
 
-  useEffect(() => { setFileFilter(EMPTY_FILTER); setEditingSvHeading(null) }, [activeTab])
-
-  // ── Load: single-group mode ──────────────────────────────────────────
+  // ── Load: single-group mode ──────────────────────────────────────
 
   useEffect(() => {
     if (!open || isMassEdit) return
     const gId = groupId ?? null
-    if (gId === null) { reset(); return }
+    if (gId === null) {
+      reset()
+      return
+    }
 
     setLoading(true)
     setLoadError(null)
 
-    Promise.all([
-      groupApi.get(gId),
-      tagApi.getCategories(),
-      imageApi.getAuthors(),
-    ]).then(([group, categories, authors]) => {
-      setGroups([{
-        id: String(group.id),
-        author: group.author ?? '',
-        group_name: group.base_name,
-        files: group.images.map((img) => imageToEditable(img)),
-        skip: false,
-        status: 'pending',
-        processed: 0,
-        failed: 0,
-        total: group.images.length,
-      }])
-      setTagVocab(parseTagVocabulary(categories))
-      setAuthorSuggestions(authors)
-      setActiveTab(0)
-      setSelections({})
-    }).catch((err) => {
-      setLoadError(err?.response?.data?.detail ?? err?.message ?? 'Failed to load group')
-    }).finally(() => {
-      setLoading(false)
-    })
-  }, [open, groupId, isMassEdit, reset])
+    Promise.all([groupApi.get(gId), tagApi.getCategories(), imageApi.getAuthors()])
+      .then(([group, categories, authors]) => {
+        setGroups([
+          {
+            id: String(group.id),
+            author: group.author ?? '',
+            group_name: group.base_name,
+            files: group.images.map((img) => imageToEditable(img)),
+            skip: false,
+            status: 'pending',
+            processed: 0,
+            failed: 0,
+            total: group.images.length,
+          },
+        ])
+        setTagVocab(parseTagVocabulary(categories))
+        setAuthorSuggestions(authors)
+        setActiveTab(0)
+      })
+      .catch((err: unknown) => {
+        setLoadError(getApiErrorMessage(err, 'Failed to load group'))
+      })
+      .finally(() => {
+        setLoading(false)
+      })
+  }, [open, groupId, isMassEdit, reset, setGroups, setTagVocab, setAuthorSuggestions, setActiveTab])
 
-  // ── Load: mass-edit mode ─────────────────────────────────────────────
+  // ── Load: mass-edit mode ─────────────────────────────────────────
 
   useEffect(() => {
     if (!open || !isMassEdit) return
@@ -216,61 +279,55 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
       ...groupIds.map((id) => groupApi.get(id)),
       tagApi.getCategories(),
       imageApi.getAuthors(),
-    ]).then((results) => {
-      const groupDetails = results.slice(0, groupIds.length) as Awaited<ReturnType<typeof groupApi.get>>[]
-      const categories = results[groupIds.length] as Awaited<ReturnType<typeof tagApi.getCategories>>
-      const authors = results[groupIds.length + 1] as string[]
+    ])
+      .then((results) => {
+        const groupDetails = results.slice(0, groupIds.length) as Awaited<
+          ReturnType<typeof groupApi.get>
+        >[]
+        const categories = results[groupIds.length] as Awaited<
+          ReturnType<typeof tagApi.getCategories>
+        >
+        const authors = results[groupIds.length + 1] as string[]
 
-      const editableGroups: EditableGroupState[] = groupDetails.map((detail) => {
-        const seedIds = new Set((byGroup.get(detail.id) ?? []).map((img) => img.id))
-        return {
-          id: String(detail.id),
-          author: detail.author ?? '',
-          group_name: detail.base_name,
-          // ALL images in the group; non-seed ones marked outOfScope
-          files: detail.images.map((img) => imageToEditable(img, !seedIds.has(img.id))),
-          skip: false,
-          status: 'pending',
-          processed: 0,
-          failed: 0,
-          total: detail.images.length,
-        }
+        const editableGroups: EditableGroupState[] = groupDetails.map((detail) => {
+          const seedIds = new Set((byGroup.get(detail.id) ?? []).map((img) => img.id))
+          return {
+            id: String(detail.id),
+            author: detail.author ?? '',
+            group_name: detail.base_name,
+            // ALL images in the group; non-seed ones marked outOfScope
+            files: detail.images.map((img) => imageToEditable(img, !seedIds.has(img.id))),
+            skip: false,
+            status: 'pending',
+            processed: 0,
+            failed: 0,
+            total: detail.images.length,
+          }
+        })
+
+        setGroups(editableGroups)
+        setTagVocab(parseTagVocabulary(categories))
+        setAuthorSuggestions(authors)
+        setActiveTab(editableGroups.length > 1 ? ALL_TAB : 0)
       })
+      .catch((err: unknown) => {
+        setLoadError(getApiErrorMessage(err, 'Failed to load groups'))
+      })
+      .finally(() => {
+        setLoading(false)
+      })
+  }, [
+    open,
+    seedImages,
+    isMassEdit,
+    reset,
+    setGroups,
+    setTagVocab,
+    setAuthorSuggestions,
+    setActiveTab,
+  ])
 
-      setGroups(editableGroups)
-      setTagVocab(parseTagVocabulary(categories))
-      setAuthorSuggestions(authors)
-      setActiveTab(editableGroups.length > 1 ? ALL_TAB : 0)
-      setSelections({})
-    }).catch((err) => {
-      setLoadError(err?.response?.data?.detail ?? err?.message ?? 'Failed to load groups')
-    }).finally(() => {
-      setLoading(false)
-    })
-  }, [open, seedImages, isMassEdit, reset])  // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Auto-save ────────────────────────────────────────────────────────
-
-  const autoSaveGroup = useCallback(async (group: EditableGroupState) => {
-    const gId = Number(group.id)
-    if (isNaN(gId)) return // Skip locally-created groups (UUID keys — not in DB yet)
-
-    setGroupSaving((prev) => { const s = new Set(prev); s.add(group.id); return s })
-    setSaveError(null)
-    try {
-      await groupApi.edit(gId, buildPayload(group))
-      setGroupSaved((prev) => { const s = new Set(prev); s.add(group.id); return s })
-      setTimeout(() => {
-        setGroupSaved((prev) => { const s = new Set(prev); s.delete(group.id); return s })
-      }, 1500)
-    } catch (err: any) {
-      setSaveError(err?.response?.data?.detail ?? err?.message ?? 'Auto-save failed')
-    } finally {
-      setGroupSaving((prev) => { const s = new Set(prev); s.delete(group.id); return s })
-    }
-  }, [])
-
-  // ── Close / Done ────────────────────────────────────────────────────
+  // ── Close / Done ────────────────────────────────────────────────
 
   // Called on any close action — changes have already been auto-saved
   const handleDone = useCallback(() => {
@@ -278,173 +335,7 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
     onClose()
   }, [onSave, onClose])
 
-  // ── State helpers ──────────────────────────────────────────────────
-
-  const updateGroup = (index: number, updates: Partial<EditableGroupState>) => {
-    setGroups((prev) => prev.map((g, i) => (i === index ? { ...g, ...updates } : g)))
-  }
-
-  // Compute updated group inline so we can auto-save without stale closure
-  const updateFile = (groupIndex: number, relativePath: string, updates: Partial<EditableFileState>) => {
-    const currentGroup = groups[groupIndex]
-    if (!currentGroup) return
-    const newGroup = {
-      ...currentGroup,
-      files: currentGroup.files.map((f) => f.relative_path === relativePath ? { ...f, ...updates } : f),
-    }
-    setGroups((prev) => prev.map((g, i) => i === groupIndex ? newGroup : g))
-    autoSaveGroup(newGroup)
-  }
-
-  const updateFileAnyGroup = (relativePath: string, updates: Partial<EditableFileState>) => {
-    const newGroups = groups.map((g) => ({
-      ...g,
-      files: g.files.map((f) => f.relative_path === relativePath ? { ...f, ...updates } : f),
-    }))
-    setGroups(newGroups)
-    newGroups.forEach((g) => {
-      if (g.files.some((f) => f.relative_path === relativePath)) autoSaveGroup(g)
-    })
-  }
-
-  // ── Selection helpers ──────────────────────────────────────────────
-
-  const toggleFileSelection = (gId: string, relativePath: string) => {
-    setSelections((prev) => {
-      const set = new Set(prev[gId] ?? [])
-      if (set.has(relativePath)) set.delete(relativePath)
-      else set.add(relativePath)
-      return { ...prev, [gId]: set }
-    })
-  }
-
-  const selectAllVisible = (gId: string, visibleFiles: EditableFileState[]) => {
-    setSelections((prev) => {
-      const set = new Set<string>(prev[gId] ?? [])
-      visibleFiles.filter((f) => !f.excluded && !f.outOfScope).forEach((f) => set.add(f.relative_path))
-      return { ...prev, [gId]: set }
-    })
-  }
-
-  const deselectAll = (gId: string) => {
-    setSelections((prev) => ({ ...prev, [gId]: new Set<string>() }))
-  }
-
-  // ── Bulk actions (gId: null = All mode) ───────────────────────────
-
-  const bulkAddTag = (gId: string | null, tag: TagData) => {
-    const selId = gId ?? ALL_GROUP_ID
-    const sel = selections[selId] ?? new Set<string>()
-    const newGroups = groups.map((g) => {
-      if (gId !== null && g.id !== gId) return g
-      return {
-        ...g,
-        files: g.files.map((f) => {
-          if (!sel.has(f.relative_path) || f.excluded || f.outOfScope) return f
-          if (f.tags.some((t) => t.category === tag.category && t.value === tag.value)) return f
-          return { ...f, tags: [...f.tags, tag] }
-        }),
-      }
-    })
-    setGroups(newGroups)
-    const toSave = gId !== null ? newGroups.filter((g) => g.id === gId) : newGroups
-    toSave.forEach(autoSaveGroup)
-  }
-
-  const bulkSetGrid = (gId: string | null, value: boolean | null) => {
-    const selId = gId ?? ALL_GROUP_ID
-    const sel = selections[selId] ?? new Set<string>()
-    const newGroups = groups.map((g) => {
-      if (gId !== null && g.id !== gId) return g
-      return {
-        ...g,
-        files: g.files.map((f) =>
-          !sel.has(f.relative_path) || f.excluded || f.outOfScope ? f : { ...f, gridded: value }
-        ),
-      }
-    })
-    setGroups(newGroups)
-    const toSave = gId !== null ? newGroups.filter((g) => g.id === gId) : newGroups
-    toSave.forEach(autoSaveGroup)
-  }
-
-  const bulkSetImageType = (gId: string | null, value: 'battlemap' | 'scene') => {
-    const selId = gId ?? ALL_GROUP_ID
-    const sel = selections[selId] ?? new Set<string>()
-    const newGroups = groups.map((g) => {
-      if (gId !== null && g.id !== gId) return g
-      return {
-        ...g,
-        files: g.files.map((f) =>
-          !sel.has(f.relative_path) || f.excluded || f.outOfScope ? f : { ...f, image_type: value }
-        ),
-      }
-    })
-    setGroups(newGroups)
-    const toSave = gId !== null ? newGroups.filter((g) => g.id === gId) : newGroups
-    toSave.forEach(autoSaveGroup)
-  }
-
-  const bulkSetSubgroup = (gId: string | null, value: string) => {
-    const selId = gId ?? ALL_GROUP_ID
-    const sel = selections[selId] ?? new Set<string>()
-    const normalized = value.trim() || null
-    const newGroups = groups.map((g) => {
-      if (gId !== null && g.id !== gId) return g
-      return {
-        ...g,
-        files: g.files.map((f) =>
-          !sel.has(f.relative_path) || f.excluded || f.outOfScope ? f : { ...f, subgroup: normalized }
-        ),
-      }
-    })
-    setGroups(newGroups)
-    const toSave = gId !== null ? newGroups.filter((g) => g.id === gId) : newGroups
-    toSave.forEach(autoSaveGroup)
-  }
-
-  const bulkExclude = (gId: string | null) => {
-    const selId = gId ?? ALL_GROUP_ID
-    const sel = selections[selId] ?? new Set<string>()
-    const newGroups = groups.map((g) => {
-      if (gId !== null && g.id !== gId) return g
-      return { ...g, files: g.files.map((f) => (!sel.has(f.relative_path) || f.outOfScope ? f : { ...f, excluded: true })) }
-    })
-    setGroups(newGroups)
-    deselectAll(selId)
-    const toSave = gId !== null ? newGroups.filter((g) => g.id === gId) : newGroups
-    toSave.forEach(autoSaveGroup)
-  }
-
-  const clearSubVariantLabel = (gId: string, subVariant: string) => {
-    const newGroups = groups.map((g) => {
-      if (g.id !== gId) return g
-      return {
-        ...g,
-        files: g.files.map((f) =>
-          f.subgroup === subVariant && !f.excluded && !f.outOfScope ? { ...f, subgroup: null } : f
-        ),
-      }
-    })
-    setGroups(newGroups)
-    const updatedGroup = newGroups.find((g) => g.id === gId)
-    if (updatedGroup) autoSaveGroup(updatedGroup)
-  }
-
-  const renameSubVariant = (gId: string, oldVal: string, newVal: string) => {
-    const newGroups = groups.map((g) => {
-      if (g.id !== gId) return g
-      return {
-        ...g,
-        files: g.files.map((f) =>
-          f.subgroup === oldVal && !f.excluded && !f.outOfScope ? { ...f, subgroup: newVal.trim() || null } : f
-        ),
-      }
-    })
-    setGroups(newGroups)
-    const updatedGroup = newGroups.find((g) => g.id === gId)
-    if (updatedGroup) autoSaveGroup(updatedGroup)
-  }
+  // ── moveToNewGroup (API-backed split) ──────────────────────────
 
   // Only available in single-group mode — triggers an immediate API call
   const moveToNewGroup = async (sourceGroupId: string) => {
@@ -465,21 +356,25 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
       const response = await groupApi.edit(sourceGId, {
         base_name: source.group_name,
         author: source.author || undefined,
-        images: remainingFiles.filter((f) => !f.excluded).map((f) => ({
-          id: Number(f.relative_path),
-          name: f.name,
-          tags: f.tags,
-          gridded: f.gridded,
-          grid_width: f.grid_width,
-          grid_height: f.grid_height,
-          subgroup: f.subgroup,
-          image_type: f.image_type,
-        })),
-        new_groups: [{
-          base_name: `${source.group_name} (split)`,
-          author: source.author || undefined,
-          image_ids: movedFiles.filter((f) => !f.excluded).map((f) => Number(f.relative_path)),
-        }],
+        images: remainingFiles
+          .filter((f) => !f.excluded)
+          .map((f) => ({
+            id: Number(f.relative_path),
+            name: f.name,
+            tags: f.tags,
+            gridded: f.gridded,
+            grid_width: f.grid_width,
+            grid_height: f.grid_height,
+            subgroup: f.subgroup,
+            image_type: f.image_type,
+          })),
+        new_groups: [
+          {
+            base_name: `${source.group_name} (split)`,
+            author: source.author || undefined,
+            image_ids: movedFiles.filter((f) => !f.excluded).map((f) => Number(f.relative_path)),
+          },
+        ],
       })
 
       // Reload both groups from API so we have real IDs
@@ -501,20 +396,19 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
       })
 
       const newGroups = [
-        ...groups.map((g, i) => i === sourceIndex ? toEditable(updatedSource) : g),
+        ...groups.map((g, i) => (i === sourceIndex ? toEditable(updatedSource) : g)),
         ...(newGroup ? [toEditable(newGroup)] : []),
       ]
       setGroups(newGroups)
-      setSelections((prev) => { const next = { ...prev }; delete next[sourceGroupId]; return next })
       setActiveTab(newGroups.length - 1)
-    } catch (err: any) {
-      setSaveError(err?.response?.data?.detail ?? err?.message ?? 'Split failed')
+    } catch (err) {
+      setSaveError(getApiErrorMessage(err, 'Split failed'))
     } finally {
       setSaving(false)
     }
   }
 
-  // ── Delete group (single-group mode only) ──────────────────────────
+  // ── Delete group (single-group mode only) ──────────────────────
 
   const handleDelete = async () => {
     const gId = groupId ?? null
@@ -524,14 +418,14 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
       await groupApi.delete(gId)
       onSave()
       onClose()
-    } catch (err: any) {
-      setSaveError(err?.response?.data?.detail ?? err?.message ?? 'Delete failed')
+    } catch (err) {
+      setSaveError(getApiErrorMessage(err, 'Delete failed'))
       setSaving(false)
       setConfirmingDelete(false)
     }
   }
 
-  // ── Merge into another group (single-group mode only) ──────────────
+  // ── Merge into another group (single-group mode only) ──────────
 
   const handleMerge = async (targetGroup: { id: number }) => {
     const gId = groupId ?? null
@@ -542,13 +436,13 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
       setShowMergePicker(false)
       onSave()
       onClose()
-    } catch (err: any) {
-      setSaveError(err?.response?.data?.detail ?? err?.message ?? 'Merge failed')
+    } catch (err) {
+      setSaveError(getApiErrorMessage(err, 'Merge failed'))
       setMerging(false)
     }
   }
 
-  // ── Per-group nav actions (mass-edit mode) ─────────────────────────
+  // ── Per-group nav actions (mass-edit mode) ─────────────────────
 
   const handleDeleteGroup = async (gId: string) => {
     const idx = groups.findIndex((g) => g.id === gId)
@@ -562,8 +456,8 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
         if (idx < activeTab) setActiveTab(activeTab - 1)
         else if (idx === activeTab) setActiveTab(Math.max(0, activeTab - 1))
       }
-    } catch (err: any) {
-      setSaveError(err?.response?.data?.detail ?? err?.message ?? 'Delete failed')
+    } catch (err) {
+      setSaveError(getApiErrorMessage(err, 'Delete failed'))
     } finally {
       setSaving(false)
     }
@@ -585,7 +479,8 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
         // Preserve outOfScope flags for the target group's existing images
         const originalTarget = groups.find((g) => g.id === String(targetGroup.id))
         const originalSeedIds = new Set(
-          originalTarget?.files.filter((f) => !f.outOfScope).map((f) => Number(f.relative_path)) ?? []
+          originalTarget?.files.filter((f) => !f.outOfScope).map((f) => Number(f.relative_path)) ??
+            [],
         )
         updatedGroups = updatedGroups.map((g) => {
           if (g.id !== String(targetGroup.id)) return g
@@ -603,49 +498,55 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
         if (idx < activeTab) setActiveTab(activeTab - 1)
         else if (idx === activeTab) setActiveTab(Math.max(0, activeTab - 1))
       }
-    } catch (err: any) {
-      setSaveError(err?.response?.data?.detail ?? err?.message ?? 'Merge failed')
+    } catch (err) {
+      setSaveError(getApiErrorMessage(err, 'Merge failed'))
     } finally {
       setMerging(false)
     }
   }
 
-  // ── Derived values ─────────────────────────────────────────────────
-
-  const isAllTab = activeTab === ALL_TAB
-  const activeGroup = isAllTab ? null : groups[activeTab] ?? null
-  const activeGroupId = isAllTab ? ALL_GROUP_ID : (activeGroup?.id ?? '')
+  // ── Derived values ─────────────────────────────────────────────
 
   // All tab shows only in-scope files; per-group tab shows all (incl. out-of-scope for context)
-  const allInScopeFiles = useMemo(() =>
-    groups.flatMap((g) => g.files.filter((f) => !f.outOfScope)),
-    [groups]
+  const allInScopeFiles = useMemo(
+    () => groups.flatMap((g) => g.files.filter((f) => !f.outOfScope)),
+    [groups],
   )
   const perGroupFiles = activeGroup?.files ?? []
   const sourceFiles = isAllTab ? allInScopeFiles : perGroupFiles
 
   // Filtered files: for the in-scope section, filter normally; out-of-scope shown separately
-  const inScopeSource = useMemo(() =>
-    sourceFiles.filter((f) => !f.outOfScope),
-    [sourceFiles]
+  const inScopeSource = useMemo(() => sourceFiles.filter((f) => !f.outOfScope), [sourceFiles])
+  const filteredInScope = useMemo(
+    () => applyFileFilter(inScopeSource, fileFilter),
+    [inScopeSource, fileFilter],
   )
-  const filteredInScope = useMemo(() => applyFileFilter(inScopeSource, fileFilter), [inScopeSource, fileFilter])
-  const outOfScopeFiles = useMemo(() =>
-    !isAllTab ? (activeGroup?.files ?? []).filter((f) => f.outOfScope) : [],
-    [isAllTab, activeGroup]
+  const outOfScopeFiles = useMemo(
+    () => (!isAllTab ? (activeGroup?.files ?? []).filter((f) => f.outOfScope) : []),
+    [isAllTab, activeGroup],
   )
 
   const activeSelection = selections[activeGroupId] ?? new Set<string>()
 
-  const groupSubVariants = useMemo(() => [...new Set(
-    inScopeSource.filter((f) => !f.excluded && f.subgroup).map((f) => f.subgroup as string)
-  )].sort(), [inScopeSource])
+  const groupSubVariants = useMemo(
+    () =>
+      [
+        ...new Set(
+          inScopeSource.filter((f) => !f.excluded && f.subgroup).map((f) => f.subgroup as string),
+        ),
+      ].sort(),
+    [inScopeSource],
+  )
 
-  const distinctSubVariants = useMemo(() => [...new Set(filteredInScope.map((f) => f.subgroup))].sort((a, b) => {
-    if (a === null) return -1
-    if (b === null) return 1
-    return (a ?? '').localeCompare(b ?? '')
-  }), [filteredInScope])
+  const distinctSubVariants = useMemo(
+    () =>
+      [...new Set(filteredInScope.map((f) => f.subgroup))].sort((a, b) => {
+        if (a === null) return -1
+        if (b === null) return 1
+        return (a ?? '').localeCompare(b ?? '')
+      }),
+    [filteredInScope],
+  )
 
   const showSubVariantHeadings = distinctSubVariants.length > 1
   const subVariantGroups = distinctSubVariants.map((sv) => ({
@@ -656,20 +557,22 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
   const hasActiveFilter = fileFilter.text || fileFilter.active.length > 0
   const isOriginalGroup = !isAllTab && !isMassEdit && activeGroup?.id === String(groupId)
 
-  const allSameAuthor = useMemo(() => {
-    if (groups.length === 0) return ''
-    const first = groups[0].author
-    return groups.every((g) => g.author === first) ? first : ''
-  }, [groups])
-
-  const totalInScope = groups.reduce((s, g) => s + g.files.filter((f) => !f.outOfScope && !f.excluded).length, 0)
+  const totalInScope = groups.reduce(
+    (s, g) => s + g.files.filter((f) => !f.outOfScope && !f.excluded).length,
+    0,
+  )
 
   const isBusy = saving || groupSaving.size > 0
 
-  // ── Render ─────────────────────────────────────────────────────────
+  // ── Render ─────────────────────────────────────────────────────
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o && !saving) handleDone() }}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (!o && !saving) handleDone()
+      }}
+    >
       <DialogContent className="max-w-5xl h-[85vh] overflow-hidden flex flex-col p-0 gap-0">
         {/* Amber stripe */}
         <div className="absolute top-0 inset-x-0 h-0.5 bg-gradient-to-r from-primary/70 via-primary/30 to-transparent pointer-events-none rounded-t-xl" />
@@ -683,7 +586,8 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
             </h2>
             {isMassEdit && !loading && !loadError && groups.length > 0 && (
               <p className="text-[11px] text-muted-foreground/60 mt-0.5 ml-7">
-                {totalInScope} image{totalInScope !== 1 ? 's' : ''} across {groups.length} group{groups.length !== 1 ? 's' : ''}
+                {totalInScope} image{totalInScope !== 1 ? 's' : ''} across {groups.length} group
+                {groups.length !== 1 ? 's' : ''}
                 {ungroupedCount > 0 && ` · ${ungroupedCount} ungrouped skipped`}
               </p>
             )}
@@ -701,7 +605,9 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
 
         {/* Author datalist */}
         <datalist id="author-suggestions-edit">
-          {authorSuggestions.map((a) => <option key={a} value={a} />)}
+          {authorSuggestions.map((a) => (
+            <option key={a} value={a} />
+          ))}
         </datalist>
 
         {/* ── Loading ── */}
@@ -714,14 +620,14 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
         {/* ── Load error ── */}
         {!loading && loadError && (
           <div className="mx-6 mt-4 flex items-center gap-2 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2">
-            <AlertCircle className="h-4 w-4 flex-shrink-0" />{loadError}
+            <AlertCircle className="h-4 w-4 flex-shrink-0" />
+            {loadError}
           </div>
         )}
 
         {/* ── Main content ── */}
         {!loading && !loadError && groups.length > 0 && (
           <div className="flex min-h-0 flex-1 overflow-hidden">
-
             {/* ── Left: groups nav (only when >1 group) ── */}
             {groups.length > 1 && (
               <div className="w-[190px] shrink-0 border-r border-border/30 flex flex-col overflow-hidden bg-muted/20">
@@ -743,7 +649,10 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
                   >
                     <span className="font-display text-[13px] font-semibold flex-1">All</span>
                     <span className="text-[11px] text-muted-foreground/40 tabular-nums shrink-0">
-                      {groups.reduce((s, g) => s + g.files.filter((f) => !f.excluded && !f.outOfScope).length, 0)}
+                      {groups.reduce(
+                        (s, g) => s + g.files.filter((f) => !f.excluded && !f.outOfScope).length,
+                        0,
+                      )}
                     </span>
                   </button>
                   <div className="h-px bg-border/30 mx-3 my-0.5" />
@@ -752,7 +661,9 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
                     <div key={g.id} className="group/navrow">
                       {deleteConfirmGroupId === g.id ? (
                         <div className="px-3 py-2 border-l-2 border-destructive/50 bg-destructive/5">
-                          <p className="text-[11px] text-destructive/80 mb-1.5">Delete this group?</p>
+                          <p className="text-[11px] text-destructive/80 mb-1.5">
+                            Delete this group?
+                          </p>
                           <div className="flex gap-1">
                             <button
                               onClick={() => handleDeleteGroup(g.id)}
@@ -784,7 +695,9 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
                             <span className="text-[11px] text-muted-foreground/40 tabular-nums shrink-0 flex items-center gap-1">
                               {g.files.filter((f) => !f.excluded && !f.outOfScope).length}
                               {g.files.some((f) => f.outOfScope) && (
-                                <span className="ml-0.5 opacity-50">+{g.files.filter((f) => f.outOfScope).length}</span>
+                                <span className="ml-0.5 opacity-50">
+                                  +{g.files.filter((f) => f.outOfScope).length}
+                                </span>
                               )}
                               {groupSaving.has(g.id) ? (
                                 <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/40 ml-1" />
@@ -805,14 +718,16 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
                                 <DropdownMenuItem onClick={() => setMergeSourceGroupId(g.id)}>
-                                  <Merge className="h-4 w-4 mr-2" />Merge into…
+                                  <Merge className="h-4 w-4 mr-2" />
+                                  Merge into…
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem
                                   onClick={() => setDeleteConfirmGroupId(g.id)}
                                   className="text-destructive focus:text-destructive"
                                 >
-                                  <Trash2 className="h-4 w-4 mr-2" />Delete group
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Delete group
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
@@ -827,7 +742,6 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
 
             {/* ── Right: active group content ── */}
             <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-
               {/* Group metadata */}
               <div className="px-5 pt-4 pb-3 border-b border-border/30 shrink-0">
                 <div className="grid grid-cols-2 gap-3">
@@ -851,7 +765,11 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
                           autoSaveGroup(activeGroup)
                         }
                       }}
-                      placeholder={isAllTab && !allSameAuthor ? 'Multiple — type to set for all groups' : 'Author name'}
+                      placeholder={
+                        isAllTab && !allSameAuthor
+                          ? 'Multiple — type to set for all groups'
+                          : 'Author name'
+                      }
                       list="author-suggestions-edit"
                       className="w-full h-8 px-3 text-sm rounded border border-border bg-secondary text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/40 transition-colors"
                     />
@@ -867,7 +785,9 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
                     </label>
                     <input
                       value={isAllTab ? '' : (activeGroup?.group_name ?? '')}
-                      onChange={(e) => !isAllTab && updateGroup(activeTab, { group_name: e.target.value })}
+                      onChange={(e) =>
+                        !isAllTab && updateGroup(activeTab, { group_name: e.target.value })
+                      }
                       onBlur={() => {
                         if (!isAllTab && activeGroup) autoSaveGroup(activeGroup)
                       }}
@@ -900,7 +820,11 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
                   onBulkSetImageType={(v) => bulkSetImageType(isAllTab ? null : activeGroupId, v)}
                   onBulkSetSubgroup={(v) => bulkSetSubgroup(isAllTab ? null : activeGroupId, v)}
                   onBulkExclude={() => bulkExclude(isAllTab ? null : activeGroupId)}
-                  onMoveToNewGroup={!isAllTab && !isMassEdit && activeGroup?.id ? () => moveToNewGroup(activeGroup.id) : undefined}
+                  onMoveToNewGroup={
+                    !isAllTab && !isMassEdit && activeGroup?.id
+                      ? () => moveToNewGroup(activeGroup.id)
+                      : undefined
+                  }
                   excludeLabel={isMassEdit ? 'Remove' : 'Delete'}
                   alwaysShowTypeToggle
                 />
@@ -911,7 +835,10 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
                 {showSubVariantHeadings ? (
                   subVariantGroups.map((svGroup) => {
                     const nonExcluded = svGroup.files.filter((f) => !f.excluded).length
-                    const isEditing = !isAllTab && editingSvHeading === svGroup.subVariant && svGroup.subVariant !== null
+                    const isEditing =
+                      !isAllTab &&
+                      editingSvHeading === svGroup.subVariant &&
+                      svGroup.subVariant !== null
                     return (
                       <div key={svGroup.subVariant ?? '__main__'} className="mb-2">
                         <div className="flex items-center gap-2 py-1.5 mt-2 first:mt-0">
@@ -922,13 +849,17 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
                               onChange={(e) => setSvHeadingDraft(e.target.value)}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
-                                  renameSubVariant(activeGroup!.id, svGroup.subVariant!, svHeadingDraft)
+                                  renameSubgroup(
+                                    activeGroup!.id,
+                                    svGroup.subVariant!,
+                                    svHeadingDraft,
+                                  )
                                   setEditingSvHeading(null)
                                 }
                                 if (e.key === 'Escape') setEditingSvHeading(null)
                               }}
                               onBlur={() => {
-                                renameSubVariant(activeGroup!.id, svGroup.subVariant!, svHeadingDraft)
+                                renameSubgroup(activeGroup!.id, svGroup.subVariant!, svHeadingDraft)
                                 setEditingSvHeading(null)
                               }}
                               className="text-[11px] font-semibold text-foreground border-b border-primary/70 bg-transparent outline-none uppercase tracking-wider capitalize"
@@ -940,7 +871,10 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
                           )}
                           {!isAllTab && svGroup.subVariant !== null && !isEditing && (
                             <button
-                              onClick={() => { setSvHeadingDraft(svGroup.subVariant!); setEditingSvHeading(svGroup.subVariant!) }}
+                              onClick={() => {
+                                setSvHeadingDraft(svGroup.subVariant!)
+                                setEditingSvHeading(svGroup.subVariant!)
+                              }}
                               className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
                               title={`Rename "${svGroup.subVariant}"`}
                             >
@@ -948,10 +882,14 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
                             </button>
                           )}
                           <div className="flex-1 h-px bg-border/30" />
-                          <span className="text-[11px] text-muted-foreground/40 tabular-nums">{nonExcluded}</span>
+                          <span className="text-[11px] text-muted-foreground/40 tabular-nums">
+                            {nonExcluded}
+                          </span>
                           {!isAllTab && svGroup.subVariant !== null && !isEditing && (
                             <button
-                              onClick={() => clearSubVariantLabel(activeGroup!.id, svGroup.subVariant!)}
+                              onClick={() =>
+                                clearSubgroupLabel(activeGroup!.id, svGroup.subVariant!)
+                              }
                               className="text-muted-foreground/40 hover:text-primary transition-colors"
                               title={`Remove "${svGroup.subVariant}" label from all files`}
                             >
@@ -968,7 +906,9 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
                               vocab={tagVocab}
                               existingSubgroups={groupSubVariants}
                               selected={activeSelection.has(file.relative_path)}
-                              onToggleSelect={() => toggleFileSelection(activeGroupId, file.relative_path)}
+                              onToggleSelect={() =>
+                                toggleFileSelection(activeGroupId, file.relative_path)
+                              }
                               onUpdate={(updates) =>
                                 isAllTab
                                   ? updateFileAnyGroup(file.relative_path, updates)
@@ -990,7 +930,9 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
                         vocab={tagVocab}
                         existingSubgroups={groupSubVariants}
                         selected={activeSelection.has(file.relative_path)}
-                        onToggleSelect={() => toggleFileSelection(activeGroupId, file.relative_path)}
+                        onToggleSelect={() =>
+                          toggleFileSelection(activeGroupId, file.relative_path)
+                        }
                         onUpdate={(updates) =>
                           isAllTab
                             ? updateFileAnyGroup(file.relative_path, updates)
@@ -1085,17 +1027,20 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
                 <div className="flex items-center gap-2">
                   {saveError && (
                     <span className="text-xs text-destructive flex items-center gap-1 max-w-xs truncate">
-                      <AlertCircle className="h-3.5 w-3.5 shrink-0" />{saveError}
+                      <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                      {saveError}
                     </span>
                   )}
                   {!saveError && groupSaving.size > 0 && (
                     <span className="text-xs text-muted-foreground/60 flex items-center gap-1">
-                      <Loader2 className="h-3 w-3 animate-spin" />Saving…
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Saving…
                     </span>
                   )}
                   {!saveError && groupSaving.size === 0 && groupSaved.size > 0 && (
                     <span className="text-xs text-green-500/70 flex items-center gap-1">
-                      <Check className="h-3 w-3" />Saved
+                      <Check className="h-3 w-3" />
+                      Saved
                     </span>
                   )}
                   <button
@@ -1103,12 +1048,19 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
                     disabled={isBusy}
                     className="px-3 py-1.5 text-sm rounded border border-primary/40 bg-primary/20 text-primary hover:bg-primary/30 transition-colors disabled:opacity-40"
                   >
-                    {saving
-                      ? <><Loader2 className="h-3.5 w-3.5 animate-spin inline mr-1" />Working…</>
-                      : groupSaving.size > 0
-                        ? <><Loader2 className="h-3.5 w-3.5 animate-spin inline mr-1" />Saving…</>
-                        : 'Done'
-                    }
+                    {saving ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin inline mr-1" />
+                        Working…
+                      </>
+                    ) : groupSaving.size > 0 ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin inline mr-1" />
+                        Saving…
+                      </>
+                    ) : (
+                      'Done'
+                    )}
                   </button>
                 </div>
               </div>
@@ -1120,7 +1072,10 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
       {/* Merge picker — shared for footer (single-group) and nav (mass-edit) actions */}
       <MergeGroupPicker
         open={showMergePicker || mergeSourceGroupId !== null}
-        onClose={() => { setShowMergePicker(false); setMergeSourceGroupId(null) }}
+        onClose={() => {
+          setShowMergePicker(false)
+          setMergeSourceGroupId(null)
+        }}
         excludeGroupId={mergeSourceGroupId !== null ? Number(mergeSourceGroupId) : groupId}
         onSelect={(target) =>
           mergeSourceGroupId ? handleMergeGroup(mergeSourceGroupId, target) : handleMerge(target)
