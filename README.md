@@ -6,7 +6,7 @@ A local system for managing, searching, and exploring large collections of RPG b
 
 - **Hybrid search** — natural-language semantic search (CLIP) combined with keyword full-text search (FTS5 + Porter stemmer)
 - **Tag-based filtering** — grid state, season, lighting, weather, terrain, and more; auto-extracted from filenames
-- **Variant groups** — related maps (different lighting, grid, weather variants) grouped automatically from folder structure
+- **Variant groups** — related maps (different lighting, grid, weather variants) grouped automatically from name and folder structure
 - **Web import** — drag-and-drop uploader with browser-side duplicate detection, ZIP support, and preview
 - **Color search** — filter by dominant colours extracted from each image
 - **100% local** — no cloud services; runs on your home server or laptop
