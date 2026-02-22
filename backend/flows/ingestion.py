@@ -106,6 +106,8 @@ def _save_image_to_db(db: Session, image_data: dict) -> int:
         gridded=image_data.get("gridded"),
         grid_width=image_data.get("grid_width"),
         grid_height=image_data.get("grid_height"),
+        grid_type=image_data.get("grid_type"),
+        grid_confidence=image_data.get("grid_confidence"),
         subgroup=image_data.get("subgroup"),
         image_type=image_data.get("image_type", "battlemap"),
         content_hash=image_data.get("content_hash"),
@@ -307,6 +309,8 @@ def prepare_single_image(
                 "gridded": gridded,
                 "grid_width": grid_width,
                 "grid_height": grid_height,
+                "grid_type": metadata.get("grid_type") if metadata else None,
+                "grid_confidence": metadata.get("grid_confidence") if metadata else None,
                 "subgroup": subgroup,
                 "image_type": image_type,
                 "content_hash": content_hash,
@@ -374,6 +378,37 @@ def prepare_single_image(
 
         thumbnail_key = thumbnail_keys.get("medium", thumbnail_keys.get("small"))
 
+        # --- Image-based grid detection (optional, battlemaps only) ---
+        grid_type = None
+        grid_confidence = None
+
+        if (
+            settings.enable_image_grid_detection
+            and image_type == "battlemap"
+            and not is_video
+        ):
+            from backend.flows.tasks.grid_detection import (
+                detect_grid_from_image as _detect_grid,
+            )
+
+            if gridded is None:
+                # No filename hint — detect presence + size
+                grid_result = _detect_grid.fn(image_path, width, height, size_only=False)
+            elif gridded is True and grid_width is None:
+                # Filename says gridded but no dimensions — detect size only
+                grid_result = _detect_grid.fn(image_path, width, height, size_only=True)
+            else:
+                grid_result = None
+
+            if grid_result and grid_result.get("confidence", 0) > 0:
+                if gridded is None:
+                    gridded = grid_result.get("gridded")
+                if grid_result.get("grid_width") is not None:
+                    grid_width = grid_result["grid_width"]
+                    grid_height = grid_result["grid_height"]
+                grid_type = grid_result.get("grid_type")
+                grid_confidence = grid_result.get("confidence")
+
         # --- Build result ---
         image_data = {
             "filename": image_path_obj.name,
@@ -388,6 +423,8 @@ def prepare_single_image(
             "gridded": gridded,
             "grid_width": grid_width,
             "grid_height": grid_height,
+            "grid_type": grid_type,
+            "grid_confidence": grid_confidence,
             "subgroup": subgroup,
             "image_type": image_type,
             "content_hash": content_hash,

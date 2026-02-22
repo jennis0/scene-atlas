@@ -1,0 +1,197 @@
+"""Backfill image-based grid detection for existing battlemap images.
+
+Runs the GridDetector on battlemaps that are missing grid information,
+updating gridded, grid_width, grid_height, grid_type, and grid_confidence.
+
+Targets three categories of images:
+1. gridded=None (no filename hint) → detect presence + size
+2. gridded=True but grid_width=None (filename says gridded, no dimensions) → detect size only
+3. Optionally re-detect all battlemaps (--force flag)
+
+Usage:
+    uv run python -m backend.flows.backfill_grid_detection
+"""
+
+import logging
+import os
+
+from prefect import flow, task
+from sqlalchemy import and_, or_
+
+os.environ.setdefault("PREFECT_API_URL", "http://localhost:4200/api")
+
+from backend.app.config import settings
+from backend.app.models.database import Image, get_engine, get_session_local
+from backend.app.services import get_image_store
+from backend.app.services.grid_detector import GridDetector
+
+logger = logging.getLogger(__name__)
+
+BATCH_SIZE = 50  # Smaller than hash backfill — grid detection is heavier per image
+
+
+@task(name="detect_grids_batch")
+def detect_grids_batch(image_ids: list[int], force: bool = False) -> dict:
+    """Run grid detection on a batch of images and update DB records.
+
+    Args:
+        image_ids: Image IDs to process.
+        force: If True, re-detect even if grid info already exists.
+
+    Returns:
+        Dict with detected, skipped, errors counts.
+    """
+    engine = get_engine(settings.database_url)
+    SessionLocal = get_session_local(engine)
+    db = SessionLocal()
+    image_store = get_image_store()
+
+    detector = GridDetector(
+        min_cell_px=settings.grid_min_cell_px,
+        max_cell_px=settings.grid_max_cell_px,
+        max_dim=settings.grid_detection_max_dim,
+        presence_threshold=settings.grid_presence_threshold,
+        size_threshold=settings.grid_size_threshold,
+    )
+
+    detected = 0
+    skipped = 0
+    errors = 0
+
+    try:
+        images = db.query(Image).filter(Image.id.in_(image_ids)).all()
+        for image in images:
+            try:
+                # Skip non-battlemaps and videos
+                if image.image_type != "battlemap" or image.media_type == "video":
+                    skipped += 1
+                    continue
+
+                # Skip if filename explicitly says no grid
+                if image.gridded is False and not force:
+                    skipped += 1
+                    continue
+
+                # Resolve file path from store
+                file_path = image_store.get_path(image.storage_key)
+                if not file_path.exists():
+                    logger.warning(f"Image {image.id}: file not found at {file_path}")
+                    skipped += 1
+                    continue
+
+                if image.width is None or image.height is None:
+                    logger.warning(f"Image {image.id}: missing dimensions, skipping")
+                    skipped += 1
+                    continue
+
+                # Decide detection mode
+                if image.gridded is True and image.grid_width is None:
+                    # Filename says gridded but no dimensions — size only
+                    result = detector.detect_size_only(file_path, image.width, image.height)
+                else:
+                    # Full detection (presence + size)
+                    result = detector.detect(file_path, image.width, image.height)
+
+                # Update record if we got meaningful results
+                if result["confidence"] > 0:
+                    if image.gridded is None:
+                        image.gridded = result["gridded"]
+                    if result["grid_width"] is not None:
+                        image.grid_width = result["grid_width"]
+                        image.grid_height = result["grid_height"]
+                    image.grid_type = result["grid_type"]
+                    image.grid_confidence = result["confidence"]
+                    detected += 1
+                else:
+                    skipped += 1
+
+            except Exception as e:
+                logger.error(f"Image {image.id}: grid detection error: {e}")
+                errors += 1
+
+        db.commit()
+    finally:
+        db.close()
+
+    return {"detected": detected, "skipped": skipped, "errors": errors}
+
+
+@flow(name="backfill_grid_detection", log_prints=True)
+def backfill_grid_detection(force: bool = False):
+    """Detect grid presence/size for battlemap images missing grid info.
+
+    Args:
+        force: If True, re-detect ALL battlemaps (not just those missing info).
+    """
+    engine = get_engine(settings.database_url)
+    SessionLocal = get_session_local(engine)
+    db = SessionLocal()
+
+    try:
+        if force:
+            # All battlemaps
+            query = (
+                db.query(Image.id)
+                .filter(Image.image_type == "battlemap")
+                .order_by(Image.id)
+            )
+        else:
+            # Only battlemaps missing grid info:
+            # - gridded is None (no filename hint, never detected)
+            # - gridded is True but grid_width is None (filename says gridded, no dims)
+            # Exclude gridded=False (filename explicitly said no grid)
+            query = (
+                db.query(Image.id)
+                .filter(
+                    Image.image_type == "battlemap",
+                    or_(
+                        Image.gridded.is_(None),
+                        and_(Image.gridded.is_(True), Image.grid_width.is_(None)),
+                    ),
+                )
+                .order_by(Image.id)
+            )
+
+        image_ids = [row[0] for row in query.all()]
+    finally:
+        db.close()
+
+    total = len(image_ids)
+    mode = "all battlemaps (force)" if force else "battlemaps missing grid info"
+    print(f"Found {total} {mode}")
+
+    if total == 0:
+        print("Nothing to process")
+        return {"total": 0, "detected": 0, "skipped": 0, "errors": 0}
+
+    # Process in batches
+    totals = {"detected": 0, "skipped": 0, "errors": 0}
+    for i in range(0, total, BATCH_SIZE):
+        batch_ids = image_ids[i : i + BATCH_SIZE]
+        result = detect_grids_batch(batch_ids, force=force)
+        totals["detected"] += result["detected"]
+        totals["skipped"] += result["skipped"]
+        totals["errors"] += result["errors"]
+        print(f"  Processed {min(i + BATCH_SIZE, total)}/{total}")
+
+    print(
+        f"Grid detection complete: {totals['detected']} detected, "
+        f"{totals['skipped']} skipped, {totals['errors']} errors"
+    )
+    return {"total": total, **totals}
+
+
+if __name__ == "__main__":
+    import argparse
+
+    logging.basicConfig(level=logging.INFO)
+
+    parser = argparse.ArgumentParser(description="Backfill grid detection for battlemaps")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-detect all battlemaps, not just those missing grid info",
+    )
+    args = parser.parse_args()
+
+    backfill_grid_detection(force=args.force)

@@ -61,6 +61,14 @@ class Settings(BaseSettings):
     def all_supported_formats(self) -> list[str]:
         return self.supported_formats + self.supported_video_formats
 
+    # Grid Detection (image analysis)
+    enable_image_grid_detection: bool = False
+    grid_min_cell_px: int = 32
+    grid_max_cell_px: int = 256
+    grid_detection_max_dim: int = 1024  # Downsample to this before analysis
+    grid_presence_threshold: float = 0.3  # Confidence threshold for presence detection
+    grid_size_threshold: float = 0.15  # Lower threshold when presence already known
+
     # Color Extraction & Search
     num_dominant_colors: int = 5
     color_distance_threshold: float = 0.35  # HSL cylindrical distance for proximity search

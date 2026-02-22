@@ -21,6 +21,7 @@ from prefect.client.orchestration import get_client
 
 from backend.app.config import settings
 from backend.flows.backfill_content_hash import backfill_content_hash
+from backend.flows.backfill_grid_detection import backfill_grid_detection
 from backend.flows.ingestion import analyse_upload, process_import_group, process_import_job
 from backend.flows.maintenance import backup_database, cleanup_staging
 from backend.flows.reparse_names import reparse_names
@@ -85,6 +86,16 @@ def main():
         work_pool_name=WORK_POOL,
     )
     print("  Registered: backfill-content-hash-deployment/backfill-content-hash")
+
+    # backfill_grid_detection: one-off flow to detect grids in existing battlemap images
+    backfill_grid_detection.from_source(
+        source=PROJECT_ROOT,
+        entrypoint="backend/flows/backfill_grid_detection.py:backfill_grid_detection",
+    ).deploy(
+        name="backfill-grid-detection-deployment",
+        work_pool_name=WORK_POOL,
+    )
+    print("  Registered: backfill-grid-detection-deployment/backfill-grid-detection")
 
     # reparse_names: one-off flow to re-clean VG names and rebuild image display names
     reparse_names.from_source(

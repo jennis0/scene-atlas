@@ -20,6 +20,7 @@ class ImagePatch(BaseModel):
     gridded: bool | None = None
     grid_width: int | None = None
     grid_height: int | None = None
+    grid_type: str | None = None
     image_type: str | None = None
 
 

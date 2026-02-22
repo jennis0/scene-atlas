@@ -41,8 +41,10 @@ class Image(Base):
     height = Column(Integer)
     file_size = Column(Integer)  # In bytes
     gridded = Column(Boolean, nullable=True)  # True=gridded, False=gridless, None=unknown
-    grid_width = Column(Integer, nullable=True)  # Grid-square width (e.g. 30)
-    grid_height = Column(Integer, nullable=True)  # Grid-square height (e.g. 45)
+    grid_width = Column(Integer, nullable=True)  # Grid tile count horizontal (e.g. 30)
+    grid_height = Column(Integer, nullable=True)  # Grid tile count vertical (e.g. 45)
+    grid_type = Column(String, nullable=True)  # "square" | "hex" | None
+    grid_confidence = Column(Float, nullable=True)  # 0.0-1.0, None = filename-detected
     subgroup = Column("sub_variant", String, nullable=True)  # Subgroup path (e.g. "MA / No Grid")
     content_hash = Column(String(64), nullable=True, index=True)  # SHA-256 hex digest
     search_text = Column(Text, nullable=True)  # Pre-tokenized text for FTS5 (CamelCase-split)
