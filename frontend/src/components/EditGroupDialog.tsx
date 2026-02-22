@@ -6,6 +6,7 @@ import {
   Trash2,
   Search,
   Pencil,
+  Merge,
 } from 'lucide-react'
 import { variantGroupApi, tagApi, imageApi, getThumbnailUrlById, getImageUrlById } from '@/lib/api'
 import {
@@ -19,6 +20,7 @@ import type {
   Image,
   VariantGroupEditRequest,
 } from '@/types'
+import { MergeGroupPicker } from './MergeGroupPicker'
 import { FileCard } from './import/FileCard'
 import { FileToolbar } from './import/FileToolbar'
 import { parseTagVocabulary } from './import/types'
@@ -69,6 +71,8 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [showMergePicker, setShowMergePicker] = useState(false)
+  const [merging, setMerging] = useState(false)
   const [ungroupedCount, setUngroupedCount] = useState(0)
 
   const [groups, setGroups] = useState<EditableGroupState[]>([])
@@ -88,6 +92,8 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
     setSaving(false)
     setSaveError(null)
     setConfirmingDelete(false)
+    setShowMergePicker(false)
+    setMerging(false)
     setUngroupedCount(0)
     setGroups([])
     setActiveTab(0)
@@ -466,6 +472,23 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
       setSaveError(err?.response?.data?.detail ?? err?.message ?? 'Delete failed')
       setSaving(false)
       setConfirmingDelete(false)
+    }
+  }
+
+  // ── Merge into another group (single-group mode only) ──────────────
+
+  const handleMerge = async (targetGroup: { id: number }) => {
+    const gId = groupId ?? null
+    if (gId === null) return
+    setMerging(true)
+    try {
+      await variantGroupApi.merge(gId, targetGroup.id)
+      setShowMergePicker(false)
+      onSave()
+      onClose()
+    } catch (err: any) {
+      setSaveError(err?.response?.data?.detail ?? err?.message ?? 'Merge failed')
+      setMerging(false)
     }
   }
 
@@ -850,13 +873,23 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
                       </button>
                     </div>
                   ) : (
-                    <button
-                      onClick={() => setConfirmingDelete(true)}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded text-destructive/70 hover:text-destructive hover:bg-destructive/10 transition-colors"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      Delete Group
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setConfirmingDelete(true)}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded text-destructive/70 hover:text-destructive hover:bg-destructive/10 transition-colors"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Delete Group
+                      </button>
+                      <button
+                        onClick={() => setShowMergePicker(true)}
+                        disabled={saving || merging}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors disabled:opacity-50"
+                      >
+                        <Merge className="h-3.5 w-3.5" />
+                        Merge into…
+                      </button>
+                    </div>
                   )
                 ) : (
                   <div />
@@ -894,6 +927,14 @@ export function EditGroupDialog({ groupId, seedImages, open, onClose, onSave }: 
           </div>
         )}
       </DialogContent>
+
+      {/* Merge picker — rendered as sibling dialog so it layers on top */}
+      <MergeGroupPicker
+        open={showMergePicker}
+        onClose={() => setShowMergePicker(false)}
+        excludeGroupId={groupId}
+        onSelect={handleMerge}
+      />
     </Dialog>
   )
 }
