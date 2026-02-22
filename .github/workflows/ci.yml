@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main, testing]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend (lint + unit tests + integration tests)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Lint (ruff check)
+        run: uv run ruff check backend/
+
+      - name: Format check (ruff format)
+        run: uv run ruff format --check backend/
+
+      - name: Run unit tests
+        run: uv run --extra dev python -m pytest backend/tests/unit/ -v
+
+      - name: Run integration tests
+        run: |
+          uv run --extra dev python -m pytest \
+            backend/tests/integration/test_backup_restore.py \
+            backend/tests/integration/test_upload_endpoint.py \
+            backend/tests/integration/test_preview_endpoint.py \
+            backend/tests/integration/test_confirm_endpoint.py \
+            -v
+
+  frontend:
+    name: Frontend (TypeScript build)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Vite build
+        working-directory: frontend
+        run: npx vite build
