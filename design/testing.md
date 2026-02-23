@@ -13,13 +13,13 @@ The test suite covers the ingestion pipeline end-to-end: parsing, pipeline funct
 ```
 Tier 1 — Pre-commit (local):  lint-staged (ruff + eslint + prettier on staged files)
 Tier 2 — Every push & PR:     lint + format + unit tests + frontend tests + build
-Tier 3 — Push to main:        + integration tests + coverage reporting
+Tier 3 — Push to main:        + integration tests + heavy tests (CLIP) + coverage reporting
 Tier 4 — Version tags (v*):   gate check + multi-platform electron build + release
 ```
 
 ### GitHub Actions Workflows
 
-- `.github/workflows/ci.yml` — Tiers 1-3 (backend-lint → backend-unit → backend-integration, frontend-lint → frontend-test/build → frontend-coverage)
+- `.github/workflows/ci.yml` — Tiers 1-3 (backend-lint → backend-unit → backend-integration + backend-heavy, frontend-lint → frontend-test/build → frontend-coverage)
 - `.github/workflows/electron-build.yml` — Tier 4 (gate job → matrix build for Windows/macOS/Linux)
 
 ### Coverage Thresholds
@@ -38,6 +38,7 @@ Tier 4 — Version tags (v*):   gate check + multi-platform electron build + rel
 make check          # lint + format-check (both backend + frontend)
 make test           # unit tests + frontend tests (fast, ~15s)
 make test-all       # unit + integration + frontend (~30s)
+make test-heavy     # CLIP model tests (downloads ~600MB model on first run)
 make test-cov       # full suite with coverage reporting
 make lint-fix       # auto-fix all lint + format issues
 ```
@@ -59,27 +60,56 @@ cd frontend && npx vitest run
 
 # Frontend tests with watch mode
 cd frontend && npx vitest
+
+# Heavy tests (real CLIP model — ~600MB download on first run, cached after)
+uv run python -m pytest -m heavy -v
+
+# Run everything including heavy
+uv run python -m pytest -m '' -v
 ```
+
+## Heavy Tests (CLIP)
+
+Tests marked with `@pytest.mark.heavy` load the real CLIP model (~600 MB) and run real inference. They are **excluded by default** via `addopts = "-m 'not heavy'"` in pyproject.toml.
+
+**Model caching:**
+- HuggingFace Transformers caches models at `~/.cache/huggingface/hub/`
+- Locally, the model is downloaded once and reused across runs
+- On GitHub Actions, the cache is persisted between runs via `actions/cache@v4` keyed on `backend/app/config.py` (which contains the model name)
+- First CI run downloads the model (~600 MB); subsequent runs restore from cache
+
+**Test fixture:** The `clip_service` fixture is `session`-scoped and also primes the module-level singleton, so both direct `CLIPService` usage and `get_clip_service()` code paths work.
 
 ## Three-Layer Structure
 
 ```
 backend/tests/
-├── conftest.py              # Shared fixtures, Qdrant/CLIP mocking
-├── unit/                    # Pure logic, no DB, no filesystem side effects
-│   ├── test_parser.py       # ImageParser.parse() and group_files()
-│   ├── test_schemas.py      # Pydantic model validation and round-trips
-│   └── test_thumbnail_names.py  # Preview thumbnail filename consistency
-├── integration/             # Real SQLite DB, mocked CLIP/Qdrant
-│   ├── test_metadata_roundtrip.py  # User edits survive to DB (highest priority)
-│   ├── test_analyse_upload.py      # analyse_upload (grouping + thumbnails)
-│   ├── test_process_single.py      # process_single_image (both modes)
+├── conftest.py                    # Shared fixtures, Qdrant/CLIP mocking
+├── unit/                          # Pure logic, no DB, no filesystem side effects
+│   ├── test_parser.py             # ImageParser.parse() and group_files()
+│   ├── test_schemas.py            # Pydantic model validation and round-trips
+│   ├── test_thumbnail_names.py    # Preview thumbnail filename consistency
+│   ├── test_naming.py             # export_path, download_filename, sanitize_segment
+│   ├── test_pipeline_tasks.py     # color_extraction, image_processing, grid_detection, embedding
+│   ├── test_video_utils.py        # verify_video_mime, extract_first_frame, get_video_dimensions
+│   ├── test_color_search.py       # HSL color distance, color index search
+│   ├── test_deletion_service.py   # safe_delete_image, file + DB + Qdrant cleanup
+│   └── test_system_info.py        # dir_size utility
+├── integration/                   # Real SQLite DB, mocked CLIP/Qdrant
+│   ├── test_metadata_roundtrip.py # User edits survive to DB (highest priority)
+│   ├── test_analyse_upload.py     # analyse_upload (grouping + thumbnails)
+│   ├── test_process_single.py     # process_single_image (both modes)
 │   ├── test_process_import_group.py # process_import_group + process_import_job
-│   ├── test_upload_endpoint.py     # POST /imports/upload
-│   ├── test_confirm_endpoint.py    # POST /imports/{id}/confirm
-│   └── test_preview_endpoint.py    # GET /imports/{id}/preview/{path}
-├── e2e/                     # Full infrastructure tests (future)
-└── legacy/                  # Old manual scripts — delete as replaced
+│   ├── test_upload_endpoint.py    # POST /imports/upload
+│   ├── test_confirm_endpoint.py   # POST /imports/{id}/confirm
+│   ├── test_preview_endpoint.py   # GET /imports/{id}/preview/{path}
+│   ├── test_search_endpoint.py    # GET /api/v1/search/ + facets
+│   ├── test_images_endpoint.py    # GET/PATCH/DELETE /api/v1/images/ + scenes + file serving
+│   ├── test_export_endpoint.py    # GET /api/v1/export/library (ZIP structure + metadata)
+│   ├── test_system_admin.py       # GET /api/v1/system/ endpoints
+│   └── test_clip_heavy.py         # Real CLIP model tests (marked @heavy, excluded by default)
+├── e2e/                           # Full infrastructure tests (future)
+└── legacy/                        # Old manual scripts — delete as replaced
 
 frontend/src/
 ├── components/

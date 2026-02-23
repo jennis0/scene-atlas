@@ -78,7 +78,10 @@ testpaths = [
     "backend/tests/unit",
     "backend/tests/integration",
 ]
-addopts = "--ignore=backend/tests/legacy --ignore=backend/tests/e2e"
+addopts = "--ignore=backend/tests/legacy --ignore=backend/tests/e2e -m 'not heavy'"
+markers = [
+    "heavy: tests requiring heavy infrastructure (CLIP model, real Qdrant, etc.) — run with -m heavy",
+]
 filterwarnings = [
     # SQLAlchemy internally uses datetime.utcnow() — not our code, not actionable
     "ignore:datetime.datetime.utcnow\\(\\) is deprecated:DeprecationWarning",

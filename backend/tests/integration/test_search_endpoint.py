@@ -179,7 +179,7 @@ class TestSearchNoQuery:
 
     def test_results_sorted_by_name(self, library):
         client, _ = library
-        resp = client.get("/api/v1/search/")
+        resp = client.get("/api/v1/search/", params={"sort_by": "name", "sort_dir": "asc"})
         names = [img["name"] for img in resp.json()["images"]]
         assert names == sorted(names)
 

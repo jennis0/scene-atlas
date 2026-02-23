@@ -1,4 +1,4 @@
-.PHONY: test test-unit test-integration test-frontend test-all test-cov \
+.PHONY: test test-unit test-integration test-frontend test-all test-heavy test-cov \
        lint lint-fix format-check check
 
 # ── Quick check (what pre-commit does) ─────────────────────────────────────
@@ -32,6 +32,9 @@ test-integration:
 
 test-frontend:
 	cd frontend && npx vitest run
+
+test-heavy:
+	uv run python -m pytest -m heavy -v
 
 # ── Coverage ───────────────────────────────────────────────────────────────
 test-cov:

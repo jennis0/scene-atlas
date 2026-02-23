@@ -124,42 +124,21 @@ def _collect_entries(db: Session) -> tuple[list[tuple[str, Path]], dict]:
     return entries, metadata
 
 
-def _content_length(entries: list[tuple[str, Path]], metadata_bytes: bytes) -> int:
-    """Estimate the ZIP Content-Length for ZIP_STORED (no compression).
+def _build_zip(entries: list[tuple[str, Path]], metadata_bytes: bytes) -> zipstream.ZipStream:
+    """Build a sized ZipStream (constant memory, lazy file reads).
 
-    For stored entries the size is predictable:
-        local header (30) + filename + file data + data descriptor (16)
-        central-dir entry (46) + filename  (one per file)
-        end-of-central-dir record (22)
+    Using ``sized=True`` lets us call ``len(zs)`` for an exact Content-Length
+    without manually computing ZIP overhead bytes.
     """
-    total = 0
-    for arc, src in entries:
-        name_len = len(arc.encode("utf-8"))
-        file_size = src.stat().st_size
-        total += 30 + name_len + file_size + 16  # local header + data + descriptor
-        total += 46 + name_len  # central dir entry
-
-    # metadata.json entry
-    mj_name = b"metadata.json"
-    mj_len = len(mj_name)
-    total += 30 + mj_len + len(metadata_bytes) + 16
-    total += 46 + mj_len
-
-    total += 22  # end-of-central-dir record
-    return total
-
-
-def _stream_zip(entries: list[tuple[str, Path]], metadata_bytes: bytes):
-    """Yield ZIP chunks using zipstream-ng (constant memory, lazy file reads)."""
-    zs = zipstream.ZipFile(mode="w", compression=zipstream.ZIP_STORED, allowZip64=True)
+    zs = zipstream.ZipStream(compress_type=zipstream.ZIP_STORED, sized=True)
 
     # metadata.json first so it's easy to inspect without extracting images
-    zs.write_iter("metadata.json", iter([metadata_bytes]))
+    zs.add(metadata_bytes, "metadata.json")
 
     for arc_path, src_path in entries:
-        zs.write(str(src_path), arcname=arc_path)
+        zs.add_path(src_path, arcname=arc_path)
 
-    yield from zs
+    return zs
 
 
 @router.get("/library")
@@ -179,13 +158,13 @@ async def export_library(db: Session = Depends(get_db)):
     }
     metadata_bytes = json.dumps(meta_payload, indent=2, ensure_ascii=False).encode("utf-8")
 
-    content_length = _content_length(entries, metadata_bytes)
+    zs = _build_zip(entries, metadata_bytes)
 
     return StreamingResponse(
-        _stream_zip(entries, metadata_bytes),
+        zs,
         media_type="application/zip",
         headers={
             "Content-Disposition": 'attachment; filename="Scene Atlas Export.zip"',
-            "Content-Length": str(content_length),
+            "Content-Length": str(len(zs)),
         },
     )
