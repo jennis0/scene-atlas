@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { tagApi, searchApi } from '@/lib/api'
+import { useJobPolling } from '@/hooks/useJobPolling'
 import { COLOR_PALETTE, PALETTE_KEYS, getTagColor } from '@/components/import/tagColors'
 import type { TagCategory } from '@/types'
 
@@ -62,9 +63,14 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
 
   const [vocabDirty, setVocabDirty] = useState(false)
 
+  const retagJob = useJobPolling()
+
   const retagMut = useMutation({
     mutationFn: tagApi.retagAll,
-    onSuccess: () => setVocabDirty(false),
+    onSuccess: (data) => {
+      setVocabDirty(false)
+      retagJob.track(data.job_id)
+    },
   })
 
   const { data: categories = [], isLoading } = useQuery({
@@ -85,6 +91,13 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
     queryClient.invalidateQueries({ queryKey: ['tagCategories'] })
     queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
   }, [queryClient])
+
+  // When retag job completes, refresh tag data
+  useEffect(() => {
+    if (retagJob.isComplete) {
+      invalidate()
+    }
+  }, [retagJob.isComplete, invalidate])
 
   // Wraps invalidate and marks the vocab as changed since last retag
   const invalidateAndMark = useCallback(() => {
@@ -126,7 +139,7 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
                 },
               })
             }
-            disabled={retagMut.isPending}
+            disabled={retagMut.isPending || retagJob.isRunning}
             className={`ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors disabled:opacity-40 ${
               vocabDirty
                 ? 'text-amber-400 bg-amber-400/10 hover:bg-amber-400/20 ring-1 ring-amber-400/30'
@@ -134,8 +147,10 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
             }`}
             title="Regenerate auto-tags for all images from their filenames. Manually applied tags are always preserved."
           >
-            <RefreshCw className={`w-3 h-3 ${retagMut.isPending ? 'animate-spin' : ''}`} />
-            Regenerate auto-tags
+            <RefreshCw className={`w-3 h-3 ${retagMut.isPending || retagJob.isRunning ? 'animate-spin' : ''}`} />
+            {retagJob.isRunning
+              ? `Retagging${retagJob.progressPct != null ? ` (${retagJob.progressPct}%)` : '…'}`
+              : 'Regenerate auto-tags'}
           </button>
           <button
             onClick={onClose}

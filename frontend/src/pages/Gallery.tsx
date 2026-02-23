@@ -12,6 +12,7 @@ import {
   AlignLeft,
   Tag,
   Settings,
+  ArrowUpDown,
 } from 'lucide-react'
 import { searchApi, groupApi } from '@/lib/api'
 import { RELEVANCE_MIN, RELEVANCE_MAX, RELEVANCE_STEP, relevanceToPercent } from '@/lib/constants'
@@ -32,8 +33,40 @@ import { useActiveImports } from '@/hooks/useActiveImports'
 import { useBackgroundJobs } from '@/hooks/useBackgroundJobs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import type { Image, ImageGroup, SearchParams, ViewMode } from '@/types'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+} from '@/components/ui/dropdown-menu'
+import type { Image, ImageGroup, SearchParams, SortBy, SortDir, ViewMode } from '@/types'
 import type { ActiveFilter, ImageTypeFilter } from '@/components/import/fileFilter'
+
+// ---------------------------------------------------------------------------
+// Sort options
+// ---------------------------------------------------------------------------
+
+const SORT_OPTIONS: { value: SortBy; dir: SortDir; label: string; queryOnly?: boolean }[] = [
+  { value: 'created_at', dir: 'desc', label: 'Newest first' },
+  { value: 'created_at', dir: 'asc', label: 'Oldest first' },
+  { value: 'name', dir: 'asc', label: 'Name A\u2013Z' },
+  { value: 'name', dir: 'desc', label: 'Name Z\u2013A' },
+  { value: 'relevance', dir: 'desc', label: 'Relevance', queryOnly: true },
+]
+
+const DEFAULT_SORT_KEY = 'created_at:desc'
+
+function parseSortKey(key: string): [SortBy, SortDir] {
+  const [s, d] = key.split(':') as [SortBy, SortDir]
+  return [s, d]
+}
+
+function loadSortKey(): string {
+  const stored = localStorage.getItem('gallery-sort')
+  if (stored && SORT_OPTIONS.some((o) => `${o.value}:${o.dir}` === stored)) return stored
+  return DEFAULT_SORT_KEY
+}
 
 // ---------------------------------------------------------------------------
 // URL ↔ filter serialisation helpers
@@ -123,8 +156,15 @@ export function Gallery() {
     () => (urlParams.get('image_type') as ImageTypeFilter) || 'all',
   )
 
+  // Sort preference — persisted in localStorage
+  const [sortKey, setSortKey] = useState(loadSortKey)
+  const [sortBy, sortDir] = parseSortKey(sortKey)
+
   // Relevance threshold — slider value 0–0.85, applied client-side against returned scores
-  const [minScore, setMinScore] = useState(0.2)
+  const [minScore, setMinScore] = useState(() => {
+    const stored = localStorage.getItem('gallery-relevance')
+    return stored ? parseFloat(stored) : 0.2
+  })
 
   // Facets — lightweight cached fetch, replaces the old 10k image fetch
   const { data: facets } = useQuery({
@@ -189,8 +229,11 @@ export function Gallery() {
     const mediaTypeFilters = filters.filter((f) => f.type === 'media_type').map((f) => f.value)
     if (mediaTypeFilters.length) params.media_types = mediaTypeFilters
 
+    params.sort_by = sortBy
+    params.sort_dir = sortDir
+
     return params
-  }, [submittedQuery, filters, imageType])
+  }, [submittedQuery, filters, imageType, sortBy, sortDir])
 
   const hasActiveSearch =
     !!searchParams.query ||
@@ -221,13 +264,29 @@ export function Gallery() {
   const imageGroups = useImageGrouping({
     images: displayImages,
     scores: searchResults?.scores,
+    sortBy,
+    sortDir,
   })
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     setSubmittedQuery(searchInput)
-    setMinScore(0.2) // reset threshold on new search
+    // Auto-switch to relevance sort when entering a search query
+    if (searchInput.trim()) {
+      setSortKey('relevance:desc')
+    } else {
+      // Clearing query via submit — revert to saved sort preference
+      setSortKey(loadSortKey())
+    }
     setUrlParams(buildUrlParams(searchInput, filters, imageType))
+  }
+
+  const handleSortChange = (newKey: string) => {
+    setSortKey(newKey)
+    // Persist non-relevance sorts as the user's preference
+    if (newKey !== 'relevance:desc') {
+      localStorage.setItem('gallery-sort', newKey)
+    }
   }
 
   const handleFiltersChange = (newFilters: ActiveFilter[]) => {
@@ -264,7 +323,7 @@ export function Gallery() {
     setSubmittedQuery('')
     setFilters([])
     setImageType('all')
-    setMinScore(0.2)
+    setSortKey(loadSortKey())
     setUrlParams(new URLSearchParams())
   }
 
@@ -435,8 +494,32 @@ export function Gallery() {
           <div className="flex items-center gap-3 pb-4 min-h-[28px]">
             <FilterChipList filters={filters} onFiltersChange={handleFiltersChange} />
 
-            {/* Right-side cluster: bulk edit · relevance · count */}
+            {/* Right-side cluster: sort · bulk edit · relevance · count */}
             <div className="flex items-center gap-3 ml-auto shrink-0">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                    <ArrowUpDown className="h-3 w-3" />
+                    {SORT_OPTIONS.find((o) => `${o.value}:${o.dir}` === sortKey)?.label ?? 'Sort'}
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-40">
+                  <DropdownMenuRadioGroup value={sortKey} onValueChange={handleSortChange}>
+                    {SORT_OPTIONS.map((opt) => {
+                      const key = `${opt.value}:${opt.dir}`
+                      return (
+                        <DropdownMenuRadioItem
+                          key={key}
+                          value={key}
+                          disabled={opt.queryOnly && !submittedQuery}
+                        >
+                          {opt.label}
+                        </DropdownMenuRadioItem>
+                      )
+                    })}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
               {displayImages.length > 0 && (
                 <button
                   onClick={() => setShowMassEdit(true)}
@@ -456,7 +539,11 @@ export function Gallery() {
                     max={RELEVANCE_MAX}
                     step={RELEVANCE_STEP}
                     value={minScore}
-                    onChange={(e) => setMinScore(parseFloat(e.target.value))}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value)
+                      setMinScore(val)
+                      localStorage.setItem('gallery-relevance', String(val))
+                    }}
                     className="w-24 cursor-pointer accent-primary"
                     style={{ height: '4px' }}
                   />

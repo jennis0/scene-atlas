@@ -52,6 +52,9 @@ export interface Color {
   color_order: number
 }
 
+export type SortBy = 'created_at' | 'name' | 'relevance'
+export type SortDir = 'asc' | 'desc'
+
 export interface SearchParams {
   query?: string // hybrid: FTS5 + semantic
   semantic_only?: boolean // skip FTS5, pure semantic (from ~ prefix)
@@ -68,6 +71,8 @@ export interface SearchParams {
   media_types?: string[]
   limit?: number
   offset?: number
+  sort_by?: SortBy
+  sort_dir?: SortDir
 }
 
 export interface FacetOption {

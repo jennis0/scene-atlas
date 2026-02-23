@@ -1,6 +1,7 @@
 """Search API endpoints."""
 
 import logging
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import and_, func, or_
@@ -131,6 +132,8 @@ async def search_images(
     grid_type: str | None = None,
     limit: int = 500,
     offset: int = 0,
+    sort_by: str = Query("created_at", regex="^(created_at|name|relevance)$"),
+    sort_dir: str = Query("desc", regex="^(asc|desc)$"),
     # Deprecated aliases kept for backward compat
     text: str | None = None,
     semantic: str | None = None,
@@ -217,10 +220,23 @@ async def search_images(
         else:
             sql_query = sql_query.filter(Image.id == -1)  # No matches
 
-    # --- No search query: return filtered results sorted by name ---
+    # --- No search query: return filtered results with requested sort ---
     if not effective_query:
+        # Relevance is meaningless without a query — fall back to created_at DESC
+        effective_sort = sort_by if sort_by != "relevance" else "created_at"
+        effective_dir = sort_dir if sort_by != "relevance" else "desc"
+
+        col = Image.created_at if effective_sort == "created_at" else Image.name
+        order = col.desc() if effective_dir == "desc" else col.asc()
+
         total = sql_query.count()
-        results = sql_query.distinct().order_by(Image.name).offset(offset).limit(limit).all()
+        results = (
+            sql_query.distinct()
+            .order_by(order, Image.id.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
         return ImageSearchResponse(total=total, limit=limit, offset=offset, images=results)
 
     # --- Hybrid search: run FTS5 and semantic in parallel ---
@@ -282,8 +298,21 @@ async def search_images(
     sql_query = sql_query.filter(Image.id.in_(candidate_ids))
     filtered_images = sql_query.distinct().all()
 
-    # Sort by merged score descending
-    filtered_images.sort(key=lambda img: merged_scores.get(img.id, 0.0), reverse=True)
+    # Sort by requested field
+    if sort_by == "relevance" or (sort_by == "relevance" and not merged_scores):
+        filtered_images.sort(
+            key=lambda img: (merged_scores.get(img.id, 0.0), img.id), reverse=True
+        )
+    elif sort_by == "created_at":
+        filtered_images.sort(
+            key=lambda img: (img.created_at or datetime.min, img.id),
+            reverse=(sort_dir == "desc"),
+        )
+    elif sort_by == "name":
+        filtered_images.sort(
+            key=lambda img: ((img.name or "").lower(), img.id),
+            reverse=(sort_dir == "desc"),
+        )
 
     total = len(filtered_images)
     results = filtered_images[offset : offset + limit]

@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { FolderOpen, FolderInput, RotateCcw, HardDrive, ArrowRight, X } from 'lucide-react'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
+import { FolderOpen, FolderInput, RotateCcw, HardDrive, ArrowRight, X, Trash2, Loader2 } from 'lucide-react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { systemApi } from '@/lib/api'
+import { useJobPolling } from '@/hooks/useJobPolling'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -93,9 +95,22 @@ function ErrorNote() {
 
 export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
   const isElectron = !!window.electronAPI
+  const queryClient = useQueryClient()
   const [locationPhase, setLocationPhase] = useState<LocationPhase>('idle')
   const [pendingDir, setPendingDir] = useState<string | null>(null)
   const [dataDir, setDataDir] = useState<string | null>(null)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [confirmingResetTags, setConfirmingResetTags] = useState(false)
+
+  // Library purge job polling
+  const purgeJob = useJobPolling()
+
+  // When purge completes, refresh all data
+  useEffect(() => {
+    if (purgeJob.isComplete) {
+      queryClient.invalidateQueries()
+    }
+  }, [purgeJob.isComplete, queryClient])
 
   useEffect(() => {
     if (open && window.electronAPI) {
@@ -112,6 +127,24 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
     queryFn: () => systemApi.getInfo<SystemInfo>(),
     staleTime: 30_000,
     enabled: open,
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: systemApi.deleteLibrary,
+    onSuccess: (data) => {
+      setConfirmingDelete(false)
+      purgeJob.track(data.job_id)
+    },
+  })
+
+  const resetTagsMut = useMutation({
+    mutationFn: systemApi.resetTags,
+    onSuccess: () => {
+      setConfirmingResetTags(false)
+      queryClient.invalidateQueries({ queryKey: ['tagCategories'] })
+      queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
+      queryClient.invalidateQueries({ queryKey: ['system-info'] })
+    },
   })
 
   const handleOpenInExplorer = () => window.electronAPI?.openDataDir()
@@ -332,7 +365,92 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
             </div>
           </section>
 
+          {/* ── Danger Zone ─────────────────────────────────── */}
+          <section className="pt-2 border-t border-red-500/10">
+            <SectionLabel>Danger Zone</SectionLabel>
+            <div className="space-y-2">
+              {/* Delete Library */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-zinc-300">Delete library</p>
+                  <p className="text-xs text-zinc-500">Remove all images, metadata, and vectors</p>
+                </div>
+                {purgeJob.isRunning ? (
+                  <div className="flex items-center gap-2 text-sm text-zinc-400">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>
+                      {purgeJob.progress ?? 'Deleting…'}
+                      {purgeJob.progressPct != null && ` (${purgeJob.progressPct}%)`}
+                    </span>
+                  </div>
+                ) : purgeJob.isComplete ? (
+                  <span className="text-sm text-green-400">Done</span>
+                ) : purgeJob.isFailed ? (
+                  <span className="text-sm text-red-400" title={purgeJob.error ?? undefined}>
+                    Failed
+                  </span>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => setConfirmingDelete(true)}
+                    className="gap-1.5 h-8"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Delete
+                  </Button>
+                )}
+              </div>
+
+              {/* Reset Tags */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-zinc-300">Reset tags</p>
+                  <p className="text-xs text-zinc-500">Clear all tags and restore default categories</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => setConfirmingResetTags(true)}
+                  disabled={resetTagsMut.isPending}
+                  className="gap-1.5 h-8"
+                >
+                  {resetTagsMut.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-3.5 w-3.5" />
+                  )}
+                  Reset
+                </Button>
+              </div>
+            </div>
+          </section>
+
         </div>
+
+        <ConfirmDialog
+          open={confirmingDelete}
+          onOpenChange={setConfirmingDelete}
+          title="Delete Library"
+          description="This will permanently delete all images, thumbnails, metadata, tags, and vector embeddings. This cannot be undone."
+          confirmLabel="Delete Everything"
+          confirmVariant="destructive"
+          loadingLabel="Starting…"
+          onConfirm={() => deleteMut.mutate()}
+          isLoading={deleteMut.isPending}
+        />
+
+        <ConfirmDialog
+          open={confirmingResetTags}
+          onOpenChange={setConfirmingResetTags}
+          title="Reset Tags"
+          description="This will delete all tags from every image and reset tag categories to their defaults. This cannot be undone."
+          confirmLabel="Reset Tags"
+          confirmVariant="destructive"
+          loadingLabel="Resetting…"
+          onConfirm={() => resetTagsMut.mutate()}
+          isLoading={resetTagsMut.isPending}
+        />
       </DialogContent>
     </Dialog>
   )

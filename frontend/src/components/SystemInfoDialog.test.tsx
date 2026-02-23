@@ -19,9 +19,7 @@ function makeMockElectronAPI() {
   }
 }
 
-// ── Mock the systemApi module ─────────────────────────────────────────────────
-// vi.mock is hoisted — cannot reference variables from the outer scope.
-// Define mock data inline in the factory.
+// ── Mock the API modules ─────────────────────────────────────────────────────
 
 vi.mock('@/lib/api', () => ({
   systemApi: {
@@ -38,6 +36,22 @@ vi.mock('@/lib/api', () => ({
         image_count: 42,
         group_count: 7,
       },
+    }),
+    deleteLibrary: vi.fn().mockResolvedValue({ job_id: 'test-purge-1', message: 'ok' }),
+    resetTags: vi.fn().mockResolvedValue({
+      deleted_tags: 100,
+      deleted_categories: 10,
+      seeded_categories: 10,
+    }),
+  },
+  jobApi: {
+    get: vi.fn().mockResolvedValue({
+      id: 'test-purge-1',
+      name: 'Purge library',
+      status: 'running',
+      progress: 'Deleting tags and colors',
+      progress_pct: 16,
+      error: null,
     }),
   },
 }))
@@ -170,5 +184,53 @@ describe('SystemInfoDialog', () => {
       expect(screen.getByText(/restarting/i)).toBeInTheDocument()
     })
     expect(mockAPI.changeDataDir).toHaveBeenCalledWith('D:\\NewLocation\\data')
+  })
+
+  // ── Danger Zone tests ────────────────────────────────────────────────────
+
+  it('shows danger zone section with delete and reset buttons', async () => {
+    renderWithProviders(<SystemInfoDialog open onClose={vi.fn()} />)
+    await waitFor(() => {
+      expect(screen.getByText('Danger Zone')).toBeInTheDocument()
+      expect(screen.getByText('Delete library')).toBeInTheDocument()
+      expect(screen.getByText('Reset tags')).toBeInTheDocument()
+    })
+  })
+
+  it('shows delete confirmation dialog on Delete button click', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<SystemInfoDialog open onClose={vi.fn()} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Danger Zone')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: /^delete$/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Delete Library')).toBeInTheDocument()
+      expect(screen.getByText(/permanently delete all images/i)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /delete everything/i })).toBeInTheDocument()
+    })
+  })
+
+  it('shows reset tags confirmation dialog on Reset button click', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<SystemInfoDialog open onClose={vi.fn()} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Danger Zone')).toBeInTheDocument()
+    })
+
+    // Find the Reset button inside the danger zone (near "Reset tags" label)
+    const resetButtons = screen.getAllByRole('button', { name: /^reset$/i })
+    // Click the one that's the trigger (not inside a closed dialog)
+    await user.click(resetButtons[0])
+
+    await waitFor(() => {
+      // Title + confirm button both show "Reset Tags" — just check the description
+      expect(screen.getByText(/delete all tags from every image/i)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /reset tags/i })).toBeInTheDocument()
+    })
   })
 })

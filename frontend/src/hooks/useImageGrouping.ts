@@ -1,12 +1,19 @@
 import { useMemo } from 'react'
-import type { Image, ImageGroup, Tag } from '@/types'
+import type { Image, ImageGroup, SortBy, SortDir, Tag } from '@/types'
 
 interface UseImageGroupingOptions {
   images: Image[]
   scores?: Record<number, number>
+  sortBy?: SortBy
+  sortDir?: SortDir
 }
 
-export function useImageGrouping({ images, scores }: UseImageGroupingOptions): ImageGroup[] {
+export function useImageGrouping({
+  images,
+  scores,
+  sortBy = 'created_at',
+  sortDir = 'desc',
+}: UseImageGroupingOptions): ImageGroup[] {
   return useMemo(() => {
     // Bucket images by group
     const grouped = new Map<number, Image[]>()
@@ -47,15 +54,28 @@ export function useImageGrouping({ images, scores }: UseImageGroupingOptions): I
       })
     }
 
-    // Sort: by score descending if semantic, else alphabetical
-    if (scores) {
+    // Sort groups by the requested field
+    if (sortBy === 'relevance' && scores) {
       result.sort((a, b) => (b.bestScore ?? 0) - (a.bestScore ?? 0))
+    } else if (sortBy === 'created_at') {
+      result.sort((a, b) => {
+        const aDate = a.heroImage.created_at ?? ''
+        const bDate = b.heroImage.created_at ?? ''
+        return sortDir === 'desc'
+          ? bDate.localeCompare(aDate)
+          : aDate.localeCompare(bDate)
+      })
     } else {
-      result.sort((a, b) => a.baseName.localeCompare(b.baseName))
+      // name sort
+      result.sort((a, b) =>
+        sortDir === 'desc'
+          ? b.baseName.localeCompare(a.baseName)
+          : a.baseName.localeCompare(b.baseName),
+      )
     }
 
     return result
-  }, [images, scores])
+  }, [images, scores, sortBy, sortDir])
 }
 
 function buildGroup(
