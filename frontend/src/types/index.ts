@@ -62,6 +62,7 @@ export interface SearchParams {
   exclude_tags?: string[]
   colors?: string[]
   gridded?: boolean
+  gridded_unknown?: boolean
   grid_type?: string
   image_types?: string[]
   media_types?: string[]

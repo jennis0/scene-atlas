@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Scene Atlas — Setup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500&family=Figtree:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:          #0e1118;
+      --surface:     #161c28;
+      --border:      #1e2736;
+      --primary:     #d4a853;
+      --primary-dim: rgba(212, 168, 83, 0.15);
+      --fg:          #ede8dc;
+      --fg-muted:    rgba(237, 232, 220, 0.45);
+      --radius:      6px;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: 'Figtree', system-ui, sans-serif;
+      /* dot-grid — matches the main app body */
+      background-image: radial-gradient(circle, rgba(237,232,220,0.04) 1px, transparent 1px);
+      background-size: 28px 28px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* amber rule across the top */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg,
+        transparent 0%,
+        rgba(212,168,83,0.5) 15%,
+        #d4a853 50%,
+        rgba(212,168,83,0.5) 85%,
+        transparent 100%);
+      z-index: 100;
+    }
+
+    .page {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 520px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+    }
+
+    .header {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.75rem;
+      text-align: center;
+    }
+
+    .compass {
+      width: 48px;
+      height: 48px;
+      color: var(--primary);
+      opacity: 0.8;
+    }
+
+    h1 {
+      font-family: 'Cinzel', Georgia, serif;
+      font-size: 1.5rem;
+      font-weight: 500;
+      letter-spacing: 0.15em;
+      color: var(--fg);
+    }
+
+    .divider {
+      width: 80px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--primary), transparent);
+      margin: 0 auto;
+    }
+
+    .description {
+      font-size: 0.875rem;
+      color: var(--fg-muted);
+      line-height: 1.6;
+      text-align: center;
+    }
+
+    .description strong {
+      color: var(--fg);
+      font-weight: 500;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    label {
+      font-size: 0.75rem;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--fg-muted);
+    }
+
+    .dir-row {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    #dirDisplay {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.625rem 0.75rem;
+      font-size: 0.8125rem;
+      font-family: 'Courier New', monospace;
+      color: var(--fg);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      direction: rtl; /* shows the end of long paths */
+      text-align: left;
+      cursor: default;
+    }
+
+    button {
+      cursor: pointer;
+      border: none;
+      border-radius: var(--radius);
+      font-family: 'Figtree', system-ui, sans-serif;
+      font-size: 0.875rem;
+      font-weight: 500;
+      transition: opacity 0.15s, background 0.15s;
+    }
+
+    #browseBtn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--fg-muted);
+      padding: 0.625rem 1rem;
+      white-space: nowrap;
+    }
+    #browseBtn:hover { color: var(--fg); border-color: var(--fg-muted); }
+
+    #startBtn {
+      width: 100%;
+      background: var(--primary);
+      color: #0e1118;
+      padding: 0.75rem 1.5rem;
+      font-size: 0.9375rem;
+      letter-spacing: 0.03em;
+    }
+    #startBtn:hover { opacity: 0.88; }
+    #startBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .note {
+      font-size: 0.75rem;
+      color: var(--fg-muted);
+      line-height: 1.5;
+    }
+
+    .note a {
+      color: var(--primary);
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="card">
+      <div class="header">
+        <!-- Compass SVG (lucide compass) -->
+        <svg class="compass" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="1.2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>
+        </svg>
+        <h1>Scene Atlas</h1>
+        <div class="divider"></div>
+      </div>
+
+      <p class="description">
+        Choose where Scene Atlas will store your <strong>image library</strong>.
+        This includes your battlemaps, thumbnails, and search index.<br /><br />
+        Pick a location with plenty of free space — large collections
+        can reach <strong>tens of gigabytes</strong>.
+      </p>
+
+      <div class="field">
+        <label>Library location</label>
+        <div class="dir-row">
+          <div id="dirDisplay" title="">Loading…</div>
+          <button id="browseBtn">Browse…</button>
+        </div>
+        <p class="note">You can change this later in Settings.</p>
+      </div>
+
+      <button id="startBtn" disabled>Get Started</button>
+    </div>
+  </div>
+
+  <script>
+    let chosenDir = null
+
+    async function init() {
+      const defaultDir = await window.setupAPI.getDefaultDir()
+      setDir(defaultDir)
+    }
+
+    function setDir(dir) {
+      chosenDir = dir
+      const el = document.getElementById('dirDisplay')
+      el.textContent = dir
+      el.title = dir
+      document.getElementById('startBtn').disabled = false
+    }
+
+    document.getElementById('browseBtn').addEventListener('click', async () => {
+      const dir = await window.setupAPI.chooseDirectory()
+      if (dir) setDir(dir)
+    })
+
+    document.getElementById('startBtn').addEventListener('click', () => {
+      if (!chosenDir) return
+      document.getElementById('startBtn').disabled = true
+      document.getElementById('startBtn').textContent = 'Starting…'
+      window.setupAPI.complete(chosenDir)
+    })
+
+    init()
+  </script>
+</body>
+</html>

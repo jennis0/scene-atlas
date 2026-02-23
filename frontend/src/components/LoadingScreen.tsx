@@ -2,17 +2,13 @@ import { Compass } from 'lucide-react'
 
 interface LoadingScreenProps {
   status?: string
+  isError?: boolean
 }
 
-/**
- * Full-page splash screen shown while the backend sidecar starts up.
- * Matches the app's cartographic aesthetic — Cinzel headings, amber accents,
- * dot-grid background, with a slowly rotating compass as the loading indicator.
- */
-export function LoadingScreen({ status = 'Starting backend...' }: LoadingScreenProps) {
+export function LoadingScreen({ status = 'Starting backend...', isError = false }: LoadingScreenProps) {
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background">
-      {/* Dot-grid background — matches body style */}
+      {/* Dot-grid background */}
       <div
         className="absolute inset-0 opacity-60"
         style={{
@@ -22,29 +18,39 @@ export function LoadingScreen({ status = 'Starting backend...' }: LoadingScreenP
         }}
       />
 
-      {/* Faint radial glow behind the content */}
+      {/* Radial glow — amber normally, red-tinted on error */}
       <div
         className="absolute inset-0"
         style={{
-          background:
-            'radial-gradient(ellipse 50% 40% at 50% 48%, hsl(38 60% 58% / 0.06) 0%, transparent 100%)',
+          background: isError
+            ? 'radial-gradient(ellipse 50% 40% at 50% 48%, hsl(0 62% 57% / 0.06) 0%, transparent 100%)'
+            : 'radial-gradient(ellipse 50% 40% at 50% 48%, hsl(38 60% 58% / 0.06) 0%, transparent 100%)',
         }}
       />
 
       {/* Content */}
       <div className="relative flex flex-col items-center gap-8">
-        {/* Compass spinner */}
+        {/* Compass — spins when loading, static on error */}
         <div className="relative flex items-center justify-center">
-          {/* Outer ring — static */}
           <div
-            className="absolute h-20 w-20 rounded-full border border-primary/20"
-            style={{ boxShadow: '0 0 30px hsl(38 60% 58% / 0.08)' }}
+            className="absolute h-20 w-20 rounded-full border"
+            style={{ borderColor: isError ? 'hsl(0 62% 57% / 0.2)' : 'hsl(38 60% 58% / 0.2)' }}
           />
-          {/* Inner ring — slow counter-rotation for depth */}
-          <div className="absolute h-14 w-14 animate-[spin_12s_linear_infinite_reverse] rounded-full border border-dashed border-primary/10" />
-          {/* Compass icon — slow rotation */}
+          <div
+            className={[
+              'absolute h-14 w-14 rounded-full border border-dashed',
+              isError
+                ? 'border-destructive/10'
+                : 'animate-[spin_12s_linear_infinite_reverse] border-primary/10',
+            ].join(' ')}
+          />
           <Compass
-            className="h-8 w-8 animate-[spin_8s_linear_infinite] text-primary/70"
+            className={[
+              'h-8 w-8',
+              isError
+                ? 'text-destructive/60'
+                : 'animate-[spin_8s_linear_infinite] text-primary/70',
+            ].join(' ')}
             strokeWidth={1.2}
           />
         </div>
@@ -54,12 +60,23 @@ export function LoadingScreen({ status = 'Starting backend...' }: LoadingScreenP
           <h1 className="font-display text-2xl tracking-[0.2em] text-foreground/90">
             Scene Atlas
           </h1>
-          <div className="h-px w-24 bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
+          <div
+            className="h-px w-24 bg-gradient-to-r from-transparent to-transparent"
+            style={{
+              backgroundImage: isError
+                ? 'linear-gradient(90deg, transparent, hsl(0 62% 57% / 0.4), transparent)'
+                : 'linear-gradient(90deg, transparent, hsl(38 60% 58% / 0.4), transparent)',
+            }}
+          />
         </div>
 
         {/* Status text */}
-        <p className="font-mono text-xs tracking-wider text-muted-foreground">
-          {status}
+        <p
+          className="font-mono text-xs tracking-wider"
+          style={{ color: isError ? 'hsl(0 62% 57% / 0.8)' : undefined }}
+        >
+          {!isError && <span className="text-muted-foreground">{status}</span>}
+          {isError && status}
         </p>
       </div>
     </div>

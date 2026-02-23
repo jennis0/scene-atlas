@@ -61,6 +61,11 @@ async def lifespan(app: FastAPI):
 
     get_job_runner()
 
+    # Clean up any stale staging dirs left over from crashes or previous sessions
+    from ..pipeline.maintenance import cleanup_stale_staging
+
+    cleanup_stale_staging()
+
     # Start scheduler for periodic maintenance (backup, staging cleanup)
     from .services.scheduler import Scheduler
 

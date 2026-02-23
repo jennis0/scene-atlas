@@ -65,6 +65,15 @@ dist/
 dist-ssr/
 *.local
 
+# Electron build outputs
+electron/dist/
+dist-electron/
+
+# PyInstaller outputs
+backend/pyinstaller/dist/
+backend/pyinstaller/build/
+backend/pyinstaller/__pycache__/
+
 # Test fixtures (images) - keep README.md only
 backend/tests/fixtures/**
 !backend/tests/fixtures/README.md

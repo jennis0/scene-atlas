@@ -1098,6 +1098,13 @@ def process_import_group(
     _finalize_import_job(job_id)
     if processed > 0:
         _rebuild_fts()
+
+    # Clean up staging dir now that the group is done
+    staging_path = Path(staging_dir)
+    if staging_path.exists():
+        shutil.rmtree(staging_path, ignore_errors=True)
+        logger.info(f"Cleaned up staging dir for job {job_id}")
+
     return {
         "job_id": job_id,
         "group_job_id": group_job_id,

@@ -1,0 +1,66 @@
+appId: com.sceneatlas.app
+productName: Scene Atlas
+copyright: Copyright © 2024 Scene Atlas
+
+directories:
+  output: dist-electron
+  buildResources: assets
+
+# Files to include in the app package
+files:
+  - electron/dist/**/*
+  - electron/setup.html
+  - frontend/dist/**/*
+  - "!**/*.map"
+  - "!**/node_modules/**"
+
+# The PyInstaller --onedir output is bundled as a resource directory
+# named 'sidecar'. At runtime: path.join(process.resourcesPath, 'sidecar', 'scene-atlas-backend[.exe]')
+extraResources:
+  - from: backend/pyinstaller/dist/scene-atlas-backend/
+    to: sidecar
+    filter:
+      - "**/*"
+
+# ── Windows ─────────────────────────────────────────────────────────────────
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: assets/icon.ico
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+
+# ── macOS ────────────────────────────────────────────────────────────────────
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  icon: assets/icon.icns
+  category: public.app-category.utilities
+  hardenedRuntime: true
+  entitlements: assets/entitlements.mac.plist
+  entitlementsInherit: assets/entitlements.mac.plist
+
+dmg:
+  title: "Scene Atlas ${version}"
+
+# ── Linux ────────────────────────────────────────────────────────────────────
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  icon: assets/icon.png
+  category: Graphics
+
+# ── Auto-updates ─────────────────────────────────────────────────────────────
+# Publish to GitHub Releases (set GH_TOKEN in CI environment)
+publish:
+  provider: github
+  releaseType: release

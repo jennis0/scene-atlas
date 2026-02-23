@@ -171,13 +171,10 @@ export function Gallery() {
       } else if (griddedFilter.value === 'hex') {
         params.gridded = true
         params.grid_type = 'hex'
+      } else if (griddedFilter.value === 'unknown') {
+        params.gridded_unknown = true
       } else {
-        params.gridded =
-          griddedFilter.value === 'gridded'
-            ? true
-            : griddedFilter.value === 'gridless'
-              ? false
-              : undefined
+        params.gridded = griddedFilter.value === 'gridded' ? true : false
       }
     }
 

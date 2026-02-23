@@ -1,0 +1,20 @@
+{
+  "name": "scene-atlas",
+  "version": "0.1.0",
+  "description": "Scene Atlas — tabletop RPG scene manager with semantic search",
+  "author": "Scene Atlas",
+  "main": "electron/dist/main.js",
+  "private": true,
+  "scripts": {
+    "electron:dev": "concurrently --kill-others-on-fail \"cd frontend && npm run dev\" \"wait-on http://localhost:5173 && tsc -p electron/tsconfig.json && electron .\"",
+    "electron:build": "tsc -p electron/tsconfig.json && electron-builder",
+    "frontend:build": "cd frontend && npm install && npm run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.3.3",
+    "wait-on": "^8.0.0"
+  }
+}

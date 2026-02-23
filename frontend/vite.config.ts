@@ -4,6 +4,10 @@ import path from 'path'
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  // base './' produces relative asset paths (./assets/...) so the app
+  // works both from Vite dev server (/assets/...) and from Electron's
+  // file:// protocol where absolute /assets/... resolves to the filesystem root.
+  base: './',
   plugins: [react()],
   resolve: {
     alias: {
