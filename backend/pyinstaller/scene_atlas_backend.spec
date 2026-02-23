@@ -29,7 +29,12 @@ a = Analysis(
     [str(project_root / 'backend' / 'pyinstaller' / 'entry.py')],
     pathex=[str(project_root)],
     binaries=torch_binaries + transformers_binaries + tokenizers_binaries,
-    datas=torch_datas + transformers_datas + tokenizers_datas,
+    datas=torch_datas + transformers_datas + tokenizers_datas + [
+        # Alembic migrations: alembic.ini + backend/alembic/ bundled into _MEIPASS root
+        # database.py detects sys.frozen and reads from sys._MEIPASS instead of __file__
+        (str(project_root / 'alembic.ini'),          '.'),
+        (str(project_root / 'backend' / 'alembic'),  'backend/alembic'),
+    ],
     hiddenimports=[
         # uvicorn internals
         'uvicorn',

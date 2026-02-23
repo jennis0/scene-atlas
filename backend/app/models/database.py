@@ -312,9 +312,25 @@ def init_db(engine):
     from alembic.runtime.migration import MigrationContext
     from sqlalchemy import inspect
 
-    # alembic.ini lives at project root — 4 levels up from backend/app/models/database.py
-    alembic_ini = _Path(__file__).parent.parent.parent.parent / "alembic.ini"
-    alembic_cfg = AlembicConfig(str(alembic_ini))
+    # Locate alembic.ini — path differs between normal runtime and frozen binary.
+    # In a PyInstaller --onedir binary sys._MEIPASS is the _internal/ directory
+    # where bundled data files (including alembic.ini) are extracted.
+    import sys as _sys
+    if getattr(_sys, "frozen", False) and hasattr(_sys, "_MEIPASS"):
+        # Frozen PyInstaller binary: alembic.ini and backend/alembic/ are bundled
+        # into sys._MEIPASS (_internal/).  Alembic resolves script_location via
+        # os.path.abspath() (relative to CWD, not the config file), so we must
+        # override it with the absolute _MEIPASS path after loading the config.
+        alembic_ini = _Path(_sys._MEIPASS) / "alembic.ini"
+        alembic_cfg = AlembicConfig(str(alembic_ini))
+        alembic_cfg.set_main_option(
+            "script_location",
+            str(_Path(_sys._MEIPASS) / "backend" / "alembic"),
+        )
+    else:
+        # Normal dev runtime: 4 levels up from backend/app/models/database.py
+        alembic_ini = _Path(__file__).parent.parent.parent.parent / "alembic.ini"
+        alembic_cfg = AlembicConfig(str(alembic_ini))
     # Always override the URL to use this engine's actual database path
     alembic_cfg.set_main_option("sqlalchemy.url", str(engine.url))
 

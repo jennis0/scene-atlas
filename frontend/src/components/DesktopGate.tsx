@@ -51,18 +51,29 @@ export function DesktopGate({ children }: DesktopGateProps) {
 
   if (ready) return <>{children}</>
 
-  const status = (() => {
+  const { status, errorDetail } = (() => {
     switch (state.phase) {
       case 'waiting-for-signal':
-        return 'Starting backend...'
-      case 'polling':
-        return state.elapsed < 5
-          ? `Backend starting on port ${state.port}…`
-          : `Loading AI model… (${state.elapsed}s) — first run may take a minute`
+        return { status: 'Starting up', errorDetail: undefined }
+      case 'polling': {
+        const msg =
+          state.elapsed < 8
+            ? 'Starting up'
+            : state.elapsed < 25
+              ? 'Loading resources'
+              : 'First launch takes a little longer than usual'
+        return { status: msg, errorDetail: undefined }
+      }
       case 'error':
-        return `Error: ${state.message}`
+        return { status: "Couldn't start Scene Atlas", errorDetail: state.message }
     }
   })()
 
-  return <LoadingScreen status={status} isError={state.phase === 'error'} />
+  return (
+    <LoadingScreen
+      status={status}
+      isError={state.phase === 'error'}
+      errorDetail={errorDetail}
+    />
+  )
 }

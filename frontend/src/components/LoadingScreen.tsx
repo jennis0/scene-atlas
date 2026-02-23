@@ -1,41 +1,89 @@
 import { Compass } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
 interface LoadingScreenProps {
   status?: string
   isError?: boolean
+  errorDetail?: string
 }
 
-export function LoadingScreen({ status = 'Starting backend...', isError = false }: LoadingScreenProps) {
+function AnimatedDots() {
+  const [count, setCount] = useState(1)
+  useEffect(() => {
+    const id = setInterval(() => setCount(c => (c % 3) + 1), 600)
+    return () => clearInterval(id)
+  }, [])
+  // Fixed-width span so surrounding text doesn't shift
+  return (
+    <span className="inline-block w-5 text-left" aria-hidden>
+      {'.'.repeat(count)}
+    </span>
+  )
+}
+
+export function LoadingScreen({
+  status = 'Starting up',
+  isError = false,
+  errorDetail,
+}: LoadingScreenProps) {
+  const [showDetail, setShowDetail] = useState(false)
+
+  const amber = (alpha: number) => `hsl(38 60% 58% / ${alpha})`
+  const red   = (alpha: number) => `hsl(0 62% 57% / ${alpha})`
+  const accent = isError ? red : amber
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background">
       {/* Dot-grid background */}
       <div
         className="absolute inset-0 opacity-60"
         style={{
-          backgroundImage:
-            'radial-gradient(circle, hsl(37 27% 89% / 0.04) 1px, transparent 1px)',
+          backgroundImage: `radial-gradient(circle, ${amber(0.04)} 1px, transparent 1px)`,
           backgroundSize: '28px 28px',
         }}
       />
 
-      {/* Radial glow — amber normally, red-tinted on error */}
+      {/* Radial glow */}
       <div
         className="absolute inset-0"
         style={{
-          background: isError
-            ? 'radial-gradient(ellipse 50% 40% at 50% 48%, hsl(0 62% 57% / 0.06) 0%, transparent 100%)'
-            : 'radial-gradient(ellipse 50% 40% at 50% 48%, hsl(38 60% 58% / 0.06) 0%, transparent 100%)',
+          background: `radial-gradient(ellipse 50% 40% at 50% 48%, ${accent(0.06)} 0%, transparent 100%)`,
         }}
       />
 
       {/* Content */}
       <div className="relative flex flex-col items-center gap-8">
-        {/* Compass — spins when loading, static on error */}
-        <div className="relative flex items-center justify-center">
+
+        {/* Compass with layered rings */}
+        <div className="relative flex h-36 w-36 items-center justify-center">
+
+          {/* Outermost sonar-ping ring — expands outward and fades */}
+          {!isError && (
+            <div
+              className="absolute h-32 w-32 rounded-full border animate-ping"
+              style={{
+                borderColor: amber(0.12),
+                animationDuration: '2.4s',
+                animationTimingFunction: 'ease-out',
+              }}
+            />
+          )}
+
+          {/* Second ring — slow breathe */}
+          {!isError && (
+            <div
+              className="absolute h-26 w-26 rounded-full border animate-pulse"
+              style={{ borderColor: amber(0.15), animationDuration: '3s' }}
+            />
+          )}
+
+          {/* Static reference ring */}
           <div
             className="absolute h-20 w-20 rounded-full border"
-            style={{ borderColor: isError ? 'hsl(0 62% 57% / 0.2)' : 'hsl(38 60% 58% / 0.2)' }}
+            style={{ borderColor: accent(0.25) }}
           />
+
+          {/* Counter-spinning dashed ring */}
           <div
             className={[
               'absolute h-14 w-14 rounded-full border border-dashed',
@@ -44,9 +92,11 @@ export function LoadingScreen({ status = 'Starting backend...', isError = false 
                 : 'animate-[spin_12s_linear_infinite_reverse] border-primary/10',
             ].join(' ')}
           />
+
+          {/* Compass icon */}
           <Compass
             className={[
-              'h-8 w-8',
+              'relative h-8 w-8',
               isError
                 ? 'text-destructive/60'
                 : 'animate-[spin_8s_linear_infinite] text-primary/70',
@@ -55,29 +105,57 @@ export function LoadingScreen({ status = 'Starting backend...', isError = false 
           />
         </div>
 
-        {/* Title */}
+        {/* Title + rule */}
         <div className="flex flex-col items-center gap-2">
           <h1 className="font-display text-2xl tracking-[0.2em] text-foreground/90">
             Scene Atlas
           </h1>
           <div
-            className="h-px w-24 bg-gradient-to-r from-transparent to-transparent"
+            className="h-px w-24"
             style={{
-              backgroundImage: isError
-                ? 'linear-gradient(90deg, transparent, hsl(0 62% 57% / 0.4), transparent)'
-                : 'linear-gradient(90deg, transparent, hsl(38 60% 58% / 0.4), transparent)',
+              backgroundImage: `linear-gradient(90deg, transparent, ${accent(0.4)}, transparent)`,
             }}
           />
         </div>
 
-        {/* Status text */}
-        <p
-          className="font-mono text-xs tracking-wider"
-          style={{ color: isError ? 'hsl(0 62% 57% / 0.8)' : undefined }}
-        >
-          {!isError && <span className="text-muted-foreground">{status}</span>}
-          {isError && status}
-        </p>
+        {/* Status line */}
+        <div className="flex flex-col items-center gap-3">
+          <p className="font-mono text-xs tracking-wider">
+            {isError ? (
+              <span style={{ color: red(0.9) }}>{status}</span>
+            ) : (
+              <span className="text-muted-foreground">
+                {status}<AnimatedDots />
+              </span>
+            )}
+          </p>
+
+          {/* Error detail toggle */}
+          {isError && errorDetail && (
+            <div className="flex flex-col items-center gap-2 max-w-sm">
+              <button
+                onClick={() => setShowDetail(v => !v)}
+                className="font-mono text-[10px] tracking-wider text-muted-foreground/50 hover:text-muted-foreground/80 transition-colors"
+              >
+                {showDetail ? '▲ hide details' : '▼ show details'}
+              </button>
+              {showDetail && (
+                <pre
+                  className="mt-1 max-h-40 w-full overflow-y-auto rounded border border-border/30 bg-muted/20 p-3 font-mono text-[10px] leading-relaxed text-muted-foreground/70 whitespace-pre-wrap break-all"
+                >
+                  {errorDetail}
+                </pre>
+              )}
+            </div>
+          )}
+
+          {/* First-run hint */}
+          {!isError && (
+            <p className="font-mono text-[10px] tracking-wider text-muted-foreground/30">
+              First launch may take a moment to set up
+            </p>
+          )}
+        </div>
       </div>
     </div>
   )

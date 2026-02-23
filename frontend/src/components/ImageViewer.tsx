@@ -8,11 +8,13 @@ import {
   Pencil,
   Edit,
   SlidersHorizontal,
+  Download,
+  FolderDown,
 } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { SceneTile } from '@/components/SceneTile'
 import { SubgroupDropdown } from '@/components/SubgroupDropdown'
-import { imageApi, tagApi, getImageUrl } from '@/lib/api'
+import { imageApi, tagApi, getImageUrl, getGroupDownloadUrl } from '@/lib/api'
 import { useGetTagColor } from '@/contexts/TagColorContext'
 import { TagPicker } from '@/components/import/TagPicker'
 import { GridToggle } from '@/components/import/GridToggle'
@@ -87,6 +89,8 @@ export function ImageViewer({
   const [editingName, setEditingName] = useState(false)
   const [nameDraft, setNameDraft] = useState(image.name)
   const [editingSV, setEditingSV] = useState(false)
+  const [downloading, setDownloading] = useState(false)
+  const [downloadingGroup, setDownloadingGroup] = useState(false)
   const [gridWidthDraft, setGridWidthDraft] = useState<string>(image.grid_width?.toString() ?? '')
   const [gridHeightDraft, setGridHeightDraft] = useState<string>(
     image.grid_height?.toString() ?? '',
@@ -330,6 +334,47 @@ export function ImageViewer({
     onImageChange?.(variant)
   }
 
+  const handleDownload = async () => {
+    setDownloading(true)
+    try {
+      const resp = await fetch(getImageUrl(img))
+      const blob = await resp.blob()
+      const objectUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = objectUrl
+      a.download = buildDownloadFilename(img)
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(objectUrl)
+    } catch (err) {
+      console.error('Download failed', err)
+    } finally {
+      setDownloading(false)
+    }
+  }
+
+  const handleDownloadGroup = async () => {
+    if (!img.group_id) return
+    setDownloadingGroup(true)
+    try {
+      const resp = await fetch(getGroupDownloadUrl(img.group_id))
+      const blob = await resp.blob()
+      const objectUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = objectUrl
+      a.download = `${img.group_name ?? 'Group'}.zip`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(objectUrl)
+    } catch (err) {
+      console.error('Group download failed', err)
+    } finally {
+      setDownloadingGroup(false)
+    }
+  }
+
   const saveName = () => {
     const trimmed = nameDraft.trim()
     if (trimmed && trimmed !== img.name) renameMutation.mutate(trimmed)
@@ -422,12 +467,32 @@ export function ImageViewer({
             ) : (
               <div />
             )}
-            <button
-              onClick={onClose}
-              className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <div className="flex items-center gap-1">
+              {img.group_id !== null && (
+                <button
+                  onClick={handleDownloadGroup}
+                  disabled={downloadingGroup}
+                  title="Download all images in group"
+                  className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors disabled:opacity-40"
+                >
+                  <FolderDown className="h-4 w-4" />
+                </button>
+              )}
+              <button
+                onClick={handleDownload}
+                disabled={downloading}
+                title="Download image"
+                className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors disabled:opacity-40"
+              >
+                <Download className="h-4 w-4" />
+              </button>
+              <button
+                onClick={onClose}
+                className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
 
           {/* ── Image info (fixed — stays visible while scenes scroll) ── */}
@@ -861,4 +926,31 @@ function partitionBySubgroup(scenes: Image[]): SceneSection[] {
 
 function filenameStem(filename: string): string {
   return filename.replace(/\.[^.]+$/, '')
+}
+
+function sanitizeSegment(s: string): string {
+  // Replace filesystem-unsafe characters and path separators with a space
+  return s
+    .replace(/[/\\:*?"<>|]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function buildDownloadFilename(img: Image): string {
+  const parts: string[] = []
+
+  if (img.group_name && img.group_name !== img.name) parts.push(sanitizeSegment(img.group_name))
+  if (img.subgroup) parts.push(sanitizeSegment(img.subgroup))
+  parts.push(sanitizeSegment(img.name))
+
+  if (img.gridded === true) {
+    const label = img.grid_type === 'hex' ? 'Hex' : 'Grid'
+    const dims = img.grid_width && img.grid_height ? ` ${img.grid_width}x${img.grid_height}` : ''
+    parts.push(`${label}${dims}`)
+  } else {
+    parts.push('No Grid')
+  }
+
+  const ext = img.filename.match(/\.[^.]+$/)?.[0] ?? ''
+  return parts.join(' - ') + ext
 }
