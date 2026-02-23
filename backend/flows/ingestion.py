@@ -1,29 +1,21 @@
-"""Main image ingestion Prefect flows.
+"""Main image ingestion pipeline.
 
-Flows:
+Functions:
     analyse_upload       — Parse and group uploaded files for the preview UI
     process_import_group — Process a confirmed group (batched pipeline)
     process_single_image — Process one image (thin wrapper for single-image use)
     bulk_image_ingestion — CLI batch ingestion from directories (batched pipeline)
-
-Tasks:
-    prepare_single_image         — Parse, copy, thumbnail, colors for one image
-    batch_save_to_database       — Save a batch of images to SQLite in one transaction
-    batch_save_to_qdrant         — Save a batch of embeddings to Qdrant in one call
-    save_to_database             — Save one image to SQLite (single-image path)
-    save_to_qdrant               — Save one embedding to Qdrant (single-image path)
-    scan_directory               — Scan directory for supported image files
-    update_import_group_job_progress — Update ImportGroupJob progress counters
+    prepare_single_image — Parse, copy, thumbnail, colors for one image
 """
 
 import hashlib
-import logging  # kept for get_logger fallback
+import logging
 import shutil
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 
-from prefect import flow, task
 from sqlalchemy.orm import Session
 
 from backend.app.config import settings
@@ -38,7 +30,7 @@ from backend.app.models import (
     get_engine,
     get_session_local,
 )
-from backend.app.services import ImageParser, get_image_store, qdrant_service
+from backend.app.services import ImageParser, get_image_store, get_qdrant_service
 from backend.app.services.fts_service import fts_rebuild
 from backend.app.services.image_parser import build_search_text
 
@@ -172,7 +164,6 @@ def _save_image_to_db(db: Session, image_data: dict) -> int:
 # ---------------------------------------------------------------------------
 
 
-@task(name="scan_directory", retries=1)
 def scan_directory(directory: str) -> list[str]:
     """Scan directory for supported image files."""
     logger = get_logger(__name__)
@@ -190,7 +181,6 @@ def scan_directory(directory: str) -> list[str]:
     return image_paths
 
 
-@task(name="prepare_single_image", retries=2)
 def prepare_single_image(
     image_path: str,
     source_dir: str | None = None,
@@ -348,7 +338,6 @@ def prepare_single_image(
         file_size = image_path_obj.stat().st_size
 
         # --- Generate thumbnails + get dimensions ---
-        # Call the underlying function directly (not as Prefect task) to avoid overhead
         # --- Extract colors ---
         from backend.flows.tasks.color_extraction import extract_dominant_colors as _extract_colors
         from backend.flows.tasks.image_processing import generate_thumbnails as _gen_thumbs
@@ -364,15 +353,15 @@ def prepare_single_image(
             frame_img.save(str(frame_path), format="JPEG", quality=95)
             frame_img.close()
 
-            thumbnail_result = _gen_thumbs.fn(str(frame_path), storage_key_stem)
+            thumbnail_result = _gen_thumbs(str(frame_path), storage_key_stem)
             thumbnail_keys = thumbnail_result["keys"]
-            colors = _extract_colors.fn(str(frame_path))
+            colors = _extract_colors(str(frame_path))
             width, height = get_video_dimensions(image_path_obj)
             clip_image_path = str(frame_path)  # keep alive for CLIP in _process_batch
         else:
-            thumbnail_result = _gen_thumbs.fn(image_path, storage_key_stem)
+            thumbnail_result = _gen_thumbs(image_path, storage_key_stem)
             thumbnail_keys = thumbnail_result["keys"]
-            colors = _extract_colors.fn(image_path)
+            colors = _extract_colors(image_path)
             width, height = thumbnail_result["dimensions"]
             clip_image_path = None
 
@@ -393,10 +382,10 @@ def prepare_single_image(
 
             if gridded is None:
                 # No filename hint — detect presence + size
-                grid_result = _detect_grid.fn(image_path, width, height, size_only=False)
+                grid_result = _detect_grid(image_path, width, height, size_only=False)
             elif gridded is True and grid_width is None:
                 # Filename says gridded but no dimensions — detect size only
-                grid_result = _detect_grid.fn(image_path, width, height, size_only=True)
+                grid_result = _detect_grid(image_path, width, height, size_only=True)
             else:
                 grid_result = None
 
@@ -461,7 +450,6 @@ def prepare_single_image(
 # ---------------------------------------------------------------------------
 
 
-@task(name="save_to_database", retries=2)
 def save_to_database(image_data: dict) -> int:
     """Save image and related data to SQLite database.
 
@@ -485,12 +473,11 @@ def save_to_database(image_data: dict) -> int:
         db.close()
 
 
-@task(name="save_to_qdrant", retries=2)
 def save_to_qdrant(image_id: int, embedding: list[float], metadata: dict) -> bool:
     """Save embedding to Qdrant."""
     logger = get_logger(__name__)
     try:
-        success = qdrant_service.add_image_embedding(
+        success = get_qdrant_service().add_image_embedding(
             image_id=image_id,
             embedding=embedding,
             metadata=metadata,
@@ -508,7 +495,6 @@ def save_to_qdrant(image_id: int, embedding: list[float], metadata: dict) -> boo
 # ---------------------------------------------------------------------------
 
 
-@task(name="batch_save_to_database", retries=2)
 def batch_save_to_database(image_data_list: list[dict]) -> list[int]:
     """Save multiple images to the database in a single transaction.
 
@@ -538,7 +524,6 @@ def batch_save_to_database(image_data_list: list[dict]) -> list[int]:
         db.close()
 
 
-@task(name="batch_save_to_qdrant", retries=2)
 def batch_save_to_qdrant(items: list[dict]) -> bool:
     """Save multiple embeddings to Qdrant in one call.
 
@@ -555,7 +540,7 @@ def batch_save_to_qdrant(items: list[dict]) -> bool:
     """
     logger = get_logger(__name__)
     try:
-        success = qdrant_service.batch_add_embeddings(items)
+        success = get_qdrant_service().batch_add_embeddings(items)
         if success:
             logger.info(f"Batch saved {len(items)} embeddings to Qdrant")
         return success
@@ -571,7 +556,6 @@ def batch_save_to_qdrant(items: list[dict]) -> bool:
 # ---------------------------------------------------------------------------
 
 
-@task(name="update_import_group_job_progress", retries=1)
 def update_import_group_job_progress(
     group_job_id: str,
     processed: int,
@@ -646,7 +630,7 @@ def _process_batch(
     # --- Reuse images: retrieve existing embeddings from Qdrant ---
     for prep in reuse_images:
         source_id = prep["reuse_embedding_from"]
-        embedding = qdrant_service.get_embedding(source_id)
+        embedding = get_qdrant_service().get_embedding(source_id)
         if embedding:
             prep["embedding"] = embedding
         else:
@@ -659,7 +643,7 @@ def _process_batch(
             if stored_path.exists():
                 from .tasks.embedding_generation import generate_clip_embedding
 
-                prep["embedding"] = generate_clip_embedding.fn(str(stored_path))
+                prep["embedding"] = generate_clip_embedding(str(stored_path))
             else:
                 logger.error(f"Stored file not found for reuse: {stored_path}")
                 prep["status"] = "failed"
@@ -696,7 +680,6 @@ def _process_batch(
 # ---------------------------------------------------------------------------
 
 
-@flow(name="process_single_image", log_prints=True)
 def process_single_image(
     image_path: str,
     source_dir: str | None = None,
@@ -751,7 +734,6 @@ def process_single_image(
         }
 
 
-@flow(name="bulk_image_ingestion", log_prints=True)
 def bulk_image_ingestion(source_dirs: list[str]) -> dict:
     """Ingest images from multiple directories using batched pipeline.
 
@@ -792,20 +774,18 @@ def bulk_image_ingestion(source_dirs: list[str]) -> dict:
             )
 
             # Step 1: Prepare images with bounded concurrency to control memory usage.
-            # Submit max_concurrent_prepare tasks at a time and wait for each group
-            # before submitting the next — prevents all batch images loading into RAM at once.
             prepared_results = []
-            for sub_start in range(0, len(batch), concurrency):
-                sub_batch = batch[sub_start : sub_start + concurrency]
+            with ThreadPoolExecutor(max_workers=concurrency) as prep_pool:
                 futures = [
-                    prepare_single_image.submit(
+                    prep_pool.submit(
+                        prepare_single_image,
                         image_path=img_path,
                         source_dir=dir_path,
                         parser=parser,
                     )
-                    for img_path in sub_batch
+                    for img_path in batch
                 ]
-                prepared_results.extend(f.result() for f in futures)
+                prepared_results = [f.result() for f in futures]
 
             # Step 2-4: Batch CLIP → batch DB save → batch Qdrant save
             batch_results, _ = _process_batch(prepared_results)
@@ -837,7 +817,6 @@ def bulk_image_ingestion(source_dirs: list[str]) -> dict:
     return summary
 
 
-@flow(name="analyse_upload", log_prints=True, persist_result=True)
 def analyse_upload(
     staging_dir: str,
     relative_paths: list[str],
@@ -947,7 +926,7 @@ def _run_group(
     """Process one group end-to-end and return (processed, failed) counts.
 
     Updates ImportGroupJob progress after every batch and marks it completed (or
-    failed) when done.  Intended to be called from a Prefect flow context.
+    failed) when done.
     """
     logger = get_logger(__name__)
     batch_size = settings.ingestion_batch_size
@@ -982,11 +961,10 @@ def _run_group(
             )
 
             # Prepare images with bounded concurrency to control peak memory use.
-            prepared_results = []
-            for sub_start in range(0, len(batch), concurrency):
-                sub_batch = batch[sub_start : sub_start + concurrency]
+            with ThreadPoolExecutor(max_workers=concurrency) as prep_pool:
                 futures = [
-                    prepare_single_image.submit(
+                    prep_pool.submit(
+                        prepare_single_image,
                         image_path=image_path,
                         metadata={
                             "author": author,
@@ -1004,9 +982,9 @@ def _run_group(
                             "reuse_thumbnail_key": file_info.get("reuse_thumbnail_key"),
                         },
                     )
-                    for file_info, image_path in sub_batch
+                    for file_info, image_path in batch
                 ]
-                prepared_results.extend(f.result() for f in futures)
+                prepared_results = [f.result() for f in futures]
 
             # Batch CLIP → batch DB → batch Qdrant
             batch_results, _ = _process_batch(prepared_results)
@@ -1098,7 +1076,6 @@ def _rebuild_fts() -> None:
         logger.warning(f"FTS rebuild failed (non-fatal): {e}")
 
 
-@flow(name="process_import_group", log_prints=True)
 def process_import_group(
     job_id: str,
     group_job_id: str,
@@ -1130,7 +1107,6 @@ def process_import_group(
     }
 
 
-@flow(name="process_import_job", log_prints=True)
 def process_import_job(
     job_id: str,
     staging_dir: str,

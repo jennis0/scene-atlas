@@ -44,7 +44,7 @@ data/images/
 data/thumbnails/
 data/store/
 data/staging/
-data/qdrant_storage/
+data/qdrant_local/
 data/*.db
 data/*.db-journal
 
@@ -54,7 +54,6 @@ test_data/*
 *.log
 logs/
 .pids/
-.prefect/
 
 # Node.js (for frontend)
 node_modules/

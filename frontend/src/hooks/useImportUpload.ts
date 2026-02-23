@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react'
 import { filterByMagicBytes } from '@/lib/mimeCheck'
 import { importApi } from '@/lib/api'
+import { resolveApiUrl } from '@/lib/apiBase'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { humanizeFilename } from '@/components/import/types'
 import type { ImportUploadResponse, EditableGroupState } from '@/types'
@@ -178,7 +179,7 @@ export function useImportUpload({
             image_type: (f.image_type as 'battlemap' | 'scene') ?? defaultImageType,
             excluded: false,
             previewUrl: f.duplicate_of
-              ? `/api/v1/images/${f.duplicate_of.image_id}/thumbnail`
+              ? resolveApiUrl(`/api/v1/images/${f.duplicate_of.image_id}/thumbnail`)
               : blobUrlMap[f.relative_path],
             content_hash: f.content_hash ?? hashMap.get(f.relative_path),
             duplicate_of: f.duplicate_of,

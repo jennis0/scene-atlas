@@ -1,6 +1,6 @@
 """Unit tests for maintenance flow helper functions.
 
-Tests rotate_backups() and cleanup_stale_staging() without a running Prefect server.
+Tests rotate_backups() and cleanup_stale_staging() as pure functions.
 The backup_sqlite task and the full backup_database flow are already covered by
 test_backup_restore.py (integration test).
 """
@@ -31,11 +31,11 @@ class TestRotateBackups:
     def test_empty_root_returns_zero(self, tmp_path):
         root = tmp_path / "backups"
         root.mkdir()
-        result = rotate_backups.fn(root)
+        result = rotate_backups(root)
         assert result == 0
 
     def test_nonexistent_root_returns_zero(self, tmp_path):
-        result = rotate_backups.fn(tmp_path / "no_such_dir")
+        result = rotate_backups(tmp_path / "no_such_dir")
         assert result == 0
 
     def test_keeps_most_recent_n_backups(self, tmp_path):
@@ -52,7 +52,7 @@ class TestRotateBackups:
         for name in names:
             _make_backup_dir(root, name)
 
-        deleted = rotate_backups.fn(root, keep_daily=3, keep_weekly=0)
+        deleted = rotate_backups(root, keep_daily=3, keep_weekly=0)
 
         # 5 created, 3 kept → 2 deleted
         assert deleted == 2
@@ -72,7 +72,7 @@ class TestRotateBackups:
         # Add one with an invalid name
         invalid = _make_backup_dir(root, "unknown_backup_dir")
 
-        rotate_backups.fn(root, keep_daily=3, keep_weekly=1)
+        rotate_backups(root, keep_daily=3, keep_weekly=1)
 
         # Invalid-name dir must still be there
         assert invalid.exists()
@@ -84,7 +84,7 @@ class TestRotateBackups:
         for day in range(1, 15):
             _make_backup_dir(root, f"20240{day:02d}01_000000" if day <= 9 else f"20241{day-9:02d}01_000000")
 
-        deleted = rotate_backups.fn(root, keep_daily=3, keep_weekly=2)
+        deleted = rotate_backups(root, keep_daily=3, keep_weekly=2)
         remaining = list(root.iterdir())
         # keep_daily=3 + keep_weekly=2 → at most 5 kept, rest deleted
         assert deleted >= 1
@@ -96,7 +96,7 @@ class TestRotateBackups:
         _make_backup_dir(root, "20240101_000000")
         _make_backup_dir(root, "20240102_000000")
 
-        deleted = rotate_backups.fn(root, keep_daily=7, keep_weekly=4)
+        deleted = rotate_backups(root, keep_daily=7, keep_weekly=4)
         assert deleted == 0
 
 
@@ -111,7 +111,7 @@ class TestCleanupStaleStaging:
         mock_settings.staging_dir = tmp_path / "no_staging_here"
         monkeypatch.setattr("backend.flows.maintenance.settings", mock_settings)
 
-        result = cleanup_stale_staging.fn(max_age_hours=24)
+        result = cleanup_stale_staging(max_age_hours=24)
         assert result == 0
 
     def test_empty_staging_root_returns_zero(self, tmp_path, monkeypatch):
@@ -121,7 +121,7 @@ class TestCleanupStaleStaging:
         mock_settings.staging_dir = staging
         monkeypatch.setattr("backend.flows.maintenance.settings", mock_settings)
 
-        result = cleanup_stale_staging.fn(max_age_hours=24)
+        result = cleanup_stale_staging(max_age_hours=24)
         assert result == 0
 
     def test_fresh_dir_not_deleted(self, tmp_path, monkeypatch):
@@ -135,7 +135,7 @@ class TestCleanupStaleStaging:
         mock_settings.staging_dir = staging
         monkeypatch.setattr("backend.flows.maintenance.settings", mock_settings)
 
-        result = cleanup_stale_staging.fn(max_age_hours=24)
+        result = cleanup_stale_staging(max_age_hours=24)
         assert result == 0
         assert fresh_dir.exists()
 
@@ -153,7 +153,7 @@ class TestCleanupStaleStaging:
         mock_settings.staging_dir = staging
         monkeypatch.setattr("backend.flows.maintenance.settings", mock_settings)
 
-        result = cleanup_stale_staging.fn(max_age_hours=24)
+        result = cleanup_stale_staging(max_age_hours=24)
         assert result == 1
         assert not stale_dir.exists()
 
@@ -174,7 +174,7 @@ class TestCleanupStaleStaging:
         mock_settings.staging_dir = staging
         monkeypatch.setattr("backend.flows.maintenance.settings", mock_settings)
 
-        result = cleanup_stale_staging.fn(max_age_hours=24)
+        result = cleanup_stale_staging(max_age_hours=24)
         assert result == 1
         assert not stale.exists()
         assert fresh.exists()
@@ -190,6 +190,6 @@ class TestCleanupStaleStaging:
         mock_settings.staging_dir = staging
         monkeypatch.setattr("backend.flows.maintenance.settings", mock_settings)
 
-        result = cleanup_stale_staging.fn(max_age_hours=24)
+        result = cleanup_stale_staging(max_age_hours=24)
         assert result == 0
         assert a_file.exists()

@@ -1,14 +1,14 @@
 """Integration test: upload endpoint.
 
 Tests POST /api/v1/imports/upload.
-Mocks run_deployment (Prefect) — the endpoint saves files to staging,
-then calls analyse_upload via Prefect deployment.
+Mocks JobRunner.run_sync — the endpoint saves files to staging,
+then calls analyse_upload via the JobRunner.
 """
 
 import json
 import zipfile
 from io import BytesIO
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 from PIL import Image as PILImage
@@ -25,53 +25,48 @@ def _make_jpeg_bytes(width=20, height=20, color=(100, 150, 200)):
 
 @pytest.fixture
 def _setup_upload(tmp_path, tmp_db, monkeypatch):
-    """Mock run_deployment to return fake analysis results."""
+    """Mock JobRunner.run_sync to return fake analysis results."""
     staging_base = tmp_path / "staging"
     staging_base.mkdir(parents=True)
     monkeypatch.setattr("backend.app.config.settings.staging_dir", staging_base)
 
-    # Build a mock flow run that returns analysis groups
-    mock_state = MagicMock()
-    mock_state.is_failed.return_value = False
+    # Build fake analysis results (what analyse_upload returns)
+    fake_groups = [
+        {
+            "author": "TestAuthor",
+            "group_name": "TestMap",
+            "files": [
+                {
+                    "relative_path": "TestAuthor/TestMap/map.jpg",
+                    "parsed": {
+                        "filename": "map.jpg",
+                        "author": "TestAuthor",
+                        "group_name": "TestMap",
+                        "tags": [],
+                        "gridded": None,
+                        "grid_width": None,
+                        "grid_height": None,
+                        "subgroup": None,
+                    },
+                }
+            ],
+        }
+    ]
 
-    async def fake_result():
-        return [
-            {
-                "author": "TestAuthor",
-                "group_name": "TestMap",
-                "files": [
-                    {
-                        "relative_path": "TestAuthor/TestMap/map.jpg",
-                        "parsed": {
-                            "filename": "map.jpg",
-                            "author": "TestAuthor",
-                            "group_name": "TestMap",
-                            "tags": [],
-                            "gridded": None,
-                            "grid_width": None,
-                            "grid_height": None,
-                            "subgroup": None,
-                        },
-                    }
-                ],
-            }
-        ]
+    mock_runner = MagicMock()
+    mock_runner.run_sync.return_value = fake_groups
+    monkeypatch.setattr(
+        "backend.app.api.imports.get_job_runner", lambda: mock_runner
+    )
 
-    mock_state.result = fake_result
-    mock_flow_run = MagicMock()
-    mock_flow_run.state = mock_state
-
-    mock_run_deployment = AsyncMock(return_value=mock_flow_run)
-    monkeypatch.setattr("backend.app.api.imports.run_deployment", mock_run_deployment)
-
-    return staging_base, mock_run_deployment
+    return staging_base, mock_runner
 
 
 class TestUploadEndpoint:
     """Upload files endpoint."""
 
     def test_upload_single_file(self, test_client, _setup_upload):
-        staging_base, mock_run = _setup_upload
+        staging_base, mock_runner = _setup_upload
         jpeg_data = _make_jpeg_bytes()
 
         resp = test_client.post(

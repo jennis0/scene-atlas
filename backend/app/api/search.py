@@ -2,7 +2,7 @@
 
 import logging
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
@@ -13,7 +13,7 @@ from ..models import (
     Tag,
     get_session_local,
 )
-from ..services import get_clip_service, qdrant_service
+from ..services import get_clip_service, get_qdrant_service
 from ..services.fts_service import fts_search
 
 router = APIRouter()
@@ -243,7 +243,7 @@ async def search_images(
             clip_service = get_clip_service()
             query_embedding = clip_service.encode_text(effective_query)
             threshold = SEMANTIC_ONLY_THRESHOLD if semantic_only else SEMANTIC_THRESHOLD
-            qdrant_results = qdrant_service.search_similar(
+            qdrant_results = get_qdrant_service().search_similar(
                 query_embedding=query_embedding,
                 limit=limit * 3,
                 score_threshold=threshold,
@@ -295,3 +295,24 @@ async def search_images(
         images=results,
         scores=returned_scores,
     )
+
+
+# ── Admin: Rebuild Embeddings ────────────────────────────────────────────────
+
+
+@router.post("/rebuild-embeddings")
+async def trigger_rebuild_embeddings():
+    """Rebuild all CLIP embeddings (fire-and-forget background job).
+
+    Deletes and recreates the Qdrant collection, then re-encodes every image.
+    Search will be unavailable while the rebuild is running.
+    """
+    from ...flows.write_new_embeddings import rebuild_all_embeddings
+    from ..services.job_runner import get_job_runner
+
+    try:
+        runner = get_job_runner()
+        job_id = runner.submit(rebuild_all_embeddings, name="Rebuild embeddings")
+        return {"job_id": job_id, "message": "Embedding rebuild started"}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Could not start rebuild job: {e}")

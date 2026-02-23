@@ -1,7 +1,5 @@
 """Tests for image-based grid detection (GridDetector service)."""
 
-import math
-
 import cv2
 import numpy as np
 import pytest
@@ -21,13 +19,19 @@ def _make_square_grid_image(
     line_color: int = 0,
     bg_color: int = 200,
     line_thickness: int = 1,
+    noise_std: int = 30,
     path: str | None = None,
 ) -> str:
     """Generate an image with a square grid overlay.
 
+    Adds Gaussian noise to the background to simulate real artwork.
+    Without noise, the grid lines survive 30-degree rotation and
+    trigger false hex classification.
+
     Returns the saved file path.
     """
-    img = np.full((height, width), bg_color, dtype=np.uint8)
+    rng = np.random.RandomState(42)
+    img = rng.normal(bg_color, noise_std, (height, width)).clip(0, 255).astype(np.uint8)
 
     # Vertical lines
     for x in range(0, width + 1, cell_size):
@@ -38,71 +42,6 @@ def _make_square_grid_image(
     for y in range(0, height + 1, cell_size):
         if y < height:
             cv2.line(img, (0, y), (width - 1, y), line_color, line_thickness)
-
-    if path is None:
-        raise ValueError("path is required")
-    cv2.imwrite(path, img)
-    return path
-
-
-def _make_hex_grid_image(
-    width: int,
-    height: int,
-    hex_size: int,
-    flat_top: bool = False,
-    line_color: int = 0,
-    bg_color: int = 200,
-    line_thickness: int = 1,
-    path: str | None = None,
-) -> str:
-    """Generate an image with a hexagonal grid overlay.
-
-    For pointy-top hexagons:
-      - hex_size = distance from center to corner (circumradius)
-      - hex width = sqrt(3) * hex_size
-      - hex height = 2 * hex_size
-
-    For flat-top hexagons:
-      - hex_size = distance from center to corner (circumradius)
-      - hex width = 2 * hex_size
-      - hex height = sqrt(3) * hex_size
-    """
-    img = np.full((height, width), bg_color, dtype=np.uint8)
-
-    if flat_top:
-        col_spacing = 1.5 * hex_size
-        row_spacing = math.sqrt(3) * hex_size
-    else:
-        col_spacing = math.sqrt(3) * hex_size
-        row_spacing = 1.5 * hex_size
-
-    # Determine number of hex columns/rows to cover the image
-    n_cols = int(width / col_spacing) + 3
-    n_rows = int(height / row_spacing) + 3
-
-    for row in range(n_rows):
-        for col in range(n_cols):
-            if flat_top:
-                cx = col * col_spacing
-                cy = row * row_spacing + (col % 2) * row_spacing / 2
-            else:
-                cx = col * col_spacing + (row % 2) * col_spacing / 2
-                cy = row * row_spacing
-
-            # Draw hexagon
-            pts = []
-            for i in range(6):
-                if flat_top:
-                    angle_deg = 60 * i
-                else:
-                    angle_deg = 60 * i + 30
-                angle_rad = math.radians(angle_deg)
-                px = int(cx + hex_size * math.cos(angle_rad))
-                py = int(cy + hex_size * math.sin(angle_rad))
-                pts.append([px, py])
-
-            pts_arr = np.array(pts, dtype=np.int32)
-            cv2.polylines(img, [pts_arr], isClosed=True, color=line_color, thickness=line_thickness)
 
     if path is None:
         raise ValueError("path is required")
@@ -133,6 +72,54 @@ def _make_noise_image(
     return path
 
 
+def _make_hex_grid_image(
+    width: int,
+    height: int,
+    hex_size: int = 40,
+    line_color: int = 0,
+    bg_color: int = 200,
+    line_thickness: int = 1,
+    path: str | None = None,
+) -> str:
+    """Generate an image with a pointy-top hex grid overlay.
+
+    hex_size is the distance from center to vertex.
+    """
+    import math as _math
+
+    img = np.full((height, width), bg_color, dtype=np.uint8)
+
+    # Pointy-top hex geometry
+    hex_h = hex_size * 2
+    hex_w = _math.sqrt(3) * hex_size
+    row_height = hex_h * 0.75
+
+    rows = int(height / row_height) + 2
+    cols = int(width / hex_w) + 2
+
+    for row in range(rows):
+        for col in range(cols):
+            cx = col * hex_w + (hex_w / 2 if row % 2 else 0)
+            cy = row * row_height
+            # Draw 6 sides of the hex
+            pts = []
+            for i in range(6):
+                angle = _math.radians(60 * i - 30)  # pointy-top
+                px = int(cx + hex_size * _math.cos(angle))
+                py = int(cy + hex_size * _math.sin(angle))
+                pts.append((px, py))
+            for i in range(6):
+                cv2.line(
+                    img, pts[i], pts[(i + 1) % 6],
+                    line_color, line_thickness,
+                )
+
+    if path is None:
+        raise ValueError("path is required")
+    cv2.imwrite(path, img)
+    return path
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -142,10 +129,12 @@ def _make_noise_image(
 def detector():
     return GridDetector(
         min_cell_px=32,
-        max_cell_px=256,
-        max_dim=1024,
-        presence_threshold=0.3,
+        max_cell_px=320,
+        max_dim=20_000,
+        presence_threshold=0.20,
         size_threshold=0.15,
+        period_ratio_threshold=0.98,
+        hex_rot_conf=0.20,
     )
 
 
@@ -160,7 +149,7 @@ class TestSquareGridDetection:
     def test_detect_clear_square_grid(self, detector, tmp_path):
         """Strong grid lines on a clean background → gridded=True, type=square."""
         width, height, cell = 900, 600, 100  # 9×6 grid
-        path = _make_square_grid_image(
+        _make_square_grid_image(
             width, height, cell, line_color=0, bg_color=200,
             line_thickness=2, path=str(tmp_path / "grid_clear.png"),
         )
@@ -169,7 +158,7 @@ class TestSquareGridDetection:
 
         assert result["gridded"] is True
         assert result["grid_type"] == "square"
-        assert result["confidence"] > 0.3
+        assert result["confidence"] >= 0.45
         # Tile counts: 900/100=9 wide, 600/100=6 tall
         if result["grid_width"] is not None:
             assert result["grid_width"] == 9
@@ -179,7 +168,7 @@ class TestSquareGridDetection:
     def test_detect_fine_square_grid(self, detector, tmp_path):
         """Smaller cell size, still detectable."""
         width, height, cell = 1024, 768, 64  # 16×12 grid
-        path = _make_square_grid_image(
+        _make_square_grid_image(
             width, height, cell, line_color=50, bg_color=200,
             line_thickness=1, path=str(tmp_path / "grid_fine.png"),
         )
@@ -196,7 +185,7 @@ class TestSquareGridDetection:
     def test_detect_large_cell_square_grid(self, detector, tmp_path):
         """Large cells (200px) on a large image."""
         width, height, cell = 1000, 1000, 200  # 5×5 grid
-        path = _make_square_grid_image(
+        _make_square_grid_image(
             width, height, cell, line_color=30, bg_color=180,
             line_thickness=2, path=str(tmp_path / "grid_large.png"),
         )
@@ -213,7 +202,7 @@ class TestSquareGridDetection:
     def test_detect_faint_grid(self, detector, tmp_path):
         """Faint grid lines (low contrast) — may detect with lower confidence."""
         width, height, cell = 900, 600, 100
-        path = _make_square_grid_image(
+        _make_square_grid_image(
             width, height, cell, line_color=170, bg_color=200,
             line_thickness=1, path=str(tmp_path / "grid_faint.png"),
         )
@@ -228,7 +217,7 @@ class TestSquareGridDetection:
     def test_size_only_mode(self, detector, tmp_path):
         """When we already know it's gridded, use lower threshold to find size."""
         width, height, cell = 900, 600, 100
-        path = _make_square_grid_image(
+        _make_square_grid_image(
             width, height, cell, line_color=0, bg_color=200,
             line_thickness=2, path=str(tmp_path / "grid.png"),
         )
@@ -248,58 +237,47 @@ class TestSquareGridDetection:
 
 
 class TestHexGridDetection:
-    """Test detection of hexagonal grids."""
+    """Test detection of hex grids."""
 
-    def test_detect_hex_grid_pointy_top(self, detector, tmp_path):
-        """Pointy-top hex grid → type=hex."""
-        width, height = 1000, 1000
-        hex_size = 40  # circumradius
-        path = _make_hex_grid_image(
-            width, height, hex_size, flat_top=False,
-            line_color=0, bg_color=200, line_thickness=2,
-            path=str(tmp_path / "hex_pointy.png"),
+    def test_detect_hex_grid(self, detector, tmp_path):
+        """Hex grid lines on a clean background -> gridded=True, type=hex."""
+        width, height = 800, 800
+        _make_hex_grid_image(
+            width, height, hex_size=50, line_color=0, bg_color=200,
+            line_thickness=2, path=str(tmp_path / "hex_grid.png"),
         )
 
-        result = detector.detect(tmp_path / "hex_pointy.png", width, height)
+        result = detector.detect(tmp_path / "hex_grid.png", width, height)
 
-        # Hex detection may produce "hex" or "square" depending on signal strength.
-        # The key thing to verify is that the algorithm finds periodicity.
+        assert result["gridded"] is True
+        assert result["grid_type"] == "hex"
         assert result["confidence"] > 0
-        if result["gridded"] is True:
-            # If detected, should ideally be hex
-            assert result["grid_type"] in ("hex", "square")
 
-    def test_detect_hex_grid_flat_top(self, detector, tmp_path):
-        """Flat-top hex grid → type=hex."""
-        width, height = 1000, 1000
-        hex_size = 40
-        path = _make_hex_grid_image(
-            width, height, hex_size, flat_top=True,
-            line_color=0, bg_color=200, line_thickness=2,
-            path=str(tmp_path / "hex_flat.png"),
+    def test_hex_grid_no_tile_counts(self, detector, tmp_path):
+        """Hex grids should not report tile counts (only square grids do)."""
+        width, height = 800, 800
+        _make_hex_grid_image(
+            width, height, hex_size=50, line_color=0, bg_color=200,
+            line_thickness=2, path=str(tmp_path / "hex_grid.png"),
         )
 
-        result = detector.detect(tmp_path / "hex_flat.png", width, height)
+        result = detector.detect(tmp_path / "hex_grid.png", width, height)
 
-        assert result["confidence"] > 0
-        if result["gridded"] is True:
-            assert result["grid_type"] in ("hex", "square")
+        if result["grid_type"] == "hex":
+            assert result["grid_width"] is None
+            assert result["grid_height"] is None
 
-    def test_detect_large_hex_grid(self, detector, tmp_path):
-        """Larger hex cells for easier detection."""
-        width, height = 1200, 1200
-        hex_size = 60
-        path = _make_hex_grid_image(
-            width, height, hex_size, flat_top=False,
-            line_color=0, bg_color=200, line_thickness=2,
-            path=str(tmp_path / "hex_large.png"),
+    def test_square_not_classified_as_hex(self, detector, tmp_path):
+        """A square grid should never be classified as hex."""
+        width, height, cell = 900, 600, 100
+        _make_square_grid_image(
+            width, height, cell, line_color=0, bg_color=200,
+            line_thickness=2, path=str(tmp_path / "square.png"),
         )
 
-        result = detector.detect(tmp_path / "hex_large.png", width, height)
+        result = detector.detect(tmp_path / "square.png", width, height)
 
-        if result["gridded"] is True:
-            assert result["grid_type"] in ("hex", "square")
-            assert result["confidence"] > 0.2
+        assert result["grid_type"] != "hex"
 
 
 # ---------------------------------------------------------------------------
@@ -341,6 +319,28 @@ class TestNoGrid:
 # ---------------------------------------------------------------------------
 
 
+class TestRotateEdges:
+    """Test the edge rotation helper."""
+
+    def test_rotate_preserves_content(self, detector):
+        """Rotation should produce a non-empty image."""
+        edges = np.zeros((200, 300), dtype=np.uint8)
+        # Draw a horizontal line
+        edges[100, :] = 255
+        rotated = detector._rotate_edges(edges, 30)
+        assert rotated.shape[0] > 0
+        assert rotated.shape[1] > 0
+        assert rotated.sum() > 0
+
+    def test_rotate_zero_degrees(self, detector):
+        """0-degree rotation should be close to a crop of the original."""
+        edges = np.full((200, 300), 128, dtype=np.uint8)
+        rotated = detector._rotate_edges(edges, 0)
+        # Should be smaller due to margin crop
+        assert rotated.shape[0] < 200
+        assert rotated.shape[1] < 300
+
+
 class TestSnapToTileCount:
     """Test the period → tile count snapping logic."""
 
@@ -366,29 +366,45 @@ class TestSnapToTileCount:
         assert detector._snap_to_tile_count(100.0, 0) is None
 
 
-class TestClassifyGridType:
-    """Test the period ratio → grid type classification."""
+class TestPickBestPeriods:
+    """Test the paired period selection logic."""
 
-    def test_equal_periods_is_square(self, detector):
-        assert detector._classify_grid_type(100, 100, 0.5, 0.5) == "square"
+    def test_matching_periods_preferred(self, detector):
+        """When both axes have similar periods, they should be selected."""
+        h_cands = [(100, 0.8), (200, 0.9)]
+        v_cands = [(101, 0.7), (50, 0.85)]
+        hp, hs, vp, vs = detector._pick_best_periods(h_cands, v_cands)
+        # Should prefer 100/101 pair (ratio≈0.99) over 200/50 (ratio=0.25)
+        assert hp == 100
+        assert vp == 101
 
-    def test_near_equal_is_square(self, detector):
-        assert detector._classify_grid_type(95, 100, 0.5, 0.5) == "square"
+    def test_empty_h_candidates(self, detector):
+        """With no h candidates, return the strongest v candidate."""
+        hp, hs, vp, vs = detector._pick_best_periods([], [(50, 0.7), (100, 0.5)])
+        assert hp is None
+        assert hs == 0.0
+        assert vp == 50
+        assert vs == 0.7
 
-    def test_hex_ratio(self, detector):
-        # sqrt(3)/2 ≈ 0.866 → one period is ~87% of the other
-        h_period = 100
-        v_period = int(100 * math.sqrt(3) / 2)  # 86
-        assert detector._classify_grid_type(h_period, v_period, 0.5, 0.5) == "hex"
+    def test_empty_v_candidates(self, detector):
+        """With no v candidates, return the strongest h candidate."""
+        hp, hs, vp, vs = detector._pick_best_periods([(80, 0.6)], [])
+        assert hp == 80
+        assert hs == 0.6
+        assert vp is None
+        assert vs == 0.0
 
-    def test_inverse_hex_ratio(self, detector):
-        h_period = int(100 * math.sqrt(3) / 2)  # 86
-        v_period = 100
-        assert detector._classify_grid_type(h_period, v_period, 0.5, 0.5) == "hex"
+    def test_both_empty(self, detector):
+        hp, hs, vp, vs = detector._pick_best_periods([], [])
+        assert hp is None
+        assert vp is None
 
-    def test_one_period_none(self, detector):
-        result = detector._classify_grid_type(100, None, 0.5, 0.0)
-        assert result == "square"
-
-    def test_both_none(self, detector):
-        assert detector._classify_grid_type(None, None, 0.0, 0.0) is None
+    def test_smaller_period_bias(self, detector):
+        """When strength and agreement are equal, smaller period is preferred."""
+        h_cands = [(50, 0.8), (100, 0.8)]
+        v_cands = [(50, 0.8), (100, 0.8)]
+        hp, hs, vp, vs = detector._pick_best_periods(h_cands, v_cands)
+        # Both 50/50 and 100/100 have ratio=1.0 and same strength,
+        # but 50/50 has better size_bias
+        assert hp == 50
+        assert vp == 50

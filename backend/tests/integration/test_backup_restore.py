@@ -1,6 +1,6 @@
 """Integration test: backup → corrupt → restore → verify data integrity.
 
-Tests that the backup_sqlite Prefect task produces a consistent, restorable
+Tests that the backup_sqlite function produces a consistent, restorable
 snapshot. Does NOT require a running Qdrant instance (Qdrant snapshot creation
 is skipped; that path is covered by the e2e suite which requires live infrastructure).
 
@@ -116,7 +116,7 @@ def test_backup_creates_readable_snapshot(tmp_path, tmp_db):
     # Extract the file path from the engine URL
     db_path = Path(str(engine.url).replace("sqlite:///", ""))
     backup_dir = tmp_path / "backups" / "20260101_030000"
-    backup_path = backup_sqlite.fn(backup_dir, db_path=db_path)
+    backup_path = backup_sqlite(backup_dir, db_path=db_path)
 
     assert backup_path.exists(), "Backup file was not created"
     assert backup_path.stat().st_size > 0, "Backup file is empty"
@@ -140,7 +140,7 @@ def test_restore_from_backup_preserves_all_data(tmp_path, tmp_db):
     db_path = Path(db_url.replace("sqlite:///", ""))
 
     backup_dir = tmp_path / "backup"
-    backup_path = backup_sqlite.fn(backup_dir, db_path=db_path)
+    backup_path = backup_sqlite(backup_dir, db_path=db_path)
 
     # Simulate corruption by overwriting the original database
     engine.dispose()  # close all connections before overwriting
@@ -198,7 +198,7 @@ def test_rotate_backups_keeps_recent(tmp_path):
         d.mkdir()
         dirs.append(d)
 
-    deleted = rotate_backups.fn(backups_root, keep_daily=7, keep_weekly=4)
+    deleted = rotate_backups(backups_root, keep_daily=7, keep_weekly=4)
 
     remaining = list(backups_root.iterdir())
     # 7 daily + 1 weekly kept = 8 kept, 4 deleted
@@ -211,8 +211,8 @@ def test_rotate_backups_keeps_recent(tmp_path):
 
 def test_rotate_backups_noop_when_empty(tmp_path):
     """rotate_backups() returns 0 on an empty or nonexistent directory."""
-    assert rotate_backups.fn(tmp_path / "nonexistent") == 0
+    assert rotate_backups(tmp_path / "nonexistent") == 0
 
     empty = tmp_path / "empty"
     empty.mkdir()
-    assert rotate_backups.fn(empty) == 0
+    assert rotate_backups(empty) == 0

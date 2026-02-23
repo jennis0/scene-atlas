@@ -1,8 +1,6 @@
 """FastAPI application for Scene Atlas."""
 
 import logging
-import os
-import urllib.request
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -12,10 +10,7 @@ from sqlalchemy import text
 
 from .config import settings
 
-# Set PREFECT_API_URL before any Prefect imports so the client connects to our server
-os.environ.setdefault("PREFECT_API_URL", settings.prefect_api_url)
-
-from .api import groups, images, imports, search, tags
+from .api import groups, images, imports, jobs, search, tags
 from .models import get_engine, get_session_local, init_db, seed_tag_categories
 
 # Configure logging
@@ -61,12 +56,37 @@ async def lifespan(app: FastAPI):
     get_clip_service()
     logger.info("CLIP model loaded and ready")
 
+    # Start background job runner (eagerly, so it's ready for requests)
+    from .services.job_runner import get_job_runner, shutdown_job_runner
+
+    get_job_runner()
+
+    # Start scheduler for periodic maintenance (backup, staging cleanup)
+    from .services.scheduler import Scheduler
+
+    scheduler = Scheduler()
+    if settings.scheduler_enabled:
+        from ..flows.maintenance import backup_database, cleanup_staging
+
+        scheduler.register(backup_database, hours=24, name="backup_database")
+        scheduler.register(cleanup_staging, hours=6, name="cleanup_staging")
+        await scheduler.start()
+        logger.info("Scheduler started")
+
     logger.info(f"Server ready on {settings.api_host}:{settings.api_port}")
+    # Signal to desktop shell (Electron) that the backend is ready
+    print(f"SCENE_ATLAS_READY port={settings.api_port}", flush=True)
 
     yield
 
     # Shutdown
     logger.info("Shutting down application")
+    await scheduler.stop()
+    shutdown_job_runner()
+
+    from .services.qdrant_service import shutdown_qdrant_service
+
+    shutdown_qdrant_service()
 
 
 # Create FastAPI app
@@ -93,6 +113,7 @@ app.include_router(imports.router, prefix=f"{settings.api_prefix}/imports", tags
 app.include_router(
     groups.router, prefix=f"{settings.api_prefix}/groups", tags=["groups"]
 )
+app.include_router(jobs.router, prefix=f"{settings.api_prefix}/jobs", tags=["jobs"])
 
 
 @app.get("/")
@@ -120,7 +141,7 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
 
 @app.get("/health")
 async def health(request: Request):
-    """Deep health check: DB connectivity + Qdrant reachability.
+    """Deep health check: DB connectivity + Qdrant collection status.
 
     Returns 200 with status "healthy" when all systems are up, or "degraded"
     when one or more checks fail.  Useful for diagnosing "why isn't search
@@ -140,26 +161,49 @@ async def health(request: Request):
 
     # Qdrant check
     try:
-        req = urllib.request.Request(
-            f"http://{settings.qdrant_host}:{settings.qdrant_port}/collections",
-            method="GET",
-        )
-        with urllib.request.urlopen(req, timeout=3):
-            pass
-        checks["qdrant"] = "ok"
+        from .services.qdrant_service import get_qdrant_service
+
+        info = get_qdrant_service().get_collection_info()
+        if info:
+            checks["qdrant"] = f"ok ({info.get('points_count', '?')} points)"
+        else:
+            checks["qdrant"] = "error: empty collection info"
+            overall = "degraded"
     except Exception as exc:
         checks["qdrant"] = f"error: {exc}"
         overall = "degraded"
+
+    # Job runner status
+    from .services.job_runner import get_job_runner
+
+    checks["job_runner"] = get_job_runner().status
 
     return {"status": overall, "checks": checks}
 
 
 if __name__ == "__main__":
+    import argparse
+    import os
+
     import uvicorn
+
+    parser = argparse.ArgumentParser(description="Scene Atlas backend")
+    parser.add_argument("--port", type=int, default=None, help="Override API port")
+    parser.add_argument("--data-dir", type=str, default=None, help="Override data directory")
+    args = parser.parse_args()
+
+    # Set env vars so Settings() picks them up (must happen before re-import)
+    if args.data_dir:
+        os.environ["DATA_DIR"] = args.data_dir
+    if args.port:
+        os.environ["API_PORT"] = str(args.port)
+
+    host = settings.api_host
+    port = args.port or settings.api_port
 
     uvicorn.run(
         "backend.app.main:app",
-        host=settings.api_host,
-        port=settings.api_port,
+        host=host,
+        port=port,
         reload=settings.debug,
     )

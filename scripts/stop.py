@@ -1,13 +1,9 @@
-"""Stop all Battlemap Explorer services.
+"""Stop the Scene Atlas backend server.
 
-Terminates:
-  - FastAPI server         (PID from .pids/api.pid)
-  - Prefect worker         (PID from .pids/worker.pid)
-  - Docker infrastructure  (unless --keep-docker is passed)
+Terminates the FastAPI server process (PID from .pids/api.pid).
 
 Usage:
-  uv run python scripts/stop.py                # stop everything
-  uv run python scripts/stop.py --keep-docker  # leave Docker running
+  uv run python scripts/stop.py
 """
 
 import os
@@ -44,22 +40,12 @@ def _kill_by_pid_file(name: str) -> None:
 
 
 def main() -> None:
-    keep_docker = "--keep-docker" in sys.argv
-
     print("=" * 50)
-    print("  Battlemap Explorer — Stopping Services")
+    print("  Scene Atlas — Stopping")
     print("=" * 50)
     print()
 
-    print("Stopping background services...")
     _kill_by_pid_file("api")
-    _kill_by_pid_file("worker")
-
-    if keep_docker:
-        print("\nDocker infrastructure left running (--keep-docker).")
-    else:
-        print("\nStopping Docker infrastructure...")
-        subprocess.run(["docker", "compose", "stop"], cwd=ROOT, check=True)
 
     print()
     print("Done. Run 'uv run python scripts/start.py' to start again.")

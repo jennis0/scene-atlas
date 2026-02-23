@@ -24,7 +24,7 @@ def safe_delete_image(db: Session, image: Image) -> None:
         image: The Image record to delete
     """
     from . import get_image_store, get_thumbnail_store
-    from .qdrant_service import qdrant_service
+    from .qdrant_service import get_qdrant_service
 
     storage_key = image.storage_key
     thumbnail_key = image.thumbnail_key
@@ -41,7 +41,7 @@ def safe_delete_image(db: Session, image: Image) -> None:
 
     # Always delete the per-image Qdrant point
     try:
-        qdrant_service.delete_image_embedding(image_id)
+        get_qdrant_service().delete_image_embedding(image_id)
     except Exception as e:
         logger.warning(f"Failed to delete Qdrant embedding for image {image_id}: {e}")
 

@@ -77,17 +77,19 @@ All config via `backend/app/config.py` using `pydantic-settings`. Reads from `.e
 - `database_url` — SQLite path (default: `sqlite:///./data/battlemap.db`)
 - `store_images_dir` / `store_thumbnails_dir` — object store base directories
 - `staging_dir` — temp directory for import uploads
-- `qdrant_host` / `qdrant_port` — Qdrant connection
+- `qdrant_path` — Qdrant embedded local storage directory
 - `clip_model_name` / `clip_device` — CLIP model config
-- `prefect_api_url` / `prefect_work_pool` — Prefect server connection
+- `max_job_workers` — concurrent background job threads
+- `scheduler_enabled` — periodic maintenance (backup, staging cleanup)
 - `cors_origins` — allowed origins (localhost:3000, localhost:5173)
 
 ## Startup Sequence
 
 1. FastAPI app created in `main.py`
 2. On startup: create DB engine, run `init_db()` (create tables), run `seed_tag_categories()` (upsert vocabulary)
-3. Store DB engine in `app.state.db_engine` for dependency injection
-4. Routes mounted with `/api/v1` prefix
+3. Pre-load CLIP model, start JobRunner (background thread pool), start Scheduler (periodic tasks)
+4. Store DB engine in `app.state.db_engine` for dependency injection
+5. Routes mounted with `/api/v1` prefix
 
 ## Dependencies Between Services
 
@@ -96,10 +98,10 @@ API endpoints
   ├── SQLAlchemy (db session via Depends)
   ├── ImageStore / ThumbnailStore (file serving)
   ├── CLIPService (semantic search)
-  └── QdrantService (vector search)
+  └── QdrantService (embedded vector search, thread-safe via RLock)
 
-Prefect flows
-  ├── SQLAlchemy (save_to_database task)
+Background jobs (via JobRunner)
+  ├── SQLAlchemy (save_to_database)
   ├── ImageStore (copy files into store)
   ├── ImageParser (metadata extraction)
   ├── CLIPService (embedding generation)

@@ -37,11 +37,10 @@ def stores(tmp_path):
 
 @pytest.fixture
 def mock_qdrant():
-    """Patch delete_image_embedding on the qdrant_service singleton."""
-    from backend.app.services.qdrant_service import qdrant_service as _svc
-
-    with patch.object(_svc, "delete_image_embedding") as mock_del:
-        yield mock_del
+    """Patch get_qdrant_service to return a mock with delete_image_embedding."""
+    mock_svc = MagicMock()
+    with patch("backend.app.services.qdrant_service.get_qdrant_service", return_value=mock_svc):
+        yield mock_svc.delete_image_embedding
 
 
 def _patch_stores(monkeypatch, image_store: ImageStore, thumbnail_store: ImageStore):
@@ -291,13 +290,13 @@ class TestSafeDeleteImageQdrant:
 
     def test_qdrant_failure_does_not_raise(self, db_session, stores, monkeypatch):
         """A Qdrant error during deletion must be swallowed (logged, not raised)."""
-        from backend.app.services.qdrant_service import qdrant_service as _svc
-
         image_store, thumbnail_store = stores
         _patch_stores(monkeypatch, image_store, thumbnail_store)
         _seed_store(image_store, "i1i2i3.jpg")
 
-        with patch.object(_svc, "delete_image_embedding", side_effect=RuntimeError("qdrant down")):
+        mock_svc = MagicMock()
+        mock_svc.delete_image_embedding.side_effect = RuntimeError("qdrant down")
+        with patch("backend.app.services.qdrant_service.get_qdrant_service", return_value=mock_svc):
             img = _make_image("i1i2i3.jpg")
             db_session.add(img)
             db_session.commit()

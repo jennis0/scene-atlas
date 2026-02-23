@@ -4,7 +4,7 @@
 
 The test suite covers the ingestion pipeline end-to-end: parsing, flow orchestration, API endpoints, and the critical metadata round-trip that ensures user edits survive to the database.
 
-**No infrastructure required.** All tests run without Docker, Prefect server, or Qdrant. Qdrant is mocked at import time; Prefect flows use ephemeral in-memory mode.
+**No infrastructure required.** All tests run without external services. Qdrant's `QdrantClient` is mocked at import time to prevent creating local DB files during tests.
 
 ## Running Tests
 
@@ -99,12 +99,11 @@ monkeypatch.setattr("backend.app.config.settings.database_url", str(engine.url))
 |---|---|
 | New parser rule | `test_parser.py` — add case for parse() and/or group_files() |
 | New Pydantic schema | `test_schemas.py` — defaults, round-trip, serialization |
-| New API endpoint | New file in `integration/` — mock Prefect, use TestClient |
+| New API endpoint | New file in `integration/` — mock JobRunner, use TestClient |
 | New flow logic | `integration/` — call flow directly, mock heavy services |
 | New metadata field | `test_metadata_roundtrip.py` — verify it survives the round-trip |
 
 ## Known quirks
 
-- **Qdrant mocking must happen before import.** `conftest.py` patches `qdrant_client.QdrantClient` before `backend.app.services` loads, because `qdrant_service.py` creates a global `QdrantService()` instance at import time.
-- **Prefect ephemeral shutdown noise.** Prefect's ephemeral server logs a "Stopping temporary server" error during interpreter shutdown (Rich console already closed). This is cosmetic and doesn't affect test results.
+- **Qdrant mocking must happen before import.** `conftest.py` patches `qdrant_client.QdrantClient` before `backend.app.services` loads, because `QdrantService.__init__()` creates an embedded local DB on disk. The lazy singleton (`get_qdrant_service()`) defers creation, but the QdrantClient class still needs to be mocked before any test triggers it.
 - **TestClient lifespan override.** The FastAPI lifespan sets `app.state.db_engine` to production. Fixtures must override it **after** `TestClient.__enter__()`, not before.

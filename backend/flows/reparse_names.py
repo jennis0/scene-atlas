@@ -8,12 +8,7 @@ Usage:
     uv run python -m backend.flows.reparse_names
 """
 
-import os
 from pathlib import Path
-
-from prefect import flow, task
-
-os.environ.setdefault("PREFECT_API_URL", "http://localhost:4200/api")
 
 from backend.app.config import settings
 from backend.app.models.database import (
@@ -38,7 +33,6 @@ def _build_parser(db) -> ImageParser:
     return ImageParser(tag_categories=cat_dicts)
 
 
-@task(name="clean_group_names")
 def clean_group_names(parser: ImageParser) -> dict:
     """Clean all ImageGroup base_name values.
 
@@ -70,7 +64,6 @@ def clean_group_names(parser: ImageParser) -> dict:
     return group_names
 
 
-@task(name="reparse_image_names_batch")
 def reparse_image_names_batch(
     image_ids: list[int],
     parser: ImageParser,
@@ -132,7 +125,6 @@ def reparse_image_names_batch(
     return {"updated": updated, "unchanged": unchanged, "errors": errors}
 
 
-@flow(name="reparse_names", log_prints=True)
 def reparse_names():
     """Re-parse all group and image names using the improved parser."""
     engine = get_engine(settings.database_url)

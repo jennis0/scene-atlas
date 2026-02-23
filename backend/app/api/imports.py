@@ -1,9 +1,8 @@
 """Import API endpoints for web-based image upload and processing.
 
-Upload endpoint saves files to staging, then submits an analyse_upload
-Prefect deployment to parse and group files. Confirm endpoint submits a
-process_import_group deployment for async processing. Status endpoint
-reads progress from the ImportJob table (updated by the flow).
+Upload endpoint saves files to staging, then calls analyse_upload to parse
+and group files. Confirm endpoint submits processing to the background
+JobRunner. Status endpoint reads progress from the ImportJob table.
 """
 
 import json
@@ -16,7 +15,6 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
-from prefect.deployments import run_deployment
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -40,6 +38,7 @@ from ..models.schemas import (
     ImportJobSummary,
     ImportUploadResponse,
 )
+from ..services.job_runner import get_job_runner
 from ..services.validation import check_zip_safety, verify_media_mime
 
 
@@ -131,7 +130,7 @@ async def upload_files(
     """Upload files for import, analyse and group them.
 
     Accepts multiple image files and/or .zip archives.
-    Saves to staging, submits analyse_upload Prefect flow,
+    Saves to staging, runs analyse_upload synchronously,
     returns detected groups with metadata for user review.
 
     The optional ``manifest`` parameter is a JSON array of entries for
@@ -287,30 +286,27 @@ async def upload_files(
                 "duplicate_of": entry["duplicate_of"],
             }
 
-        # Submit analyse_upload flow via Prefect deployment (waits for result)
+        # Run analyse_upload synchronously (fast — no CLIP, just filename parsing)
         logger.info(
-            f"Submitting analyse_upload deployment for {len(all_relative_paths)} files "
+            f"Running analyse_upload for {len(all_relative_paths)} files "
             f"({len(saved_relative_paths)} uploaded, {len(manifest_entries)} from manifest)"
         )
-        flow_run = await run_deployment(
-            name=f"{settings.analyse_flow}/{settings.analyse_deployment}",
-            parameters={
-                "staging_dir": str(staging_dir),
-                "relative_paths": all_relative_paths,
-                "precomputed_hashes": precomputed_hashes if precomputed_hashes else None,
-                "default_image_type": image_type or "battlemap",
-            },
-            timeout=120,  # Wait up to 2 minutes for analysis
-        )
+        from ...flows.ingestion import analyse_upload
 
-        # Get the result from the completed flow
-        if flow_run.state.is_failed():
+        runner = get_job_runner()
+        try:
+            groups = runner.run_sync(
+                analyse_upload,
+                staging_dir=str(staging_dir),
+                relative_paths=all_relative_paths,
+                precomputed_hashes=precomputed_hashes if precomputed_hashes else None,
+                default_image_type=image_type or "battlemap",
+            )
+        except Exception as e:
             raise HTTPException(
                 status_code=500,
-                detail="File analysis failed. Check Prefect UI for details.",
+                detail=f"File analysis failed: {e}",
             )
-
-        groups = await flow_run.state.result()
 
         # Build response from flow result
         import_groups: list[ImportGroup] = []
@@ -394,7 +390,7 @@ async def confirm_import(
 ):
     """Confirm a group for processing.
 
-    Submits a process_import_group Prefect deployment and returns immediately.
+    Submits process_import_group to the background JobRunner and returns immediately.
     The flow updates ImportJob progress as it processes each image.
     """
     job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
@@ -430,25 +426,25 @@ async def confirm_import(
     )
     db.add(group_job)
 
-    # Submit process_import_group flow via Prefect deployment (fire-and-forget)
+    # Submit process_import_group to background JobRunner (fire-and-forget)
     logger.info(
-        f"Submitting process_import_group deployment for job {job_id}, "
+        f"Submitting process_import_group for job {job_id}, "
         f"group_job {group_job_id}: {len(valid_files)} files, group '{body.group_name}'"
     )
-    flow_run = await run_deployment(
-        name=f"{settings.process_flow}/{settings.process_deployment}",
-        parameters={
-            "job_id": job_id,
-            "group_job_id": group_job_id,
-            "staging_dir": str(staging_dir),
-            "author": body.author,
-            "group_name": body.group_name,
-            "files": valid_files,
-        },
-        timeout=0,  # Return immediately, don't wait for completion
+    from ...flows.ingestion import process_import_group
+
+    runner = get_job_runner()
+    runner.submit(
+        process_import_group,
+        job_id=job_id,
+        group_job_id=group_job_id,
+        staging_dir=str(staging_dir),
+        author=body.author,
+        group_name=body.group_name,
+        files=valid_files,
+        name=f"Import: {body.group_name}",
     )
 
-    group_job.flow_run_id = str(flow_run.id)
     job.status = "running"
     db.commit()
 
@@ -477,11 +473,11 @@ async def confirm_all_groups(
 ):
     """Confirm all groups for processing in a single flow run.
 
-    Unlike the per-group /confirm endpoint (which spawns one Prefect flow per
-    group), this endpoint submits a single process_import_job flow that handles
-    all groups sequentially.  The CLIP model is therefore loaded once for the
-    entire job instead of once per group subprocess, dramatically reducing peak
-    memory usage for large multi-group imports.
+    Unlike the per-group /confirm endpoint (which submits one job per group),
+    this endpoint submits a single process_import_job that handles all groups
+    sequentially.  The CLIP model is therefore loaded once for the entire job
+    instead of once per group, reducing peak memory usage for large multi-group
+    imports.
     """
     job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
     if not job:
@@ -538,14 +534,15 @@ async def confirm_all_groups(
     if not groups_payload:
         raise HTTPException(status_code=400, detail="No valid files found in any group")
 
-    flow_run = await run_deployment(
-        name=f"{settings.process_job_flow}/{settings.process_job_deployment}",
-        parameters={
-            "job_id": job_id,
-            "staging_dir": str(staging_dir),
-            "groups": groups_payload,
-        },
-        timeout=0,  # fire-and-forget
+    from ...flows.ingestion import process_import_job
+
+    runner = get_job_runner()
+    runner.submit(
+        process_import_job,
+        job_id=job_id,
+        staging_dir=str(staging_dir),
+        groups=groups_payload,
+        name=f"Import job: {job_id[:8]}",
     )
 
     job.status = "running"
@@ -553,7 +550,7 @@ async def confirm_all_groups(
 
     logger.info(
         f"Submitted process_import_job for job {job_id}: "
-        f"{len(groups_payload)} groups, flow_run={flow_run.id}"
+        f"{len(groups_payload)} groups"
     )
 
     return ImportJobResponse(
@@ -573,7 +570,7 @@ async def get_import_status(
     """Get the status of an import job.
 
     Reads progress from the ImportJob table, which is updated by the
-    process_import_group Prefect flow as it processes each image.
+    process_import_group background job as it processes each image.
     """
     job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
     if not job:
@@ -624,7 +621,7 @@ async def get_active_imports(db: Session = Depends(get_db)):
 
     Returns staging/running jobs and recently-completed ones (within 1 hour).
     Effective status is derived from group states so jobs show correctly even
-    if the Prefect flow hasn't written back to ImportJob yet.
+    if the background job hasn't written back to ImportJob yet.
     """
     from datetime import timedelta
 

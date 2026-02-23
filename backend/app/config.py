@@ -36,9 +36,8 @@ class Settings(BaseSettings):
             return p if p.is_absolute() else self.base_dir / p
         raise ValueError(f"Cannot derive db_path from non-SQLite URL: {url}")
 
-    # Qdrant
-    qdrant_host: str = "localhost"
-    qdrant_port: int = 6333
+    # Qdrant (embedded local mode)
+    qdrant_path: Path = data_dir / "qdrant_local"
     qdrant_collection_name: str = "battlemap_images"
     qdrant_vector_size: int = 512  # CLIP ViT-B/32 projection_dim (common space for text & image)
 
@@ -64,10 +63,12 @@ class Settings(BaseSettings):
     # Grid Detection (image analysis)
     enable_image_grid_detection: bool = False
     grid_min_cell_px: int = 32
-    grid_max_cell_px: int = 256
-    grid_detection_max_dim: int = 1024  # Downsample to this before analysis
-    grid_presence_threshold: float = 0.3  # Confidence threshold for presence detection
+    grid_max_cell_px: int = 320
+    grid_detection_max_dim: int = 20_000  # Effectively no downsampling
+    grid_presence_threshold: float = 0.20  # Confidence threshold for presence detection
     grid_size_threshold: float = 0.15  # Lower threshold when presence already known
+    grid_period_ratio_threshold: float = 0.98  # Min h/v period agreement for square grid
+    grid_hex_rot_conf: float = 0.20  # Min rotation confidence for hex classification
 
     # Color Extraction & Search
     num_dominant_colors: int = 5
@@ -85,20 +86,15 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     api_prefix: str = "/api/v1"
-    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173"]
+    cors_origins: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://localhost:8000",
+    ]
 
-    # Prefect
-    prefect_api_url: str = "http://localhost:4200/api"
-    prefect_work_pool: str = "battlemap-pool"
-    analyse_deployment: str = "analyse-deployment"
-    analyse_flow: str = "analyse_upload"
-    process_deployment: str = "import-deployment"
-    process_flow: str = "process_import_group"
-    # Single-flow path for multi-group imports — loads CLIP once for all groups
-    process_job_deployment: str = "import-job-deployment"
-    process_job_flow: str = "process_import_job"
-    retag_deployment: str = "retag-all-images-deployment"
-    retag_flow: str = "retag_all_images"
+    # Background Job Runner
+    max_job_workers: int = 2  # Concurrent background jobs (imports, backfills)
+    scheduler_enabled: bool = True  # Run periodic maintenance tasks
 
     # Import limits
     staging_dir: Path = data_dir / "staging"
@@ -109,12 +105,23 @@ class Settings(BaseSettings):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        # Recompute derived paths when data_dir was overridden (e.g. via DATA_DIR env var
+        # for desktop/sidecar mode). Class-level defaults are computed at definition time
+        # from the original base_dir, so they won't reflect an overridden data_dir.
+        _default_data = Path(__file__).parent.parent.parent / "data"
+        if self.data_dir != _default_data:
+            self.store_images_dir = self.data_dir / "store" / "images"
+            self.store_thumbnails_dir = self.data_dir / "store" / "thumbnails"
+            self.staging_dir = self.data_dir / "staging"
+            self.qdrant_path = self.data_dir / "qdrant_local"
+            self.database_url = f"sqlite:///{self.data_dir / 'battlemap.db'}"
         # Ensure directories exist
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.store_images_dir.mkdir(parents=True, exist_ok=True)
         self.store_thumbnails_dir.mkdir(parents=True, exist_ok=True)
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.staging_dir.mkdir(parents=True, exist_ok=True)
+        self.qdrant_path.mkdir(parents=True, exist_ok=True)
 
 
 # Global settings instance

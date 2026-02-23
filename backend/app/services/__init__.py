@@ -3,7 +3,7 @@
 from .deletion_service import safe_delete_image
 from .image_parser import ImageParser
 from .image_store import ImageStore
-from .qdrant_service import QdrantService, qdrant_service
+from .qdrant_service import QdrantService, get_qdrant_service
 
 # Lazy-initialized image stores (initialized after settings are loaded)
 _image_store = None
@@ -33,9 +33,8 @@ def get_thumbnail_store() -> ImageStore:
 def get_clip_service():
     """Get or create the CLIP service singleton.
 
-    Imported lazily so that loading this package (which happens on every
-    Prefect flow-run startup) does not trigger the transformers library's
-    module-directory scan, which causes an OSError on Windows.
+    Imported lazily to avoid triggering the transformers library's
+    module-directory scan at import time, which causes an OSError on Windows.
     """
     from .clip_service import get_clip_service as _get
 
@@ -49,6 +48,6 @@ __all__ = [
     "get_image_store",
     "get_thumbnail_store",
     "QdrantService",
-    "qdrant_service",
+    "get_qdrant_service",
     "safe_delete_image",
 ]

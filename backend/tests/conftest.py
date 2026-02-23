@@ -1,10 +1,10 @@
 """Shared fixtures for the test suite.
 
-IMPORTANT: The QdrantService constructor tries to connect to Qdrant on import.
-We mock QdrantClient before the qdrant_service module loads to prevent this.
+IMPORTANT: QdrantService uses a lazy singleton (get_qdrant_service()), but it
+still gets constructed on first call. We mock QdrantClient before any backend
+imports to prevent the embedded Qdrant DB from being created during tests.
 """
 
-import os
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -12,23 +12,10 @@ import pytest
 from PIL import Image as PILImage
 
 # ---------------------------------------------------------------------------
-# Configure Prefect to use ephemeral in-memory server (no Docker/server needed).
-# PREFECT_API_URL must be unset so Prefect doesn't try to reach a remote server.
-# PREFECT_SERVER_ALLOW_EPHEMERAL_MODE lets flows run without a Prefect server.
-# These must be set BEFORE any Prefect imports.
-# ---------------------------------------------------------------------------
-os.environ["PREFECT_SERVER_ALLOW_EPHEMERAL_MODE"] = "true"
-os.environ["PREFECT_API_URL"] = ""
-
-# Prefect's ephemeral server emits a harmless "Stopping temporary server"
-# logging error during interpreter shutdown (after pytest closes stdout/stderr).
-# This is a known Prefect issue — it doesn't affect test results.
-
-# ---------------------------------------------------------------------------
 # Mock QdrantClient BEFORE any backend.app.services imports.
-# The qdrant_service module does `qdrant_service = QdrantService()` at module
-# level, which calls QdrantClient(...) and ensure_collection(). We intercept
-# QdrantClient to return a mock so no real connection is attempted.
+# QdrantService.__init__ calls QdrantClient(path=...) which creates a local
+# DB on disk. We intercept QdrantClient to return a mock so no real DB is
+# created during tests.
 # ---------------------------------------------------------------------------
 _mock_qdrant_client_cls = MagicMock()
 _mock_qdrant_client_instance = MagicMock()
@@ -137,17 +124,17 @@ def mock_heavy_services(monkeypatch):
         lambda image_paths, **kwargs: [dummy_embedding] * len(image_paths),
     )
 
-    # Mock Qdrant (single + batch)
+    # Mock Qdrant (single + batch) — get_qdrant_service() returns a mock
+    mock_qdrant_svc = MagicMock()
+    mock_qdrant_svc.add_image_embedding.return_value = True
+    mock_qdrant_svc.batch_add_embeddings.return_value = True
+    mock_qdrant_svc.get_embedding.return_value = None
     monkeypatch.setattr(
-        "backend.flows.ingestion.qdrant_service.add_image_embedding",
-        lambda *args, **kwargs: True,
-    )
-    monkeypatch.setattr(
-        "backend.flows.ingestion.qdrant_service.batch_add_embeddings",
-        lambda *args, **kwargs: True,
+        "backend.flows.ingestion.get_qdrant_service",
+        lambda: mock_qdrant_svc,
     )
 
-    # Mock thumbnails at the source module (prepare_single_image calls .fn() directly)
+    # Mock thumbnails at the source module
     def mock_generate_thumbnails(image_path, storage_key_stem):
         # Open image to get real dimensions (needed for DB save)
         from PIL import Image as PILImage
@@ -165,7 +152,7 @@ def mock_heavy_services(monkeypatch):
 
     monkeypatch.setattr(
         "backend.flows.tasks.image_processing.generate_thumbnails",
-        MagicMock(fn=mock_generate_thumbnails),
+        mock_generate_thumbnails,
     )
 
     # Mock color extraction at source module
@@ -177,7 +164,7 @@ def mock_heavy_services(monkeypatch):
 
     monkeypatch.setattr(
         "backend.flows.tasks.color_extraction.extract_dominant_colors",
-        MagicMock(fn=mock_extract_colors),
+        mock_extract_colors,
     )
 
     return dummy_embedding

@@ -10,8 +10,10 @@ import {
   Clock,
   Ban,
   Trash2,
+  Cog,
 } from 'lucide-react'
 import { importApi } from '@/lib/api'
+import type { BackgroundJob } from '@/types'
 
 interface ActiveImportJob {
   jobId: string
@@ -30,6 +32,8 @@ interface ActiveImportJob {
 interface ImportTrayProps {
   jobs: ActiveImportJob[]
   hasActive: boolean
+  backgroundJobs: BackgroundJob[]
+  hasActiveJobs: boolean
   onOpenJob: (jobId: string) => void
   onDismissJob: (jobId: string) => void
   onCancelJob: (jobId: string) => void
@@ -39,6 +43,8 @@ interface ImportTrayProps {
 export function ImportTray({
   jobs,
   hasActive,
+  backgroundJobs,
+  hasActiveJobs,
   onOpenJob,
   onDismissJob,
   onCancelJob,
@@ -47,10 +53,10 @@ export function ImportTray({
   const [expanded, setExpanded] = useState(false)
   const [cleaning, setCleaning] = useState(false)
 
-  // Auto-expand when new active jobs appear
+  // Auto-expand when new active jobs appear (imports or background)
   useEffect(() => {
-    if (hasActive) setExpanded(true)
-  }, [hasActive])
+    if (hasActive || hasActiveJobs) setExpanded(true)
+  }, [hasActive, hasActiveJobs])
 
   const handleClearHistory = async () => {
     setCleaning(true)
@@ -62,11 +68,16 @@ export function ImportTray({
     }
   }
 
-  if (jobs.length === 0) return null
+  const hasAnything = jobs.length > 0 || backgroundJobs.length > 0
+  if (!hasAnything) return null
 
-  const activeCount = jobs.filter(
+  const activeImportCount = jobs.filter(
     (j) => j.status === 'staging' || j.status === 'running' || j.pendingGroups > 0,
   ).length
+  const activeJobCount = backgroundJobs.filter(
+    (j) => j.status === 'queued' || j.status === 'running',
+  ).length
+  const totalActiveCount = activeImportCount + activeJobCount
   const terminalCount = jobs.filter(
     (j) => j.status === 'completed' || j.status === 'failed' || j.status === 'cancelled',
   ).length
@@ -86,16 +97,20 @@ export function ImportTray({
             rounded-l-lg shadow-lg shadow-black/40
             text-muted-foreground hover:text-foreground hover:bg-secondary
             transition-all duration-200"
-          title={`${activeCount} active import${activeCount !== 1 ? 's' : ''}`}
+          title={
+            totalActiveCount > 0
+              ? `${totalActiveCount} active task${totalActiveCount !== 1 ? 's' : ''}`
+              : 'Activity tray'
+          }
         >
           <Package className="h-4 w-4" />
-          {activeCount > 0 && (
+          {totalActiveCount > 0 && (
             <span
               className="min-w-[18px] h-[18px] flex items-center justify-center
               rounded-full bg-primary text-primary-foreground
               text-[10px] font-semibold tabular-nums leading-none"
             >
-              {activeCount}
+              {totalActiveCount}
             </span>
           )}
           <ChevronLeft className="h-3 w-3 opacity-50" />
@@ -112,7 +127,7 @@ export function ImportTray({
           transition-transform duration-300 ease-out
           ${expanded ? 'translate-x-0' : 'translate-x-full'}`}
       >
-        {/* Top amber accent stripe */}
+        {/* Top accent stripe */}
         <div className="absolute top-0 inset-x-0 h-0.5 bg-gradient-to-r from-transparent via-primary/40 to-primary/70 pointer-events-none" />
 
         {/* Header */}
@@ -120,15 +135,15 @@ export function ImportTray({
           <div className="flex items-center gap-2">
             <Package className="h-4 w-4 text-primary" />
             <span className="font-display text-sm font-semibold text-foreground tracking-wide">
-              Imports
+              Activity
             </span>
-            {activeCount > 0 && (
+            {totalActiveCount > 0 && (
               <span
                 className="min-w-[18px] h-[18px] flex items-center justify-center
                 rounded-full bg-primary/20 text-primary
                 text-[10px] font-semibold tabular-nums leading-none"
               >
-                {activeCount}
+                {totalActiveCount}
               </span>
             )}
           </div>
@@ -164,8 +179,9 @@ export function ImportTray({
         {/* Divider */}
         <div className="h-px bg-gradient-to-r from-primary/30 via-border/40 to-transparent mx-4 shrink-0" />
 
-        {/* Job list */}
+        {/* Scrollable content */}
         <div className="flex-1 overflow-y-auto py-2 px-3 space-y-1.5">
+          {/* Import jobs */}
           {jobs.map((job) => (
             <ImportTrayCard
               key={job.jobId}
@@ -175,13 +191,31 @@ export function ImportTray({
               onCancel={() => onCancelJob(job.jobId)}
             />
           ))}
+
+          {/* Background jobs section */}
+          {backgroundJobs.length > 0 && (
+            <>
+              {jobs.length > 0 && (
+                <div className="flex items-center gap-2 pt-2 pb-1">
+                  <div className="h-px flex-1 bg-border/30" />
+                  <span className="text-[10px] text-muted-foreground/40 font-medium uppercase tracking-wider shrink-0">
+                    Jobs
+                  </span>
+                  <div className="h-px flex-1 bg-border/30" />
+                </div>
+              )}
+              {backgroundJobs.map((job) => (
+                <BackgroundJobCard key={job.id} job={job} />
+              ))}
+            </>
+          )}
         </div>
       </div>
     </>
   )
 }
 
-// ── Individual job card ───────────────────────────────────────────
+// ── Individual import job card ────────────────────────────────────
 
 function ImportTrayCard({
   job,
@@ -306,7 +340,82 @@ function ImportTrayCard({
   )
 }
 
-// ── Status icon helper ────────────────────────────────────────────
+// ── Background job card ───────────────────────────────────────────
+
+function BackgroundJobCard({ job }: { job: BackgroundJob }) {
+  const isTerminal = job.status === 'completed' || job.status === 'failed'
+  const pct = job.progress_pct ?? 0
+
+  return (
+    <div
+      className={`rounded-md border transition-colors
+        ${
+          isTerminal
+            ? 'border-border/20 bg-muted/10'
+            : 'border-border/30 bg-secondary/20'
+        }`}
+    >
+      <div className="px-3 py-2.5">
+        {/* Top row: icon + name */}
+        <div className="flex items-start gap-2">
+          <JobStatusIcon status={job.status} />
+          <span
+            className={`flex-1 text-[12px] font-medium truncate leading-tight
+            ${isTerminal ? 'text-muted-foreground' : 'text-foreground'}`}
+          >
+            {job.name}
+          </span>
+          {job.progress_pct != null && !isTerminal && (
+            <span className="text-[10px] text-muted-foreground/60 tabular-nums shrink-0">
+              {pct}%
+            </span>
+          )}
+        </div>
+
+        {/* Progress bar */}
+        {(job.status === 'running' || job.status === 'queued') && (
+          <div className="mt-2 h-1 rounded-full bg-border/30 overflow-hidden">
+            {job.status === 'queued' ? (
+              <div className="h-full w-full bg-muted-foreground/20 animate-pulse" />
+            ) : (
+              <div
+                className="h-full rounded-full bg-primary/70 transition-all duration-700 ease-out"
+                style={{ width: `${pct}%` }}
+              />
+            )}
+          </div>
+        )}
+
+        {/* Status line */}
+        <div className="mt-1.5 text-[10px] text-muted-foreground/50 leading-tight">
+          {job.status === 'queued' && <span>Queued</span>}
+          {job.status === 'running' && <span>{job.progress ?? 'Processing...'}</span>}
+          {job.status === 'completed' && <span>{formatResult(job.result)}</span>}
+          {job.status === 'failed' && (
+            <span className="text-destructive/70">{job.error ?? 'Failed'}</span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function formatResult(result: Record<string, unknown> | null): string {
+  if (!result) return 'Done'
+  // Common result shapes: {total, succeeded, failed} or {total, tags_created, errors}
+  if ('succeeded' in result && 'failed' in result) {
+    const failed = result.failed as number
+    return failed > 0
+      ? `${result.succeeded} succeeded, ${failed} failed`
+      : `${result.succeeded} images processed`
+  }
+  if ('tags_created' in result) {
+    return `${result.tags_created} tags created`
+  }
+  return 'Done'
+}
+
+// ── Status icon helpers ───────────────────────────────────────────
 
 function StatusIcon({ status }: { status: ActiveImportJob['status'] }) {
   switch (status) {
@@ -319,6 +428,20 @@ function StatusIcon({ status }: { status: ActiveImportJob['status'] }) {
     case 'cancelled':
       return <Ban className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 mt-0.5" />
     case 'staging':
+    default:
+      return <Clock className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0 mt-0.5" />
+  }
+}
+
+function JobStatusIcon({ status }: { status: BackgroundJob['status'] }) {
+  switch (status) {
+    case 'running':
+      return <Cog className="h-3.5 w-3.5 text-primary animate-spin shrink-0 mt-0.5" />
+    case 'completed':
+      return <Check className="h-3.5 w-3.5 text-primary/60 shrink-0 mt-0.5" />
+    case 'failed':
+      return <AlertCircle className="h-3.5 w-3.5 text-destructive/70 shrink-0 mt-0.5" />
+    case 'queued':
     default:
       return <Clock className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0 mt-0.5" />
   }

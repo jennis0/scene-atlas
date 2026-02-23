@@ -9,11 +9,6 @@ Usage:
 
 import hashlib
 import logging
-import os
-
-from prefect import flow, task
-
-os.environ.setdefault("PREFECT_API_URL", "http://localhost:4200/api")
 
 from backend.app.config import settings
 from backend.app.models.database import Image, get_engine, get_session_local
@@ -36,7 +31,6 @@ def _compute_file_hash(file_path) -> str:
     return h.hexdigest()
 
 
-@task(name="backfill_hash_batch")
 def backfill_batch(image_ids: list[int]) -> dict:
     """Compute and store content_hash for a batch of images."""
     engine = get_engine(settings.database_url)
@@ -71,7 +65,6 @@ def backfill_batch(image_ids: list[int]) -> dict:
     return {"updated": updated, "skipped": skipped, "errors": errors}
 
 
-@flow(name="backfill_content_hash", log_prints=True)
 def backfill_content_hash():
     """Backfill SHA-256 content_hash for all images missing one."""
     engine = get_engine(settings.database_url)

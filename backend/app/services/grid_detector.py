@@ -1,11 +1,12 @@
 """Image-based grid detection for battlemaps.
 
-Detects square and hexagonal grids using a hybrid approach:
+Detects square and hex grids using paired-peak autocorrelation:
 1. Preprocess: grayscale + Canny edge detection (isolates grid lines)
-2. Compute row/column projections of the edge image
-3. Find dominant periods via FFT-based autocorrelation
-4. Classify grid type from period ratio (square vs hex)
-5. Validate against image dimensions (constraint check)
+2. Standard orientation: row/column projections + AC peak finding
+3. 30-degree rotation: aligns hex grid lines with axes for hex detection
+4. Classification: hex if rotation signal is strong, square if standard
+   signal is strong with ~1.0 period ratio, else no grid
+5. Tile count estimation for square grids via period snapping
 """
 
 import logging
@@ -19,18 +20,13 @@ from scipy.signal import find_peaks, fftconvolve
 
 logger = logging.getLogger(__name__)
 
-# sqrt(3)/2 ≈ 0.866 — characteristic ratio for hex grids
-_SQRT3_OVER_2 = math.sqrt(3) / 2
-# Tolerance for hex ratio classification (±15%)
-_HEX_RATIO_TOLERANCE = 0.15
-
 
 class GridDetectionResult(TypedDict):
     gridded: bool | None
     grid_type: str | None  # "square" | "hex" | None
-    grid_width: int | None  # tile count horizontal
-    grid_height: int | None  # tile count vertical
-    confidence: float  # 0.0–1.0
+    grid_width: int | None  # tile count horizontal (square only)
+    grid_height: int | None  # tile count vertical (square only)
+    confidence: float  # 0.0-1.0
 
 
 _NO_GRID: GridDetectionResult = {
@@ -48,16 +44,20 @@ class GridDetector:
     def __init__(
         self,
         min_cell_px: int = 32,
-        max_cell_px: int = 256,
-        max_dim: int = 1024,
-        presence_threshold: float = 0.3,
+        max_cell_px: int = 320,
+        max_dim: int = 20_000,
+        presence_threshold: float = 0.20,
         size_threshold: float = 0.15,
+        period_ratio_threshold: float = 0.98,
+        hex_rot_conf: float = 0.20,
     ):
         self.min_cell_px = min_cell_px
         self.max_cell_px = max_cell_px
         self.max_dim = max_dim
         self.presence_threshold = presence_threshold
         self.size_threshold = size_threshold
+        self.period_ratio_threshold = period_ratio_threshold
+        self.hex_rot_conf = hex_rot_conf
 
     # ------------------------------------------------------------------
     # Public API
@@ -68,7 +68,7 @@ class GridDetector:
     ) -> GridDetectionResult:
         """Detect grid presence, type, and tile dimensions.
 
-        Use when no filename hint is available — detects both presence and size.
+        Use when no filename hint is available -- detects both presence and size.
 
         Args:
             image_path: Path to the image file.
@@ -90,7 +90,7 @@ class GridDetector:
         """
         result = self._run(image_path, width, height, self.size_threshold)
         # Since we know it's gridded, force gridded=True even at lower confidence
-        if result["grid_width"] is not None:
+        if result["grid_width"] is not None or result["grid_type"] is not None:
             result["gridded"] = True
         return result
 
@@ -105,103 +105,133 @@ class GridDetector:
         orig_height: int,
         threshold: float,
     ) -> GridDetectionResult:
-        """Core detection pipeline."""
+        """Core detection pipeline: standard AC + 30-degree rotation for hex."""
         edges, scale = self._preprocess(image_path)
         if edges is None:
             return {**_NO_GRID}
 
-        scaled_h, scaled_w = edges.shape
-
-        # Compute min/max cell sizes in the scaled image
         min_cell = max(4, int(self.min_cell_px * scale))
-        max_cell = min(min(scaled_h, scaled_w) // 3, int(self.max_cell_px * scale))
+        max_cell = min(
+            min(edges.shape[0], edges.shape[1]) // 3,
+            int(self.max_cell_px * scale),
+        )
 
         if min_cell >= max_cell:
             logger.debug("Image too small for grid detection after scaling")
             return {**_NO_GRID}
 
-        # Morphological line extraction — keep only long, axis-aligned edges.
-        # Horizontal lines are projected onto rows (→ vertical period),
-        # vertical lines are projected onto columns (→ horizontal period).
-        h_lines, v_lines = self._extract_line_edges(edges, min_cell)
+        # --- Standard orientation ---
+        std = self._run_ac_on_edges(edges, min_cell, max_cell)
 
-        row_proj = self._compute_projection(h_lines, axis=1)
-        col_proj = self._compute_projection(v_lines, axis=0)
+        # --- 30-degree rotation (hex detection) ---
+        rot_edges = self._rotate_edges(edges, 30)
+        rot_h, rot_w = rot_edges.shape
+        min_cell_r = max(4, int(self.min_cell_px * scale))
+        max_cell_r = min(min(rot_h, rot_w) // 3, int(self.max_cell_px * scale))
+        if min_cell_r < max_cell_r:
+            rot = self._run_ac_on_edges(rot_edges, min_cell_r, max_cell_r)
+        else:
+            rot = {"confidence": 0.0, "ratio": 0.0,
+                   "h_period": None, "v_period": None,
+                   "h_strength": 0.0, "v_strength": 0.0}
 
-        # Find dominant periods
-        v_period, v_strength = self._find_dominant_period(row_proj, min_cell, max_cell)
-        h_period, h_strength = self._find_dominant_period(col_proj, min_cell, max_cell)
+        max_conf = max(std["confidence"], rot["confidence"])
 
         logger.debug(
-            f"Detected periods: h={h_period}px (strength={h_strength:.3f}), "
-            f"v={v_period}px (strength={v_strength:.3f}), scale={scale:.3f}"
+            f"Standard: conf={std['confidence']:.3f} ratio={std['ratio']:.3f}, "
+            f"Rotated: conf={rot['confidence']:.3f}, scale={scale:.3f}"
         )
 
-        # Both periods must have some signal
-        if h_period is None and v_period is None:
-            return {**_NO_GRID}
+        # --- Classification ---
 
-        # Classify grid type from period ratio
-        grid_type = self._classify_grid_type(
-            h_period, v_period, h_strength, v_strength
-        )
+        # 1. No grid if overall confidence too low
+        if max_conf < threshold:
+            return {**_NO_GRID, "confidence": max_conf}
 
-        # Compute confidence as the geometric mean of the two strengths
-        if h_strength > 0 and v_strength > 0:
-            confidence = math.sqrt(h_strength * v_strength)
+        # 2. Hex: rotation signal is the key discriminator
+        #    (30deg rotation aligns one set of hex lines with the vertical axis,
+        #     producing strong AC signal; square grids lose signal at 30deg)
+        if rot["confidence"] >= self.hex_rot_conf:
+            return {
+                "gridded": True,
+                "grid_type": "hex",
+                "grid_width": None,
+                "grid_height": None,
+                "confidence": round(max_conf, 3),
+            }
+
+        # 3. Square: strong standard signal with period ratio ~1.0
+        if (std["confidence"] >= threshold
+                and std["ratio"] >= self.period_ratio_threshold):
+            return self._build_square_result(
+                std, scale, orig_width, orig_height
+            )
+
+        # 4. No grid
+        return {**_NO_GRID, "confidence": max_conf}
+
+    def _run_ac_on_edges(
+        self,
+        edges: np.ndarray,
+        min_cell: int,
+        max_cell: int,
+    ) -> dict:
+        """Run 1D autocorrelation on an edge image.
+
+        Returns dict with h_period, v_period, h_strength, v_strength,
+        confidence, and ratio.
+        """
+        row_proj = np.mean(edges, axis=1, dtype=np.float64)
+        col_proj = np.mean(edges, axis=0, dtype=np.float64)
+
+        v_candidates, _ = self._find_ac_peaks(row_proj, min_cell, max_cell)
+        h_candidates, _ = self._find_ac_peaks(col_proj, min_cell, max_cell)
+
+        hp, hs, vp, vs = self._pick_best_periods(h_candidates, v_candidates)
+
+        if hs > 0 and vs > 0:
+            confidence = math.sqrt(hs * vs)
         else:
-            confidence = max(h_strength, v_strength) * 0.5
+            confidence = max(hs, vs) * 0.5
 
-        if confidence < threshold:
-            return {**_NO_GRID, "confidence": confidence}
+        ratio = min(hp, vp) / max(hp, vp) if hp and vp else 0.0
 
-        # Bilateral axis floor: when both axes detected a period, both must
-        # independently show a minimum signal. A strongly single-axis result
-        # is more consistent with artwork repetition (horizontal stone blocks,
-        # wall stripes) than with a proper two-dimensional grid.
-        if h_period is not None and v_period is not None:
-            if min(h_strength, v_strength) < threshold * 0.6:
-                return {**_NO_GRID, "confidence": confidence}
+        return {
+            "h_period": hp, "v_period": vp,
+            "h_strength": hs, "v_strength": vs,
+            "confidence": confidence, "ratio": ratio,
+        }
 
-        # Convert periods back to original pixel scale
-        if h_period is not None:
-            h_period_orig = h_period / scale
-        else:
-            h_period_orig = None
-        if v_period is not None:
-            v_period_orig = v_period / scale
-        else:
-            v_period_orig = None
+    def _build_square_result(
+        self,
+        std: dict,
+        scale: float,
+        orig_width: int,
+        orig_height: int,
+    ) -> GridDetectionResult:
+        """Build result for a detected square grid with tile counts."""
+        hp = std["h_period"]
+        vp = std["v_period"]
 
-        # Snap to integer divisors of image dimensions → tile counts
+        h_period_orig = hp / scale if hp is not None else None
+        v_period_orig = vp / scale if vp is not None else None
+
         grid_width = None
         grid_height = None
 
-        if grid_type == "hex":
-            grid_width, grid_height = self._compute_hex_tile_counts(
-                h_period_orig, v_period_orig, orig_width, orig_height
-            )
-        else:
-            # Square grid: cell size (pixels per cell) is identical on both axes.
-            # The vertical period (row spacing) is empirically more reliable —
-            # horizontal artwork features (corridors, rivers, stonework) create
-            # competing autocorrelation signals in the column projection.
-            # Anchor both tile counts to the vertical cell size when available.
-            if v_period_orig is not None:
-                grid_height = self._snap_to_tile_count(v_period_orig, orig_height)
-                grid_width = self._snap_to_tile_count(v_period_orig, orig_width)
-            if grid_width is None and h_period_orig is not None:
-                # Fallback: vertical period not found, use horizontal directly
-                grid_width = self._snap_to_tile_count(h_period_orig, orig_width)
-
-        gridded = True if confidence >= threshold else None
+        # Use vertical period as anchor (empirically more reliable)
+        if v_period_orig is not None:
+            grid_height = self._snap_to_tile_count(v_period_orig, orig_height)
+            grid_width = self._snap_to_tile_count(v_period_orig, orig_width)
+        if grid_width is None and h_period_orig is not None:
+            grid_width = self._snap_to_tile_count(h_period_orig, orig_width)
 
         return {
-            "gridded": gridded,
-            "grid_type": grid_type,
+            "gridded": True,
+            "grid_type": "square",
             "grid_width": grid_width,
             "grid_height": grid_height,
-            "confidence": round(confidence, 3),
+            "confidence": round(std["confidence"], 3),
         }
 
     # ------------------------------------------------------------------
@@ -209,7 +239,7 @@ class GridDetector:
     # ------------------------------------------------------------------
 
     def _preprocess(self, image_path: Path) -> tuple[np.ndarray | None, float]:
-        """Load image, convert to grayscale, crop centre, downsample, and apply Canny.
+        """Load image, convert to grayscale, optionally downsample, and apply Canny.
 
         Returns:
             (edge_image, scale_factor) where scale_factor maps scaled px → original px.
@@ -222,14 +252,6 @@ class GridDetector:
 
         h, w = img.shape
 
-        # Crop to central 70% — removes decorative borders, watermarks,
-        # and title panels that create false periodicity at image edges.
-        margin_y = int(h * 0.15)
-        margin_x = int(w * 0.15)
-        if margin_y > 0 and margin_x > 0:
-            img = img[margin_y : h - margin_y, margin_x : w - margin_x]
-            h, w = img.shape
-
         scale = 1.0
         if max(h, w) > self.max_dim:
             scale = self.max_dim / max(h, w)
@@ -237,8 +259,7 @@ class GridDetector:
             new_h = max(1, int(h * scale))
             img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
-        # Canny edge detection — tuned for grid lines
-        # Use adaptive thresholds based on image statistics
+        # Canny edge detection with adaptive thresholds
         median_val = np.median(img)
         lower = int(max(0, 0.5 * median_val))
         upper = int(min(255, 1.5 * median_val))
@@ -247,95 +268,77 @@ class GridDetector:
         return edges, scale
 
     # ------------------------------------------------------------------
-    # Morphological line extraction
+    # Rotation
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _extract_line_edges(
-        edges: np.ndarray, min_cell: int,
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Extract long, axis-aligned edges via morphological opening.
+    def _rotate_edges(edges: np.ndarray, angle_deg: float) -> np.ndarray:
+        """Rotate an edge image by the given angle, expanding the canvas.
 
-        Grid lines are thin (1–3 px), image-spanning, and straight.
-        Morphological opening with long 1-px-tall (or wide) kernels preserves
-        them while destroying short, chaotic texture edges (stone, wood, brick).
-
-        The kernel cross-axis dimension is 1 px so even the thinnest (1 px)
-        grid lines survive.  The along-axis length is set to ~3 cell widths
-        so a run must span at least 3 grid squares to be kept.
-
-        Returns:
-            (h_lines, v_lines) — binary images retaining only horizontal and
-            vertical line structures respectively.
+        Crops a 20% margin after rotation to remove sparse border regions
+        introduced by the canvas expansion.
         """
-        kernel_len = max(16, min_cell * 3)
-        h_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_len, 1))
-        v_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, kernel_len))
-        h_lines = cv2.morphologyEx(edges, cv2.MORPH_OPEN, h_kernel)
-        v_lines = cv2.morphologyEx(edges, cv2.MORPH_OPEN, v_kernel)
-        return h_lines, v_lines
+        sh, sw = edges.shape
+        M = cv2.getRotationMatrix2D((sw / 2, sh / 2), angle_deg, 1.0)
+        cos_a, sin_a = abs(M[0, 0]), abs(M[0, 1])
+        new_w = int(sh * sin_a + sw * cos_a)
+        new_h = int(sh * cos_a + sw * sin_a)
+        M[0, 2] += (new_w - sw) / 2
+        M[1, 2] += (new_h - sh) / 2
+        rotated = cv2.warpAffine(edges, M, (new_w, new_h))
+
+        # Crop margins to avoid sparse border artefacts
+        margin = int(min(new_h, new_w) * 0.20)
+        if margin > 0 and new_h > 2 * margin and new_w > 2 * margin:
+            rotated = rotated[margin:-margin, margin:-margin]
+
+        return rotated
 
     # ------------------------------------------------------------------
-    # Projection + autocorrelation
+    # Autocorrelation peak finding
     # ------------------------------------------------------------------
 
-    def _compute_projection(self, edges: np.ndarray, axis: int) -> np.ndarray:
-        """Compute mean intensity projection along the given axis.
-
-        axis=0: mean across rows → column projection (one value per column)
-        axis=1: mean across columns → row projection (one value per row)
-        """
-        projection = np.mean(edges.astype(np.float64), axis=axis)
-        return projection
-
-    def _find_dominant_period(
+    def _find_ac_peaks(
         self,
         projection: np.ndarray,
         min_period: int,
         max_period: int,
-    ) -> tuple[int | None, float]:
-        """Find the dominant periodic spacing in a projection using FFT-based autocorrelation.
+    ) -> tuple[list[tuple[int, float]], np.ndarray]:
+        """Find candidate periodic spacings via FFT-based autocorrelation.
 
         Returns:
-            (period_in_scaled_pixels, peak_strength) where strength is 0.0–1.0.
-            Returns (None, 0.0) if no clear period is found.
+            (candidates, autocorr) where candidates is a list of
+            (period, strength) tuples sorted by strength descending,
+            and autocorr is the normalized autocorrelation array.
         """
-        n = len(projection)
+        proj = projection.astype(np.float64)
+        n = len(proj)
         if n < min_period * 2:
-            return None, 0.0
+            return [], np.array([])
 
-        # Zero-mean the projection
-        projection = projection - np.mean(projection)
-
-        # Guard against zero-variance signals
-        std = np.std(projection)
+        # Zero-mean and normalize
+        proj = proj - np.mean(proj)
+        std = np.std(proj)
         if std < 1e-10:
-            return None, 0.0
+            return [], np.array([])
+        proj = proj / std
 
-        # Normalize
-        projection = projection / std
-
-        # FFT-based autocorrelation: autocorr = IFFT(|FFT(x)|^2)
-        # Use fftconvolve(x, x[::-1]) which is equivalent and handles padding
-        autocorr = fftconvolve(projection, projection[::-1], mode="full")
-        # Take the right half (positive lags)
-        autocorr = autocorr[n - 1 :]
-        # Normalize by zero-lag (which equals the signal energy)
+        # FFT-based autocorrelation
+        autocorr = fftconvolve(proj, proj[::-1], mode="full")
+        autocorr = autocorr[n - 1:]  # positive lags only
         zero_lag = autocorr[0]
         if zero_lag < 1e-10:
-            return None, 0.0
+            return [], autocorr
         autocorr = autocorr / zero_lag
 
-        # Search for peaks only within our cell size range
+        # Search for peaks within cell size range
         search_start = min_period
         search_end = min(max_period + 1, len(autocorr))
-
         if search_start >= search_end:
-            return None, 0.0
+            return [], autocorr
 
         search_region = autocorr[search_start:search_end]
 
-        # Find peaks with minimum prominence to filter noise
         peaks, properties = find_peaks(
             search_region,
             prominence=0.05,
@@ -343,59 +346,71 @@ class GridDetector:
         )
 
         if len(peaks) == 0:
-            return None, 0.0
+            return [], autocorr
 
-        # Pick the peak with the highest prominence
-        best_idx = peaks[np.argmax(properties["prominences"])]
-        period = best_idx + search_start
-        strength = float(autocorr[period])
+        # Build candidate list sorted by strength (descending)
+        candidates = []
+        for peak_idx in peaks:
+            period = peak_idx + search_start
+            strength = float(autocorr[period])
+            if strength > 0:
+                candidates.append((int(period), min(1.0, strength)))
 
-        # Strength should be positive for a real periodic signal
-        if strength <= 0:
-            return None, 0.0
-
-        return int(period), min(1.0, strength)
+        candidates.sort(key=lambda x: x[1], reverse=True)
+        return candidates, autocorr
 
     # ------------------------------------------------------------------
-    # Grid type classification
+    # Paired period selection
     # ------------------------------------------------------------------
 
-    def _classify_grid_type(
-        self,
-        h_period: int | None,
-        v_period: int | None,
-        h_strength: float,
-        v_strength: float,
-    ) -> str | None:
-        """Classify as 'square', 'hex', or None based on the ratio of detected periods.
+    @staticmethod
+    def _pick_best_periods(
+        h_candidates: list[tuple[int, float]],
+        v_candidates: list[tuple[int, float]],
+    ) -> tuple[int | None, float, int | None, float]:
+        """Score all (h, v) candidate pairs and return the best match.
 
-        Square grids have ratio ≈ 1.0.
-        Hex grids have ratio ≈ sqrt(3)/2 ≈ 0.866 or its inverse ≈ 1.155.
+        Prefers pairs where both axes agree on cell size (high period ratio)
+        and biases toward smaller periods (fundamentals over harmonics).
+
+        Returns:
+            (h_period, h_strength, v_period, v_strength)
         """
-        if h_period is None or v_period is None:
-            # Only one axis has periodicity — can't classify reliably
-            if h_period is not None or v_period is not None:
-                return "square"  # Best guess with one axis
-            return None
+        if not h_candidates and not v_candidates:
+            return None, 0.0, None, 0.0
 
-        if h_period == 0 or v_period == 0:
-            return None
+        if not h_candidates:
+            vp, vs = v_candidates[0]
+            return None, 0.0, vp, vs
 
-        ratio = min(h_period, v_period) / max(h_period, v_period)
+        if not v_candidates:
+            hp, hs = h_candidates[0]
+            return hp, hs, None, 0.0
 
-        # Check square first (more common): ratio ≈ 1.0 (within 10%)
-        if ratio > 0.90:
-            return "square"
+        best_score = -1.0
+        best_hp, best_hs, best_vp, best_vs = None, 0.0, None, 0.0
 
-        # Check for hex: ratio ≈ sqrt(3)/2 ≈ 0.866 (within ±10%)
-        if abs(ratio - _SQRT3_OVER_2) < 0.10:
-            return "hex"
+        for hp, hs in h_candidates:
+            for vp, vs in v_candidates:
+                # Period agreement: ratio close to 1.0 is better
+                ratio = min(hp, vp) / max(hp, vp)
+                agreement = max(0.0, ratio)
 
-        # Ambiguous ratio — default to square if both signals are strong
-        if h_strength > 0.2 and v_strength > 0.2:
-            return "square"
+                # Combined strength
+                strength = math.sqrt(hs * vs)
 
-        return None
+                # Bias toward smaller periods (fundamentals)
+                max_period = max(hp, vp)
+                size_bias = 1.0 / (1.0 + max_period * 0.001)
+
+                score = agreement * strength * size_bias
+
+                if score > best_score:
+                    best_score = score
+                    best_hp, best_hs = hp, hs
+                    best_vp, best_vs = vp, vs
+
+        return best_hp, best_hs, best_vp, best_vs
 
     # ------------------------------------------------------------------
     # Tile count computation
@@ -431,32 +446,3 @@ class GridDetector:
                 return candidate
 
         return round(expected_tiles) if expected_tiles >= 1 else None
-
-    def _compute_hex_tile_counts(
-        self,
-        h_period_px: float | None,
-        v_period_px: float | None,
-        orig_width: int,
-        orig_height: int,
-    ) -> tuple[int | None, int | None]:
-        """Compute hex grid tile counts from detected periods.
-
-        For hex grids, the relationship between tile counts and image dimensions
-        depends on the hex orientation. We use the longer period to determine
-        orientation and compute both counts.
-
-        Returns:
-            (grid_width, grid_height) as tile counts.
-        """
-        if h_period_px is None and v_period_px is None:
-            return None, None
-
-        grid_width = None
-        grid_height = None
-
-        if h_period_px is not None:
-            grid_width = self._snap_to_tile_count(h_period_px, orig_width, tolerance=0.15)
-        if v_period_px is not None:
-            grid_height = self._snap_to_tile_count(v_period_px, orig_height, tolerance=0.15)
-
-        return grid_width, grid_height

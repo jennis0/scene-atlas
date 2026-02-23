@@ -3,11 +3,8 @@
 import json
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
-from prefect.deployments import run_deployment
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-
-from ..config import settings
 from ..models import (
     Tag,
     TagCategory,
@@ -352,12 +349,13 @@ async def get_tag_statistics(db: Session = Depends(get_db)):
 
 @router.post("/retag-all")
 async def trigger_retag_all():
-    """Trigger the retag_all_images Prefect flow (fire-and-forget)."""
+    """Trigger the retag_all_images job (fire-and-forget)."""
+    from ...flows.retag_all_images import retag_all_images
+    from ..services.job_runner import get_job_runner
+
     try:
-        flow_run = await run_deployment(
-            name=f"{settings.retag_flow}/{settings.retag_deployment}",
-            timeout=0,  # Fire and forget — don't wait for completion
-        )
-        return {"flow_run_id": str(flow_run.id), "message": "Retag job started"}
+        runner = get_job_runner()
+        job_id = runner.submit(retag_all_images, name="Retag all images")
+        return {"job_id": job_id, "message": "Retag job started"}
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Could not start retag job: {e}")

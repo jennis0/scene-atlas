@@ -1,4 +1,4 @@
-"""Integration test: analyse_upload flow (direct call, no Prefect server).
+"""Integration test: analyse_upload (direct call).
 
 Tests that the analyse flow correctly groups files, computes content hashes,
 and detects duplicates. Uses a real DB (for tag categories) and real filesystem.

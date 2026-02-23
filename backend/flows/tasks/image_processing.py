@@ -1,16 +1,14 @@
-"""Image processing tasks for Prefect flows."""
+"""Image processing tasks."""
 
 from pathlib import Path
 
 from PIL import Image
-from prefect import task
 
 from backend.app.config import settings
 from backend.app.services import get_thumbnail_store
 from backend.flows.logger import get_logger
 
 
-@task(name="generate_thumbnails", retries=2)
 def generate_thumbnails(image_path: str, storage_key_stem: str) -> dict:
     """Generate thumbnails at different sizes and store via ImageStore.
 
@@ -59,7 +57,6 @@ def generate_thumbnails(image_path: str, storage_key_stem: str) -> dict:
         raise
 
 
-@task(name="generate_preview_thumbnail", retries=1)
 def generate_preview_thumbnail(
     image_path: str,
     staging_dir: str,
@@ -104,7 +101,6 @@ def generate_preview_thumbnail(
         return None
 
 
-@task(name="get_image_dimensions", retries=2)
 def get_image_dimensions(image_path: str) -> tuple[int, int]:
     """Get image width and height.
 
@@ -123,7 +119,6 @@ def get_image_dimensions(image_path: str) -> tuple[int, int]:
         raise
 
 
-@task(name="get_file_size", retries=2)
 def get_file_size(image_path: str) -> int:
     """Get file size in bytes.
 

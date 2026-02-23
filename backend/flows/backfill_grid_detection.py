@@ -13,12 +13,8 @@ Usage:
 """
 
 import logging
-import os
 
-from prefect import flow, task
 from sqlalchemy import and_, or_
-
-os.environ.setdefault("PREFECT_API_URL", "http://localhost:4200/api")
 
 from backend.app.config import settings
 from backend.app.models.database import Image, get_engine, get_session_local
@@ -30,7 +26,6 @@ logger = logging.getLogger(__name__)
 BATCH_SIZE = 50  # Smaller than hash backfill — grid detection is heavier per image
 
 
-@task(name="detect_grids_batch")
 def detect_grids_batch(image_ids: list[int], force: bool = False) -> dict:
     """Run grid detection on a batch of images and update DB records.
 
@@ -116,7 +111,6 @@ def detect_grids_batch(image_ids: list[int], force: bool = False) -> dict:
     return {"detected": detected, "skipped": skipped, "errors": errors}
 
 
-@flow(name="backfill_grid_detection", log_prints=True)
 def backfill_grid_detection(force: bool = False):
     """Detect grid presence/size for battlemap images missing grid info.
 

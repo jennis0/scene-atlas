@@ -1,15 +1,12 @@
-"""Embedding generation tasks for Prefect flows."""
+"""Embedding generation tasks."""
 
 from pathlib import Path
-
-from prefect import task
 
 from backend.app.config import settings
 from backend.app.services import get_clip_service
 from backend.flows.logger import get_logger
 
 
-@task(name="generate_clip_embedding", retries=2, tags=["clip"])
 def generate_clip_embedding(image_path: str) -> list[float]:
     """Generate CLIP embedding for a single image.
 
@@ -30,7 +27,6 @@ def generate_clip_embedding(image_path: str) -> list[float]:
         raise
 
 
-@task(name="batch_generate_clip_embeddings", retries=2, tags=["clip"])
 def batch_generate_clip_embeddings(
     image_paths: list[str],
     batch_size: int | None = None,

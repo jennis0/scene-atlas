@@ -684,8 +684,7 @@ class TestProcessImportJobErrorHandling:
 
         engine, SessionLocal, job_id, grp_a_id, grp_b_id = two_group_job
 
-        from backend.flows.ingestion import batch_save_to_database as _original_task
-        real_fn = _original_task.fn  # capture .fn before the monkeypatch replaces the task
+        from backend.flows.ingestion import batch_save_to_database as _original_fn
 
         call_count = {"n": 0}
 
@@ -693,7 +692,7 @@ class TestProcessImportJobErrorHandling:
             call_count["n"] += 1
             if call_count["n"] == 1:
                 raise RuntimeError("Simulated DB failure for group A")
-            return real_fn(image_data_list)
+            return _original_fn(image_data_list)
 
         monkeypatch.setattr(
             "backend.flows.ingestion.batch_save_to_database",

@@ -1,8 +1,7 @@
-"""Color extraction tasks for Prefect flows."""
+"""Color extraction tasks."""
 
 import cv2
 import numpy as np
-from prefect import task
 from sklearn.cluster import KMeans
 
 from backend.app.config import settings
@@ -21,7 +20,6 @@ def rgb_to_hex(rgb: tuple) -> str:
     return f"#{int(rgb[0]):02x}{int(rgb[1]):02x}{int(rgb[2]):02x}"
 
 
-@task(name="extract_dominant_colors", retries=2)
 def extract_dominant_colors(image_path: str, num_colors: int = None) -> list[dict]:
     """Extract dominant colors from an image using k-means clustering.
 

@@ -27,6 +27,7 @@ import { FilterChipList } from '@/components/FilterMenuContent'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { useImageGrouping } from '@/hooks/useImageGrouping'
 import { useActiveImports } from '@/hooks/useActiveImports'
+import { useBackgroundJobs } from '@/hooks/useBackgroundJobs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import type { Image, ImageGroup, SearchParams, ViewMode } from '@/types'
@@ -109,6 +110,7 @@ export function Gallery() {
   const [importDialogKey, setImportDialogKey] = useState(0)
   const [showTagManagement, setShowTagManagement] = useState(false)
   const activeImports = useActiveImports()
+  const backgroundJobs = useBackgroundJobs()
 
   // Search state — initialised from URL so searches are bookmarkable
   const [searchInput, setSearchInput] = useState(() => urlParams.get('q') ?? '')
@@ -595,6 +597,8 @@ export function Gallery() {
       <ImportTray
         jobs={activeImports.jobs}
         hasActive={activeImports.hasActive}
+        backgroundJobs={backgroundJobs.jobs}
+        hasActiveJobs={backgroundJobs.hasActive}
         onOpenJob={(jobId) => {
           setImportDialogKey((k) => k + 1)
           setImportDialogJobId(jobId)

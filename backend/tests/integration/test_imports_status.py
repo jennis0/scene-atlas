@@ -1,6 +1,6 @@
 """Integration tests for import status, active imports, cleanup, and cancel endpoints.
 
-These tests cover the pure-DB endpoints that don't require a live Prefect flow:
+These tests cover the pure-DB endpoints that don't require background processing:
   GET  /{job_id}/status
   GET  /active
   DELETE /cleanup

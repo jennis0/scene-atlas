@@ -1,38 +1,27 @@
-"""Start all Battlemap Explorer backend services.
+"""Start the Scene Atlas backend server.
 
-Starts (in order):
-  1. Docker infrastructure  (Qdrant, Prefect server/services, Postgres, Redis)
-  2. Prefect worker         (background → logs/worker.log)
-  3. FastAPI server         (background → logs/api.log)
+Launches the FastAPI server as a background process (logs → logs/api.log).
+All services (Qdrant, JobRunner, Scheduler) run in-process.
 
 The frontend dev server must be started separately in a second terminal:
   cd frontend && npm run dev
 
-PIDs are written to .pids/ so stop.py can terminate the processes cleanly.
+PIDs are written to .pids/ so stop.py can terminate the process cleanly.
 
 Usage:
   uv run python scripts/start.py
 """
 
-import os
 import subprocess
 import sys
-import time
-import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
 PIDS_DIR = ROOT / ".pids"
 LOGS_DIR = ROOT / "logs"
-PREFECT_API = "http://localhost:4200/api"
-WORK_POOL = "battlemap-pool"
 
 # Ensure the venv Python (same one running this script) is used for subprocesses.
 PYTHON = sys.executable
-
-
-def _run(cmd: list[str]) -> None:
-    subprocess.run(cmd, cwd=ROOT, check=True)
 
 
 def _spawn(name: str, cmd: list[str]) -> int:
@@ -59,43 +48,13 @@ def _spawn(name: str, cmd: list[str]) -> int:
     return proc.pid
 
 
-def _wait_for_prefect(timeout: int = 90) -> None:
-    deadline = time.time() + timeout
-    print("  Waiting for Prefect server", end="", flush=True)
-    while time.time() < deadline:
-        try:
-            urllib.request.urlopen(f"{PREFECT_API}/health", timeout=2)
-            print(" ready.")
-            return
-        except Exception:
-            print(".", end="", flush=True)
-            time.sleep(3)
-    print()
-    print("\nERROR: Prefect server didn't become healthy.")
-    print("  docker compose logs prefect-server")
-    sys.exit(1)
-
-
 def main() -> None:
     print("=" * 50)
-    print("  Battlemap Explorer — Starting Services")
+    print("  Scene Atlas — Starting")
     print("=" * 50)
     print()
 
-    # 1. Infrastructure
-    print("[1/3] Starting Docker infrastructure...")
-    _run(["docker", "compose", "up", "-d"])
-    _wait_for_prefect()
-
-    # 2. Prefect worker
-    print("\n[2/3] Starting Prefect worker...")
-    worker_pid = _spawn("worker", [PYTHON, "-m", "prefect", "worker", "start", "--pool", WORK_POOL])
-    print(f"  PID {worker_pid}  →  logs/worker.log")
-    # Allow the worker time to register with the server before the API starts
-    time.sleep(2)
-
-    # 3. FastAPI server
-    print("\n[3/3] Starting FastAPI server...")
+    print("Starting FastAPI server...")
     api_pid = _spawn(
         "api",
         [PYTHON, "-m", "uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"],
@@ -104,19 +63,17 @@ def main() -> None:
 
     print()
     print("=" * 50)
-    print("  All backend services running")
+    print("  Server running")
     print("=" * 50)
     print()
     print("  API:      http://localhost:8000/docs")
     print("  Health:   http://localhost:8000/health")
-    print("  Prefect:  http://localhost:4200")
     print()
     print("Start the frontend in a separate terminal:")
     print("  cd frontend && npm run dev  →  http://localhost:5173")
     print()
-    print("Stop everything:   uv run python scripts/stop.py")
-    print("Tail API logs:     tail -f logs/api.log")
-    print("Tail worker logs:  tail -f logs/worker.log")
+    print("Stop:          uv run python scripts/stop.py")
+    print("Tail logs:     tail -f logs/api.log")
 
 
 if __name__ == "__main__":

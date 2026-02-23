@@ -96,7 +96,7 @@ Several DB columns retain their original names for backward compatibility (avoid
 
 ## Qdrant Vector Store
 
-**Host:** localhost:6333 (Docker container)
+**Mode:** Embedded local (`QdrantClient(path="data/qdrant_local")`)
 **Collection:** `battlemap_images`
 **Vector size:** 512 (CLIP ViT-B/32 projection dimension)
 **Distance metric:** Cosine similarity

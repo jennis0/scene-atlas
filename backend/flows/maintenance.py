@@ -1,22 +1,17 @@
-"""Maintenance Prefect flows: database backup and staging cleanup.
+"""Maintenance tasks: database backup and staging cleanup.
 
-Flows:
+Functions:
     backup_database  — Snapshot SQLite + Qdrant, rotate old backups. Runs daily.
     cleanup_staging  — Remove stale staging directories older than 24h. Runs every 6h.
 
-Both flows are registered as scheduled deployments in deploy.py and are also
-manually triggerable from the Prefect UI.
+Scheduled by the Scheduler (started in FastAPI lifespan).  Also runnable
+from the CLI: ``uv run python -m backend.flows.maintenance``
 """
 
-import json
 import shutil
 import sqlite3
-import urllib.error
-import urllib.request
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-
-from prefect import flow, task
 
 from backend.app.config import settings
 from backend.flows.logger import get_logger
@@ -27,7 +22,6 @@ from backend.flows.logger import get_logger
 # ---------------------------------------------------------------------------
 
 
-@task(name="backup_sqlite", retries=2)
 def backup_sqlite(backup_dir: Path, db_path: Path | None = None) -> Path:
     """Create a consistent SQLite snapshot using the sqlite3.backup() API.
 
@@ -54,38 +48,24 @@ def backup_sqlite(backup_dir: Path, db_path: Path | None = None) -> Path:
     return backup_path
 
 
-@task(name="backup_qdrant", retries=2)
-def backup_qdrant() -> str | None:
-    """Create a Qdrant collection snapshot via the REST API.
+def backup_qdrant(backup_dir: Path) -> Path | None:
+    """Copy the embedded Qdrant storage directory for backup.
 
-    Returns the snapshot name on success, or None if Qdrant is unavailable
-    (e.g. not yet populated, or container is down). Non-fatal: the overall
-    backup flow still succeeds if only the SQLite backup completed.
+    Returns the backup path on success, or None if Qdrant is not initialised.
+    Non-fatal: the overall backup still succeeds if only SQLite was backed up.
     """
     logger = get_logger(__name__)
-    url = (
-        f"http://{settings.qdrant_host}:{settings.qdrant_port}"
-        f"/collections/{settings.qdrant_collection_name}/snapshots"
-    )
     try:
-        req = urllib.request.Request(url, method="POST")
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            data = json.loads(resp.read())
-            snapshot_name = data["result"]["name"]
-            logger.info(f"Qdrant snapshot created: {snapshot_name}")
-            return snapshot_name
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            logger.warning("Qdrant collection does not exist yet — skipping snapshot")
-        else:
-            logger.warning(f"Qdrant snapshot failed (HTTP {e.code}): {e}")
-        return None
+        from backend.app.services.qdrant_service import get_qdrant_service
+
+        svc = get_qdrant_service()
+        backup_path = svc.backup_storage(backup_dir)
+        return backup_path
     except Exception as e:
-        logger.warning(f"Qdrant snapshot failed (Qdrant may be down): {e}")
+        logger.warning(f"Qdrant backup failed: {e}")
         return None
 
 
-@task(name="rotate_backups")
 def rotate_backups(backups_root: Path, keep_daily: int = 7, keep_weekly: int = 4) -> int:
     """Rotate backup directories: keep the most recent N daily plus M weekly.
 
@@ -139,26 +119,21 @@ def rotate_backups(backups_root: Path, keep_daily: int = 7, keep_weekly: int = 4
     return deleted
 
 
-@flow(name="backup_database", log_prints=True)
 def backup_database() -> dict:
-    """Full backup: SQLite snapshot + Qdrant snapshot + rotation.
-
-    Scheduled daily at 03:00 UTC. Also manually triggerable from the Prefect UI.
-    Failures are retried automatically by Prefect.
-    """
+    """Full backup: SQLite snapshot + Qdrant snapshot + rotation."""
     logger = get_logger(__name__)
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     backups_root = settings.data_dir / "backups"
     backup_dir = backups_root / timestamp
 
     db_backup = backup_sqlite(backup_dir)
-    qdrant_snapshot = backup_qdrant()
+    qdrant_backup = backup_qdrant(backup_dir)
     deleted = rotate_backups(backups_root)
 
     result = {
         "timestamp": timestamp,
         "db_backup": str(db_backup),
-        "qdrant_snapshot": qdrant_snapshot,
+        "qdrant_backup": str(qdrant_backup) if qdrant_backup else None,
         "rotated": deleted,
     }
     logger.info(f"Backup complete: {result}")
@@ -170,12 +145,11 @@ def backup_database() -> dict:
 # ---------------------------------------------------------------------------
 
 
-@task(name="cleanup_stale_staging")
 def cleanup_stale_staging(max_age_hours: int = 24) -> int:
     """Remove staging job directories older than ``max_age_hours``.
 
-    Uses directory mtime as the age proxy. Catches the case where the Prefect
-    worker died mid-import and left behind a staging directory that will never
+    Uses directory mtime as the age proxy. Catches the case where a background
+    job died mid-import and left behind a staging directory that will never
     be cleaned up by the import flow itself.
 
     Returns the number of directories removed.
@@ -201,7 +175,6 @@ def cleanup_stale_staging(max_age_hours: int = 24) -> int:
     return deleted
 
 
-@flow(name="cleanup_staging", log_prints=True)
 def cleanup_staging() -> dict:
     """Remove staging directories abandoned by crashed or cancelled imports.
 

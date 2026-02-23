@@ -343,6 +343,20 @@ export interface ActiveImportsResponse {
   jobs: ImportJobSummary[]
 }
 
+// Background job status (from /api/v1/jobs)
+export interface BackgroundJob {
+  id: string
+  name: string
+  status: 'queued' | 'running' | 'completed' | 'failed'
+  submitted_at: string
+  started_at: string | null
+  finished_at: string | null
+  progress: string | null
+  progress_pct: number | null
+  result: Record<string, unknown> | null
+  error: string | null
+}
+
 // ── Tag vocabulary (parsed from TagCategory.common_values) ───────────────────
 
 export interface ParsedTagVocab {

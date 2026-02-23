@@ -1,15 +1,12 @@
-"""Grid detection Prefect task — image-based grid analysis for battlemaps."""
+"""Grid detection task — image-based grid analysis for battlemaps."""
 
 from pathlib import Path
-
-from prefect import task
 
 from backend.app.config import settings
 from backend.app.services.grid_detector import GridDetector
 from backend.flows.logger import get_logger
 
 
-@task(name="detect_grid_from_image", retries=1)
 def detect_grid_from_image(
     image_path: str,
     width: int,
@@ -36,6 +33,8 @@ def detect_grid_from_image(
             max_dim=settings.grid_detection_max_dim,
             presence_threshold=settings.grid_presence_threshold,
             size_threshold=settings.grid_size_threshold,
+            period_ratio_threshold=settings.grid_period_ratio_threshold,
+            hex_rot_conf=settings.grid_hex_rot_conf,
         )
 
         path = Path(image_path)

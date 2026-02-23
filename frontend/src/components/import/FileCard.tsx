@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { X, Undo2, Pencil, Plus, Copy } from 'lucide-react'
 import type { EditableFileState, TagData } from '@/types'
+import { resolveApiUrl } from '@/lib/apiBase'
 import { TagPicker } from './TagPicker'
 import { GridToggle } from './GridToggle'
 import { SubgroupPicker } from './SubgroupPicker'
@@ -37,7 +38,7 @@ export function FileCard({
   const [subgroupDraft, setSubgroupDraft] = useState('')
 
   const isVideo = file.media_type === 'video'
-  const previewUrl = file.previewUrl ?? `/api/v1/imports/${jobId}/preview/${file.relative_path}`
+  const previewUrl = file.previewUrl ?? resolveApiUrl(`/api/v1/imports/${jobId}/preview/${file.relative_path}`)
   // Blob URLs for videos can't render in <img>; server preview URLs serve JPEG first-frame
   const useVideoThumb = isVideo && !!file.previewUrl?.startsWith('blob:')
 
