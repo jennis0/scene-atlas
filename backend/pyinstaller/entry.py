@@ -20,9 +20,13 @@ def main():
     os.environ["API_PORT"] = str(args.port)
     os.environ["API_HOST"] = "127.0.0.1"
 
+    # Import app object directly (not as a string) — uvicorn.run("module:app")
+    # uses importlib at runtime which doesn't work in a frozen PyInstaller binary.
+    # A direct import also lets PyInstaller detect and bundle the backend package.
+    from backend.app.main import app  # noqa: E402
     import uvicorn
 
-    uvicorn.run("backend.app.main:app", host="127.0.0.1", port=args.port)
+    uvicorn.run(app, host="127.0.0.1", port=args.port)
 
 
 if __name__ == "__main__":

@@ -120,7 +120,23 @@ async function launchApp(dataDir: string): Promise<void> {
   }
 
   fs.mkdirSync(dataDir, { recursive: true })
+
+  // Log file for sidecar output — helps diagnose startup crashes
+  const logPath = path.join(app.getPath('userData'), 'backend.log')
+  const logStream = fs.createWriteStream(logPath, { flags: 'a' })
+  logStream.write(`\n--- Scene Atlas started ${new Date().toISOString()} ---\n`)
+  logStream.write(`port=${port} data=${dataDir}\n`)
   console.log(`[electron] Spawning backend on port ${port}, data=${dataDir}`)
+  console.log(`[electron] Sidecar log: ${logPath}`)
+
+  // Collect recent output lines so we can show them in the error dialog
+  const recentLines: string[] = []
+  const logLine = (line: string) => {
+    console.log(line)
+    logStream.write(line + '\n')
+    recentLines.push(line)
+    if (recentLines.length > 50) recentLines.shift()
+  }
 
   const child = spawnSidecar(
     port,
@@ -129,17 +145,20 @@ async function launchApp(dataDir: string): Promise<void> {
       console.log(`[electron] Backend ready on port ${readyPort}`)
       mainWindow?.webContents.send('backend-ready', readyPort)
     },
-    (line) => console.log(line),
+    logLine,
   )
 
   sidecarProcess = child
 
   // If the sidecar process exits before signalling ready, report the error
   child.on('exit', (code) => {
+    logStream.write(`--- exited code=${code} ---\n`)
+    logStream.end()
     if (code !== 0 && code !== null) {
+      const tail = recentLines.slice(-10).join('\n')
       mainWindow?.webContents.send(
         'backend-error',
-        `Backend process exited unexpectedly (code ${code}). Check that the sidecar binary is present.`,
+        `Backend crashed (exit code ${code}).\n\nLast output:\n${tail}\n\nFull log: ${logPath}`,
       )
     }
   })

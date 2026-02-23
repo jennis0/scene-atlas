@@ -8,6 +8,7 @@ Options:
     --skip-frontend   Skip Vite build (reuse existing frontend/dist)
     --clean           Remove previous build outputs before building
     --no-package      Stop after compiling — skip electron-builder step
+    --dev             Quick dev build: unpack only, no installer (skips slow NSIS compression)
 """
 
 import argparse
@@ -76,6 +77,7 @@ def main() -> None:
     parser.add_argument("--skip-frontend", action="store_true", help="Reuse existing frontend/dist")
     parser.add_argument("--clean",         action="store_true", help="Clean previous outputs first")
     parser.add_argument("--no-package",    action="store_true", help="Skip electron-builder packaging")
+    parser.add_argument("--dev",           action="store_true", help="Quick dev build: unpack only, no installer (skips slow NSIS compression)")
     args = parser.parse_args()
 
     print(f"\n{C.BOLD}Scene Atlas — Electron build{C.RESET}")
@@ -151,6 +153,14 @@ def main() -> None:
     # ── Step 4: Package ──────────────────────────────────────────────────────
     if args.no_package:
         warn("Skipping packaging (--no-package)")
+    elif args.dev:
+        step("Packaging with electron-builder (dev: dir only, no installer)")
+        info("Skipping NSIS compression — run dist-electron/win-unpacked/Scene Atlas.exe to test")
+        npx("electron-builder", "--publish", "never", "--win", "dir")
+        exe = ROOT / "dist-electron" / "win-unpacked" / "Scene Atlas.exe"
+        if exe.exists():
+            print()
+            success(f"Dev build ready: {exe.relative_to(ROOT)}")
     else:
         step("Packaging with electron-builder")
         npx("electron-builder", "--publish", "never")
