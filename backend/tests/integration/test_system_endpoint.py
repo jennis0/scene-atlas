@@ -4,8 +4,6 @@ Uses the shared test_client + tmp_db fixtures to verify the endpoint returns
 correct response shape and library counts from a real SQLite database.
 """
 
-import pytest
-
 from backend.app.models.database import Image, ImageGroup
 
 
@@ -60,7 +58,7 @@ class TestSystemInfoEndpoint:
         engine, SessionLocal = tmp_db
         db = SessionLocal()
         try:
-            g = _add_group(db, "Test Group")
+            _add_group(db, "Test Group")
             _add_image(db, "Image1")
             _add_image(db, "Image2")
             _add_image(db, "Image3")

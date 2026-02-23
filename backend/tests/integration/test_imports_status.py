@@ -15,7 +15,6 @@ import pytest
 
 from backend.app.models.database import Image, ImageGroup, ImportGroupJob, ImportJob
 
-
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
 # ---------------------------------------------------------------------------
@@ -60,7 +59,7 @@ def seeded_job(test_client, tmp_db):
     """One ImportJob in 'staging' state, no group jobs."""
     _, SessionLocal = tmp_db
     db = SessionLocal()
-    job = _make_job(db, "job001staging", status="staging")
+    _make_job(db, "job001staging", status="staging")
     db.commit()
     db.close()
     yield test_client, "job001staging"
@@ -85,7 +84,12 @@ def seeded_completed_job(test_client, tmp_db):
     db = SessionLocal()
     _make_job(db, "jobdonebb", status="completed", total_files=2)
     _make_group_job(
-        db, "jobdonebb", "grp002", status="completed", processed=2, total=2,
+        db,
+        "jobdonebb",
+        "grp002",
+        status="completed",
+        processed=2,
+        total=2,
         completed_at=datetime.now(UTC).replace(tzinfo=None),
     )
     db.commit()
@@ -110,7 +114,9 @@ class TestCheckHashes:
     def test_no_duplicates(self, test_client):
         resp = test_client.post(
             "/api/v1/imports/check-hashes",
-            json={"files": [{"relative_path": "a.jpg", "filename": "a.jpg", "content_hash": "a" * 64}]},
+            json={
+                "files": [{"relative_path": "a.jpg", "filename": "a.jpg", "content_hash": "a" * 64}]
+            },
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -139,7 +145,11 @@ class TestCheckHashes:
 
         resp = test_client.post(
             "/api/v1/imports/check-hashes",
-            json={"files": [{"relative_path": "new.jpg", "filename": "new.jpg", "content_hash": "c" * 64}]},
+            json={
+                "files": [
+                    {"relative_path": "new.jpg", "filename": "new.jpg", "content_hash": "c" * 64}
+                ]
+            },
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -155,20 +165,28 @@ class TestCheckHashes:
         group = ImageGroup(base_name="SomeMap", author="Author")
         db.add(group)
         db.flush()
-        db.add(Image(
-            name="SomeMap", filename="s.jpg", author="Author",
-            storage_key="some_key.jpg", content_hash="d" * 64,
-            group_id=group.id, media_type="image",
-        ))
+        db.add(
+            Image(
+                name="SomeMap",
+                filename="s.jpg",
+                author="Author",
+                storage_key="some_key.jpg",
+                content_hash="d" * 64,
+                group_id=group.id,
+                media_type="image",
+            )
+        )
         db.commit()
         db.close()
 
         resp = test_client.post(
             "/api/v1/imports/check-hashes",
-            json={"files": [
-                {"relative_path": "dup.jpg", "filename": "dup.jpg", "content_hash": "d" * 64},
-                {"relative_path": "new.jpg", "filename": "new.jpg", "content_hash": "e" * 64},
-            ]},
+            json={
+                "files": [
+                    {"relative_path": "dup.jpg", "filename": "dup.jpg", "content_hash": "d" * 64},
+                    {"relative_path": "new.jpg", "filename": "new.jpg", "content_hash": "e" * 64},
+                ]
+            },
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -216,7 +234,9 @@ class TestImportStatus:
         db = SessionLocal()
         _make_job(db, "jobmixedcc", status="running", total_files=4)
         _make_group_job(db, "jobmixedcc", "grp_ok", status="completed", processed=2, total=2)
-        _make_group_job(db, "jobmixedcc", "grp_fail", group_name="FailGroup", status="failed", total=2)
+        _make_group_job(
+            db, "jobmixedcc", "grp_fail", group_name="FailGroup", status="failed", total=2
+        )
         db.commit()
         db.close()
 
@@ -264,7 +284,12 @@ class TestActiveImports:
         _make_job(db, "jobolddd", status="completed", total_files=1)
         old_time = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=2)
         _make_group_job(
-            db, "jobolddd", "grp_old", status="completed", processed=1, total=1,
+            db,
+            "jobolddd",
+            "grp_old",
+            status="completed",
+            processed=1,
+            total=1,
             completed_at=old_time,
         )
         db.commit()

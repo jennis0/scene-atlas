@@ -203,7 +203,6 @@ export function useImportUpload({
       }
     },
     // defaultImageType intentionally included — changing it between upload sessions is valid
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [defaultImageType, setGroups, setJobId, setState, setActiveTab],
   )
 
@@ -213,7 +212,8 @@ export function useImportUpload({
     if (!fileList || fileList.length === 0) return
     const pairs = Array.from(fileList).map((file) => ({
       file,
-      relativePath: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
+      relativePath:
+        (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
     }))
     // Reset before await so the same path can be re-selected later
     e.target.value = ''

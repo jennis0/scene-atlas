@@ -147,7 +147,9 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
             }`}
             title="Regenerate auto-tags for all images from their filenames. Manually applied tags are always preserved."
           >
-            <RefreshCw className={`w-3 h-3 ${retagMut.isPending || retagJob.isRunning ? 'animate-spin' : ''}`} />
+            <RefreshCw
+              className={`w-3 h-3 ${retagMut.isPending || retagJob.isRunning ? 'animate-spin' : ''}`}
+            />
             {retagJob.isRunning
               ? `Retagging${retagJob.progressPct != null ? ` (${retagJob.progressPct}%)` : '…'}`
               : 'Regenerate auto-tags'}

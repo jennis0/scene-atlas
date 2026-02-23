@@ -43,7 +43,9 @@ export function SceneTile({
       {/* Thumbnail */}
       <div
         className="aspect-[4/3] overflow-hidden"
-        style={!loaded && !errored && placeholderBg ? { backgroundColor: placeholderBg } : undefined}
+        style={
+          !loaded && !errored && placeholderBg ? { backgroundColor: placeholderBg } : undefined
+        }
       >
         {/* Shimmer skeleton shown until image loads */}
         {!loaded && !errored && <div className="absolute inset-0 animate-pulse bg-muted/60" />}
@@ -71,9 +73,7 @@ export function SceneTile({
         {secondaryText && (
           <p className="text-[11px] text-white/60 truncate mt-0.5">{secondaryText}</p>
         )}
-        {authorText && (
-          <p className="text-[11px] text-white/60 truncate mt-0.5">{authorText}</p>
-        )}
+        {authorText && <p className="text-[11px] text-white/60 truncate mt-0.5">{authorText}</p>}
       </div>
 
       {/* Active selection ring inset overlay */}

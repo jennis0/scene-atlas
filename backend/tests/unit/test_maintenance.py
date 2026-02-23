@@ -10,10 +10,7 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
-
 from backend.pipeline.maintenance import cleanup_stale_staging, rotate_backups
-
 
 # ---------------------------------------------------------------------------
 # rotate_backups
@@ -68,7 +65,7 @@ class TestRotateBackups:
         root.mkdir()
         # Enough valid dirs to trigger rotation
         for i in range(10):
-            _make_backup_dir(root, f"2024010{i}_120000" if i < 10 else f"20240110_120000")
+            _make_backup_dir(root, f"2024010{i}_120000" if i < 10 else "20240110_120000")
         # Add one with an invalid name
         invalid = _make_backup_dir(root, "unknown_backup_dir")
 
@@ -82,7 +79,9 @@ class TestRotateBackups:
         root.mkdir()
         # Create 14 daily backups — 2 weeks worth
         for day in range(1, 15):
-            _make_backup_dir(root, f"20240{day:02d}01_000000" if day <= 9 else f"20241{day-9:02d}01_000000")
+            _make_backup_dir(
+                root, f"20240{day:02d}01_000000" if day <= 9 else f"20241{day - 9:02d}01_000000"
+            )
 
         deleted = rotate_backups(root, keep_daily=3, keep_weekly=2)
         remaining = list(root.iterdir())

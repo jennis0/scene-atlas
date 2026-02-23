@@ -61,9 +61,7 @@ export function useImageGrouping({
       result.sort((a, b) => {
         const aDate = a.heroImage.created_at ?? ''
         const bDate = b.heroImage.created_at ?? ''
-        return sortDir === 'desc'
-          ? bDate.localeCompare(aDate)
-          : aDate.localeCompare(bDate)
+        return sortDir === 'desc' ? bDate.localeCompare(aDate) : aDate.localeCompare(bDate)
       })
     } else {
       // name sort

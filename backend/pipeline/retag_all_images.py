@@ -115,10 +115,7 @@ def retag_all_images(progress_fn=None):
         if progress_fn:
             progress_fn(processed, total, f"Processed {processed}/{total}")
 
-    print(
-        f"Done. Created {totals['tags_created']} new auto tag(s) "
-        f"across {total} image(s)."
-    )
+    print(f"Done. Created {totals['tags_created']} new auto tag(s) across {total} image(s).")
     return {"total": total, **totals}
 
 

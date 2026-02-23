@@ -8,7 +8,6 @@ silently overwrite them.
 Requires: real DB (SQLite in tmp_path). Mocks: CLIP, Qdrant, thumbnails, ImageStore.
 """
 
-
 import pytest
 
 from backend.app.models import Image, ImageGroup, Tag
@@ -153,6 +152,7 @@ class TestMetadataRoundTrip:
         job = ImportJob(id="test-roundtrip-job", status="running", total_files=1)
         db.add(job)
         from backend.app.models import ImportGroupJob
+
         group_job = ImportGroupJob(
             id="test-roundtrip-group",
             job_id="test-roundtrip-job",

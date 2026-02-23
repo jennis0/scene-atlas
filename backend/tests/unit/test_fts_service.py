@@ -6,7 +6,6 @@ Covers:
 - backfill_search_text(): populates search_text for images that are missing it
 """
 
-import pytest
 from sqlalchemy import text
 
 from backend.app.models.database import Image
@@ -15,7 +14,6 @@ from backend.app.services.fts_service import (
     backfill_search_text,
     fts_search,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

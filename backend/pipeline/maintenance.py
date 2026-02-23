@@ -16,7 +16,6 @@ from pathlib import Path
 from backend.app.config import settings
 from backend.pipeline.logger import get_logger
 
-
 # ---------------------------------------------------------------------------
 # Backup tasks
 # ---------------------------------------------------------------------------

@@ -100,9 +100,7 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
                       className="h-full w-full object-cover"
                       loading="lazy"
                     />
-                    {img.media_type === 'video' && !isOverflowTile && (
-                      <VideoIndicator size="sm" />
-                    )}
+                    {img.media_type === 'video' && !isOverflowTile && <VideoIndicator size="sm" />}
                     {img.subgroup && !isOverflowTile && (
                       <div className="absolute bottom-0 left-0 right-0 bg-black/50 px-1.5 py-0.5">
                         <span className="text-[10px] leading-tight text-white/90 line-clamp-1">

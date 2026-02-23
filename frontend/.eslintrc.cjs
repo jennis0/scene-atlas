@@ -20,4 +20,13 @@ module.exports = {
     // Allow unused vars with _ prefix convention
     "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
   },
+  overrides: [
+    {
+      files: ["**/*.test.ts", "**/*.test.tsx"],
+      rules: {
+        // Test mocking often requires `any` casts
+        "@typescript-eslint/no-explicit-any": "off",
+      },
+    },
+  ],
 };

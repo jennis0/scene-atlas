@@ -6,7 +6,6 @@ import pytest
 
 from backend.app.services.grid_detector import GridDetector
 
-
 # ---------------------------------------------------------------------------
 # Helpers to generate test images
 # ---------------------------------------------------------------------------
@@ -49,9 +48,7 @@ def _make_square_grid_image(
     return path
 
 
-def _make_solid_image(
-    width: int, height: int, color: int = 180, path: str | None = None
-) -> str:
+def _make_solid_image(width: int, height: int, color: int = 180, path: str | None = None) -> str:
     """Generate a solid-color image (no grid)."""
     img = np.full((height, width), color, dtype=np.uint8)
     if path is None:
@@ -60,9 +57,7 @@ def _make_solid_image(
     return path
 
 
-def _make_noise_image(
-    width: int, height: int, path: str | None = None, seed: int = 42
-) -> str:
+def _make_noise_image(width: int, height: int, path: str | None = None, seed: int = 42) -> str:
     """Generate a random noise image (no grid)."""
     rng = np.random.RandomState(seed)
     img = rng.randint(0, 256, (height, width), dtype=np.uint8)
@@ -110,8 +105,11 @@ def _make_hex_grid_image(
                 pts.append((px, py))
             for i in range(6):
                 cv2.line(
-                    img, pts[i], pts[(i + 1) % 6],
-                    line_color, line_thickness,
+                    img,
+                    pts[i],
+                    pts[(i + 1) % 6],
+                    line_color,
+                    line_thickness,
                 )
 
     if path is None:
@@ -150,8 +148,13 @@ class TestSquareGridDetection:
         """Strong grid lines on a clean background → gridded=True, type=square."""
         width, height, cell = 900, 600, 100  # 9×6 grid
         _make_square_grid_image(
-            width, height, cell, line_color=0, bg_color=200,
-            line_thickness=2, path=str(tmp_path / "grid_clear.png"),
+            width,
+            height,
+            cell,
+            line_color=0,
+            bg_color=200,
+            line_thickness=2,
+            path=str(tmp_path / "grid_clear.png"),
         )
 
         result = detector.detect(tmp_path / "grid_clear.png", width, height)
@@ -169,8 +172,13 @@ class TestSquareGridDetection:
         """Smaller cell size, still detectable."""
         width, height, cell = 1024, 768, 64  # 16×12 grid
         _make_square_grid_image(
-            width, height, cell, line_color=50, bg_color=200,
-            line_thickness=1, path=str(tmp_path / "grid_fine.png"),
+            width,
+            height,
+            cell,
+            line_color=50,
+            bg_color=200,
+            line_thickness=1,
+            path=str(tmp_path / "grid_fine.png"),
         )
 
         result = detector.detect(tmp_path / "grid_fine.png", width, height)
@@ -186,8 +194,13 @@ class TestSquareGridDetection:
         """Large cells (200px) on a large image."""
         width, height, cell = 1000, 1000, 200  # 5×5 grid
         _make_square_grid_image(
-            width, height, cell, line_color=30, bg_color=180,
-            line_thickness=2, path=str(tmp_path / "grid_large.png"),
+            width,
+            height,
+            cell,
+            line_color=30,
+            bg_color=180,
+            line_thickness=2,
+            path=str(tmp_path / "grid_large.png"),
         )
 
         result = detector.detect(tmp_path / "grid_large.png", width, height)
@@ -203,8 +216,13 @@ class TestSquareGridDetection:
         """Faint grid lines (low contrast) — may detect with lower confidence."""
         width, height, cell = 900, 600, 100
         _make_square_grid_image(
-            width, height, cell, line_color=170, bg_color=200,
-            line_thickness=1, path=str(tmp_path / "grid_faint.png"),
+            width,
+            height,
+            cell,
+            line_color=170,
+            bg_color=200,
+            line_thickness=1,
+            path=str(tmp_path / "grid_faint.png"),
         )
 
         result = detector.detect(tmp_path / "grid_faint.png", width, height)
@@ -218,13 +236,16 @@ class TestSquareGridDetection:
         """When we already know it's gridded, use lower threshold to find size."""
         width, height, cell = 900, 600, 100
         _make_square_grid_image(
-            width, height, cell, line_color=0, bg_color=200,
-            line_thickness=2, path=str(tmp_path / "grid.png"),
+            width,
+            height,
+            cell,
+            line_color=0,
+            bg_color=200,
+            line_thickness=2,
+            path=str(tmp_path / "grid.png"),
         )
 
-        result = detector.detect_size_only(
-            tmp_path / "grid.png", width, height
-        )
+        result = detector.detect_size_only(tmp_path / "grid.png", width, height)
 
         assert result["gridded"] is True
         if result["grid_width"] is not None:
@@ -243,8 +264,13 @@ class TestHexGridDetection:
         """Hex grid lines on a clean background -> gridded=True, type=hex."""
         width, height = 800, 800
         _make_hex_grid_image(
-            width, height, hex_size=50, line_color=0, bg_color=200,
-            line_thickness=2, path=str(tmp_path / "hex_grid.png"),
+            width,
+            height,
+            hex_size=50,
+            line_color=0,
+            bg_color=200,
+            line_thickness=2,
+            path=str(tmp_path / "hex_grid.png"),
         )
 
         result = detector.detect(tmp_path / "hex_grid.png", width, height)
@@ -257,8 +283,13 @@ class TestHexGridDetection:
         """Hex grids should not report tile counts (only square grids do)."""
         width, height = 800, 800
         _make_hex_grid_image(
-            width, height, hex_size=50, line_color=0, bg_color=200,
-            line_thickness=2, path=str(tmp_path / "hex_grid.png"),
+            width,
+            height,
+            hex_size=50,
+            line_color=0,
+            bg_color=200,
+            line_thickness=2,
+            path=str(tmp_path / "hex_grid.png"),
         )
 
         result = detector.detect(tmp_path / "hex_grid.png", width, height)
@@ -271,8 +302,13 @@ class TestHexGridDetection:
         """A square grid should never be classified as hex."""
         width, height, cell = 900, 600, 100
         _make_square_grid_image(
-            width, height, cell, line_color=0, bg_color=200,
-            line_thickness=2, path=str(tmp_path / "square.png"),
+            width,
+            height,
+            cell,
+            line_color=0,
+            bg_color=200,
+            line_thickness=2,
+            path=str(tmp_path / "square.png"),
         )
 
         result = detector.detect(tmp_path / "square.png", width, height)

@@ -6,6 +6,42 @@ The test suite covers the ingestion pipeline end-to-end: parsing, pipeline funct
 
 **No infrastructure required.** All tests run without external services. Qdrant's `QdrantClient` is mocked at import time to prevent creating local DB files during tests.
 
+## CI/CD Pipeline
+
+### Tiered Test Strategy
+
+```
+Tier 1 — Pre-commit (local):  lint-staged (ruff + eslint + prettier on staged files)
+Tier 2 — Every push & PR:     lint + format + unit tests + frontend tests + build
+Tier 3 — Push to main:        + integration tests + coverage reporting
+Tier 4 — Version tags (v*):   gate check + multi-platform electron build + release
+```
+
+### GitHub Actions Workflows
+
+- `.github/workflows/ci.yml` — Tiers 1-3 (backend-lint → backend-unit → backend-integration, frontend-lint → frontend-test/build → frontend-coverage)
+- `.github/workflows/electron-build.yml` — Tier 4 (gate job → matrix build for Windows/macOS/Linux)
+
+### Coverage Thresholds
+
+- **Backend**: 40% line coverage (measured via `pytest-cov`, `pyproject.toml [tool.coverage.report]`)
+- **Frontend**: 10% line coverage (measured via `@vitest/coverage-v8`, `vitest.config.ts`)
+- Thresholds should be ratcheted up as test coverage improves
+
+### Local Development
+
+```bash
+# Pre-commit hooks (auto-installed via `npm install` → husky prepare)
+# Runs lint-staged on commit: ruff for .py, eslint+prettier for .ts/.tsx
+
+# Manual checks
+make check          # lint + format-check (both backend + frontend)
+make test           # unit tests + frontend tests (fast, ~15s)
+make test-all       # unit + integration + frontend (~30s)
+make test-cov       # full suite with coverage reporting
+make lint-fix       # auto-fix all lint + format issues
+```
+
 ## Running Tests
 
 ```bash
@@ -17,6 +53,12 @@ uv run pytest backend/tests/unit/test_parser.py -v
 
 # Just the critical round-trip test
 uv run pytest backend/tests/integration/test_metadata_roundtrip.py -v
+
+# Frontend tests
+cd frontend && npx vitest run
+
+# Frontend tests with watch mode
+cd frontend && npx vitest
 ```
 
 ## Three-Layer Structure
@@ -38,6 +80,15 @@ backend/tests/
 │   └── test_preview_endpoint.py    # GET /imports/{id}/preview/{path}
 ├── e2e/                     # Full infrastructure tests (future)
 └── legacy/                  # Old manual scripts — delete as replaced
+
+frontend/src/
+├── components/
+│   ├── DesktopGate.test.tsx
+│   └── SystemInfoDialog.test.tsx
+├── hooks/
+│   └── useJobPolling.test.ts
+└── lib/
+    └── appMode.test.ts
 ```
 
 ## Conventions
@@ -108,3 +159,7 @@ monkeypatch.setattr("backend.app.config.settings.database_url", str(engine.url))
 
 - **Qdrant mocking must happen before import.** `conftest.py` patches `qdrant_client.QdrantClient` before `backend.app.services` loads, because `QdrantService.__init__()` creates an embedded local DB on disk. The lazy singleton (`get_qdrant_service()`) defers creation, but the QdrantClient class still needs to be mocked before any test triggers it.
 - **TestClient lifespan override.** The FastAPI lifespan sets `app.state.db_engine` to production. Fixtures must override it **after** `TestClient.__enter__()`, not before.
+
+## Future: Real Qdrant in integration tests
+
+Since Qdrant now runs in embedded local mode (`QdrantClient(path=...)`), we could use a real instance pointed at `tmp_path` in integration tests. This would test real vector search behavior (add + query roundtrip) and remove the fragile import-order mocking. Still fast since it's just local files with no network.

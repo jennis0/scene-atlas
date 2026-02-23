@@ -10,7 +10,7 @@ interface LoadingScreenProps {
 function AnimatedDots() {
   const [count, setCount] = useState(1)
   useEffect(() => {
-    const id = setInterval(() => setCount(c => (c % 3) + 1), 600)
+    const id = setInterval(() => setCount((c) => (c % 3) + 1), 600)
     return () => clearInterval(id)
   }, [])
   // Fixed-width span so surrounding text doesn't shift
@@ -29,7 +29,7 @@ export function LoadingScreen({
   const [showDetail, setShowDetail] = useState(false)
 
   const amber = (alpha: number) => `hsl(38 60% 58% / ${alpha})`
-  const red   = (alpha: number) => `hsl(0 62% 57% / ${alpha})`
+  const red = (alpha: number) => `hsl(0 62% 57% / ${alpha})`
   const accent = isError ? red : amber
 
   return (
@@ -53,10 +53,8 @@ export function LoadingScreen({
 
       {/* Content */}
       <div className="relative flex flex-col items-center gap-8">
-
         {/* Compass with layered rings */}
         <div className="relative flex h-36 w-36 items-center justify-center">
-
           {/* Outermost sonar-ping ring — expands outward and fades */}
           {!isError && (
             <div
@@ -97,9 +95,7 @@ export function LoadingScreen({
           <Compass
             className={[
               'relative h-8 w-8',
-              isError
-                ? 'text-destructive/60'
-                : 'animate-[spin_8s_linear_infinite] text-primary/70',
+              isError ? 'text-destructive/60' : 'animate-[spin_8s_linear_infinite] text-primary/70',
             ].join(' ')}
             strokeWidth={1.2}
           />
@@ -107,9 +103,7 @@ export function LoadingScreen({
 
         {/* Title + rule */}
         <div className="flex flex-col items-center gap-2">
-          <h1 className="font-display text-2xl tracking-[0.2em] text-foreground/90">
-            Scene Atlas
-          </h1>
+          <h1 className="font-display text-2xl tracking-[0.2em] text-foreground/90">Scene Atlas</h1>
           <div
             className="h-px w-24"
             style={{
@@ -125,7 +119,8 @@ export function LoadingScreen({
               <span style={{ color: red(0.9) }}>{status}</span>
             ) : (
               <span className="text-muted-foreground">
-                {status}<AnimatedDots />
+                {status}
+                <AnimatedDots />
               </span>
             )}
           </p>
@@ -134,15 +129,13 @@ export function LoadingScreen({
           {isError && errorDetail && (
             <div className="flex flex-col items-center gap-2 max-w-sm">
               <button
-                onClick={() => setShowDetail(v => !v)}
+                onClick={() => setShowDetail((v) => !v)}
                 className="font-mono text-[10px] tracking-wider text-muted-foreground/50 hover:text-muted-foreground/80 transition-colors"
               >
                 {showDetail ? '▲ hide details' : '▼ show details'}
               </button>
               {showDetail && (
-                <pre
-                  className="mt-1 max-h-40 w-full overflow-y-auto rounded border border-border/30 bg-muted/20 p-3 font-mono text-[10px] leading-relaxed text-muted-foreground/70 whitespace-pre-wrap break-all"
-                >
+                <pre className="mt-1 max-h-40 w-full overflow-y-auto rounded border border-border/30 bg-muted/20 p-3 font-mono text-[10px] leading-relaxed text-muted-foreground/70 whitespace-pre-wrap break-all">
                   {errorDetail}
                 </pre>
               )}

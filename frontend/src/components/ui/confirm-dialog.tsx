@@ -36,11 +36,7 @@ export function ConfirmDialog({
         </DialogHeader>
         <p className="text-sm text-muted-foreground">{description}</p>
         <div className="flex justify-end gap-2 mt-2">
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={isLoading}
-          >
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isLoading}>
             Cancel
           </Button>
           <Button variant={confirmVariant} onClick={onConfirm} disabled={isLoading}>

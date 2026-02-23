@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import zipstream
@@ -30,9 +30,9 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
+from ...pipeline.naming import export_path
 from ..models import Image, get_session_local
 from ..services import get_image_store
-from ...pipeline.naming import export_path, sanitize_segment
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +172,7 @@ async def export_library(db: Session = Depends(get_db)):
     entries, metadata = _collect_entries(db)
 
     meta_payload = {
-        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "exported_at": datetime.now(UTC).isoformat(),
         "version": 1,
         "total_images": len(entries),
         "images": metadata,

@@ -64,6 +64,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # unused imports in __init__.py
 "backend/tests/conftest.py" = ["E402"]  # intentional late imports for mock setup
+"backend/scripts/*" = ["E402"]  # sys.path manipulation before imports
 
 [tool.ruff.format]
 quote-style = "double"
@@ -99,6 +100,7 @@ omit = [
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
+fail_under = 40
 exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",

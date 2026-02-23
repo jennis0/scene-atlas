@@ -7,7 +7,6 @@ import pytest
 
 from backend.app.models.database import Image, ImageGroup, Tag, TagCategory
 
-
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
 # ---------------------------------------------------------------------------
@@ -97,7 +96,12 @@ class TestCreateCategory:
     def test_create_new_category(self, test_client):
         resp = test_client.post(
             "/api/v1/tags/categories",
-            json={"name": "test_atmosphere", "description": "Test category", "color": "#0000ff", "display_order": 98},
+            json={
+                "name": "test_atmosphere",
+                "description": "Test category",
+                "color": "#0000ff",
+                "display_order": 98,
+            },
         )
         assert resp.status_code == 201
         data = resp.json()
@@ -226,6 +230,7 @@ class TestUpsertTagValue:
         assert resp.status_code == 200
         values_raw = resp.json()["common_values"]
         import json
+
         values = [v["value"] if isinstance(v, dict) else v for v in json.loads(values_raw)]
         assert "jungle" in values
 

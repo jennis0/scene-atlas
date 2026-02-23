@@ -85,9 +85,7 @@ class ImageParser:
         # Regex patterns
         self._ordinal_re = re.compile(r"(\d+)(st|nd|rd|th)\b", re.IGNORECASE)
         self._camel_re = re.compile(r"([a-z])([A-Z])|([a-zA-Z])([0-9])|([0-9])([a-zA-Z])")
-        self._dim_re = re.compile(
-            r"(?<!\d)[\(\[ ]?(\d{1,3})\s*[xX]\s*(\d{1,3})[\)\] ]?(?!\d)"
-        )
+        self._dim_re = re.compile(r"(?<!\d)[\(\[ ]?(\d{1,3})\s*[xX]\s*(\d{1,3})[\)\] ]?(?!\d)")
         self._by_author_re = re.compile(r"[bB]y([A-Z][a-z]+|[A-Z]+|[a-z]+)")
         self._bracket_re = re.compile(r"[\(\[](.*?)[\)\]]")
         self._grid_negative_re = re.compile(r"\b(no[-_ ]?grid|gridless|ungridded|gl)\b")
@@ -231,16 +229,13 @@ class ImageParser:
         self._tier_re = re.compile(r"\bTier\s*\d+\b", re.IGNORECASE)
         self._vol_re = re.compile(r"\bVol(ume)?\s*\d*\b", re.IGNORECASE)
         self._pricing_re = re.compile(r"\$\d*\s*Rewards?\b", re.IGNORECASE)
-        self._full_res_re = re.compile(
-            r"\bFull\s+Resolution\s*(Files?)?\b", re.IGNORECASE
-        )
+        self._full_res_re = re.compile(r"\bFull\s+Resolution\s*(Files?)?\b", re.IGNORECASE)
         self._fr_files_re = re.compile(r"\bFR\s+Files?\b", re.IGNORECASE)
-        self._platform_re = re.compile(
-            r"\b(FVTT|Roll\s*20|R20|VTT)\b", re.IGNORECASE
-        )
+        self._platform_re = re.compile(r"\b(FVTT|Roll\s*20|R20|VTT)\b", re.IGNORECASE)
         self._maps_word_re = re.compile(r"\bMaps\b", re.IGNORECASE)
         self._grid_name_re = re.compile(
-            r"\b(No\s*Grid|Grid(ded|less)?|Ungridded|GL|GD|Hexgrid|Hex[-_ ]?Grid|HG)\b", re.IGNORECASE
+            r"\b(No\s*Grid|Grid(ded|less)?|Ungridded|GL|GD|Hexgrid|Hex[-_ ]?Grid|HG)\b",
+            re.IGNORECASE,
         )
         self._abbrev_rejoin_re = re.compile(r"\b([A-Z]{1,2})\s+(\d+)\b")
         self._tight_alpha_dash_re = re.compile(r"(?<=[a-zA-Z])-(?=[a-zA-Z])")
@@ -474,9 +469,7 @@ class ImageParser:
             return words[len(prefix_words) :]
         return words
 
-    def _strip_word_sequence(
-        self, words: list[str], seq_words: list[str]
-    ) -> list[str]:
+    def _strip_word_sequence(self, words: list[str], seq_words: list[str]) -> list[str]:
         """Remove first occurrence of a contiguous word sequence (anywhere)."""
         if not seq_words:
             return words
@@ -630,7 +623,9 @@ class ImageParser:
 
             # Also check path parts for grid info
             if gridded is None:
-                full_path_grid = self._split_camel(clean).lower().replace("_", " ").replace("-", " ")
+                full_path_grid = (
+                    self._split_camel(clean).lower().replace("_", " ").replace("-", " ")
+                )
                 if self._grid_negative_re.search(full_path_grid):
                     gridded = False
                 elif self._grid_hex_re.search(full_path_grid):

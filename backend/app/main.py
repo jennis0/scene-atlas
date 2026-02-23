@@ -8,9 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
-from .config import settings
-
 from .api import export, groups, images, imports, jobs, search, system, tags
+from .config import settings
 from .models import get_engine, get_session_local, init_db, seed_tag_categories
 
 # Configure logging
@@ -117,9 +116,7 @@ app.include_router(images.router, prefix=f"{settings.api_prefix}/images", tags=[
 app.include_router(search.router, prefix=f"{settings.api_prefix}/search", tags=["search"])
 app.include_router(tags.router, prefix=f"{settings.api_prefix}/tags", tags=["tags"])
 app.include_router(imports.router, prefix=f"{settings.api_prefix}/imports", tags=["imports"])
-app.include_router(
-    groups.router, prefix=f"{settings.api_prefix}/groups", tags=["groups"]
-)
+app.include_router(groups.router, prefix=f"{settings.api_prefix}/groups", tags=["groups"])
 app.include_router(jobs.router, prefix=f"{settings.api_prefix}/jobs", tags=["jobs"])
 app.include_router(export.router, prefix=f"{settings.api_prefix}/export", tags=["export"])
 app.include_router(system.router, prefix=f"{settings.api_prefix}/system", tags=["system"])

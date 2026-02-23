@@ -6,8 +6,6 @@ Tests the _dir_size() helper function in isolation — no DB or API needed.
 import os
 from pathlib import Path
 
-import pytest
-
 from backend.app.api.system import _dir_size
 
 

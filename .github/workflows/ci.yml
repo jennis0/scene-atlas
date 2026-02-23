@@ -7,22 +7,23 @@ on:
     branches: [main]
 
 jobs:
-  backend:
-    name: Backend (lint + unit tests + integration tests)
-    runs-on: ubuntu-latest
+  # ── Backend ────────────────────────────────────────────────────────────────
 
+  backend-lint:
+    name: Backend lint & format
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
         with:
           version: "latest"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Install dependencies
         run: uv sync --extra dev
@@ -33,19 +34,99 @@ jobs:
       - name: Format check (ruff format)
         run: uv run ruff format --check backend/
 
-      - name: Run unit tests
-        run: uv run --extra dev python -m pytest backend/tests/unit/ -v
-
-      - name: Run integration tests
-        run: |
-          uv run --extra dev python -m pytest \
-            backend/tests/integration/ \
-            -v
-
-  frontend:
-    name: Frontend (TypeScript build + tests)
+  backend-unit:
+    name: Backend unit tests
     runs-on: ubuntu-latest
+    needs: backend-lint
+    steps:
+      - uses: actions/checkout@v4
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Run unit tests
+        run: uv run python -m pytest backend/tests/unit/ -v
+
+  backend-integration:
+    name: Backend integration tests + coverage
+    runs-on: ubuntu-latest
+    needs: backend-unit
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Run unit tests with coverage
+        run: uv run python -m pytest backend/tests/unit/ --cov --cov-report=
+
+      - name: Run integration tests with coverage
+        run: |
+          uv run python -m pytest backend/tests/integration/ -v \
+            --cov --cov-append \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage-backend.xml
+
+      - name: Upload backend coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-backend
+          path: coverage-backend.xml
+          retention-days: 14
+
+  # ── Frontend ───────────────────────────────────────────────────────────────
+
+  frontend-lint:
+    name: Frontend lint & format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: ESLint
+        working-directory: frontend
+        run: npx eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0
+
+      - name: Prettier check
+        working-directory: frontend
+        run: npx prettier --check src/
+
+  frontend-test:
+    name: Frontend tests
+    runs-on: ubuntu-latest
+    needs: frontend-lint
     steps:
       - uses: actions/checkout@v4
 
@@ -62,8 +143,57 @@ jobs:
 
       - name: Run tests
         working-directory: frontend
-        run: npm test
+        run: npx vitest run
 
-      - name: Vite build
+  frontend-build:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    needs: frontend-lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
         working-directory: frontend
-        run: npx vite build
+        run: npm ci
+
+      - name: TypeScript check + Vite build
+        working-directory: frontend
+        run: npm run build
+
+  frontend-coverage:
+    name: Frontend coverage
+    runs-on: ubuntu-latest
+    needs: frontend-test
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run tests with coverage
+        working-directory: frontend
+        run: npx vitest run --coverage
+
+      - name: Upload frontend coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-frontend
+          path: frontend/coverage/
+          retention-days: 14

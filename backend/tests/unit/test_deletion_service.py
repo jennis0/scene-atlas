@@ -152,9 +152,7 @@ class TestSafeDeleteImageThumbnails:
         for size in ["150x150", "400x400", "800x800"]:
             assert not thumbnail_store.exists(f"{thumb_stem}_{size}.jpg")
 
-    def test_missing_thumbnails_do_not_raise(
-        self, db_session, stores, monkeypatch, mock_qdrant
-    ):
+    def test_missing_thumbnails_do_not_raise(self, db_session, stores, monkeypatch, mock_qdrant):
         """If thumbnail files are already gone, deletion must not raise an error."""
         image_store, thumbnail_store = stores
         _patch_stores(monkeypatch, image_store, thumbnail_store)
@@ -220,7 +218,9 @@ class TestSafeDeleteImageDbCleanup:
         db_session.add(img)
         db_session.commit()
 
-        tag = Tag(image_id=img.id, category="lighting", value="night", confidence=1.0, source="manual")
+        tag = Tag(
+            image_id=img.id, category="lighting", value="night", confidence=1.0, source="manual"
+        )
         db_session.add(tag)
         db_session.commit()
         tag_id = tag.id
@@ -376,7 +376,9 @@ class TestSafeDeleteImageStoreError:
         db_session.commit()
 
         # Make delete() raise
-        monkeypatch.setattr(image_store, "delete", lambda key: (_ for _ in ()).throw(OSError("gone")))
+        monkeypatch.setattr(
+            image_store, "delete", lambda key: (_ for _ in ()).throw(OSError("gone"))
+        )
 
         # Must not raise
         safe_delete_image(db_session, img)

@@ -5,8 +5,7 @@ Tests GET /api/v1/search/ (hybrid search + filters) and GET /api/v1/search/facet
 
 import pytest
 
-from backend.app.models.database import Color, Image, ImageGroup, Tag
-
+from backend.app.models.database import Color, Image, Tag
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -62,37 +61,55 @@ def library(test_client, tmp_db):
     db = SessionLocal()
 
     # Author A: 3 battlemaps
-    img_a1 = _add_image(db, "Forest Map Night", author="AuthorA", gridded=True,
-                        search_text="Forest Map Night")
+    img_a1 = _add_image(
+        db, "Forest Map Night", author="AuthorA", gridded=True, search_text="Forest Map Night"
+    )
     _add_tag(db, img_a1, "lighting", "night")
     _add_tag(db, img_a1, "terrain", "forest")
     _add_color(db, img_a1, "#1a2b3c")
 
-    img_a2 = _add_image(db, "Forest Map Day", author="AuthorA", gridded=True,
-                        search_text="Forest Map Day")
+    img_a2 = _add_image(
+        db, "Forest Map Day", author="AuthorA", gridded=True, search_text="Forest Map Day"
+    )
     _add_tag(db, img_a2, "lighting", "day")
     _add_tag(db, img_a2, "terrain", "forest")
 
-    img_a3 = _add_image(db, "Cave Map", author="AuthorA", gridded=False,
-                        search_text="Cave Map")
+    img_a3 = _add_image(db, "Cave Map", author="AuthorA", gridded=False, search_text="Cave Map")
     _add_tag(db, img_a3, "terrain", "cave")
 
     # Author B: 2 scenes
-    img_b1 = _add_image(db, "Village Scene", author="AuthorB", image_type="scene",
-                        gridded=None, search_text="Village Scene")
+    img_b1 = _add_image(
+        db,
+        "Village Scene",
+        author="AuthorB",
+        image_type="scene",
+        gridded=None,
+        search_text="Village Scene",
+    )
     _add_tag(db, img_b1, "terrain", "urban")
 
-    img_b2 = _add_image(db, "Market Scene", author="AuthorB", image_type="scene",
-                        search_text="Market Scene")
+    img_b2 = _add_image(
+        db, "Market Scene", author="AuthorB", image_type="scene", search_text="Market Scene"
+    )
 
     # Author C: 1 video
-    img_c1 = _add_image(db, "Storm Video", author="AuthorC", media_type="video",
-                        storage_key="storm.mp4", search_text="Storm Video")
+    img_c1 = _add_image(
+        db,
+        "Storm Video",
+        author="AuthorC",
+        media_type="video",
+        storage_key="storm.mp4",
+        search_text="Storm Video",
+    )
 
     db.commit()
     ids = {
-        "a1": img_a1.id, "a2": img_a2.id, "a3": img_a3.id,
-        "b1": img_b1.id, "b2": img_b2.id, "c1": img_c1.id,
+        "a1": img_a1.id,
+        "a2": img_a2.id,
+        "a3": img_a3.id,
+        "b1": img_b1.id,
+        "b2": img_b2.id,
+        "c1": img_c1.id,
     }
     db.close()
     yield test_client, ids
@@ -202,8 +219,7 @@ class TestSearchNoQuery:
     def test_tag_filter_and_across_categories(self, library):
         """Tags in different categories → AND logic (both must match)."""
         client, ids = library
-        resp = client.get("/api/v1/search/",
-                          params={"tags": ["lighting:night", "terrain:forest"]})
+        resp = client.get("/api/v1/search/", params={"tags": ["lighting:night", "terrain:forest"]})
         returned_ids = {img["id"] for img in resp.json()["images"]}
         # Only a1 has BOTH lighting:night AND terrain:forest
         assert ids["a1"] in returned_ids

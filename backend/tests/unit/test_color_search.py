@@ -125,21 +125,25 @@ class TestColorIndex:
 
     def test_returns_matching_images(self):
         """An image whose stored colour matches the target hex exactly is returned."""
-        mock_db = _make_mock_db([
-            (42, "#ff0000"),
-            (7, "#0000ff"),
-            (99, "#000000"),
-        ])
+        mock_db = _make_mock_db(
+            [
+                (42, "#ff0000"),
+                (7, "#0000ff"),
+                (99, "#000000"),
+            ]
+        )
         index = ColorIndex()
         result = index.find_images_by_color(mock_db, "#ff0000", threshold=0.1)
         assert 42 in result
 
     def test_threshold_excludes_distant_images(self):
         """With a very tight threshold, only near-exact matches are returned."""
-        mock_db = _make_mock_db([
-            (1, "#ff0000"),
-            (2, "#0000ff"),
-        ])
+        mock_db = _make_mock_db(
+            [
+                (1, "#ff0000"),
+                (2, "#0000ff"),
+            ]
+        )
         index = ColorIndex()
         result = index.find_images_by_color(mock_db, "#ff0000", threshold=0.01)
         assert 1 in result
@@ -154,10 +158,12 @@ class TestColorIndex:
 
     def test_find_by_multiple_colors_union(self):
         """find_images_by_colors applies OR logic: any matching colour includes the image."""
-        mock_db = _make_mock_db([
-            (1, "#ff0000"),
-            (2, "#0000ff"),
-        ])
+        mock_db = _make_mock_db(
+            [
+                (1, "#ff0000"),
+                (2, "#0000ff"),
+            ]
+        )
         index = ColorIndex()
         result = index.find_images_by_colors(mock_db, ["#ff0000", "#0000ff"], threshold=0.1)
         assert 1 in result
@@ -165,10 +171,12 @@ class TestColorIndex:
 
     def test_find_by_multiple_colors_no_duplicates(self):
         """An image matching several target colours appears only once in the result set."""
-        mock_db = _make_mock_db([
-            (1, "#ff0000"),
-            (1, "#fe0000"),
-        ])
+        mock_db = _make_mock_db(
+            [
+                (1, "#ff0000"),
+                (1, "#fe0000"),
+            ]
+        )
         index = ColorIndex()
         result = index.find_images_by_colors(mock_db, ["#ff0000", "#fe0000"], threshold=0.2)
         assert isinstance(result, set)

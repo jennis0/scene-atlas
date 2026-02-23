@@ -55,9 +55,7 @@ def _setup_upload(tmp_path, tmp_db, monkeypatch):
 
     mock_runner = MagicMock()
     mock_runner.run_sync.return_value = fake_groups
-    monkeypatch.setattr(
-        "backend.app.api.imports.get_job_runner", lambda: mock_runner
-    )
+    monkeypatch.setattr("backend.app.api.imports.get_job_runner", lambda: mock_runner)
 
     return staging_base, mock_runner
 

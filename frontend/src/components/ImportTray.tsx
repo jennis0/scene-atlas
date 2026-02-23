@@ -349,11 +349,7 @@ function BackgroundJobCard({ job }: { job: BackgroundJob }) {
   return (
     <div
       className={`rounded-md border transition-colors
-        ${
-          isTerminal
-            ? 'border-border/20 bg-muted/10'
-            : 'border-border/30 bg-secondary/20'
-        }`}
+        ${isTerminal ? 'border-border/20 bg-muted/10' : 'border-border/30 bg-secondary/20'}`}
     >
       <div className="px-3 py-2.5">
         {/* Top row: icon + name */}

@@ -18,7 +18,6 @@ import pytest
 
 from backend.app.models.database import Image, ImageGroup, ImportGroupJob, ImportJob
 
-
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
@@ -398,7 +397,6 @@ class TestProcessImportGroupReuseKey:
     ):
         """When reuse_storage_key is set, the new Image row uses that same key."""
         from backend.app.models.database import Color
-
         from backend.pipeline.ingestion import process_import_group
 
         engine, SessionLocal, job_id, group_job_id = seeded_import_job
@@ -424,7 +422,6 @@ class TestProcessImportGroupReuseKey:
             db.flush()
             db.add(Color(image_id=src_img.id, color_hex="#aabbcc", percentage=100.0, color_order=1))
             db.commit()
-            src_img_id = src_img.id
         finally:
             db.close()
 
@@ -455,9 +452,7 @@ class TestProcessImportGroupReuseKey:
         # The new Image row must share the same storage_key (no copy made)
         db = SessionLocal()
         try:
-            images = (
-                db.query(Image).filter(Image.storage_key == src_key).all()
-            )
+            images = db.query(Image).filter(Image.storage_key == src_key).all()
             # Both the source record and the new duplicate record
             assert len(images) == 2
         finally:
@@ -486,14 +481,22 @@ class TestProcessImportJob:
             db.flush()
             db.add(
                 ImportGroupJob(
-                    id=grp_a_id, job_id=job_id, group_name="Map A",
-                    author="AuthorA", total_files=2, status="running",
+                    id=grp_a_id,
+                    job_id=job_id,
+                    group_name="Map A",
+                    author="AuthorA",
+                    total_files=2,
+                    status="running",
                 )
             )
             db.add(
                 ImportGroupJob(
-                    id=grp_b_id, job_id=job_id, group_name="Map B",
-                    author="AuthorB", total_files=1, status="running",
+                    id=grp_b_id,
+                    job_id=job_id,
+                    group_name="Map B",
+                    author="AuthorB",
+                    total_files=1,
+                    status="running",
                 )
             )
             db.commit()
@@ -651,14 +654,22 @@ class TestProcessImportJobErrorHandling:
             db.flush()
             db.add(
                 ImportGroupJob(
-                    id=grp_a_id, job_id=job_id, group_name="Map A",
-                    author="AuthorA", total_files=1, status="running",
+                    id=grp_a_id,
+                    job_id=job_id,
+                    group_name="Map A",
+                    author="AuthorA",
+                    total_files=1,
+                    status="running",
                 )
             )
             db.add(
                 ImportGroupJob(
-                    id=grp_b_id, job_id=job_id, group_name="Map B",
-                    author="AuthorB", total_files=1, status="running",
+                    id=grp_b_id,
+                    job_id=job_id,
+                    group_name="Map B",
+                    author="AuthorB",
+                    total_files=1,
+                    status="running",
                 )
             )
             db.commit()
@@ -714,7 +725,7 @@ class TestProcessImportJobErrorHandling:
             },
         ]
 
-        result = process_import_job(
+        process_import_job(
             job_id=job_id,
             staging_dir=str(tmp_staging),
             groups=groups,

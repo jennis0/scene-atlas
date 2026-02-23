@@ -7,7 +7,6 @@ Tests both modes:
 Uses real DB + real filesystem. Mocks CLIP, Qdrant, thumbnails.
 """
 
-
 import pytest
 
 from backend.app.models import Image

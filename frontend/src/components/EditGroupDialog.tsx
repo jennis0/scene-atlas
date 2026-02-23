@@ -161,6 +161,8 @@ export function EditGroupDialog({
         return s
       })
     }
+    // All deps (state setters, invalidateGallery, groupApi) are stable refs
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // ── Shared file editing state and mutations ───────────────────────
@@ -554,7 +556,9 @@ export function EditGroupDialog({
       // Reload the merged target from API
       const reloaded = await groupApi.get(Number(target.id))
       const seedIds = new Set(
-        groups.flatMap((g) => g.files.filter((f) => !f.outOfScope).map((f) => Number(f.relative_path))),
+        groups.flatMap((g) =>
+          g.files.filter((f) => !f.outOfScope).map((f) => Number(f.relative_path)),
+        ),
       )
       setGroups([
         {
@@ -836,9 +840,7 @@ export function EditGroupDialog({
                       ? 'Multiple — type to set for all groups'
                       : 'Author name'
                   }
-                  groupNamePlaceholder={
-                    isAllTab ? '— (select a group to rename)' : 'Group name'
-                  }
+                  groupNamePlaceholder={isAllTab ? '— (select a group to rename)' : 'Group name'}
                   groupNameDisabled={isAllTab}
                   isMassEdit={isMassEdit}
                   isAllTab={isAllTab}

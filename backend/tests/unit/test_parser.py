@@ -526,9 +526,7 @@ class TestBuildName:
 
     def test_strips_pixel_dimensions(self):
         p = make_parser()
-        result = p._build_name(
-            "DreadMaps_Manor_12000x8000", "Dreadmaps", "Manor"
-        )
+        result = p._build_name("DreadMaps_Manor_12000x8000", "Dreadmaps", "Manor")
         assert "12000" not in result
 
     def test_strips_grid_dimensions(self):
@@ -538,17 +536,13 @@ class TestBuildName:
 
     def test_strips_author_prefix_moonlight(self):
         p = make_parser()
-        result = p._build_name(
-            "Moonlight_Maps_Castle_Night", "moonlight_maps", "Castle"
-        )
+        result = p._build_name("Moonlight_Maps_Castle_Night", "moonlight_maps", "Castle")
         assert "Moonlight" not in result
         assert "Night" in result
 
     def test_strips_author_prefix_dreadmaps(self):
         p = make_parser()
-        result = p._build_name(
-            "DreadMaps_Tomb_Pink_Grid", "Dreadmaps", "Tomb"
-        )
+        result = p._build_name("DreadMaps_Tomb_Pink_Grid", "Dreadmaps", "Tomb")
         assert "Dread" not in result or "Dread" in result  # "Dread" in "DreadMaps" stripped
         assert "Pink" in result
 
@@ -599,9 +593,7 @@ class TestBuildName:
     def test_subgroup_strip_guard_nonempty(self):
         """Stripping subgroups should not empty the word list."""
         p = make_parser()
-        result = p._build_name(
-            "Sunset", "author", "Group", subgroups=["Sunset"]
-        )
+        result = p._build_name("Sunset", "author", "Group", subgroups=["Sunset"])
         assert result  # fallback kicks in
 
 
@@ -622,8 +614,7 @@ class TestParseName:
     def test_dice_grimorium_snowy_forest(self):
         p = make_parser()
         result = p.parse(
-            "dice_grimorium/Snowy Forest Tier 2/"
-            "SnowyForestTier2_FR_Gridless_R20_SnowyForest-1.jpg"
+            "dice_grimorium/Snowy Forest Tier 2/SnowyForestTier2_FR_Gridless_R20_SnowyForest-1.jpg"
         )
         assert result["group_name"] == "Snowy Forest"
         assert "Snowy Forest" not in result["name"]
@@ -633,17 +624,14 @@ class TestParseName:
 
     def test_mikwewa_shield_church(self):
         p = make_parser()
-        result = p.parse(
-            "mikwewa/140dpiShieldChurchMaps_140dpiChurchHeavenDayGfGrid.jpg"
-        )
+        result = p.parse("mikwewa/140dpiShieldChurchMaps_140dpiChurchHeavenDayGfGrid.jpg")
         assert result["group_name"] == "Shield Church"
         assert result["name"] == "Church Heaven Day Gf"
 
     def test_moonlight_rocky_coast(self):
         p = make_parser()
         result = p.parse(
-            "moonlight_maps/Rocky Coast/MA/No Grid/"
-            "Moonlight_Maps_Rocky_Coast_Lava06_18x22.jpg"
+            "moonlight_maps/Rocky Coast/MA/No Grid/Moonlight_Maps_Rocky_Coast_Lava06_18x22.jpg"
         )
         assert result["group_name"] == "Rocky Coast"
         assert result["name"] == "Lava 06"
@@ -676,8 +664,6 @@ class TestParseName:
     def test_subgroup_stripped_from_name(self):
         """Subgroup folder names are removed from name."""
         p = make_parser()
-        result = p.parse(
-            "neutral_party/Small Cave Expert 25x25/Sunset/Small_Cave_Sunset.jpg"
-        )
+        result = p.parse("neutral_party/Small Cave Expert 25x25/Sunset/Small_Cave_Sunset.jpg")
         assert result["subgroup"] == "Sunset"
         assert "Sunset" not in result["name"]

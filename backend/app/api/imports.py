@@ -306,7 +306,7 @@ async def upload_files(
             raise HTTPException(
                 status_code=500,
                 detail=f"File analysis failed: {e}",
-            )
+            ) from e
 
         # Build response from flow result
         import_groups: list[ImportGroup] = []
@@ -548,10 +548,7 @@ async def confirm_all_groups(
     job.status = "running"
     db.commit()
 
-    logger.info(
-        f"Submitted process_import_job for job {job_id}: "
-        f"{len(groups_payload)} groups"
-    )
+    logger.info(f"Submitted process_import_job for job {job_id}: {len(groups_payload)} groups")
 
     return ImportJobResponse(
         job_id=job.id,

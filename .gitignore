@@ -81,7 +81,10 @@ backend/tests/fixtures/**
 # Test coverage
 .coverage
 htmlcov/
+coverage-backend.xml
+frontend/coverage/
 .pytest_cache/
+.husky/
 
 # Jupyter Notebooks
 .ipynb_checkpoints
@@ -91,4 +94,6 @@ htmlcov/
 models/
 transformers_cache/
 
+.ignore/
 .claude/
+data/

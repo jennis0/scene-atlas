@@ -22,7 +22,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from scipy.signal import find_peaks, fftconvolve
+from scipy.signal import fftconvolve, find_peaks
 from tqdm import tqdm
 
 # Project imports
@@ -47,6 +47,7 @@ SQRT3_OVER_2 = math.sqrt(3) / 2  # ~ 0.866
 # Core detection functions
 # ---------------------------------------------------------------------------
 
+
 def load_gray(path: Path, max_dim: int = MAX_DIM) -> tuple[np.ndarray, float]:
     img = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
     if img is None:
@@ -55,8 +56,9 @@ def load_gray(path: Path, max_dim: int = MAX_DIM) -> tuple[np.ndarray, float]:
     scale = 1.0
     if max(h, w) > max_dim:
         scale = max_dim / max(h, w)
-        img = cv2.resize(img, (max(1, int(w * scale)), max(1, int(h * scale))),
-                         interpolation=cv2.INTER_AREA)
+        img = cv2.resize(
+            img, (max(1, int(w * scale)), max(1, int(h * scale))), interpolation=cv2.INTER_AREA
+        )
     return img, scale
 
 
@@ -66,8 +68,11 @@ def canny_edges(img: np.ndarray) -> np.ndarray:
 
 
 def find_ac_peaks(
-    projection: np.ndarray, min_p: int, max_p: int,
-    min_prominence: float = 0.05, max_candidates: int = 5,
+    projection: np.ndarray,
+    min_p: int,
+    max_p: int,
+    min_prominence: float = 0.05,
+    max_candidates: int = 5,
 ) -> list[tuple[int, float]]:
     n = len(projection)
     if n < min_p * 2:
@@ -79,7 +84,7 @@ def find_ac_peaks(
         return []
     proj = proj / std
     ac = fftconvolve(proj, proj[::-1], mode="full")
-    ac = ac[n - 1:]
+    ac = ac[n - 1 :]
     z = ac[0]
     if z < 1e-10:
         return []
@@ -88,8 +93,7 @@ def find_ac_peaks(
     if start >= end:
         return []
     region = ac[start:end]
-    peaks, props = find_peaks(region, prominence=min_prominence,
-                              distance=max(1, min_p // 2))
+    peaks, props = find_peaks(region, prominence=min_prominence, distance=max(1, min_p // 2))
     if len(peaks) == 0:
         return []
     order = np.argsort(props["prominences"])[::-1][:max_candidates]
@@ -140,8 +144,14 @@ def _run_1d_ac(edges: np.ndarray, min_c: int, max_c: int) -> dict:
     """Run 1D autocorrelation on an edge image, return features."""
     sh, sw = edges.shape
     if min_c >= max_c:
-        return dict(h_period=None, v_period=None, h_strength=0.0,
-                    v_strength=0.0, confidence=0.0, ratio=0.0)
+        return {
+            "h_period": None,
+            "v_period": None,
+            "h_strength": 0.0,
+            "v_strength": 0.0,
+            "confidence": 0.0,
+            "ratio": 0.0,
+        }
     row_proj = np.mean(edges, axis=1, dtype=np.float64)
     col_proj = np.mean(edges, axis=0, dtype=np.float64)
     v_cands = find_ac_peaks(row_proj, min_c, max_c)
@@ -149,8 +159,14 @@ def _run_1d_ac(edges: np.ndarray, min_c: int, max_c: int) -> dict:
     hp, hs, vp, vs = pick_best_periods(h_cands, v_cands)
     conf = math.sqrt(vs * hs) if vs > 0 and hs > 0 else max(vs, hs) * 0.5
     ratio = min(hp, vp) / max(hp, vp) if hp and vp else 0.0
-    return dict(h_period=hp, v_period=vp, h_strength=hs, v_strength=vs,
-                confidence=conf, ratio=ratio)
+    return {
+        "h_period": hp,
+        "v_period": vp,
+        "h_strength": hs,
+        "v_strength": vs,
+        "confidence": conf,
+        "ratio": ratio,
+    }
 
 
 def _rotate_edges(edges: np.ndarray, angle_deg: float) -> np.ndarray:
@@ -207,35 +223,38 @@ def detect_grid(path: Path, orig_w: int, orig_h: int) -> dict:
     if pred_grid_w is None and hp_orig:
         pred_grid_w = round(orig_w / hp_orig)
 
-    return dict(
+    return {
         # Standard
-        conf_std=std["confidence"],
-        ratio_std=std["ratio"],
-        hp_std=std["h_period"],
-        vp_std=std["v_period"],
-        hs_std=std["h_strength"],
-        vs_std=std["v_strength"],
+        "conf_std": std["confidence"],
+        "ratio_std": std["ratio"],
+        "hp_std": std["h_period"],
+        "vp_std": std["v_period"],
+        "hs_std": std["h_strength"],
+        "vs_std": std["v_strength"],
         # Rotated
-        conf_rot=rot["confidence"],
-        ratio_rot=rot["ratio"],
-        hp_rot=rot["h_period"],
-        vp_rot=rot["v_period"],
-        hs_rot=rot["h_strength"],
-        vs_rot=rot["v_strength"],
+        "conf_rot": rot["confidence"],
+        "ratio_rot": rot["ratio"],
+        "hp_rot": rot["h_period"],
+        "vp_rot": rot["v_period"],
+        "hs_rot": rot["h_strength"],
+        "vs_rot": rot["v_strength"],
         # Derived
-        max_conf=max_conf,
-        hex_dev_std=hex_dev_std,
-        hex_dev_rot=hex_dev_rot,
-        scale=scale,
+        "max_conf": max_conf,
+        "hex_dev_std": hex_dev_std,
+        "hex_dev_rot": hex_dev_rot,
+        "scale": scale,
         # Dimensions
-        hp_orig=hp_orig, vp_orig=vp_orig,
-        pred_grid_w=pred_grid_w, pred_grid_h=pred_grid_h,
-    )
+        "hp_orig": hp_orig,
+        "vp_orig": vp_orig,
+        "pred_grid_w": pred_grid_w,
+        "pred_grid_h": pred_grid_h,
+    }
 
 
 # ---------------------------------------------------------------------------
 # 3-class classification
 # ---------------------------------------------------------------------------
+
 
 def classify(
     r: dict,
@@ -273,8 +292,8 @@ def classify(
 def confusion_matrix(preds: list[str], truths: list[str]) -> dict:
     """Compute 3-class confusion matrix and per-class metrics."""
     classes = ["square", "hex", "none"]
-    matrix = {true: {pred: 0 for pred in classes} for true in classes}
-    for pred, truth in zip(preds, truths):
+    matrix = {true: dict.fromkeys(classes, 0) for true in classes}
+    for pred, truth in zip(preds, truths, strict=False):
         matrix[truth][pred] += 1
 
     # Per-class metrics
@@ -290,24 +309,37 @@ def confusion_matrix(preds: list[str], truths: list[str]) -> dict:
         # How many predicted as this class are correct?
         n_pred = sum(matrix[t][cls] for t in classes)
         precision = tp / n_pred if n_pred > 0 else 0.0
-        metrics[cls] = dict(tp=tp, n_true=n_true, n_pred=n_pred,
-                            recall=recall, precision=precision)
+        metrics[cls] = {
+            "tp": tp,
+            "n_true": n_true,
+            "n_pred": n_pred,
+            "recall": recall,
+            "precision": precision,
+        }
 
     overall_acc = total_correct / total if total > 0 else 0.0
-    return dict(matrix=matrix, metrics=metrics, overall_acc=overall_acc,
-                total_correct=total_correct, total=total)
+    return {
+        "matrix": matrix,
+        "metrics": metrics,
+        "overall_acc": overall_acc,
+        "total_correct": total_correct,
+        "total": total,
+    }
 
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main():
     ap = argparse.ArgumentParser(description="Evaluate grid detection")
-    ap.add_argument("--quick", action="store_true",
-                    help="Sample ~50 per class for faster iteration")
-    ap.add_argument("--per-class", type=int, default=50,
-                    help="Max samples per class in quick mode (default 50)")
+    ap.add_argument(
+        "--quick", action="store_true", help="Sample ~50 per class for faster iteration"
+    )
+    ap.add_argument(
+        "--per-class", type=int, default=50, help="Max samples per class in quick mode (default 50)"
+    )
     args = ap.parse_args()
 
     mode = "QUICK" if args.quick else "FULL"
@@ -350,23 +382,27 @@ def main():
         else:
             truth_class = "none"
 
-        samples.append({
-            "filename": img.filename,
-            "path": path,
-            "width": img.width or 0,
-            "height": img.height or 0,
-            "truth_class": truth_class,
-            "truth_grid_width": p.get("grid_width"),
-            "truth_grid_height": p.get("grid_height"),
-        })
+        samples.append(
+            {
+                "filename": img.filename,
+                "path": path,
+                "width": img.width or 0,
+                "height": img.height or 0,
+                "truth_class": truth_class,
+                "truth_grid_width": p.get("grid_width"),
+                "truth_grid_height": p.get("grid_height"),
+            }
+        )
 
     db.close()
 
     n_sq = sum(1 for s in samples if s["truth_class"] == "square")
     n_hex = sum(1 for s in samples if s["truth_class"] == "hex")
     n_none = sum(1 for s in samples if s["truth_class"] == "none")
-    print(f"\nFull dataset: {len(samples)} labelled images "
-          f"({n_sq} square + {n_hex} hex + {n_none} none)")
+    print(
+        f"\nFull dataset: {len(samples)} labelled images "
+        f"({n_sq} square + {n_hex} hex + {n_none} none)"
+    )
     print(f"  Skipped: {no_label} unlabelled")
 
     # Quick mode: stratified sample ~N per class
@@ -377,7 +413,7 @@ def main():
         for s in samples:
             by_class[s["truth_class"]].append(s)
         sampled = []
-        for cls, items in by_class.items():
+        for _cls, items in by_class.items():
             if len(items) <= n:
                 sampled.extend(items)
             else:
@@ -387,8 +423,10 @@ def main():
         n_sq = sum(1 for s in samples if s["truth_class"] == "square")
         n_hex = sum(1 for s in samples if s["truth_class"] == "hex")
         n_none = sum(1 for s in samples if s["truth_class"] == "none")
-        print(f"  Quick mode: sampled {len(samples)} images "
-              f"({n_sq} square + {n_hex} hex + {n_none} none)")
+        print(
+            f"  Quick mode: sampled {len(samples)} images "
+            f"({n_sq} square + {n_hex} hex + {n_none} none)"
+        )
 
     print()
 
@@ -405,23 +443,38 @@ def main():
             r = detect_grid(s["path"], s["width"], s["height"])
         except Exception as e:
             print(f"  ERROR on {s['filename']}: {e}")
-            r = dict(
-                conf_std=0.0, ratio_std=0.0, hp_std=None, vp_std=None,
-                hs_std=0.0, vs_std=0.0,
-                conf_rot=0.0, ratio_rot=0.0, hp_rot=None, vp_rot=None,
-                hs_rot=0.0, vs_rot=0.0,
-                max_conf=0.0, hex_dev_std=1.0, hex_dev_rot=1.0,
-                scale=0.0, hp_orig=None, vp_orig=None,
-                pred_grid_w=None, pred_grid_h=None,
-            )
+            r = {
+                "conf_std": 0.0,
+                "ratio_std": 0.0,
+                "hp_std": None,
+                "vp_std": None,
+                "hs_std": 0.0,
+                "vs_std": 0.0,
+                "conf_rot": 0.0,
+                "ratio_rot": 0.0,
+                "hp_rot": None,
+                "vp_rot": None,
+                "hs_rot": 0.0,
+                "vs_rot": 0.0,
+                "max_conf": 0.0,
+                "hex_dev_std": 1.0,
+                "hex_dev_rot": 1.0,
+                "scale": 0.0,
+                "hp_orig": None,
+                "vp_orig": None,
+                "pred_grid_w": None,
+                "pred_grid_h": None,
+            }
             errors += 1
         elapsed += time.perf_counter() - t0
         results.append(r)
 
     truths = [s["truth_class"] for s in samples]
     avg_ms = 1000 * elapsed / len(samples)
-    print(f"\nProcessed {len(samples)} images in {elapsed:.1f}s "
-          f"({avg_ms:.0f}ms/image, {errors} errors)\n")
+    print(
+        f"\nProcessed {len(samples)} images in {elapsed:.1f}s "
+        f"({avg_ms:.0f}ms/image, {errors} errors)\n"
+    )
 
     # ------------------------------------------------------------------
     # Feature distribution by class
@@ -442,24 +495,36 @@ def main():
         max_confs = [results[i]["max_conf"] for i in idx]
 
         print(f"\n  {cls.upper()} (n={len(idx)}):")
-        print(f"    conf_std:   median={np.median(confs_std):.3f}  "
-              f"mean={np.mean(confs_std):.3f}  "
-              f"[{np.min(confs_std):.3f}, {np.max(confs_std):.3f}]")
-        print(f"    conf_rot:   median={np.median(confs_rot):.3f}  "
-              f"mean={np.mean(confs_rot):.3f}  "
-              f"[{np.min(confs_rot):.3f}, {np.max(confs_rot):.3f}]")
-        print(f"    max_conf:   median={np.median(max_confs):.3f}  "
-              f"mean={np.mean(max_confs):.3f}  "
-              f"[{np.min(max_confs):.3f}, {np.max(max_confs):.3f}]")
-        print(f"    ratio_std:  median={np.median(ratios_std):.3f}  "
-              f"mean={np.mean(ratios_std):.3f}  "
-              f"[{np.min(ratios_std):.3f}, {np.max(ratios_std):.3f}]")
-        print(f"    ratio_rot:  median={np.median(ratios_rot):.3f}  "
-              f"mean={np.mean(ratios_rot):.3f}  "
-              f"[{np.min(ratios_rot):.3f}, {np.max(ratios_rot):.3f}]")
-        print(f"    hex_dev:    median={np.median(hex_devs):.3f}  "
-              f"mean={np.mean(hex_devs):.3f}  "
-              f"[{np.min(hex_devs):.3f}, {np.max(hex_devs):.3f}]")
+        print(
+            f"    conf_std:   median={np.median(confs_std):.3f}  "
+            f"mean={np.mean(confs_std):.3f}  "
+            f"[{np.min(confs_std):.3f}, {np.max(confs_std):.3f}]"
+        )
+        print(
+            f"    conf_rot:   median={np.median(confs_rot):.3f}  "
+            f"mean={np.mean(confs_rot):.3f}  "
+            f"[{np.min(confs_rot):.3f}, {np.max(confs_rot):.3f}]"
+        )
+        print(
+            f"    max_conf:   median={np.median(max_confs):.3f}  "
+            f"mean={np.mean(max_confs):.3f}  "
+            f"[{np.min(max_confs):.3f}, {np.max(max_confs):.3f}]"
+        )
+        print(
+            f"    ratio_std:  median={np.median(ratios_std):.3f}  "
+            f"mean={np.mean(ratios_std):.3f}  "
+            f"[{np.min(ratios_std):.3f}, {np.max(ratios_std):.3f}]"
+        )
+        print(
+            f"    ratio_rot:  median={np.median(ratios_rot):.3f}  "
+            f"mean={np.mean(ratios_rot):.3f}  "
+            f"[{np.min(ratios_rot):.3f}, {np.max(ratios_rot):.3f}]"
+        )
+        print(
+            f"    hex_dev:    median={np.median(hex_devs):.3f}  "
+            f"mean={np.mean(hex_devs):.3f}  "
+            f"[{np.min(hex_devs):.3f}, {np.max(hex_devs):.3f}]"
+        )
 
     # ------------------------------------------------------------------
     # Threshold sweep (3-class)
@@ -481,8 +546,7 @@ def main():
     best_params = {}
     best_cm = None
 
-    total_combos = (len(presence_confs) * len(sq_ratio_mins) *
-                    len(hex_rot_confs))
+    total_combos = len(presence_confs) * len(sq_ratio_mins) * len(hex_rot_confs)
     print(f"\n  Sweeping {total_combos:,} parameter combinations...")
 
     for pc in presence_confs:
@@ -493,10 +557,11 @@ def main():
                 acc = cm["overall_acc"]
                 if acc > best_acc:
                     best_acc = acc
-                    best_params = dict(
-                        presence_conf=pc, sq_ratio_min=sr,
-                        hex_rot_conf=hrc,
-                    )
+                    best_params = {
+                        "presence_conf": pc,
+                        "sq_ratio_min": sr,
+                        "hex_rot_conf": hrc,
+                    }
                     best_cm = cm
 
     # ------------------------------------------------------------------
@@ -510,7 +575,7 @@ def main():
     print(f"\n  Overall accuracy: {100 * best_acc:.1f}%")
 
     # Confusion matrix
-    print(f"\n  Confusion matrix (rows=truth, cols=predicted):")
+    print("\n  Confusion matrix (rows=truth, cols=predicted):")
     classes = ["square", "hex", "none"]
     cm = best_cm
     print(f"  {'':>12}", end="")
@@ -524,21 +589,23 @@ def main():
             val = cm["matrix"][true_cls][pred_cls]
             print(f" {val:>8}", end="")
         m = cm["metrics"][true_cls]
-        print(f" {100*m['recall']:>7.1f}%")
+        print(f" {100 * m['recall']:>7.1f}%")
 
     print(f"  {'':>12}", end="")
     for pred_cls in classes:
         m = cm["metrics"][pred_cls]
-        print(f" {100*m['precision']:>7.1f}%", end="")
-    print(f"  <- precision")
+        print(f" {100 * m['precision']:>7.1f}%", end="")
+    print("  <- precision")
 
     # Per-class summary
-    print(f"\n  Per-class metrics:")
+    print("\n  Per-class metrics:")
     for cls in classes:
         m = cm["metrics"][cls]
-        print(f"    {cls:>8}: recall={100*m['recall']:.1f}%  "
-              f"precision={100*m['precision']:.1f}%  "
-              f"(TP={m['tp']}/{m['n_true']})")
+        print(
+            f"    {cls:>8}: recall={100 * m['recall']:.1f}%  "
+            f"precision={100 * m['precision']:.1f}%  "
+            f"(TP={m['tp']}/{m['n_true']})"
+        )
 
     # ------------------------------------------------------------------
     # Apply optimal params and generate predictions
@@ -551,17 +618,17 @@ def main():
     print(f"\n{'=' * 90}")
     print("PRESENCE-ONLY ACCURACY (gridded vs none, ignoring type)")
     print(f"{'=' * 90}")
-    tp = sum(1 for p, t in zip(preds, truths) if p != "none" and t != "none")
-    fn = sum(1 for p, t in zip(preds, truths) if p == "none" and t != "none")
-    tn = sum(1 for p, t in zip(preds, truths) if p == "none" and t == "none")
-    fp = sum(1 for p, t in zip(preds, truths) if p != "none" and t == "none")
+    tp = sum(1 for p, t in zip(preds, truths, strict=False) if p != "none" and t != "none")
+    fn = sum(1 for p, t in zip(preds, truths, strict=False) if p == "none" and t != "none")
+    tn = sum(1 for p, t in zip(preds, truths, strict=False) if p == "none" and t == "none")
+    fp = sum(1 for p, t in zip(preds, truths, strict=False) if p != "none" and t == "none")
     n_pos = tp + fn
     n_neg = tn + fp
     total = n_pos + n_neg
     print(f"  TP={tp}  FN={fn}  TN={tn}  FP={fp}")
-    print(f"  Recall:    {100*tp/n_pos:.1f}%  (detect gridded)")
-    print(f"  Precision: {100*tp/(tp+fp):.1f}%  (gridded predictions correct)")
-    print(f"  Accuracy:  {100*(tp+tn)/total:.1f}%")
+    print(f"  Recall:    {100 * tp / n_pos:.1f}%  (detect gridded)")
+    print(f"  Precision: {100 * tp / (tp + fp):.1f}%  (gridded predictions correct)")
+    print(f"  Accuracy:  {100 * (tp + tn) / total:.1f}%")
 
     # ------------------------------------------------------------------
     # Misclassification detail
@@ -571,22 +638,29 @@ def main():
     print(f"{'=' * 90}")
 
     for true_cls in classes:
-        wrong = [(i, preds[i]) for i in range(len(samples))
-                 if truths[i] == true_cls and preds[i] != true_cls]
+        wrong = [
+            (i, preds[i])
+            for i in range(len(samples))
+            if truths[i] == true_cls and preds[i] != true_cls
+        ]
         if not wrong:
             continue
         print(f"\n  TRUE={true_cls} misclassified ({len(wrong)} images):")
-        print(f"  {'#':>4}  {'Filename':<50} {'Pred':>6} "
-              f"{'c_std':>5} {'r_std':>5} {'c_rot':>5} {'r_rot':>5} "
-              f"{'hdev_s':>6} {'hdev_r':>6}")
+        print(
+            f"  {'#':>4}  {'Filename':<50} {'Pred':>6} "
+            f"{'c_std':>5} {'r_std':>5} {'c_rot':>5} {'r_rot':>5} "
+            f"{'hdev_s':>6} {'hdev_r':>6}"
+        )
         print(f"  {'-' * 105}")
         for i, pred in wrong:
             s = samples[i]
             r = results[i]
-            print(f"  {i:>4}  {s['filename']:<50} {pred:>6} "
-                  f"{r['conf_std']:>5.3f} {r['ratio_std']:>5.3f} "
-                  f"{r['conf_rot']:>5.3f} {r['ratio_rot']:>5.3f} "
-                  f"{r['hex_dev_std']:>6.3f} {r['hex_dev_rot']:>6.3f}")
+            print(
+                f"  {i:>4}  {s['filename']:<50} {pred:>6} "
+                f"{r['conf_std']:>5.3f} {r['ratio_std']:>5.3f} "
+                f"{r['conf_rot']:>5.3f} {r['ratio_rot']:>5.3f} "
+                f"{r['hex_dev_std']:>6.3f} {r['hex_dev_rot']:>6.3f}"
+            )
 
     # ------------------------------------------------------------------
     # Grid dimension estimation (on correctly classified square images)
@@ -626,18 +700,22 @@ def main():
         print(f"\n  Evaluated on {dim_samples} correctly classified square images")
         if w_errors:
             w_arr = np.array(w_errors)
-            print(f"\n  Width:  exact={exact_w}/{len(w_errors)} "
-                  f"({100*exact_w/len(w_errors):.0f}%)  "
-                  f"within+/-1={within_1_w}/{len(w_errors)} "
-                  f"({100*within_1_w/len(w_errors):.0f}%)  "
-                  f"mean_err={np.mean(np.abs(w_arr)):.2f}")
+            print(
+                f"\n  Width:  exact={exact_w}/{len(w_errors)} "
+                f"({100 * exact_w / len(w_errors):.0f}%)  "
+                f"within+/-1={within_1_w}/{len(w_errors)} "
+                f"({100 * within_1_w / len(w_errors):.0f}%)  "
+                f"mean_err={np.mean(np.abs(w_arr)):.2f}"
+            )
         if h_errors:
             h_arr = np.array(h_errors)
-            print(f"  Height: exact={exact_h}/{len(h_errors)} "
-                  f"({100*exact_h/len(h_errors):.0f}%)  "
-                  f"within+/-1={within_1_h}/{len(h_errors)} "
-                  f"({100*within_1_h/len(h_errors):.0f}%)  "
-                  f"mean_err={np.mean(np.abs(h_arr)):.2f}")
+            print(
+                f"  Height: exact={exact_h}/{len(h_errors)} "
+                f"({100 * exact_h / len(h_errors):.0f}%)  "
+                f"within+/-1={within_1_h}/{len(h_errors)} "
+                f"({100 * within_1_h / len(h_errors):.0f}%)  "
+                f"mean_err={np.mean(np.abs(h_arr)):.2f}"
+            )
     else:
         print("\n  No correctly classified square images with known dimensions.")
 
@@ -647,14 +725,15 @@ def main():
     print(f"\n{'=' * 90}")
     print("SUMMARY")
     print(f"{'=' * 90}")
-    print(f"  3-class accuracy:   {100*best_acc:.1f}%")
+    print(f"  3-class accuracy:   {100 * best_acc:.1f}%")
     for cls in classes:
         m = best_cm["metrics"][cls]
-        print(f"    {cls:>8}: recall {100*m['recall']:.1f}%, "
-              f"precision {100*m['precision']:.1f}%")
-    print(f"  Presence accuracy:  {100*(tp+tn)/total:.1f}%")
+        print(
+            f"    {cls:>8}: recall {100 * m['recall']:.1f}%, precision {100 * m['precision']:.1f}%"
+        )
+    print(f"  Presence accuracy:  {100 * (tp + tn) / total:.1f}%")
     print(f"  Speed:              {avg_ms:.0f}ms/image")
-    print(f"\n  Optimal parameters (for production GridDetector):")
+    print("\n  Optimal parameters (for production GridDetector):")
     for k, v in best_params.items():
         print(f"    {k} = {v:.2f}")
 

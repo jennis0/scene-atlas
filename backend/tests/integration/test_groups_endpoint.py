@@ -5,8 +5,7 @@ Tests GET/PUT/DELETE /api/v1/groups/* and POST /api/v1/groups/{id}/merge.
 
 import pytest
 
-from backend.app.models.database import Image, ImageGroup, Tag
-
+from backend.app.models.database import Image, ImageGroup
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
@@ -53,8 +52,12 @@ def seeded_group(test_client, tmp_db):
 
     group = _make_group(db, "Ancient Ruins")
     img1 = _make_image(db, group, "Ancient Ruins Day", storage_key="ruins_day.jpg")
-    img2 = _make_image(db, group, "Ancient Ruins Night", storage_key="ruins_night.jpg", subgroup="Night")
-    img3 = _make_image(db, group, "Ancient Ruins Winter", storage_key="ruins_winter.jpg", subgroup="Winter")
+    img2 = _make_image(
+        db, group, "Ancient Ruins Night", storage_key="ruins_night.jpg", subgroup="Night"
+    )
+    img3 = _make_image(
+        db, group, "Ancient Ruins Winter", storage_key="ruins_winter.jpg", subgroup="Winter"
+    )
     group.primary_image_id = img1.id
     db.commit()
 
@@ -142,7 +145,7 @@ class TestGroupSearch:
 
     def test_image_count_included(self, seeded_group):
         client, group_id, img_ids = seeded_group
-        resp = client.get(f"/api/v1/groups/search?q=Ancient")
+        resp = client.get("/api/v1/groups/search?q=Ancient")
         assert resp.status_code == 200
         group_data = next(g for g in resp.json()["groups"] if g["id"] == group_id)
         assert group_data["image_count"] == len(img_ids)
@@ -185,9 +188,16 @@ class TestGroupEdit:
                 "base_name": "Renamed Ruins",
                 "author": "TestAuthor",
                 "images": [
-                    {"id": img_id, "name": f"img{img_id}", "gridded": None,
-                     "grid_width": None, "grid_height": None, "subgroup": None,
-                     "image_type": None, "tags": []}
+                    {
+                        "id": img_id,
+                        "name": f"img{img_id}",
+                        "gridded": None,
+                        "grid_width": None,
+                        "grid_height": None,
+                        "subgroup": None,
+                        "image_type": None,
+                        "tags": [],
+                    }
                     for img_id in img_ids
                 ],
                 "new_groups": [],
@@ -208,9 +218,16 @@ class TestGroupEdit:
                 "base_name": "Ancient Ruins",
                 "author": "TestAuthor",
                 "images": [
-                    {"id": img_id, "name": f"img{img_id}", "gridded": None,
-                     "grid_width": None, "grid_height": None, "subgroup": None,
-                     "image_type": None, "tags": []}
+                    {
+                        "id": img_id,
+                        "name": f"img{img_id}",
+                        "gridded": None,
+                        "grid_width": None,
+                        "grid_height": None,
+                        "subgroup": None,
+                        "image_type": None,
+                        "tags": [],
+                    }
                     for img_id in kept_ids
                 ],
                 "new_groups": [],
@@ -232,9 +249,16 @@ class TestGroupEdit:
                 "base_name": "Ancient Ruins",
                 "author": "NewAuthor",
                 "images": [
-                    {"id": img_id, "name": f"img{img_id}", "gridded": None,
-                     "grid_width": None, "grid_height": None, "subgroup": None,
-                     "image_type": None, "tags": []}
+                    {
+                        "id": img_id,
+                        "name": f"img{img_id}",
+                        "gridded": None,
+                        "grid_width": None,
+                        "grid_height": None,
+                        "subgroup": None,
+                        "image_type": None,
+                        "tags": [],
+                    }
                     for img_id in img_ids
                 ],
                 "new_groups": [],
@@ -253,13 +277,27 @@ class TestGroupEdit:
                 "base_name": "Ancient Ruins",
                 "author": "TestAuthor",
                 "images": [
-                    {"id": img_ids[0], "name": "img0", "gridded": None,
-                     "grid_width": None, "grid_height": None, "subgroup": None,
-                     "image_type": None, "tags": [tag]},
+                    {
+                        "id": img_ids[0],
+                        "name": "img0",
+                        "gridded": None,
+                        "grid_width": None,
+                        "grid_height": None,
+                        "subgroup": None,
+                        "image_type": None,
+                        "tags": [tag],
+                    },
                     *[
-                        {"id": img_id, "name": f"img{img_id}", "gridded": None,
-                         "grid_width": None, "grid_height": None, "subgroup": None,
-                         "image_type": None, "tags": []}
+                        {
+                            "id": img_id,
+                            "name": f"img{img_id}",
+                            "gridded": None,
+                            "grid_width": None,
+                            "grid_height": None,
+                            "subgroup": None,
+                            "image_type": None,
+                            "tags": [],
+                        }
                         for img_id in img_ids[1:]
                     ],
                 ],
@@ -366,13 +404,27 @@ class TestGroupEditAdvanced:
                 "base_name": "Ancient Ruins",
                 "author": "TestAuthor",
                 "images": [
-                    {"id": img_ids[0], "name": "img0", "gridded": None,
-                     "grid_width": None, "grid_height": None, "subgroup": None,
-                     "image_type": "scene", "tags": []},
+                    {
+                        "id": img_ids[0],
+                        "name": "img0",
+                        "gridded": None,
+                        "grid_width": None,
+                        "grid_height": None,
+                        "subgroup": None,
+                        "image_type": "scene",
+                        "tags": [],
+                    },
                     *[
-                        {"id": img_id, "name": f"img{i+1}", "gridded": None,
-                         "grid_width": None, "grid_height": None, "subgroup": None,
-                         "image_type": None, "tags": []}
+                        {
+                            "id": img_id,
+                            "name": f"img{i + 1}",
+                            "gridded": None,
+                            "grid_width": None,
+                            "grid_height": None,
+                            "subgroup": None,
+                            "image_type": None,
+                            "tags": [],
+                        }
                         for i, img_id in enumerate(img_ids[1:])
                     ],
                 ],
@@ -395,9 +447,16 @@ class TestGroupEditAdvanced:
                 "base_name": "Ancient Ruins",
                 "author": "TestAuthor",
                 "images": [
-                    {"id": img_id, "name": f"img{i}", "gridded": None,
-                     "grid_width": None, "grid_height": None, "subgroup": None,
-                     "image_type": None, "tags": []}
+                    {
+                        "id": img_id,
+                        "name": f"img{i}",
+                        "gridded": None,
+                        "grid_width": None,
+                        "grid_height": None,
+                        "subgroup": None,
+                        "image_type": None,
+                        "tags": [],
+                    }
                     for i, img_id in enumerate(kept)
                 ],
                 "new_groups": [],
@@ -421,15 +480,36 @@ class TestGroupEditAdvanced:
                 "base_name": "Ancient Ruins",
                 "author": "TestAuthor",
                 "images": [
-                    {"id": img_ids[0], "name": "Ancient Ruins Day", "gridded": None,
-                     "grid_width": None, "grid_height": None, "subgroup": None,
-                     "image_type": None, "tags": []},
-                    {"id": img_ids[1], "name": "Ancient Ruins Night", "gridded": None,
-                     "grid_width": None, "grid_height": None, "subgroup": None,
-                     "image_type": None, "tags": []},
-                    {"id": img_ids[2], "name": "Ancient Ruins Winter", "gridded": None,
-                     "grid_width": None, "grid_height": None, "subgroup": None,
-                     "image_type": None, "tags": []},
+                    {
+                        "id": img_ids[0],
+                        "name": "Ancient Ruins Day",
+                        "gridded": None,
+                        "grid_width": None,
+                        "grid_height": None,
+                        "subgroup": None,
+                        "image_type": None,
+                        "tags": [],
+                    },
+                    {
+                        "id": img_ids[1],
+                        "name": "Ancient Ruins Night",
+                        "gridded": None,
+                        "grid_width": None,
+                        "grid_height": None,
+                        "subgroup": None,
+                        "image_type": None,
+                        "tags": [],
+                    },
+                    {
+                        "id": img_ids[2],
+                        "name": "Ancient Ruins Winter",
+                        "gridded": None,
+                        "grid_width": None,
+                        "grid_height": None,
+                        "subgroup": None,
+                        "image_type": None,
+                        "tags": [],
+                    },
                 ],
                 "new_groups": [
                     {

@@ -1,6 +1,15 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
-import { FolderOpen, FolderInput, RotateCcw, HardDrive, ArrowRight, X, Trash2, Loader2 } from 'lucide-react'
+import {
+  FolderOpen,
+  FolderInput,
+  RotateCcw,
+  HardDrive,
+  ArrowRight,
+  X,
+  Trash2,
+  Loader2,
+} from 'lucide-react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -49,9 +58,7 @@ function Shimmer({ className = '' }: { className?: string }) {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-xs font-semibold text-zinc-500 tracking-wide uppercase mb-2">
-      {children}
-    </p>
+    <p className="text-xs font-semibold text-zinc-500 tracking-wide uppercase mb-2">{children}</p>
   )
 }
 
@@ -184,9 +191,7 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
         {/* Header */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-800 bg-gradient-to-b from-amber-400/5 to-transparent">
           <HardDrive className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-          <h2 className="text-xs font-semibold text-zinc-300 tracking-wide uppercase">
-            System
-          </h2>
+          <h2 className="text-xs font-semibold text-zinc-300 tracking-wide uppercase">System</h2>
           <span className="text-xs text-zinc-600 ml-0.5">· Storage &amp; Library</span>
           <button
             onClick={onClose}
@@ -199,90 +204,91 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
 
         {/* Body */}
         <div className="px-4 py-4 space-y-5">
-
           {/* ── Library Location — Electron only ─────────────── */}
           {isElectron && (
-          <section>
-            <SectionLabel>Library Location</SectionLabel>
+            <section>
+              <SectionLabel>Library Location</SectionLabel>
 
-            {locationPhase === 'restarting' ? (
-              <div className="flex items-center gap-2.5 py-2">
-                <RotateCcw className="h-3.5 w-3.5 animate-spin shrink-0 text-amber-400" />
-                <span className="text-sm text-zinc-400">Restarting Scene Atlas…</span>
-              </div>
-            ) : locationPhase === 'confirming' && pendingDir ? (
-              <div className="space-y-3">
-                <div className="rounded border border-zinc-700/50 bg-zinc-800/50 p-3 space-y-2.5">
-                  <div className="space-y-1">
-                    <span className="text-xs text-zinc-600 uppercase tracking-wide">Current</span>
-                    <p className="text-sm text-zinc-400 break-all leading-relaxed">
-                      {dataDir ?? '—'}
-                    </p>
+              {locationPhase === 'restarting' ? (
+                <div className="flex items-center gap-2.5 py-2">
+                  <RotateCcw className="h-3.5 w-3.5 animate-spin shrink-0 text-amber-400" />
+                  <span className="text-sm text-zinc-400">Restarting Scene Atlas…</span>
+                </div>
+              ) : locationPhase === 'confirming' && pendingDir ? (
+                <div className="space-y-3">
+                  <div className="rounded border border-zinc-700/50 bg-zinc-800/50 p-3 space-y-2.5">
+                    <div className="space-y-1">
+                      <span className="text-xs text-zinc-600 uppercase tracking-wide">Current</span>
+                      <p className="text-sm text-zinc-400 break-all leading-relaxed">
+                        {dataDir ?? '—'}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <ArrowRight className="h-3 w-3 shrink-0 text-amber-400/50" />
+                      <div className="h-px flex-1 border-t border-dashed border-zinc-700/50" />
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-xs text-amber-400/70 uppercase tracking-wide">New</span>
+                      <p className="text-sm text-amber-400 break-all leading-relaxed">
+                        {pendingDir}
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <ArrowRight className="h-3 w-3 shrink-0 text-amber-400/50" />
-                    <div className="h-px flex-1 border-t border-dashed border-zinc-700/50" />
+                  <p className="text-xs text-zinc-500">
+                    Scene Atlas will restart to apply the new location.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleCancelChange}
+                      className="flex-1 h-8 border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleConfirmChange}
+                      className="flex-1 h-8 bg-amber-400/10 border border-amber-400/30 text-amber-400 hover:bg-amber-400/20"
+                    >
+                      Restart &amp; Apply
+                    </Button>
                   </div>
-                  <div className="space-y-1">
-                    <span className="text-xs text-amber-400/70 uppercase tracking-wide">New</span>
-                    <p className="text-sm text-amber-400 break-all leading-relaxed">{pendingDir}</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="rounded border border-zinc-700/50 bg-zinc-800/50 px-3 py-2.5 min-h-[2.5rem] flex items-center">
+                    {dataDir ? (
+                      <p className="text-sm text-zinc-300 break-all leading-relaxed">{dataDir}</p>
+                    ) : (
+                      <Shimmer className="h-3 w-3/4" />
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleOpenInExplorer}
+                      disabled={!dataDir}
+                      className="gap-1.5 h-8 border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
+                    >
+                      <FolderOpen className="h-3.5 w-3.5" />
+                      Open
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleChooseDir}
+                      disabled={!dataDir}
+                      className="gap-1.5 h-8 border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
+                    >
+                      <FolderInput className="h-3.5 w-3.5" />
+                      Change Location
+                    </Button>
                   </div>
                 </div>
-                <p className="text-xs text-zinc-500">
-                  Scene Atlas will restart to apply the new location.
-                </p>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleCancelChange}
-                    className="flex-1 h-8 border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={handleConfirmChange}
-                    className="flex-1 h-8 bg-amber-400/10 border border-amber-400/30 text-amber-400 hover:bg-amber-400/20"
-                  >
-                    Restart &amp; Apply
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="rounded border border-zinc-700/50 bg-zinc-800/50 px-3 py-2.5 min-h-[2.5rem] flex items-center">
-                  {dataDir ? (
-                    <p className="text-sm text-zinc-300 break-all leading-relaxed">{dataDir}</p>
-                  ) : (
-                    <Shimmer className="h-3 w-3/4" />
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleOpenInExplorer}
-                    disabled={!dataDir}
-                    className="gap-1.5 h-8 border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
-                  >
-                    <FolderOpen className="h-3.5 w-3.5" />
-                    Open
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleChooseDir}
-                    disabled={!dataDir}
-                    className="gap-1.5 h-8 border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
-                  >
-                    <FolderInput className="h-3.5 w-3.5" />
-                    Change Location
-                  </Button>
-                </div>
-              </div>
-            )}
-          </section>
+              )}
+            </section>
           )}
 
           {/* ── Storage ───────────────────────────────────────── */}
@@ -352,14 +358,8 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
                 <ErrorNote />
               ) : info ? (
                 <>
-                  <DataRow
-                    label="Images"
-                    value={info.library.image_count.toLocaleString()}
-                  />
-                  <DataRow
-                    label="Groups"
-                    value={info.library.group_count.toLocaleString()}
-                  />
+                  <DataRow label="Images" value={info.library.image_count.toLocaleString()} />
+                  <DataRow label="Groups" value={info.library.group_count.toLocaleString()} />
                 </>
               ) : null}
             </div>
@@ -406,7 +406,9 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-zinc-300">Reset tags</p>
-                  <p className="text-xs text-zinc-500">Clear all tags and restore default categories</p>
+                  <p className="text-xs text-zinc-500">
+                    Clear all tags and restore default categories
+                  </p>
                 </div>
                 <Button
                   size="sm"
@@ -425,7 +427,6 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
               </div>
             </div>
           </section>
-
         </div>
 
         <ConfirmDialog

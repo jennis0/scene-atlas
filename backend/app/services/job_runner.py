@@ -20,10 +20,11 @@ import logging
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Callable
+from datetime import UTC, datetime
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,7 @@ class JobRecord:
         """Serialise for API responses."""
 
         def _ts(t: float | None) -> str | None:
-            return datetime.fromtimestamp(t, tz=timezone.utc).isoformat() if t else None
+            return datetime.fromtimestamp(t, tz=UTC).isoformat() if t else None
 
         return {
             "id": self.id,
@@ -103,9 +104,7 @@ class JobRunner:
     # Public API
     # ------------------------------------------------------------------
 
-    def submit(
-        self, fn: Callable, *args: Any, name: str | None = None, **kwargs: Any
-    ) -> str:
+    def submit(self, fn: Callable, *args: Any, name: str | None = None, **kwargs: Any) -> str:
         """Submit a callable for background execution.
 
         Parameters
@@ -199,9 +198,7 @@ class JobRunner:
         with self._lock:
             self._cleanup_done_futures()
             active = sum(1 for f in self._futures.values() if f.running())
-            pending = sum(
-                1 for f in self._futures.values() if not f.done() and not f.running()
-            )
+            pending = sum(1 for f in self._futures.values() if not f.done() and not f.running())
         return {
             "max_workers": self._max_workers,
             "active_jobs": active,

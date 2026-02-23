@@ -113,11 +113,12 @@ export function ImportUploadPane({
           relative flex flex-col items-center justify-center gap-3
           rounded-xl border-2 border-dashed px-6 py-10
           transition-all duration-150 select-none
-          ${uploading
-            ? 'border-border/40 bg-secondary/20 cursor-default'
-            : isDragOver
-              ? 'border-primary bg-primary/8 cursor-copy scale-[1.005]'
-              : 'border-border/60 hover:border-primary/50 hover:bg-secondary/40 cursor-pointer'
+          ${
+            uploading
+              ? 'border-border/40 bg-secondary/20 cursor-default'
+              : isDragOver
+                ? 'border-primary bg-primary/8 cursor-copy scale-[1.005]'
+                : 'border-border/60 hover:border-primary/50 hover:bg-secondary/40 cursor-pointer'
           }
         `}
       >
@@ -136,7 +137,9 @@ export function ImportUploadPane({
               }`}
             />
             <div className="text-center space-y-0.5">
-              <p className={`text-sm font-medium transition-colors ${isDragOver ? 'text-primary' : 'text-foreground'}`}>
+              <p
+                className={`text-sm font-medium transition-colors ${isDragOver ? 'text-primary' : 'text-foreground'}`}
+              >
                 {isDragOver ? 'Drop to import' : 'Drop files or folders here'}
               </p>
               <p className="text-xs text-muted-foreground/60">
@@ -145,10 +148,7 @@ export function ImportUploadPane({
             </div>
 
             {/* Secondary browse buttons */}
-            <div
-              className="flex items-center gap-2 mt-1"
-              onClick={(e) => e.stopPropagation()}
-            >
+            <div className="flex items-center gap-2 mt-1" onClick={(e) => e.stopPropagation()}>
               <span className="text-xs text-muted-foreground/40">or</span>
               <button
                 onClick={() => fileInputRef.current?.click()}

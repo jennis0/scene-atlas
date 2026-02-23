@@ -181,7 +181,5 @@ def get_clip_service() -> CLIPService:
     """Return the CLIP singleton, waiting for the background load if needed."""
     _clip_ready.wait()  # no-op once set; blocks briefly if still loading
     if _clip_service is None:
-        raise RuntimeError(
-            f"CLIP service unavailable: {_clip_error}"
-        )
+        raise RuntimeError(f"CLIP service unavailable: {_clip_error}")
     return _clip_service

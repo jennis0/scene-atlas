@@ -84,21 +84,15 @@ def reparse_image_names_batch(
             try:
                 stem = Path(image.filename).stem
                 grp_name = group_names.get(image.group_id, "")
-                subgroups = (
-                    image.subgroup.split(" / ") if image.subgroup else []
-                )
-                new_name = parser._build_name(
-                    stem, image.author, grp_name, subgroups
-                )
+                subgroups = image.subgroup.split(" / ") if image.subgroup else []
+                new_name = parser._build_name(stem, image.author, grp_name, subgroups)
 
                 name_changed = new_name != image.name
                 if name_changed:
                     image.name = new_name
 
                 # Rebuild search_text with the (possibly new) name
-                tags = [
-                    {"category": t.category, "value": t.value} for t in image.tags
-                ]
+                tags = [{"category": t.category, "value": t.value} for t in image.tags]
                 new_search_text = build_search_text(
                     name=image.name,
                     filename=image.filename,

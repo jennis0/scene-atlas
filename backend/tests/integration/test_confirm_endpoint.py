@@ -5,7 +5,7 @@ Mocks JobRunner.submit — we only check that the endpoint validates
 input, submits the job with correct params, and updates the DB.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -31,9 +31,7 @@ def confirm_env(tmp_path, tmp_db, make_test_image, monkeypatch):
     # Mock JobRunner so submit() is a no-op that returns a fake job ID
     mock_runner = MagicMock()
     mock_runner.submit.return_value = "fake-job-id"
-    monkeypatch.setattr(
-        "backend.app.api.imports.get_job_runner", lambda: mock_runner
-    )
+    monkeypatch.setattr("backend.app.api.imports.get_job_runner", lambda: mock_runner)
 
     engine, SessionLocal = tmp_db
 

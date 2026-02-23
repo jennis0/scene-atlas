@@ -5,6 +5,7 @@ import json
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
+
 from ..models import (
     Tag,
     TagCategory,
@@ -358,4 +359,4 @@ async def trigger_retag_all():
         job_id = runner.submit(retag_all_images, name="Retag all images")
         return {"job_id": job_id, "message": "Retag job started"}
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Could not start retag job: {e}")
+        raise HTTPException(status_code=503, detail=f"Could not start retag job: {e}") from e

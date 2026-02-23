@@ -26,7 +26,7 @@ import logging
 import shutil
 import sys
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from backend.app.config import settings
@@ -131,7 +131,7 @@ def export_library(output_dir: str, progress_fn=None) -> dict:
             progress_fn(processed, total, msg)
 
     meta_payload = {
-        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "exported_at": datetime.now(UTC).isoformat(),
         "version": 1,
         "total_images": exported,
         "images": metadata,
@@ -155,7 +155,4 @@ if __name__ == "__main__":
 
     print(f"Exporting library to: {out}")
     result = export_library(out)
-    print(
-        f"Done. Exported {result['exported']} image(s), "
-        f"skipped {result['skipped']}."
-    )
+    print(f"Done. Exported {result['exported']} image(s), skipped {result['skipped']}.")

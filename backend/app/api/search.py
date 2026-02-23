@@ -86,16 +86,12 @@ async def get_search_facets(db: Session = Depends(get_db)):
 
     # Image type counts
     image_type_rows = (
-        db.query(Image.image_type, func.count(Image.id))
-        .group_by(Image.image_type)
-        .all()
+        db.query(Image.image_type, func.count(Image.id)).group_by(Image.image_type).all()
     )
 
     # Media type counts (image vs video)
     media_type_rows = (
-        db.query(Image.media_type, func.count(Image.id))
-        .group_by(Image.media_type)
-        .all()
+        db.query(Image.media_type, func.count(Image.id)).group_by(Image.media_type).all()
     )
 
     return {
@@ -132,8 +128,8 @@ async def search_images(
     grid_type: str | None = None,
     limit: int = 500,
     offset: int = 0,
-    sort_by: str = Query("created_at", regex="^(created_at|name|relevance)$"),
-    sort_dir: str = Query("desc", regex="^(asc|desc)$"),
+    sort_by: str = Query("created_at", pattern="^(created_at|name|relevance)$"),
+    sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
     # Deprecated aliases kept for backward compat
     text: str | None = None,
     semantic: str | None = None,
@@ -231,11 +227,7 @@ async def search_images(
 
         total = sql_query.count()
         results = (
-            sql_query.distinct()
-            .order_by(order, Image.id.desc())
-            .offset(offset)
-            .limit(limit)
-            .all()
+            sql_query.distinct().order_by(order, Image.id.desc()).offset(offset).limit(limit).all()
         )
         return ImageSearchResponse(total=total, limit=limit, offset=offset, images=results)
 
@@ -300,9 +292,7 @@ async def search_images(
 
     # Sort by requested field
     if sort_by == "relevance" or (sort_by == "relevance" and not merged_scores):
-        filtered_images.sort(
-            key=lambda img: (merged_scores.get(img.id, 0.0), img.id), reverse=True
-        )
+        filtered_images.sort(key=lambda img: (merged_scores.get(img.id, 0.0), img.id), reverse=True)
     elif sort_by == "created_at":
         filtered_images.sort(
             key=lambda img: (img.created_at or datetime.min, img.id),
@@ -347,4 +337,4 @@ async def trigger_rebuild_embeddings():
         job_id = runner.submit(rebuild_all_embeddings, name="Rebuild embeddings")
         return {"job_id": job_id, "message": "Embedding rebuild started"}
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Could not start rebuild job: {e}")
+        raise HTTPException(status_code=503, detail=f"Could not start rebuild job: {e}") from e

@@ -6,7 +6,7 @@ export type { ParsedTagVocab }
 export function parseTagVocabulary(categories: TagCategory[]): ParsedTagVocab[] {
   return categories
     .map((cat) => {
-      let values: string[] = []
+      const values: string[] = []
       const aliases: Record<string, string[]> = {}
       if (cat.common_values) {
         try {

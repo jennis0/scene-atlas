@@ -79,10 +79,7 @@ export function ImageGrid({ images, onImageClick }: ImageGridProps) {
                   // When standalone: primary = image name; no secondary
                   const primaryText = image.group_name ?? image.name
                   const secondaryText = image.group_name
-                    ? [
-                        image.subgroup,
-                        image.name !== image.group_name ? image.name : null,
-                      ]
+                    ? [image.subgroup, image.name !== image.group_name ? image.name : null]
                         .filter(Boolean)
                         .join(' · ')
                     : undefined

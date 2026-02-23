@@ -38,7 +38,8 @@ export function FileCard({
   const [subgroupDraft, setSubgroupDraft] = useState('')
 
   const isVideo = file.media_type === 'video'
-  const previewUrl = file.previewUrl ?? resolveApiUrl(`/api/v1/imports/${jobId}/preview/${file.relative_path}`)
+  const previewUrl =
+    file.previewUrl ?? resolveApiUrl(`/api/v1/imports/${jobId}/preview/${file.relative_path}`)
   // Blob URLs for videos can't render in <img>; server preview URLs serve JPEG first-frame
   const useVideoThumb = isVideo && !!file.previewUrl?.startsWith('blob:')
 

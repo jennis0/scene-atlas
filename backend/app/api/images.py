@@ -1,6 +1,5 @@
 """Images API endpoints."""
 
-
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -154,11 +153,9 @@ async def trigger_backfill_grids(force: bool = False):
 
     try:
         runner = get_job_runner()
-        job_id = runner.submit(
-            backfill_grid_detection, force=force, name="Backfill grid detection"
-        )
+        job_id = runner.submit(backfill_grid_detection, force=force, name="Backfill grid detection")
         return {"job_id": job_id, "message": "Grid detection backfill started"}
     except Exception as e:
         raise HTTPException(
             status_code=503, detail=f"Could not start grid backfill job: {e}"
-        )
+        ) from e

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
+from ...pipeline.naming import download_filename, sanitize_segment
 from ..models import (
     Image,
     ImageGroup,
@@ -24,7 +25,6 @@ from ..models.schemas import (
     GroupSearchResponse,
 )
 from ..services import get_image_store, safe_delete_image
-from ...pipeline.naming import download_filename, sanitize_segment
 
 router = APIRouter()
 

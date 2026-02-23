@@ -89,9 +89,7 @@ def _query_counts(engine) -> dict:
             "image_count": conn.execute(text("SELECT COUNT(*) FROM images")).scalar(),
             "tag_count": conn.execute(text("SELECT COUNT(*) FROM tags")).scalar(),
             "color_count": conn.execute(text("SELECT COUNT(*) FROM colors")).scalar(),
-            "group_count": conn.execute(
-                text("SELECT COUNT(*) FROM variant_groups")
-            ).scalar(),
+            "group_count": conn.execute(text("SELECT COUNT(*) FROM variant_groups")).scalar(),
         }
 
 

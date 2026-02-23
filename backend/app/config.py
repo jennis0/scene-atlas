@@ -37,7 +37,7 @@ class Settings(BaseSettings):
         """Path to the SQLite file, derived from database_url."""
         url = self.database_url
         if url.startswith("sqlite:///"):
-            p = Path(url[len("sqlite:///"):])
+            p = Path(url[len("sqlite:///") :])
             return p if p.is_absolute() else self.base_dir / p
         raise ValueError(f"Cannot derive db_path from non-SQLite URL: {url}")
 

@@ -67,9 +67,7 @@ export function MetadataForm({
           }`}
         />
         {isMassEdit && (
-          <p className={hintClass}>
-            Applies to all images in {isAllTab ? 'each' : 'this'} group
-          </p>
+          <p className={hintClass}>Applies to all images in {isAllTab ? 'each' : 'this'} group</p>
         )}
       </div>
       <div>
@@ -83,9 +81,7 @@ export function MetadataForm({
           className={`${inputClass} border-border disabled:opacity-40 disabled:cursor-not-allowed`}
         />
         {isMassEdit && (
-          <p className={hintClass}>
-            Applies to all images in {isAllTab ? 'each' : 'this'} group
-          </p>
+          <p className={hintClass}>Applies to all images in {isAllTab ? 'each' : 'this'} group</p>
         )}
       </div>
     </div>

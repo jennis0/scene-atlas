@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-import pytest
-
 from backend.app.services.image_store import ImageStore
 
 

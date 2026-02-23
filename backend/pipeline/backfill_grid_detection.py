@@ -61,7 +61,9 @@ def detect_grids_batch(image_ids: list[int], force: bool = False) -> dict:
             try:
                 # Skip non-battlemaps and videos
                 if image.image_type != "battlemap" or image.media_type == "video":
-                    logger.debug(f"Image {image.id}: skipped (type={image.image_type}, media={image.media_type})")
+                    logger.debug(
+                        f"Image {image.id}: skipped (type={image.image_type}, media={image.media_type})"
+                    )
                     skipped += 1
                     continue
 
@@ -130,11 +132,7 @@ def backfill_grid_detection(force: bool = False, progress_fn=None):
     try:
         if force:
             # All battlemaps
-            query = (
-                db.query(Image.id)
-                .filter(Image.image_type == "battlemap")
-                .order_by(Image.id)
-            )
+            query = db.query(Image.id).filter(Image.image_type == "battlemap").order_by(Image.id)
         else:
             # Only battlemaps that haven't been image-analysed yet:
             # - gridded is None (no filename hint, never detected)

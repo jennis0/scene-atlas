@@ -89,7 +89,9 @@ def rebuild_all_embeddings(progress_fn=None) -> dict:
                     }
                 )
             except Exception:
-                logger.warning(f"Failed to encode image {rec['id']} ({rec['filename']})", exc_info=True)
+                logger.warning(
+                    f"Failed to encode image {rec['id']} ({rec['filename']})", exc_info=True
+                )
                 failed += 1
 
         # Write batch to Qdrant

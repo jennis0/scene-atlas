@@ -85,10 +85,6 @@ export function DesktopGate({ children }: DesktopGateProps) {
   })()
 
   return (
-    <LoadingScreen
-      status={status}
-      isError={state.phase === 'error'}
-      errorDetail={errorDetail}
-    />
+    <LoadingScreen status={status} isError={state.phase === 'error'} errorDetail={errorDetail} />
   )
 }

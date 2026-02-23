@@ -712,8 +712,8 @@ export function Gallery() {
         title="Delete Group"
         description={
           <>
-            Are you sure you want to delete <strong>{deleteConfirmGroup?.baseName}</strong> and
-            all {deleteConfirmGroup?.totalScenes} image
+            Are you sure you want to delete <strong>{deleteConfirmGroup?.baseName}</strong> and all{' '}
+            {deleteConfirmGroup?.totalScenes} image
             {deleteConfirmGroup?.totalScenes !== 1 ? 's' : ''}? This cannot be undone.
           </>
         }

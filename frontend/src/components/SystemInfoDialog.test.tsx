@@ -27,9 +27,9 @@ vi.mock('@/lib/api', () => ({
       storage_path: 'C:\\Users\\test\\Scene Atlas\\data',
       mode: 'app',
       storage: {
-        images_bytes: 1048576,      // 1 MB
-        thumbnails_bytes: 524288,   // 512 KB
-        qdrant_bytes: 262144,       // 256 KB
+        images_bytes: 1048576, // 1 MB
+        thumbnails_bytes: 524288, // 512 KB
+        qdrant_bytes: 262144, // 256 KB
         total_bytes: 1835008,
       },
       library: {
@@ -72,9 +72,7 @@ describe('SystemInfoDialog', () => {
   })
 
   it('renders nothing when open=false', () => {
-    const { container } = renderWithProviders(
-      <SystemInfoDialog open={false} onClose={vi.fn()} />,
-    )
+    const { container } = renderWithProviders(<SystemInfoDialog open={false} onClose={vi.fn()} />)
     expect(container.querySelector('[role="dialog"]')).toBeNull()
   })
 
@@ -88,10 +86,10 @@ describe('SystemInfoDialog', () => {
   it('displays storage sizes when data loads', async () => {
     renderWithProviders(<SystemInfoDialog open onClose={vi.fn()} />)
     await waitFor(() => {
-      expect(screen.getByText('1.0 MB')).toBeInTheDocument()   // images
+      expect(screen.getByText('1.0 MB')).toBeInTheDocument() // images
       expect(screen.getByText('512.0 KB')).toBeInTheDocument() // thumbnails
       expect(screen.getByText('256.0 KB')).toBeInTheDocument() // qdrant
-      expect(screen.getByText('1.8 MB')).toBeInTheDocument()   // total
+      expect(screen.getByText('1.8 MB')).toBeInTheDocument() // total
     })
   })
 

@@ -9,7 +9,6 @@ Functions:
 """
 
 import hashlib
-import logging
 import shutil
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -40,7 +39,6 @@ from .tasks.embedding_generation import (
     generate_clip_embedding,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helper: Build parser with tag vocabulary
 # ---------------------------------------------------------------------------
@@ -48,7 +46,7 @@ from .tasks.embedding_generation import (
 
 def _build_parser() -> ImageParser:
     """Create an ImageParser with tag vocabulary loaded from DB."""
-    logger = get_logger(__name__)
+    get_logger(__name__)
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)
     db = SessionLocal()
@@ -85,7 +83,7 @@ def _save_image_to_db(db: Session, image_data: dict) -> int:
 
     Returns the image ID. Does NOT commit — caller must commit.
     """
-    logger = get_logger(__name__)
+    get_logger(__name__)
     image = Image(
         filename=image_data["filename"],
         storage_key=image_data["storage_key"],
@@ -339,7 +337,9 @@ def prepare_single_image(
 
         # --- Generate thumbnails + get dimensions ---
         # --- Extract colors ---
-        from backend.pipeline.tasks.color_extraction import extract_dominant_colors as _extract_colors
+        from backend.pipeline.tasks.color_extraction import (
+            extract_dominant_colors as _extract_colors,
+        )
         from backend.pipeline.tasks.image_processing import generate_thumbnails as _gen_thumbs
 
         is_video = ext in settings.supported_video_formats
@@ -371,11 +371,7 @@ def prepare_single_image(
         grid_type = None
         grid_confidence = None
 
-        if (
-            settings.enable_image_grid_detection
-            and image_type == "battlemap"
-            and not is_video
-        ):
+        if settings.enable_image_grid_detection and image_type == "battlemap" and not is_video:
             from backend.pipeline.tasks.grid_detection import (
                 detect_grid_from_image as _detect_grid,
             )
@@ -563,7 +559,7 @@ def update_import_group_job_progress(
     status: str = "running",
 ) -> None:
     """Update ImportGroupJob progress counters in the database."""
-    logger = get_logger(__name__)
+    get_logger(__name__)
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)
     db = SessionLocal()
@@ -904,9 +900,7 @@ def analyse_upload(
 
     logger.info(f"Detected {len(groups)} group(s)")
     for g in groups:
-        logger.info(
-            f"  {g.get('author', '?')} / {g['group_name']} ({len(g['files'])} files)"
-        )
+        logger.info(f"  {g.get('author', '?')} / {g['group_name']} ({len(g['files'])} files)")
 
     return groups
 
@@ -999,9 +993,7 @@ def _run_group(
         # Count all files not yet processed as failed, mark group as failed
         remaining = len(valid_files) - processed - failed
         failed += remaining
-        logger.error(
-            f"Group {group_job_id} ({group_name}) failed after {processed} images: {e}"
-        )
+        logger.error(f"Group {group_job_id} ({group_name}) failed after {processed} images: {e}")
         update_import_group_job_progress(group_job_id, processed, failed, status="failed")
         raise  # re-raise so process_import_job can catch it per-group
 
@@ -1145,9 +1137,7 @@ def process_import_job(
             files = group["files"]
             logger.info(f"Processing group '{group_name}' by '{author}' ({len(files)} files)")
             try:
-                processed, failed = _run_group(
-                    group_job_id, staging_dir, author, group_name, files
-                )
+                processed, failed = _run_group(group_job_id, staging_dir, author, group_name, files)
                 total_processed += processed
                 total_failed += failed
             except Exception as e:

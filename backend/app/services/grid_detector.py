@@ -16,7 +16,7 @@ from typing import TypedDict
 
 import cv2
 import numpy as np
-from scipy.signal import find_peaks, fftconvolve
+from scipy.signal import fftconvolve, find_peaks
 
 logger = logging.getLogger(__name__)
 
@@ -63,9 +63,7 @@ class GridDetector:
     # Public API
     # ------------------------------------------------------------------
 
-    def detect(
-        self, image_path: Path, width: int, height: int
-    ) -> GridDetectionResult:
+    def detect(self, image_path: Path, width: int, height: int) -> GridDetectionResult:
         """Detect grid presence, type, and tile dimensions.
 
         Use when no filename hint is available -- detects both presence and size.
@@ -81,9 +79,7 @@ class GridDetector:
         """
         return self._run(image_path, width, height, self.presence_threshold)
 
-    def detect_size_only(
-        self, image_path: Path, width: int, height: int
-    ) -> GridDetectionResult:
+    def detect_size_only(self, image_path: Path, width: int, height: int) -> GridDetectionResult:
         """Detect grid size when presence is already known (lower threshold).
 
         Use when the filename already indicates a grid is present.
@@ -137,9 +133,14 @@ class GridDetector:
         if min_cell_r < max_cell_r:
             rot = self._run_ac_on_edges(rot_edges, min_cell_r, max_cell_r)
         else:
-            rot = {"confidence": 0.0, "ratio": 0.0,
-                   "h_period": None, "v_period": None,
-                   "h_strength": 0.0, "v_strength": 0.0}
+            rot = {
+                "confidence": 0.0,
+                "ratio": 0.0,
+                "h_period": None,
+                "v_period": None,
+                "h_strength": 0.0,
+                "v_strength": 0.0,
+            }
 
         max_conf = max(std["confidence"], rot["confidence"])
 
@@ -175,11 +176,8 @@ class GridDetector:
             }
 
         # 3. Square: strong standard signal with period ratio ~1.0
-        if (std["confidence"] >= threshold
-                and std["ratio"] >= self.period_ratio_threshold):
-            return self._build_square_result(
-                std, scale, orig_width, orig_height
-            )
+        if std["confidence"] >= threshold and std["ratio"] >= self.period_ratio_threshold:
+            return self._build_square_result(std, scale, orig_width, orig_height)
 
         # 4. No grid (above threshold but didn't match square or hex pattern)
         return {
@@ -217,9 +215,12 @@ class GridDetector:
         ratio = min(hp, vp) / max(hp, vp) if hp and vp else 0.0
 
         return {
-            "h_period": hp, "v_period": vp,
-            "h_strength": hs, "v_strength": vs,
-            "confidence": confidence, "ratio": ratio,
+            "h_period": hp,
+            "v_period": vp,
+            "h_strength": hs,
+            "v_strength": vs,
+            "confidence": confidence,
+            "ratio": ratio,
         }
 
     def _build_square_result(
@@ -345,7 +346,7 @@ class GridDetector:
 
         # FFT-based autocorrelation
         autocorr = fftconvolve(proj, proj[::-1], mode="full")
-        autocorr = autocorr[n - 1:]  # positive lags only
+        autocorr = autocorr[n - 1 :]  # positive lags only
         zero_lag = autocorr[0]
         if zero_lag < 1e-10:
             return [], autocorr
