@@ -1,12 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { FolderOpen, FolderInput, RotateCcw, HardDrive, ArrowRight } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { FolderOpen, FolderInput, RotateCcw, HardDrive, ArrowRight, X } from 'lucide-react'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { systemApi } from '@/lib/api'
 
@@ -47,20 +42,14 @@ function formatBytes(bytes: number): string {
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function Shimmer({ className = '' }: { className?: string }) {
-  return <div className={`rounded animate-pulse bg-muted/25 ${className}`} />
+  return <div className={`rounded animate-pulse bg-zinc-700/40 ${className}`} />
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-2.5 mb-3">
-      <div
-        className="h-3.5 w-0.5 rounded-full shrink-0"
-        style={{ background: 'hsl(38 60% 58% / 0.7)' }}
-      />
-      <span className="font-mono text-[9px] tracking-[0.18em] uppercase text-muted-foreground/60">
-        {children}
-      </span>
-    </div>
+    <p className="text-xs font-semibold text-zinc-500 tracking-wide uppercase mb-2">
+      {children}
+    </p>
   )
 }
 
@@ -74,17 +63,12 @@ function DataRow({
   highlight?: boolean
 }) {
   return (
-    <div className="flex items-baseline justify-between py-0.5">
+    <div className="flex items-center justify-between py-1">
+      <span className="text-sm text-zinc-400">{label}</span>
       <span
-        className={`font-mono text-[11px] ${
-          highlight ? 'text-foreground/80' : 'text-muted-foreground/60'
+        className={`text-sm tabular-nums ${
+          highlight ? 'text-amber-400 font-medium' : 'text-zinc-300'
         }`}
-      >
-        {label}
-      </span>
-      <span
-        className={`font-mono text-[11px] tabular-nums ${highlight ? 'font-medium' : ''}`}
-        style={{ color: highlight ? 'hsl(38 60% 58%)' : 'hsl(38 60% 58% / 0.75)' }}
       >
         {value}
       </span>
@@ -94,29 +78,25 @@ function DataRow({
 
 function DataRowSkeleton({ wide = false }: { wide?: boolean }) {
   return (
-    <div className="flex items-baseline justify-between py-0.5">
-      <Shimmer className={`h-2.5 ${wide ? 'w-24' : 'w-16'}`} />
-      <Shimmer className="h-2.5 w-14" />
+    <div className="flex items-center justify-between py-1">
+      <Shimmer className={`h-3 ${wide ? 'w-24' : 'w-16'}`} />
+      <Shimmer className="h-3 w-14" />
     </div>
   )
 }
 
 function ErrorNote() {
-  return (
-    <p className="font-mono text-[10px] text-muted-foreground/40 italic py-1">
-      Could not load system information.
-    </p>
-  )
+  return <p className="text-sm text-zinc-500 italic py-1">Could not load system information.</p>
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
+  const isElectron = !!window.electronAPI
   const [locationPhase, setLocationPhase] = useState<LocationPhase>('idle')
   const [pendingDir, setPendingDir] = useState<string | null>(null)
   const [dataDir, setDataDir] = useState<string | null>(null)
 
-  // Load current data dir when dialog opens
   useEffect(() => {
     if (open && window.electronAPI) {
       window.electronAPI.getDataDir().then(setDataDir)
@@ -158,7 +138,6 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
   const handleOpenChange = (v: boolean) => {
     if (!v) {
       onClose()
-      // Reset after close animation completes
       setTimeout(() => {
         setLocationPhase('idle')
         setPendingDir(null)
@@ -168,93 +147,55 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent
-        className="max-w-[440px] bg-background border-border/50 p-0 overflow-hidden"
-        style={{
-          boxShadow:
-            '0 24px 64px -12px hsl(38 60% 58% / 0.08), 0 8px 32px rgba(0,0,0,0.7)',
-        }}
-      >
+      <DialogContent className="max-w-[440px] bg-zinc-900 border-zinc-700/50 p-0 overflow-hidden">
         {/* Header */}
-        <div
-          className="px-6 py-5 border-b border-border/40"
-          style={{
-            background:
-              'linear-gradient(180deg, hsl(38 60% 58% / 0.06) 0%, transparent 100%)',
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded border border-border/40 bg-muted/20 shrink-0">
-                <HardDrive
-                  className="h-4 w-4"
-                  style={{ color: 'hsl(38 60% 58%)' }}
-                />
-              </div>
-              <div>
-                <div className="font-display text-base font-medium tracking-wide text-foreground leading-none">
-                  System
-                </div>
-                <div className="font-mono text-[9px] tracking-[0.18em] text-muted-foreground/50 uppercase mt-1">
-                  Storage &amp; Library
-                </div>
-              </div>
-            </DialogTitle>
-          </DialogHeader>
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-800 bg-gradient-to-b from-amber-400/5 to-transparent">
+          <HardDrive className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <h2 className="text-xs font-semibold text-zinc-300 tracking-wide uppercase">
+            System
+          </h2>
+          <span className="text-xs text-zinc-600 ml-0.5">· Storage &amp; Library</span>
+          <button
+            onClick={onClose}
+            className="ml-auto rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 text-zinc-400 hover:text-zinc-100"
+          >
+            <X className="h-4 w-4" />
+            <span className="sr-only">Close</span>
+          </button>
         </div>
 
         {/* Body */}
-        <div className="px-6 py-5 space-y-6">
+        <div className="px-4 py-4 space-y-5">
 
-          {/* ── Library Location ──────────────────────────────── */}
+          {/* ── Library Location — Electron only ─────────────── */}
+          {isElectron && (
           <section>
             <SectionLabel>Library Location</SectionLabel>
 
             {locationPhase === 'restarting' ? (
-              <div className="flex items-center gap-3 py-3">
-                <RotateCcw
-                  className="h-3.5 w-3.5 animate-spin shrink-0"
-                  style={{ color: 'hsl(38 60% 58%)' }}
-                />
-                <span className="font-mono text-xs text-muted-foreground/70">
-                  Restarting Scene Atlas…
-                </span>
+              <div className="flex items-center gap-2.5 py-2">
+                <RotateCcw className="h-3.5 w-3.5 animate-spin shrink-0 text-amber-400" />
+                <span className="text-sm text-zinc-400">Restarting Scene Atlas…</span>
               </div>
             ) : locationPhase === 'confirming' && pendingDir ? (
               <div className="space-y-3">
-                {/* Before / after panel */}
-                <div className="rounded border border-border/40 bg-muted/10 p-3 space-y-2.5">
+                <div className="rounded border border-zinc-700/50 bg-zinc-800/50 p-3 space-y-2.5">
                   <div className="space-y-1">
-                    <span className="font-mono text-[9px] tracking-widest uppercase text-muted-foreground/40">
-                      Current
-                    </span>
-                    <p className="font-mono text-[11px] text-muted-foreground/60 break-all leading-relaxed">
+                    <span className="text-xs text-zinc-600 uppercase tracking-wide">Current</span>
+                    <p className="text-sm text-zinc-400 break-all leading-relaxed">
                       {dataDir ?? '—'}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <ArrowRight
-                      className="h-3 w-3 shrink-0"
-                      style={{ color: 'hsl(38 60% 58% / 0.5)' }}
-                    />
-                    <div className="h-px flex-1 border-t border-dashed border-border/30" />
+                    <ArrowRight className="h-3 w-3 shrink-0 text-amber-400/50" />
+                    <div className="h-px flex-1 border-t border-dashed border-zinc-700/50" />
                   </div>
                   <div className="space-y-1">
-                    <span
-                      className="font-mono text-[9px] tracking-widest uppercase"
-                      style={{ color: 'hsl(38 60% 58% / 0.7)' }}
-                    >
-                      New
-                    </span>
-                    <p
-                      className="font-mono text-[11px] break-all leading-relaxed"
-                      style={{ color: 'hsl(38 60% 58%)' }}
-                    >
-                      {pendingDir}
-                    </p>
+                    <span className="text-xs text-amber-400/70 uppercase tracking-wide">New</span>
+                    <p className="text-sm text-amber-400 break-all leading-relaxed">{pendingDir}</p>
                   </div>
                 </div>
-                <p className="font-mono text-[10px] text-muted-foreground/40">
+                <p className="text-xs text-zinc-500">
                   Scene Atlas will restart to apply the new location.
                 </p>
                 <div className="flex gap-2">
@@ -262,19 +203,14 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
                     size="sm"
                     variant="outline"
                     onClick={handleCancelChange}
-                    className="flex-1 h-8 font-mono text-xs"
+                    className="flex-1 h-8 border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
                   >
                     Cancel
                   </Button>
                   <Button
                     size="sm"
                     onClick={handleConfirmChange}
-                    className="flex-1 h-8 font-mono text-xs border"
-                    style={{
-                      background: 'hsl(38 60% 58% / 0.12)',
-                      borderColor: 'hsl(38 60% 58% / 0.35)',
-                      color: 'hsl(38 60% 65%)',
-                    }}
+                    className="flex-1 h-8 bg-amber-400/10 border border-amber-400/30 text-amber-400 hover:bg-amber-400/20"
                   >
                     Restart &amp; Apply
                   </Button>
@@ -282,24 +218,20 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
               </div>
             ) : (
               <div className="space-y-3">
-                {/* Path display */}
-                <div className="rounded border border-border/40 bg-muted/10 px-3 py-2.5 min-h-[2.5rem] flex items-center">
+                <div className="rounded border border-zinc-700/50 bg-zinc-800/50 px-3 py-2.5 min-h-[2.5rem] flex items-center">
                   {dataDir ? (
-                    <p className="font-mono text-[11px] text-muted-foreground/75 break-all leading-relaxed">
-                      {dataDir}
-                    </p>
+                    <p className="text-sm text-zinc-300 break-all leading-relaxed">{dataDir}</p>
                   ) : (
-                    <Shimmer className="h-2.5 w-3/4" />
+                    <Shimmer className="h-3 w-3/4" />
                   )}
                 </div>
-                {/* Actions */}
                 <div className="flex gap-2">
                   <Button
                     size="sm"
                     variant="outline"
                     onClick={handleOpenInExplorer}
                     disabled={!dataDir}
-                    className="gap-1.5 h-8 font-mono text-xs"
+                    className="gap-1.5 h-8 border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
                   >
                     <FolderOpen className="h-3.5 w-3.5" />
                     Open
@@ -309,7 +241,7 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
                     variant="outline"
                     onClick={handleChooseDir}
                     disabled={!dataDir}
-                    className="gap-1.5 h-8 font-mono text-xs"
+                    className="gap-1.5 h-8 border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
                   >
                     <FolderInput className="h-3.5 w-3.5" />
                     Change Location
@@ -318,40 +250,57 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
               </div>
             )}
           </section>
+          )}
 
           {/* ── Storage ───────────────────────────────────────── */}
           <section>
             <SectionLabel>Storage</SectionLabel>
-            <div className="space-y-1">
+            <div className="space-y-0.5">
               {isLoading ? (
                 <>
-                  <DataRowSkeleton />
-                  <DataRowSkeleton />
-                  <DataRowSkeleton />
-                  <div className="mt-1.5 pt-2 border-t border-border/30">
-                    <DataRowSkeleton wide />
-                  </div>
+                  {isElectron && (
+                    <>
+                      <DataRowSkeleton />
+                      <DataRowSkeleton />
+                      <DataRowSkeleton />
+                      <div className="mt-2 pt-2 border-t border-zinc-800">
+                        <DataRowSkeleton wide />
+                      </div>
+                    </>
+                  )}
+                  {!isElectron && <DataRowSkeleton wide />}
                 </>
               ) : isError ? (
                 <ErrorNote />
               ) : info ? (
                 <>
-                  <DataRow label="Images" value={formatBytes(info.storage.images_bytes)} />
-                  <DataRow
-                    label="Thumbnails"
-                    value={formatBytes(info.storage.thumbnails_bytes)}
-                  />
-                  <DataRow
-                    label="Search index"
-                    value={formatBytes(info.storage.qdrant_bytes)}
-                  />
-                  <div className="mt-1.5 pt-2 border-t border-border/30">
+                  {isElectron && (
+                    <>
+                      <DataRow label="Images" value={formatBytes(info.storage.images_bytes)} />
+                      <DataRow
+                        label="Thumbnails"
+                        value={formatBytes(info.storage.thumbnails_bytes)}
+                      />
+                      <DataRow
+                        label="Search index"
+                        value={formatBytes(info.storage.qdrant_bytes)}
+                      />
+                      <div className="mt-2 pt-2 border-t border-zinc-800">
+                        <DataRow
+                          label="Total"
+                          value={formatBytes(info.storage.total_bytes)}
+                          highlight
+                        />
+                      </div>
+                    </>
+                  )}
+                  {!isElectron && (
                     <DataRow
                       label="Total"
                       value={formatBytes(info.storage.total_bytes)}
                       highlight
                     />
-                  </div>
+                  )}
                 </>
               ) : null}
             </div>
@@ -360,7 +309,7 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
           {/* ── Collection ────────────────────────────────────── */}
           <section className="pb-1">
             <SectionLabel>Collection</SectionLabel>
-            <div className="space-y-1">
+            <div className="space-y-0.5">
               {isLoading ? (
                 <>
                   <DataRowSkeleton />

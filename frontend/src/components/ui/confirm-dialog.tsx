@@ -1,6 +1,6 @@
 import { Loader2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
+import { Button, type ButtonProps } from '@/components/ui/button'
 
 export interface ConfirmDialogProps {
   open: boolean
@@ -9,6 +9,10 @@ export interface ConfirmDialogProps {
   description: React.ReactNode
   /** Label for the confirm button. Default: "Delete" */
   confirmLabel?: string
+  /** Button variant for the confirm button. Default: "destructive" */
+  confirmVariant?: ButtonProps['variant']
+  /** Label shown while loading. Default: derived from confirmLabel */
+  loadingLabel?: string
   onConfirm: () => void
   isLoading?: boolean
 }
@@ -19,6 +23,8 @@ export function ConfirmDialog({
   title,
   description,
   confirmLabel = 'Delete',
+  confirmVariant = 'destructive',
+  loadingLabel,
   onConfirm,
   isLoading = false,
 }: ConfirmDialogProps) {
@@ -37,11 +43,11 @@ export function ConfirmDialog({
           >
             Cancel
           </Button>
-          <Button variant="destructive" onClick={onConfirm} disabled={isLoading}>
+          <Button variant={confirmVariant} onClick={onConfirm} disabled={isLoading}>
             {isLoading ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                Deleting…
+                {loadingLabel ?? `${confirmLabel}…`}
               </>
             ) : (
               confirmLabel

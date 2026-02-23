@@ -23,8 +23,9 @@ export function useImportPolling({
     const poll = async () => {
       try {
         const status = await importApi.status(jobId)
-        setGroups((prev) =>
-          prev.map((g) => {
+        let hasPendingLocally = false
+        setGroups((prev) => {
+          const next = prev.map((g) => {
             const gs = status.groups.find((s) => s.group_name === g.group_name)
             if (!gs) return g
             return {
@@ -34,13 +35,16 @@ export function useImportPolling({
               failed: gs.failed_files,
               total: gs.total_files || g.total,
             }
-          }),
-        )
-        if (
+          })
+          hasPendingLocally = next.some((g) => g.status === 'pending')
+          return next
+        })
+        const allSubmittedDone =
           status.groups.length > 0 &&
           status.groups.every((gs) => gs.status === 'completed' || gs.status === 'failed')
-        ) {
-          setState('done')
+        if (allSubmittedDone) {
+          // If local groups are still pending, return to preview so the user can continue
+          setState(hasPendingLocally ? 'preview' : 'done')
         }
       } catch {
         /* ignore transient poll errors */

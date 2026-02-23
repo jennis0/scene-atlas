@@ -15,7 +15,6 @@ import {
 } from 'lucide-react'
 import { searchApi, groupApi } from '@/lib/api'
 import { RELEVANCE_MIN, RELEVANCE_MAX, RELEVANCE_STEP, relevanceToPercent } from '@/lib/constants'
-import { isApp } from '@/lib/appMode'
 import { ImageGrid } from '@/components/ImageGrid'
 import { GroupGrid } from '@/components/GroupGrid'
 import { ImageViewer } from '@/components/ImageViewer'
@@ -325,16 +324,14 @@ export function Gallery() {
                 <Upload className="h-4 w-4" />
                 Import
               </Button>
-              {isApp && (
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setShowSystemInfo(true)}
-                  title="System settings"
-                >
-                  <Settings className="h-4 w-4" />
-                </Button>
-              )}
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setShowSystemInfo(true)}
+                title="System settings"
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
             </div>
           </div>
 
@@ -604,9 +601,7 @@ export function Gallery() {
 
       <TagManagementDialog open={showTagManagement} onClose={() => setShowTagManagement(false)} />
 
-      {isApp && (
-        <SystemInfoDialog open={showSystemInfo} onClose={() => setShowSystemInfo(false)} />
-      )}
+      <SystemInfoDialog open={showSystemInfo} onClose={() => setShowSystemInfo(false)} />
 
       {/* Import tray — right-side overlay showing active imports */}
       <ImportTray

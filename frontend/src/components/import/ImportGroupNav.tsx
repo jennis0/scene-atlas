@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Check, Loader2, AlertCircle, MoreHorizontal, SkipForward, Merge } from 'lucide-react'
 import {
   DropdownMenu,
@@ -7,6 +8,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { ALL_TAB } from '@/hooks/useImportState'
 import type { DialogState } from '@/hooks/useImportState'
 import type { EditableGroupState } from '@/types'
@@ -18,9 +20,11 @@ interface ImportGroupNavProps {
   totalFiles: number
   pendingGroupCount: number
   canImportAll: boolean
+  canMergeAll: boolean
   onSelectTab: (tab: number) => void
   onUpdateGroup: (index: number, updates: Partial<EditableGroupState>) => void
   onMergeGroups: (sourceIndex: number, targetIndex: number) => void
+  onMergeAllGroups: () => void
   onConfirmAll: () => void
 }
 
@@ -31,12 +35,26 @@ export function ImportGroupNav({
   totalFiles,
   pendingGroupCount,
   canImportAll,
+  canMergeAll,
   onSelectTab,
   onUpdateGroup,
   onMergeGroups,
+  onMergeAllGroups,
   onConfirmAll,
 }: ImportGroupNavProps) {
   const isAllTab = activeTab === ALL_TAB
+  const [confirmingMergeAll, setConfirmingMergeAll] = useState(false)
+
+  // Split groups into active (pending) and submitted (non-pending), preserving original indices
+  const activeGroups: { group: EditableGroupState; index: number }[] = []
+  const submittedGroups: { group: EditableGroupState; index: number }[] = []
+  groups.forEach((g, i) => {
+    if (g.status === 'pending') {
+      activeGroups.push({ group: g, index: i })
+    } else {
+      submittedGroups.push({ group: g, index: i })
+    }
+  })
 
   return (
     <div className="w-[190px] shrink-0 border-r border-border/30 flex flex-col overflow-hidden bg-muted/20">
@@ -64,7 +82,8 @@ export function ImportGroupNav({
         </button>
         <div className="h-px bg-border/30 mx-3 my-0.5" />
 
-        {groups.map((g, i) => (
+        {/* Active (pending) groups */}
+        {activeGroups.map(({ group: g, index: i }) => (
           <div key={g.id} className="flex items-center group/nav">
             <button
               onClick={() => onSelectTab(i)}
@@ -75,10 +94,7 @@ export function ImportGroupNav({
               } ${g.skip ? 'opacity-40' : ''}`}
             >
               <span className="shrink-0 w-3 flex justify-center">
-                {g.status === 'completed' && <Check className="h-3 w-3" />}
-                {g.status === 'running' && <Loader2 className="h-3 w-3 animate-spin" />}
-                {g.status === 'failed' && <AlertCircle className="h-3 w-3 text-destructive" />}
-                {g.status === 'pending' && !g.skip && (
+                {!g.skip && (
                   <span className="h-1.5 w-1.5 rounded-full bg-current opacity-50 inline-block" />
                 )}
                 {g.skip && <SkipForward className="h-3 w-3" />}
@@ -90,53 +106,110 @@ export function ImportGroupNav({
                 {g.files.filter((f) => !f.excluded).length}
               </span>
             </button>
-            {g.status === 'pending' && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="opacity-0 group-hover/nav:opacity-100 p-1.5 text-muted-foreground/40 hover:text-muted-foreground transition-all shrink-0">
-                    <MoreHorizontal className="h-3.5 w-3.5" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" side="right">
-                  <DropdownMenuItem onClick={() => onUpdateGroup(i, { skip: !g.skip })}>
-                    <SkipForward className="h-4 w-4 mr-2" />
-                    {g.skip ? 'Unskip Group' : 'Skip Group'}
-                  </DropdownMenuItem>
-                  {groups.length > 1 && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuLabel className="text-xs text-muted-foreground">
-                        Merge into…
-                      </DropdownMenuLabel>
-                      {groups.map((target, j) =>
-                        j !== i ? (
-                          <DropdownMenuItem key={target.id} onClick={() => onMergeGroups(i, j)}>
-                            <Merge className="h-4 w-4 mr-2" />
-                            {target.group_name}
-                          </DropdownMenuItem>
-                        ) : null,
-                      )}
-                    </>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="opacity-0 group-hover/nav:opacity-100 p-1.5 text-muted-foreground/40 hover:text-muted-foreground transition-all shrink-0">
+                  <MoreHorizontal className="h-3.5 w-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" side="right">
+                <DropdownMenuItem onClick={() => onUpdateGroup(i, { skip: !g.skip })}>
+                  <SkipForward className="h-4 w-4 mr-2" />
+                  {g.skip ? 'Unskip Group' : 'Skip Group'}
+                </DropdownMenuItem>
+                {groups.length > 1 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel className="text-xs text-muted-foreground">
+                      Merge into…
+                    </DropdownMenuLabel>
+                    {groups.map((target, j) =>
+                      j !== i ? (
+                        <DropdownMenuItem key={target.id} onClick={() => onMergeGroups(i, j)}>
+                          <Merge className="h-4 w-4 mr-2" />
+                          {target.group_name}
+                        </DropdownMenuItem>
+                      ) : null,
+                    )}
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        ))}
+
+        {/* Divider between active and submitted */}
+        {activeGroups.length > 0 && submittedGroups.length > 0 && (
+          <div className="mx-3 my-1.5 flex items-center gap-2">
+            <div className="flex-1 h-px bg-border/30" />
+            <span className="text-[9px] uppercase tracking-wider text-muted-foreground/40 font-medium shrink-0">
+              Submitted
+            </span>
+            <div className="flex-1 h-px bg-border/30" />
+          </div>
+        )}
+
+        {/* Submitted (non-pending) groups — de-emphasized */}
+        {submittedGroups.map(({ group: g, index: i }) => (
+          <div key={g.id} className="flex items-center">
+            <button
+              onClick={() => onSelectTab(i)}
+              className={`flex-1 flex items-center gap-2 px-3 py-1.5 text-left transition-colors border-l-2 min-w-0 opacity-50 ${
+                activeTab === i
+                  ? 'border-primary/50 bg-primary/5 text-primary/70'
+                  : 'border-transparent text-muted-foreground/60 hover:text-muted-foreground hover:bg-secondary/20'
+              }`}
+            >
+              <span className="shrink-0 w-3 flex justify-center">
+                {g.status === 'completed' && <Check className="h-3 w-3" />}
+                {g.status === 'running' && <Loader2 className="h-3 w-3 animate-spin" />}
+                {g.status === 'failed' && <AlertCircle className="h-3 w-3 text-destructive" />}
+              </span>
+              <span className="flex-1 text-[12px] truncate">{g.group_name}</span>
+              <span className="text-[11px] text-muted-foreground/30 tabular-nums shrink-0">
+                {g.files.filter((f) => !f.excluded).length}
+              </span>
+            </button>
           </div>
         ))}
       </div>
 
-      {/* Import All button at bottom of sidebar */}
-      {pendingGroupCount > 1 && state === 'preview' && (
-        <div className="p-2.5 border-t border-border/30 shrink-0">
-          <button
-            onClick={onConfirmAll}
-            disabled={!canImportAll}
-            className="w-full text-[12px] py-1.5 rounded border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            Import All ({pendingGroupCount})
-          </button>
+      {/* Bottom actions */}
+      {state === 'preview' && (canMergeAll || pendingGroupCount > 1) && (
+        <div className="p-2.5 border-t border-border/30 shrink-0 space-y-1.5">
+          {canMergeAll && (
+            <button
+              onClick={() => setConfirmingMergeAll(true)}
+              className="w-full text-[12px] py-1.5 rounded border border-border/40 bg-secondary/30 text-muted-foreground hover:bg-secondary/60 hover:text-foreground transition-colors flex items-center justify-center gap-1.5"
+            >
+              <Merge className="h-3.5 w-3.5" />
+              Merge All
+            </button>
+          )}
+          {pendingGroupCount > 1 && (
+            <button
+              onClick={onConfirmAll}
+              disabled={!canImportAll}
+              className="w-full text-[12px] py-1.5 rounded border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Import All ({pendingGroupCount})
+            </button>
+          )}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmingMergeAll}
+        onOpenChange={setConfirmingMergeAll}
+        title="Merge All Groups"
+        description={`This will merge ${pendingGroupCount} pending groups into one. The first group's name and author will be kept.`}
+        confirmLabel="Merge"
+        confirmVariant="default"
+        onConfirm={() => {
+          setConfirmingMergeAll(false)
+          onMergeAllGroups()
+        }}
+      />
     </div>
   )
 }

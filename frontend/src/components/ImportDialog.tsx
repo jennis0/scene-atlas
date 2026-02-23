@@ -157,9 +157,11 @@ export function ImportDialog({
                 totalFiles={s.totalFiles}
                 pendingGroupCount={s.pendingGroups.length}
                 canImportAll={s.canImportAll}
+                canMergeAll={s.canMergeAll}
                 onSelectTab={s.setActiveTab}
                 onUpdateGroup={s.updateGroup}
                 onMergeGroups={s.mergeGroups}
+                onMergeAllGroups={s.mergeAllGroups}
                 onConfirmAll={s.handleConfirmAll}
               />
             )}

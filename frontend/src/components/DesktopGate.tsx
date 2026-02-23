@@ -19,34 +19,49 @@ export function DesktopGate({ children }: DesktopGateProps) {
   useEffect(() => {
     if (!isElectron) return
 
+    // cancelled = true when this effect instance is cleaned up (e.g. React
+    // StrictMode double-invocation).  Any IPC callbacks that fire after cleanup
+    // check this flag and bail out, ensuring only one polling loop is active.
+    let cancelled = false
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+
     // Main process signals the backend is ready with its port
     window.electronAPI!.onBackendReady((port: number) => {
+      if (cancelled) return
       window.__SCENE_ATLAS_PORT__ = port
       startRef.current = Date.now()
       setState({ phase: 'polling', port, elapsed: 0 })
 
-      const interval = setInterval(async () => {
+      // Recursive setTimeout — next poll only starts after the current fetch
+      // completes, preventing request pile-up when the backend is slow to respond.
+      const poll = async () => {
+        if (cancelled) return
         const elapsed = Math.round((Date.now() - startRef.current) / 1000)
         setState({ phase: 'polling', port, elapsed })
-
         try {
           const res = await fetch(`http://localhost:${port}/health`)
           if (res.ok) {
-            clearInterval(interval)
             setReady(true)
+            return // Stop polling — backend is up
           }
         } catch {
-          // Not up yet — keep polling
+          // Not up yet — schedule next attempt
         }
-      }, 1500)
+        if (!cancelled) timeoutId = setTimeout(poll, 100)
+      }
 
-      return () => clearInterval(interval)
+      timeoutId = setTimeout(poll, 100)
     })
 
     // Main process signals a hard failure (sidecar crashed on startup)
     window.electronAPI!.onBackendError?.((message: string) => {
-      setState({ phase: 'error', message })
+      if (!cancelled) setState({ phase: 'error', message })
     })
+
+    return () => {
+      cancelled = true
+      if (timeoutId) clearTimeout(timeoutId)
+    }
   }, [isElectron])
 
   if (ready) return <>{children}</>

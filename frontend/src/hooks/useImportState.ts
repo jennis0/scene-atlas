@@ -61,6 +61,7 @@ export interface UseImportStateReturn {
   skippedDuplicateCount: number
   canImportActive: boolean
   canImportAll: boolean
+  canMergeAll: boolean
 
   // State setters
   setState: (state: DialogState) => void
@@ -82,6 +83,7 @@ export interface UseImportStateReturn {
   ) => void
   updateFileAnyGroup: (relativePath: string, updates: Partial<EditableFileState>) => void
   mergeGroups: (sourceIndex: number, targetIndex: number) => void
+  mergeAllGroups: () => void
   toggleFileSelection: (groupId: string, relativePath: string) => void
   selectAllVisible: (groupId: string, visibleFiles: EditableFileState[]) => void
   deselectAll: (groupId: string) => void
@@ -177,9 +179,14 @@ export function useImportState(
     setState,
   })
 
+  // Use a ref so the effect only re-runs when `state` changes, not when the
+  // callback prop identity changes (inline arrow functions in Gallery would
+  // otherwise create an infinite render loop via setJobs → re-render → new fn).
+  const onActiveChangeRef = useRef(onActiveChange)
+  onActiveChangeRef.current = onActiveChange
   useEffect(() => {
-    onActiveChange?.(state === 'processing')
-  }, [state, onActiveChange])
+    onActiveChangeRef.current?.(state === 'processing')
+  }, [state])
 
   // Fetch tag vocab + author suggestions once when entering preview
   useEffect(() => {
@@ -249,6 +256,30 @@ export function useImportState(
       if (sourceIndex === prev) return Math.min(targetIndex, groups.length - 2)
       return prev
     })
+  }
+
+  const mergeAllGroups = () => {
+    setGroups((prev) => {
+      const eligible = prev
+        .map((g, i) => ({ g, i }))
+        .filter(({ g }) => g.status === 'pending' && !g.skip)
+      if (eligible.length < 2) return prev
+
+      const targetIdx = eligible[0].i
+      const sourceIndices = new Set(eligible.slice(1).map(({ i }) => i))
+      const sourceFiles = eligible.slice(1).flatMap(({ g }) => g.files)
+
+      return prev
+        .map((g, i) => {
+          if (i === targetIdx) {
+            const merged = [...g.files, ...sourceFiles]
+            return { ...g, files: merged, total: merged.length }
+          }
+          return g
+        })
+        .filter((_, i) => !sourceIndices.has(i))
+    })
+    setActiveTab(ALL_TAB)
   }
 
   const bulkSetDuplicateAction = (groupId: string | null, action: 'skip' | 'import') => {
@@ -437,6 +468,7 @@ export function useImportState(
     !!activeGroup.author &&
     !activeGroup.files.every((f) => f.excluded)
   const canImportAll = pendingGroups.length > 0 && pendingGroups.every((g) => !!g.author)
+  const canMergeAll = pendingGroups.length >= 2
 
   return {
     state,
@@ -474,6 +506,7 @@ export function useImportState(
     allSameAuthor,
     canImportActive,
     canImportAll,
+    canMergeAll,
     setState,
     setActiveTab,
     setFileFilter,
@@ -487,6 +520,7 @@ export function useImportState(
     updateFile,
     updateFileAnyGroup,
     mergeGroups,
+    mergeAllGroups,
     toggleFileSelection,
     selectAllVisible,
     deselectAll,

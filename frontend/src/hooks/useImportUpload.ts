@@ -4,6 +4,7 @@ import { importApi } from '@/lib/api'
 import { resolveApiUrl } from '@/lib/apiBase'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { humanizeFilename } from '@/components/import/types'
+import { collectFilesFromDataTransfer } from '@/lib/fsEntryTraversal'
 import type { ImportUploadResponse, EditableGroupState } from '@/types'
 import type { DialogState } from './useImportState'
 import { ALL_TAB } from './useFileEditing'
@@ -223,7 +224,6 @@ export function useImportUpload({
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault()
     if (uploading) return
-    const { collectFilesFromDataTransfer } = await import('@/lib/fsEntryTraversal')
     const pairs = await collectFilesFromDataTransfer(e.dataTransfer)
     if (pairs.length === 0) return
     await handleFiles(pairs)

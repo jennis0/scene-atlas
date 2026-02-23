@@ -10,6 +10,7 @@ import {
   Pencil,
   Merge,
   MoreHorizontal,
+  EyeOff,
 } from 'lucide-react'
 import { groupApi, tagApi, imageApi, getThumbnailUrlById, getImageUrlById } from '@/lib/api'
 import { getApiErrorMessage, isNotFoundError } from '@/lib/getErrorMessage'
@@ -23,6 +24,7 @@ import type {
   GroupSearchItem,
 } from '@/types'
 import { MergeGroupPicker } from './MergeGroupPicker'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -523,6 +525,59 @@ export function EditGroupDialog({
     }
   }
 
+  // ── Remove group from view (mass-edit only, no delete) ────────
+
+  const removeGroupFromView = (gId: string) => {
+    const idx = groups.findIndex((g) => g.id === gId)
+    setGroups((prev) => prev.filter((g) => g.id !== gId))
+    if (activeTab !== ALL_TAB) {
+      if (idx < activeTab) setActiveTab(activeTab - 1)
+      else if (idx === activeTab) setActiveTab(ALL_TAB)
+    }
+  }
+
+  // ── Merge all groups (mass-edit only) ────────────────────────
+
+  const [confirmingMergeAll, setConfirmingMergeAll] = useState(false)
+
+  const handleMergeAll = async () => {
+    if (groups.length < 2) return
+    const target = groups[0]
+    const sources = groups.slice(1)
+    setMerging(true)
+    setSaveError(null)
+    setConfirmingMergeAll(false)
+    try {
+      for (const source of sources) {
+        await groupApi.merge(Number(source.id), Number(target.id))
+      }
+      // Reload the merged target from API
+      const reloaded = await groupApi.get(Number(target.id))
+      const seedIds = new Set(
+        groups.flatMap((g) => g.files.filter((f) => !f.outOfScope).map((f) => Number(f.relative_path))),
+      )
+      setGroups([
+        {
+          id: String(reloaded.id),
+          author: reloaded.author ?? '',
+          group_name: reloaded.base_name,
+          files: reloaded.images.map((img) => imageToEditable(img, !seedIds.has(img.id))),
+          skip: false,
+          status: 'pending',
+          processed: 0,
+          failed: 0,
+          total: reloaded.images.length,
+        },
+      ])
+      setActiveTab(0)
+      invalidateGallery()
+    } catch (err) {
+      setSaveError(getApiErrorMessage(err, 'Merge all failed'))
+    } finally {
+      setMerging(false)
+    }
+  }
+
   // ── Derived values ─────────────────────────────────────────────
 
   // All tab shows only in-scope files; per-group tab shows all (incl. out-of-scope for context)
@@ -732,6 +787,10 @@ export function EditGroupDialog({
                                   <Merge className="h-4 w-4 mr-2" />
                                   Merge into…
                                 </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => removeGroupFromView(g.id)}>
+                                  <EyeOff className="h-4 w-4 mr-2" />
+                                  Remove from view
+                                </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem
                                   onClick={() => setDeleteConfirmGroupId(g.id)}
@@ -748,6 +807,20 @@ export function EditGroupDialog({
                     </div>
                   ))}
                 </div>
+
+                {/* Merge All button */}
+                {isMassEdit && groups.length >= 2 && (
+                  <div className="p-2.5 border-t border-border/30 shrink-0">
+                    <button
+                      onClick={() => setConfirmingMergeAll(true)}
+                      disabled={merging || saving}
+                      className="w-full text-[12px] py-1.5 rounded border border-border/40 bg-secondary/30 text-muted-foreground hover:bg-secondary/60 hover:text-foreground transition-colors flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <Merge className="h-3.5 w-3.5" />
+                      {merging ? 'Merging…' : 'Merge All'}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1032,6 +1105,19 @@ export function EditGroupDialog({
             ? groups.find((g) => g.id === mergeSourceGroupId)?.group_name
             : activeGroup?.group_name
         }
+      />
+
+      {/* Merge all confirmation (mass-edit mode) */}
+      <ConfirmDialog
+        open={confirmingMergeAll}
+        onOpenChange={setConfirmingMergeAll}
+        title="Merge All Groups"
+        description={`This will merge all ${groups.length} groups into "${groups[0]?.group_name ?? ''}". This cannot be undone.`}
+        confirmLabel="Merge All"
+        confirmVariant="default"
+        loadingLabel="Merging…"
+        onConfirm={handleMergeAll}
+        isLoading={merging}
       />
     </Dialog>
   )

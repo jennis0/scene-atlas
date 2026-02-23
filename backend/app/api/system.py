@@ -4,14 +4,24 @@ import logging
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..models.database import Image, ImageGroup, get_db
+from ..models import Image, ImageGroup, get_session_local
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def get_db(request: Request):
+    """Dependency to get database session."""
+    SessionLocal = get_session_local(request.app.state.db_engine)
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 def _dir_size(path: Path) -> int:
