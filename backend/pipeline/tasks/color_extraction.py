@@ -5,7 +5,7 @@ import numpy as np
 from sklearn.cluster import KMeans
 
 from backend.app.config import settings
-from backend.flows.logger import get_logger
+from backend.pipeline.logger import get_logger
 
 
 def rgb_to_hex(rgb: tuple) -> str:

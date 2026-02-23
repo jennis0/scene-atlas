@@ -29,7 +29,7 @@ def _patch_image_store(monkeypatch, tmp_path):
     from backend.app.services.image_store import ImageStore
 
     store = ImageStore(tmp_path / "store")
-    monkeypatch.setattr("backend.flows.ingestion.get_image_store", lambda: store)
+    monkeypatch.setattr("backend.pipeline.ingestion.get_image_store", lambda: store)
     return store
 
 
@@ -44,7 +44,7 @@ class TestMetadataRoundTrip:
         _patch_image_store,
     ):
         """A user-added tag that the parser would never produce must persist."""
-        from backend.flows.ingestion import process_single_image
+        from backend.pipeline.ingestion import process_single_image
 
         engine, SessionLocal = _patch_db_for_flows
         image_path = tmp_staging / "TestAuthor" / "TestMap" / "TestMap_Night_Grid.jpg"
@@ -105,7 +105,7 @@ class TestMetadataRoundTrip:
         _patch_image_store,
     ):
         """User sets gridded=True on a file that the parser would say is None."""
-        from backend.flows.ingestion import process_single_image
+        from backend.pipeline.ingestion import process_single_image
 
         engine, SessionLocal = _patch_db_for_flows
         # This file has no grid indicator in its name
@@ -144,7 +144,7 @@ class TestMetadataRoundTrip:
     ):
         """process_import_group should relay per-file metadata to process_single_image."""
         from backend.app.models import ImportJob
-        from backend.flows.ingestion import process_import_group
+        from backend.pipeline.ingestion import process_import_group
 
         engine, SessionLocal = _patch_db_for_flows
 

@@ -6,7 +6,7 @@ from PIL import Image
 
 from backend.app.config import settings
 from backend.app.services import get_thumbnail_store
-from backend.flows.logger import get_logger
+from backend.pipeline.logger import get_logger
 
 
 def generate_thumbnails(image_path: str, storage_key_stem: str) -> dict:

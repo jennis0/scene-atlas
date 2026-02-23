@@ -9,7 +9,7 @@ Targets three categories of images:
 3. Optionally re-detect all battlemaps (--force flag)
 
 Usage:
-    uv run python -m backend.flows.backfill_grid_detection
+    uv run python -m backend.pipeline.backfill_grid_detection
 """
 
 import logging
@@ -47,6 +47,8 @@ def detect_grids_batch(image_ids: list[int], force: bool = False) -> dict:
         max_dim=settings.grid_detection_max_dim,
         presence_threshold=settings.grid_presence_threshold,
         size_threshold=settings.grid_size_threshold,
+        period_ratio_threshold=settings.grid_period_ratio_threshold,
+        hex_rot_conf=settings.grid_hex_rot_conf,
     )
 
     detected = 0
@@ -59,11 +61,13 @@ def detect_grids_batch(image_ids: list[int], force: bool = False) -> dict:
             try:
                 # Skip non-battlemaps and videos
                 if image.image_type != "battlemap" or image.media_type == "video":
+                    logger.debug(f"Image {image.id}: skipped (type={image.image_type}, media={image.media_type})")
                     skipped += 1
                     continue
 
                 # Skip if filename explicitly says no grid
                 if image.gridded is False and not force:
+                    logger.debug(f"Image {image.id}: skipped (gridded=False from filename)")
                     skipped += 1
                     continue
 
@@ -87,18 +91,19 @@ def detect_grids_batch(image_ids: list[int], force: bool = False) -> dict:
                     # Full detection (presence + size)
                     result = detector.detect(file_path, image.width, image.height)
 
-                # Update record if we got meaningful results
-                if result["confidence"] > 0:
-                    if image.gridded is None:
-                        image.gridded = result["gridded"]
-                    if result["grid_width"] is not None:
-                        image.grid_width = result["grid_width"]
-                        image.grid_height = result["grid_height"]
-                    image.grid_type = result["grid_type"]
-                    image.grid_confidence = result["confidence"]
-                    detected += 1
-                else:
-                    skipped += 1
+                # Always write results to prevent re-querying.
+                # Detector returns gridded=None only when the file is
+                # unreadable; treat that as False for DB purposes since
+                # retrying won't help.
+                result_gridded = result["gridded"] if result["gridded"] is not None else False
+                if image.gridded is None or result_gridded is True:
+                    image.gridded = result_gridded
+                if result["grid_width"] is not None:
+                    image.grid_width = result["grid_width"]
+                    image.grid_height = result["grid_height"]
+                image.grid_type = result["grid_type"]
+                image.grid_confidence = result["confidence"]
+                detected += 1
 
             except Exception as e:
                 logger.error(f"Image {image.id}: grid detection error: {e}")
@@ -111,11 +116,12 @@ def detect_grids_batch(image_ids: list[int], force: bool = False) -> dict:
     return {"detected": detected, "skipped": skipped, "errors": errors}
 
 
-def backfill_grid_detection(force: bool = False):
+def backfill_grid_detection(force: bool = False, progress_fn=None):
     """Detect grid presence/size for battlemap images missing grid info.
 
     Args:
         force: If True, re-detect ALL battlemaps (not just those missing info).
+        progress_fn: Optional callback ``(current, total, message)`` injected by JobRunner.
     """
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)
@@ -130,9 +136,11 @@ def backfill_grid_detection(force: bool = False):
                 .order_by(Image.id)
             )
         else:
-            # Only battlemaps missing grid info:
+            # Only battlemaps that haven't been image-analysed yet:
             # - gridded is None (no filename hint, never detected)
-            # - gridded is True but grid_width is None (filename says gridded, no dims)
+            # - gridded is True but grid_confidence is None (filename says gridded,
+            #   but image analysis never ran — e.g. hex grids have grid_width=None
+            #   by design, so we can't use grid_width as the "not yet processed" signal)
             # Exclude gridded=False (filename explicitly said no grid)
             query = (
                 db.query(Image.id)
@@ -140,7 +148,10 @@ def backfill_grid_detection(force: bool = False):
                     Image.image_type == "battlemap",
                     or_(
                         Image.gridded.is_(None),
-                        and_(Image.gridded.is_(True), Image.grid_width.is_(None)),
+                        and_(
+                            Image.gridded.is_(True),
+                            Image.grid_confidence.is_(None),
+                        ),
                     ),
                 )
                 .order_by(Image.id)
@@ -166,7 +177,10 @@ def backfill_grid_detection(force: bool = False):
         totals["detected"] += result["detected"]
         totals["skipped"] += result["skipped"]
         totals["errors"] += result["errors"]
-        print(f"  Processed {min(i + BATCH_SIZE, total)}/{total}")
+        processed = min(i + BATCH_SIZE, total)
+        print(f"  Processed {processed}/{total}")
+        if progress_fn:
+            progress_fn(processed, total, f"Processed {processed}/{total}")
 
     print(
         f"Grid detection complete: {totals['detected']} detected, "

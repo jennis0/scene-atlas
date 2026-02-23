@@ -78,21 +78,20 @@ testpaths = [
 ]
 addopts = "--ignore=backend/tests/legacy --ignore=backend/tests/e2e"
 filterwarnings = [
-    # SQLAlchemy/Prefect internally use datetime.utcnow() — not our code, not actionable
+    # SQLAlchemy internally uses datetime.utcnow() — not our code, not actionable
     "ignore:datetime.datetime.utcnow\\(\\) is deprecated:DeprecationWarning",
 ]
 
 [tool.coverage.run]
-source = ["backend/app", "backend/flows"]
+source = ["backend/app", "backend/pipeline"]
 omit = [
     "backend/tests/*",
     "backend/alembic/*",
-    "backend/flows/deploy.py",
-    "backend/flows/backfill_content_hash.py",
-    "backend/flows/fix_orphaned_images.py",
-    "backend/flows/reparse_names.py",
-    "backend/flows/retag_all_images.py",
-    "backend/flows/write_new_embeddings.py",
+    "backend/pipeline/backfill_content_hash.py",
+    "backend/pipeline/fix_orphaned_images.py",
+    "backend/pipeline/reparse_names.py",
+    "backend/pipeline/retag_all_images.py",
+    "backend/pipeline/write_new_embeddings.py",
 ]
 
 [tool.coverage.report]

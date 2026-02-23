@@ -5,7 +5,7 @@ ImageParser on each image's filename to regenerate tags.
 Manually assigned tags (source='manual') are left untouched.
 
 Usage:
-    uv run python -m backend.flows.retag_all_images
+    uv run python -m backend.pipeline.retag_all_images
 """
 
 import logging

@@ -138,3 +138,27 @@ async def get_image_thumbnail(image_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Image file not found")
 
     return FileResponse(file_path)
+
+
+# ── Bulk Grid Detection ──────────────────────────────────────────────────────
+
+
+@router.post("/backfill-grids")
+async def trigger_backfill_grids(force: bool = False):
+    """Run grid detection on battlemaps missing grid info (background job).
+
+    Pass ?force=true to re-detect ALL battlemaps.
+    """
+    from ...pipeline.backfill_grid_detection import backfill_grid_detection
+    from ..services.job_runner import get_job_runner
+
+    try:
+        runner = get_job_runner()
+        job_id = runner.submit(
+            backfill_grid_detection, force=force, name="Backfill grid detection"
+        )
+        return {"job_id": job_id, "message": "Grid detection backfill started"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=503, detail=f"Could not start grid backfill job: {e}"
+        )

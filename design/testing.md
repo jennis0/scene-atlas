@@ -2,7 +2,7 @@
 
 ## Overview
 
-The test suite covers the ingestion pipeline end-to-end: parsing, flow orchestration, API endpoints, and the critical metadata round-trip that ensures user edits survive to the database.
+The test suite covers the ingestion pipeline end-to-end: parsing, pipeline functions, API endpoints, and the critical metadata round-trip that ensures user edits survive to the database.
 
 **No infrastructure required.** All tests run without external services. Qdrant's `QdrantClient` is mocked at import time to prevent creating local DB files during tests.
 
@@ -23,15 +23,16 @@ uv run pytest backend/tests/integration/test_metadata_roundtrip.py -v
 
 ```
 backend/tests/
-├── conftest.py              # Shared fixtures, Qdrant/Prefect mocking
+├── conftest.py              # Shared fixtures, Qdrant/CLIP mocking
 ├── unit/                    # Pure logic, no DB, no filesystem side effects
 │   ├── test_parser.py       # ImageParser.parse() and group_files()
 │   ├── test_schemas.py      # Pydantic model validation and round-trips
 │   └── test_thumbnail_names.py  # Preview thumbnail filename consistency
-├── integration/             # Real SQLite DB, mocked CLIP/Qdrant/Prefect
+├── integration/             # Real SQLite DB, mocked CLIP/Qdrant
 │   ├── test_metadata_roundtrip.py  # User edits survive to DB (highest priority)
-│   ├── test_analyse_flow.py        # analyse_upload flow (grouping + thumbnails)
+│   ├── test_analyse_upload.py      # analyse_upload (grouping + thumbnails)
 │   ├── test_process_single.py      # process_single_image (both modes)
+│   ├── test_process_import_group.py # process_import_group + process_import_job
 │   ├── test_upload_endpoint.py     # POST /imports/upload
 │   ├── test_confirm_endpoint.py    # POST /imports/{id}/confirm
 │   └── test_preview_endpoint.py    # GET /imports/{id}/preview/{path}
@@ -62,7 +63,7 @@ Each test gets a fresh SQLite DB via `tmp_db` fixture. The `test_client` fixture
 
 ### Mocking heavy services
 
-Use the `mock_heavy_services` fixture for any test that calls Prefect flows. It mocks:
+Use the `mock_heavy_services` fixture for any test that calls pipeline functions. It mocks:
 - `generate_clip_embedding` → dummy 512-dim vector
 - `qdrant_service.add_image_embedding` → returns True
 - `generate_thumbnails` → returns key dict without writing files
@@ -74,21 +75,21 @@ For integration tests that also need an `ImageStore`, add:
 def _patch_image_store(monkeypatch, tmp_path):
     from backend.app.services.image_store import ImageStore
     store = ImageStore(tmp_path / "store")
-    monkeypatch.setattr("backend.flows.ingestion.get_image_store", lambda: store)
+    monkeypatch.setattr("backend.pipeline.ingestion.get_image_store", lambda: store)
     return store
 ```
 
-### Mocking Prefect deployments (endpoint tests)
+### Mocking the JobRunner (endpoint tests)
 
-Endpoint tests mock `run_deployment` since they don't call flows directly:
+Endpoint tests mock the JobRunner since they don't call pipeline functions directly:
 ```python
-mock_run_deployment = AsyncMock(return_value=mock_flow_run)
-monkeypatch.setattr("backend.app.api.imports.run_deployment", mock_run_deployment)
+mock_runner = MagicMock()
+monkeypatch.setattr("backend.app.api.imports.get_job_runner", lambda: mock_runner)
 ```
 
-### Patching the DB for flow tests
+### Patching the DB for pipeline tests
 
-Flows read `settings.database_url` internally. Override it to point at the test DB:
+Pipeline functions read `settings.database_url` internally. Override it to point at the test DB:
 ```python
 monkeypatch.setattr("backend.app.config.settings.database_url", str(engine.url))
 ```
@@ -100,7 +101,7 @@ monkeypatch.setattr("backend.app.config.settings.database_url", str(engine.url))
 | New parser rule | `test_parser.py` — add case for parse() and/or group_files() |
 | New Pydantic schema | `test_schemas.py` — defaults, round-trip, serialization |
 | New API endpoint | New file in `integration/` — mock JobRunner, use TestClient |
-| New flow logic | `integration/` — call flow directly, mock heavy services |
+| New pipeline logic | `integration/` — call function directly, mock heavy services |
 | New metadata field | `test_metadata_roundtrip.py` — verify it survives the round-trip |
 
 ## Known quirks

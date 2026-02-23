@@ -127,6 +127,7 @@ async def search_images(
     image_types: list[str] = Query([]),
     media_types: list[str] = Query([]),
     gridded: bool | None = None,
+    gridded_unknown: bool = False,
     grid_type: str | None = None,
     limit: int = 500,
     offset: int = 0,
@@ -166,7 +167,9 @@ async def search_images(
     if media_types:
         sql_query = sql_query.filter(Image.media_type.in_(media_types))
 
-    if gridded is not None:
+    if gridded_unknown:
+        sql_query = sql_query.filter(Image.gridded.is_(None))
+    elif gridded is not None:
         sql_query = sql_query.filter(Image.gridded == gridded)
 
     if grid_type is not None:
@@ -307,7 +310,7 @@ async def trigger_rebuild_embeddings():
     Deletes and recreates the Qdrant collection, then re-encodes every image.
     Search will be unavailable while the rebuild is running.
     """
-    from ...flows.write_new_embeddings import rebuild_all_embeddings
+    from ...pipeline.write_new_embeddings import rebuild_all_embeddings
     from ..services.job_runner import get_job_runner
 
     try:

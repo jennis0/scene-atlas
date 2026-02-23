@@ -38,7 +38,7 @@ def _patch_image_store(monkeypatch, tmp_path):
     from backend.app.services.image_store import ImageStore
 
     store = ImageStore(tmp_path / "store")
-    monkeypatch.setattr("backend.flows.ingestion.get_image_store", lambda: store)
+    monkeypatch.setattr("backend.pipeline.ingestion.get_image_store", lambda: store)
     return store
 
 
@@ -108,7 +108,7 @@ class TestProcessImportGroupBasic:
         _patch_image_store,
     ):
         """Two staged files → processed=2, failed=0 in return value."""
-        from backend.flows.ingestion import process_import_group
+        from backend.pipeline.ingestion import process_import_group
 
         engine, SessionLocal, job_id, group_job_id = seeded_import_job
 
@@ -138,7 +138,7 @@ class TestProcessImportGroupBasic:
         _patch_image_store,
     ):
         """Image records appear in the DB with the correct author."""
-        from backend.flows.ingestion import process_import_group
+        from backend.pipeline.ingestion import process_import_group
 
         engine, SessionLocal, job_id, group_job_id = seeded_import_job
 
@@ -171,7 +171,7 @@ class TestProcessImportGroupBasic:
         _patch_image_store,
     ):
         """Images are linked to an ImageGroup with the correct base_name."""
-        from backend.flows.ingestion import process_import_group
+        from backend.pipeline.ingestion import process_import_group
 
         engine, SessionLocal, job_id, group_job_id = seeded_import_job
 
@@ -205,7 +205,7 @@ class TestProcessImportGroupBasic:
         _patch_image_store,
     ):
         """Each processed image is copied into the image store."""
-        from backend.flows.ingestion import process_import_group
+        from backend.pipeline.ingestion import process_import_group
 
         engine, SessionLocal, job_id, group_job_id = seeded_import_job
         store = _patch_image_store
@@ -246,7 +246,7 @@ class TestProcessImportGroupProgress:
         _patch_image_store,
     ):
         """ImportGroupJob.status transitions to 'completed' after the flow."""
-        from backend.flows.ingestion import process_import_group
+        from backend.pipeline.ingestion import process_import_group
 
         engine, SessionLocal, job_id, group_job_id = seeded_import_job
 
@@ -281,7 +281,7 @@ class TestProcessImportGroupProgress:
         _patch_image_store,
     ):
         """ImportJob.status is set to 'completed' once its group finishes."""
-        from backend.flows.ingestion import process_import_group
+        from backend.pipeline.ingestion import process_import_group
 
         engine, SessionLocal, job_id, group_job_id = seeded_import_job
 
@@ -320,7 +320,7 @@ class TestProcessImportGroupMissingFiles:
         _patch_image_store,
     ):
         """File absent from staging → counted as failed, does not crash."""
-        from backend.flows.ingestion import process_import_group
+        from backend.pipeline.ingestion import process_import_group
 
         engine, SessionLocal, job_id, group_job_id = seeded_import_job
 
@@ -349,7 +349,7 @@ class TestProcessImportGroupMissingFiles:
         _patch_image_store,
     ):
         """All files absent → processed=0, group still marked completed."""
-        from backend.flows.ingestion import process_import_group
+        from backend.pipeline.ingestion import process_import_group
 
         engine, SessionLocal, job_id, group_job_id = seeded_import_job
 
@@ -399,7 +399,7 @@ class TestProcessImportGroupReuseKey:
         """When reuse_storage_key is set, the new Image row uses that same key."""
         from backend.app.models.database import Color
 
-        from backend.flows.ingestion import process_import_group
+        from backend.pipeline.ingestion import process_import_group
 
         engine, SessionLocal, job_id, group_job_id = seeded_import_job
         store = _patch_image_store
@@ -510,7 +510,7 @@ class TestProcessImportJob:
         _patch_image_store,
     ):
         """Both groups are processed; both ImportGroupJob rows end as 'completed'."""
-        from backend.flows.ingestion import process_import_job
+        from backend.pipeline.ingestion import process_import_job
 
         engine, SessionLocal, job_id, grp_a_id, grp_b_id = two_group_job
 
@@ -560,7 +560,7 @@ class TestProcessImportJob:
         _patch_image_store,
     ):
         """Staging directory is removed once process_import_job completes."""
-        from backend.flows.ingestion import process_import_job
+        from backend.pipeline.ingestion import process_import_job
 
         engine, SessionLocal, job_id, grp_a_id, grp_b_id = two_group_job
 
@@ -597,7 +597,7 @@ class TestProcessImportJob:
         _patch_image_store,
     ):
         """ImportJob.status becomes 'completed' only after all groups finish."""
-        from backend.flows.ingestion import process_import_job
+        from backend.pipeline.ingestion import process_import_job
 
         engine, SessionLocal, job_id, grp_a_id, grp_b_id = two_group_job
 
@@ -680,11 +680,11 @@ class TestProcessImportJobErrorHandling:
         process_import_job now wraps each _run_group call in try/except, so a
         DB failure in one group marks it as failed and continues with the next.
         """
-        from backend.flows.ingestion import process_import_job
+        from backend.pipeline.ingestion import process_import_job
 
         engine, SessionLocal, job_id, grp_a_id, grp_b_id = two_group_job
 
-        from backend.flows.ingestion import batch_save_to_database as _original_fn
+        from backend.pipeline.ingestion import batch_save_to_database as _original_fn
 
         call_count = {"n": 0}
 
@@ -695,7 +695,7 @@ class TestProcessImportJobErrorHandling:
             return _original_fn(image_data_list)
 
         monkeypatch.setattr(
-            "backend.flows.ingestion.batch_save_to_database",
+            "backend.pipeline.ingestion.batch_save_to_database",
             _fail_first_then_succeed,
         )
 
@@ -749,7 +749,7 @@ class TestProcessImportGroupTimestamps:
         _patch_image_store,
     ):
         """ImportGroupJob.completed_at is populated (not None) after the flow."""
-        from backend.flows.ingestion import process_import_group
+        from backend.pipeline.ingestion import process_import_group
 
         engine, SessionLocal, job_id, group_job_id = seeded_import_job
 
@@ -779,7 +779,7 @@ class TestProcessImportGroupTimestamps:
         _patch_image_store,
     ):
         """ImportJob.completed_at is populated after all its groups finish."""
-        from backend.flows.ingestion import process_import_group
+        from backend.pipeline.ingestion import process_import_group
 
         engine, SessionLocal, job_id, group_job_id = seeded_import_job
 

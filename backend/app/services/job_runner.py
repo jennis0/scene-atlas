@@ -1,9 +1,8 @@
 """In-process background job runner with bounded concurrency and status tracking.
 
-Replaces Prefect for submitting and executing background work (imports,
-retagging, backfills) within the FastAPI process.  Jobs run in a
-``ThreadPoolExecutor`` so heavy processing (CLIP, thumbnails) doesn't
-block the async event loop.
+Submits and executes background work (imports, retagging, backfills) within
+the FastAPI process.  Jobs run in a ``ThreadPoolExecutor`` so heavy
+processing (CLIP, thumbnails) doesn't block the async event loop.
 
 Usage from API endpoints::
 

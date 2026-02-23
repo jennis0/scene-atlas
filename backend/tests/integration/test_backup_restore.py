@@ -13,7 +13,7 @@ from pathlib import Path
 
 from backend.app.models import Color, Image, ImageGroup, Tag
 from backend.app.models.database import get_engine, get_session_local, seed_tag_categories
-from backend.flows.maintenance import backup_sqlite, rotate_backups
+from backend.pipeline.maintenance import backup_sqlite, rotate_backups
 
 # ---------------------------------------------------------------------------
 # Helpers

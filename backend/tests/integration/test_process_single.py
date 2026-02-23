@@ -26,7 +26,7 @@ def _patch_image_store(monkeypatch, tmp_path):
     from backend.app.services.image_store import ImageStore
 
     store = ImageStore(tmp_path / "store")
-    monkeypatch.setattr("backend.flows.ingestion.get_image_store", lambda: store)
+    monkeypatch.setattr("backend.pipeline.ingestion.get_image_store", lambda: store)
     return store
 
 
@@ -40,7 +40,7 @@ class TestProcessSingleImageWithMetadata:
         _patch_db_for_flows,
         _patch_image_store,
     ):
-        from backend.flows.ingestion import process_single_image
+        from backend.pipeline.ingestion import process_single_image
 
         engine, SessionLocal = _patch_db_for_flows
         image_path = tmp_staging / "TestAuthor" / "TestMap" / "TestMap_Summer.jpg"
@@ -82,7 +82,7 @@ class TestProcessSingleImageWithSourceDir:
         _patch_db_for_flows,
         _patch_image_store,
     ):
-        from backend.flows.ingestion import process_single_image
+        from backend.pipeline.ingestion import process_single_image
 
         engine, SessionLocal = _patch_db_for_flows
         image_path = tmp_staging / "TestAuthor" / "TestMap" / "TestMap_Night_Grid.jpg"
@@ -113,7 +113,7 @@ class TestProcessSingleImageStoresFile:
         _patch_db_for_flows,
         _patch_image_store,
     ):
-        from backend.flows.ingestion import process_single_image
+        from backend.pipeline.ingestion import process_single_image
 
         store = _patch_image_store
         image_path = tmp_staging / "FlatFile.jpg"

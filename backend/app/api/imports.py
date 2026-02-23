@@ -291,7 +291,7 @@ async def upload_files(
             f"Running analyse_upload for {len(all_relative_paths)} files "
             f"({len(saved_relative_paths)} uploaded, {len(manifest_entries)} from manifest)"
         )
-        from ...flows.ingestion import analyse_upload
+        from ...pipeline.ingestion import analyse_upload
 
         runner = get_job_runner()
         try:
@@ -431,7 +431,7 @@ async def confirm_import(
         f"Submitting process_import_group for job {job_id}, "
         f"group_job {group_job_id}: {len(valid_files)} files, group '{body.group_name}'"
     )
-    from ...flows.ingestion import process_import_group
+    from ...pipeline.ingestion import process_import_group
 
     runner = get_job_runner()
     runner.submit(
@@ -534,7 +534,7 @@ async def confirm_all_groups(
     if not groups_payload:
         raise HTTPException(status_code=400, detail="No valid files found in any group")
 
-    from ...flows.ingestion import process_import_job
+    from ...pipeline.ingestion import process_import_job
 
     runner = get_job_runner()
     runner.submit(

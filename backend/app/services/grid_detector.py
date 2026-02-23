@@ -118,7 +118,13 @@ class GridDetector:
 
         if min_cell >= max_cell:
             logger.debug("Image too small for grid detection after scaling")
-            return {**_NO_GRID}
+            return {
+                "gridded": False,
+                "grid_type": None,
+                "grid_width": None,
+                "grid_height": None,
+                "confidence": 0.0,
+            }
 
         # --- Standard orientation ---
         std = self._run_ac_on_edges(edges, min_cell, max_cell)
@@ -143,10 +149,18 @@ class GridDetector:
         )
 
         # --- Classification ---
+        # Note: _NO_GRID has gridded=None (truly unknown / couldn't analyze).
+        # When we HAVE analyzed and concluded no grid, we return gridded=False.
 
         # 1. No grid if overall confidence too low
         if max_conf < threshold:
-            return {**_NO_GRID, "confidence": max_conf}
+            return {
+                "gridded": False,
+                "grid_type": None,
+                "grid_width": None,
+                "grid_height": None,
+                "confidence": max_conf,
+            }
 
         # 2. Hex: rotation signal is the key discriminator
         #    (30deg rotation aligns one set of hex lines with the vertical axis,
@@ -167,8 +181,14 @@ class GridDetector:
                 std, scale, orig_width, orig_height
             )
 
-        # 4. No grid
-        return {**_NO_GRID, "confidence": max_conf}
+        # 4. No grid (above threshold but didn't match square or hex pattern)
+        return {
+            "gridded": False,
+            "grid_type": None,
+            "grid_width": None,
+            "grid_height": None,
+            "confidence": max_conf,
+        }
 
     def _run_ac_on_edges(
         self,

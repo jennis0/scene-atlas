@@ -4,7 +4,7 @@ Finds all images with group_id = NULL and assigns them all
 to a single "Uncategorised" group.
 
 Usage:
-    uv run python -m backend.flows.fix_orphaned_images
+    uv run python -m backend.pipeline.fix_orphaned_images
 """
 
 import logging

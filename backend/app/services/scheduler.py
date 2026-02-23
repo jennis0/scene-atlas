@@ -1,8 +1,8 @@
 """Lightweight periodic task scheduler.
 
-Replaces Prefect's cron-scheduled deployments for maintenance tasks
-(database backup, staging cleanup).  Runs inside the FastAPI process
-using ``asyncio`` tasks started during the application lifespan.
+Runs maintenance tasks (database backup, staging cleanup) at fixed intervals
+inside the FastAPI process using ``asyncio`` tasks started during the
+application lifespan.
 
 Usage::
 

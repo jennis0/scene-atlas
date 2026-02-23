@@ -5,7 +5,7 @@ Functions:
     cleanup_staging  — Remove stale staging directories older than 24h. Runs every 6h.
 
 Scheduled by the Scheduler (started in FastAPI lifespan).  Also runnable
-from the CLI: ``uv run python -m backend.flows.maintenance``
+from the CLI: ``uv run python -m backend.pipeline.maintenance``
 """
 
 import shutil
@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from backend.app.config import settings
-from backend.flows.logger import get_logger
+from backend.pipeline.logger import get_logger
 
 
 # ---------------------------------------------------------------------------

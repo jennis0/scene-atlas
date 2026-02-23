@@ -350,7 +350,7 @@ async def get_tag_statistics(db: Session = Depends(get_db)):
 @router.post("/retag-all")
 async def trigger_retag_all():
     """Trigger the retag_all_images job (fire-and-forget)."""
-    from ...flows.retag_all_images import retag_all_images
+    from ...pipeline.retag_all_images import retag_all_images
     from ..services.job_runner import get_job_runner
 
     try:

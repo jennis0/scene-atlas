@@ -109,18 +109,18 @@ def mock_heavy_services(monkeypatch):
     """Mock CLIP + Qdrant + thumbnails so integration tests don't need real infrastructure.
 
     The batch pipeline calls task functions via .fn() from their source modules,
-    so we mock at the source (backend.flows.tasks.*) not at the ingestion module level.
+    so we mock at the source (backend.pipeline.tasks.*) not at the ingestion module level.
     """
     dummy_embedding = [0.1] * 512
 
     # Mock single-image CLIP (used by process_single_image wrapper)
     monkeypatch.setattr(
-        "backend.flows.ingestion.generate_clip_embedding",
+        "backend.pipeline.ingestion.generate_clip_embedding",
         lambda *args, **kwargs: dummy_embedding,
     )
     # Mock batch CLIP (used by batch pipeline)
     monkeypatch.setattr(
-        "backend.flows.ingestion.batch_generate_clip_embeddings",
+        "backend.pipeline.ingestion.batch_generate_clip_embeddings",
         lambda image_paths, **kwargs: [dummy_embedding] * len(image_paths),
     )
 
@@ -130,7 +130,7 @@ def mock_heavy_services(monkeypatch):
     mock_qdrant_svc.batch_add_embeddings.return_value = True
     mock_qdrant_svc.get_embedding.return_value = None
     monkeypatch.setattr(
-        "backend.flows.ingestion.get_qdrant_service",
+        "backend.pipeline.ingestion.get_qdrant_service",
         lambda: mock_qdrant_svc,
     )
 
@@ -151,7 +151,7 @@ def mock_heavy_services(monkeypatch):
         }
 
     monkeypatch.setattr(
-        "backend.flows.tasks.image_processing.generate_thumbnails",
+        "backend.pipeline.tasks.image_processing.generate_thumbnails",
         mock_generate_thumbnails,
     )
 
@@ -163,7 +163,7 @@ def mock_heavy_services(monkeypatch):
         ]
 
     monkeypatch.setattr(
-        "backend.flows.tasks.color_extraction.extract_dominant_colors",
+        "backend.pipeline.tasks.color_extraction.extract_dominant_colors",
         mock_extract_colors,
     )
 

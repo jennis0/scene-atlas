@@ -21,7 +21,7 @@ class TestAnalyseUpload:
     """analyse_upload flow: grouping, hash computation, and duplicate detection."""
 
     def test_groups_detected(self, tmp_staging, _patch_db_for_parser):
-        from backend.flows.ingestion import analyse_upload
+        from backend.pipeline.ingestion import analyse_upload
 
         relative_paths = [
             "TestAuthor/TestMap/TestMap_Night_Grid.jpg",
@@ -54,7 +54,7 @@ class TestAnalyseUpload:
 
     def test_content_hash_computed(self, tmp_staging, _patch_db_for_parser):
         """analyse_upload computes a SHA-256 content_hash for each staged file."""
-        from backend.flows.ingestion import analyse_upload
+        from backend.pipeline.ingestion import analyse_upload
 
         relative_paths = [
             "TestAuthor/TestMap/TestMap_Night_Grid.jpg",
@@ -72,7 +72,7 @@ class TestAnalyseUpload:
         assert len(file_entry["content_hash"]) == 64
 
     def test_parsed_metadata_present(self, tmp_staging, _patch_db_for_parser):
-        from backend.flows.ingestion import analyse_upload
+        from backend.pipeline.ingestion import analyse_upload
 
         relative_paths = [
             "TestAuthor/TestMap/TestMap_Night_Grid.jpg",

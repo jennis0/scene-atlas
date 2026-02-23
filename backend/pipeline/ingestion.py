@@ -339,8 +339,8 @@ def prepare_single_image(
 
         # --- Generate thumbnails + get dimensions ---
         # --- Extract colors ---
-        from backend.flows.tasks.color_extraction import extract_dominant_colors as _extract_colors
-        from backend.flows.tasks.image_processing import generate_thumbnails as _gen_thumbs
+        from backend.pipeline.tasks.color_extraction import extract_dominant_colors as _extract_colors
+        from backend.pipeline.tasks.image_processing import generate_thumbnails as _gen_thumbs
 
         is_video = ext in settings.supported_video_formats
 
@@ -376,7 +376,7 @@ def prepare_single_image(
             and image_type == "battlemap"
             and not is_video
         ):
-            from backend.flows.tasks.grid_detection import (
+            from backend.pipeline.tasks.grid_detection import (
                 detect_grid_from_image as _detect_grid,
             )
 

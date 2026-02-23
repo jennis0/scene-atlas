@@ -192,7 +192,6 @@ class ImportGroupJob(Base):
     failed_files = Column(Integer, default=0)
     status = Column(String, nullable=False, default="running")
     # status values: running, completed, failed, cancelled
-    flow_run_id = Column(String, nullable=True)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)

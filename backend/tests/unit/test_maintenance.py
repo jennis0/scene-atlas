@@ -1,7 +1,7 @@
-"""Unit tests for maintenance flow helper functions.
+"""Unit tests for maintenance helper functions.
 
 Tests rotate_backups() and cleanup_stale_staging() as pure functions.
-The backup_sqlite task and the full backup_database flow are already covered by
+The backup_sqlite and full backup_database functions are already covered by
 test_backup_restore.py (integration test).
 """
 
@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from backend.flows.maintenance import cleanup_stale_staging, rotate_backups
+from backend.pipeline.maintenance import cleanup_stale_staging, rotate_backups
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +109,7 @@ class TestCleanupStaleStaging:
     def test_nonexistent_staging_root_returns_zero(self, tmp_path, monkeypatch):
         mock_settings = MagicMock()
         mock_settings.staging_dir = tmp_path / "no_staging_here"
-        monkeypatch.setattr("backend.flows.maintenance.settings", mock_settings)
+        monkeypatch.setattr("backend.pipeline.maintenance.settings", mock_settings)
 
         result = cleanup_stale_staging(max_age_hours=24)
         assert result == 0
@@ -119,7 +119,7 @@ class TestCleanupStaleStaging:
         staging.mkdir()
         mock_settings = MagicMock()
         mock_settings.staging_dir = staging
-        monkeypatch.setattr("backend.flows.maintenance.settings", mock_settings)
+        monkeypatch.setattr("backend.pipeline.maintenance.settings", mock_settings)
 
         result = cleanup_stale_staging(max_age_hours=24)
         assert result == 0
@@ -133,7 +133,7 @@ class TestCleanupStaleStaging:
 
         mock_settings = MagicMock()
         mock_settings.staging_dir = staging
-        monkeypatch.setattr("backend.flows.maintenance.settings", mock_settings)
+        monkeypatch.setattr("backend.pipeline.maintenance.settings", mock_settings)
 
         result = cleanup_stale_staging(max_age_hours=24)
         assert result == 0
@@ -151,7 +151,7 @@ class TestCleanupStaleStaging:
 
         mock_settings = MagicMock()
         mock_settings.staging_dir = staging
-        monkeypatch.setattr("backend.flows.maintenance.settings", mock_settings)
+        monkeypatch.setattr("backend.pipeline.maintenance.settings", mock_settings)
 
         result = cleanup_stale_staging(max_age_hours=24)
         assert result == 1
@@ -172,7 +172,7 @@ class TestCleanupStaleStaging:
 
         mock_settings = MagicMock()
         mock_settings.staging_dir = staging
-        monkeypatch.setattr("backend.flows.maintenance.settings", mock_settings)
+        monkeypatch.setattr("backend.pipeline.maintenance.settings", mock_settings)
 
         result = cleanup_stale_staging(max_age_hours=24)
         assert result == 1
@@ -188,7 +188,7 @@ class TestCleanupStaleStaging:
 
         mock_settings = MagicMock()
         mock_settings.staging_dir = staging
-        monkeypatch.setattr("backend.flows.maintenance.settings", mock_settings)
+        monkeypatch.setattr("backend.pipeline.maintenance.settings", mock_settings)
 
         result = cleanup_stale_staging(max_age_hours=24)
         assert result == 0

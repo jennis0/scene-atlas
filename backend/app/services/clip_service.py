@@ -21,10 +21,9 @@ class CLIPService:
 
         The transformers import is deferred to here rather than module level.
         On Windows, newer transformers versions scan their own directory tree at
-        import time and hit an OSError (EINVAL) on certain files.  Prefect loads
-        the flow module on every flow-run startup, so a top-level transformers
-        import would crash every flow before any work begins.  Keeping it lazy
-        means only processes that actually instantiate CLIPService pay the cost.
+        import time and hit an OSError (EINVAL) on certain files.  Keeping it
+        lazy means only processes that actually instantiate CLIPService pay the
+        cost.
         """
         from transformers import CLIPModel, CLIPProcessor
 

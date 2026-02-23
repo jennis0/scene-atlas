@@ -1,4 +1,4 @@
-"""Prefect tasks package."""
+"""Per-image processing tasks (thumbnails, colors, CLIP, grids)."""
 
 from .color_extraction import extract_dominant_colors
 from .embedding_generation import generate_clip_embedding

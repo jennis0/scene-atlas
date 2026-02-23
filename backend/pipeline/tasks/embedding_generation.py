@@ -4,7 +4,7 @@ from pathlib import Path
 
 from backend.app.config import settings
 from backend.app.services import get_clip_service
-from backend.flows.logger import get_logger
+from backend.pipeline.logger import get_logger
 
 
 def generate_clip_embedding(image_path: str) -> list[float]:

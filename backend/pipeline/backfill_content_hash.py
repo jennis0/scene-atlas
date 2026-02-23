@@ -4,7 +4,7 @@ Reads each image file from the ImageStore, computes its SHA-256 digest,
 and writes the hash back to the database.
 
 Usage:
-    uv run python -m backend.flows.backfill_content_hash
+    uv run python -m backend.pipeline.backfill_content_hash
 """
 
 import hashlib

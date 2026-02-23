@@ -4,7 +4,7 @@ from pathlib import Path
 
 from backend.app.config import settings
 from backend.app.services.grid_detector import GridDetector
-from backend.flows.logger import get_logger
+from backend.pipeline.logger import get_logger
 
 
 def detect_grid_from_image(
@@ -16,7 +16,7 @@ def detect_grid_from_image(
     """Detect grid presence, type, and dimensions from an image.
 
     Args:
-        image_path: Path to the image (as string for Prefect serialization).
+        image_path: Path to the image.
         width: Original image width in pixels.
         height: Original image height in pixels.
         size_only: If True, skip presence detection (assumes grid exists).

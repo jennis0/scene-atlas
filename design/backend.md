@@ -2,7 +2,7 @@
 
 ## Overview
 
-The backend is a **FastAPI** application serving a REST API for image management, search, and import. It connects to SQLite (relational data), Qdrant (vector embeddings), and the filesystem (image/thumbnail storage).
+The backend is a **FastAPI** application serving a REST API for image management, search, and import. It connects to SQLite (relational data), Qdrant embedded (vector embeddings), and the filesystem (image/thumbnail storage). Background work runs in-process via a `JobRunner` (ThreadPoolExecutor) and periodic maintenance via a `Scheduler` (asyncio).
 
 ## Directory Structure
 
@@ -10,28 +10,46 @@ The backend is a **FastAPI** application serving a REST API for image management
 backend/
 ├── app/
 │   ├── api/              # API route handlers
+│   │   ├── groups.py     # Image group CRUD, merge, mass-edit
 │   │   ├── images.py     # CRUD + file serving for images
 │   │   ├── imports.py    # Web import upload/confirm/status
+│   │   ├── jobs.py       # Background job status API
 │   │   ├── search.py     # Text, filter, and semantic search
 │   │   └── tags.py       # Tag categories and tag CRUD
 │   ├── models/
 │   │   ├── database.py   # SQLAlchemy models + DB setup + seed data
 │   │   └── schemas.py    # Pydantic request/response schemas
 │   ├── services/
-│   │   ├── image_parser.py      # Filename/path metadata parser
 │   │   ├── clip_service.py      # CLIP model for embeddings
+│   │   ├── color_search.py      # Color-based image search (LAB distance)
+│   │   ├── deletion_service.py  # Cascade deletion (image + store + Qdrant)
+│   │   ├── fts_service.py       # SQLite FTS5 full-text search
+│   │   ├── grid_detector.py     # Image-based grid detection algorithm
+│   │   ├── image_parser.py      # Filename/path metadata parser
 │   │   ├── image_store.py       # Hash-sharded filesystem storage
-│   │   └── qdrant_service.py    # Qdrant vector DB client
+│   │   ├── job_runner.py        # Background job runner (ThreadPoolExecutor)
+│   │   ├── qdrant_service.py    # Qdrant embedded vector DB client
+│   │   ├── scheduler.py         # Periodic task scheduler (asyncio)
+│   │   ├── validation.py        # Input validation helpers
+│   │   └── video_utils.py       # Video frame extraction + dimensions
 │   ├── config.py         # Pydantic settings (env-driven)
 │   └── main.py           # FastAPI app creation, router mounting, startup
-├── flows/
-│   ├── ingestion.py      # Prefect flows: process_single_image, bulk_image_ingestion
-│   ├── deploy.py         # Prefect deployment registration
+├── pipeline/
+│   ├── ingestion.py              # Image ingestion (analyse, process, bulk ingest)
+│   ├── maintenance.py            # Backup + staging cleanup (scheduled)
+│   ├── logger.py                 # Logging helper for pipeline modules
+│   ├── backfill_content_hash.py  # Hash backfill CLI utility
+│   ├── backfill_grid_detection.py # Grid detection backfill CLI utility
+│   ├── fix_orphaned_images.py    # Orphaned image repair CLI utility
+│   ├── reparse_names.py          # Name reparsing CLI utility
+│   ├── retag_all_images.py       # Retagging CLI utility
+│   ├── write_new_embeddings.py   # Embedding regeneration (background job)
 │   └── tasks/
 │       ├── color_extraction.py      # K-means dominant color extraction
 │       ├── embedding_generation.py  # CLIP embedding generation
-│       ├── image_processing.py      # Thumbnails, dimensions, file size
-│       └── metadata_extraction.py   # Upload metadata helper (uses parser)
+│       ├── grid_detection.py        # Image-based grid analysis
+│       └── image_processing.py      # Thumbnails, dimensions, file size
+├── alembic/              # Database migrations
 └── tests/
 ```
 
@@ -45,16 +63,28 @@ backend/
 | GET | `/api/v1/images/{id}/scenes` | Get group members (scenes) |
 | GET | `/api/v1/images/{id}/file` | Serve original image file |
 | GET | `/api/v1/images/{id}/thumbnail` | Serve thumbnail (falls back to original) |
+| POST | `/api/v1/images/backfill-grids` | Trigger grid detection backfill |
 | GET | `/api/v1/search/` | Multi-faceted search (text, tags, colors, semantic) |
-| GET | `/api/v1/search/semantic` | Pure semantic search via CLIP |
+| GET | `/api/v1/search/facets` | Filter panel facet counts |
+| POST | `/api/v1/search/rebuild-embeddings` | Trigger CLIP embedding rebuild |
+| GET | `/api/v1/groups/` | List image groups |
+| GET | `/api/v1/groups/{id}` | Get group with members |
+| PUT | `/api/v1/groups/{id}` | Update group metadata |
+| DELETE | `/api/v1/groups/{id}` | Delete group |
+| POST | `/api/v1/groups/{id}/merge` | Merge another group into this one |
+| PUT | `/api/v1/groups/mass-edit` | Bulk update multiple groups |
 | GET | `/api/v1/tags/categories` | List tag categories |
 | GET | `/api/v1/tags/values/{category}` | List values for a category |
 | POST | `/api/v1/tags/image/{id}` | Add tag to image |
 | DELETE | `/api/v1/tags/{tag_id}` | Remove a tag |
-| GET | `/api/v1/tags/stats` | Tag statistics |
+| POST | `/api/v1/tags/retag-all` | Trigger full retag job |
 | POST | `/api/v1/imports/upload` | Upload files for import analysis |
 | POST | `/api/v1/imports/{job_id}/confirm` | Confirm a group for processing |
+| POST | `/api/v1/imports/{job_id}/confirm-all` | Confirm all groups at once |
 | GET | `/api/v1/imports/{job_id}/status` | Check import job progress |
+| GET | `/api/v1/imports/active` | List active import jobs |
+| GET | `/api/v1/jobs/` | List background jobs |
+| GET | `/api/v1/jobs/{id}` | Get background job status |
 
 ## Services
 
@@ -65,10 +95,16 @@ Hash-sharded object store. Interface: `put(key, path)`, `get_path(key)`, `delete
 Singleton wrapping HuggingFace CLIP ViT-B/32. Lazy-loaded on first use. Methods: `encode_image(path) -> [float]`, `encode_text(query) -> [float]`, `batch_encode_images(paths)`.
 
 ### QdrantService
-Client for the Qdrant vector DB. Manages the `battlemap_images` collection. Methods: `add_image_embedding`, `search_similar`, `delete_image_embedding`.
+Embedded Qdrant vector DB client (local mode, no Docker). Manages the `battlemap_images` collection. Thread-safe via `threading.RLock`. Methods: `add_image_embedding`, `search_similar`, `delete_image_embedding`, `batch_add_embeddings`.
 
 ### ImageParser
 Filename/path parser with DB-driven tag vocabulary. See [parser.md](parser.md).
+
+### JobRunner
+In-process background job runner using `ThreadPoolExecutor` (default 2 workers). Tracks job status, progress, and results in memory. Jobs are submitted from API endpoints and execute pipeline functions.
+
+### Scheduler
+Lightweight asyncio-based periodic task scheduler. Registers maintenance tasks (`backup_database` every 24h, `cleanup_staging` every 6h) during FastAPI lifespan startup.
 
 ## Configuration
 

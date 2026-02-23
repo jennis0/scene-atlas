@@ -33,7 +33,7 @@ This document records all significant architectural decisions for the Scene Atla
 
 **Consequences:**
 - SQLite is zero-config, single-file, good enough for a single-user desktop tool
-- Qdrant runs as a Docker container alongside the Prefect infrastructure
+- Qdrant runs as an embedded local instance (no Docker required)
 - Semantic search queries Qdrant first (returns image IDs), then hydrates from SQLite
 - If Qdrant is down, text/filter search still works; only semantic search degrades
 
@@ -42,19 +42,16 @@ This document records all significant architectural decisions for the Scene Atla
 ## ADR-003: Prefect for flow orchestration
 
 **Date:** 2025-01 (initial design)
-**Status:** Accepted
+**Status:** Superseded by ADR-012
 
 **Context:** Image ingestion is a multi-step pipeline (parse metadata, copy to store, generate thumbnails, extract colors, generate CLIP embeddings, save to DB, save to Qdrant). We need observability, retries, and async execution.
 
 **Decision:** Use Prefect 3 with a Docker-hosted server (Postgres + Redis backend). Flows are defined in `backend/flows/` and can be run directly (for dev/CLI) or submitted as deployments (for async execution via workers).
 
-**Consequences:**
+**Consequences:** *(historical — see ADR-012 for current architecture)*
 - `process_single_image` is a Prefect `@flow`; sub-steps are `@task`s with retry support
 - Prefect server provides a UI at `localhost:4200` for monitoring flow runs
-- The `ImportJob` model has a `flow_run_id` field for linking to Prefect tracking
 - Docker Compose runs: Prefect server, Prefect services, Prefect worker, Postgres, Redis, Qdrant
-- Web import processing uses Prefect deployments for both analysis and processing (see ADR-007)
-- Worker runs locally (not in Docker) for filesystem and dependency access
 
 ---
 
@@ -122,26 +119,16 @@ This document records all significant architectural decisions for the Scene Atla
 ## ADR-007: Web import uses Prefect deployments for all processing
 
 **Date:** 2025-02
-**Status:** Accepted (implemented)
+**Status:** Superseded by ADR-012
 
-**Context:** The web import needs two data processing phases: (1) analysing uploaded files to detect image groups, and (2) processing confirmed groups through the full ingestion pipeline. Both should be orchestrated through Prefect for observability, retries, and scalability. The analysis step may grow to include heavyweight compute (AV scanning, AI metadata extraction) in future.
+**Context:** The web import needs two data processing phases: (1) analysing uploaded files to detect image groups, and (2) processing confirmed groups through the full ingestion pipeline. Both should be orchestrated through Prefect for observability, retries, and scalability.
 
-**Decision:** Two Prefect deployments handle web import processing:
+**Decision:** Two Prefect deployments handle web import processing: `analyse_upload` (synchronous) and `process_import_group` (async fire-and-forget).
 
-1. **`analyse_upload`** — Called synchronously by the upload endpoint (`run_deployment(timeout=120)`). Parses and groups files via `ImageParser.group_files()`. Uses `persist_result=True` so the API process can retrieve results from the worker.
-
-2. **`process_import_group`** — Called async by the confirm endpoint (`run_deployment(timeout=0)`). Processes each file via `process_single_image` subflow. Updates `ImportJob` progress counters after each image. The `flow_run_id` is stored on the `ImportJob` for tracking.
-
-The worker runs **locally** (not in Docker) because it needs project code, Python dependencies (CLIP, PIL, scikit-learn), and filesystem access. Docker Compose provides only infrastructure (Prefect server, Postgres, Redis).
-
-**Consequences:**
-- All data processing is visible in the Prefect UI at localhost:4200
-- Retry support from Prefect on all tasks
-- `ImportJob.flow_run_id` links to the Prefect flow run
-- Upload has ~2-5s additional latency (worker polling + subprocess startup) for the analysis step
-- Requires: Docker infrastructure running, deployments registered, local worker running
-- The `ThreadPoolExecutor` and `_process_group_sync` from imports.py have been removed
-- All flow/task parameters use primitive types (str, dict, list) for JSON serialization
+**Consequences:** *(historical — see ADR-012 for current architecture)*
+- Prefect provided observability and retry support
+- Required Docker infrastructure (Prefect server, Postgres, Redis) plus a local worker
+- Added ~2-5s latency to uploads due to worker polling
 
 ---
 
@@ -189,7 +176,7 @@ The worker runs **locally** (not in Docker) because it needs project code, Pytho
 
 **Decision:** Two separate concerns addressed together:
 
-1. **Backups via Prefect flows**: A `backup_database` flow in `backend/flows/maintenance.py` creates a consistent SQLite snapshot (using the `sqlite3.backup()` API, not file copy) and a Qdrant snapshot (via REST API). It rotates old backups: keep last 7 daily + 4 weekly. Registered as a scheduled Prefect deployment running daily at 03:00 UTC. A companion `cleanup_staging` flow removes stale import staging directories (>24h old) every 6 hours. Both flows are observable and manually triggerable via the Prefect UI.
+1. **Automated backups**: A `backup_database` function in `backend/pipeline/maintenance.py` creates a consistent SQLite snapshot (using the `sqlite3.backup()` API, not file copy) and a Qdrant snapshot. It rotates old backups: keep last 7 daily + 4 weekly. Scheduled every 24h via the Scheduler. A companion `cleanup_staging` function removes stale import staging directories (>24h old) every 6h.
 
 2. **Alembic for schema migrations**: The hand-rolled migration code in `init_db()` is replaced with Alembic. A single initial migration (`001_initial_schema.py`) captures the complete current schema including FTS5 virtual table and triggers. `init_db()` now detects whether the database is fresh (runs all migrations), pre-Alembic (stamps at head), or already Alembic-managed (runs pending migrations). Future schema changes are added as numbered Alembic migration files.
 
@@ -199,7 +186,7 @@ The worker runs **locally** (not in Docker) because it needs project code, Pytho
 - Alembic: schema changes are versioned, reviewable, and revertable; `alembic upgrade head` is the canonical way to apply migrations
 - The `alembic.ini` at project root allows CLI use: `uv run alembic upgrade head`
 - Image store files are not backed up by the script — they are large, append-only blobs and the originals typically exist elsewhere; document this assumption
-- Qdrant embeddings can be regenerated from images via `write_new_embeddings` flow if the Qdrant snapshot is unavailable
+- Qdrant embeddings can be regenerated from images via `write_new_embeddings` if the Qdrant snapshot is unavailable
 
 ---
 
@@ -238,3 +225,39 @@ The system also needed a way to distinguish between battlemaps (which have grid 
 - `image_type` enables type-specific behavior in both parser and UI
 - Future image types (e.g., "token", "handout") can be added by extending the enum
 - The column aliasing pattern means raw SQL queries against the DB still use old column names — documented for anyone inspecting the DB directly
+
+---
+
+## ADR-012: In-process job execution (replacing Prefect)
+
+**Date:** 2026-02
+**Status:** Accepted (supersedes ADR-003, ADR-007)
+
+**Context:** Prefect required Docker infrastructure (Prefect server, Postgres, Redis) plus a local worker process. This was heavyweight for a single-user desktop tool: 5 containers running for what amounts to background task execution. Deployment registration, worker polling latency (~2-5s per job start), and cross-process result passing added unnecessary complexity. The observability benefits were rarely used in practice.
+
+**Decision:** Replace Prefect with two in-process services:
+
+1. **JobRunner** (`backend/app/services/job_runner.py`):
+   - In-process `ThreadPoolExecutor` with bounded concurrency (default 2 workers)
+   - Submits background functions (import processing, retagging, backfills, embedding rebuilds)
+   - Tracks job status (`queued`, `running`, `completed`, `failed`), progress percentage, and result in memory
+   - Supports `progress_fn` callback for real-time status updates
+   - Status exposed via `/api/v1/jobs/` REST endpoints
+   - `run_sync()` method for synchronous execution (used by `analyse_upload`)
+
+2. **Scheduler** (`backend/app/services/scheduler.py`):
+   - Lightweight asyncio-based periodic task runner
+   - Registers maintenance functions with fixed intervals (backup every 24h, staging cleanup every 6h)
+   - Runs inside the FastAPI application lifespan
+   - Executes tasks via `loop.run_in_executor()` to avoid blocking the event loop
+
+Pipeline functions in `backend/pipeline/` are now plain Python functions — no decorators, no serialization constraints. They can be called directly (CLI), submitted to JobRunner (API), or scheduled (Scheduler).
+
+**Consequences:**
+- Zero external infrastructure — no Docker, no Postgres, no Redis
+- Sub-second job start latency (direct function call vs. worker polling)
+- No cross-process serialization — functions share the FastAPI process's memory (CLIP model, DB engine, Qdrant client)
+- Job status is in-memory only; lost on server restart (acceptable for a desktop tool)
+- Frontend Activity tray shows background job progress via polling `/api/v1/jobs/`
+- CLI scripts still work directly: `uv run python -m backend.pipeline.<script>`
+- The `flow_run_id` column was dropped from `ImportGroupJob` (migration 005)

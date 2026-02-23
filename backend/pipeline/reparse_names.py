@@ -5,7 +5,7 @@ _build_name to all Image.name values, then rebuilds search_text
 and the FTS index.
 
 Usage:
-    uv run python -m backend.flows.reparse_names
+    uv run python -m backend.pipeline.reparse_names
 """
 
 from pathlib import Path
@@ -21,7 +21,7 @@ from backend.app.models.database import (
 from backend.app.services import ImageParser
 from backend.app.services.fts_service import fts_rebuild
 from backend.app.services.image_parser import build_search_text
-from backend.flows.logger import get_logger
+from backend.pipeline.logger import get_logger
 
 BATCH_SIZE = 200
 

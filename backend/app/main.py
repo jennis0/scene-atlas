@@ -66,7 +66,7 @@ async def lifespan(app: FastAPI):
 
     scheduler = Scheduler()
     if settings.scheduler_enabled:
-        from ..flows.maintenance import backup_database, cleanup_staging
+        from ..pipeline.maintenance import backup_database, cleanup_staging
 
         scheduler.register(backup_database, hours=24, name="backup_database")
         scheduler.register(cleanup_staging, hours=6, name="cleanup_staging")

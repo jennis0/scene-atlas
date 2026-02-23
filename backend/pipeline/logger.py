@@ -1,4 +1,4 @@
-"""Logging helper for flows and tasks.
+"""Logging helper for pipeline modules.
 
 Provides a unified ``get_logger()`` function that returns a standard
 Python logger.  All call-sites use ``get_logger(__name__)`` so no

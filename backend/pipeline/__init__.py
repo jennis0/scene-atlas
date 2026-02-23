@@ -1,4 +1,4 @@
-"""Prefect flows package."""
+"""Image processing pipeline — ingestion, maintenance, and backfill functions."""
 
 from .ingestion import (
     analyse_upload,

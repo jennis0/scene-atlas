@@ -80,10 +80,8 @@ Run `npm run build` or `npx tsc --noEmit` in `frontend/`. Fix any type errors. L
 ### 2. Verify Backend Runs
 - Start the backend (`uvicorn backend.app.main:app`) and verify no import errors
 - Check that the `ImportConfirmFile` is properly exported from schemas (it's imported in `imports.py`)
-- The Prefect deployment parameter change (`file_paths` → `files`) means **deployments must be re-registered** via `uv run python -m backend.flows.deploy`
-
 ### 3. Test End-to-End
-Full test requires: Docker infrastructure running, Prefect deployments registered, worker running, backend running, frontend dev server running.
+Full test requires: backend running, frontend dev server running.
 
 **Test cases:**
 - Upload a folder → verify thumbnails appear in preview
