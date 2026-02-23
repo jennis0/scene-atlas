@@ -1,40 +1,42 @@
 # Scene Atlas
 
-A local system for managing, searching, and exploring large collections of RPG battlemap images.
+A tool for managing, searching, and exploring large collections of tabletop RPG scenes — battlemaps, vistas, portraits, and encounter art.
 
 ## Features
 
 - **Hybrid search** — natural-language semantic search (CLIP) combined with keyword full-text search (FTS5 + Porter stemmer)
 - **Tag-based filtering** — grid state, season, lighting, weather, terrain, and more; auto-extracted from filenames
-- **Variant groups** — related maps (different lighting, grid, weather variants) grouped automatically from name and folder structure
-- **Web import** — drag-and-drop uploader with browser-side duplicate detection, ZIP support, and preview
+- **Groups** — related images (different lighting, grid, weather variations) grouped automatically from name and folder structure
+- **Web import** — drag-and-drop uploader with browser-side duplicate detection, ZIP support, and preview editing
 - **Color search** — filter by dominant colours extracted from each image
-- **100% local** — no cloud services; runs on your home server or laptop
+- **Grid detection** — automatic square and hex grid detection for battlemaps (filename-based + optional image analysis)
+- **Type-aware processing** — per-image type selection (battlemap or scene); battlemaps get grid detection, scenes skip it
+- **Desktop app** — Electron wrapper with bundled backend (PyInstaller sidecar)
+- **100% local** — no cloud services; runs on your machine with no external dependencies
 
 ## Tech Stack
 
 | Layer | Technology |
 |---|---|
 | Backend API | FastAPI + SQLAlchemy (SQLite) |
-| Semantic search | CLIP ViT-B/32 → Qdrant vector DB |
+| Semantic search | CLIP ViT-B/32 → Qdrant (embedded local) |
 | Full-text search | SQLite FTS5 with Porter stemmer |
-| Orchestration | Prefect 3 (scheduled + on-demand flows) |
+| Background jobs | In-process ThreadPoolExecutor + async scheduler |
 | Frontend | React 18 + TypeScript + Vite + Tailwind + Radix UI |
-| Infrastructure | Docker Compose (Qdrant, Prefect server, Postgres, Redis) |
+| Desktop | Electron + PyInstaller sidecar |
 
 ---
 
 ## Prerequisites
 
-- **Python 3.11+** with [uv](https://docs.astral.sh/uv/)
+- **Python 3.12+** with [uv](https://docs.astral.sh/uv/)
 - **Node.js 20+** with npm
-- **Docker Desktop** (or Docker + Docker Compose v2)
+
+No Docker required — Qdrant runs in embedded local mode within the Python process.
 
 ---
 
-## First-time installation
-
-### 1. Install dependencies
+## First-time setup
 
 ```bash
 # Python dependencies
@@ -42,43 +44,22 @@ uv sync --extra dev
 
 # Frontend dependencies
 cd frontend && npm ci && cd ..
+
+# Root dependencies (for Electron dev / pre-commit hooks)
+npm install
 ```
-
-### 2. Start the Docker infrastructure
-
-```bash
-docker compose up -d
-```
-
-This starts: Qdrant, Prefect server + services, Postgres (Prefect backend), Redis (Prefect messaging).
-
-Wait ~60 seconds for the Prefect server to become healthy (http://localhost:4200).
-
-### 3. Run one-time setup
-
-```bash
-uv run python scripts/setup.py
-```
-
-This creates the Prefect work pool (`battlemap-pool`) and registers all seven flow deployments (import pipeline, scheduled backups, staging cleanup, etc.).
-
-**Only needs to run once per installation.** Re-run it if you reset the Prefect database or add new flows.
 
 ---
 
-## Daily use
+## Development
 
-### Start
+### Start the dev servers
 
 ```bash
+# Terminal 1: Backend
 uv run python scripts/start.py
-```
 
-This starts Docker (if not already running), the Prefect worker, and the FastAPI server as background processes. Logs go to `logs/worker.log` and `logs/api.log`.
-
-Then start the frontend in a second terminal:
-
-```bash
+# Terminal 2: Frontend
 cd frontend && npm run dev
 ```
 
@@ -87,50 +68,61 @@ cd frontend && npm run dev
 | Gallery | http://localhost:5173 |
 | API docs | http://localhost:8000/docs |
 | Health check | http://localhost:8000/health |
-| Prefect UI | http://localhost:4200 |
 
-### Stop
+### Stop the backend
 
 ```bash
 uv run python scripts/stop.py
 ```
 
-Leave Docker running for a faster restart next time:
-
-```bash
-uv run python scripts/stop.py --keep-docker
-```
-
 ### Tail logs
 
 ```bash
-tail -f logs/api.log       # FastAPI server
-tail -f logs/worker.log    # Prefect worker (flow execution)
+tail -f logs/api.log
 ```
 
 ---
 
-## Prefect deployments
+## Testing & Quality
 
-All async processing runs through Prefect. Deployments are registered by `scripts/setup.py`.
+Pre-commit hooks run automatically on `git commit` via Husky + lint-staged (ruff for Python, ESLint + Prettier for TypeScript).
 
-| Deployment | Trigger | Purpose |
-|---|---|---|
-| `analyse-deployment` | Upload endpoint (sync) | Parse uploaded files, detect variant groups |
-| `import-deployment` | Confirm endpoint (async) | Process a single variant group through the full pipeline |
-| `import-job-deployment` | Confirm-all endpoint (async) | Process all groups in one run (CLIP loaded once) |
-| `write-new-embeddings-deployment` | Manual (Prefect UI) | Backfill Qdrant with CLIP embeddings for existing images |
-| `backfill-content-hash-deployment` | Manual (Prefect UI) | Compute SHA-256 hashes for existing images |
-| `backup-deployment` | Scheduled — daily 03:00 UTC | SQLite snapshot + Qdrant snapshot + backup rotation |
-| `cleanup-staging-deployment` | Scheduled — every 6 hours | Remove abandoned import staging directories |
-
-Any deployment can be triggered manually from the Prefect UI at http://localhost:4200 → Deployments.
-
-To re-register deployments after a change:
+### Quick commands
 
 ```bash
-uv run python scripts/setup.py
+make check          # lint + format check (backend + frontend)
+make test           # unit tests + frontend tests (~15s)
+make test-all       # + integration tests (~30s)
+make test-cov       # full suite with coverage reporting
+make lint-fix       # auto-fix all lint + format issues
 ```
+
+### Individual commands
+
+```bash
+# Backend
+uv run ruff check backend/                    # lint
+uv run ruff format --check backend/           # format check
+uv run python -m pytest backend/tests/unit -v # unit tests
+
+# Frontend
+cd frontend && npx eslint . --ext ts,tsx --max-warnings 0
+cd frontend && npx prettier --check src/
+cd frontend && npx vitest run
+cd frontend && npm run build                  # TypeScript + Vite build
+```
+
+### CI/CD
+
+GitHub Actions runs a tiered pipeline:
+
+| Tier | Trigger | What runs |
+|---|---|---|
+| Lint + unit tests | Every push & PR | ruff, ESLint, Prettier, pytest unit, vitest, Vite build |
+| Integration + coverage | Push to main | pytest integration, coverage reports (uploaded as artifacts) |
+| Electron build | Version tags (`v*`) | Gate check → multi-platform build (Win/macOS/Linux) → GitHub Release |
+
+Coverage thresholds: backend 40%, frontend 10% (ratcheted up over time).
 
 ---
 
@@ -151,7 +143,7 @@ cp .env.example .env
 
 ---
 
-## Database & backups
+## Database & Backups
 
 Schema is managed by **Alembic** (applied automatically on API startup):
 
@@ -159,71 +151,55 @@ Schema is managed by **Alembic** (applied automatically on API startup):
 uv run alembic upgrade head   # apply pending migrations manually
 ```
 
-**Backups** run daily via Prefect and are written to `data/backups/{timestamp}/`:
+**Backups** run on a scheduled interval and are written to `data/backups/{timestamp}/`:
 - `battlemap.db` — consistent SQLite snapshot
-- Qdrant snapshot — stored in Qdrant's own storage
+- Qdrant snapshot
 
 Rotation keeps 7 daily + 4 weekly snapshots.
 
 **Restore from backup:** copy `battlemap.db` from a backup directory to `data/battlemap.db`, then run `uv run alembic upgrade head`.
 
-Image files in `data/store/` are not backed up by the script — the originals typically exist elsewhere. Qdrant embeddings can be regenerated with the `write-new-embeddings` deployment if needed.
-
 ---
 
-## Development
+## Electron Desktop App
 
-### Running tests
-
-```bash
-# Unit tests (fast, no infrastructure needed)
-uv run --extra dev python -m pytest backend/tests/unit/ -v
-
-# Integration tests (self-contained, no Prefect server needed)
-uv run --extra dev python -m pytest \
-  backend/tests/integration/test_backup_restore.py \
-  backend/tests/integration/test_upload_endpoint.py \
-  backend/tests/integration/test_preview_endpoint.py \
-  backend/tests/integration/test_confirm_endpoint.py \
-  -v
-```
-
-### Linting
+### Dev mode
 
 ```bash
-uv run ruff check backend/
-uv run ruff format backend/
+npm run electron:dev
 ```
 
-### Reset database (destructive)
+Starts the Vite dev server and Electron concurrently.
+
+### Build
 
 ```bash
-uv run python reset_database.py
+# Full build (sidecar + frontend + Electron)
+uv run python scripts/build_electron.py
+
+# Or step by step
+uv run python scripts/build_sidecar.py   # PyInstaller backend
+cd frontend && npm run build              # Vite frontend
+npm run electron:build                    # electron-builder
 ```
 
-Drops and recreates the SQLite database. **All image metadata will be lost.** Image files in `data/store/` are not affected.
+Release builds are automated via GitHub Actions on `v*` tags — push a tag like `v1.0.0` to trigger multi-platform builds and GitHub Release publishing.
 
 ---
 
 ## Troubleshooting
 
-**Prefect server not ready during setup:**
-```bash
-docker compose ps          # check all containers are Up
-docker compose logs prefect-server --tail=50
-```
-
 **CLIP model slow to load:**
-On first start, the CLIP model (~600 MB) downloads from HuggingFace. Subsequent starts use the local cache in `.cache/`.
+On first start, the CLIP model (~600 MB) downloads from HuggingFace. Subsequent starts use the local cache.
 
 **Import fails silently:**
-Check the worker log — CLIP and PIL errors appear there, not in the API log:
+Check the API log for errors:
 ```bash
-tail -f logs/worker.log
+tail -f logs/api.log
 ```
 
-**Qdrant not healthy:**
+**Reset database (destructive):**
 ```bash
-docker compose logs qdrant
-curl http://localhost:6333/healthz
+uv run python reset_database.py
 ```
+Drops and recreates the SQLite database. All image metadata will be lost. Image files in `data/images/` are not affected.
