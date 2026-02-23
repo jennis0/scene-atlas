@@ -1,6 +1,7 @@
 """Application configuration management."""
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -16,6 +17,10 @@ class Settings(BaseSettings):
     app_name: str = "Scene Atlas"
     app_version: str = "0.1.0"
     debug: bool = False
+
+    # Deployment mode: 'app' when running as Electron desktop sidecar,
+    # 'server' when running standalone via uvicorn.  Set via APP_MODE env var.
+    app_mode: Literal["app", "server"] = "server"
 
     # Paths
     base_dir: Path = Path(__file__).parent.parent.parent

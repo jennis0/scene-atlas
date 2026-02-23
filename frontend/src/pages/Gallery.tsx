@@ -11,9 +11,11 @@ import {
   Pencil,
   AlignLeft,
   Tag,
+  Settings,
 } from 'lucide-react'
 import { searchApi, groupApi } from '@/lib/api'
 import { RELEVANCE_MIN, RELEVANCE_MAX, RELEVANCE_STEP, relevanceToPercent } from '@/lib/constants'
+import { isApp } from '@/lib/appMode'
 import { ImageGrid } from '@/components/ImageGrid'
 import { GroupGrid } from '@/components/GroupGrid'
 import { ImageViewer } from '@/components/ImageViewer'
@@ -25,6 +27,7 @@ import { MergeGroupPicker } from '@/components/MergeGroupPicker'
 import { GalleryFilterPanel } from '@/components/GalleryFilterPanel'
 import { FilterChipList } from '@/components/FilterMenuContent'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { SystemInfoDialog } from '@/components/SystemInfoDialog'
 import { useImageGrouping } from '@/hooks/useImageGrouping'
 import { useActiveImports } from '@/hooks/useActiveImports'
 import { useBackgroundJobs } from '@/hooks/useBackgroundJobs'
@@ -109,6 +112,7 @@ export function Gallery() {
   const [importDialogJobId, setImportDialogJobId] = useState<string | null>(null)
   const [importDialogKey, setImportDialogKey] = useState(0)
   const [showTagManagement, setShowTagManagement] = useState(false)
+  const [showSystemInfo, setShowSystemInfo] = useState(false)
   const activeImports = useActiveImports()
   const backgroundJobs = useBackgroundJobs()
 
@@ -321,6 +325,16 @@ export function Gallery() {
                 <Upload className="h-4 w-4" />
                 Import
               </Button>
+              {isApp && (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowSystemInfo(true)}
+                  title="System settings"
+                >
+                  <Settings className="h-4 w-4" />
+                </Button>
+              )}
             </div>
           </div>
 
@@ -589,6 +603,10 @@ export function Gallery() {
       />
 
       <TagManagementDialog open={showTagManagement} onClose={() => setShowTagManagement(false)} />
+
+      {isApp && (
+        <SystemInfoDialog open={showSystemInfo} onClose={() => setShowSystemInfo(false)} />
+      )}
 
       {/* Import tray — right-side overlay showing active imports */}
       <ImportTray

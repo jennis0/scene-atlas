@@ -19,6 +19,7 @@ def main():
     os.environ["DATA_DIR"] = args.data_dir
     os.environ["API_PORT"] = str(args.port)
     os.environ["API_HOST"] = "127.0.0.1"
+    os.environ["APP_MODE"] = "app"
 
     # Import app object directly (not as a string) — uvicorn.run("module:app")
     # uses importlib at runtime which doesn't work in a frozen PyInstaller binary.

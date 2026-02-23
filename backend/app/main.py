@@ -10,7 +10,7 @@ from sqlalchemy import text
 
 from .config import settings
 
-from .api import groups, images, imports, jobs, search, tags
+from .api import export, groups, images, imports, jobs, search, system, tags
 from .models import get_engine, get_session_local, init_db, seed_tag_categories
 
 # Configure logging
@@ -49,12 +49,12 @@ async def lifespan(app: FastAPI):
     # Store engine in app state
     app.state.db_engine = engine
 
-    # Pre-load CLIP model to avoid blocking on first request
-    logger.info("Pre-loading CLIP model...")
-    from .services.clip_service import get_clip_service
+    # Start CLIP loading in background — does not block server startup.
+    # get_clip_service() will wait for it; empty-query searches skip CLIP entirely.
+    from .services.clip_service import start_clip_background_load
 
-    get_clip_service()
-    logger.info("CLIP model loaded and ready")
+    logger.info("Starting CLIP model background load...")
+    start_clip_background_load()
 
     # Start background job runner (eagerly, so it's ready for requests)
     from .services.job_runner import get_job_runner, shutdown_job_runner
@@ -79,7 +79,9 @@ async def lifespan(app: FastAPI):
         logger.info("Scheduler started")
 
     logger.info(f"Server ready on {settings.api_host}:{settings.api_port}")
-    # Signal to desktop shell (Electron) that the backend is ready
+    # Signal to desktop shell (Electron) that the backend is ready.
+    # CLIP is still loading in the background — the app is usable immediately;
+    # searches with a query will wait for CLIP; empty queries use SQL only.
     print(f"SCENE_ATLAS_READY port={settings.api_port}", flush=True)
 
     yield
@@ -119,6 +121,8 @@ app.include_router(
     groups.router, prefix=f"{settings.api_prefix}/groups", tags=["groups"]
 )
 app.include_router(jobs.router, prefix=f"{settings.api_prefix}/jobs", tags=["jobs"])
+app.include_router(export.router, prefix=f"{settings.api_prefix}/export", tags=["export"])
+app.include_router(system.router, prefix=f"{settings.api_prefix}/system", tags=["system"])
 
 
 @app.get("/")
@@ -183,7 +187,7 @@ async def health(request: Request):
 
     checks["job_runner"] = get_job_runner().status
 
-    return {"status": overall, "checks": checks}
+    return {"status": overall, "mode": settings.app_mode, "checks": checks}
 
 
 if __name__ == "__main__":

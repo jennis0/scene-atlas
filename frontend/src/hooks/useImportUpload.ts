@@ -224,7 +224,7 @@ export function useImportUpload({
     e.preventDefault()
     if (uploading) return
     const { collectFilesFromDataTransfer } = await import('@/lib/fsEntryTraversal')
-    const pairs = await collectFilesFromDataTransfer(e.dataTransfer.items)
+    const pairs = await collectFilesFromDataTransfer(e.dataTransfer)
     if (pairs.length === 0) return
     await handleFiles(pairs)
   }

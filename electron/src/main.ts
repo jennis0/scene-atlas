@@ -8,6 +8,7 @@ import { getDefaultDataDir, loadConfig, saveConfig } from './config'
 let mainWindow: BrowserWindow | null = null
 let setupWindow: BrowserWindow | null = null
 let sidecarProcess: ChildProcess | null = null
+let currentDataDir: string | null = null
 
 const isDev = !app.isPackaged
 
@@ -31,6 +32,82 @@ ipcMain.on('setup:complete', (_event, dataDir: string) => {
   setupWindow?.close()
   setupWindow = null
   launchApp(dataDir)
+})
+
+// ── IPC handlers for the system settings panel ──────────────────────────────
+
+ipcMain.handle('system:get-data-dir', () => currentDataDir)
+
+ipcMain.handle('system:open-data-dir', async () => {
+  if (!currentDataDir) return
+  await shell.openPath(currentDataDir)
+})
+
+ipcMain.handle('system:choose-data-dir', async () => {
+  const result = await dialog.showOpenDialog(mainWindow!, {
+    title: 'Choose Library Location',
+    defaultPath: currentDataDir ?? getDefaultDataDir(),
+    properties: ['openDirectory', 'createDirectory'],
+    buttonLabel: 'Select Folder',
+  })
+  return result.canceled ? null : result.filePaths[0]
+})
+
+ipcMain.handle('system:change-data-dir', (_event, newDataDir: string) => {
+  fs.mkdirSync(newDataDir, { recursive: true })
+  saveConfig({ dataDir: newDataDir })
+  // Relaunch with the new data directory
+  app.relaunch()
+  app.exit(0)
+})
+
+// ── IPC handlers for renderer file system access ─────────────────────────────
+
+/**
+ * Recursively walk a directory and return all file paths.
+ * relativePath is relative to the parent of dirPath (so the folder name is
+ * included), using forward slashes for consistency with webkitRelativePath.
+ */
+function walkDir(
+  dirPath: string,
+  relativeTo: string,
+  results: Array<{ relativePath: string; absolutePath: string }>,
+): void {
+  let entries: fs.Dirent[]
+  try {
+    entries = fs.readdirSync(dirPath, { withFileTypes: true })
+  } catch {
+    return
+  }
+  for (const entry of entries) {
+    const absPath = path.join(dirPath, entry.name)
+    const relPath = path.relative(relativeTo, absPath).replace(/\\/g, '/')
+    if (entry.isDirectory()) {
+      walkDir(absPath, relativeTo, results)
+    } else if (entry.isFile()) {
+      results.push({ relativePath: relPath, absolutePath: absPath })
+    }
+  }
+}
+
+/**
+ * Returns all files under a directory with relativePath starting from the
+ * directory name itself (matching webkitRelativePath convention).
+ */
+ipcMain.handle('fs:read-directory', (_event, dirPath: string) => {
+  const parentDir = path.dirname(dirPath)
+  const results: Array<{ relativePath: string; absolutePath: string }> = []
+  walkDir(dirPath, parentDir, results)
+  return results
+})
+
+/**
+ * Read a file and return its bytes. Used by the renderer to create File
+ * objects from paths returned by fs:read-directory.
+ */
+ipcMain.handle('fs:read-file-bytes', (_event, absolutePath: string) => {
+  const data = fs.readFileSync(absolutePath)
+  return { data: new Uint8Array(data.buffer, data.byteOffset, data.byteLength) }
 })
 
 // ── Setup window ────────────────────────────────────────────────────────────
@@ -97,6 +174,7 @@ function createMainWindow(): BrowserWindow {
 // ── App launch (after setup is done or skipped) ─────────────────────────────
 
 async function launchApp(dataDir: string): Promise<void> {
+  currentDataDir = dataDir
   mainWindow = createMainWindow()
 
   if (isDev) {

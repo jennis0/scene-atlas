@@ -1,6 +1,7 @@
 """CLIP model service for generating image and text embeddings."""
 
 import logging
+import threading
 from pathlib import Path
 
 import torch
@@ -143,13 +144,44 @@ class CLIPService:
             raise
 
 
-# Global instance (lazy loaded)
+# ── Singleton with background-load support ───────────────────────────────────
+# start_clip_background_load() is called from the FastAPI lifespan so CLIP
+# begins loading without blocking server startup.  get_clip_service() blocks
+# until loading completes (via the Event), so callers that arrive before the
+# model is ready wait rather than triggering a second load.
+
 _clip_service: CLIPService | None = None
+_clip_lock = threading.Lock()
+_clip_ready = threading.Event()
+_clip_error: Exception | None = None
+
+
+def _load_clip() -> None:
+    global _clip_service, _clip_error
+    try:
+        service = CLIPService()
+        with _clip_lock:
+            _clip_service = service
+        logger.info("CLIP model ready")
+    except Exception as exc:
+        _clip_error = exc
+        logger.exception("CLIP model load failed")
+    finally:
+        _clip_ready.set()  # Always unblock waiters, even on failure
+
+
+def start_clip_background_load() -> threading.Thread:
+    """Kick off CLIP loading in a daemon thread.  Call once from lifespan."""
+    t = threading.Thread(target=_load_clip, daemon=True, name="clip-loader")
+    t.start()
+    return t
 
 
 def get_clip_service() -> CLIPService:
-    """Get or create CLIP service instance (singleton)."""
-    global _clip_service
+    """Return the CLIP singleton, waiting for the background load if needed."""
+    _clip_ready.wait()  # no-op once set; blocks briefly if still loading
     if _clip_service is None:
-        _clip_service = CLIPService()
+        raise RuntimeError(
+            f"CLIP service unavailable: {_clip_error}"
+        )
     return _clip_service

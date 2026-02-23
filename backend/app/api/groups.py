@@ -3,7 +3,6 @@
 import io
 import re
 import zipfile
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import func
@@ -25,6 +24,7 @@ from ..models.schemas import (
     GroupSearchResponse,
 )
 from ..services import get_image_store, safe_delete_image
+from ...pipeline.naming import download_filename, sanitize_segment
 
 router = APIRouter()
 
@@ -43,36 +43,12 @@ def _token_jaccard(a: set[str], b: set[str]) -> float:
     return len(a & b) / len(a | b)
 
 
-def _sanitize_seg(s: str) -> str:
-    """Replace filesystem-unsafe characters with a space and collapse whitespace."""
-    s = re.sub(r'[/\\:*?"<>|]', " ", s)
-    return re.sub(r"\s+", " ", s).strip()
-
-
-def _download_filename(img: Image, group_name: str) -> str:
-    """Build the download filename for a single image (mirrors frontend buildDownloadFilename)."""
-    parts: list[str] = []
-    if group_name and group_name != (img.name or ""):
-        parts.append(_sanitize_seg(group_name))
-    if img.subgroup:
-        parts.append(_sanitize_seg(img.subgroup))
-    parts.append(_sanitize_seg(img.name or ""))
-    if img.gridded:
-        label = "Hex" if img.grid_type == "hex" else "Grid"
-        dims = f" {img.grid_width}x{img.grid_height}" if img.grid_width and img.grid_height else ""
-        parts.append(f"{label}{dims}")
-    else:
-        parts.append("No Grid")
-    ext = Path(img.filename).suffix
-    return " - ".join(parts) + ext
-
-
 def _zip_path(img: Image, group_name: str) -> str:
     """Return the archive path for an image: group[/subgroup]/filename."""
-    folder = _sanitize_seg(group_name)
+    folder = sanitize_segment(group_name)
     if img.subgroup:
-        folder = f"{folder}/{_sanitize_seg(img.subgroup)}"
-    return f"{folder}/{_download_filename(img, group_name)}"
+        folder = f"{folder}/{sanitize_segment(img.subgroup)}"
+    return f"{folder}/{download_filename(img, group_name)}"
 
 
 def get_db(request: Request):
@@ -195,7 +171,7 @@ async def download_group(
                 zf.write(file_path, _zip_path(img, group.base_name))
 
     buf.seek(0)
-    zip_name = _sanitize_seg(group.base_name) + ".zip"
+    zip_name = sanitize_segment(group.base_name) + ".zip"
     return Response(
         content=buf.read(),
         media_type="application/zip",
