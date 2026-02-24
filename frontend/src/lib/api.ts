@@ -357,4 +357,7 @@ export const getImageUrl = (image: Image): string =>
 export const getGroupDownloadUrl = (groupId: number): string =>
   resolveApiUrl(`/api/v1/groups/${groupId}/download`)
 
+export const getLibraryExportUrl = (): string =>
+  resolveApiUrl('/api/v1/export/library')
+
 export const getImageUrlById = (id: number): string => resolveApiUrl(`/api/v1/images/${id}/file`)
