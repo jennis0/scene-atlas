@@ -13,8 +13,9 @@ import {
   Tag,
   Settings,
   ArrowUpDown,
+  ChevronDown,
 } from 'lucide-react'
-import { searchApi, groupApi } from '@/lib/api'
+import { searchApi, groupApi, importApi } from '@/lib/api'
 import { RELEVANCE_MIN, RELEVANCE_MAX, RELEVANCE_STEP, relevanceToPercent } from '@/lib/constants'
 import { ImageGrid } from '@/components/ImageGrid'
 import { GroupGrid } from '@/components/GroupGrid'
@@ -130,6 +131,7 @@ export function Gallery() {
   // UI state
   const [selectedImage, setSelectedImage] = useState<{ image: Image; index: number } | null>(null)
   const [editGroupId, setEditGroupId] = useState<number | null>(null)
+  const [importReviewGroupIds, setImportReviewGroupIds] = useState<number[] | null>(null)
   const [showMassEdit, setShowMassEdit] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>(
     () => (localStorage.getItem('gallery-view-mode') as ViewMode) || 'individual',
@@ -363,49 +365,78 @@ export function Gallery() {
       >
         <div className="container mx-auto px-4">
           {/* Title row */}
-          <div className="pt-8 pb-4 flex items-start justify-between">
+          <div className="pt-5 pb-4 flex items-start justify-between">
             <div>
-              <h1 className="font-display text-4xl font-semibold tracking-wide text-foreground">
+              <h1 className="font-display text-3xl font-semibold tracking-wide text-foreground">
                 Scene Atlas
               </h1>
-              <div className="mt-3 h-[2px] w-24 rounded-full bg-primary/50" />
+              <div className="mt-2.5 h-[2px] w-14 rounded-full bg-primary/50" />
             </div>
-            <div className="flex items-center gap-2 mt-1">
+            {/* Admin cluster: utility actions (ghost) + gap + primary Import CTA */}
+            <div className="flex items-center gap-1 mt-2">
               <Button
-                variant="outline"
+                variant="ghost"
+                size="sm"
                 onClick={() => setShowTagManagement(true)}
                 title="Manage tag categories and values"
-                className="gap-2"
+                className="gap-1.5 text-muted-foreground hover:text-foreground"
               >
-                <Tag className="h-4 w-4" />
+                <Tag className="h-3.5 w-3.5" />
                 Manage Tags
               </Button>
               <Button
-                variant="outline"
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowSystemInfo(true)}
+                title="System settings"
+                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
+              {/* Spacer — amber button's visual weight acts as the separator */}
+              <div className="w-4 shrink-0" />
+              <Button
+                size="sm"
                 onClick={() => {
                   setImportDialogKey((k) => k + 1)
                   setImportDialogJobId('new')
                 }}
                 title="Import images"
-                className="gap-2"
+                className="gap-1.5"
               >
-                <Upload className="h-4 w-4" />
+                <Upload className="h-3.5 w-3.5" />
                 Import
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => setShowSystemInfo(true)}
-                title="System settings"
-              >
-                <Settings className="h-4 w-4" />
               </Button>
             </div>
           </div>
 
-          {/* Search + tools row */}
-          <div className="flex items-center gap-3 pb-5">
-            <form onSubmit={handleSubmit} className="flex-1 flex min-w-0">
+          {/* Search + controls row */}
+          <div className="flex items-center gap-2 pb-3">
+            <form onSubmit={handleSubmit} className="flex flex-1 min-w-0">
+              {/* Scope selector — sets image type filter inline with the search */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex items-center gap-1.5 h-10 px-3 shrink-0 bg-secondary border border-input rounded-l-md border-r-0 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:z-10"
+                  >
+                    {imageType === 'all' ? 'All' : imageType === 'battlemap' ? 'Maps' : 'Scenes'}
+                    <ChevronDown className="h-3 w-3 opacity-50" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-28">
+                  <DropdownMenuRadioGroup
+                    value={imageType}
+                    onValueChange={(v) => handleImageTypeChange(v as ImageTypeFilter)}
+                  >
+                    <DropdownMenuRadioItem value="all">All</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="battlemap">Maps</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="scene">Scenes</DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              {/* Input with inline clear button */}
               <div className="relative flex-1 min-w-0">
                 {isSemantic ? (
                   <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
@@ -416,17 +447,27 @@ export function Gallery() {
                 )}
                 <Input
                   type="text"
-                  placeholder="Search scenes… prefix ~ for visual, = for keyword"
+                  placeholder="Search scenes…  prefix ~ for visual, = for keyword"
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
-                  className="pl-9 w-full rounded-r-none border-r-0 focus-visible:z-10"
+                  className="h-10 w-full pl-9 pr-8 rounded-none border-l-0 border-r-0 focus-visible:z-10"
                 />
+                {searchInput && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchInput('')}
+                    tabIndex={-1}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
+
               <Button
                 type="submit"
                 disabled={isSearching}
-                variant="secondary"
-                className="rounded-l-none border border-input shrink-0"
+                className="rounded-l-none h-10 shrink-0 px-5"
               >
                 {isSearching ? 'Searching…' : 'Search'}
               </Button>
@@ -437,51 +478,20 @@ export function Gallery() {
               facets={facets}
               onFiltersChange={handleFiltersChange}
             />
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={clearAll}
-              title="Clear search and filters"
-              className={hasActiveSearch ? '' : 'invisible pointer-events-none'}
-            >
-              <X className="h-4 w-4" />
-            </Button>
 
-            {/* Type toggle — All / Maps / Scenes */}
-            <div className="flex rounded-md overflow-hidden border border-border shrink-0 text-xs">
-              <button
-                onClick={() => handleImageTypeChange('all')}
-                className={`h-10 px-3 flex items-center justify-center border-r border-border transition-colors
-                  ${imageType === 'all' ? 'bg-secondary text-foreground font-medium' : 'text-foreground/50 hover:text-foreground hover:bg-secondary/50'}`}
-              >
-                All
-              </button>
-              <button
-                onClick={() => handleImageTypeChange('battlemap')}
-                className={`h-10 px-3 flex items-center justify-center border-r border-border transition-colors
-                  ${imageType === 'battlemap' ? 'bg-secondary text-foreground font-medium' : 'text-foreground/50 hover:text-foreground hover:bg-secondary/50'}`}
-              >
-                Maps
-              </button>
-              <button
-                onClick={() => handleImageTypeChange('scene')}
-                className={`h-10 px-3 flex items-center justify-center transition-colors
-                  ${imageType === 'scene' ? 'bg-secondary text-foreground font-medium' : 'text-foreground/50 hover:text-foreground hover:bg-secondary/50'}`}
-              >
-                Scenes
-              </button>
-            </div>
+            {/* Thin separator between search tools and view controls */}
+            <div className="h-5 w-px bg-border/60 shrink-0 mx-0.5" />
 
-            {/* Segmented view toggle */}
-            <div className="flex rounded-md overflow-hidden border border-border shrink-0">
+            {/* View mode toggle — icon buttons, no outer border */}
+            <div className="flex items-center gap-0.5 shrink-0">
               <button
                 onClick={() => {
                   setViewMode('individual')
                   localStorage.setItem('gallery-view-mode', 'individual')
                 }}
                 title="Individual images"
-                className={`h-10 w-10 flex items-center justify-center border-r border-border transition-colors
-                  ${viewMode === 'individual' ? 'bg-secondary text-foreground' : 'text-foreground/50 hover:text-foreground hover:bg-secondary/50'}`}
+                className={`h-8 w-8 flex items-center justify-center rounded transition-colors
+                  ${viewMode === 'individual' ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'}`}
               >
                 <LayoutGrid className="h-4 w-4" />
               </button>
@@ -491,23 +501,35 @@ export function Gallery() {
                   localStorage.setItem('gallery-view-mode', 'grouped')
                 }}
                 title="Groups"
-                className={`h-10 w-10 flex items-center justify-center transition-colors
-                  ${viewMode === 'grouped' ? 'bg-secondary text-foreground' : 'text-foreground/50 hover:text-foreground hover:bg-secondary/50'}`}
+                className={`h-8 w-8 flex items-center justify-center rounded transition-colors
+                  ${viewMode === 'grouped' ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'}`}
               >
                 <Layers className="h-4 w-4" />
               </button>
             </div>
           </div>
 
-          {/* Chips + count row */}
-          <div className="flex items-center gap-3 pb-4 min-h-[28px]">
-            <FilterChipList filters={filters} onFiltersChange={handleFiltersChange} />
+          {/* Chips + status row */}
+          <div className="flex items-center pb-4 min-h-[32px]">
+            {/* Filter chips + clear all */}
+            <div className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
+              <FilterChipList filters={filters} onFiltersChange={handleFiltersChange} />
+              {hasActiveSearch && (
+                <button
+                  onClick={clearAll}
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 ml-1"
+                >
+                  <X className="h-2.5 w-2.5" />
+                  Clear all
+                </button>
+              )}
+            </div>
 
-            {/* Right-side cluster: sort · bulk edit · relevance · count */}
-            <div className="flex items-center gap-3 ml-auto shrink-0">
+            {/* Right cluster: sort · edit all · relevance · count */}
+            <div className="flex items-center ml-auto shrink-0 text-xs text-muted-foreground">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                  <button className="flex items-center gap-1.5 px-2 hover:text-foreground transition-colors">
                     <ArrowUpDown className="h-3 w-3" />
                     {SORT_OPTIONS.find((o) => `${o.value}:${o.dir}` === sortKey)?.label ?? 'Sort'}
                   </button>
@@ -529,61 +551,73 @@ export function Gallery() {
                   </DropdownMenuRadioGroup>
                 </DropdownMenuContent>
               </DropdownMenu>
+
               {displayImages.length > 0 && (
-                <button
-                  onClick={() => setShowMassEdit(true)}
-                  title="Bulk-edit all scenes in current results"
-                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <Pencil className="h-3 w-3" />
-                  Edit all ({displayImages.length})
-                </button>
+                <>
+                  <span className="text-border px-0.5">·</span>
+                  <button
+                    onClick={() => setShowMassEdit(true)}
+                    title="Bulk-edit all scenes in current results"
+                    className="flex items-center gap-1.5 px-2 hover:text-foreground transition-colors"
+                  >
+                    <Pencil className="h-3 w-3" />
+                    Edit all ({displayImages.length})
+                  </button>
+                </>
               )}
+
               {showRelevanceSlider && (
-                <div className="flex items-center gap-2" title="Minimum relevance threshold">
-                  <span className="text-xs text-muted-foreground">Relevance</span>
-                  <input
-                    type="range"
-                    min={RELEVANCE_MIN}
-                    max={RELEVANCE_MAX}
-                    step={RELEVANCE_STEP}
-                    value={minScore}
-                    onChange={(e) => {
-                      const val = parseFloat(e.target.value)
-                      setMinScore(val)
-                      localStorage.setItem('gallery-relevance', String(val))
-                    }}
-                    className="w-24 cursor-pointer accent-primary"
-                    style={{ height: '4px' }}
-                  />
-                  <span className="text-xs text-muted-foreground tabular-nums w-8 text-right">
-                    {minScore > 0 ? `${relevanceToPercent(minScore)}%` : 'All'}
-                  </span>
-                </div>
+                <>
+                  <span className="text-border px-0.5">·</span>
+                  <div className="flex items-center gap-2 px-2" title="Minimum relevance threshold">
+                    <span>Relevance</span>
+                    <input
+                      type="range"
+                      min={RELEVANCE_MIN}
+                      max={RELEVANCE_MAX}
+                      step={RELEVANCE_STEP}
+                      value={minScore}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value)
+                        setMinScore(val)
+                        localStorage.setItem('gallery-relevance', String(val))
+                      }}
+                      className="w-20 cursor-pointer accent-primary"
+                      style={{ height: '4px' }}
+                    />
+                    <span className="tabular-nums w-7 text-right">
+                      {minScore > 0 ? `${relevanceToPercent(minScore)}%` : 'All'}
+                    </span>
+                  </div>
+                </>
               )}
+
               {!isSearching && (
-                <span className="text-xs text-muted-foreground tabular-nums">
-                  {hasActiveSearch ? (
-                    showRelevanceSlider ? (
-                      <>
-                        <span
-                          style={{
-                            display: 'inline-block',
-                            minWidth: `${String(totalBeforeFilter).length}ch`,
-                            textAlign: 'right',
-                          }}
-                        >
-                          {filteredCount}
-                        </span>
-                        {` / ${totalBeforeFilter} result${totalBeforeFilter !== 1 ? 's' : ''}${searchModeSuffix}`}
-                      </>
+                <>
+                  <span className="text-border px-0.5">·</span>
+                  <span className="px-2 tabular-nums">
+                    {hasActiveSearch ? (
+                      showRelevanceSlider ? (
+                        <>
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              minWidth: `${String(totalBeforeFilter).length}ch`,
+                              textAlign: 'right',
+                            }}
+                          >
+                            {filteredCount}
+                          </span>
+                          {` / ${totalBeforeFilter} result${totalBeforeFilter !== 1 ? 's' : ''}${searchModeSuffix}`}
+                        </>
+                      ) : (
+                        `${filteredCount} result${filteredCount !== 1 ? 's' : ''}${searchModeSuffix}`
+                      )
                     ) : (
-                      `${filteredCount} result${filteredCount !== 1 ? 's' : ''}${searchModeSuffix}`
-                    )
-                  ) : (
-                    `${facets?.total_images ?? 0} scenes`
-                  )}
-                </span>
+                      `${facets?.total_images ?? 0} scenes`
+                    )}
+                  </span>
+                </>
               )}
             </div>
           </div>
@@ -680,6 +714,17 @@ export function Gallery() {
         }}
       />
 
+      {/* Import-review dialog — opened by clicking a completed job in the tray */}
+      <EditGroupDialog
+        groupIds={importReviewGroupIds ?? undefined}
+        open={importReviewGroupIds !== null}
+        onClose={() => setImportReviewGroupIds(null)}
+        onSave={() => {
+          setImportReviewGroupIds(null)
+          invalidateGallery()
+        }}
+      />
+
       {/* Mass-edit dialog — all images in current search results */}
       <EditGroupDialog
         seedImages={displayImages}
@@ -716,8 +761,21 @@ export function Gallery() {
         backgroundJobs={backgroundJobs.jobs}
         hasActiveJobs={backgroundJobs.hasActive}
         onOpenJob={(jobId) => {
-          setImportDialogKey((k) => k + 1)
-          setImportDialogJobId(jobId)
+          const job = activeImports.jobs.find((j) => j.jobId === jobId)
+          if (job?.status === 'completed') {
+            // Fetch the group IDs created by this import and open EditGroupDialog
+            importApi.status(jobId).then((result) => {
+              const ids = result.groups
+                .map((g) => g.group_id)
+                .filter((id): id is number => id != null)
+              if (ids.length > 0) {
+                setImportReviewGroupIds(ids)
+              }
+            })
+          } else {
+            setImportDialogKey((k) => k + 1)
+            setImportDialogJobId(jobId)
+          }
         }}
         onDismissJob={activeImports.dismissJob}
         onCancelJob={activeImports.cancelJob}
