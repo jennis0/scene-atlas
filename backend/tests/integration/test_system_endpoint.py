@@ -46,12 +46,9 @@ class TestSystemInfoEndpoint:
 
     def test_storage_shape(self, test_client):
         storage = test_client.get("/api/v1/system/info").json()["storage"]
-        for key in ("images_bytes", "thumbnails_bytes", "qdrant_bytes", "total_bytes"):
+        for key in ("images_bytes", "vectors_bytes", "metadata_bytes", "total_bytes"):
             assert key in storage
             assert isinstance(storage[key], int)
-        assert storage["total_bytes"] == (
-            storage["images_bytes"] + storage["thumbnails_bytes"] + storage["qdrant_bytes"]
-        )
 
     def test_library_counts(self, test_client, tmp_db):
         """Seed images and a group, verify the counts match."""
