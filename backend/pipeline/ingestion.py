@@ -34,6 +34,7 @@ from backend.app.services.fts_service import fts_rebuild
 from backend.app.services.image_parser import build_search_text
 
 from .logger import get_logger
+from .pipeline_config import PipelineConfig, load_pipeline_config
 from .tasks.embedding_generation import (
     batch_generate_clip_embeddings,
     generate_clip_embedding,
@@ -184,6 +185,7 @@ def prepare_single_image(
     source_dir: str | None = None,
     metadata: dict | None = None,
     parser: ImageParser | None = None,
+    pipeline_config: PipelineConfig | None = None,
 ) -> dict:
     """Prepare a single image: parse metadata, copy to store, thumbnails, colors.
 
@@ -357,13 +359,13 @@ def prepare_single_image(
 
             thumbnail_result = _gen_thumbs(str(frame_path), storage_key_stem)
             thumbnail_keys = thumbnail_result["keys"]
-            colors = _extract_colors(str(frame_path))
+            colors = _extract_colors(str(frame_path), pipeline_config=pipeline_config)
             width, height = get_video_dimensions(image_path_obj)
             clip_image_path = str(frame_path)  # keep alive for CLIP in _process_batch
         else:
             thumbnail_result = _gen_thumbs(image_path, storage_key_stem)
             thumbnail_keys = thumbnail_result["keys"]
-            colors = _extract_colors(image_path)
+            colors = _extract_colors(image_path, pipeline_config=pipeline_config)
             width, height = thumbnail_result["dimensions"]
             clip_image_path = None
 
@@ -374,17 +376,28 @@ def prepare_single_image(
         # Image-based detection can override it if it produces a result.
         grid_confidence = None
 
-        if settings.enable_image_grid_detection and image_type == "battlemap" and not is_video:
+        _cfg = pipeline_config  # may be None — detect_grid_from_image handles both
+        _grid_enabled = (
+            _cfg.enable_image_grid_detection
+            if _cfg is not None
+            else False  # safe default; callers should always pass a config
+        )
+
+        if _grid_enabled and image_type == "battlemap" and not is_video:
             from backend.pipeline.tasks.grid_detection import (
                 detect_grid_from_image as _detect_grid,
             )
 
             if gridded is None:
                 # No filename hint — detect presence + size
-                grid_result = _detect_grid(image_path, width, height, size_only=False)
+                grid_result = _detect_grid(
+                    image_path, width, height, size_only=False, pipeline_config=_cfg
+                )
             elif gridded is True and grid_width is None:
                 # Filename says gridded but no dimensions — detect size only
-                grid_result = _detect_grid(image_path, width, height, size_only=True)
+                grid_result = _detect_grid(
+                    image_path, width, height, size_only=True, pipeline_config=_cfg
+                )
             else:
                 grid_result = None
 
@@ -736,7 +749,10 @@ def process_single_image(
         }
 
 
-def bulk_image_ingestion(source_dirs: list[str]) -> dict:
+def bulk_image_ingestion(
+    source_dirs: list[str],
+    pipeline_config: PipelineConfig | None = None,
+) -> dict:
     """Ingest images from multiple directories using batched pipeline.
 
     Images are processed in batches for maximum throughput:
@@ -745,7 +761,9 @@ def bulk_image_ingestion(source_dirs: list[str]) -> dict:
     - Database and Qdrant saves are batched into single transactions
     """
     logger = get_logger(__name__)
-    batch_size = settings.ingestion_batch_size
+    if pipeline_config is None:
+        pipeline_config = load_pipeline_config()
+    batch_size = pipeline_config.ingestion_batch_size
     logger.info(
         f"Starting bulk ingestion from {len(source_dirs)} directories (batch_size={batch_size})"
     )
@@ -753,7 +771,7 @@ def bulk_image_ingestion(source_dirs: list[str]) -> dict:
     successful = 0
     failed = 0
     total_images = 0
-    concurrency = settings.max_concurrent_prepare
+    concurrency = pipeline_config.max_concurrent_prepare
 
     # Build parser once for all images (avoids per-image DB query)
     parser = _build_parser()
@@ -784,6 +802,7 @@ def bulk_image_ingestion(source_dirs: list[str]) -> dict:
                         image_path=img_path,
                         source_dir=dir_path,
                         parser=parser,
+                        pipeline_config=pipeline_config,
                     )
                     for img_path in batch
                 ]
@@ -922,6 +941,7 @@ def _run_group(
     author: str,
     group_name: str,
     files: list[dict],
+    pipeline_config: PipelineConfig | None = None,
 ) -> tuple[int, int]:
     """Process one group end-to-end and return (processed, failed) counts.
 
@@ -929,8 +949,10 @@ def _run_group(
     failed) when done.
     """
     logger = get_logger(__name__)
-    batch_size = settings.ingestion_batch_size
-    concurrency = settings.max_concurrent_prepare
+    if pipeline_config is None:
+        pipeline_config = load_pipeline_config()
+    batch_size = pipeline_config.ingestion_batch_size
+    concurrency = pipeline_config.max_concurrent_prepare
     staging = Path(staging_dir)
     processed = 0
     failed = 0
@@ -982,6 +1004,7 @@ def _run_group(
                             "reuse_storage_key": file_info.get("reuse_storage_key"),
                             "reuse_thumbnail_key": file_info.get("reuse_thumbnail_key"),
                         },
+                        pipeline_config=pipeline_config,
                     )
                     for file_info, image_path in batch
                 ]
@@ -1103,6 +1126,7 @@ def process_import_group(
     author: str,
     group_name: str,
     files: list[dict],
+    pipeline_config: PipelineConfig | None = None,
 ) -> dict:
     """Process a single confirmed group (single-group import path).
 
@@ -1110,11 +1134,15 @@ def process_import_group(
     in one Python process so the CLIP model is loaded only once.
     """
     logger = get_logger(__name__)
+    if pipeline_config is None:
+        pipeline_config = load_pipeline_config()
     logger.info(
         f"Processing import group '{group_name}' by '{author}' "
         f"({len(files)} files) for job {job_id}, group {group_job_id}"
     )
-    processed, failed = _run_group(group_job_id, staging_dir, author, group_name, files)
+    processed, failed = _run_group(
+        group_job_id, staging_dir, author, group_name, files, pipeline_config=pipeline_config
+    )
     _finalize_import_job(job_id)
     if processed > 0:
         _rebuild_fts()
@@ -1138,6 +1166,7 @@ def process_import_job(
     job_id: str,
     staging_dir: str,
     groups: list[dict],
+    pipeline_config: PipelineConfig | None = None,
 ) -> dict:
     """Process all groups for an import job in a single flow run.
 
@@ -1153,6 +1182,8 @@ def process_import_job(
     group is marked as failed, and processing continues with the next group.
     """
     logger = get_logger(__name__)
+    if pipeline_config is None:
+        pipeline_config = load_pipeline_config()
     logger.info(f"Starting import job {job_id}: {len(groups)} group(s) in {staging_dir}")
     total_processed = 0
     total_failed = 0
@@ -1165,7 +1196,10 @@ def process_import_job(
             files = group["files"]
             logger.info(f"Processing group '{group_name}' by '{author}' ({len(files)} files)")
             try:
-                processed, failed = _run_group(group_job_id, staging_dir, author, group_name, files)
+                processed, failed = _run_group(
+                    group_job_id, staging_dir, author, group_name, files,
+                    pipeline_config=pipeline_config
+                )
                 total_processed += processed
                 total_failed += failed
             except Exception as e:

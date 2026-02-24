@@ -8,9 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
-from .api import export, groups, images, imports, jobs, search, system, tags
+from .api import export, groups, images, imports, jobs, search, settings as settings_api, system, tags
 from .config import settings
-from .models import get_engine, get_session_local, init_db, seed_tag_categories
+from .models import get_engine, get_session_local, init_db, seed_default_settings, seed_tag_categories
 
 # Configure logging
 logging.basicConfig(
@@ -39,9 +39,16 @@ async def lifespan(app: FastAPI):
         seed_tag_categories(session)
         logger.info("Tag categories seeded")
 
+        seed_default_settings(session)
+        logger.info("App settings seeded")
+
         from .services.fts_service import backfill_search_text
 
         backfill_search_text(session)
+
+        from .services.app_settings import get_settings as get_app_settings
+
+        app_config = get_app_settings(session)
     finally:
         session.close()
 
@@ -69,7 +76,7 @@ async def lifespan(app: FastAPI):
     from .services.scheduler import Scheduler
 
     scheduler = Scheduler()
-    if settings.scheduler_enabled:
+    if app_config.scheduler_enabled:
         from ..pipeline.maintenance import backup_database, cleanup_staging
 
         scheduler.register(backup_database, hours=24, name="backup_database")
@@ -120,6 +127,9 @@ app.include_router(groups.router, prefix=f"{settings.api_prefix}/groups", tags=[
 app.include_router(jobs.router, prefix=f"{settings.api_prefix}/jobs", tags=["jobs"])
 app.include_router(export.router, prefix=f"{settings.api_prefix}/export", tags=["export"])
 app.include_router(system.router, prefix=f"{settings.api_prefix}/system", tags=["system"])
+app.include_router(
+    settings_api.router, prefix=f"{settings.api_prefix}/settings", tags=["settings"]
+)
 
 
 @app.get("/")

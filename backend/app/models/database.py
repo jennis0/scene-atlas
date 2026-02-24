@@ -173,6 +173,19 @@ class ImportJob(Base):
         return f"<ImportJob(id='{self.id}', status='{self.status}')>"
 
 
+class AppSetting(Base):
+    """Key-value store for DB-backed application settings (feature flags, tuning params)."""
+
+    __tablename__ = "app_settings"
+
+    key = Column(String, primary_key=True)
+    value_json = Column(Text, nullable=True)  # JSON-encoded value
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<AppSetting(key='{self.key}', value_json='{self.value_json}')>"
+
+
 class ImportGroupJob(Base):
     """Tracks progress of a single group within an import job."""
 
@@ -536,3 +549,51 @@ def seed_tag_categories(session):
         session.add(TagCategory(**cat_data))
 
     session.commit()
+
+
+def seed_default_settings(session):
+    """Seed default app settings into the DB on first boot.
+
+    Only runs when the app_settings table is completely empty.
+    Once any setting row exists, this is a no-op so user-edited values are preserved.
+
+    Defaults match the values previously in config.py so that existing
+    deployments behave identically after migration.
+    """
+    existing_count = session.query(AppSetting).count()
+    if existing_count > 0:
+        return
+
+    defaults = {
+        # Grid detection (image analysis)
+        "enable_image_grid_detection": False,
+        "grid_min_cell_px": 32,
+        "grid_max_cell_px": 320,
+        "grid_detection_max_dim": 20000,
+        "grid_presence_threshold": 0.20,
+        "grid_size_threshold": 0.15,
+        "grid_period_ratio_threshold": 0.98,
+        "grid_hex_rot_conf": 0.20,
+        # Color extraction
+        "num_dominant_colors": 5,
+        "color_distance_threshold": 0.35,
+        "color_clustering_samples": 5000,
+        "color_kmeans_n_init": 3,
+        # Ingestion performance
+        "ingestion_batch_size": 16,
+        "max_concurrent_prepare": 8,
+        # Import limits
+        "max_import_file_size": 200 * 1024 * 1024,
+        "max_video_file_size": 200 * 1024 * 1024,
+        "max_import_files": 1000,
+        "max_import_total_size": 2048 * 1024 * 1024,
+        # Job runner
+        "max_job_workers": 2,
+        "scheduler_enabled": True,
+    }
+
+    for key, value in defaults.items():
+        session.add(AppSetting(key=key, value_json=json.dumps(value)))
+
+    session.commit()
+    logger.info(f"Seeded {len(defaults)} default app settings")
