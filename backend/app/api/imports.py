@@ -339,6 +339,7 @@ async def upload_files(
                             for t in parsed.get("tags", [])
                         ],
                         gridded=parsed.get("gridded"),
+                        grid_type=parsed.get("grid_type"),
                         grid_width=parsed.get("grid_width"),
                         grid_height=parsed.get("grid_height"),
                         subgroup=parsed.get("subgroup"),

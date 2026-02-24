@@ -8,7 +8,7 @@
  * Polls the backend every 10s while any jobs are running.
  */
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { importApi } from '@/lib/api'
 import { ACTIVE_POLL_INTERVAL_MS } from '@/lib/constants'
 import { loadImportJobsIndex, cleanupExpiredImports, removeImportState } from '@/lib/importStorage'
@@ -36,10 +36,14 @@ export interface UseActiveImportsReturn {
   refresh: () => void
   dismissJob: (jobId: string) => void
   cancelJob: (jobId: string) => Promise<void>
+  /** Fired once each time a job transitions to 'completed'. */
+  onJobCompleted: (cb: () => void) => () => void
 }
 
 export function useActiveImports(): UseActiveImportsReturn {
   const [jobs, setJobs] = useState<ActiveImportJob[]>([])
+  const prevJobStatusRef = useRef<Map<string, string>>(new Map())
+  const completionListeners = useRef<Set<() => void>>(new Set())
 
   const refresh = useCallback(() => {
     cleanupExpiredImports()
@@ -72,6 +76,27 @@ export function useActiveImports(): UseActiveImportsReturn {
     return () => clearInterval(interval)
   }, [jobs, refresh])
 
+  // Detect transitions to 'completed' and fire listeners
+  useEffect(() => {
+    const prev = prevJobStatusRef.current
+    let anyCompleted = false
+    for (const job of jobs) {
+      const prevStatus = prev.get(job.jobId)
+      if (prevStatus && prevStatus !== 'completed' && job.status === 'completed') {
+        anyCompleted = true
+      }
+      prev.set(job.jobId, job.status)
+    }
+    if (anyCompleted) {
+      completionListeners.current.forEach((cb) => cb())
+    }
+  }, [jobs])
+
+  const onJobCompleted = useCallback((cb: () => void) => {
+    completionListeners.current.add(cb)
+    return () => completionListeners.current.delete(cb)
+  }, [])
+
   const dismissJob = useCallback((jobId: string) => {
     removeImportState(jobId)
     setJobs((prev) => prev.filter((j) => j.jobId !== jobId))
@@ -97,7 +122,7 @@ export function useActiveImports(): UseActiveImportsReturn {
     (j) => j.status === 'staging' || j.status === 'running' || j.pendingGroups > 0,
   )
 
-  return { jobs, hasActive, refresh, dismissJob, cancelJob }
+  return { jobs, hasActive, refresh, dismissJob, cancelJob, onJobCompleted }
 }
 
 function localToActiveJob(entry: ImportJobIndexEntry): ActiveImportJob {

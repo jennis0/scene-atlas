@@ -104,7 +104,7 @@ export function ImportGroupContent({ s }: ImportGroupContentProps) {
         <>
           {/* File toolbar */}
           {(isAllTab || activeGroup?.status === 'pending') && (
-            <div className="px-5">
+            <div className="px-5 shrink-0">
               <FileToolbar
                 files={sourceFiles}
                 filteredFiles={filteredFiles}

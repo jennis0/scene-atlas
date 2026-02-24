@@ -398,7 +398,11 @@ export function FileToolbar({
         </div>
       )}
 
-      <FilterChipList filters={filter.active} onFiltersChange={handleFiltersChange} />
+      {filter.active.length > 0 && (
+        <div className="mt-1.5">
+          <FilterChipList filters={filter.active} onFiltersChange={handleFiltersChange} />
+        </div>
+      )}
     </div>
   )
 }

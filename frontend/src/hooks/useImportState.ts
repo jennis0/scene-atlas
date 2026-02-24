@@ -259,17 +259,17 @@ export function useImportState(
   }
 
   const mergeAllGroups = () => {
-    setGroups((prev) => {
-      const eligible = prev
-        .map((g, i) => ({ g, i }))
-        .filter(({ g }) => g.status === 'pending' && !g.skip)
-      if (eligible.length < 2) return prev
+    const eligible = groups
+      .map((g, i) => ({ g, i }))
+      .filter(({ g }) => g.status === 'pending' && !g.skip)
+    if (eligible.length < 2) return
 
-      const targetIdx = eligible[0].i
-      const sourceIndices = new Set(eligible.slice(1).map(({ i }) => i))
-      const sourceFiles = eligible.slice(1).flatMap(({ g }) => g.files)
+    const targetIdx = eligible[0].i
+    const sourceIndices = new Set(eligible.slice(1).map(({ i }) => i))
+    const sourceFiles = eligible.slice(1).flatMap(({ g }) => g.files)
 
-      return prev
+    setGroups((prev) =>
+      prev
         .map((g, i) => {
           if (i === targetIdx) {
             const merged = [...g.files, ...sourceFiles]
@@ -277,9 +277,12 @@ export function useImportState(
           }
           return g
         })
-        .filter((_, i) => !sourceIndices.has(i))
-    })
-    setActiveTab(ALL_TAB)
+        .filter((_, i) => !sourceIndices.has(i)),
+    )
+
+    // All sourceIndices are > targetIdx (targetIdx is the minimum eligible index),
+    // so no elements before targetIdx are removed — the merged group stays at targetIdx.
+    setActiveTab(targetIdx)
   }
 
   const bulkSetDuplicateAction = (groupId: string | null, action: 'skip' | 'import') => {

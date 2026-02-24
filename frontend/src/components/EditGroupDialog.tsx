@@ -867,7 +867,7 @@ export function EditGroupDialog({
               </div>
 
               {/* File toolbar */}
-              <div className="px-5">
+              <div className="px-5 shrink-0">
                 <FileToolbar
                   files={inScopeSource}
                   filteredFiles={filteredInScope}

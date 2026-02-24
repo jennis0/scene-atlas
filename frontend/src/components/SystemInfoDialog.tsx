@@ -4,7 +4,6 @@ import {
   FolderOpen,
   FolderInput,
   RotateCcw,
-  HardDrive,
   ArrowRight,
   X,
   Trash2,
@@ -54,49 +53,69 @@ function formatBytes(bytes: number): string {
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function Shimmer({ className = '' }: { className?: string }) {
-  return <div className={`rounded animate-pulse bg-zinc-700/40 ${className}`} />
+  return <div className={`rounded animate-pulse bg-muted ${className}`} />
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
+function StatCard({ label, value, loading }: { label: string; value: string; loading?: boolean }) {
   return (
-    <p className="text-xs font-semibold text-zinc-500 tracking-wide uppercase mb-2">{children}</p>
-  )
-}
-
-function DataRow({
-  label,
-  value,
-  highlight = false,
-}: {
-  label: string
-  value: string
-  highlight?: boolean
-}) {
-  return (
-    <div className="flex items-center justify-between py-1">
-      <span className="text-sm text-zinc-400">{label}</span>
-      <span
-        className={`text-sm tabular-nums ${
-          highlight ? 'text-amber-400 font-medium' : 'text-zinc-300'
-        }`}
-      >
-        {value}
-      </span>
+    <div className="flex-1 min-w-0 rounded-md bg-secondary/60 px-3 py-2.5">
+      <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
+        {label}
+      </p>
+      {loading ? (
+        <Shimmer className="h-5 w-16" />
+      ) : (
+        <p className="text-lg font-semibold tabular-nums text-foreground leading-none">{value}</p>
+      )}
     </div>
   )
 }
 
-function DataRowSkeleton({ wide = false }: { wide?: boolean }) {
+function StorageBar({ storage }: { storage: SystemInfo['storage'] }) {
+  const total = storage.total_bytes || 1
+  const segments = [
+    { key: 'images', label: 'Images', bytes: storage.images_bytes, color: 'bg-primary' },
+    { key: 'vectors', label: 'Vectors', bytes: storage.vectors_bytes, color: 'bg-sky-500' },
+    { key: 'metadata', label: 'Metadata', bytes: storage.metadata_bytes, color: 'bg-emerald-500' },
+  ]
+  const accounted = segments.reduce((s, seg) => s + seg.bytes, 0)
+  const other = Math.max(0, storage.total_bytes - accounted)
+  if (other > 0) {
+    segments.push({ key: 'other', label: 'Other', bytes: other, color: 'bg-muted-foreground/30' })
+  }
+
   return (
-    <div className="flex items-center justify-between py-1">
-      <Shimmer className={`h-3 ${wide ? 'w-24' : 'w-16'}`} />
-      <Shimmer className="h-3 w-14" />
+    <div className="space-y-2">
+      {/* Bar */}
+      <div className="flex h-2 rounded-full overflow-hidden bg-secondary gap-px">
+        {segments.map(
+          (seg) =>
+            seg.bytes > 0 && (
+              <div
+                key={seg.key}
+                className={`${seg.color} rounded-full transition-all duration-500`}
+                style={{ width: `${Math.max((seg.bytes / total) * 100, 2)}%` }}
+              />
+            ),
+        )}
+      </div>
+      {/* Legend */}
+      <div className="flex flex-wrap gap-x-4 gap-y-1">
+        {segments.map(
+          (seg) =>
+            seg.bytes > 0 && (
+              <div key={seg.key} className="flex items-center gap-1.5">
+                <div className={`w-2 h-2 rounded-full ${seg.color}`} />
+                <span className="text-[11px] text-muted-foreground">
+                  {seg.label}{' '}
+                  <span className="tabular-nums text-foreground/70">{formatBytes(seg.bytes)}</span>
+                </span>
+              </div>
+            ),
+        )}
+      </div>
     </div>
   )
-}
-
-function ErrorNote() {
-  return <p className="text-sm text-zinc-500 italic py-1">Could not load system information.</p>
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -209,54 +228,94 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-[440px] bg-zinc-900 border-zinc-700/50 p-0 overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-800 bg-gradient-to-b from-amber-400/5 to-transparent">
-          <HardDrive className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-          <h2 className="text-xs font-semibold text-zinc-300 tracking-wide uppercase">System</h2>
-          <span className="text-xs text-zinc-600 ml-0.5">· Storage &amp; Library</span>
+      <DialogContent className="max-w-[440px] bg-card border-border/50 p-0 overflow-hidden">
+        {/* ── Header ─────────────────────────────────────────── */}
+        <div className="flex items-center justify-between px-5 pt-5 pb-0">
+          <h2 className="font-display text-base tracking-wide text-foreground">System</h2>
           <button
             onClick={onClose}
-            className="ml-auto rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 text-zinc-400 hover:text-zinc-100"
+            className="rounded-sm p-1 text-muted-foreground transition-colors hover:text-foreground"
           >
             <X className="h-4 w-4" />
             <span className="sr-only">Close</span>
           </button>
         </div>
 
-        {/* Body */}
-        <div className="px-4 py-4 space-y-5">
-          {/* ── Library Location — Electron only ─────────────── */}
+        {/* ── Body ───────────────────────────────────────────── */}
+        <div className="px-5 pb-5 pt-4 space-y-5">
+          {/* ── Stats row ─────────────────────────────────────── */}
+          {isError ? (
+            <p className="text-sm text-muted-foreground italic py-2">
+              Could not load system information.
+            </p>
+          ) : (
+            <div className="flex gap-2">
+              <StatCard
+                label="Images"
+                value={info?.library.image_count.toLocaleString() ?? '—'}
+                loading={isLoading}
+              />
+              <StatCard
+                label="Groups"
+                value={info?.library.group_count.toLocaleString() ?? '—'}
+                loading={isLoading}
+              />
+              <StatCard
+                label="Storage"
+                value={info ? formatBytes(info.storage.total_bytes) : '—'}
+                loading={isLoading}
+              />
+            </div>
+          )}
+
+          {/* ── Storage breakdown ─────────────────────────────── */}
+          {!isError && info && <StorageBar storage={info.storage} />}
+          {!isError && isLoading && (
+            <div className="space-y-2">
+              <Shimmer className="h-2 w-full rounded-full" />
+              <div className="flex gap-4">
+                <Shimmer className="h-3 w-20" />
+                <Shimmer className="h-3 w-20" />
+                <Shimmer className="h-3 w-20" />
+              </div>
+            </div>
+          )}
+
+          {/* ── Library location (Electron only) ──────────────── */}
           {isElectron && (
             <section>
-              <SectionLabel>Library Location</SectionLabel>
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+                Library Location
+              </p>
 
               {locationPhase === 'restarting' ? (
                 <div className="flex items-center gap-2.5 py-2">
-                  <RotateCcw className="h-3.5 w-3.5 animate-spin shrink-0 text-amber-400" />
-                  <span className="text-sm text-zinc-400">Restarting Scene Atlas…</span>
+                  <RotateCcw className="h-3.5 w-3.5 animate-spin shrink-0 text-primary" />
+                  <span className="text-sm text-muted-foreground">Restarting Scene Atlas…</span>
                 </div>
               ) : locationPhase === 'confirming' && pendingDir ? (
                 <div className="space-y-3">
-                  <div className="rounded border border-zinc-700/50 bg-zinc-800/50 p-3 space-y-2.5">
+                  <div className="rounded-md border border-border bg-secondary/40 p-3 space-y-2.5">
                     <div className="space-y-1">
-                      <span className="text-xs text-zinc-600 uppercase tracking-wide">Current</span>
-                      <p className="text-sm text-zinc-400 break-all leading-relaxed">
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                        Current
+                      </span>
+                      <p className="text-sm text-muted-foreground break-all leading-relaxed">
                         {dataDir ?? '—'}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <ArrowRight className="h-3 w-3 shrink-0 text-amber-400/50" />
-                      <div className="h-px flex-1 border-t border-dashed border-zinc-700/50" />
+                      <ArrowRight className="h-3 w-3 shrink-0 text-primary/50" />
+                      <div className="h-px flex-1 border-t border-dashed border-border" />
                     </div>
                     <div className="space-y-1">
-                      <span className="text-xs text-amber-400/70 uppercase tracking-wide">New</span>
-                      <p className="text-sm text-amber-400 break-all leading-relaxed">
-                        {pendingDir}
-                      </p>
+                      <span className="text-[10px] text-primary/70 uppercase tracking-wider">
+                        New
+                      </span>
+                      <p className="text-sm text-primary break-all leading-relaxed">{pendingDir}</p>
                     </div>
                   </div>
-                  <p className="text-xs text-zinc-500">
+                  <p className="text-xs text-muted-foreground">
                     Scene Atlas will restart to apply the new location.
                   </p>
                   <div className="flex gap-2">
@@ -264,24 +323,22 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
                       size="sm"
                       variant="outline"
                       onClick={handleCancelChange}
-                      className="flex-1 h-8 border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
+                      className="flex-1 h-8"
                     >
                       Cancel
                     </Button>
-                    <Button
-                      size="sm"
-                      onClick={handleConfirmChange}
-                      className="flex-1 h-8 bg-amber-400/10 border border-amber-400/30 text-amber-400 hover:bg-amber-400/20"
-                    >
+                    <Button size="sm" onClick={handleConfirmChange} className="flex-1 h-8">
                       Restart &amp; Apply
                     </Button>
                   </div>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  <div className="rounded border border-zinc-700/50 bg-zinc-800/50 px-3 py-2.5 min-h-[2.5rem] flex items-center">
+                <div className="space-y-2.5">
+                  <div className="rounded-md border border-border bg-secondary/40 px-3 py-2.5 min-h-[2.5rem] flex items-center">
                     {dataDir ? (
-                      <p className="text-sm text-zinc-300 break-all leading-relaxed">{dataDir}</p>
+                      <p className="text-sm text-foreground/80 break-all leading-relaxed">
+                        {dataDir}
+                      </p>
                     ) : (
                       <Shimmer className="h-3 w-3/4" />
                     )}
@@ -292,7 +349,7 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
                       variant="outline"
                       onClick={handleOpenInExplorer}
                       disabled={!dataDir}
-                      className="gap-1.5 h-8 border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
+                      className="gap-1.5 h-8"
                     >
                       <FolderOpen className="h-3.5 w-3.5" />
                       Open
@@ -302,7 +359,7 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
                       variant="outline"
                       onClick={handleChooseDir}
                       disabled={!dataDir}
-                      className="gap-1.5 h-8 border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
+                      className="gap-1.5 h-8"
                     >
                       <FolderInput className="h-3.5 w-3.5" />
                       Change Location
@@ -313,158 +370,92 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
             </section>
           )}
 
-          {/* ── Storage ───────────────────────────────────────── */}
-          <section>
-            <SectionLabel>Storage</SectionLabel>
-            <div className="space-y-0.5">
-              {isLoading ? (
-                <>
-                  <DataRowSkeleton />
-                  <DataRowSkeleton />
-                  <DataRowSkeleton />
-                  <div className="mt-2 pt-2 border-t border-zinc-800">
-                    <DataRowSkeleton wide />
-                  </div>
-                </>
-              ) : isError ? (
-                <ErrorNote />
-              ) : info ? (
-                <>
-                  <DataRow label="Images" value={formatBytes(info.storage.images_bytes)} />
-                  <DataRow label="Vectors" value={formatBytes(info.storage.vectors_bytes)} />
-                  <DataRow label="Metadata" value={formatBytes(info.storage.metadata_bytes)} />
-                  <div className="mt-2 pt-2 border-t border-zinc-800">
-                    <DataRow
-                      label="Total"
-                      value={formatBytes(info.storage.total_bytes)}
-                      highlight
-                    />
-                  </div>
-                </>
-              ) : null}
-            </div>
-          </section>
+          {/* ── Divider ───────────────────────────────────────── */}
+          <div className="border-t border-border" />
 
-          {/* ── Collection ────────────────────────────────────── */}
-          <section className="pb-1">
-            <SectionLabel>Collection</SectionLabel>
-            <div className="space-y-0.5">
-              {isLoading ? (
-                <>
-                  <DataRowSkeleton />
-                  <DataRowSkeleton />
-                </>
-              ) : isError ? (
-                <ErrorNote />
-              ) : info ? (
-                <>
-                  <DataRow label="Images" value={info.library.image_count.toLocaleString()} />
-                  <DataRow label="Groups" value={info.library.group_count.toLocaleString()} />
-                </>
-              ) : null}
-            </div>
-          </section>
+          {/* ── Actions row ───────────────────────────────────── */}
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleExportLibrary}
+              disabled={exportingLibrary}
+              className="gap-1.5 h-8"
+            >
+              {exportingLibrary ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Download className="h-3.5 w-3.5" />
+              )}
+              {exportingLibrary ? 'Exporting…' : 'Export library'}
+            </Button>
+          </div>
 
-          {/* ── Export ───────────────────────────────────────── */}
-          <section className="pt-1">
-            <SectionLabel>Export</SectionLabel>
+          {/* ── Danger zone ───────────────────────────────────── */}
+          <section className="rounded-md border border-destructive/15 bg-destructive/[0.03] p-3 space-y-2.5">
             <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-zinc-300">Download library</p>
-                <p className="text-xs text-zinc-500">Export all images and metadata as a ZIP</p>
+              <div className="min-w-0">
+                <p className="text-sm text-foreground/90">Delete library</p>
+                <p className="text-xs text-muted-foreground">
+                  Remove all images, metadata, and vectors
+                </p>
               </div>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleExportLibrary}
-                disabled={exportingLibrary}
-                className="gap-1.5 h-8 border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
-              >
-                {exportingLibrary ? (
+              {purgeJob.isRunning ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground shrink-0">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Download className="h-3.5 w-3.5" />
-                )}
-                {exportingLibrary ? 'Exporting…' : 'Download'}
-              </Button>
-            </div>
-          </section>
-
-          {/* ── Danger Zone ─────────────────────────────────── */}
-          <section className="pt-2 border-t border-red-500/10">
-            <SectionLabel>Danger Zone</SectionLabel>
-            <div className="space-y-2">
-              {/* Delete Library */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-zinc-300">Delete library</p>
-                  <p className="text-xs text-zinc-500">Remove all images, metadata, and vectors</p>
-                </div>
-                {purgeJob.isRunning ? (
-                  <div className="flex items-center gap-2 text-sm text-zinc-400">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    <span>
-                      {purgeJob.progress ?? 'Deleting…'}
-                      {purgeJob.progressPct != null && ` (${purgeJob.progressPct}%)`}
-                    </span>
-                  </div>
-                ) : purgeJob.isComplete ? (
-                  <span className="text-sm text-green-400">Done</span>
-                ) : purgeJob.isFailed ? (
-                  <span className="text-sm text-red-400" title={purgeJob.error ?? undefined}>
-                    Failed
+                  <span>
+                    {purgeJob.progress ?? 'Deleting…'}
+                    {purgeJob.progressPct != null && ` (${purgeJob.progressPct}%)`}
                   </span>
-                ) : (
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={() => setConfirmingDelete(true)}
-                    className="gap-1.5 h-8"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    Delete
-                  </Button>
-                )}
-              </div>
-
-              {/* Reset Tags */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-zinc-300">Reset tags</p>
-                  <p className="text-xs text-zinc-500">
-                    Clear all tags and restore default categories
-                  </p>
                 </div>
+              ) : purgeJob.isComplete ? (
+                <span className="text-sm text-emerald-400 shrink-0">Done</span>
+              ) : purgeJob.isFailed ? (
+                <span
+                  className="text-sm text-destructive shrink-0"
+                  title={purgeJob.error ?? undefined}
+                >
+                  Failed
+                </span>
+              ) : (
                 <Button
                   size="sm"
                   variant="destructive"
-                  onClick={() => setConfirmingResetTags(true)}
-                  disabled={resetTagsMut.isPending}
-                  className="gap-1.5 h-8"
+                  onClick={() => setConfirmingDelete(true)}
+                  className="gap-1.5 h-7 text-xs shrink-0"
                 >
-                  {resetTagsMut.isPending ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <RotateCcw className="h-3.5 w-3.5" />
-                  )}
-                  Reset
+                  <Trash2 className="h-3 w-3" />
+                  Delete
                 </Button>
+              )}
+            </div>
+
+            <div className="border-t border-destructive/10" />
+
+            <div className="flex items-center justify-between">
+              <div className="min-w-0">
+                <p className="text-sm text-foreground/90">Reset tags</p>
+                <p className="text-xs text-muted-foreground">
+                  Clear all tags and restore default categories
+                </p>
               </div>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => setConfirmingResetTags(true)}
+                disabled={resetTagsMut.isPending}
+                className="gap-1.5 h-7 text-xs shrink-0"
+              >
+                {resetTagsMut.isPending ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <RotateCcw className="h-3 w-3" />
+                )}
+                Reset
+              </Button>
             </div>
           </section>
         </div>
-
-        <ConfirmDialog
-          open={confirmingDelete}
-          onOpenChange={setConfirmingDelete}
-          title="Delete Library"
-          description="This will permanently delete all images, thumbnails, metadata, tags, and vector embeddings. This cannot be undone."
-          confirmLabel="Delete Everything"
-          confirmVariant="destructive"
-          loadingLabel="Starting…"
-          onConfirm={() => deleteMut.mutate()}
-          isLoading={deleteMut.isPending}
-        />
 
         <ConfirmDialog
           open={confirmingResetTags}
@@ -476,6 +467,18 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
           loadingLabel="Resetting…"
           onConfirm={() => resetTagsMut.mutate()}
           isLoading={resetTagsMut.isPending}
+        />
+
+        <ConfirmDialog
+          open={confirmingDelete}
+          onOpenChange={setConfirmingDelete}
+          title="Delete Library"
+          description="This will permanently delete all images, thumbnails, metadata, tags, and vector embeddings. This cannot be undone."
+          confirmLabel="Delete Everything"
+          confirmVariant="destructive"
+          loadingLabel="Starting…"
+          onConfirm={() => deleteMut.mutate()}
+          isLoading={deleteMut.isPending}
         />
       </DialogContent>
     </Dialog>

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -147,6 +147,15 @@ export function Gallery() {
   const [showSystemInfo, setShowSystemInfo] = useState(false)
   const activeImports = useActiveImports()
   const backgroundJobs = useBackgroundJobs()
+
+  // Invalidate gallery queries whenever a background import finishes
+  useEffect(() => {
+    return activeImports.onJobCompleted(() => {
+      queryClient.invalidateQueries({ queryKey: ['images'] })
+      queryClient.invalidateQueries({ queryKey: ['search'] })
+      queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
+    })
+  }, [activeImports, queryClient])
 
   // Search state — initialised from URL so searches are bookmarkable
   const [searchInput, setSearchInput] = useState(() => urlParams.get('q') ?? '')
