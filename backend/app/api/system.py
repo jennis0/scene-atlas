@@ -63,15 +63,17 @@ def system_info(db: Session = Depends(get_db)):
     images_bytes = _dir_size(settings.store_images_dir)
     thumbnails_bytes = _dir_size(settings.store_thumbnails_dir)
     qdrant_bytes = _dir_size(settings.qdrant_path)
+    db_bytes = settings.db_path.stat().st_size if settings.db_path.exists() else 0
+    total_bytes = _dir_size(settings.data_dir)
 
     return {
         "storage_path": str(settings.data_dir),
         "mode": settings.app_mode,
         "storage": {
-            "images_bytes": images_bytes,
-            "thumbnails_bytes": thumbnails_bytes,
-            "qdrant_bytes": qdrant_bytes,
-            "total_bytes": images_bytes + thumbnails_bytes + qdrant_bytes,
+            "images_bytes": images_bytes + thumbnails_bytes,
+            "vectors_bytes": qdrant_bytes,
+            "metadata_bytes": db_bytes,
+            "total_bytes": total_bytes,
         },
         "library": {
             "image_count": image_count,

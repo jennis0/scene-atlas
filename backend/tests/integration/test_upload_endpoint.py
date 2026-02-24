@@ -27,7 +27,7 @@ def _make_jpeg_bytes(width=20, height=20, color=(100, 150, 200)):
 def _setup_upload(tmp_path, tmp_db, monkeypatch):
     """Mock JobRunner.run_sync to return fake analysis results."""
     staging_base = tmp_path / "staging"
-    staging_base.mkdir(parents=True)
+    staging_base.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr("backend.app.config.settings.staging_dir", staging_base)
 
     # Build fake analysis results (what analyse_upload returns)
