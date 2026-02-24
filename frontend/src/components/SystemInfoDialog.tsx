@@ -23,8 +23,8 @@ interface SystemInfo {
   mode: 'app' | 'server'
   storage: {
     images_bytes: number
-    thumbnails_bytes: number
-    qdrant_bytes: number
+    vectors_bytes: number
+    metadata_bytes: number
     total_bytes: number
   }
   library: {
@@ -297,49 +297,27 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
             <div className="space-y-0.5">
               {isLoading ? (
                 <>
-                  {isElectron && (
-                    <>
-                      <DataRowSkeleton />
-                      <DataRowSkeleton />
-                      <DataRowSkeleton />
-                      <div className="mt-2 pt-2 border-t border-zinc-800">
-                        <DataRowSkeleton wide />
-                      </div>
-                    </>
-                  )}
-                  {!isElectron && <DataRowSkeleton wide />}
+                  <DataRowSkeleton />
+                  <DataRowSkeleton />
+                  <DataRowSkeleton />
+                  <div className="mt-2 pt-2 border-t border-zinc-800">
+                    <DataRowSkeleton wide />
+                  </div>
                 </>
               ) : isError ? (
                 <ErrorNote />
               ) : info ? (
                 <>
-                  {isElectron && (
-                    <>
-                      <DataRow label="Images" value={formatBytes(info.storage.images_bytes)} />
-                      <DataRow
-                        label="Thumbnails"
-                        value={formatBytes(info.storage.thumbnails_bytes)}
-                      />
-                      <DataRow
-                        label="Search index"
-                        value={formatBytes(info.storage.qdrant_bytes)}
-                      />
-                      <div className="mt-2 pt-2 border-t border-zinc-800">
-                        <DataRow
-                          label="Total"
-                          value={formatBytes(info.storage.total_bytes)}
-                          highlight
-                        />
-                      </div>
-                    </>
-                  )}
-                  {!isElectron && (
+                  <DataRow label="Images" value={formatBytes(info.storage.images_bytes)} />
+                  <DataRow label="Vectors" value={formatBytes(info.storage.vectors_bytes)} />
+                  <DataRow label="Metadata" value={formatBytes(info.storage.metadata_bytes)} />
+                  <div className="mt-2 pt-2 border-t border-zinc-800">
                     <DataRow
                       label="Total"
                       value={formatBytes(info.storage.total_bytes)}
                       highlight
                     />
-                  )}
+                  </div>
                 </>
               ) : null}
             </div>
