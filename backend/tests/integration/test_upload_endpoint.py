@@ -113,7 +113,7 @@ class TestUploadEndpoint:
         from backend.app.models.schemas import AppSettings
 
         monkeypatch.setattr(
-            "backend.app.services.app_settings.get_settings",
+            "backend.app.api.imports.get_app_settings",
             lambda db: AppSettings(max_import_file_size=100),
         )
         jpeg = _make_jpeg_bytes()  # ~1 KB, way over 100 bytes
@@ -129,7 +129,7 @@ class TestUploadEndpoint:
         from backend.app.models.schemas import AppSettings
 
         monkeypatch.setattr(
-            "backend.app.services.app_settings.get_settings",
+            "backend.app.api.imports.get_app_settings",
             lambda db: AppSettings(max_import_files=2),
         )
         jpeg = _make_jpeg_bytes()
@@ -154,7 +154,7 @@ class TestUploadEndpoint:
         from backend.app.models.schemas import AppSettings
 
         monkeypatch.setattr(
-            "backend.app.services.app_settings.get_settings",
+            "backend.app.api.imports.get_app_settings",
             lambda db: AppSettings(max_import_total_size=50_000),
         )
         # Build a ZIP with a file that reports 100KB uncompressed
