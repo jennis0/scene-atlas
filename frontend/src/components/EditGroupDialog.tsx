@@ -936,6 +936,9 @@ export function EditGroupDialog({
                                   ? updateFileAnyGroup(file.relative_path, updates)
                                   : updateFile(activeTab, file.relative_path, updates)
                               }
+                              excludeTooltip={
+                                isMassEdit ? 'Remove from group' : 'Mark for deletion'
+                              }
                             />
                           ))}
                         </div>
@@ -960,6 +963,7 @@ export function EditGroupDialog({
                             ? updateFileAnyGroup(file.relative_path, updates)
                             : updateFile(activeTab, file.relative_path, updates)
                         }
+                        excludeTooltip={isMassEdit ? 'Remove from group' : 'Mark for deletion'}
                       />
                     ))}
                   </div>

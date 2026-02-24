@@ -18,6 +18,7 @@ interface FileCardProps {
   onToggleSelect: () => void
   onUpdate: (updates: Partial<EditableFileState>) => void
   disabled?: boolean
+  excludeTooltip?: string
 }
 
 export function FileCard({
@@ -29,6 +30,7 @@ export function FileCard({
   onToggleSelect,
   onUpdate,
   disabled,
+  excludeTooltip,
 }: FileCardProps) {
   const getTagColor = useGetTagColor()
   const [isEditingName, setIsEditingName] = useState(false)
@@ -221,7 +223,7 @@ export function FileCard({
               <button
                 onClick={() => onUpdate({ excluded: true })}
                 className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-destructive/10 hover:text-destructive text-muted-foreground/30 transition-all shrink-0 mt-0.5"
-                title="Exclude from import"
+                title={excludeTooltip ?? 'Exclude from import'}
               >
                 <X className="h-3.5 w-3.5" />
               </button>

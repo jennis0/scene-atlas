@@ -10,8 +10,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -84,14 +84,13 @@ htmlcov/
 coverage-backend.xml
 frontend/coverage/
 .pytest_cache/
-.husky/
 
 # Jupyter Notebooks
 .ipynb_checkpoints
 
-# Model cache (CLIP models)
+# Model cache (CLIP models — stored at repo root ./models/ only)
 .cache/
-models/
+/models/
 transformers_cache/
 
 .ignore/

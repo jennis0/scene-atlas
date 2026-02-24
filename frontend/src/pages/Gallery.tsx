@@ -647,6 +647,16 @@ export function Gallery() {
             setSelectedImage(null)
             setEditGroupId(id)
           }}
+          onDelete={(deletedId) => {
+            const idx = selectedImage!.index
+            const remaining = displayImages.filter((img) => img.id !== deletedId)
+            if (remaining.length === 0) {
+              setSelectedImage(null)
+            } else {
+              const nextIdx = Math.min(idx, remaining.length - 1)
+              setSelectedImage({ image: remaining[nextIdx], index: nextIdx })
+            }
+          }}
         />
       )}
 

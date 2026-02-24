@@ -3,9 +3,6 @@
 import json
 import logging
 from datetime import datetime
-from typing import List, Optional
-
-logger = logging.getLogger(__name__)
 
 from sqlalchemy import (
     Boolean,
@@ -21,6 +18,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
+logger = logging.getLogger(__name__)
+
 Base = declarative_base()
 
 
@@ -31,7 +30,9 @@ class Image(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     filename = Column(String, nullable=False, index=True)  # Original filename for display
-    storage_key = Column(String, nullable=False, index=True)  # Key into ImageStore (e.g., "a1b2c3d4.jpg")
+    storage_key = Column(
+        String, nullable=False, index=True
+    )  # Key into ImageStore (e.g., "a1b2c3d4.jpg")
     name = Column(String, index=True)  # Inferred base name / variant group name
     author = Column(String, index=True)
     group_id = Column("variant_group_id", Integer, ForeignKey("variant_groups.id"), nullable=True)
@@ -62,18 +63,14 @@ class Image(Base):
     # Relationships
     tags = relationship("Tag", back_populates="image", cascade="all, delete-orphan")
     colors = relationship("Color", back_populates="image", cascade="all, delete-orphan")
-    group = relationship(
-        "ImageGroup",
-        back_populates="images",
-        foreign_keys="[Image.group_id]"
-    )
+    group = relationship("ImageGroup", back_populates="images", foreign_keys="[Image.group_id]")
 
     @property
-    def group_name(self) -> Optional[str]:
+    def group_name(self) -> str | None:
         return self.group.base_name if self.group else None
 
     @property
-    def group_image_count(self) -> Optional[int]:
+    def group_image_count(self) -> int | None:
         return len(self.group.images) if self.group else None
 
     def __repr__(self):
@@ -92,11 +89,7 @@ class ImageGroup(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
-    images = relationship(
-        "Image",
-        back_populates="group",
-        foreign_keys="[Image.group_id]"
-    )
+    images = relationship("Image", back_populates="group", foreign_keys="[Image.group_id]")
 
     def __repr__(self):
         return f"<ImageGroup(id={self.id}, base_name='{self.base_name}')>"
@@ -119,7 +112,9 @@ class Tag(Base):
     image = relationship("Image", back_populates="tags")
 
     def __repr__(self):
-        return f"<Tag(category='{self.category}', value='{self.value}', confidence={self.confidence})>"
+        return (
+            f"<Tag(category='{self.category}', value='{self.value}', confidence={self.confidence})>"
+        )
 
 
 class TagCategory(Base):
@@ -200,15 +195,16 @@ class ImportGroupJob(Base):
     job = relationship("ImportJob", back_populates="groups")
 
     def __repr__(self):
-        return f"<ImportGroupJob(id='{self.id}', group='{self.group_name}', status='{self.status}')>"
+        return (
+            f"<ImportGroupJob(id='{self.id}', group='{self.group_name}', status='{self.status}')>"
+        )
 
 
 # Database setup utilities
 def get_engine(database_url: str = "sqlite:///./data/battlemap.db"):
     """Create database engine."""
     return create_engine(
-        database_url,
-        connect_args={"check_same_thread": False} if "sqlite" in database_url else {}
+        database_url, connect_args={"check_same_thread": False} if "sqlite" in database_url else {}
     )
 
 
@@ -242,7 +238,8 @@ def _migrate_images_content_hash(engine):
         conn.execute(text("DROP TABLE IF EXISTS image_fts"))
 
         # Recreate images table without UNIQUE on storage_key, with content_hash
-        conn.execute(text("""
+        conn.execute(
+            text("""
             CREATE TABLE images_new (
                 id INTEGER PRIMARY KEY,
                 filename VARCHAR NOT NULL,
@@ -263,9 +260,11 @@ def _migrate_images_content_hash(engine):
                 created_at DATETIME,
                 updated_at DATETIME
             )
-        """))
+        """)
+        )
 
-        conn.execute(text("""
+        conn.execute(
+            text("""
             INSERT INTO images_new (
                 id, filename, storage_key, name, author, variant_group_id,
                 width, height, file_size, gridded, grid_width, grid_height,
@@ -276,7 +275,8 @@ def _migrate_images_content_hash(engine):
                 width, height, file_size, gridded, grid_width, grid_height,
                 sub_variant, thumbnail_key, needs_review, created_at, updated_at
             FROM images
-        """))
+        """)
+        )
 
         conn.execute(text("DROP TABLE images"))
         conn.execute(text("ALTER TABLE images_new RENAME TO images"))
@@ -305,6 +305,10 @@ def init_db(engine):
       it under Alembic management without re-running any DDL.
     - **Alembic-managed database**: applies any pending migrations (upgrade head).
     """
+    # Locate alembic.ini — path differs between normal runtime and frozen binary.
+    # In a PyInstaller --onedir binary sys._MEIPASS is the _internal/ directory
+    # where bundled data files (including alembic.ini) are extracted.
+    import sys as _sys
     from pathlib import Path as _Path
 
     from alembic import command
@@ -312,10 +316,6 @@ def init_db(engine):
     from alembic.runtime.migration import MigrationContext
     from sqlalchemy import inspect
 
-    # Locate alembic.ini — path differs between normal runtime and frozen binary.
-    # In a PyInstaller --onedir binary sys._MEIPASS is the _internal/ directory
-    # where bundled data files (including alembic.ini) are extracted.
-    import sys as _sys
     if getattr(_sys, "frozen", False) and hasattr(_sys, "_MEIPASS"):
         # Frozen PyInstaller binary: alembic.ini and backend/alembic/ are bundled
         # into sys._MEIPASS (_internal/).  Alembic resolves script_location via
@@ -378,91 +378,141 @@ def seed_tag_categories(session):
             "description": "Time of day and lighting conditions",
             "color": "amber",
             "display_order": 0,
-            "common_values": json.dumps([
-                "night", "day", "dusk", "dawn", "twilight",
-                {"value": "dark", "aliases": ["darkness"]},
-                "sunset", "lit", "unlit",
-            ]),
+            "common_values": json.dumps(
+                [
+                    "night",
+                    "day",
+                    "dusk",
+                    "dawn",
+                    "twilight",
+                    {"value": "dark", "aliases": ["darkness"]},
+                    "sunset",
+                    "lit",
+                    "unlit",
+                ]
+            ),
         },
         {
             "name": "season",
             "description": "Seasonal variations",
             "color": "orange",
             "display_order": 1,
-            "common_values": json.dumps([
-                "spring", "summer", "winter",
-                {"value": "autumn", "aliases": ["fall"]},
-            ]),
+            "common_values": json.dumps(
+                [
+                    "spring",
+                    "summer",
+                    "winter",
+                    {"value": "autumn", "aliases": ["fall"]},
+                ]
+            ),
         },
         {
             "name": "weather",
             "description": "Weather conditions",
             "color": "sky",
             "display_order": 2,
-            "common_values": json.dumps([
-                {"value": "rain", "aliases": ["rainy", "raining"]},
-                {"value": "snow", "aliases": ["snowy", "snowing"]},
-                {"value": "fog", "aliases": ["foggy"]},
-                {"value": "storm", "aliases": ["stormy"]},
-                {"value": "mist", "aliases": ["misty"]},
-            ]),
+            "common_values": json.dumps(
+                [
+                    {"value": "rain", "aliases": ["rainy", "raining"]},
+                    {"value": "snow", "aliases": ["snowy", "snowing"]},
+                    {"value": "fog", "aliases": ["foggy"]},
+                    {"value": "storm", "aliases": ["stormy"]},
+                    {"value": "mist", "aliases": ["misty"]},
+                ]
+            ),
         },
         {
             "name": "state",
             "description": "Condition or state of the map",
             "color": "red",
             "display_order": 3,
-            "common_values": json.dumps([
-                {"value": "bloody", "aliases": ["blood", "bloodbath"]},
-                {"value": "ruined", "aliases": ["ruins", "ruin"]},
-                {"value": "burned", "aliases": ["burnt", "fire"]},
-                "abandoned", "overgrown", "flooded",
-                {"value": "frozen", "aliases": ["icy"]},
-                "polluted",
-            ]),
+            "common_values": json.dumps(
+                [
+                    {"value": "bloody", "aliases": ["blood", "bloodbath"]},
+                    {"value": "ruined", "aliases": ["ruins", "ruin"]},
+                    {"value": "burned", "aliases": ["burnt", "fire"]},
+                    "abandoned",
+                    "overgrown",
+                    "flooded",
+                    {"value": "frozen", "aliases": ["icy"]},
+                    "polluted",
+                ]
+            ),
         },
         {
             "name": "theme",
             "description": "Thematic variations",
             "color": "purple",
             "display_order": 4,
-            "common_values": json.dumps([
-                {"value": "fey", "aliases": ["feywild"]},
-                {"value": "shadow", "aliases": ["shadowfell"]},
-                "underdark", "pirate", "astral", "ethereal",
-            ]),
+            "common_values": json.dumps(
+                [
+                    {"value": "fey", "aliases": ["feywild"]},
+                    {"value": "shadow", "aliases": ["shadowfell"]},
+                    "underdark",
+                    "pirate",
+                    "astral",
+                    "ethereal",
+                ]
+            ),
         },
         {
             "name": "population",
             "description": "Occupancy state",
             "color": "cyan",
             "display_order": 5,
-            "common_values": json.dumps([
-                {"value": "empty", "aliases": ["propless"]},
-                "furnished", "populated", "battle",
-            ]),
+            "common_values": json.dumps(
+                [
+                    {"value": "empty", "aliases": ["propless"]},
+                    "furnished",
+                    "populated",
+                    "battle",
+                ]
+            ),
         },
         {
             "name": "terrain",
             "description": "Terrain and environment type",
             "color": "emerald",
             "display_order": 6,
-            "common_values": json.dumps([
-                "forest", "cave", "river", "bridge", "camp", "temple",
-                "village", "island", "dungeon", "road", "mountain",
-                "swamp", "ocean", "tavern", "castle", "rock", "tree",
-                "desert", "lake", "tower", "ruins",
-            ]),
+            "common_values": json.dumps(
+                [
+                    "forest",
+                    "cave",
+                    "river",
+                    "bridge",
+                    "camp",
+                    "temple",
+                    "village",
+                    "island",
+                    "dungeon",
+                    "road",
+                    "mountain",
+                    "swamp",
+                    "ocean",
+                    "tavern",
+                    "castle",
+                    "rock",
+                    "tree",
+                    "desert",
+                    "lake",
+                    "tower",
+                    "ruins",
+                ]
+            ),
         },
         {
             "name": "floor",
             "description": "Building level or floor",
             "color": "stone",
             "display_order": 7,
-            "common_values": json.dumps([
-                "roof", "basement", "interior",
-                {"value": "ground", "aliases": ["ground floor"]},
-            ]),
+            "common_values": json.dumps(
+                [
+                    "roof",
+                    "basement",
+                    "interior",
+                    {"value": "ground", "aliases": ["ground floor"]},
+                ]
+            ),
         },
         {
             "name": "perspective",

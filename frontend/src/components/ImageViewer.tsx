@@ -10,11 +10,13 @@ import {
   SlidersHorizontal,
   Download,
   FolderDown,
+  Trash2,
 } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { SceneTile } from '@/components/SceneTile'
 import { SubgroupDropdown } from '@/components/SubgroupDropdown'
 import { imageApi, tagApi, getImageUrl, getGroupDownloadUrl } from '@/lib/api'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { useGetTagColor } from '@/contexts/TagColorContext'
 import { TagPicker } from '@/components/import/TagPicker'
 import { GridToggle } from '@/components/import/GridToggle'
@@ -34,6 +36,7 @@ interface ImageViewerProps {
   onPrevious?: () => void
   onImageChange?: (image: Image) => void
   onEditGroup?: (groupId: number) => void
+  onDelete?: (imageId: number) => void
 }
 
 // Dot-grid canvas background — gives the image a defined "stage"
@@ -50,6 +53,7 @@ export function ImageViewer({
   onPrevious,
   onImageChange,
   onEditGroup,
+  onDelete,
 }: ImageViewerProps) {
   const getTagColor = useGetTagColor()
   const queryClient = useQueryClient()
@@ -91,6 +95,7 @@ export function ImageViewer({
   const [editingSV, setEditingSV] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [downloadingGroup, setDownloadingGroup] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [gridWidthDraft, setGridWidthDraft] = useState<string>(image.grid_width?.toString() ?? '')
   const [gridHeightDraft, setGridHeightDraft] = useState<string>(
     image.grid_height?.toString() ?? '',
@@ -190,6 +195,16 @@ export function ImageViewer({
   const removeTagMutation = useMutation({
     mutationFn: (tagId: number) => tagApi.removeTag(tagId),
     onSuccess: invalidateImage,
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: () => imageApi.delete(image.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['search'] })
+      queryClient.invalidateQueries({ queryKey: ['scenes'] })
+      setConfirmingDelete(false)
+      onDelete?.(image.id)
+    },
   })
 
   // ── Derived data ──────────────────────────────────────────────────────────
@@ -454,52 +469,61 @@ export function ImageViewer({
           {/* Amber stripe — sidebar half: full at join, transparent at right edge */}
           <div className="h-0.5 shrink-0 bg-gradient-to-l from-transparent to-primary/80" />
 
-          {/* Controls row */}
-          <div className="flex items-center justify-between px-4 pt-3 pb-1.5 shrink-0">
-            {img.group_id !== null && onEditGroup ? (
-              <button
-                onClick={() => onEditGroup(img.group_id!)}
-                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <Edit className="h-3.5 w-3.5" />
-                Edit group
-              </button>
-            ) : (
-              <div />
-            )}
-            <div className="flex items-center gap-1">
-              {img.group_id !== null && (
+          {/* ── Image info (fixed — stays visible while scenes scroll) ── */}
+          <div className="px-4 pt-3 pb-2 shrink-0 border-b border-border/30">
+            {/* Controls row: group actions (left) · image actions + close (right) */}
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center gap-3">
+                {img.group_id !== null && onEditGroup && (
+                  <button
+                    onClick={() => onEditGroup(img.group_id!)}
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <Edit className="h-3.5 w-3.5" />
+                    Edit group
+                  </button>
+                )}
+                {img.group_id !== null && (
+                  <button
+                    onClick={handleDownloadGroup}
+                    disabled={downloadingGroup}
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+                  >
+                    <FolderDown className="h-3.5 w-3.5" />
+                    Download group
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-0.5">
                 <button
-                  onClick={handleDownloadGroup}
-                  disabled={downloadingGroup}
-                  title="Download all images in group"
+                  onClick={handleDownload}
+                  disabled={downloading}
+                  title="Download image"
                   className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors disabled:opacity-40"
                 >
-                  <FolderDown className="h-4 w-4" />
+                  <Download className="h-4 w-4" />
                 </button>
-              )}
-              <button
-                onClick={handleDownload}
-                disabled={downloading}
-                title="Download image"
-                className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors disabled:opacity-40"
-              >
-                <Download className="h-4 w-4" />
-              </button>
-              <button
-                onClick={onClose}
-                className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-              >
-                <X className="h-4 w-4" />
-              </button>
+                <button
+                  onClick={() => setConfirmingDelete(true)}
+                  title="Delete image"
+                  className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+                <div className="w-px h-4 bg-border/40 mx-0.5" />
+                <button
+                  onClick={onClose}
+                  title="Close"
+                  className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
-          </div>
 
-          {/* ── Image info (fixed — stays visible while scenes scroll) ── */}
-          <div className="px-4 pb-2 shrink-0 border-b border-border/30">
             {/* Group name — shown when the image belongs to a named group */}
             {img.group_name && img.group_name !== img.name && (
-              <p className="font-display text-xl font-semibold text-muted-foreground truncate mb-0.5">
+              <p className="font-display text-2xl font-semibold text-muted-foreground truncate mb-0.5">
                 {img.group_name}
               </p>
             )}
@@ -513,11 +537,11 @@ export function ImageViewer({
                   onChange={(e) => setNameDraft(e.target.value)}
                   onBlur={saveName}
                   onKeyDown={handleNameKeyDown}
-                  className="font-display text-xl font-semibold bg-transparent border-b border-primary/70 focus:outline-none text-foreground flex-1 min-w-0 pb-px"
+                  className="font-display text-2xl font-semibold bg-transparent border-b border-primary/70 focus:outline-none text-foreground flex-1 min-w-0 pb-px"
                 />
               ) : (
                 <h2
-                  className="font-display text-xl font-semibold text-foreground cursor-text flex-1 min-w-0 leading-tight"
+                  className="font-display text-2xl font-semibold text-foreground cursor-text flex-1 min-w-0 leading-tight"
                   onClick={() => {
                     setNameDraft(img.name)
                     setEditingName(true)
@@ -884,6 +908,20 @@ export function ImageViewer({
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmingDelete}
+        onOpenChange={setConfirmingDelete}
+        title="Delete Image"
+        description={
+          <>
+            Permanently delete <strong>{img.name}</strong>? This cannot be undone.
+          </>
+        }
+        confirmLabel="Delete"
+        onConfirm={() => deleteMutation.mutate()}
+        isLoading={deleteMutation.isPending}
+      />
     </div>
   )
 }

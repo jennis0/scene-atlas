@@ -87,21 +87,45 @@ def tmp_staging(tmp_path, make_test_image):
 
 
 @pytest.fixture
-def test_client(tmp_db):
-    """FastAPI TestClient with test DB.
+def test_client(tmp_db, tmp_path):
+    """FastAPI TestClient with test DB and isolated storage paths.
 
     The TestClient triggers the lifespan which sets app.state.db_engine
     to the production DB. We override it AFTER entering the context manager
     so our test DB takes precedence.
+
+    CRITICAL: We also redirect settings storage paths to temp directories
+    so that tests like purge_library (which call shutil.rmtree on
+    settings.store_images_dir) never touch production files.
     """
     from fastapi.testclient import TestClient
 
+    from backend.app.config import settings
     from backend.app.main import app
 
     engine, _ = tmp_db
-    with TestClient(app) as client:
-        app.state.db_engine = engine
-        yield client
+
+    # Redirect all storage paths to temp directories
+    orig_images = settings.store_images_dir
+    orig_thumbnails = settings.store_thumbnails_dir
+    orig_staging = settings.staging_dir
+
+    settings.store_images_dir = tmp_path / "store" / "images"
+    settings.store_thumbnails_dir = tmp_path / "store" / "thumbnails"
+    settings.staging_dir = tmp_path / "staging"
+    settings.store_images_dir.mkdir(parents=True, exist_ok=True)
+    settings.store_thumbnails_dir.mkdir(parents=True, exist_ok=True)
+    settings.staging_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        with TestClient(app) as client:
+            app.state.db_engine = engine
+            yield client
+    finally:
+        # Restore original paths
+        settings.store_images_dir = orig_images
+        settings.store_thumbnails_dir = orig_thumbnails
+        settings.staging_dir = orig_staging
 
 
 @pytest.fixture
