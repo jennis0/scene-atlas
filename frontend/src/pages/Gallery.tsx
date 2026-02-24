@@ -413,12 +413,30 @@ export function Gallery() {
           {/* Search + controls row */}
           <div className="flex items-center gap-2 pb-3">
             <form onSubmit={handleSubmit} className="flex flex-1 min-w-0">
-              {/* Scope selector — sets image type filter inline with the search */}
+              {/* Type toggle — segmented control on large screens, dropdown on small */}
+              {(['all', 'battlemap', 'scene'] as const).map((type, i) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => handleImageTypeChange(type)}
+                  className={`hidden sm:flex h-10 px-3 items-center text-xs font-medium border border-input border-r-0 shrink-0 transition-colors
+                    ${i === 0 ? 'rounded-l-md' : ''}
+                    ${
+                      imageType === type
+                        ? 'bg-secondary text-foreground'
+                        : 'bg-background text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+                    }`}
+                >
+                  {type === 'all' ? 'All' : type === 'battlemap' ? 'Maps' : 'Scenes'}
+                </button>
+              ))}
+
+              {/* Scope dropdown — small screens only */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
-                    className="flex items-center gap-1.5 h-10 px-3 shrink-0 bg-secondary border border-input rounded-l-md border-r-0 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:z-10"
+                    className="sm:hidden flex items-center gap-1.5 h-10 px-3 shrink-0 bg-secondary border border-input rounded-l-md border-r-0 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:z-10"
                   >
                     {imageType === 'all' ? 'All' : imageType === 'battlemap' ? 'Maps' : 'Scenes'}
                     <ChevronDown className="h-3 w-3 opacity-50" />
@@ -455,7 +473,12 @@ export function Gallery() {
                 {searchInput && (
                   <button
                     type="button"
-                    onClick={() => setSearchInput('')}
+                    onClick={() => {
+                      setSearchInput('')
+                      setSubmittedQuery('')
+                      setSortKey(loadSortKey())
+                      setUrlParams(buildUrlParams('', filters, imageType))
+                    }}
                     tabIndex={-1}
                     className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                   >

@@ -45,6 +45,8 @@ interface EditGroupDialogProps {
   groupId?: number | null
   // Mass-edit mode: pass seedImages (the search result images to edit)
   seedImages?: Image[]
+  // Import-review mode: pass groupIds to load multiple groups by ID, all images in scope
+  groupIds?: number[]
   open: boolean
   onClose: () => void
   onSave: () => void
@@ -97,11 +99,13 @@ function buildPayload(group: EditableGroupState): GroupEditRequest {
 export function EditGroupDialog({
   groupId,
   seedImages,
+  groupIds,
   open,
   onClose,
   onSave,
 }: EditGroupDialogProps) {
   const isMassEdit = !!seedImages && seedImages.length > 0
+  const isImportReview = !!groupIds && groupIds.length > 0
   const queryClient = useQueryClient()
 
   const invalidateGallery = useCallback(() => {
@@ -222,7 +226,7 @@ export function EditGroupDialog({
   // ── Load: single-group mode ──────────────────────────────────────
 
   useEffect(() => {
-    if (!open || isMassEdit) return
+    if (!open || isMassEdit || isImportReview) return
     const gId = groupId ?? null
     if (gId === null) {
       reset()
@@ -261,7 +265,17 @@ export function EditGroupDialog({
       .finally(() => {
         setLoading(false)
       })
-  }, [open, groupId, isMassEdit, reset, setGroups, setTagVocab, setAuthorSuggestions, setActiveTab])
+  }, [
+    open,
+    groupId,
+    isMassEdit,
+    isImportReview,
+    reset,
+    setGroups,
+    setTagVocab,
+    setAuthorSuggestions,
+    setActiveTab,
+  ])
 
   // ── Load: mass-edit mode ─────────────────────────────────────────
 
@@ -338,6 +352,61 @@ export function EditGroupDialog({
     open,
     seedImages,
     isMassEdit,
+    reset,
+    setGroups,
+    setTagVocab,
+    setAuthorSuggestions,
+    setActiveTab,
+  ])
+
+  // ── Load: import-review mode (multiple groups by ID, all images in scope) ──
+
+  useEffect(() => {
+    if (!open || !isImportReview) return
+
+    setLoading(true)
+    setLoadError(null)
+
+    const ids = groupIds!
+    Promise.all([
+      ...ids.map((id) => groupApi.get(id)),
+      tagApi.getCategories(),
+      imageApi.getAuthors(),
+    ])
+      .then((results) => {
+        const groupDetails = results.slice(0, ids.length) as Awaited<
+          ReturnType<typeof groupApi.get>
+        >[]
+        const categories = results[ids.length] as Awaited<ReturnType<typeof tagApi.getCategories>>
+        const authors = results[ids.length + 1] as string[]
+
+        const editableGroups: EditableGroupState[] = groupDetails.map((detail) => ({
+          id: String(detail.id),
+          author: detail.author ?? '',
+          group_name: detail.base_name,
+          files: detail.images.map((img) => imageToEditable(img)),
+          skip: false,
+          status: 'pending',
+          processed: 0,
+          failed: 0,
+          total: detail.images.length,
+        }))
+
+        setGroups(editableGroups)
+        setTagVocab(parseTagVocabulary(categories))
+        setAuthorSuggestions(authors)
+        setActiveTab(editableGroups.length > 1 ? ALL_TAB : 0)
+      })
+      .catch((err: unknown) => {
+        setLoadError(getApiErrorMessage(err, 'Failed to load imported groups'))
+      })
+      .finally(() => {
+        setLoading(false)
+      })
+  }, [
+    open,
+    groupIds,
+    isImportReview,
     reset,
     setGroups,
     setTagVocab,

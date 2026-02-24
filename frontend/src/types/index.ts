@@ -322,6 +322,7 @@ export interface ImportGroupStatus {
   processed_files: number
   failed_files: number
   status: string
+  group_id?: number | null
 }
 
 export interface ImportJobResponse {
