@@ -9,11 +9,12 @@ import {
   X,
   Trash2,
   Loader2,
+  Download,
 } from 'lucide-react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { systemApi } from '@/lib/api'
+import { systemApi, getLibraryExportUrl } from '@/lib/api'
 import { useJobPolling } from '@/hooks/useJobPolling'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -108,6 +109,7 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
   const [dataDir, setDataDir] = useState<string | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [confirmingResetTags, setConfirmingResetTags] = useState(false)
+  const [exportingLibrary, setExportingLibrary] = useState(false)
 
   // Library purge job polling
   const purgeJob = useJobPolling()
@@ -173,6 +175,26 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
   const handleCancelChange = () => {
     setPendingDir(null)
     setLocationPhase('idle')
+  }
+
+  const handleExportLibrary = async () => {
+    setExportingLibrary(true)
+    try {
+      const resp = await fetch(getLibraryExportUrl())
+      const blob = await resp.blob()
+      const objectUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = objectUrl
+      a.download = 'scene-atlas-library.zip'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(objectUrl)
+    } catch (err) {
+      console.error('Library export failed', err)
+    } finally {
+      setExportingLibrary(false)
+    }
   }
 
   const handleOpenChange = (v: boolean) => {
@@ -340,6 +362,31 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
                   <DataRow label="Groups" value={info.library.group_count.toLocaleString()} />
                 </>
               ) : null}
+            </div>
+          </section>
+
+          {/* ── Export ───────────────────────────────────────── */}
+          <section className="pt-1">
+            <SectionLabel>Export</SectionLabel>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-zinc-300">Download library</p>
+                <p className="text-xs text-zinc-500">Export all images and metadata as a ZIP</p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleExportLibrary}
+                disabled={exportingLibrary}
+                className="gap-1.5 h-8 border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
+              >
+                {exportingLibrary ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Download className="h-3.5 w-3.5" />
+                )}
+                {exportingLibrary ? 'Exporting…' : 'Download'}
+              </Button>
             </div>
           </section>
 

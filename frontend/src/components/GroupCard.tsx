@@ -1,5 +1,6 @@
-import { MoreHorizontal, Pencil, Merge, Trash2, Layers } from 'lucide-react'
-import { getThumbnailUrl } from '@/lib/api'
+import { useState } from 'react'
+import { MoreHorizontal, Pencil, Merge, Trash2, Layers, FolderDown } from 'lucide-react'
+import { getThumbnailUrl, getGroupDownloadUrl } from '@/lib/api'
 import { VideoIndicator } from '@/components/ui/video-indicator'
 import {
   DropdownMenu,
@@ -20,6 +21,7 @@ interface GroupCardProps {
 
 export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCardProps) {
   const { heroImage, mosaicImages, totalScenes, matchingCount, baseName, author, groupId } = group
+  const [downloading, setDownloading] = useState(false)
 
   const maxMosaic =
     mosaicImages.length >= 4 ? 4 : mosaicImages.length >= 2 ? 2 : mosaicImages.length
@@ -28,6 +30,28 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
   const overflowCount = totalScenes - displayedCount
   const hasMosaic = visibleMosaic.length > 0
   const hasActions = groupId !== null
+
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!groupId || downloading) return
+    setDownloading(true)
+    try {
+      const resp = await fetch(getGroupDownloadUrl(groupId))
+      const blob = await resp.blob()
+      const objectUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = objectUrl
+      a.download = `${baseName}.zip`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(objectUrl)
+    } catch (err) {
+      console.error('Group download failed', err)
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   return (
     <div
@@ -55,6 +79,10 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
               <DropdownMenuItem onClick={() => onMerge?.()}>
                 <Merge className="h-4 w-4 mr-2" />
                 Merge into...
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleDownload} disabled={downloading}>
+                <FolderDown className="h-4 w-4 mr-2" />
+                {downloading ? 'Downloading…' : 'Download'}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
