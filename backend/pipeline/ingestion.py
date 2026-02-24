@@ -216,6 +216,7 @@ def prepare_single_image(
             gridded = metadata.get("gridded")
             grid_width = metadata.get("grid_width")
             grid_height = metadata.get("grid_height")
+            grid_type = metadata.get("grid_type")
             tags = metadata.get("tags", [])
             content_hash = metadata.get("content_hash")
             reuse_storage_key = metadata.get("reuse_storage_key")
@@ -237,6 +238,7 @@ def prepare_single_image(
             gridded = parsed["gridded"]
             grid_width = parsed["grid_width"]
             grid_height = parsed["grid_height"]
+            grid_type = parsed.get("grid_type")
             tags = parsed["tags"]
             content_hash = None
             reuse_storage_key = None
@@ -368,7 +370,8 @@ def prepare_single_image(
         thumbnail_key = thumbnail_keys.get("medium", thumbnail_keys.get("small"))
 
         # --- Image-based grid detection (optional, battlemaps only) ---
-        grid_type = None
+        # grid_type is already set from metadata or filename parsing above.
+        # Image-based detection can override it if it produces a result.
         grid_confidence = None
 
         if settings.enable_image_grid_detection and image_type == "battlemap" and not is_video:
@@ -557,6 +560,7 @@ def update_import_group_job_progress(
     processed: int,
     failed: int,
     status: str = "running",
+    created_group_id: int | None = None,
 ) -> None:
     """Update ImportGroupJob progress counters in the database."""
     get_logger(__name__)
@@ -569,6 +573,8 @@ def update_import_group_job_progress(
             group_job.processed_files = processed
             group_job.failed_files = failed
             group_job.status = status
+            if created_group_id is not None:
+                group_job.created_group_id = created_group_id
             if status == "completed":
                 group_job.completed_at = datetime.now(UTC).replace(tzinfo=None)
             db.commit()
@@ -968,6 +974,7 @@ def _run_group(
                             "gridded": file_info.get("gridded"),
                             "grid_width": file_info.get("grid_width"),
                             "grid_height": file_info.get("grid_height"),
+                            "grid_type": file_info.get("grid_type"),
                             "subgroup": file_info.get("subgroup"),
                             "image_type": file_info.get("image_type", "battlemap"),
                             "content_hash": file_info.get("content_hash"),
@@ -987,7 +994,28 @@ def _run_group(
             failed += len(batch_results) - batch_success
             update_import_group_job_progress(group_job_id, processed, failed)
 
-        update_import_group_job_progress(group_job_id, processed, failed, status="completed")
+        # Look up the ImageGroup that was created/updated so we can link back to it
+        _created_group_id: int | None = None
+        try:
+            _engine = get_engine(settings.database_url)
+            _Session = get_session_local(_engine)
+            _db = _Session()
+            try:
+                grp = (
+                    _db.query(ImageGroup)
+                    .filter(ImageGroup.base_name == group_name, ImageGroup.author == author)
+                    .first()
+                )
+                if grp:
+                    _created_group_id = grp.id
+            finally:
+                _db.close()
+        except Exception:
+            pass  # Non-fatal — link is a convenience, not required
+
+        update_import_group_job_progress(
+            group_job_id, processed, failed, status="completed", created_group_id=_created_group_id
+        )
         logger.info(f"Group {group_job_id} ({group_name}): {processed} ok, {failed} failed")
     except Exception as e:
         # Count all files not yet processed as failed, mark group as failed

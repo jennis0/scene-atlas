@@ -588,6 +588,7 @@ async def get_import_status(
             processed_files=gj.processed_files,
             failed_files=gj.failed_files,
             status=gj.status,
+            group_id=gj.created_group_id,
         )
         for gj in group_jobs
     ]

@@ -395,6 +395,7 @@ class ImportGroupStatus(BaseModel):
     processed_files: int = 0
     failed_files: int = 0
     status: str = "pending"  # pending, running, completed, failed
+    group_id: int | None = None  # Set once completed — links to the created ImageGroup
 
 
 class ImportJobResponse(BaseModel):

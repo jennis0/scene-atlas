@@ -21,7 +21,11 @@ The tool has three deployment modes
 - When you don't know something, check the docs in ./design before looking at code - it will point you to the right place
 - Be critical at all times, make sure you challenge my assumptions, especially when they're implicit. I give you permission to push back if my ideas are not good ones
 - Where possible, write tests to monitor behaviour, look to increase test coverage gradually over time.
-- When starting a new feature, do so in a worktree then merge it into the primary working branch once complete
-- Delete the worktree when the user confirms they're happy with the completed feature
 - When a feature request is particularly large, create a separate branch to work on it
 - Whenever a bug is found, if possible, write tests to prevent that class of bug from occuring again
+
+# How to Manage the Code
+- When starting a new feature, do so in a worktree then ask the user to merge it into the primary working branch once complete
+- Delete the worktree when the user confirms they're happy with the completed feature
+- If working on small bugfixes, do so in your current worktree if one is available, otehrwise ask the user whether they want you to work on the main branch
+- At the end of each feature or bugfix, commit it with a useful but short message

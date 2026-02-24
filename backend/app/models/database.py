@@ -190,6 +190,8 @@ class ImportGroupJob(Base):
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
+    # Set once the group finishes so the frontend can link back to the created ImageGroup
+    created_group_id = Column(Integer, nullable=True)
 
     # Relationships
     job = relationship("ImportJob", back_populates="groups")
