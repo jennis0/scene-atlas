@@ -13,8 +13,9 @@ import {
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { systemApi, getLibraryExportUrl } from '@/lib/api'
+import { systemApi, getLibraryExportUrl, settingsApi } from '@/lib/api'
 import { useJobPolling } from '@/hooks/useJobPolling'
+import type { AppSettings } from '@/types'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -172,6 +173,19 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
       queryClient.invalidateQueries({ queryKey: ['tagCategories'] })
       queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
       queryClient.invalidateQueries({ queryKey: ['system-info'] })
+    },
+  })
+
+  const { data: appSettings } = useQuery({
+    queryKey: ['app-settings'],
+    queryFn: settingsApi.get,
+    enabled: open,
+  })
+
+  const patchSettingsMut = useMutation({
+    mutationFn: (patch: Partial<AppSettings>) => settingsApi.patch(patch),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['app-settings'], updated)
     },
   })
 
@@ -369,6 +383,45 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
               )}
             </section>
           )}
+
+          {/* ── Settings ──────────────────────────────────────── */}
+          <section>
+            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-2.5">
+              Settings
+            </p>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm text-foreground/90">Image grid detection</p>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Analyse battlemap images to detect grid type and cell size
+                </p>
+              </div>
+              <button
+                role="switch"
+                aria-checked={appSettings?.enable_image_grid_detection ?? false}
+                onClick={() =>
+                  appSettings &&
+                  patchSettingsMut.mutate({
+                    enable_image_grid_detection: !appSettings.enable_image_grid_detection,
+                  })
+                }
+                disabled={patchSettingsMut.isPending || !appSettings}
+                className={[
+                  'shrink-0 relative inline-flex h-5 w-9 cursor-pointer rounded-full border-2 border-transparent',
+                  'transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  'disabled:cursor-not-allowed disabled:opacity-50',
+                  appSettings?.enable_image_grid_detection ? 'bg-primary' : 'bg-input',
+                ].join(' ')}
+              >
+                <span
+                  className={[
+                    'pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform',
+                    appSettings?.enable_image_grid_detection ? 'translate-x-4' : 'translate-x-0',
+                  ].join(' ')}
+                />
+              </button>
+            </div>
+          </section>
 
           {/* ── Divider ───────────────────────────────────────── */}
           <div className="border-t border-border" />

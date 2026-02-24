@@ -1,6 +1,7 @@
 """Models package."""
 
 from .database import (
+    AppSetting,
     Base,
     Color,
     Image,
@@ -12,9 +13,12 @@ from .database import (
     get_engine,
     get_session_local,
     init_db,
+    seed_default_settings,
     seed_tag_categories,
 )
 from .schemas import (
+    AppSettings,
+    AppSettingsPatch,
     ColorCreate,
     ColorResponse,
     GroupDetailResponse,
@@ -43,6 +47,7 @@ from .schemas import (
 
 __all__ = [
     # Database models
+    "AppSetting",
     "Base",
     "Image",
     "ImageGroup",
@@ -54,8 +59,11 @@ __all__ = [
     "get_engine",
     "get_session_local",
     "init_db",
+    "seed_default_settings",
     "seed_tag_categories",
     # Schemas
+    "AppSettings",
+    "AppSettingsPatch",
     "TagCreate",
     "TagResponse",
     "ColorCreate",

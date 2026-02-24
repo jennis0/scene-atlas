@@ -228,15 +228,32 @@ class JobRunner:
 
 
 def get_job_runner() -> JobRunner:
-    """Return the global JobRunner singleton (created on first call)."""
+    """Return the global JobRunner singleton (created on first call).
+
+    max_workers is read from DB-backed AppSettings so it can be changed
+    at runtime (takes effect on next restart, not while running).
+    """
     global _job_runner
     if _job_runner is not None:
         return _job_runner
     with _lock:
         if _job_runner is None:
-            from ..config import settings
+            max_workers = 2  # safe fallback
+            try:
+                from ..config import settings
+                from ..models.database import get_engine, get_session_local
+                from .app_settings import get_settings as get_app_settings
 
-            _job_runner = JobRunner(max_workers=settings.max_job_workers)
+                engine = get_engine(settings.database_url)
+                SessionLocal = get_session_local(engine)
+                db = SessionLocal()
+                try:
+                    max_workers = get_app_settings(db).max_job_workers
+                finally:
+                    db.close()
+            except Exception:
+                pass  # DB may not be ready on very first boot — use default
+            _job_runner = JobRunner(max_workers=max_workers)
     return _job_runner
 
 

@@ -1,10 +1,15 @@
 """Grid detection task — image-based grid analysis for battlemaps."""
 
-from pathlib import Path
+from __future__ import annotations
 
-from backend.app.config import settings
+from pathlib import Path
+from typing import TYPE_CHECKING
+
 from backend.app.services.grid_detector import GridDetector
 from backend.pipeline.logger import get_logger
+
+if TYPE_CHECKING:
+    from backend.pipeline.pipeline_config import PipelineConfig
 
 
 def detect_grid_from_image(
@@ -12,6 +17,7 @@ def detect_grid_from_image(
     width: int,
     height: int,
     size_only: bool = False,
+    pipeline_config: PipelineConfig | None = None,
 ) -> dict:
     """Detect grid presence, type, and dimensions from an image.
 
@@ -20,6 +26,8 @@ def detect_grid_from_image(
         width: Original image width in pixels.
         height: Original image height in pixels.
         size_only: If True, skip presence detection (assumes grid exists).
+        pipeline_config: Optional pipeline config for detector thresholds.
+            Falls back to module-level defaults when not provided.
 
     Returns:
         Dict with gridded, grid_type, grid_width, grid_height, confidence.
@@ -27,15 +35,30 @@ def detect_grid_from_image(
     logger = get_logger(__name__)
 
     try:
-        detector = GridDetector(
-            min_cell_px=settings.grid_min_cell_px,
-            max_cell_px=settings.grid_max_cell_px,
-            max_dim=settings.grid_detection_max_dim,
-            presence_threshold=settings.grid_presence_threshold,
-            size_threshold=settings.grid_size_threshold,
-            period_ratio_threshold=settings.grid_period_ratio_threshold,
-            hex_rot_conf=settings.grid_hex_rot_conf,
-        )
+        if pipeline_config is not None:
+            detector = GridDetector(
+                min_cell_px=pipeline_config.grid_min_cell_px,
+                max_cell_px=pipeline_config.grid_max_cell_px,
+                max_dim=pipeline_config.grid_detection_max_dim,
+                presence_threshold=pipeline_config.grid_presence_threshold,
+                size_threshold=pipeline_config.grid_size_threshold,
+                period_ratio_threshold=pipeline_config.grid_period_ratio_threshold,
+                hex_rot_conf=pipeline_config.grid_hex_rot_conf,
+            )
+        else:
+            # Fallback: use PipelineConfig dataclass defaults
+            from backend.pipeline.pipeline_config import PipelineConfig
+
+            _defaults = PipelineConfig()
+            detector = GridDetector(
+                min_cell_px=_defaults.grid_min_cell_px,
+                max_cell_px=_defaults.grid_max_cell_px,
+                max_dim=_defaults.grid_detection_max_dim,
+                presence_threshold=_defaults.grid_presence_threshold,
+                size_threshold=_defaults.grid_size_threshold,
+                period_ratio_threshold=_defaults.grid_period_ratio_threshold,
+                hex_rot_conf=_defaults.grid_hex_rot_conf,
+            )
 
         path = Path(image_path)
 

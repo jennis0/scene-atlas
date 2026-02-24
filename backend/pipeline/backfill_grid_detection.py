@@ -26,6 +26,28 @@ logger = logging.getLogger(__name__)
 BATCH_SIZE = 50  # Smaller than hash backfill — grid detection is heavier per image
 
 
+def _build_detector() -> GridDetector:
+    """Create a GridDetector using DB-backed AppSettings."""
+    from backend.app.services.app_settings import get_settings as get_app_settings
+
+    engine = get_engine(settings.database_url)
+    SessionLocal = get_session_local(engine)
+    db = SessionLocal()
+    try:
+        app_settings = get_app_settings(db)
+        return GridDetector(
+            min_cell_px=app_settings.grid_min_cell_px,
+            max_cell_px=app_settings.grid_max_cell_px,
+            max_dim=app_settings.grid_detection_max_dim,
+            presence_threshold=app_settings.grid_presence_threshold,
+            size_threshold=app_settings.grid_size_threshold,
+            period_ratio_threshold=app_settings.grid_period_ratio_threshold,
+            hex_rot_conf=app_settings.grid_hex_rot_conf,
+        )
+    finally:
+        db.close()
+
+
 def detect_grids_batch(image_ids: list[int], force: bool = False) -> dict:
     """Run grid detection on a batch of images and update DB records.
 
@@ -41,15 +63,7 @@ def detect_grids_batch(image_ids: list[int], force: bool = False) -> dict:
     db = SessionLocal()
     image_store = get_image_store()
 
-    detector = GridDetector(
-        min_cell_px=settings.grid_min_cell_px,
-        max_cell_px=settings.grid_max_cell_px,
-        max_dim=settings.grid_detection_max_dim,
-        presence_threshold=settings.grid_presence_threshold,
-        size_threshold=settings.grid_size_threshold,
-        period_ratio_threshold=settings.grid_period_ratio_threshold,
-        hex_rot_conf=settings.grid_hex_rot_conf,
-    )
+    detector = _build_detector()
 
     detected = 0
     skipped = 0

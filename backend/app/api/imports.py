@@ -24,6 +24,7 @@ from ..models import (
     ImportJob,
     get_session_local,
 )
+from ..services.app_settings import get_settings as get_app_settings
 from ..models.schemas import (
     ActiveImportsResponse,
     DuplicateInfo,
@@ -159,12 +160,15 @@ async def upload_files(
         except (json.JSONDecodeError, TypeError):
             manifest_entries = []
 
+    # Read import limits from DB-backed settings
+    app_settings = get_app_settings(db)
+
     # Early count guard — catches obvious over-limit requests before reading content
-    if len(files) > settings.max_import_files:
+    if len(files) > app_settings.max_import_files:
         shutil.rmtree(staging_dir, ignore_errors=True)
         raise HTTPException(
             status_code=413,
-            detail=f"Too many files: {len(files)} uploaded, limit is {settings.max_import_files}",
+            detail=f"Too many files: {len(files)} uploaded, limit is {app_settings.max_import_files}",
         )
 
     saved_relative_paths: list[str] = []
@@ -181,15 +185,15 @@ async def upload_files(
             if filename.lower().endswith(".zip"):
                 # Read ZIP into memory and check compressed size
                 content = await upload_file.read()
-                if len(content) > settings.max_import_file_size:
-                    limit_mb = settings.max_import_file_size // (1024 * 1024)
+                if len(content) > app_settings.max_import_file_size:
+                    limit_mb = app_settings.max_import_file_size // (1024 * 1024)
                     raise HTTPException(
                         status_code=413,
                         detail=f"File '{filename}' exceeds size limit of {limit_mb} MB",
                     )
                 total_upload_bytes += len(content)
-                if total_upload_bytes > settings.max_import_total_size:
-                    limit_mb = settings.max_import_total_size // (1024 * 1024)
+                if total_upload_bytes > app_settings.max_import_total_size:
+                    limit_mb = app_settings.max_import_total_size // (1024 * 1024)
                     raise HTTPException(
                         status_code=413,
                         detail=f"Total upload size exceeds limit of {limit_mb} MB",
@@ -201,8 +205,8 @@ async def upload_files(
                 try:
                     check_zip_safety(
                         zip_path,
-                        max_files=settings.max_import_files,
-                        max_uncompressed_bytes=settings.max_import_total_size,
+                        max_files=app_settings.max_import_files,
+                        max_uncompressed_bytes=app_settings.max_import_total_size,
                     )
                 except ValueError as exc:
                     zip_path.unlink(missing_ok=True)
@@ -236,7 +240,9 @@ async def upload_files(
                 # Apply per-type size limit
                 is_video = ext in settings.supported_video_formats
                 file_size_limit = (
-                    settings.max_video_file_size if is_video else settings.max_import_file_size
+                    app_settings.max_video_file_size
+                    if is_video
+                    else app_settings.max_import_file_size
                 )
 
                 # Read content and enforce size limits
@@ -248,8 +254,8 @@ async def upload_files(
                         detail=f"File '{filename}' exceeds size limit of {limit_mb} MB",
                     )
                 total_upload_bytes += len(content)
-                if total_upload_bytes > settings.max_import_total_size:
-                    limit_mb = settings.max_import_total_size // (1024 * 1024)
+                if total_upload_bytes > app_settings.max_import_total_size:
+                    limit_mb = app_settings.max_import_total_size // (1024 * 1024)
                     raise HTTPException(
                         status_code=413,
                         detail=f"Total upload size exceeds limit of {limit_mb} MB",
@@ -433,6 +439,9 @@ async def confirm_import(
         f"group_job {group_job_id}: {len(valid_files)} files, group '{body.group_name}'"
     )
     from ...pipeline.ingestion import process_import_group
+    from ...pipeline.pipeline_config import PipelineConfig
+
+    _pipeline_config = PipelineConfig.from_app_settings(get_app_settings(db))
 
     runner = get_job_runner()
     runner.submit(
@@ -443,6 +452,7 @@ async def confirm_import(
         author=body.author,
         group_name=body.group_name,
         files=valid_files,
+        pipeline_config=_pipeline_config,
         name=f"Import: {body.group_name}",
     )
 
@@ -536,6 +546,9 @@ async def confirm_all_groups(
         raise HTTPException(status_code=400, detail="No valid files found in any group")
 
     from ...pipeline.ingestion import process_import_job
+    from ...pipeline.pipeline_config import PipelineConfig
+
+    _pipeline_config = PipelineConfig.from_app_settings(get_app_settings(db))
 
     runner = get_job_runner()
     runner.submit(
@@ -543,6 +556,7 @@ async def confirm_all_groups(
         job_id=job_id,
         staging_dir=str(staging_dir),
         groups=groups_payload,
+        pipeline_config=_pipeline_config,
         name=f"Import job: {job_id[:8]}",
     )
 

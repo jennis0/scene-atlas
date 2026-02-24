@@ -22,6 +22,7 @@ import type {
   HashCheckResponse,
   DuplicateInfo,
   BackgroundJob,
+  AppSettings,
 } from '@/types'
 
 const api = axios.create({
@@ -361,3 +362,14 @@ export const getLibraryExportUrl = (): string =>
   resolveApiUrl('/api/v1/export/library')
 
 export const getImageUrlById = (id: number): string => resolveApiUrl(`/api/v1/images/${id}/file`)
+
+export const settingsApi = {
+  get: async (): Promise<AppSettings> => {
+    const { data } = await api.get('/api/v1/settings/')
+    return data
+  },
+  patch: async (patch: Partial<AppSettings>): Promise<AppSettings> => {
+    const { data } = await api.patch('/api/v1/settings/', patch)
+    return data
+  },
+}

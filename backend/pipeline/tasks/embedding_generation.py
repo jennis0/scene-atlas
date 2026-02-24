@@ -45,7 +45,9 @@ def batch_generate_clip_embeddings(
     """
     logger = get_logger(__name__)
     if batch_size is None:
-        batch_size = settings.ingestion_batch_size
+        from backend.pipeline.pipeline_config import PipelineConfig
+
+        batch_size = PipelineConfig().ingestion_batch_size
 
     try:
         clip_service = get_clip_service()

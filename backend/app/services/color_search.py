@@ -6,7 +6,6 @@ import time
 
 from sqlalchemy.orm import Session
 
-from ..config import settings
 from ..models import Color
 
 # Cache TTL in seconds
@@ -68,7 +67,9 @@ class ColorIndex:
         """Find image IDs with at least one dominant color within threshold of target."""
         self._ensure_loaded(db)
         if threshold is None:
-            threshold = settings.color_distance_threshold
+            from .app_settings import get_settings as get_app_settings
+
+            threshold = get_app_settings(db).color_distance_threshold
 
         target = hex_to_hsl_cylinder(target_hex)
         return {

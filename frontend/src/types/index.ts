@@ -370,3 +370,37 @@ export interface ParsedTagVocab {
   values: string[]
   aliases: Record<string, string[]> // canonical value → alias list
 }
+
+// ── App Settings ──────────────────────────────────────────────────────────────
+
+export interface AppSettings {
+  // Grid detection (image analysis)
+  enable_image_grid_detection: boolean
+  grid_min_cell_px: number
+  grid_max_cell_px: number
+  grid_detection_max_dim: number
+  grid_presence_threshold: number
+  grid_size_threshold: number
+  grid_period_ratio_threshold: number
+  grid_hex_rot_conf: number
+
+  // Color extraction
+  num_dominant_colors: number
+  color_distance_threshold: number
+  color_clustering_samples: number
+  color_kmeans_n_init: number
+
+  // Ingestion performance
+  ingestion_batch_size: number
+  max_concurrent_prepare: number
+
+  // Import limits
+  max_import_file_size: number
+  max_video_file_size: number
+  max_import_files: number
+  max_import_total_size: number
+
+  // Job runner (takes effect on next restart)
+  max_job_workers: number
+  scheduler_enabled: boolean
+}

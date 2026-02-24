@@ -65,28 +65,6 @@ class Settings(BaseSettings):
     def all_supported_formats(self) -> list[str]:
         return self.supported_formats + self.supported_video_formats
 
-    # Grid Detection (image analysis)
-    enable_image_grid_detection: bool = False
-    grid_min_cell_px: int = 32
-    grid_max_cell_px: int = 320
-    grid_detection_max_dim: int = 20_000  # Effectively no downsampling
-    grid_presence_threshold: float = 0.20  # Confidence threshold for presence detection
-    grid_size_threshold: float = 0.15  # Lower threshold when presence already known
-    grid_period_ratio_threshold: float = 0.98  # Min h/v period agreement for square grid
-    grid_hex_rot_conf: float = 0.20  # Min rotation confidence for hex classification
-
-    # Color Extraction & Search
-    num_dominant_colors: int = 5
-    color_distance_threshold: float = 0.35  # HSL cylindrical distance for proximity search
-    color_clustering_samples: int = 5000  # Pixels to sample for k-means
-    color_kmeans_n_init: int = (
-        3  # K-means random initializations (3 is sufficient for color extraction)
-    )
-
-    # Ingestion Performance
-    ingestion_batch_size: int = 16  # Images per batch for CLIP and DB operations
-    max_concurrent_prepare: int = 8  # Concurrent prepare_single_image tasks
-
     # API
     api_host: str = "0.0.0.0"
     api_port: int = 8000
@@ -97,16 +75,8 @@ class Settings(BaseSettings):
         "http://localhost:8000",
     ]
 
-    # Background Job Runner
-    max_job_workers: int = 2  # Concurrent background jobs (imports, backfills)
-    scheduler_enabled: bool = True  # Run periodic maintenance tasks
-
-    # Import limits
+    # Import staging directory
     staging_dir: Path = data_dir / "staging"
-    max_import_file_size: int = 200 * 1024 * 1024  # 50MB per image file
-    max_video_file_size: int = 200 * 1024 * 1024  # 200MB per video file
-    max_import_files: int = 1000  # Max images per import
-    max_import_total_size: int = 2048 * 1024 * 1024  # 500MB total
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

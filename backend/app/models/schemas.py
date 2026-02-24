@@ -428,3 +428,69 @@ class ActiveImportsResponse(BaseModel):
     """Response for GET /imports/active."""
 
     jobs: list[ImportJobSummary]
+
+
+# ── App Settings ──────────────────────────────────────────────────────────────
+
+
+class AppSettings(BaseModel):
+    """DB-backed application settings (feature flags and tuning parameters).
+
+    All defaults match the values previously held in config.py so that existing
+    deployments behave identically until a user changes a setting.
+    """
+
+    # Grid detection (image analysis)
+    enable_image_grid_detection: bool = False
+    grid_min_cell_px: int = 32
+    grid_max_cell_px: int = 320
+    grid_detection_max_dim: int = 20_000
+    grid_presence_threshold: float = 0.20
+    grid_size_threshold: float = 0.15
+    grid_period_ratio_threshold: float = 0.98
+    grid_hex_rot_conf: float = 0.20
+
+    # Color extraction
+    num_dominant_colors: int = 5
+    color_distance_threshold: float = 0.35
+    color_clustering_samples: int = 5000
+    color_kmeans_n_init: int = 3
+
+    # Ingestion performance
+    ingestion_batch_size: int = 16
+    max_concurrent_prepare: int = 8
+
+    # Import limits
+    max_import_file_size: int = 200 * 1024 * 1024
+    max_video_file_size: int = 200 * 1024 * 1024
+    max_import_files: int = 1000
+    max_import_total_size: int = 2048 * 1024 * 1024
+
+    # Job runner (take effect on next restart)
+    max_job_workers: int = 2
+    scheduler_enabled: bool = True
+
+
+class AppSettingsPatch(BaseModel):
+    """Partial update for app settings — only include fields you want to change."""
+
+    enable_image_grid_detection: bool | None = None
+    grid_min_cell_px: int | None = None
+    grid_max_cell_px: int | None = None
+    grid_detection_max_dim: int | None = None
+    grid_presence_threshold: float | None = None
+    grid_size_threshold: float | None = None
+    grid_period_ratio_threshold: float | None = None
+    grid_hex_rot_conf: float | None = None
+    num_dominant_colors: int | None = None
+    color_distance_threshold: float | None = None
+    color_clustering_samples: int | None = None
+    color_kmeans_n_init: int | None = None
+    ingestion_batch_size: int | None = None
+    max_concurrent_prepare: int | None = None
+    max_import_file_size: int | None = None
+    max_video_file_size: int | None = None
+    max_import_files: int | None = None
+    max_import_total_size: int | None = None
+    max_job_workers: int | None = None
+    scheduler_enabled: bool | None = None
