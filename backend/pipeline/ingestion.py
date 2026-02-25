@@ -9,7 +9,6 @@ Functions:
 """
 
 import hashlib
-import shutil
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
@@ -656,8 +655,6 @@ def _process_batch(
             )
             stored_path = get_image_store().get_path(prep["image_data"]["storage_key"])
             if stored_path.exists():
-                from .tasks.embedding_generation import generate_clip_embedding
-
                 prep["embedding"] = generate_clip_embedding(str(stored_path))
             else:
                 logger.error(f"Stored file not found for reuse: {stored_path}")
@@ -1206,8 +1203,12 @@ def process_import_job(
             logger.info(f"Processing group '{group_name}' by '{author}' ({len(files)} files)")
             try:
                 processed, failed = _run_group(
-                    group_job_id, staging_dir, author, group_name, files,
-                    pipeline_config=pipeline_config
+                    group_job_id,
+                    staging_dir,
+                    author,
+                    group_name,
+                    files,
+                    pipeline_config=pipeline_config,
                 )
                 total_processed += processed
                 total_failed += failed
