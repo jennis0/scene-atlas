@@ -7,7 +7,6 @@ import {
   Check,
   X,
   AlertTriangle,
-  GripVertical,
   Tag,
   Loader2,
   RefreshCw,
@@ -16,7 +15,12 @@ import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { tagApi, searchApi } from '@/lib/api'
 import { useJobPolling } from '@/hooks/useJobPolling'
 import { COLOR_PALETTE, PALETTE_KEYS, getTagColor } from '@/components/import/tagColors'
+import { CATEGORY_ICON_MAP, CATEGORY_ICON_NAMES, getCategoryIcon } from '@/lib/categoryIcons'
 import type { TagCategory } from '@/types'
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const DARK_SURFACE = 'hsl(222 22% 10%)'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -60,7 +64,6 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
   const queryClient = useQueryClient()
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null)
-
   const [vocabDirty, setVocabDirty] = useState(false)
 
   const retagJob = useJobPolling()
@@ -92,24 +95,20 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
     queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
   }, [queryClient])
 
-  // When retag job completes, refresh tag data
   useEffect(() => {
     if (retagJob.isComplete) {
       invalidate()
     }
   }, [retagJob.isComplete, invalidate])
 
-  // Wraps invalidate and marks the vocab as changed since last retag
   const invalidateAndMark = useCallback(() => {
     setVocabDirty(true)
     invalidate()
   }, [invalidate])
 
-  // Auto-select first category
   const activeCat = categories.find((c) => c.name === selectedCategory) ?? null
   const effectiveSelection = activeCat ? activeCat.name : (categories[0]?.name ?? null)
 
-  // Sync selection when categories change
   useEffect(() => {
     if (!selectedCategory && categories.length > 0) {
       setSelectedCategory(categories[0].name)
@@ -118,54 +117,64 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-3xl w-full h-[75vh] flex flex-col gap-0 border-zinc-700/50 bg-zinc-900 p-0 overflow-hidden">
+      <DialogContent className="max-w-3xl w-full h-[75vh] flex flex-col gap-0 border-border/50 bg-card p-0 overflow-hidden">
         {/* Header */}
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-800">
-          <Tag className="w-3.5 h-3.5 text-amber-400" />
-          <h2 className="text-xs font-semibold text-zinc-300 tracking-wide uppercase">
-            Tag Management
-          </h2>
-          <button
-            onClick={() =>
-              setConfirmAction({
-                label: 'Regenerate auto-tags?',
-                detail:
-                  'This will delete all automatically assigned tags across every image and regenerate them from filenames. Manually applied tags are kept.',
-                confirmLabel: 'Regenerate',
-                confirmStyle: 'warning',
-                onConfirm: () => {
-                  retagMut.mutate()
-                  setConfirmAction(null)
-                },
-              })
-            }
-            disabled={retagMut.isPending || retagJob.isRunning}
-            className={`ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors disabled:opacity-40 ${
-              vocabDirty
-                ? 'text-amber-400 bg-amber-400/10 hover:bg-amber-400/20 ring-1 ring-amber-400/30'
-                : 'text-zinc-400 hover:text-amber-400 hover:bg-zinc-800'
-            }`}
-            title="Regenerate auto-tags for all images from their filenames. Manually applied tags are always preserved."
-          >
-            <RefreshCw
-              className={`w-3 h-3 ${retagMut.isPending || retagJob.isRunning ? 'animate-spin' : ''}`}
-            />
-            {retagJob.isRunning
-              ? `Retagging${retagJob.progressPct != null ? ` (${retagJob.progressPct}%)` : '…'}`
-              : 'Regenerate auto-tags'}
-          </button>
-          <button
-            onClick={onClose}
-            className="rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 text-zinc-400 hover:text-zinc-100"
-          >
-            <X className="h-4 w-4" />
-            <span className="sr-only">Close</span>
-          </button>
+        <div
+          className="px-4 py-3 border-b border-border/60 flex-shrink-0"
+          style={{ background: DARK_SURFACE }}
+        >
+          <div className="flex items-end justify-between">
+            <div>
+              <div className="flex items-center gap-3">
+                <span className="font-display text-[13px] font-medium tracking-[0.06em] text-foreground">
+                  Tag Management
+                </span>
+                <button
+                  onClick={() =>
+                    setConfirmAction({
+                      label: 'Regenerate auto-tags?',
+                      detail:
+                        'This will delete all automatically assigned tags across every image and regenerate them from filenames. Manually applied tags are kept.',
+                      confirmLabel: 'Regenerate',
+                      confirmStyle: 'warning',
+                      onConfirm: () => {
+                        retagMut.mutate()
+                        setConfirmAction(null)
+                      },
+                    })
+                  }
+                  disabled={retagMut.isPending || retagJob.isRunning}
+                  className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] transition-colors disabled:opacity-40 ${
+                    vocabDirty
+                      ? 'text-amber-400 bg-amber-400/10 hover:bg-amber-400/20 ring-1 ring-amber-400/30'
+                      : 'text-muted-foreground hover:text-amber-400 hover:bg-secondary'
+                  }`}
+                  title="Regenerate auto-tags for all images from their filenames. Manually applied tags are always preserved."
+                >
+                  <RefreshCw
+                    className={`w-3 h-3 ${retagMut.isPending || retagJob.isRunning ? 'animate-spin' : ''}`}
+                    strokeWidth={1.5}
+                  />
+                  {retagJob.isRunning
+                    ? `Retagging${retagJob.progressPct != null ? ` (${retagJob.progressPct}%)` : '…'}`
+                    : 'Regenerate auto-tags'}
+                </button>
+              </div>
+              <div className="mt-[3px] h-px w-7 bg-gradient-to-r from-primary to-transparent" />
+            </div>
+            <button
+              onClick={onClose}
+              className="rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-4 w-4" strokeWidth={1.5} />
+              <span className="sr-only">Close</span>
+            </button>
+          </div>
         </div>
 
         {isLoading ? (
           <div className="flex-1 flex items-center justify-center">
-            <Loader2 className="w-6 h-6 animate-spin text-zinc-500" />
+            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
           </div>
         ) : (
           <div className="flex flex-1 min-h-0">
@@ -175,7 +184,6 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
               selected={effectiveSelection}
               onSelect={setSelectedCategory}
               invalidate={invalidateAndMark}
-              setConfirmAction={setConfirmAction}
             />
 
             {/* Right Panel — Category Editor */}
@@ -187,16 +195,30 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
                   invalidate={invalidateAndMark}
                   setConfirmAction={setConfirmAction}
                   onCategoryRenamed={setSelectedCategory}
+                  onDeleted={() => {
+                    const next = categories.find((c) => c.name !== effectiveSelection)
+                    setSelectedCategory(next?.name ?? null)
+                  }}
                   facetCounts={facets?.tags[effectiveSelection] ?? []}
                 />
               ) : (
-                <div className="flex-1 flex items-center justify-center h-full text-zinc-500 text-sm">
+                <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
                   Create a category to get started
                 </div>
               )}
             </div>
           </div>
         )}
+
+        {/* Footer */}
+        <div
+          className="px-4 py-2.5 border-t border-border/60 flex-shrink-0"
+          style={{ background: DARK_SURFACE }}
+        >
+          <span className="text-[10.5px] text-muted-foreground italic">
+            Changes save automatically
+          </span>
+        </div>
 
         {/* Confirm overlay */}
         {confirmAction && (
@@ -214,13 +236,11 @@ function CategoryList({
   selected,
   onSelect,
   invalidate,
-  setConfirmAction,
 }: {
   categories: TagCategory[]
   selected: string | null
   onSelect: (name: string) => void
   invalidate: () => void
-  setConfirmAction: (a: ConfirmAction | null) => void
 }) {
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
@@ -236,14 +256,6 @@ function CategoryList({
     },
   })
 
-  const deleteMut = useMutation({
-    mutationFn: (name: string) => tagApi.deleteCategory(name),
-    onSuccess: () => {
-      invalidate()
-      onSelect(categories.find((c) => c.name !== selected)?.name ?? '')
-    },
-  })
-
   useEffect(() => {
     if (creating) inputRef.current?.focus()
   }, [creating])
@@ -255,47 +267,45 @@ function CategoryList({
   }
 
   return (
-    <div className="w-52 shrink-0 border-r border-zinc-800 flex flex-col">
-      <div className="flex-1 overflow-y-auto">
+    <div
+      className="w-52 shrink-0 border-r border-border/60 flex flex-col overflow-hidden"
+      style={{ background: DARK_SURFACE }}
+    >
+      <div className="flex-1 overflow-y-auto py-[6px]">
         {categories.map((cat) => {
-          const color = getTagColor(cat.color)
+          const colors = getTagColor(cat.color)
+          const CatIcon = getCategoryIcon(cat.icon)
           const isActive = cat.name === selected
+          const activeClass = `${colors.bg} ${colors.text} font-medium ${colors.border}`
+
           return (
             <button
               key={cat.name}
               onClick={() => onSelect(cat.name)}
-              className={`w-full flex items-center gap-2.5 px-4 py-2 text-left text-base capitalize transition-colors group ${
-                isActive
-                  ? 'bg-zinc-800 text-zinc-100'
-                  : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'
+              style={{ padding: '7px 10px 7px 12px' }}
+              className={`w-full flex items-center gap-[7px] text-left text-[12px] transition-colors border-l-2 capitalize ${
+                isActive ? activeClass : 'text-muted-foreground border-transparent'
               }`}
+              onMouseEnter={(e) => {
+                if (!isActive)
+                  (e.currentTarget as HTMLElement).style.background = 'hsl(222 20% 14%)'
+              }}
+              onMouseLeave={(e) => {
+                if (!isActive) (e.currentTarget as HTMLElement).style.background = ''
+              }}
             >
-              <span className={`w-2 h-2 rounded-full shrink-0 ${color.dot}`} />
+              <CatIcon
+                className={`h-3 w-3 flex-shrink-0 ${isActive ? '' : `${colors.text} opacity-60`}`}
+                strokeWidth={1.5}
+              />
               <span className="truncate flex-1">{cat.name}</span>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setConfirmAction({
-                    label: `Delete "${cat.name}"?`,
-                    detail:
-                      'This will permanently remove the category and delete all its tags from every image.',
-                    onConfirm: () => {
-                      deleteMut.mutate(cat.name)
-                      setConfirmAction(null)
-                    },
-                  })
-                }}
-                className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-500 hover:text-red-400 transition-all"
-              >
-                <Trash2 className="w-3 h-3" />
-              </button>
             </button>
           )
         })}
 
         {/* Inline create */}
         {creating ? (
-          <div className="px-2 py-1 flex items-center gap-1">
+          <div className="flex items-center gap-1 px-2 py-1.5 mx-1">
             <input
               ref={inputRef}
               value={newName}
@@ -308,28 +318,35 @@ function CategoryList({
                 }
               }}
               placeholder="name"
-              className="flex-1 min-w-0 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500/50"
+              className="flex-1 min-w-0 bg-secondary border border-border rounded px-1.5 py-0.5 text-[12px] text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary/50"
             />
-            <button onClick={handleCreate} className="p-0.5 text-amber-400 hover:text-amber-300">
-              <Check className="w-3 h-3" />
+            <button onClick={handleCreate} className="p-0.5 text-primary hover:text-primary/80">
+              <Check className="w-3 h-3" strokeWidth={1.5} />
             </button>
             <button
               onClick={() => {
                 setCreating(false)
                 setNewName('')
               }}
-              className="p-0.5 text-zinc-500 hover:text-zinc-300"
+              className="p-0.5 text-muted-foreground hover:text-foreground"
             >
-              <X className="w-3 h-3" />
+              <X className="w-3 h-3" strokeWidth={1.5} />
             </button>
           </div>
         ) : (
           <button
             onClick={() => setCreating(true)}
-            className="w-full flex items-center gap-2 px-4 py-2 text-base text-zinc-500 hover:text-amber-400 transition-colors"
+            style={{ padding: '7px 10px 7px 12px' }}
+            className="w-full flex items-center gap-[7px] text-[12px] text-muted-foreground hover:text-primary/80 transition-colors border-l-2 border-transparent"
+            onMouseEnter={(e) => {
+              ;(e.currentTarget as HTMLElement).style.background = 'hsl(222 20% 14%)'
+            }}
+            onMouseLeave={(e) => {
+              ;(e.currentTarget as HTMLElement).style.background = ''
+            }}
           >
-            <Plus className="w-3 h-3" />
-            <span>Add category</span>
+            <Plus className="h-3 w-3 shrink-0" strokeWidth={1.5} />
+            <span>New category</span>
           </button>
         )}
       </div>
@@ -344,18 +361,23 @@ function CategoryEditor({
   invalidate,
   setConfirmAction,
   onCategoryRenamed,
+  onDeleted,
   facetCounts,
 }: {
   category: TagCategory
   invalidate: () => void
   setConfirmAction: (a: ConfirmAction | null) => void
   onCategoryRenamed: (name: string) => void
+  onDeleted: () => void
   facetCounts: { value: string; count: number }[]
 }) {
   const [editingName, setEditingName] = useState(false)
   const [nameInput, setNameInput] = useState(category.name)
   const [description, setDescription] = useState(category.description ?? '')
   const nameRef = useRef<HTMLInputElement>(null)
+
+  const colors = getTagColor(category.color)
+  const CatIcon = getCategoryIcon(category.icon)
 
   const values = parseCommonValues(category.common_values)
 
@@ -367,6 +389,14 @@ function CategoryEditor({
       if (res.category.name !== category.name) {
         onCategoryRenamed(res.category.name)
       }
+    },
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: () => tagApi.deleteCategory(category.name),
+    onSuccess: () => {
+      invalidate()
+      onDeleted()
     },
   })
 
@@ -387,53 +417,89 @@ function CategoryEditor({
     }
   }
 
+  const handleDeleteClick = () => {
+    setConfirmAction({
+      label: `Delete "${category.name}"?`,
+      detail: 'This will permanently remove the category and delete all its tags from every image.',
+      onConfirm: () => {
+        deleteMut.mutate()
+        setConfirmAction(null)
+      },
+    })
+  }
+
   useEffect(() => {
     if (editingName) nameRef.current?.focus()
   }, [editingName])
 
   return (
     <div className="flex flex-col h-full">
-      {/* Name + description */}
-      <div className="px-4 pt-3 pb-2 border-b border-zinc-800/60">
-        {editingName ? (
-          <div className="flex items-center gap-2">
-            <input
-              ref={nameRef}
-              value={nameInput}
-              onChange={(e) => setNameInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleNameSave()
-                if (e.key === 'Escape') {
+      {/* Heading area */}
+      <div className="px-4 pt-3.5 pb-3 border-b border-border/50 flex-shrink-0">
+        <p className="text-[9.5px] font-medium tracking-[0.18em] uppercase text-muted-foreground mb-1.5">
+          Editing
+        </p>
+        <div className="flex items-center gap-2">
+          <CatIcon
+            className={`h-3.5 w-3.5 flex-shrink-0 opacity-80 ${colors.text}`}
+            strokeWidth={1.5}
+          />
+          {editingName ? (
+            <>
+              <input
+                ref={nameRef}
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleNameSave()
+                  if (e.key === 'Escape') {
+                    setEditingName(false)
+                    setNameInput(category.name)
+                  }
+                }}
+                className="flex-1 bg-secondary border border-border rounded px-2 py-1 font-display text-[15px] text-foreground focus:outline-none focus:border-primary/50"
+              />
+              <button onClick={handleNameSave} className="p-0.5 text-primary hover:text-primary/80">
+                <Check className="w-3.5 h-3.5" strokeWidth={1.5} />
+              </button>
+              <button
+                onClick={() => {
                   setEditingName(false)
                   setNameInput(category.name)
-                }
-              }}
-              className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm font-semibold text-zinc-100 focus:outline-none focus:border-amber-500/50"
-            />
-            <button onClick={handleNameSave} className="p-0.5 text-amber-400 hover:text-amber-300">
-              <Check className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={() => {
-                setEditingName(false)
-                setNameInput(category.name)
-              }}
-              className="p-0.5 text-zinc-500 hover:text-zinc-300"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 group">
-            <h3 className="text-base font-semibold text-zinc-100 capitalize">{category.name}</h3>
-            <button
-              onClick={() => setEditingName(true)}
-              className="p-0.5 text-zinc-600 hover:text-zinc-300 opacity-0 group-hover:opacity-100 transition-opacity"
-            >
-              <Pencil className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
+                }}
+                className="p-0.5 text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-3.5 h-3.5" strokeWidth={1.5} />
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => setEditingName(true)}
+                className="flex items-center gap-1.5 group"
+                title="Click to rename"
+              >
+                <h3
+                  className={`font-display text-[17px] font-medium tracking-[0.04em] leading-none capitalize ${colors.text}`}
+                >
+                  {category.name}
+                </h3>
+                <Pencil
+                  className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                  strokeWidth={1.5}
+                />
+              </button>
+              <span className="flex-1" />
+              <button
+                onClick={handleDeleteClick}
+                className="p-1 text-muted-foreground hover:text-destructive/70 transition-colors rounded"
+                title={`Delete ${category.name}`}
+              >
+                <Trash2 className="w-3 h-3" strokeWidth={1.5} />
+              </button>
+            </>
+          )}
+        </div>
         <input
           value={description}
           onChange={(e) => setDescription(e.target.value)}
@@ -441,14 +507,43 @@ function CategoryEditor({
           onKeyDown={(e) => {
             if (e.key === 'Enter') handleDescSave()
           }}
-          placeholder="Add a description..."
-          className="mt-1 w-full bg-transparent border-none text-sm text-zinc-500 placeholder-zinc-600 focus:outline-none focus:text-zinc-300"
+          placeholder="Add a description…"
+          className="mt-1.5 w-full bg-transparent border-none text-[12px] text-muted-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:text-foreground"
         />
       </div>
 
-      {/* Colour picker — forced 12-per-row grid */}
-      <div className="px-4 py-2 border-b border-zinc-800/60">
-        <div className="text-xs text-zinc-500 mb-1.5">Color</div>
+      {/* Icon picker */}
+      <div className="px-4 py-2.5 border-b border-border/60">
+        <div className="text-[10px] text-muted-foreground uppercase tracking-[0.12em] mb-2">
+          Icon
+        </div>
+        <div className="grid grid-cols-8 gap-1">
+          {CATEGORY_ICON_NAMES.map((iconName) => {
+            const IconComp = CATEGORY_ICON_MAP[iconName]
+            const isSelected = category.icon === iconName
+            return (
+              <button
+                key={iconName}
+                onClick={() => updateMut.mutate({ icon: iconName })}
+                title={iconName}
+                className={`flex items-center justify-center p-1.5 rounded-md transition-all ${
+                  isSelected
+                    ? `${colors.bg} ${colors.text} ring-1 ${colors.border}`
+                    : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+                }`}
+              >
+                <IconComp className="h-3 w-3" strokeWidth={1.5} />
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Colour picker */}
+      <div className="px-4 py-2.5 border-b border-border/60">
+        <div className="text-[10px] text-muted-foreground uppercase tracking-[0.12em] mb-2">
+          Color
+        </div>
         <div className="grid grid-cols-12 gap-1.5">
           {PALETTE_KEYS.map((key) => {
             const isSelected = category.color === key
@@ -456,10 +551,10 @@ function CategoryEditor({
               <button
                 key={key}
                 onClick={() => updateMut.mutate({ color: key })}
-                className={`w-full aspect-square rounded transition-all ${COLOR_PALETTE[key].dot} ${
+                className={`w-full aspect-square rounded-full transition-all ${COLOR_PALETTE[key].dot} ${
                   isSelected
-                    ? 'ring-2 ring-white/70 ring-offset-2 ring-offset-zinc-900'
-                    : 'opacity-60 hover:opacity-100'
+                    ? 'scale-105 outline outline-2 outline-offset-2 outline-white/60'
+                    : 'opacity-60 hover:opacity-100 hover:scale-105'
                 }`}
                 title={key}
               />
@@ -524,11 +619,10 @@ function TagValueList({
     if (!trimmed) return
     upsertMut.mutate({ value: trimmed })
     setNewValue('')
-    // Keep adding mode open for rapid entry
   }
 
   return (
-    <div className="space-y-1">
+    <div>
       {values.map((entry) => {
         const count = facetCounts.find((f) => f.value === entry.value)?.count ?? 0
         return (
@@ -568,27 +662,27 @@ function TagValueList({
               }
             }}
             placeholder="tag value"
-            className="flex-1 min-w-0 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500/50"
+            className="flex-1 min-w-0 bg-secondary border border-border rounded px-2 py-1 text-[13px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/50"
           />
-          <button onClick={handleAdd} className="p-1 text-amber-400 hover:text-amber-300">
-            <Check className="w-4 h-4" />
+          <button onClick={handleAdd} className="p-1 text-primary hover:text-primary/80">
+            <Check className="w-3.5 h-3.5" strokeWidth={1.5} />
           </button>
           <button
             onClick={() => {
               setAddingValue(false)
               setNewValue('')
             }}
-            className="p-1 text-zinc-500 hover:text-zinc-300"
+            className="p-1 text-muted-foreground hover:text-foreground"
           >
-            <X className="w-4 h-4" />
+            <X className="w-3.5 h-3.5" strokeWidth={1.5} />
           </button>
         </div>
       ) : (
         <button
           onClick={() => setAddingValue(true)}
-          className="flex items-center gap-1.5 px-4 py-2 text-sm text-zinc-500 hover:text-amber-400 transition-colors"
+          className="flex items-center gap-1.5 px-4 py-2 text-[12px] text-muted-foreground hover:text-primary/80 transition-colors"
         >
-          <Plus className="w-4 h-4" />
+          <Plus className="w-3 h-3" strokeWidth={1.5} />
           <span>Add value</span>
         </button>
       )}
@@ -611,9 +705,9 @@ function TagValueRow({
   invalidate: () => void
   onDelete: () => void
 }) {
-  const [editing, setEditing] = useState(false)
-  const [editValue, setEditValue] = useState(entry.value)
-  const [showAliases, setShowAliases] = useState(false)
+  const [editingValue, setEditingValue] = useState(false)
+  const [editVal, setEditVal] = useState(entry.value)
+  const [editingAliases, setEditingAliases] = useState(false)
   const [aliasInput, setAliasInput] = useState('')
   const editRef = useRef<HTMLInputElement>(null)
   const aliasRef = useRef<HTMLInputElement>(null)
@@ -622,7 +716,7 @@ function TagValueRow({
     mutationFn: (newValue: string) => tagApi.renameTagValue(categoryName, entry.value, newValue),
     onSuccess: () => {
       invalidate()
-      setEditing(false)
+      setEditingValue(false)
     },
   })
 
@@ -632,18 +726,18 @@ function TagValueRow({
   })
 
   useEffect(() => {
-    if (editing) editRef.current?.focus()
-  }, [editing])
+    if (editingValue) editRef.current?.focus()
+  }, [editingValue])
 
   useEffect(() => {
-    if (showAliases) aliasRef.current?.focus()
-  }, [showAliases])
+    if (editingAliases) aliasRef.current?.focus()
+  }, [editingAliases])
 
   const handleRename = () => {
-    const trimmed = editValue.trim()
+    const trimmed = editVal.trim()
     if (!trimmed || trimmed === entry.value) {
-      setEditing(false)
-      setEditValue(entry.value)
+      setEditingValue(false)
+      setEditVal(entry.value)
       return
     }
     renameMut.mutate(trimmed)
@@ -661,109 +755,118 @@ function TagValueRow({
   }
 
   return (
-    <div className="group">
-      <div className="flex items-center gap-2 px-4 py-1.5 hover:bg-zinc-800/40 transition-colors">
-        {editing ? (
+    <div className="group px-4 py-2 hover:bg-secondary/30 transition-colors">
+      {/* Main row */}
+      <div className="flex items-center gap-2">
+        {editingValue ? (
           <>
             <input
               ref={editRef}
-              value={editValue}
-              onChange={(e) => setEditValue(e.target.value)}
+              value={editVal}
+              onChange={(e) => setEditVal(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleRename()
                 if (e.key === 'Escape') {
-                  setEditing(false)
-                  setEditValue(entry.value)
+                  setEditingValue(false)
+                  setEditVal(entry.value)
                 }
               }}
-              className="flex-1 min-w-0 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-100 focus:outline-none focus:border-amber-500/50"
+              className="flex-1 min-w-0 bg-secondary border border-border rounded px-2 py-0.5 text-[13px] text-foreground focus:outline-none focus:border-primary/50"
             />
-            <button onClick={handleRename} className="p-0.5 text-amber-400 hover:text-amber-300">
-              <Check className="w-3 h-3" />
+            <button onClick={handleRename} className="p-0.5 text-primary hover:text-primary/80">
+              <Check className="w-3 h-3" strokeWidth={1.5} />
             </button>
             <button
               onClick={() => {
-                setEditing(false)
-                setEditValue(entry.value)
+                setEditingValue(false)
+                setEditVal(entry.value)
               }}
-              className="p-0.5 text-zinc-500 hover:text-zinc-300"
+              className="p-0.5 text-muted-foreground hover:text-foreground"
             >
-              <X className="w-3 h-3" />
+              <X className="w-3 h-3" strokeWidth={1.5} />
             </button>
           </>
         ) : (
           <>
-            <span className="text-base text-zinc-300 shrink-0 capitalize">{entry.value}</span>
-            {entry.aliases.length > 0 && (
-              <span className="text-sm text-zinc-600 truncate capitalize">
-                · {entry.aliases.join(', ')}
+            <span className="text-[13px] text-foreground capitalize">{entry.value}</span>
+            <span className="flex-1" />
+            {count > 0 && (
+              <span className="text-[12px] text-muted-foreground tabular-nums shrink-0 w-8 text-right">
+                {count}
               </span>
             )}
-            <span className="flex-1" />
-            <span className="text-sm text-zinc-600 shrink-0 tabular-nums w-8 text-right">
-              {count}
-            </span>
-            <div className="flex items-center gap-1 opacity-20 group-hover:opacity-100 transition-opacity ml-2">
+            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity ml-1">
               <button
-                onClick={() => setShowAliases(!showAliases)}
-                className="p-1 text-zinc-400 hover:text-zinc-100"
+                onClick={() => setEditingAliases(!editingAliases)}
+                className="p-1 text-muted-foreground hover:text-foreground"
                 title="Edit aliases"
               >
-                <GripVertical className="w-4 h-4" />
+                <Tag className="w-3 h-3" strokeWidth={1.5} />
               </button>
               <button
-                onClick={() => setEditing(true)}
-                className="p-1 text-zinc-400 hover:text-zinc-100"
+                onClick={() => setEditingValue(true)}
+                className="p-1 text-muted-foreground hover:text-foreground"
                 title="Rename"
               >
-                <Pencil className="w-4 h-4" />
+                <Pencil className="w-3 h-3" strokeWidth={1.5} />
               </button>
               <button
                 onClick={onDelete}
-                className="p-1 text-zinc-400 hover:text-red-400"
+                className="p-1 text-muted-foreground hover:text-destructive/70"
                 title="Delete"
               >
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="w-3 h-3" strokeWidth={1.5} />
               </button>
             </div>
           </>
         )}
       </div>
 
-      {showAliases && (
-        <div className="px-3 pb-1 ml-3 border-l border-zinc-700/40">
-          <div className="flex flex-wrap gap-1 pt-0.5">
-            {entry.aliases.map((alias) => (
-              <span
-                key={alias}
-                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs bg-zinc-800 text-zinc-400 border border-zinc-700/40 capitalize"
-              >
-                {alias}
-                <button
-                  onClick={() => removeAlias(alias)}
-                  className="text-zinc-600 hover:text-red-400"
+      {/* Aliases row */}
+      {!editingValue && (
+        <div className="mt-0.5 ml-0.5">
+          {editingAliases ? (
+            <div className="flex flex-wrap items-center gap-1">
+              {entry.aliases.map((alias) => (
+                <span
+                  key={alias}
+                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] bg-secondary text-muted-foreground capitalize"
                 >
-                  <X className="w-2.5 h-2.5" />
-                </button>
-              </span>
-            ))}
-          </div>
-          <div className="flex items-center gap-1 mt-1">
-            <input
-              ref={aliasRef}
-              value={aliasInput}
-              onChange={(e) => setAliasInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') addAlias()
-                if (e.key === 'Escape') setShowAliases(false)
-              }}
-              placeholder="add alias..."
-              className="flex-1 min-w-0 bg-zinc-800/50 border border-zinc-700/40 rounded px-1.5 py-0.5 text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-amber-500/50"
-            />
-            <button onClick={addAlias} className="p-0.5 text-amber-400 hover:text-amber-300">
-              <Check className="w-3 h-3" />
-            </button>
-          </div>
+                  {alias}
+                  <button
+                    onClick={() => removeAlias(alias)}
+                    className="text-muted-foreground/60 hover:text-destructive/70"
+                  >
+                    <X className="w-2.5 h-2.5" strokeWidth={1.5} />
+                  </button>
+                </span>
+              ))}
+              <input
+                ref={aliasRef}
+                value={aliasInput}
+                onChange={(e) => setAliasInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') addAlias()
+                  if (e.key === 'Escape') setEditingAliases(false)
+                }}
+                placeholder="add alias…"
+                className="h-6 px-1.5 text-[11px] bg-secondary/50 border border-border/60 rounded text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/40"
+              />
+              <button
+                onClick={() => setEditingAliases(false)}
+                className="p-0.5 text-muted-foreground hover:text-foreground"
+                title="Done"
+              >
+                <Check className="w-3 h-3" strokeWidth={1.5} />
+              </button>
+            </div>
+          ) : (
+            entry.aliases.length > 0 && (
+              <p className="text-[11px] text-muted-foreground capitalize leading-tight">
+                {entry.aliases.join(', ')}
+              </p>
+            )
+          )}
         </div>
       )}
     </div>
@@ -775,27 +878,27 @@ function TagValueRow({
 function ConfirmOverlay({ action, onCancel }: { action: ConfirmAction; onCancel: () => void }) {
   return (
     <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-5 max-w-sm mx-4 shadow-xl">
+      <div className="bg-card border border-border rounded-lg p-5 max-w-sm mx-4 shadow-xl">
         <div className="flex items-start gap-3">
-          <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+          <AlertTriangle className="w-4 h-4 text-primary shrink-0 mt-0.5" strokeWidth={1.5} />
           <div>
-            <h4 className="text-sm font-semibold text-zinc-100">{action.label}</h4>
-            <p className="text-xs text-zinc-400 mt-1">{action.detail}</p>
+            <h4 className="text-sm font-semibold text-foreground">{action.label}</h4>
+            <p className="text-[12px] text-muted-foreground mt-1">{action.detail}</p>
           </div>
         </div>
         <div className="flex justify-end gap-2 mt-4">
           <button
             onClick={onCancel}
-            className="px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-200 rounded-md hover:bg-zinc-800 transition-colors"
+            className="px-3 py-1.5 text-[12px] text-muted-foreground hover:text-foreground rounded-md hover:bg-secondary transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={action.onConfirm}
-            className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
+            className={`px-3 py-1.5 text-[12px] rounded-md border transition-colors ${
               action.confirmStyle === 'warning'
-                ? 'text-amber-400 hover:text-amber-300 bg-amber-400/10 hover:bg-amber-400/20 border-amber-400/20'
-                : 'text-red-400 hover:text-red-300 bg-red-400/10 hover:bg-red-400/20 border-red-400/20'
+                ? 'text-primary hover:text-primary/80 bg-primary/10 hover:bg-primary/20 border-primary/20'
+                : 'text-destructive hover:text-destructive/80 bg-destructive/10 hover:bg-destructive/20 border-destructive/20'
             }`}
           >
             {action.confirmLabel ?? 'Delete'}

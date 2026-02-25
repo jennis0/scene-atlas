@@ -229,6 +229,7 @@ class TagCategoryBase(BaseModel):
     description: str | None = None
     common_values: str | None = None  # JSON string
     color: str | None = None  # Tailwind color preset name
+    icon: str | None = None  # Lucide icon name, e.g. "leaf"
     display_order: int = 0
 
 
@@ -238,6 +239,7 @@ class TagCategoryCreate(BaseModel):
     name: str
     description: str | None = None
     color: str | None = None
+    icon: str | None = None
     display_order: int = 0
 
 
@@ -247,6 +249,7 @@ class TagCategoryUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     color: str | None = None
+    icon: str | None = None
     display_order: int | None = None
 
 

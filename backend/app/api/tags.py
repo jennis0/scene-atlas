@@ -103,6 +103,8 @@ async def update_tag_category(
         category.description = payload.description
     if payload.color is not None:
         category.color = payload.color
+    if payload.icon is not None:
+        category.icon = payload.icon
     if payload.display_order is not None:
         category.display_order = payload.display_order
 

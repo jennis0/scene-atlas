@@ -112,6 +112,7 @@ export const tagApi = {
     name: string
     description?: string
     color?: string
+    icon?: string | null
     display_order?: number
   }): Promise<TagCategory> => {
     const { data } = await api.post<TagCategory>('/tags/categories', payload)
@@ -120,7 +121,13 @@ export const tagApi = {
 
   updateCategory: async (
     categoryName: string,
-    payload: { name?: string; description?: string; color?: string; display_order?: number },
+    payload: {
+      name?: string
+      description?: string
+      color?: string
+      icon?: string | null
+      display_order?: number
+    },
   ): Promise<{ category: TagCategory; affected_images: number }> => {
     const { data } = await api.patch(`/tags/categories/${categoryName}`, payload)
     return data
@@ -203,6 +210,11 @@ export const tagApi = {
 }
 
 export const importApi = {
+  init: async (): Promise<{ job_id: string }> => {
+    const { data } = await api.post<{ job_id: string }>('/imports/init')
+    return data
+  },
+
   checkHashes: async (files: HashCheckItem[]): Promise<HashCheckResponse> => {
     const { data } = await api.post<HashCheckResponse>('/imports/check-hashes', { files })
     return data
@@ -218,6 +230,7 @@ export const importApi = {
       duplicate_of: DuplicateInfo
     }>,
     imageType?: string,
+    jobId?: string,
   ): Promise<ImportUploadResponse> => {
     const formData = new FormData()
     for (const file of files) {
@@ -231,6 +244,9 @@ export const importApi = {
     }
     if (imageType) {
       formData.append('image_type', imageType)
+    }
+    if (jobId) {
+      formData.append('job_id', jobId)
     }
     const { data } = await api.post<ImportUploadResponse>('/imports/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
@@ -251,6 +267,11 @@ export const importApi = {
 
   status: async (jobId: string): Promise<ImportJobResponse> => {
     const { data } = await api.get<ImportJobResponse>(`/imports/${jobId}/status`)
+    return data
+  },
+
+  getAnalysis: async (jobId: string): Promise<ImportUploadResponse> => {
+    const { data } = await api.get<ImportUploadResponse>(`/imports/${jobId}/analysis`)
     return data
   },
 
@@ -369,8 +390,7 @@ export const getImageUrl = (image: Image): string =>
 export const getGroupDownloadUrl = (groupId: number): string =>
   resolveApiUrl(`/api/v1/groups/${groupId}/download`)
 
-export const getLibraryExportUrl = (): string =>
-  resolveApiUrl('/api/v1/export/library')
+export const getLibraryExportUrl = (): string => resolveApiUrl('/api/v1/export/library')
 
 export const getImageUrlById = (id: number): string => resolveApiUrl(`/api/v1/images/${id}/file`)
 

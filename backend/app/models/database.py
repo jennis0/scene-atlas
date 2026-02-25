@@ -127,6 +127,7 @@ class TagCategory(Base):
     description = Column(Text)
     common_values = Column(Text)  # JSON array of typical values
     color = Column(String, nullable=True)  # Tailwind color preset name, e.g. "amber"
+    icon = Column(String, nullable=True)  # Lucide icon name, e.g. "leaf"
     display_order = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
 

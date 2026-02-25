@@ -1,0 +1,66 @@
+/**
+ * Curated set of Lucide icons for tag category assignment.
+ * Icon name (string key) is stored in DB; component is resolved at runtime.
+ */
+import {
+  Leaf,
+  Trees,
+  Waves,
+  Mountain,
+  Flame,
+  Snowflake,
+  Sun,
+  Moon,
+  Cloud,
+  Wind,
+  Zap,
+  Droplets,
+  Castle,
+  Sword,
+  Shield,
+  Crown,
+  Skull,
+  Map,
+  Tent,
+  Compass,
+  Eye,
+  Star,
+  Ghost,
+  Flower2,
+  Tag,
+  type LucideIcon,
+} from 'lucide-react'
+
+export const CATEGORY_ICON_MAP: Record<string, LucideIcon> = {
+  leaf: Leaf,
+  trees: Trees,
+  waves: Waves,
+  mountain: Mountain,
+  flame: Flame,
+  snowflake: Snowflake,
+  sun: Sun,
+  moon: Moon,
+  cloud: Cloud,
+  wind: Wind,
+  zap: Zap,
+  droplets: Droplets,
+  castle: Castle,
+  sword: Sword,
+  shield: Shield,
+  crown: Crown,
+  skull: Skull,
+  map: Map,
+  tent: Tent,
+  compass: Compass,
+  eye: Eye,
+  star: Star,
+  ghost: Ghost,
+  flower: Flower2,
+}
+
+export const CATEGORY_ICON_NAMES = Object.keys(CATEGORY_ICON_MAP)
+
+export function getCategoryIcon(iconName: string | null | undefined): LucideIcon {
+  if (!iconName) return Tag
+  return CATEGORY_ICON_MAP[iconName] ?? Tag
+}

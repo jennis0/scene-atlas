@@ -40,6 +40,7 @@ export interface TagCategory {
   name: string
   description: string | null
   color: string | null // Tailwind color preset name
+  icon: string | null // Lucide icon name, e.g. "leaf"
   display_order: number
   common_values: string | null // JSON string of tag values
 }

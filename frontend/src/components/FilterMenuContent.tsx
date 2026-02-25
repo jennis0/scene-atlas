@@ -36,6 +36,7 @@ import {
 } from 'lucide-react'
 import { DEFAULT_TAG_COLOR } from '@/components/import/tagColors'
 import { useGetTagColor } from '@/contexts/TagColorContext'
+import { getCategoryIcon } from '@/lib/categoryIcons'
 import type { ActiveFilter } from '@/components/import/fileFilter'
 
 // ─── Public types ─────────────────────────────────────────────────────────────
@@ -53,6 +54,7 @@ export interface FilterOptionGroup {
   label: string // section heading
   type: ActiveFilter['type']
   options: FilterOption[]
+  iconName?: string | null // Lucide icon name for tag category groups
 }
 
 interface FilterMenuContentProps {
@@ -81,7 +83,8 @@ const GROUP_ICONS: Record<string, LucideIcon> = {
   subgroup: Tag,
 }
 
-function getGroupIcon(id: string): LucideIcon {
+function getGroupIcon(id: string, iconName?: string | null): LucideIcon {
+  if (!NON_TAG_GROUPS.has(id) && iconName) return getCategoryIcon(iconName)
   return GROUP_ICONS[id] ?? Tag
 }
 
@@ -227,7 +230,7 @@ export function FilterMenuContent({
       ? getTagColor(selectedGroup.id)
       : DEFAULT_TAG_COLOR
     : null
-  const SelectedIcon = selectedGroup ? getGroupIcon(selectedGroup.id) : null
+  const SelectedIcon = selectedGroup ? getGroupIcon(selectedGroup.id, selectedGroup.iconName) : null
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -323,7 +326,7 @@ export function FilterMenuContent({
               active={tab === g.id}
               activeCount={groupActiveCount(g)}
               colorId={g.id}
-              icon={Tag}
+              icon={getCategoryIcon(g.iconName)}
               onClick={() => setTab(g.id)}
             />
           ))}
@@ -379,7 +382,7 @@ export function FilterMenuContent({
                         className={`flex items-center gap-[6px] font-display text-[13px] font-medium tracking-[0.04em] leading-none ${headingText}`}
                       >
                         {(() => {
-                          const SectionIcon = getGroupIcon(group.id)
+                          const SectionIcon = getGroupIcon(group.id, group.iconName)
                           return <SectionIcon className="h-3 w-3 flex-shrink-0 opacity-75" />
                         })()}
                         <span className="capitalize">{group.label}</span>

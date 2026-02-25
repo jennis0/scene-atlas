@@ -11,6 +11,7 @@ describe('parseTagVocabulary', () => {
       name: 'environment',
       description: null,
       color: null,
+      icon: null,
       display_order: 0,
       common_values: null,
       ...overrides,

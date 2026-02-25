@@ -117,10 +117,12 @@ export function GalleryFilterPanel({ filters, facets, onFiltersChange }: Gallery
   for (const [cat, values] of Object.entries(facets?.tags ?? {})) {
     if (values.length === 0) continue
     const vocabEntry = tagVocab.find((v) => v.category === cat)
+    const catMeta = tagCategories?.find((c) => c.name === cat)
     groups.push({
       id: cat,
       label: cat,
       type: 'tag',
+      iconName: catMeta?.icon ?? null,
       options: values.map((v) => ({
         filterValue: `${cat}:${v.value}`,
         label: v.value,
