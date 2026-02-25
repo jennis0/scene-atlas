@@ -2,17 +2,35 @@
  * FilterMenuContent — shared popover body used by GalleryFilterPanel and FileToolbar.
  *
  * Two-column layout:
- *  Left  — scrollable category list with coloured dot indicators
- *  Right — coloured pill options for the selected category (or all)
+ *  Left  — scrollable category list with Lucide icons
+ *  Right — filter options for the selected category:
+ *            author   → compact checklist rows
+ *            gridded  → visual tile selector
+ *            color    → colour swatches
+ *            other    → coloured pills
  *
  * Interaction:
- *  Click pill = include; expanding "−" button on hover = exclude
- *  Clicking an active pill toggles it off (or switches mode)
+ *  Click = include; right-click = exclude
+ *  Clicking an active item toggles it off (or switches mode)
  *  Popover stays open so users can add multiple filters in one session
  */
 
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { Search, X, Check, Minus, Plus } from 'lucide-react'
+import {
+  Search,
+  X,
+  Check,
+  Minus,
+  Plus,
+  User,
+  LayoutGrid,
+  Palette,
+  Film,
+  Image as ImageIcon,
+  Tag,
+  Layers,
+  type LucideIcon,
+} from 'lucide-react'
 import { DEFAULT_TAG_COLOR } from '@/components/import/tagColors'
 import { useGetTagColor } from '@/contexts/TagColorContext'
 import type { ActiveFilter } from '@/components/import/fileFilter'
@@ -21,7 +39,7 @@ import type { ActiveFilter } from '@/components/import/fileFilter'
 
 export interface FilterOption {
   filterValue: string // stored in ActiveFilter.value
-  label: string // shown in the pill
+  label: string // shown in the pill / row
   filterLabel: string // stored in ActiveFilter.label (chip text)
   count?: number
   aliases?: string[] // alias strings for search matching
@@ -29,7 +47,7 @@ export interface FilterOption {
 
 export interface FilterOptionGroup {
   id: string // 'author' | 'gridded' | 'subgroup' | category name
-  label: string // section heading (will be capitalised via CSS)
+  label: string // section heading
   type: ActiveFilter['type']
   options: FilterOption[]
 }
@@ -40,7 +58,7 @@ interface FilterMenuContentProps {
   onFiltersChange: (filters: ActiveFilter[]) => void
 }
 
-// Groups that are not tag categories — they don't get category colours
+// Groups that are not tag categories
 const NON_TAG_GROUPS = new Set([
   'author',
   'gridded',
@@ -50,16 +68,32 @@ const NON_TAG_GROUPS = new Set([
   'media_type',
 ])
 
+// Icons for each known non-tag group
+const GROUP_ICONS: Record<string, LucideIcon> = {
+  author: User,
+  gridded: LayoutGrid,
+  color: Palette,
+  media_type: Film,
+  image_type: ImageIcon,
+  subgroup: Tag,
+}
+
+function getGroupIcon(id: string): LucideIcon {
+  return GROUP_ICONS[id] ?? Tag
+}
+
+// Labels and sub-labels for grid filter tiles
+const GRID_TILE_CONFIG: Record<string, { label: string; sub: string }> = {
+  square: { label: 'Square', sub: 'square grid' },
+  hex: { label: 'Hex', sub: 'hex grid' },
+  gridded: { label: 'Any Grid', sub: 'all gridded' },
+  gridless: { label: 'No Grid', sub: 'gridless' },
+  unknown: { label: 'Unknown', sub: 'undetected' },
+}
+
 /**
  * Scores how well a filter option matches a search query.
  * Higher is a better match. Returns -1 if no match at all.
- *   5 — exact value match
- *   4 — value starts with query
- *   3 — exact alias match
- *   2 — value contains query
- *   1 — alias starts with query
- *   0 — alias contains query
- *  -1 — no match
  */
 function optionMatchScore(label: string, aliases: string[], q: string): number {
   const l = label.toLowerCase()
@@ -87,16 +121,16 @@ export function FilterMenuContent({
 
   const searchLower = search.toLowerCase()
 
+  const nonTagGroups = useMemo(() => groups.filter((g) => NON_TAG_GROUPS.has(g.id)), [groups])
+  const tagGroups = useMemo(() => groups.filter((g) => !NON_TAG_GROUPS.has(g.id)), [groups])
+
   // Groups to show on the right panel, filtered by selected tab + search text
   const visibleGroups = useMemo(() => {
     const byTab = tab === 'all' ? groups : groups.filter((g) => g.id === tab)
     if (!searchLower) return byTab
     return byTab
       .map((g) => {
-        // If the category name matches, show all its options unranked (as before)
         if (g.label.toLowerCase().includes(searchLower)) return g
-
-        // Otherwise score each option and keep only matches, sorted best-first
         const scored = g.options
           .map((o) => ({ o, s: optionMatchScore(o.label, o.aliases ?? [], searchLower) }))
           .filter(({ s }) => s >= 0)
@@ -118,7 +152,6 @@ export function FilterMenuContent({
     return f.exclude ? 'exclude' : 'include'
   }
 
-  /** Click pill: not active → include; excluded → switch to include; included → remove */
   const handleInclude = (group: FilterOptionGroup, opt: FilterOption) => {
     const existing = activeFilters.find(
       (af) => af.type === group.type && af.value === opt.filterValue,
@@ -141,7 +174,6 @@ export function FilterMenuContent({
     }
   }
 
-  /** Right-click: not active → exclude; included → switch to exclude; excluded → remove */
   const handleExclude = (e: React.MouseEvent, group: FilterOptionGroup, opt: FilterOption) => {
     e.preventDefault()
     e.stopPropagation()
@@ -166,8 +198,6 @@ export function FilterMenuContent({
     }
   }
 
-  // How many active filters exist for a given group
-  // For color groups, count all color filters (including custom colors not in the palette)
   const groupActiveCount = (group: FilterOptionGroup) =>
     group.type === 'color'
       ? activeFilters.filter((af) => af.type === 'color').length
@@ -177,11 +207,21 @@ export function FilterMenuContent({
 
   const totalActive = activeFilters.length
 
+  // Selected group info for "Filter by [Category]" header
+  const selectedGroup = tab === 'all' ? null : (groups.find((g) => g.id === tab) ?? null)
+  const selectedIsTag = selectedGroup ? !NON_TAG_GROUPS.has(selectedGroup.id) : false
+  const selectedColors = selectedGroup
+    ? selectedIsTag
+      ? getTagColor(selectedGroup.id)
+      : DEFAULT_TAG_COLOR
+    : null
+  const SelectedIcon = selectedGroup ? getGroupIcon(selectedGroup.id) : null
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex flex-col min-h-0 h-full">
-      {/* Search bar — full width at top */}
+      {/* Search bar */}
       <div className="px-2 py-1.5 border-b border-border/50 flex-shrink-0">
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
@@ -205,132 +245,197 @@ export function FilterMenuContent({
       {/* Two-column body */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Left — category navigator */}
-        <div className="w-28 flex-shrink-0 border-r border-border/50 overflow-y-auto py-1">
+        <div className="w-28 flex-shrink-0 border-r border-border/50 overflow-y-auto py-1 bg-secondary/20">
           <CategoryNavItem
             label="All"
             active={tab === 'all'}
             activeCount={totalActive}
             colorId={null}
+            icon={Layers}
             onClick={() => setTab('all')}
           />
 
-          {/* Divider between meta and tag groups */}
-          {groups.some((g) => NON_TAG_GROUPS.has(g.id)) &&
-            groups.some((g) => !NON_TAG_GROUPS.has(g.id)) && (
-              <div className="mx-2 my-1 border-t border-border/50" />
-            )}
+          {groups.length > 0 && <div className="mx-2 my-1 border-t border-border/40" />}
 
-          {groups.map((g) => (
+          {nonTagGroups.map((g) => (
             <CategoryNavItem
               key={g.id}
               label={g.label}
               active={tab === g.id}
               activeCount={groupActiveCount(g)}
-              colorId={NON_TAG_GROUPS.has(g.id) ? null : g.id}
+              colorId={null}
+              icon={getGroupIcon(g.id)}
+              onClick={() => setTab(g.id)}
+            />
+          ))}
+
+          {nonTagGroups.length > 0 && tagGroups.length > 0 && (
+            <div className="mx-2 my-1 border-t border-border/40" />
+          )}
+
+          {tagGroups.map((g) => (
+            <CategoryNavItem
+              key={g.id}
+              label={g.label}
+              active={tab === g.id}
+              activeCount={groupActiveCount(g)}
+              colorId={g.id}
+              icon={Tag}
               onClick={() => setTab(g.id)}
             />
           ))}
         </div>
 
-        {/* Right — option pills */}
-        <div className="flex-1 overflow-y-auto min-w-0">
-          {visibleGroups.length === 0 && (
-            <p className="px-3 py-5 text-xs text-muted-foreground text-center">
-              {search ? `No results for "${search}"` : 'No options available'}
-            </p>
+        {/* Right — option content */}
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          {/* "Filter by [Icon] Category" header — single tab only */}
+          {selectedGroup && SelectedIcon && selectedColors && (
+            <div className="px-3.5 pt-3 pb-2.5 border-b border-border/50 flex-shrink-0 flex items-end justify-between">
+              <div>
+                <p className="text-[9px] font-medium tracking-[0.18em] uppercase text-muted-foreground mb-1">
+                  Filter by
+                </p>
+                <div
+                  className={`flex items-center gap-1.5 font-display text-[16px] font-medium tracking-wide leading-none ${selectedColors.text}`}
+                >
+                  <SelectedIcon className="h-3.5 w-3.5 flex-shrink-0 opacity-80" />
+                  <span className="capitalize">{selectedGroup.label}</span>
+                </div>
+                <div className="mt-1.5 h-px w-6 bg-gradient-to-r from-primary/60 to-transparent" />
+              </div>
+              {selectedGroup.type !== 'color' && (
+                <span className="text-[10.5px] text-muted-foreground pb-0.5">
+                  {selectedGroup.options.length} options
+                </span>
+              )}
+            </div>
           )}
 
-          {visibleGroups.map((group) => {
-            const colorId = NON_TAG_GROUPS.has(group.id) ? null : group.id
-            const colors = colorId ? getTagColor(colorId) : DEFAULT_TAG_COLOR
+          {/* Options area */}
+          <div className="flex-1 overflow-y-auto min-w-0">
+            {visibleGroups.length === 0 && (
+              <p className="px-3 py-5 text-xs text-muted-foreground text-center">
+                {search ? `No results for "${search}"` : 'No options available'}
+              </p>
+            )}
 
-            return (
-              <div key={group.id}>
-                {/* Only show section heading in "All" mode (multiple groups visible) */}
-                {tab === 'all' && (
-                  <div className="px-3 pt-3 pb-1.5">
-                    <span
-                      className={`text-[11px] font-semibold tracking-wider uppercase capitalize ${colors.text}`}
-                    >
-                      {group.label}
-                    </span>
-                  </div>
-                )}
+            {visibleGroups.map((group) => {
+              const colorId = NON_TAG_GROUPS.has(group.id) ? null : group.id
+              const colors = colorId ? getTagColor(colorId) : DEFAULT_TAG_COLOR
 
-                {group.type === 'color' ? (
-                  <div
-                    className={`grid grid-cols-6 gap-2 px-3 pb-3 ${tab !== 'all' ? 'pt-3' : ''}`}
-                  >
-                    {group.options.map((opt) => {
-                      const state = getActiveState(group.type, opt.filterValue)
-                      return (
-                        <ColorSwatch
-                          key={opt.filterValue}
-                          hex={opt.filterValue}
-                          label={opt.label}
-                          activeState={state}
-                          onInclude={() => handleInclude(group, opt)}
-                          onExclude={(e) => handleExclude(e, group, opt)}
-                        />
-                      )
-                    })}
-                    {customColors.map((hex) => {
-                      const state = getActiveState(group.type, hex)
-                      const opt: FilterOption = { filterValue: hex, label: hex, filterLabel: hex }
-                      return (
-                        <ColorSwatch
-                          key={`custom-${hex}`}
-                          hex={hex}
-                          label={hex}
-                          activeState={state}
-                          onInclude={() => handleInclude(group, opt)}
-                          onExclude={(e) => handleExclude(e, group, opt)}
-                          onRemove={() => {
-                            const updated = customColors.filter((c) => c !== hex)
-                            setCustomColors(updated)
-                            saveCustomColors(updated)
-                            // Also remove filter if active
-                            onFiltersChange(
-                              activeFilters.filter(
-                                (af) => !(af.type === 'color' && af.value === hex),
-                              ),
-                            )
-                          }}
-                        />
-                      )
-                    })}
-                    <CustomColorPicker
-                      onSelect={(hex) => {
-                        const opt: FilterOption = { filterValue: hex, label: hex, filterLabel: hex }
-                        handleInclude(group, opt)
-                      }}
-                      customColors={customColors}
-                      onCustomColorsChange={setCustomColors}
+              return (
+                <div key={group.id}>
+                  {/* Section heading — only in "All" mode */}
+                  {tab === 'all' && (
+                    <div className="px-3 pt-3 pb-1.5 flex items-center gap-1.5">
+                      {(() => {
+                        const SectionIcon = getGroupIcon(group.id)
+                        return (
+                          <SectionIcon
+                            className={`h-3 w-3 flex-shrink-0 opacity-60 ${colors.text}`}
+                          />
+                        )
+                      })()}
+                      <span
+                        className={`text-[11px] font-semibold tracking-wider uppercase capitalize ${colors.text}`}
+                      >
+                        {group.label}
+                      </span>
+                    </div>
+                  )}
+
+                  {group.type === 'author' ? (
+                    <AuthorChecklist
+                      group={group}
+                      getActiveState={getActiveState}
+                      onInclude={handleInclude}
+                      onExclude={handleExclude}
                     />
-                  </div>
-                ) : (
-                  <div
-                    className={`flex flex-wrap gap-1.5 pl-3 pr-3 pb-3 ${tab !== 'all' ? 'pt-3' : ''}`}
-                  >
-                    {group.options.map((opt) => {
-                      const state = getActiveState(group.type, opt.filterValue)
-                      return (
-                        <OptionPill
-                          key={opt.filterValue}
-                          label={opt.label}
-                          count={opt.count}
-                          activeState={state}
-                          colorId={colorId}
-                          onInclude={() => handleInclude(group, opt)}
-                          onExclude={(e) => handleExclude(e, group, opt)}
-                        />
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            )
-          })}
+                  ) : group.type === 'gridded' ? (
+                    <GridTileSelector
+                      group={group}
+                      getActiveState={getActiveState}
+                      onInclude={handleInclude}
+                      onExclude={handleExclude}
+                    />
+                  ) : group.type === 'color' ? (
+                    <div
+                      className={`grid grid-cols-6 gap-2 px-3 pb-3 ${tab !== 'all' ? 'pt-3' : ''}`}
+                    >
+                      {group.options.map((opt) => {
+                        const state = getActiveState(group.type, opt.filterValue)
+                        return (
+                          <ColorSwatch
+                            key={opt.filterValue}
+                            hex={opt.filterValue}
+                            label={opt.label}
+                            activeState={state}
+                            onInclude={() => handleInclude(group, opt)}
+                            onExclude={(e) => handleExclude(e, group, opt)}
+                          />
+                        )
+                      })}
+                      {customColors.map((hex) => {
+                        const state = getActiveState(group.type, hex)
+                        const opt: FilterOption = { filterValue: hex, label: hex, filterLabel: hex }
+                        return (
+                          <ColorSwatch
+                            key={`custom-${hex}`}
+                            hex={hex}
+                            label={hex}
+                            activeState={state}
+                            onInclude={() => handleInclude(group, opt)}
+                            onExclude={(e) => handleExclude(e, group, opt)}
+                            onRemove={() => {
+                              const updated = customColors.filter((c) => c !== hex)
+                              setCustomColors(updated)
+                              saveCustomColors(updated)
+                              onFiltersChange(
+                                activeFilters.filter(
+                                  (af) => !(af.type === 'color' && af.value === hex),
+                                ),
+                              )
+                            }}
+                          />
+                        )
+                      })}
+                      <CustomColorPicker
+                        onSelect={(hex) => {
+                          const opt: FilterOption = {
+                            filterValue: hex,
+                            label: hex,
+                            filterLabel: hex,
+                          }
+                          handleInclude(group, opt)
+                        }}
+                        customColors={customColors}
+                        onCustomColorsChange={setCustomColors}
+                      />
+                    </div>
+                  ) : (
+                    <div
+                      className={`flex flex-wrap gap-1.5 pl-3 pr-3 pb-3 ${tab !== 'all' ? 'pt-3' : ''}`}
+                    >
+                      {group.options.map((opt) => {
+                        const state = getActiveState(group.type, opt.filterValue)
+                        return (
+                          <OptionPill
+                            key={opt.filterValue}
+                            label={opt.label}
+                            count={opt.count}
+                            activeState={state}
+                            colorId={colorId}
+                            onInclude={() => handleInclude(group, opt)}
+                            onExclude={(e) => handleExclude(e, group, opt)}
+                          />
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
         </div>
       </div>
     </div>
@@ -369,19 +474,21 @@ export function FilterChipList({ filters, onFiltersChange }: FilterChipListProps
   )
 }
 
-// ─── Sub-components ────────────────────────────────────────────────────────────
+// ─── CategoryNavItem ──────────────────────────────────────────────────────────
 
 function CategoryNavItem({
   label,
   active,
   activeCount,
   colorId,
+  icon: Icon,
   onClick,
 }: {
   label: string
   active: boolean
   activeCount: number
   colorId: string | null
+  icon: LucideIcon
   onClick: () => void
 }) {
   const getTagColor = useGetTagColor()
@@ -397,7 +504,7 @@ function CategoryNavItem({
             : 'text-muted-foreground hover:bg-secondary border-transparent hover:text-foreground'
         }`}
     >
-      {colorId && <span className={`h-2 w-2 rounded-full flex-shrink-0 ${colors.dot}`} />}
+      <Icon className={`h-3.5 w-3.5 flex-shrink-0 ${active ? '' : 'opacity-50'}`} />
       <span className="capitalize truncate flex-1">{label}</span>
       {activeCount > 0 && (
         <span
@@ -409,6 +516,385 @@ function CategoryNavItem({
     </button>
   )
 }
+
+// ─── AuthorChecklist ──────────────────────────────────────────────────────────
+
+function AuthorChecklist({
+  group,
+  getActiveState,
+  onInclude,
+  onExclude,
+}: {
+  group: FilterOptionGroup
+  getActiveState: (type: ActiveFilter['type'], value: string) => 'include' | 'exclude' | null
+  onInclude: (group: FilterOptionGroup, opt: FilterOption) => void
+  onExclude: (e: React.MouseEvent, group: FilterOptionGroup, opt: FilterOption) => void
+}) {
+  return (
+    <div className="flex flex-col">
+      {group.options.map((opt) => {
+        const state = getActiveState(group.type, opt.filterValue)
+        return (
+          <button
+            key={opt.filterValue}
+            onClick={() => onInclude(group, opt)}
+            onContextMenu={(e) => onExclude(e, group, opt)}
+            title={`${opt.label}${opt.count !== undefined ? ` (${opt.count})` : ''} — right-click to exclude`}
+            className={`w-full h-8 flex items-center px-2.5 text-left text-[12.5px] border-l-2 transition-colors ${
+              state === 'include'
+                ? 'border-l-primary bg-primary/5 text-foreground'
+                : state === 'exclude'
+                  ? 'border-l-destructive bg-destructive/10 text-destructive/70'
+                  : 'border-l-transparent text-muted-foreground hover:bg-secondary/60 hover:text-foreground'
+            }`}
+          >
+            <span
+              className={`h-3.5 w-3.5 flex-shrink-0 mr-2.5 flex items-center justify-center rounded-[3px] ${
+                state === 'include'
+                  ? 'bg-primary border border-primary'
+                  : state === 'exclude'
+                    ? 'bg-destructive/15 border border-destructive/50'
+                    : 'border border-border'
+              }`}
+            >
+              {state === 'include' && <Check className="h-2.5 w-2.5 text-primary-foreground" />}
+              {state === 'exclude' && <Minus className="h-2.5 w-2.5 text-destructive" />}
+            </span>
+            <span
+              className={`flex-1 truncate ${state === 'exclude' ? 'line-through opacity-60' : ''}`}
+            >
+              {opt.label}
+            </span>
+            {opt.count !== undefined && (
+              <span
+                className={`text-[10.5px] flex-shrink-0 tabular-nums ${
+                  state === 'include' ? 'text-primary/70' : 'text-muted-foreground'
+                }`}
+              >
+                {opt.count.toLocaleString()}
+              </span>
+            )}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// ─── GridTileSelector ─────────────────────────────────────────────────────────
+
+function GridTileSelector({
+  group,
+  getActiveState,
+  onInclude,
+  onExclude,
+}: {
+  group: FilterOptionGroup
+  getActiveState: (type: ActiveFilter['type'], value: string) => 'include' | 'exclude' | null
+  onInclude: (group: FilterOptionGroup, opt: FilterOption) => void
+  onExclude: (e: React.MouseEvent, group: FilterOptionGroup, opt: FilterOption) => void
+}) {
+  return (
+    <div className="p-3">
+      <div className="grid grid-cols-2 gap-2">
+        {group.options.map((opt) => {
+          const state = getActiveState(group.type, opt.filterValue)
+          const config = GRID_TILE_CONFIG[opt.filterValue]
+          const isActive = state === 'include'
+          const isExcluded = state === 'exclude'
+
+          return (
+            <button
+              key={opt.filterValue}
+              onClick={() => onInclude(group, opt)}
+              onContextMenu={(e) => onExclude(e, group, opt)}
+              title={`${opt.label} — right-click to exclude`}
+              className={`flex flex-col items-center gap-1.5 py-3 px-2 rounded-lg border-[1.5px] transition-all ${
+                isActive
+                  ? 'border-primary bg-primary/10 text-foreground'
+                  : isExcluded
+                    ? 'border-destructive/50 bg-destructive/10 text-destructive/70 opacity-80'
+                    : 'border-border bg-secondary hover:border-border/80 hover:bg-secondary/70 text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <div className={`transition-opacity ${state ? 'opacity-100' : 'opacity-70'}`}>
+                {opt.filterValue === 'square' && (
+                  <SquareGridSVG active={isActive} excluded={isExcluded} />
+                )}
+                {opt.filterValue === 'hex' && (
+                  <HexGridSVG active={isActive} excluded={isExcluded} />
+                )}
+                {opt.filterValue === 'gridless' && (
+                  <GridlessSVG active={isActive} excluded={isExcluded} />
+                )}
+                {opt.filterValue === 'gridded' && (
+                  <AnyGridSVG active={isActive} excluded={isExcluded} />
+                )}
+                {opt.filterValue === 'unknown' && (
+                  <UnknownGridSVG active={isActive} excluded={isExcluded} />
+                )}
+              </div>
+              <span className="text-[12px] font-medium">{config?.label ?? opt.label}</span>
+              <span className="text-[10px] -mt-0.5 text-muted-foreground">{config?.sub}</span>
+              {state && (
+                <span
+                  className={`text-[10px] font-semibold ${
+                    isActive ? 'text-primary' : 'text-destructive/70'
+                  }`}
+                >
+                  {isActive ? '✓ included' : '− excluded'}
+                </span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+      <p className="text-[10.5px] text-muted-foreground italic mt-2.5">
+        Right-click a tile to exclude that grid type
+      </p>
+    </div>
+  )
+}
+
+// ─── Grid SVGs ────────────────────────────────────────────────────────────────
+
+function gridColor(active: boolean, excluded: boolean) {
+  if (active) return 'hsl(var(--primary))'
+  if (excluded) return 'hsl(var(--destructive))'
+  return 'currentColor'
+}
+
+function SquareGridSVG({ active, excluded }: { active: boolean; excluded: boolean }) {
+  const c = gridColor(active, excluded)
+  const lineOp = active ? 0.7 : 0.5
+  return (
+    <svg width="52" height="44" viewBox="0 0 52 44" fill="none" style={{ color: c }}>
+      <rect
+        x="2"
+        y="2"
+        width="48"
+        height="40"
+        rx="3"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeOpacity="0.5"
+      />
+      <line
+        x1="2"
+        y1="15.3"
+        x2="50"
+        y2="15.3"
+        stroke="currentColor"
+        strokeWidth="1"
+        strokeOpacity={lineOp}
+      />
+      <line
+        x1="2"
+        y1="28.6"
+        x2="50"
+        y2="28.6"
+        stroke="currentColor"
+        strokeWidth="1"
+        strokeOpacity={lineOp}
+      />
+      <line
+        x1="14"
+        y1="2"
+        x2="14"
+        y2="42"
+        stroke="currentColor"
+        strokeWidth="1"
+        strokeOpacity={lineOp}
+      />
+      <line
+        x1="26"
+        y1="2"
+        x2="26"
+        y2="42"
+        stroke="currentColor"
+        strokeWidth="1"
+        strokeOpacity={lineOp}
+      />
+      <line
+        x1="38"
+        y1="2"
+        x2="38"
+        y2="42"
+        stroke="currentColor"
+        strokeWidth="1"
+        strokeOpacity={lineOp}
+      />
+    </svg>
+  )
+}
+
+function HexGridSVG({ active, excluded }: { active: boolean; excluded: boolean }) {
+  const c = gridColor(active, excluded)
+  const op = active ? 0.8 : 0.55
+  return (
+    <svg width="52" height="44" viewBox="0 0 52 44" fill="none" style={{ color: c }}>
+      <rect
+        x="2"
+        y="2"
+        width="48"
+        height="40"
+        rx="3"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeOpacity="0.4"
+      />
+      <polygon
+        points="16,8 22,8 25,13 22,18 16,18 13,13"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        fill="none"
+        strokeOpacity={op}
+      />
+      <polygon
+        points="25,13 31,13 34,18 31,23 25,23 22,18"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        fill="none"
+        strokeOpacity={op}
+      />
+      <polygon
+        points="16,18 22,18 25,23 22,28 16,28 13,23"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        fill="none"
+        strokeOpacity={op}
+      />
+      <polygon
+        points="25,23 31,23 34,28 31,33 25,33 22,28"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        fill="none"
+        strokeOpacity={op}
+      />
+      <polygon
+        points="34,18 40,18 43,23 40,28 34,28 31,23"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        fill="none"
+        strokeOpacity={op}
+      />
+    </svg>
+  )
+}
+
+function GridlessSVG({ active, excluded }: { active: boolean; excluded: boolean }) {
+  const c = gridColor(active, excluded)
+  return (
+    <svg width="52" height="44" viewBox="0 0 52 44" fill="none" style={{ color: c }}>
+      <rect
+        x="2"
+        y="2"
+        width="48"
+        height="40"
+        rx="3"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeOpacity="0.5"
+      />
+      <rect
+        x="10"
+        y="10"
+        width="32"
+        height="24"
+        rx="2"
+        stroke="currentColor"
+        strokeWidth="1"
+        strokeDasharray="3 2"
+        strokeOpacity="0.5"
+      />
+    </svg>
+  )
+}
+
+function AnyGridSVG({ active, excluded }: { active: boolean; excluded: boolean }) {
+  const c = gridColor(active, excluded)
+  return (
+    <svg width="52" height="44" viewBox="0 0 52 44" fill="none" style={{ color: c }}>
+      <rect
+        x="2"
+        y="2"
+        width="48"
+        height="40"
+        rx="3"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeOpacity="0.4"
+      />
+      <line
+        x1="2"
+        y1="22"
+        x2="28"
+        y2="22"
+        stroke="currentColor"
+        strokeWidth="1"
+        strokeOpacity="0.5"
+        strokeDasharray="2 2"
+      />
+      <line
+        x1="14"
+        y1="2"
+        x2="14"
+        y2="42"
+        stroke="currentColor"
+        strokeWidth="1"
+        strokeOpacity="0.5"
+        strokeDasharray="2 2"
+      />
+      <polygon
+        points="31,12 36,10 41,13 41,19 36,22 31,19"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        fill="none"
+        strokeOpacity="0.65"
+      />
+      <polygon
+        points="31,22 36,22 39,27 36,32 31,32 28,27"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        fill="none"
+        strokeOpacity="0.65"
+      />
+    </svg>
+  )
+}
+
+function UnknownGridSVG({ active, excluded }: { active: boolean; excluded: boolean }) {
+  const c = gridColor(active, excluded)
+  return (
+    <svg width="52" height="44" viewBox="0 0 52 44" fill="none" style={{ color: c }}>
+      <rect
+        x="2"
+        y="2"
+        width="48"
+        height="40"
+        rx="3"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeOpacity="0.4"
+        strokeDasharray="4 2"
+      />
+      <text
+        x="26"
+        y="26"
+        textAnchor="middle"
+        dominantBaseline="middle"
+        fontSize="16"
+        fill="currentColor"
+        fillOpacity="0.55"
+        fontFamily="sans-serif"
+      >
+        ?
+      </text>
+    </svg>
+  )
+}
+
+// ─── OptionPill ───────────────────────────────────────────────────────────────
 
 function OptionPill({
   label,
@@ -456,7 +942,6 @@ function OptionPill({
     )
   }
 
-  // Normal state — left-click to include, right-click to exclude
   return (
     <button
       onClick={onInclude}
@@ -471,6 +956,8 @@ function OptionPill({
     </button>
   )
 }
+
+// ─── ColorSwatch ──────────────────────────────────────────────────────────────
 
 function ColorSwatch({
   hex,
@@ -515,6 +1002,8 @@ function ColorSwatch({
   )
 }
 
+// ─── Custom colour picker ─────────────────────────────────────────────────────
+
 const CUSTOM_COLORS_KEY = 'color-filter-custom-colors'
 
 function loadCustomColors(): string[] {
@@ -541,8 +1030,6 @@ function CustomColorPicker({
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // Use native 'change' event (fires on dialog close) instead of React onChange
-  // (which maps to DOM 'input' and fires on every drag)
   const onSelectRef = useRef(onSelect)
   onSelectRef.current = onSelect
   const customColorsRef = useRef(customColors)
@@ -578,6 +1065,8 @@ function CustomColorPicker({
     </button>
   )
 }
+
+// ─── FilterChip ───────────────────────────────────────────────────────────────
 
 function FilterChip({
   filter,
