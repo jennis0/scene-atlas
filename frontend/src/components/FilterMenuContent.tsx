@@ -1,18 +1,21 @@
 /**
  * FilterMenuContent — shared popover body used by GalleryFilterPanel and FileToolbar.
  *
- * Two-column layout:
- *  Left  — scrollable category list with Lucide icons
- *  Right — filter options for the selected category:
- *            author   → compact checklist rows
- *            gridded  → visual tile selector
- *            color    → colour swatches
- *            other    → coloured pills
+ * Layout (top-to-bottom):
+ *  1. Panel header — Cinzel "Filters" title + active badge
+ *  2. Search bar
+ *  3. Two-column body (left nav + right content)
+ *  4. Footer — hint text + clear button
+ *
+ * Right panel per category type:
+ *  author   → compact checklist rows
+ *  gridded  → visual tile selector
+ *  color    → colour swatches
+ *  other    → coloured pills
  *
  * Interaction:
  *  Click = include; right-click = exclude
  *  Clicking an active item toggles it off (or switches mode)
- *  Popover stays open so users can add multiple filters in one session
  */
 
 import { useState, useMemo, useRef, useEffect } from 'react'
@@ -91,9 +94,12 @@ const GRID_TILE_CONFIG: Record<string, { label: string; sub: string }> = {
   unknown: { label: 'Unknown', sub: 'undetected' },
 }
 
+// Darker surface colour shared by the nav and footer, matching the mockup
+const DARK_SURFACE = 'hsl(222 22% 10%)'
+
 /**
  * Scores how well a filter option matches a search query.
- * Higher is a better match. Returns -1 if no match at all.
+ * Higher is better; -1 means no match.
  */
 function optionMatchScore(label: string, aliases: string[], q: string): number {
   const l = label.toLowerCase()
@@ -221,15 +227,43 @@ export function FilterMenuContent({
 
   return (
     <div className="flex flex-col min-h-0 h-full">
-      {/* Search bar */}
-      <div className="px-2 py-1.5 border-b border-border/50 flex-shrink-0">
+      {/* ── Panel header ── */}
+      <div
+        className="px-4 py-3 border-b border-border/60 flex-shrink-0 flex items-end justify-between"
+        style={{ background: DARK_SURFACE }}
+      >
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="font-display text-[13px] font-medium tracking-[0.06em] text-foreground">
+              Filters
+            </span>
+            {totalActive > 0 && (
+              <span className="inline-flex items-center h-[18px] px-[7px] rounded-full bg-primary/12 border border-primary/25 text-[10px] font-semibold text-primary font-sans">
+                {totalActive} active
+              </span>
+            )}
+          </div>
+          <div className="mt-[3px] h-px w-7 bg-gradient-to-r from-primary to-transparent" />
+        </div>
+        {totalActive > 0 && (
+          <button
+            onClick={() => onFiltersChange([])}
+            className="text-[11px] text-muted-foreground hover:text-foreground transition-colors pb-0.5"
+          >
+            Clear all
+          </button>
+        )}
+      </div>
+
+      {/* ── Search bar ── */}
+      <div className="px-3 py-2 border-b border-border/50 flex-shrink-0">
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search filters…"
-            className="w-full h-7 pl-7 pr-6 text-xs bg-secondary border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/50 text-foreground placeholder:text-muted-foreground"
+            className="w-full h-[30px] pl-7 pr-6 text-[12px] bg-secondary border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/50 text-foreground placeholder:text-muted-foreground"
           />
           {search && (
             <button
@@ -242,10 +276,13 @@ export function FilterMenuContent({
         </div>
       </div>
 
-      {/* Two-column body */}
+      {/* ── Two-column body ── */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Left — category navigator */}
-        <div className="w-28 flex-shrink-0 border-r border-border/50 overflow-y-auto py-1 bg-secondary/20">
+        <div
+          className="w-[116px] flex-shrink-0 border-r border-border/60 overflow-y-auto py-[6px]"
+          style={{ background: DARK_SURFACE }}
+        >
           <CategoryNavItem
             label="All"
             active={tab === 'all'}
@@ -255,7 +292,7 @@ export function FilterMenuContent({
             onClick={() => setTab('all')}
           />
 
-          {groups.length > 0 && <div className="mx-2 my-1 border-t border-border/40" />}
+          {groups.length > 0 && <div className="mx-2 my-1 h-px bg-border/50" />}
 
           {nonTagGroups.map((g) => (
             <CategoryNavItem
@@ -270,7 +307,7 @@ export function FilterMenuContent({
           ))}
 
           {nonTagGroups.length > 0 && tagGroups.length > 0 && (
-            <div className="mx-2 my-1 border-t border-border/40" />
+            <div className="mx-2 my-1 h-px bg-border/50" />
           )}
 
           {tagGroups.map((g) => (
@@ -290,21 +327,21 @@ export function FilterMenuContent({
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           {/* "Filter by [Icon] Category" header — single tab only */}
           {selectedGroup && SelectedIcon && selectedColors && (
-            <div className="px-3.5 pt-3 pb-2.5 border-b border-border/50 flex-shrink-0 flex items-end justify-between">
+            <div className="px-3.5 pt-3.5 pb-2.5 border-b border-border/50 flex-shrink-0 flex items-end justify-between">
               <div>
-                <p className="text-[9px] font-medium tracking-[0.18em] uppercase text-muted-foreground mb-1">
+                <p className="text-[9.5px] font-medium tracking-[0.18em] uppercase text-muted-foreground mb-0.5">
                   Filter by
                 </p>
                 <div
-                  className={`flex items-center gap-1.5 font-display text-[16px] font-medium tracking-wide leading-none ${selectedColors.text}`}
+                  className={`flex items-center gap-[7px] font-display text-[17px] font-medium tracking-[0.04em] leading-none ${selectedColors.text}`}
                 >
                   <SelectedIcon className="h-3.5 w-3.5 flex-shrink-0 opacity-80" />
                   <span className="capitalize">{selectedGroup.label}</span>
                 </div>
-                <div className="mt-1.5 h-px w-6 bg-gradient-to-r from-primary/60 to-transparent" />
+                <div className="mt-[3px] h-px w-6 bg-gradient-to-r from-primary/60 to-transparent" />
               </div>
               {selectedGroup.type !== 'color' && (
-                <span className="text-[10.5px] text-muted-foreground pb-0.5">
+                <span className="text-[11px] text-muted-foreground pb-0.5">
                   {selectedGroup.options.length} options
                 </span>
               )}
@@ -312,7 +349,7 @@ export function FilterMenuContent({
           )}
 
           {/* Options area */}
-          <div className="flex-1 overflow-y-auto min-w-0">
+          <div className="flex-1 overflow-y-auto min-w-0 [scrollbar-gutter:stable]">
             {visibleGroups.length === 0 && (
               <p className="px-3 py-5 text-xs text-muted-foreground text-center">
                 {search ? `No results for "${search}"` : 'No options available'}
@@ -360,7 +397,7 @@ export function FilterMenuContent({
                     />
                   ) : group.type === 'color' ? (
                     <div
-                      className={`grid grid-cols-6 gap-2 px-3 pb-3 ${tab !== 'all' ? 'pt-3' : ''}`}
+                      className={`grid grid-cols-6 gap-2 px-3.5 pb-3.5 ${tab !== 'all' ? 'pt-3.5' : 'pt-1'}`}
                     >
                       {group.options.map((opt) => {
                         const state = getActiveState(group.type, opt.filterValue)
@@ -414,7 +451,7 @@ export function FilterMenuContent({
                     </div>
                   ) : (
                     <div
-                      className={`flex flex-wrap gap-1.5 pl-3 pr-3 pb-3 ${tab !== 'all' ? 'pt-3' : ''}`}
+                      className={`flex flex-wrap gap-1.5 px-3.5 pb-3 ${tab !== 'all' ? 'pt-3' : ''}`}
                     >
                       {group.options.map((opt) => {
                         const state = getActiveState(group.type, opt.filterValue)
@@ -437,6 +474,23 @@ export function FilterMenuContent({
             })}
           </div>
         </div>
+      </div>
+
+      {/* ── Footer ── */}
+      <div
+        className="px-3.5 py-2 border-t border-border/60 flex-shrink-0 flex items-center justify-between"
+        style={{ background: DARK_SURFACE }}
+      >
+        <span className="text-[10.5px] text-muted-foreground italic">Right-click to exclude</span>
+        {totalActive > 0 && (
+          <button
+            onClick={() => onFiltersChange([])}
+            className="inline-flex items-center gap-[5px] h-[26px] px-2.5 rounded border border-border/70 text-[11px] text-muted-foreground hover:text-foreground hover:border-border transition-colors"
+          >
+            <X className="h-[9px] w-[9px]" />
+            Clear {totalActive} filter{totalActive !== 1 ? 's' : ''}
+          </button>
+        )}
       </div>
     </div>
   )
@@ -497,18 +551,26 @@ function CategoryNavItem({
   return (
     <button
       onClick={onClick}
-      className={`w-full flex items-center gap-1.5 px-2.5 py-1.5 text-left text-xs transition-colors
-        border-l-2 ${
-          active
-            ? `${colors.bg} ${colors.text} font-medium ${colors.border}`
-            : 'text-muted-foreground hover:bg-secondary border-transparent hover:text-foreground'
-        }`}
+      style={{ padding: '7px 10px 7px 12px' }}
+      className={`w-full flex items-center gap-[7px] text-left text-[12px] transition-colors border-l-2 ${
+        active
+          ? `${colors.bg} ${colors.text} font-medium ${colors.border}`
+          : 'text-muted-foreground hover:text-foreground border-transparent'
+      }`}
+      onMouseEnter={(e) => {
+        if (!active) (e.currentTarget as HTMLElement).style.background = 'hsl(222 20% 14%)'
+      }}
+      onMouseLeave={(e) => {
+        if (!active) (e.currentTarget as HTMLElement).style.background = ''
+      }}
     >
       <Icon className={`h-3.5 w-3.5 flex-shrink-0 ${active ? '' : 'opacity-50'}`} />
-      <span className="capitalize truncate flex-1">{label}</span>
+      <span className="truncate flex-1">{label}</span>
       {activeCount > 0 && (
         <span
-          className={`text-[10px] font-semibold tabular-nums flex-shrink-0 ${active ? colors.text : 'text-muted-foreground'}`}
+          className={`text-[10px] font-semibold tabular-nums flex-shrink-0 ${
+            active ? colors.text : 'text-muted-foreground'
+          }`}
         >
           {activeCount}
         </span>
@@ -540,31 +602,52 @@ function AuthorChecklist({
             onClick={() => onInclude(group, opt)}
             onContextMenu={(e) => onExclude(e, group, opt)}
             title={`${opt.label}${opt.count !== undefined ? ` (${opt.count})` : ''} — right-click to exclude`}
-            className={`w-full h-8 flex items-center px-2.5 text-left text-[12.5px] border-l-2 transition-colors ${
+            className={`w-full h-8 flex items-center text-left text-[12.5px] border-l-2 transition-colors ${
               state === 'include'
-                ? 'border-l-primary bg-primary/5 text-foreground'
+                ? 'border-l-primary text-foreground'
                 : state === 'exclude'
-                  ? 'border-l-destructive bg-destructive/10 text-destructive/70'
-                  : 'border-l-transparent text-muted-foreground hover:bg-secondary/60 hover:text-foreground'
+                  ? 'border-l-destructive text-destructive/70'
+                  : 'border-l-transparent text-muted-foreground'
             }`}
+            style={{
+              padding: '0 14px 0 10px',
+              backgroundColor:
+                state === 'include'
+                  ? 'hsl(38 60% 58% / 0.06)'
+                  : state === 'exclude'
+                    ? 'hsl(0 62% 57% / 0.05)'
+                    : undefined,
+            }}
+            onMouseEnter={(e) => {
+              if (!state)
+                (e.currentTarget as HTMLElement).style.backgroundColor = 'hsl(222 20% 15%)'
+            }}
+            onMouseLeave={(e) => {
+              if (!state) (e.currentTarget as HTMLElement).style.backgroundColor = ''
+            }}
           >
+            {/* Checkbox */}
             <span
-              className={`h-3.5 w-3.5 flex-shrink-0 mr-2.5 flex items-center justify-center rounded-[3px] ${
+              className={`h-3.5 w-3.5 flex-shrink-0 mr-[9px] flex items-center justify-center rounded-[3px] ${
                 state === 'include'
                   ? 'bg-primary border border-primary'
                   : state === 'exclude'
                     ? 'bg-destructive/15 border border-destructive/50'
-                    : 'border border-border'
+                    : 'border border-[hsl(220_18%_28%)]'
               }`}
             >
-              {state === 'include' && <Check className="h-2.5 w-2.5 text-primary-foreground" />}
-              {state === 'exclude' && <Minus className="h-2.5 w-2.5 text-destructive" />}
+              {state === 'include' && <Check className="h-[9px] w-[9px] text-primary-foreground" />}
+              {state === 'exclude' && <Minus className="h-[9px] w-[9px] text-destructive" />}
             </span>
+
+            {/* Name */}
             <span
               className={`flex-1 truncate ${state === 'exclude' ? 'line-through opacity-60' : ''}`}
             >
               {opt.label}
             </span>
+
+            {/* Count */}
             {opt.count !== undefined && (
               <span
                 className={`text-[10.5px] flex-shrink-0 tabular-nums ${
@@ -595,8 +678,8 @@ function GridTileSelector({
   onExclude: (e: React.MouseEvent, group: FilterOptionGroup, opt: FilterOption) => void
 }) {
   return (
-    <div className="p-3">
-      <div className="grid grid-cols-2 gap-2">
+    <div>
+      <div className="grid grid-cols-2 gap-2 p-3.5">
         {group.options.map((opt) => {
           const state = getActiveState(group.type, opt.filterValue)
           const config = GRID_TILE_CONFIG[opt.filterValue]
@@ -609,15 +692,23 @@ function GridTileSelector({
               onClick={() => onInclude(group, opt)}
               onContextMenu={(e) => onExclude(e, group, opt)}
               title={`${opt.label} — right-click to exclude`}
-              className={`flex flex-col items-center gap-1.5 py-3 px-2 rounded-lg border-[1.5px] transition-all ${
+              className={`flex flex-col items-center gap-[7px] py-3.5 px-2 rounded-lg border-[1.5px] transition-all select-none ${
                 isActive
-                  ? 'border-primary bg-primary/10 text-foreground'
+                  ? 'border-primary text-foreground'
                   : isExcluded
-                    ? 'border-destructive/50 bg-destructive/10 text-destructive/70 opacity-80'
-                    : 'border-border bg-secondary hover:border-border/80 hover:bg-secondary/70 text-muted-foreground hover:text-foreground'
+                    ? 'border-destructive/50 text-[hsl(0_62%_72%)] opacity-80'
+                    : 'border-border text-muted-foreground hover:border-border/80 hover:text-foreground'
               }`}
+              style={{
+                background: isActive
+                  ? 'hsl(38 60% 58% / 0.12)'
+                  : isExcluded
+                    ? 'hsl(0 62% 57% / 0.08)'
+                    : 'hsl(var(--secondary))',
+              }}
             >
-              <div className={`transition-opacity ${state ? 'opacity-100' : 'opacity-70'}`}>
+              {/* SVG preview */}
+              <div className="transition-opacity" style={{ opacity: state ? 1 : 0.65 }}>
                 {opt.filterValue === 'square' && (
                   <SquareGridSVG active={isActive} excluded={isExcluded} />
                 )}
@@ -634,22 +725,29 @@ function GridTileSelector({
                   <UnknownGridSVG active={isActive} excluded={isExcluded} />
                 )}
               </div>
-              <span className="text-[12px] font-medium">{config?.label ?? opt.label}</span>
-              <span className="text-[10px] -mt-0.5 text-muted-foreground">{config?.sub}</span>
-              {state && (
-                <span
-                  className={`text-[10px] font-semibold ${
-                    isActive ? 'text-primary' : 'text-destructive/70'
-                  }`}
-                >
-                  {isActive ? '✓ included' : '− excluded'}
-                </span>
-              )}
+
+              <span className="text-[12px] font-medium tracking-[0.02em]">
+                {config?.label ?? opt.label}
+              </span>
+              <span className="text-[10px] -mt-1 text-muted-foreground">{config?.sub}</span>
+
+              {/* Status line — always takes space so tiles stay same height */}
+              <span
+                className={`text-[10px] font-semibold h-4 ${
+                  isActive
+                    ? 'text-primary'
+                    : isExcluded
+                      ? 'text-[hsl(0_62%_70%)]'
+                      : 'text-transparent'
+                }`}
+              >
+                {isActive ? '✓ included' : isExcluded ? '− excluded' : '·'}
+              </span>
             </button>
           )
         })}
       </div>
-      <p className="text-[10.5px] text-muted-foreground italic mt-2.5">
+      <p className="px-3.5 pb-3 text-[10.5px] text-muted-foreground italic">
         Right-click a tile to exclude that grid type
       </p>
     </div>
@@ -658,7 +756,7 @@ function GridTileSelector({
 
 // ─── Grid SVGs ────────────────────────────────────────────────────────────────
 
-function gridColor(active: boolean, excluded: boolean) {
+function gridColor(active: boolean, excluded: boolean): string {
   if (active) return 'hsl(var(--primary))'
   if (excluded) return 'hsl(var(--destructive))'
   return 'currentColor'
@@ -666,7 +764,7 @@ function gridColor(active: boolean, excluded: boolean) {
 
 function SquareGridSVG({ active, excluded }: { active: boolean; excluded: boolean }) {
   const c = gridColor(active, excluded)
-  const lineOp = active ? 0.7 : 0.5
+  const op = active ? 0.7 : 0.5
   return (
     <svg width="52" height="44" viewBox="0 0 52 44" fill="none" style={{ color: c }}>
       <rect
@@ -686,7 +784,7 @@ function SquareGridSVG({ active, excluded }: { active: boolean; excluded: boolea
         y2="15.3"
         stroke="currentColor"
         strokeWidth="1"
-        strokeOpacity={lineOp}
+        strokeOpacity={op}
       />
       <line
         x1="2"
@@ -695,7 +793,7 @@ function SquareGridSVG({ active, excluded }: { active: boolean; excluded: boolea
         y2="28.6"
         stroke="currentColor"
         strokeWidth="1"
-        strokeOpacity={lineOp}
+        strokeOpacity={op}
       />
       <line
         x1="14"
@@ -704,7 +802,7 @@ function SquareGridSVG({ active, excluded }: { active: boolean; excluded: boolea
         y2="42"
         stroke="currentColor"
         strokeWidth="1"
-        strokeOpacity={lineOp}
+        strokeOpacity={op}
       />
       <line
         x1="26"
@@ -713,7 +811,7 @@ function SquareGridSVG({ active, excluded }: { active: boolean; excluded: boolea
         y2="42"
         stroke="currentColor"
         strokeWidth="1"
-        strokeOpacity={lineOp}
+        strokeOpacity={op}
       />
       <line
         x1="38"
@@ -722,7 +820,7 @@ function SquareGridSVG({ active, excluded }: { active: boolean; excluded: boolea
         y2="42"
         stroke="currentColor"
         strokeWidth="1"
-        strokeOpacity={lineOp}
+        strokeOpacity={op}
       />
     </svg>
   )
@@ -979,15 +1077,28 @@ function ColorSwatch({
       <button
         onClick={onInclude}
         onContextMenu={onExclude}
-        title={`${label} — ${activeState === 'include' ? 'click to remove' : activeState === 'exclude' ? 'click to include' : 'right-click to exclude'}`}
+        title={`${label} — ${
+          activeState === 'include'
+            ? 'click to remove'
+            : activeState === 'exclude'
+              ? 'click to include'
+              : 'right-click to exclude'
+        }`}
         className={`aspect-square w-full rounded border-2 transition-all ${
           activeState === 'include'
-            ? 'ring-2 ring-primary ring-offset-2 ring-offset-background border-primary scale-105'
+            ? 'scale-105 border-primary'
             : activeState === 'exclude'
-              ? 'ring-2 ring-destructive ring-offset-2 ring-offset-background border-destructive opacity-30'
+              ? 'border-destructive opacity-30'
               : 'border-border/40 hover:border-foreground/50 hover:scale-105'
         }`}
-        style={{ backgroundColor: hex }}
+        style={{
+          backgroundColor: hex,
+          ...(activeState === 'include'
+            ? { boxShadow: '0 0 0 2px hsl(var(--popover)), 0 0 0 4px hsl(var(--primary))' }
+            : activeState === 'exclude'
+              ? { boxShadow: '0 0 0 2px hsl(var(--popover)), 0 0 0 4px hsl(var(--destructive))' }
+              : {}),
+        }}
       />
       {onRemove && (
         <button

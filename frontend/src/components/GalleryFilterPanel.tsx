@@ -149,7 +149,7 @@ export function GalleryFilterPanel({ filters, facets, onFiltersChange }: Gallery
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent align="end" className="w-[400px] p-0 h-[460px] flex flex-col">
+      <PopoverContent align="end" className="w-[400px] p-0 h-[520px] flex flex-col">
         {groups.length > 0 ? (
           <FilterMenuContent
             groups={groups}
