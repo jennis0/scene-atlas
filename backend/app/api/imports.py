@@ -54,6 +54,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _get_detected_group_count(job: ImportJob) -> int:
+    """Parse the analysis_result JSON to get the number of initially detected groups."""
+    if not job.analysis_result:
+        return 0
+    try:
+        return len(json.loads(job.analysis_result))
+    except (json.JSONDecodeError, TypeError):
+        return 0
+
+
 def get_db(request: Request):
     """Dependency to get database session."""
     SessionLocal = get_session_local(request.app.state.db_engine)
@@ -363,13 +373,18 @@ async def upload_files(
                 )
             )
 
-        # Create ImportJob in staging state
+        # Create ImportJob in staging state with analysis summary
         source_label = import_groups[0].group_name if import_groups else None
+        analysis_summary = [
+            {"group_name": g.group_name, "author": g.author, "file_count": len(g.files)}
+            for g in import_groups
+        ]
         import_job = ImportJob(
             id=job_id,
             status="staging",
             source_label=source_label,
             total_files=len(all_relative_paths),
+            analysis_result=json.dumps(analysis_summary),
         )
         db.add(import_job)
         db.commit()
@@ -456,12 +471,13 @@ async def confirm_import(
         name=f"Import: {body.group_name}",
     )
 
-    job.status = "running"
+    job.status = "active"
+    job.updated_at = datetime.now(UTC).replace(tzinfo=None)
     db.commit()
 
     return ImportJobResponse(
         job_id=job.id,
-        status="running",
+        status="active",
         groups=[
             ImportGroupStatus(
                 group_name=body.group_name,
@@ -560,14 +576,16 @@ async def confirm_all_groups(
         name=f"Import job: {job_id[:8]}",
     )
 
-    job.status = "running"
+    job.status = "active"
+    job.all_confirmed = True
+    job.updated_at = datetime.now(UTC).replace(tzinfo=None)
     db.commit()
 
     logger.info(f"Submitted process_import_job for job {job_id}: {len(groups_payload)} groups")
 
     return ImportJobResponse(
         job_id=job.id,
-        status="running",
+        status="active",
         groups=group_statuses,
         created_at=job.created_at,
         completed_at=None,
@@ -607,13 +625,23 @@ async def get_import_status(
         for gj in group_jobs
     ]
 
+    # Compute detected/pending group counts from analysis_result
+    detected_count = _get_detected_group_count(job)
+    submitted_count = len(group_jobs)
+    pending_count = max(0, detected_count - submitted_count)
+
     # Derive overall job status from group statuses
     if group_jobs:
         terminal = {"completed", "failed", "cancelled"}
-        if all(gj.status in terminal for gj in group_jobs):
-            overall_status = "completed"
+        all_terminal = all(gj.status in terminal for gj in group_jobs)
+        if all_terminal:
+            if not job.all_confirmed and pending_count > 0:
+                # Single-confirm path with unsubmitted groups: stay active
+                overall_status = "active"
+            else:
+                overall_status = "completed"
         elif any(gj.status == "running" for gj in group_jobs):
-            overall_status = "running"
+            overall_status = "active"
         else:
             overall_status = job.status
     else:
@@ -623,6 +651,8 @@ async def get_import_status(
         job_id=job.id,
         status=overall_status,
         groups=groups,
+        detected_group_count=detected_count,
+        pending_group_count=pending_count,
         created_at=job.created_at,
         completed_at=job.completed_at,
     )
@@ -654,27 +684,38 @@ async def get_active_imports(db: Session = Depends(get_db)):
     for job in all_jobs:
         groups = db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job.id).all()
 
+        # Compute pending group count from analysis_result
+        detected_count = _get_detected_group_count(job)
+        submitted_count = len(groups)
+        pending_count = max(0, detected_count - submitted_count)
+
         # Derive effective status from groups (more accurate than stale job.status)
         if not groups:
             effective_status = job.status
             completed_at = job.completed_at
         elif all(g.status in terminal_statuses for g in groups):
-            effective_status = (
-                "failed" if any(g.status == "failed" for g in groups) else "completed"
-            )
-            completed_at = max(
-                (g.completed_at for g in groups if g.completed_at),
-                default=job.completed_at,
-            )
+            if not job.all_confirmed and pending_count > 0:
+                # Single-confirm with unsubmitted groups: stay active
+                effective_status = "active"
+                completed_at = None
+            else:
+                effective_status = (
+                    "failed" if any(g.status == "failed" for g in groups) else "completed"
+                )
+                completed_at = max(
+                    (g.completed_at for g in groups if g.completed_at),
+                    default=job.completed_at,
+                )
         elif any(g.status == "running" for g in groups):
-            effective_status = "running"
+            effective_status = "active"
             completed_at = None
         else:
             effective_status = job.status
             completed_at = job.completed_at
 
-        # Filter: always include staging/running; completed/failed only within 1h
-        if effective_status in terminal_statuses:
+        # Filter: always include staging/active; terminal only within 1h
+        truly_terminal = {"completed", "failed", "cancelled", "expired"}
+        if effective_status in truly_terminal:
             if completed_at is None or completed_at < cutoff:
                 continue
 
@@ -683,10 +724,11 @@ async def get_active_imports(db: Session = Depends(get_db)):
                 job_id=job.id,
                 source_label=job.source_label,
                 status=effective_status,
-                total_groups=len(groups),
+                total_groups=max(detected_count, len(groups)),
                 completed_groups=sum(1 for g in groups if g.status == "completed"),
                 failed_groups=sum(1 for g in groups if g.status == "failed"),
                 running_groups=sum(1 for g in groups if g.status == "running"),
+                pending_groups=pending_count,
                 total_files=job.total_files,
                 created_at=job.created_at,
             )
@@ -702,7 +744,7 @@ async def cleanup_old_imports(db: Session = Depends(get_db)):
     Never deletes jobs that are currently staging (pending user review) or running.
     """
     # Fetch all groups so we can derive the effective status of each job
-    terminal_statuses = {"completed", "failed", "cancelled"}
+    terminal_statuses = {"completed", "failed", "cancelled", "expired"}
 
     all_jobs = db.query(ImportJob).all()
     to_delete = []
@@ -711,15 +753,14 @@ async def cleanup_old_imports(db: Session = Depends(get_db)):
         groups = db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job.id).all()
 
         if not groups:
-            # Staging job with no confirmed groups — safe to delete
-            # unless it's actively being worked on (status = staging means
-            # the user hasn't confirmed anything yet; we delete them all here)
-            if job.status != "running":
+            # Staging/expired job with no confirmed groups — safe to delete
+            if job.status in terminal_statuses:
                 to_delete.append(job)
         elif all(g.status in terminal_statuses for g in groups):
-            # All groups are terminal — job is done
-            to_delete.append(job)
-        # Otherwise: has running groups — leave it alone
+            # All groups are terminal — job is done (only delete if job itself is terminal)
+            if job.status in terminal_statuses:
+                to_delete.append(job)
+        # Otherwise: has running groups or active job — leave it alone
 
     count = len(to_delete)
     for job in to_delete:
@@ -727,6 +768,52 @@ async def cleanup_old_imports(db: Session = Depends(get_db)):
     db.commit()
 
     return {"deleted": count}
+
+
+@router.post("/{job_id}/finalize")
+async def finalize_import(job_id: str, db: Session = Depends(get_db)):
+    """Explicitly mark an import job as completed and clean up staging.
+
+    Called by the frontend when the user is done submitting groups (single-
+    confirm path).  For confirm-all, the job auto-completes — this endpoint
+    is not needed.
+
+    Returns 409 if groups are still running.  Idempotent for already-
+    terminal jobs.
+    """
+    job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Import job not found")
+
+    terminal = {"completed", "failed", "cancelled", "expired"}
+    if job.status in terminal:
+        return {"status": job.status, "staging_cleaned": False, "already_terminal": True}
+
+    # Don't finalize while groups are still running
+    running = (
+        db.query(ImportGroupJob)
+        .filter(ImportGroupJob.job_id == job_id, ImportGroupJob.status == "running")
+        .count()
+    )
+    if running > 0:
+        raise HTTPException(
+            status_code=409, detail="Cannot finalize while groups are still processing"
+        )
+
+    groups = db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job_id).all()
+    has_failures = any(g.status == "failed" for g in groups)
+    job.status = "failed" if has_failures else "completed"
+    job.completed_at = datetime.now(UTC).replace(tzinfo=None)
+
+    staging_dir = settings.staging_dir / job_id
+    staging_cleaned = False
+    if staging_dir.exists():
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        staging_cleaned = True
+
+    db.commit()
+    logger.info(f"Import job {job_id} finalized as '{job.status}' (staging_cleaned={staging_cleaned})")
+    return {"status": job.status, "staging_cleaned": staging_cleaned, "already_terminal": False}
 
 
 @router.post("/{job_id}/cancel")

@@ -259,6 +259,17 @@ export const importApi = {
     return data
   },
 
+  finalize: async (
+    jobId: string,
+  ): Promise<{ status: string; staging_cleaned: boolean; already_terminal: boolean }> => {
+    const { data } = await api.post<{
+      status: string
+      staging_cleaned: boolean
+      already_terminal: boolean
+    }>(`/imports/${jobId}/finalize`)
+    return data
+  },
+
   cancel: async (jobId: string): Promise<void> => {
     await api.post(`/imports/${jobId}/cancel`)
   },

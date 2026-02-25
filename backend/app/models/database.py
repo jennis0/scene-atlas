@@ -153,18 +153,27 @@ class Color(Base):
 
 
 class ImportJob(Base):
-    """Tracks image import jobs (one per upload session)."""
+    """Tracks image import jobs (one per upload session).
+
+    Represents the full editing session, from upload through group confirmation.
+    Individual group processing is tracked by ImportGroupJob children.
+    """
 
     __tablename__ = "import_jobs"
 
     id = Column(String, primary_key=True)  # UUID
     status = Column(String, nullable=False, default="staging")
-    # status values: staging, running, completed, failed, cancelled
+    # status values: staging, active, completed, failed, cancelled, expired
     source_label = Column(String, nullable=True)  # Display label for import tray
     total_files = Column(Integer, default=0)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
+    # JSON: [{group_name, author, file_count}, ...] — analysis output for pending count tracking
+    analysis_result = Column(Text, nullable=True)
+    # True when confirm-all was used — allows auto-completion when all groups finish
+    all_confirmed = Column(Boolean, default=False)
 
     # Relationships
     groups = relationship("ImportGroupJob", back_populates="job", cascade="all, delete-orphan")

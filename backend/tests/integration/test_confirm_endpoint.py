@@ -73,7 +73,7 @@ class TestConfirmEndpoint:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["status"] == "running"
+        assert data["status"] == "active"
         assert data["job_id"] == job_id
 
         # Verify JobRunner.submit was called with correct params

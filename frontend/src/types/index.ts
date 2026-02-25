@@ -329,6 +329,8 @@ export interface ImportJobResponse {
   job_id: string
   status: string
   groups: ImportGroupStatus[]
+  detected_group_count?: number
+  pending_group_count?: number
   created_at: string
   completed_at: string | null
 }
@@ -342,6 +344,7 @@ export interface ImportJobSummary {
   completed_groups: number
   failed_groups: number
   running_groups: number
+  pending_groups: number
   total_files: number
   created_at: string
 }

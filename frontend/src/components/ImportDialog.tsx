@@ -65,7 +65,20 @@ export function ImportDialog({
       onOpenChange(false)
       return
     }
-    // Otherwise (upload state, or preview with no pending groups), just reset
+    // If in preview with no pending groups but completed groups, auto-finalize
+    if (state === 'preview' && groups.some((g) => g.status === 'completed')) {
+      if (jobId) {
+        importApi.finalize(jobId).catch(() => {})
+        removeImportState(jobId)
+      }
+      queryClient.invalidateQueries({ queryKey: ['images'] })
+      queryClient.invalidateQueries({ queryKey: ['search'] })
+      queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
+      reset()
+      onOpenChange(false)
+      return
+    }
+    // Otherwise (upload state, or preview with no groups), just reset
     reset()
     onOpenChange(false)
   }, [state, jobId, groups, queryClient, reset, saveNow, onOpenChange])
@@ -109,6 +122,19 @@ export function ImportDialog({
             )}
           </h2>
           <div className="flex items-center gap-1">
+            {s.state === 'preview' &&
+              s.jobId &&
+              s.pendingGroups.length === 0 &&
+              s.completedCount > 0 && (
+                <button
+                  onClick={s.handleFinalize}
+                  className="flex items-center gap-1.5 px-3 h-7 rounded text-sm bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                  title="Finish import — all groups have been submitted"
+                >
+                  <Check className="h-3.5 w-3.5" />
+                  Done
+                </button>
+              )}
             {s.state === 'preview' && s.jobId && (
               <button
                 onClick={handleCancel}

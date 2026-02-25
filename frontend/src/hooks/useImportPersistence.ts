@@ -97,12 +97,12 @@ export function useImportPersistence({
       setState('done')
     }
 
-    // Sync with backend for confirmed groups
+    // Sync with backend for confirmed groups and re-derive dialog state
     importApi
       .status(reconnectJobId)
       .then((status) => {
-        setGroups((prev) =>
-          prev.map((g) => {
+        setGroups((prev) => {
+          const next = prev.map((g) => {
             const gs = status.groups.find((s) => s.group_name === g.group_name)
             if (!gs) return g
             return {
@@ -112,8 +112,20 @@ export function useImportPersistence({
               failed: gs.failed_files,
               total: gs.total_files || g.total,
             }
-          }),
-        )
+          })
+          // Re-derive dialog state after backend sync
+          const hasRunningNow = next.some((g) => g.status === 'running')
+          const hasPendingNow = next.some((g) => g.status === 'pending' && !g.skip)
+          const backendPending = (status.pending_group_count ?? 0) > 0
+          if (hasRunningNow) {
+            setState('processing')
+          } else if (hasPendingNow || backendPending) {
+            setState('preview')
+          } else {
+            setState('done')
+          }
+          return next
+        })
       })
       .catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: only reconnect on mount/jobId change; setters are stable dispatch functions

@@ -43,8 +43,9 @@ export function useImportPolling({
           status.groups.length > 0 &&
           status.groups.every((gs) => gs.status === 'completed' || gs.status === 'failed')
         if (allSubmittedDone) {
-          // If local groups are still pending, return to preview so the user can continue
-          setState(hasPendingLocally ? 'preview' : 'done')
+          // Check both local state and backend-derived pending count
+          const backendHasPending = (status.pending_group_count ?? 0) > 0
+          setState(hasPendingLocally || backendHasPending ? 'preview' : 'done')
         }
       } catch {
         /* ignore transient poll errors */

@@ -402,8 +402,10 @@ class ImportJobResponse(BaseModel):
     """Import job status response."""
 
     job_id: str
-    status: str  # staging, running, completed, failed, cancelled
+    status: str  # staging, active, completed, failed, cancelled, expired
     groups: list[ImportGroupStatus] = []
+    detected_group_count: int = 0
+    pending_group_count: int = 0
     created_at: datetime
     completed_at: datetime | None = None
 
@@ -420,6 +422,7 @@ class ImportJobSummary(BaseModel):
     completed_groups: int = 0
     failed_groups: int = 0
     running_groups: int = 0
+    pending_groups: int = 0
     total_files: int = 0
     created_at: datetime
 
