@@ -362,27 +362,23 @@ export function FilterMenuContent({
               const isNonTag = colorId === null
               // Non-tag groups (Author, Grid, Color…) use amber primary in section headings
               const headingText = isNonTag ? 'text-primary/70' : colors.text
-              const headingIcon = isNonTag ? 'text-primary/50' : `${colors.text} opacity-60`
 
               return (
                 <div key={group.id}>
-                  {/* Divider between groups in "All" mode (not before the first) */}
-                  {tab === 'all' && groupIdx > 0 && (
-                    <div className="mx-3 border-t border-border/40" />
-                  )}
-
                   {/* Section heading — only in "All" mode */}
                   {tab === 'all' && (
-                    <div className="px-3 pt-2.5 pb-1 flex items-center gap-1.5">
-                      {(() => {
-                        const SectionIcon = getGroupIcon(group.id)
-                        return <SectionIcon className={`h-3 w-3 flex-shrink-0 ${headingIcon}`} />
-                      })()}
-                      <span
-                        className={`text-[10.5px] font-semibold tracking-wider uppercase capitalize ${headingText}`}
+                    <div className={`px-3.5 pb-1.5 ${groupIdx === 0 ? 'pt-3' : 'pt-3.5'}`}>
+                      {groupIdx > 0 && <div className="mb-2.5 border-t border-border/30" />}
+                      <div
+                        className={`flex items-center gap-[6px] font-display text-[13px] font-medium tracking-[0.04em] leading-none ${headingText}`}
                       >
-                        {group.label}
-                      </span>
+                        {(() => {
+                          const SectionIcon = getGroupIcon(group.id)
+                          return <SectionIcon className={`h-3 w-3 flex-shrink-0 opacity-75`} />
+                        })()}
+                        <span className="capitalize">{group.label}</span>
+                      </div>
+                      <div className="mt-[3px] h-px w-5 bg-gradient-to-r from-primary/40 to-transparent" />
                     </div>
                   )}
 
