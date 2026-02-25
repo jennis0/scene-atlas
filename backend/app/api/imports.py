@@ -24,7 +24,6 @@ from ..models import (
     ImportJob,
     get_session_local,
 )
-from ..services.app_settings import get_settings as get_app_settings
 from ..models.schemas import (
     ActiveImportsResponse,
     DuplicateInfo,
@@ -39,6 +38,7 @@ from ..models.schemas import (
     ImportJobSummary,
     ImportUploadResponse,
 )
+from ..services.app_settings import get_settings as get_app_settings
 from ..services.job_runner import get_job_runner
 from ..services.validation import check_zip_safety, verify_media_mime
 
@@ -59,7 +59,10 @@ def _get_detected_group_count(job: ImportJob) -> int:
     if not job.analysis_result:
         return 0
     try:
-        return len(json.loads(job.analysis_result))
+        parsed = json.loads(job.analysis_result)
+        if isinstance(parsed, dict):
+            return len(parsed.get("summary", []))
+        return len(parsed)  # Legacy format (plain list)
     except (json.JSONDecodeError, TypeError):
         return 0
 
@@ -129,6 +132,29 @@ async def check_hashes(
     )
 
 
+@router.post("/init")
+async def init_import(db: Session = Depends(get_db)):
+    """Create an ImportJob immediately so the frontend can persist the job_id.
+
+    The job starts in ``"uploading"`` status.  The subsequent ``/upload``
+    call should pass the returned ``job_id`` so that the upload is attached
+    to this pre-created job.  If the user closes the dialog mid-upload the
+    HTTP request continues in the background, and the tray can track the job
+    via this record.
+    """
+    job_id = uuid.uuid4().hex[:16]
+    staging_dir = settings.staging_dir / job_id
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    import_job = ImportJob(
+        id=job_id,
+        status="uploading",
+    )
+    db.add(import_job)
+    db.commit()
+    logger.info(f"Initialized import job {job_id} (uploading)")
+    return {"job_id": job_id}
+
+
 @router.post("/upload", response_model=ImportUploadResponse)
 async def upload_files(
     request: Request,
@@ -136,6 +162,7 @@ async def upload_files(
     relative_paths: str | None = Form(None),
     manifest: str | None = Form(None),
     image_type: str | None = Form(None),
+    job_id: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     """Upload files for import, analyse and group them.
@@ -144,15 +171,33 @@ async def upload_files(
     Saves to staging, runs analyse_upload synchronously,
     returns detected groups with metadata for user review.
 
+    The optional ``job_id`` parameter allows attaching the upload to a
+    pre-created job (from ``POST /init``).  If omitted, a new job is
+    created inline (backward compatibility).
+
     The optional ``manifest`` parameter is a JSON array of entries for
     files that the client determined are duplicates and chose not to
     upload.  Each entry has ``relative_path``, ``filename``,
     ``content_hash``, and ``duplicate_of``.  These files are included
     in group detection but skip server-side hashing.
     """
-    job_id = uuid.uuid4().hex[:16]
-    staging_dir = settings.staging_dir / job_id
-    staging_dir.mkdir(parents=True, exist_ok=True)
+    # Use pre-created job or create inline
+    existing_job: ImportJob | None = None
+    if job_id:
+        existing_job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
+        if not existing_job:
+            raise HTTPException(status_code=404, detail="Import job not found")
+        if existing_job.status != "uploading":
+            raise HTTPException(
+                status_code=409,
+                detail=f"Import job is in '{existing_job.status}' state, expected 'uploading'",
+            )
+        staging_dir = settings.staging_dir / job_id
+        staging_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        job_id = uuid.uuid4().hex[:16]
+        staging_dir = settings.staging_dir / job_id
+        staging_dir.mkdir(parents=True, exist_ok=True)
 
     # Parse relative paths if provided
     rel_paths_list: list[str] = []
@@ -373,20 +418,33 @@ async def upload_files(
                 )
             )
 
-        # Create ImportJob in staging state with analysis summary
+        # Store full analysis (summary + groups) for reconnect support
         source_label = import_groups[0].group_name if import_groups else None
-        analysis_summary = [
-            {"group_name": g.group_name, "author": g.author, "file_count": len(g.files)}
-            for g in import_groups
-        ]
-        import_job = ImportJob(
-            id=job_id,
-            status="staging",
-            source_label=source_label,
-            total_files=len(all_relative_paths),
-            analysis_result=json.dumps(analysis_summary),
-        )
-        db.add(import_job)
+        analysis_data = {
+            "summary": [
+                {"group_name": g.group_name, "author": g.author, "file_count": len(g.files)}
+                for g in import_groups
+            ],
+            "groups": [g.model_dump() for g in import_groups],
+        }
+
+        if existing_job:
+            # Update pre-created job from init
+            existing_job.status = "staging"
+            existing_job.source_label = source_label
+            existing_job.total_files = len(all_relative_paths)
+            existing_job.analysis_result = json.dumps(analysis_data)
+            existing_job.updated_at = datetime.now(UTC).replace(tzinfo=None)
+        else:
+            # Create new job inline (backward compat)
+            import_job = ImportJob(
+                id=job_id,
+                status="staging",
+                source_label=source_label,
+                total_files=len(all_relative_paths),
+                analysis_result=json.dumps(analysis_data),
+            )
+            db.add(import_job)
         db.commit()
 
         return ImportUploadResponse(
@@ -658,6 +716,35 @@ async def get_import_status(
     )
 
 
+@router.get("/{job_id}/analysis", response_model=ImportUploadResponse)
+async def get_import_analysis(job_id: str, db: Session = Depends(get_db)):
+    """Return the stored analysis for an import job.
+
+    Used by the frontend to rebuild the preview UI when reconnecting to a job
+    that was closed during upload (localStorage has no groups, but the server
+    completed the analysis in the background).
+    """
+    job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Import job not found")
+    if not job.analysis_result:
+        raise HTTPException(status_code=404, detail="No analysis available")
+    try:
+        parsed = json.loads(job.analysis_result)
+        # New format: dict with "groups" key; legacy format: plain list (no full groups)
+        groups_data = parsed.get("groups", []) if isinstance(parsed, dict) else []
+        if not groups_data:
+            raise HTTPException(status_code=404, detail="No analysis available")
+        groups = [ImportGroup(**g) for g in groups_data]
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        raise HTTPException(status_code=404, detail="Analysis data corrupted") from e
+    return ImportUploadResponse(
+        job_id=job_id,
+        total_files=job.total_files or 0,
+        groups=groups,
+    )
+
+
 @router.get("/active", response_model=ActiveImportsResponse)
 async def get_active_imports(db: Session = Depends(get_db)):
     """List non-terminal import jobs for the import tray.
@@ -812,7 +899,9 @@ async def finalize_import(job_id: str, db: Session = Depends(get_db)):
         staging_cleaned = True
 
     db.commit()
-    logger.info(f"Import job {job_id} finalized as '{job.status}' (staging_cleaned={staging_cleaned})")
+    logger.info(
+        f"Import job {job_id} finalized as '{job.status}' (staging_cleaned={staging_cleaned})"
+    )
     return {"status": job.status, "staging_cleaned": staging_cleaned, "already_terminal": False}
 
 

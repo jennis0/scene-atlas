@@ -6,6 +6,7 @@ import {
   Loader2,
   AlertCircle,
   Package,
+  Upload,
   X,
   Clock,
   Ban,
@@ -13,21 +14,8 @@ import {
   Cog,
 } from 'lucide-react'
 import { importApi } from '@/lib/api'
+import type { ActiveImportJob } from '@/hooks/useActiveImports'
 import type { BackgroundJob } from '@/types'
-
-interface ActiveImportJob {
-  jobId: string
-  label: string
-  status: 'staging' | 'running' | 'completed' | 'failed' | 'cancelled'
-  totalGroups: number
-  completedGroups: number
-  failedGroups: number
-  runningGroups: number
-  pendingGroups: number
-  totalFiles: number
-  createdAt: string
-  localOnly: boolean
-}
 
 interface ImportTrayProps {
   jobs: ActiveImportJob[]
@@ -233,8 +221,12 @@ function ImportTrayCard({
     job.status === 'failed' ||
     job.status === 'cancelled' ||
     job.status === 'expired'
-  const canCancel = job.status === 'staging' || job.status === 'active'
-  const effectiveTotal = job.totalGroups > 0 ? job.totalGroups : job.pendingGroups + job.completedGroups + job.failedGroups + job.runningGroups
+  const canCancel =
+    job.status === 'uploading' || job.status === 'staging' || job.status === 'active'
+  const effectiveTotal =
+    job.totalGroups > 0
+      ? job.totalGroups
+      : job.pendingGroups + job.completedGroups + job.failedGroups + job.runningGroups
   const progressRatio = effectiveTotal > 0 ? job.completedGroups / effectiveTotal : 0
 
   return (
@@ -329,6 +321,7 @@ function ImportTrayCard({
                 : ''}
             </span>
           )}
+          {job.status === 'uploading' && <span>Uploading…</span>}
           {job.status === 'staging' && (
             <span>
               {job.pendingGroups} group{job.pendingGroups !== 1 ? 's' : ''} ready to review
@@ -428,6 +421,8 @@ function formatResult(result: Record<string, unknown> | null): string {
 
 function StatusIcon({ status }: { status: ActiveImportJob['status'] }) {
   switch (status) {
+    case 'uploading':
+      return <Upload className="h-3.5 w-3.5 text-primary animate-pulse shrink-0 mt-0.5" />
     case 'running':
       return <Loader2 className="h-3.5 w-3.5 text-primary animate-spin shrink-0 mt-0.5" />
     case 'active':

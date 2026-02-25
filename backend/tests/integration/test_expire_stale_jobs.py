@@ -185,3 +185,37 @@ class TestExpireStaleJobs:
 
         result = expire_stale_jobs(max_age_hours=48)
         assert result["expired"] == 0
+
+    def test_expires_old_uploading_job(self, _patch_db_for_expiry):
+        """An uploading job older than max_age_hours is expired."""
+        from backend.pipeline.maintenance import expire_stale_jobs
+
+        engine, SessionLocal, staging_root = _patch_db_for_expiry
+
+        db = SessionLocal()
+        old_time = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=72)
+        job = ImportJob(
+            id="old-uploading-job",
+            status="uploading",
+            created_at=old_time,
+            updated_at=old_time,
+        )
+        db.add(job)
+        db.commit()
+        db.close()
+
+        # Create staging dir
+        job_staging = staging_root / "old-uploading-job"
+        job_staging.mkdir()
+        (job_staging / "partial.dat").write_text("data")
+
+        result = expire_stale_jobs(max_age_hours=48)
+        assert result["expired"] == 1
+
+        db = SessionLocal()
+        job = db.query(ImportJob).filter(ImportJob.id == "old-uploading-job").first()
+        assert job.status == "expired"
+        assert job.completed_at is not None
+        db.close()
+
+        assert not job_staging.exists()

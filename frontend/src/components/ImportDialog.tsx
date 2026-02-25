@@ -41,7 +41,14 @@ export function ImportDialog({
     onOpenChange(false)
   }, [jobId, reset, onOpenChange])
 
+  const { uploading } = s
+
   const handleClose = useCallback(() => {
+    // If uploading, just hide — upload continues in background, localStorage has job_id
+    if (state === 'upload' && uploading) {
+      onOpenChange(false)
+      return
+    }
     // If processing, just hide the dialog — tray will show progress
     if (state === 'processing') {
       saveNow()
@@ -81,7 +88,7 @@ export function ImportDialog({
     // Otherwise (upload state, or preview with no groups), just reset
     reset()
     onOpenChange(false)
-  }, [state, jobId, groups, queryClient, reset, saveNow, onOpenChange])
+  }, [state, uploading, jobId, groups, queryClient, reset, saveNow, onOpenChange])
 
   const isWide = s.state === 'preview' || s.state === 'processing'
 

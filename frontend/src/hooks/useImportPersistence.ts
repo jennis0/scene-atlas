@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { AUTO_SAVE_INTERVAL_MS } from '@/lib/constants'
-import { saveImportState, loadImportState, restorePreviewUrls } from '@/lib/importStorage'
+import {
+  saveImportState,
+  loadImportState,
+  restorePreviewUrls,
+  removeImportState,
+} from '@/lib/importStorage'
 import { importApi } from '@/lib/api'
+import { mapAnalysisToEditable } from './useImportUpload'
+import { ALL_TAB } from './useFileEditing'
 import type { EditableGroupState, ParsedTagVocab } from '@/types'
 import type { DialogState } from './useImportState'
 
@@ -81,6 +88,41 @@ export function useImportPersistence({
     if (!persisted) return
 
     setJobId(reconnectJobId)
+
+    // If localStorage has no groups, the dialog was closed during upload.
+    // Check backend status and fetch analysis if available.
+    if (persisted.groups.length === 0) {
+      importApi
+        .status(reconnectJobId)
+        .then((status) => {
+          if (status.status === 'uploading') {
+            // Upload still in progress — show upload state
+            setState('upload')
+          } else if (status.status === 'staging' || status.status === 'active') {
+            // Upload finished — fetch full analysis to rebuild groups
+            importApi
+              .getAnalysis(reconnectJobId)
+              .then((analysis) => {
+                const groups = mapAnalysisToEditable(analysis, reconnectJobId)
+                setGroups(groups)
+                setActiveTab(groups.length > 1 ? ALL_TAB : 0)
+                setState('preview')
+              })
+              .catch(() => {
+                setState('done')
+              })
+          } else {
+            // Terminal or unknown status
+            setState('done')
+          }
+        })
+        .catch(() => {
+          removeImportState(reconnectJobId)
+        })
+      return
+    }
+
+    // Normal reconnect path: localStorage has groups
     const restoredGroups = restorePreviewUrls(reconnectJobId, persisted.groups)
     setGroups(restoredGroups)
     setActiveTab(persisted.activeTab)

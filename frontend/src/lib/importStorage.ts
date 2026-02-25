@@ -82,6 +82,32 @@ export function saveImportState(
   }
 }
 
+/**
+ * Save a minimal localStorage entry for a job that has just been initialized
+ * (no groups yet). This ensures the tray can see the job immediately after
+ * the init endpoint returns, even before upload completes.
+ */
+export function saveImportJobInit(jobId: string, label: string): void {
+  const now = new Date()
+  const entry: PersistedImportJob = {
+    version: 1,
+    jobId,
+    label,
+    createdAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + EXPIRY_MS).toISOString(),
+    savedAt: now.toISOString(),
+    groups: [],
+    activeTab: -1,
+    tagVocab: [],
+  }
+  try {
+    localStorage.setItem(STORAGE_PREFIX + jobId, JSON.stringify(entry))
+    updateIndex(jobId, entry)
+  } catch {
+    // localStorage full or unavailable — silently skip
+  }
+}
+
 export function loadImportState(jobId: string): PersistedImportJob | null {
   try {
     const raw = localStorage.getItem(STORAGE_PREFIX + jobId)

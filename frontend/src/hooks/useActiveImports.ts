@@ -18,7 +18,15 @@ import type { ImportJobIndexEntry } from '@/lib/importStorage'
 export interface ActiveImportJob {
   jobId: string
   label: string
-  status: 'staging' | 'active' | 'running' | 'completed' | 'failed' | 'cancelled' | 'expired'
+  status:
+    | 'uploading'
+    | 'staging'
+    | 'active'
+    | 'running'
+    | 'completed'
+    | 'failed'
+    | 'cancelled'
+    | 'expired'
   totalGroups: number
   completedGroups: number
   failedGroups: number
@@ -71,7 +79,11 @@ export function useActiveImports(): UseActiveImportsReturn {
   // Poll every 10s while any jobs are active (running groups or active status)
   useEffect(() => {
     const hasRunning = jobs.some(
-      (j) => j.status === 'running' || j.status === 'active' || j.runningGroups > 0,
+      (j) =>
+        j.status === 'running' ||
+        j.status === 'active' ||
+        j.status === 'uploading' ||
+        j.runningGroups > 0,
     )
     if (!hasRunning) return
     const interval = setInterval(refresh, ACTIVE_POLL_INTERVAL_MS)
@@ -122,6 +134,7 @@ export function useActiveImports(): UseActiveImportsReturn {
 
   const hasActive = jobs.some(
     (j) =>
+      j.status === 'uploading' ||
       j.status === 'staging' ||
       j.status === 'active' ||
       j.status === 'running' ||

@@ -527,11 +527,13 @@ class TestActiveImportsPendingGroups:
         db = SessionLocal()
         import json
 
-        analysis = json.dumps([
-            {"group_name": "Map A", "author": "Auth", "file_count": 2},
-            {"group_name": "Map B", "author": "Auth", "file_count": 3},
-            {"group_name": "Map C", "author": "Auth", "file_count": 1},
-        ])
+        analysis = json.dumps(
+            [
+                {"group_name": "Map A", "author": "Auth", "file_count": 2},
+                {"group_name": "Map B", "author": "Auth", "file_count": 3},
+                {"group_name": "Map C", "author": "Auth", "file_count": 1},
+            ]
+        )
         job = _make_job(db, "jobpending", status="active", total_files=6)
         job.analysis_result = analysis
         # Only one group submitted so far
@@ -551,10 +553,12 @@ class TestActiveImportsPendingGroups:
         db = SessionLocal()
         import json
 
-        analysis = json.dumps([
-            {"group_name": "G1", "author": "A", "file_count": 1},
-            {"group_name": "G2", "author": "A", "file_count": 1},
-        ])
+        analysis = json.dumps(
+            [
+                {"group_name": "G1", "author": "A", "file_count": 1},
+                {"group_name": "G2", "author": "A", "file_count": 1},
+            ]
+        )
         job = _make_job(db, "jobpendstat", status="active", total_files=2)
         job.analysis_result = analysis
         db.commit()
@@ -565,3 +569,177 @@ class TestActiveImportsPendingGroups:
         data = resp.json()
         assert data["detected_group_count"] == 2
         assert data["pending_group_count"] == 2  # none submitted yet
+
+
+# ---------------------------------------------------------------------------
+# Init endpoint tests
+# ---------------------------------------------------------------------------
+
+
+class TestInitImport:
+    def test_init_creates_uploading_job(self, test_client, tmp_db):
+        """POST /init creates a job with status 'uploading'."""
+        resp = test_client.post("/api/v1/imports/init")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "job_id" in data
+
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        job = db.query(ImportJob).filter(ImportJob.id == data["job_id"]).first()
+        assert job is not None
+        assert job.status == "uploading"
+        db.close()
+
+    def test_init_creates_staging_dir(self, test_client, tmp_db, tmp_path, monkeypatch):
+        """POST /init creates the staging directory."""
+        staging_root = tmp_path / "staging"
+        staging_root.mkdir(exist_ok=True)
+        monkeypatch.setattr("backend.app.api.imports.settings.staging_dir", staging_root)
+
+        resp = test_client.post("/api/v1/imports/init")
+        assert resp.status_code == 200
+        job_id = resp.json()["job_id"]
+        assert (staging_root / job_id).is_dir()
+
+
+# ---------------------------------------------------------------------------
+# Upload with job_id tests
+# ---------------------------------------------------------------------------
+
+
+class TestUploadWithJobId:
+    def test_upload_with_invalid_job_id(self, test_client, tmp_path, monkeypatch):
+        """Upload with a nonexistent job_id returns 404."""
+        staging_root = tmp_path / "staging"
+        staging_root.mkdir(exist_ok=True)
+        monkeypatch.setattr("backend.app.api.imports.settings.staging_dir", staging_root)
+
+        resp = test_client.post(
+            "/api/v1/imports/upload",
+            data={"job_id": "nonexistent123"},
+            files=[("files", ("test.jpg", b"\xff\xd8\xff\xe0" + b"\x00" * 100, "image/jpeg"))],
+        )
+        assert resp.status_code == 404
+
+    def test_upload_rejects_non_uploading_job(self, test_client, tmp_db, tmp_path, monkeypatch):
+        """Upload with a job not in 'uploading' status returns 409."""
+        staging_root = tmp_path / "staging"
+        staging_root.mkdir(exist_ok=True)
+        monkeypatch.setattr("backend.app.api.imports.settings.staging_dir", staging_root)
+
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        _make_job(db, "job-staging", status="staging")
+        db.commit()
+        db.close()
+
+        resp = test_client.post(
+            "/api/v1/imports/upload",
+            data={"job_id": "job-staging"},
+            files=[("files", ("test.jpg", b"\xff\xd8\xff\xe0" + b"\x00" * 100, "image/jpeg"))],
+        )
+        assert resp.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# Analysis endpoint tests
+# ---------------------------------------------------------------------------
+
+
+class TestGetAnalysis:
+    def test_analysis_returns_groups(self, test_client, tmp_db):
+        """GET /{job_id}/analysis returns stored analysis groups."""
+        import json
+
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        analysis_data = {
+            "summary": [{"group_name": "Map Pack", "author": "Author A", "file_count": 2}],
+            "groups": [
+                {
+                    "author": "Author A",
+                    "group_name": "Map Pack",
+                    "files": [
+                        {
+                            "relative_path": "map1.jpg",
+                            "filename": "map1.jpg",
+                            "detected_tags": [],
+                        },
+                        {
+                            "relative_path": "map2.jpg",
+                            "filename": "map2.jpg",
+                            "detected_tags": [],
+                        },
+                    ],
+                }
+            ],
+        }
+        job = _make_job(db, "job-with-analysis", status="staging", total_files=2)
+        job.analysis_result = json.dumps(analysis_data)
+        db.commit()
+        db.close()
+
+        resp = test_client.get("/api/v1/imports/job-with-analysis/analysis")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["job_id"] == "job-with-analysis"
+        assert len(data["groups"]) == 1
+        assert data["groups"][0]["group_name"] == "Map Pack"
+        assert len(data["groups"][0]["files"]) == 2
+
+    def test_analysis_404_for_uploading_job(self, test_client, tmp_db):
+        """GET /analysis returns 404 for a job still uploading (no analysis yet)."""
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        _make_job(db, "job-uploading", status="uploading")
+        db.commit()
+        db.close()
+
+        resp = test_client.get("/api/v1/imports/job-uploading/analysis")
+        assert resp.status_code == 404
+
+    def test_analysis_404_for_missing_job(self, test_client):
+        """GET /analysis returns 404 for nonexistent job."""
+        resp = test_client.get("/api/v1/imports/nonexistent/analysis")
+        assert resp.status_code == 404
+
+    def test_analysis_handles_legacy_format(self, test_client, tmp_db):
+        """GET /analysis returns 404 for legacy analysis format (no full groups)."""
+        import json
+
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        # Legacy format is a plain list without "groups" key
+        legacy = [{"group_name": "G1", "author": "A", "file_count": 1}]
+        job = _make_job(db, "job-legacy", status="staging")
+        job.analysis_result = json.dumps(legacy)
+        db.commit()
+        db.close()
+
+        resp = test_client.get("/api/v1/imports/job-legacy/analysis")
+        assert resp.status_code == 404  # No full groups available
+
+    def test_detected_group_count_with_new_format(self, test_client, tmp_db):
+        """Status endpoint correctly counts groups from new dict analysis format."""
+        import json
+
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        analysis_data = {
+            "summary": [
+                {"group_name": "G1", "author": "A", "file_count": 1},
+                {"group_name": "G2", "author": "A", "file_count": 2},
+            ],
+            "groups": [],  # groups data not needed for this test
+        }
+        job = _make_job(db, "job-newformat", status="staging", total_files=3)
+        job.analysis_result = json.dumps(analysis_data)
+        db.commit()
+        db.close()
+
+        resp = test_client.get("/api/v1/imports/job-newformat/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["detected_group_count"] == 2
+        assert data["pending_group_count"] == 2

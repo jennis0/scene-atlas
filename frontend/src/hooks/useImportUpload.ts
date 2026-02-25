@@ -5,6 +5,7 @@ import { resolveApiUrl } from '@/lib/apiBase'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { humanizeFilename } from '@/components/import/types'
 import { collectFilesFromDataTransfer } from '@/lib/fsEntryTraversal'
+import { saveImportJobInit } from '@/lib/importStorage'
 import type { ImportUploadResponse, EditableGroupState } from '@/types'
 import type { DialogState } from './useImportState'
 import { ALL_TAB } from './useFileEditing'
@@ -67,6 +68,14 @@ export function useImportUpload({
           )
           return
         }
+
+        // ── Phase 0.5: Create backend job immediately ───────────
+        // This ensures the job_id is persisted to localStorage before the
+        // upload starts, so closing the dialog mid-upload doesn't lose it.
+        setUploadPhase('Initializing\u2026')
+        const { job_id: earlyJobId } = await importApi.init()
+        setJobId(earlyJobId)
+        saveImportJobInit(earlyJobId, validPairs[0]?.file.name ?? 'Import')
 
         // Build relative paths, blob URLs, and separate ZIPs from image files
         const imageFiles: File[] = []
@@ -157,41 +166,18 @@ export function useImportUpload({
           uploadRelPaths,
           manifest.length > 0 ? manifest : undefined,
           defaultImageType,
+          earlyJobId,
         )
-        setJobId(response.job_id)
 
         // ── Phase 4: Map response to editable groups ──────────────
         setUploadPhase('Analysing\u2026')
-        const editableGroups: EditableGroupState[] = response.groups.map((vg) => ({
-          id: crypto.randomUUID(),
-          author: vg.author || '',
-          group_name: vg.group_name,
-          files: vg.files.map((f) => ({
-            relative_path: f.relative_path,
-            filename: f.filename,
-            name: f.name || humanizeFilename(f.filename),
-            media_type: f.media_type ?? 'image',
-            tags: [...f.detected_tags],
-            gridded: f.gridded,
-            grid_width: f.grid_width,
-            grid_height: f.grid_height,
-            grid_type: f.grid_type ?? null,
-            subgroup: f.subgroup,
-            image_type: (f.image_type as 'battlemap' | 'scene') ?? defaultImageType,
-            excluded: false,
-            previewUrl: f.duplicate_of
-              ? resolveApiUrl(`/api/v1/images/${f.duplicate_of.image_id}/thumbnail`)
-              : blobUrlMap[f.relative_path],
-            content_hash: f.content_hash ?? hashMap.get(f.relative_path),
-            duplicate_of: f.duplicate_of,
-            duplicate_action: f.duplicate_of ? 'skip' : undefined,
-          })),
-          skip: false,
-          status: 'pending',
-          processed: 0,
-          failed: 0,
-          total: vg.files.length,
-        }))
+        const editableGroups = mapAnalysisToEditable(
+          response,
+          earlyJobId,
+          defaultImageType,
+          blobUrlMap,
+          hashMap,
+        )
         setGroups(editableGroups)
         setActiveTab(editableGroups.length > 1 ? ALL_TAB : 0)
         setState('preview')
@@ -260,4 +246,50 @@ async function filterByMagicBytesForPairs(
     valid: pairs.filter((p) => validSet.has(p.file)),
     skipped,
   }
+}
+
+/**
+ * Map an ImportUploadResponse (or analysis endpoint response) to editable groups.
+ *
+ * Used in two places:
+ * 1. After a fresh upload completes (has blobUrls and hashMap from client-side processing)
+ * 2. On reconnect after dialog close during upload (no blobUrls — uses server preview URLs)
+ */
+export function mapAnalysisToEditable(
+  response: ImportUploadResponse,
+  jobId: string,
+  defaultImageType: 'battlemap' | 'scene' = 'battlemap',
+  blobUrlMap?: Record<string, string>,
+  hashMap?: Map<string, string>,
+): EditableGroupState[] {
+  return response.groups.map((vg) => ({
+    id: crypto.randomUUID(),
+    author: vg.author || '',
+    group_name: vg.group_name,
+    files: vg.files.map((f) => ({
+      relative_path: f.relative_path,
+      filename: f.filename,
+      name: f.name || humanizeFilename(f.filename),
+      media_type: f.media_type ?? 'image',
+      tags: [...f.detected_tags],
+      gridded: f.gridded,
+      grid_width: f.grid_width,
+      grid_height: f.grid_height,
+      grid_type: f.grid_type ?? null,
+      subgroup: f.subgroup,
+      image_type: (f.image_type as 'battlemap' | 'scene') ?? defaultImageType,
+      excluded: false,
+      previewUrl: f.duplicate_of
+        ? resolveApiUrl(`/api/v1/images/${f.duplicate_of.image_id}/thumbnail`)
+        : (blobUrlMap?.[f.relative_path] ?? `/api/v1/imports/${jobId}/preview/${f.relative_path}`),
+      content_hash: f.content_hash ?? hashMap?.get(f.relative_path),
+      duplicate_of: f.duplicate_of,
+      duplicate_action: f.duplicate_of ? 'skip' : undefined,
+    })),
+    skip: false,
+    status: 'pending',
+    processed: 0,
+    failed: 0,
+    total: vg.files.length,
+  }))
 }
