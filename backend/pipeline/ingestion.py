@@ -1077,10 +1077,16 @@ def _mark_group_job_failed(group_job_id: str, error_message: str) -> None:
 
 
 def _finalize_import_job(job_id: str) -> None:
-    """Mark ImportJob as completed/failed once all its groups are terminal.
+    """Update ImportJob status after a group finishes processing.
 
     Called at the end of every import flow so the parent job status is
     written back to the DB — the tray and /active endpoint both read this.
+
+    Behaviour depends on ``all_confirmed``:
+    - If True (confirm-all path): auto-complete when all groups are terminal.
+    - If False (single-confirm path): stay ``active`` so the user can submit
+      more groups.  The job only reaches ``completed`` via the explicit
+      ``/finalize`` endpoint.
     """
     logger = get_logger(__name__)
     engine = get_engine(settings.database_url)
@@ -1095,10 +1101,16 @@ def _finalize_import_job(job_id: str) -> None:
             return
         terminal = {"completed", "failed", "cancelled"}
         if all(g.status in terminal for g in groups):
-            job.status = "failed" if any(g.status == "failed" for g in groups) else "completed"
-            job.completed_at = datetime.now(UTC).replace(tzinfo=None)
+            if job.all_confirmed:
+                # confirm-all path: auto-complete
+                job.status = "failed" if any(g.status == "failed" for g in groups) else "completed"
+                job.completed_at = datetime.now(UTC).replace(tzinfo=None)
+                logger.info(f"Import job {job_id} finalized as '{job.status}'")
+            else:
+                # single-confirm path: stay active for more groups
+                job.status = "active"
+                logger.info(f"Import job {job_id} staying active (single-confirm path)")
             db.commit()
-            logger.info(f"Import job {job_id} finalized as '{job.status}'")
     finally:
         db.close()
 
@@ -1147,11 +1159,8 @@ def process_import_group(
     if processed > 0:
         _rebuild_fts()
 
-    # Clean up staging dir now that the group is done
-    staging_path = Path(staging_dir)
-    if staging_path.exists():
-        shutil.rmtree(staging_path, ignore_errors=True)
-        logger.info(f"Cleaned up staging dir for job {job_id}")
+    # Staging cleanup is handled by /finalize, /cancel, or expire_stale_jobs —
+    # NOT here, because other groups in the same job may still be pending.
 
     return {
         "job_id": job_id,
@@ -1212,15 +1221,12 @@ def process_import_job(
                 )
                 total_failed += len(files)
     finally:
-        # Always finalize the job, rebuild FTS, and clean up staging — even if
-        # some groups raised unexpected exceptions.
+        # Always finalize the job and rebuild FTS — even if some groups raised
+        # unexpected exceptions.  Staging cleanup is handled by /finalize,
+        # /cancel, or expire_stale_jobs.
         _finalize_import_job(job_id)
         if total_processed > 0:
             _rebuild_fts()
-        staging_path = Path(staging_dir)
-        if staging_path.exists():
-            shutil.rmtree(staging_path, ignore_errors=True)
-            logger.info(f"Cleaned up staging dir for job {job_id}")
 
     logger.info(f"Import job {job_id} complete: {total_processed} processed, {total_failed} failed")
     return {

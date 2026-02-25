@@ -1,8 +1,9 @@
-"""Maintenance tasks: database backup and staging cleanup.
+"""Maintenance tasks: database backup, staging cleanup, and stale job expiry.
 
 Functions:
-    backup_database  — Snapshot SQLite + Qdrant, rotate old backups. Runs daily.
-    cleanup_staging  — Remove stale staging directories older than 24h. Runs every 6h.
+    backup_database     — Snapshot SQLite + Qdrant, rotate old backups. Runs daily.
+    cleanup_staging     — Remove stale staging directories older than 24h. Runs every 6h.
+    expire_stale_jobs   — Mark abandoned import jobs as expired. Runs every 6h.
 
 Scheduled by the Scheduler (started in FastAPI lifespan).  Also runnable
 from the CLI: ``uv run python -m backend.pipeline.maintenance``
@@ -177,11 +178,82 @@ def cleanup_stale_staging(max_age_hours: int = 24) -> int:
 def cleanup_staging() -> dict:
     """Remove staging directories abandoned by crashed or cancelled imports.
 
-    Scheduled every 6 hours. Complements the immediate cleanup done at the end
-    of process_import_job — this catches any leftovers from crashes or the
-    single-group import path.
+    Scheduled every 6 hours.  Catches orphaned staging dirs that were not
+    cleaned up by /finalize, /cancel, or expire_stale_jobs.
     """
     logger = get_logger(__name__)
     deleted = cleanup_stale_staging()
     logger.info(f"Staging cleanup complete: removed {deleted} stale director(ies)")
     return {"deleted": deleted}
+
+
+# ---------------------------------------------------------------------------
+# Stale import job expiry
+# ---------------------------------------------------------------------------
+
+
+def expire_stale_jobs(max_age_hours: int = 48) -> dict:
+    """Mark staging/active import jobs as expired if no activity for ``max_age_hours``.
+
+    Cleans up their staging directories.  Skips jobs that still have running
+    groups (to avoid killing in-progress work).
+
+    Scheduled every 6 hours.  Solves the problem of abandoned import sessions
+    that would otherwise live forever in the database.
+    """
+    logger = get_logger(__name__)
+
+    from backend.app.models import ImportGroupJob, ImportJob, get_engine, get_session_local
+
+    engine = get_engine(settings.database_url)
+    SessionLocal = get_session_local(engine)
+    db = SessionLocal()
+
+    try:
+        cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=max_age_hours)
+        stale_statuses = {"staging", "active"}
+
+        # Find stale jobs: non-terminal and no recent activity
+        stale_jobs = (
+            db.query(ImportJob)
+            .filter(
+                ImportJob.status.in_(stale_statuses),
+            )
+            .all()
+        )
+
+        expired_count = 0
+        for job in stale_jobs:
+            # Use updated_at if available, else created_at
+            last_activity = job.updated_at or job.created_at
+            if last_activity is None or last_activity >= cutoff:
+                continue
+
+            # Don't expire jobs with running groups
+            running = (
+                db.query(ImportGroupJob)
+                .filter(ImportGroupJob.job_id == job.id, ImportGroupJob.status == "running")
+                .count()
+            )
+            if running > 0:
+                logger.info(f"Skipping expiry for job {job.id}: {running} group(s) still running")
+                continue
+
+            job.status = "expired"
+            job.completed_at = datetime.now(UTC).replace(tzinfo=None)
+
+            # Clean up staging directory
+            staging_dir = settings.staging_dir / job.id
+            if staging_dir.exists():
+                shutil.rmtree(staging_dir, ignore_errors=True)
+                logger.info(f"Cleaned staging for expired job {job.id}")
+
+            expired_count += 1
+            logger.info(f"Expired stale import job {job.id} (last activity: {last_activity})")
+
+        db.commit()
+    finally:
+        db.close()
+
+    logger.info(f"Stale job expiry complete: expired {expired_count} job(s)")
+    return {"expired": expired_count}

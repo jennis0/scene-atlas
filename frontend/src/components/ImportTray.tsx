@@ -229,9 +229,13 @@ function ImportTrayCard({
   onCancel: () => void
 }) {
   const isTerminal =
-    job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled'
-  const canCancel = job.status === 'staging'
-  const progressRatio = job.totalGroups > 0 ? job.completedGroups / job.totalGroups : 0
+    job.status === 'completed' ||
+    job.status === 'failed' ||
+    job.status === 'cancelled' ||
+    job.status === 'expired'
+  const canCancel = job.status === 'staging' || job.status === 'active'
+  const effectiveTotal = job.totalGroups > 0 ? job.totalGroups : job.pendingGroups + job.completedGroups + job.failedGroups + job.runningGroups
+  const progressRatio = effectiveTotal > 0 ? job.completedGroups / effectiveTotal : 0
 
   return (
     <div
@@ -311,10 +315,18 @@ function ImportTrayCard({
 
         {/* Status summary line */}
         <div className="mt-1.5 text-[10px] text-muted-foreground/50 leading-tight">
-          {job.status === 'running' && (
+          {(job.status === 'running' || job.status === 'active') && (
             <span>
-              {job.runningGroups} processing
-              {job.pendingGroups > 0 ? `, ${job.pendingGroups} pending` : ''}
+              {job.runningGroups > 0 ? `${job.runningGroups} processing` : ''}
+              {job.runningGroups > 0 && (job.pendingGroups > 0 || job.completedGroups > 0)
+                ? ', '
+                : ''}
+              {job.completedGroups > 0 ? `${job.completedGroups} imported` : ''}
+              {job.completedGroups > 0 && job.pendingGroups > 0 ? ', ' : ''}
+              {job.pendingGroups > 0 ? `${job.pendingGroups} pending` : ''}
+              {job.runningGroups === 0 && job.pendingGroups === 0 && job.completedGroups === 0
+                ? 'Processing…'
+                : ''}
             </span>
           )}
           {job.status === 'staging' && (
@@ -334,6 +346,7 @@ function ImportTrayCard({
             </span>
           )}
           {job.status === 'cancelled' && <span>Cancelled</span>}
+          {job.status === 'expired' && <span>Expired</span>}
         </div>
       </div>
     </div>
@@ -417,12 +430,16 @@ function StatusIcon({ status }: { status: ActiveImportJob['status'] }) {
   switch (status) {
     case 'running':
       return <Loader2 className="h-3.5 w-3.5 text-primary animate-spin shrink-0 mt-0.5" />
+    case 'active':
+      return <Loader2 className="h-3.5 w-3.5 text-primary/70 animate-spin shrink-0 mt-0.5" />
     case 'completed':
       return <Check className="h-3.5 w-3.5 text-primary/60 shrink-0 mt-0.5" />
     case 'failed':
       return <AlertCircle className="h-3.5 w-3.5 text-destructive/70 shrink-0 mt-0.5" />
     case 'cancelled':
       return <Ban className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 mt-0.5" />
+    case 'expired':
+      return <Clock className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 mt-0.5" />
     case 'staging':
     default:
       return <Clock className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0 mt-0.5" />

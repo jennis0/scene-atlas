@@ -5,7 +5,7 @@
  * 1. localStorage index — has pending (unconfirmed) import jobs
  * 2. Backend /imports/active — has confirmed/running/recently-completed jobs
  *
- * Polls the backend every 10s while any jobs are running.
+ * Polls the backend every 10s while any jobs are active.
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react'
@@ -18,7 +18,7 @@ import type { ImportJobIndexEntry } from '@/lib/importStorage'
 export interface ActiveImportJob {
   jobId: string
   label: string
-  status: 'staging' | 'running' | 'completed' | 'failed' | 'cancelled'
+  status: 'staging' | 'active' | 'running' | 'completed' | 'failed' | 'cancelled' | 'expired'
   totalGroups: number
   completedGroups: number
   failedGroups: number
@@ -68,9 +68,11 @@ export function useActiveImports(): UseActiveImportsReturn {
     refresh()
   }, [refresh])
 
-  // Poll every 10s while any jobs are running
+  // Poll every 10s while any jobs are active (running groups or active status)
   useEffect(() => {
-    const hasRunning = jobs.some((j) => j.status === 'running' || j.runningGroups > 0)
+    const hasRunning = jobs.some(
+      (j) => j.status === 'running' || j.status === 'active' || j.runningGroups > 0,
+    )
     if (!hasRunning) return
     const interval = setInterval(refresh, ACTIVE_POLL_INTERVAL_MS)
     return () => clearInterval(interval)
@@ -119,7 +121,11 @@ export function useActiveImports(): UseActiveImportsReturn {
   )
 
   const hasActive = jobs.some(
-    (j) => j.status === 'staging' || j.status === 'running' || j.pendingGroups > 0,
+    (j) =>
+      j.status === 'staging' ||
+      j.status === 'active' ||
+      j.status === 'running' ||
+      j.pendingGroups > 0,
   )
 
   return { jobs, hasActive, refresh, dismissJob, cancelJob, onJobCompleted }
@@ -150,7 +156,7 @@ function backendToActiveJob(summary: ImportJobSummary): ActiveImportJob {
     completedGroups: summary.completed_groups,
     failedGroups: summary.failed_groups,
     runningGroups: summary.running_groups,
-    pendingGroups: 0, // Backend doesn't track unconfirmed groups
+    pendingGroups: summary.pending_groups, // Now from backend
     totalFiles: summary.total_files,
     createdAt: summary.created_at,
     localOnly: false,
@@ -169,19 +175,21 @@ function mergeJobs(
   }
 
   // Merge in localStorage data (may have pending group counts)
-  const terminalStatuses = new Set(['completed', 'failed', 'cancelled'])
   for (const entry of localEntries) {
     const existing = result.get(entry.jobId)
     if (existing) {
-      // Backend has this job — merge in localStorage supplements.
-      // Only apply pending count when the backend still considers the job active;
-      // localStorage may have stale pendingGroups from a save before groups
-      // transitioned to running/completed.
-      if (!terminalStatuses.has(existing.status)) {
+      // Backend now provides pending_groups, so it's authoritative.
+      // Only supplement from localStorage if backend has 0 and job is non-terminal.
+      const terminalStatuses = new Set(['completed', 'failed', 'cancelled', 'expired'])
+      if (
+        existing.pendingGroups === 0 &&
+        !terminalStatuses.has(existing.status) &&
+        entry.pendingGroups > 0
+      ) {
         existing.pendingGroups = entry.pendingGroups
       }
       existing.label = entry.label || existing.label
-      // If backend says staging but localStorage has groups, update total
+      // If localStorage has more groups (e.g. from analysis), update total
       if (entry.totalGroups > existing.totalGroups) {
         existing.totalGroups = entry.totalGroups
       }

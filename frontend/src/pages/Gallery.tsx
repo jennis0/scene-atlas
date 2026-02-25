@@ -787,8 +787,8 @@ export function Gallery() {
         hasActiveJobs={backgroundJobs.hasActive}
         onOpenJob={(jobId) => {
           const job = activeImports.jobs.find((j) => j.jobId === jobId)
-          if (job?.status === 'completed') {
-            // Fetch the group IDs created by this import and open EditGroupDialog
+          if (job?.status === 'completed' && job.pendingGroups === 0) {
+            // Truly completed with no pending groups — open EditGroupDialog
             importApi.status(jobId).then((result) => {
               const ids = result.groups
                 .map((g) => g.group_id)
@@ -798,6 +798,7 @@ export function Gallery() {
               }
             })
           } else {
+            // Still has pending groups, or staging/active — reopen ImportDialog
             setImportDialogKey((k) => k + 1)
             setImportDialogJobId(jobId)
           }

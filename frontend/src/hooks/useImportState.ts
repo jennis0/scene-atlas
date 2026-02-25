@@ -10,6 +10,7 @@ import type {
   ImportConfirmFile,
   ParsedTagVocab,
 } from '@/types'
+import { removeImportState } from '@/lib/importStorage'
 import { useFileEditing, ALL_TAB, ALL_GROUP_ID } from './useFileEditing'
 import { useImportUpload } from './useImportUpload'
 import { useImportPolling } from './useImportPolling'
@@ -98,6 +99,7 @@ export interface UseImportStateReturn {
   moveToNewGroup: (sourceGroupId: string) => void
   handleConfirmGroup: (index: number) => Promise<void>
   handleConfirmAll: () => Promise<void>
+  handleFinalize: () => Promise<void>
   buildConfirmFiles: (group: EditableGroupState) => ImportConfirmFile[]
   saveNow: () => void
 }
@@ -411,6 +413,17 @@ export function useImportState(
     }
   }
 
+  const handleFinalize = async () => {
+    if (!jobId) return
+    try {
+      await importApi.finalize(jobId)
+      removeImportState(jobId)
+      setState('done')
+    } catch (err) {
+      console.error('Finalize failed:', err)
+    }
+  }
+
   // ── Derived values ────────────────────────────────────────────────
 
   const allPendingFiles = useMemo(
@@ -538,6 +551,7 @@ export function useImportState(
     moveToNewGroup,
     handleConfirmGroup,
     handleConfirmAll,
+    handleFinalize,
     buildConfirmFiles,
     saveNow,
   }

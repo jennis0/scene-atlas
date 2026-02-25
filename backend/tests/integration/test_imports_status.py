@@ -67,10 +67,10 @@ def seeded_job(test_client, tmp_db):
 
 @pytest.fixture
 def seeded_running_job(test_client, tmp_db):
-    """One ImportJob + one running ImportGroupJob."""
+    """One ImportJob in 'active' state + one running ImportGroupJob."""
     _, SessionLocal = tmp_db
     db = SessionLocal()
-    _make_job(db, "jobrunninga", status="running", total_files=3)
+    _make_job(db, "jobrunninga", status="active", total_files=3)
     _make_group_job(db, "jobrunninga", "grp001", status="running", processed=1, total=3)
     db.commit()
     db.close()
@@ -213,12 +213,12 @@ class TestImportStatus:
         assert data["status"] == "staging"
         assert data["groups"] == []
 
-    def test_running_job_with_group(self, seeded_running_job):
+    def test_active_job_with_running_group(self, seeded_running_job):
         client, job_id, grp_id = seeded_running_job
         resp = client.get(f"/api/v1/imports/{job_id}/status")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["status"] == "running"
+        assert data["status"] == "active"
         assert len(data["groups"]) == 1
         assert data["groups"][0]["status"] == "running"
         assert data["groups"][0]["processed_files"] == 1
@@ -229,10 +229,12 @@ class TestImportStatus:
         assert resp.status_code == 200
         assert resp.json()["status"] == "completed"
 
-    def test_mixed_terminal_status_shows_failed(self, test_client, tmp_db):
+    def test_mixed_terminal_status_with_all_confirmed(self, test_client, tmp_db):
+        """When all_confirmed=True and all groups terminal, job is auto-completed."""
         _, SessionLocal = tmp_db
         db = SessionLocal()
-        _make_job(db, "jobmixedcc", status="running", total_files=4)
+        job = _make_job(db, "jobmixedcc", status="active", total_files=4)
+        job.all_confirmed = True
         _make_group_job(db, "jobmixedcc", "grp_ok", status="completed", processed=2, total=2)
         _make_group_job(
             db, "jobmixedcc", "grp_fail", group_name="FailGroup", status="failed", total=2
@@ -242,12 +244,33 @@ class TestImportStatus:
 
         resp = test_client.get("/api/v1/imports/jobmixedcc/status")
         assert resp.status_code == 200
-        # All groups terminal + one failed → completed (status endpoint just returns "completed"
-        # for all-terminal; the failed distinction is on individual groups)
         data = resp.json()
+        # all_confirmed + all terminal → completed (status derived in status endpoint)
         assert data["status"] == "completed"
         statuses = {g["group_name"]: g["status"] for g in data["groups"]}
         assert statuses["FailGroup"] == "failed"
+
+    def test_mixed_terminal_stays_active_without_all_confirmed(self, test_client, tmp_db):
+        """When all_confirmed=False and all groups terminal, job stays active (pending groups)."""
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        job = _make_job(db, "jobmixeddd", status="active", total_files=4)
+        job.all_confirmed = False
+        job.analysis_result = '[{"group_name":"G1","author":"A","file_count":2},{"group_name":"G2","author":"A","file_count":2},{"group_name":"G3","author":"A","file_count":2}]'
+        _make_group_job(db, "jobmixeddd", "grp_ok2", status="completed", processed=2, total=2)
+        _make_group_job(
+            db, "jobmixeddd", "grp_fail2", group_name="FailGroup", status="failed", total=2
+        )
+        db.commit()
+        db.close()
+
+        resp = test_client.get("/api/v1/imports/jobmixeddd/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        # Not all_confirmed + pending groups → stays active
+        assert data["status"] == "active"
+        assert data["detected_group_count"] == 3
+        assert data["pending_group_count"] == 1  # 3 detected - 2 submitted
 
 
 # ---------------------------------------------------------------------------
@@ -315,14 +338,14 @@ class TestActiveImports:
 
 
 class TestCleanupImports:
-    def test_cleanup_removes_staging_job(self, seeded_job):
+    def test_cleanup_spares_staging_job(self, seeded_job):
+        """Staging jobs represent active user sessions — cleanup must NOT delete them."""
         client, job_id = seeded_job
         resp = client.delete("/api/v1/imports/cleanup")
         assert resp.status_code == 200
-        assert resp.json()["deleted"] >= 1
-        # Job should no longer be in active
-        active_ids = [j["job_id"] for j in client.get("/api/v1/imports/active").json()["jobs"]]
-        assert job_id not in active_ids
+        # Staging job should still exist
+        status_resp = client.get(f"/api/v1/imports/{job_id}/status")
+        assert status_resp.status_code == 200
 
     def test_cleanup_removes_completed_job(self, seeded_completed_job):
         client, job_id = seeded_completed_job
@@ -375,7 +398,7 @@ class TestCancelImport:
     def test_cancel_all_terminal_groups_sets_completed(self, test_client, tmp_db):
         _, SessionLocal = tmp_db
         db = SessionLocal()
-        _make_job(db, "jobtermeee", status="running", total_files=2)
+        _make_job(db, "jobtermeee", status="active", total_files=2)
         _make_group_job(db, "jobtermeee", "grp_t1", status="completed", total=1)
         _make_group_job(db, "jobtermeee", "grp_t2", group_name="Grp2", status="failed", total=1)
         db.commit()
@@ -416,3 +439,129 @@ class TestCancelImportGroup:
 
         resp = client.post(f"/api/v1/imports/{job_id}/groups/{grp_id}/cancel")
         assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/imports/{job_id}/finalize
+# ---------------------------------------------------------------------------
+
+
+class TestFinalizeImport:
+    def test_finalize_staging_job(self, seeded_job):
+        """Finalizing a staging job (no groups) completes it."""
+        client, job_id = seeded_job
+        resp = client.post(f"/api/v1/imports/{job_id}/finalize")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "completed"
+        assert data["already_terminal"] is False
+
+    def test_finalize_active_job_with_completed_groups(self, test_client, tmp_db):
+        """Finalize an active job whose groups are all done → completed + staging cleaned."""
+        from backend.app.config import settings
+
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        _make_job(db, "jobfinact", status="active", total_files=2)
+        _make_group_job(db, "jobfinact", "grp_fin1", status="completed", processed=2, total=2)
+        db.commit()
+        db.close()
+
+        # Create fake staging dir
+        staging_dir = settings.staging_dir / "jobfinact"
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        (staging_dir / "dummy.txt").write_text("test")
+
+        resp = test_client.post("/api/v1/imports/jobfinact/finalize")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "completed"
+        assert data["staging_cleaned"] is True
+        assert not staging_dir.exists()
+
+    def test_finalize_active_job_with_failures(self, test_client, tmp_db):
+        """Finalize with one failed group → status becomes 'failed'."""
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        _make_job(db, "jobfinfail", status="active", total_files=3)
+        _make_group_job(db, "jobfinfail", "grp_finok", status="completed", processed=2, total=2)
+        _make_group_job(
+            db, "jobfinfail", "grp_finfail", group_name="FailGrp", status="failed", total=1
+        )
+        db.commit()
+        db.close()
+
+        resp = test_client.post("/api/v1/imports/jobfinfail/finalize")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "failed"
+
+    def test_finalize_rejects_running_groups(self, seeded_running_job):
+        """Cannot finalize while groups are still running → 409."""
+        client, job_id, _ = seeded_running_job
+        resp = client.post(f"/api/v1/imports/{job_id}/finalize")
+        assert resp.status_code == 409
+
+    def test_finalize_idempotent_for_terminal(self, seeded_completed_job):
+        """Finalizing an already-completed job returns OK with already_terminal=True."""
+        client, job_id = seeded_completed_job
+        resp = client.post(f"/api/v1/imports/{job_id}/finalize")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["already_terminal"] is True
+        assert data["status"] == "completed"
+
+    def test_finalize_404_for_missing_job(self, test_client):
+        resp = test_client.post("/api/v1/imports/doesnotexist/finalize")
+        assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Active imports: pending_groups count
+# ---------------------------------------------------------------------------
+
+
+class TestActiveImportsPendingGroups:
+    def test_active_job_shows_pending_groups(self, test_client, tmp_db):
+        """An active job with analysis_result reports pending_groups count."""
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        import json
+
+        analysis = json.dumps([
+            {"group_name": "Map A", "author": "Auth", "file_count": 2},
+            {"group_name": "Map B", "author": "Auth", "file_count": 3},
+            {"group_name": "Map C", "author": "Auth", "file_count": 1},
+        ])
+        job = _make_job(db, "jobpending", status="active", total_files=6)
+        job.analysis_result = analysis
+        # Only one group submitted so far
+        _make_group_job(db, "jobpending", "grp_pa", status="completed", processed=2, total=2)
+        db.commit()
+        db.close()
+
+        resp = test_client.get("/api/v1/imports/active")
+        assert resp.status_code == 200
+        jobs = {j["job_id"]: j for j in resp.json()["jobs"]}
+        j = jobs["jobpending"]
+        assert j["pending_groups"] == 2  # 3 detected - 1 submitted
+
+    def test_status_endpoint_shows_pending_counts(self, test_client, tmp_db):
+        """Status endpoint includes detected_group_count and pending_group_count."""
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        import json
+
+        analysis = json.dumps([
+            {"group_name": "G1", "author": "A", "file_count": 1},
+            {"group_name": "G2", "author": "A", "file_count": 1},
+        ])
+        job = _make_job(db, "jobpendstat", status="active", total_files=2)
+        job.analysis_result = analysis
+        db.commit()
+        db.close()
+
+        resp = test_client.get("/api/v1/imports/jobpendstat/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["detected_group_count"] == 2
+        assert data["pending_group_count"] == 2  # none submitted yet
