@@ -27,7 +27,19 @@ import {
   Star,
   Ghost,
   Flower2,
+  // Thematic additions
   Tag,
+  Lightbulb,
+  Pen,
+  User,
+  Users,
+  Home,
+  Building2,
+  Cpu,
+  Rocket,
+  Sparkles,
+  Bot,
+  Radio,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -56,6 +68,18 @@ export const CATEGORY_ICON_MAP: Record<string, LucideIcon> = {
   star: Star,
   ghost: Ghost,
   flower: Flower2,
+  tag: Tag,
+  lightbulb: Lightbulb,
+  pen: Pen,
+  user: User,
+  users: Users,
+  home: Home,
+  building: Building2,
+  cpu: Cpu,
+  rocket: Rocket,
+  sparkles: Sparkles,
+  bot: Bot,
+  radio: Radio,
 }
 
 export const CATEGORY_ICON_NAMES = Object.keys(CATEGORY_ICON_MAP)

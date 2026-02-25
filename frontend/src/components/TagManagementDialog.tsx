@@ -1,20 +1,15 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import {
-  Plus,
-  Trash2,
-  Pencil,
-  Check,
-  X,
-  AlertTriangle,
-  Tag,
-  Loader2,
-  RefreshCw,
-} from 'lucide-react'
+import { Plus, Trash2, Check, X, AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { tagApi, searchApi } from '@/lib/api'
 import { useJobPolling } from '@/hooks/useJobPolling'
-import { COLOR_PALETTE, PALETTE_KEYS, getTagColor } from '@/components/import/tagColors'
+import {
+  COLOR_PALETTE,
+  PALETTE_KEYS,
+  getTagColor,
+  type TagColor,
+} from '@/components/import/tagColors'
 import { CATEGORY_ICON_MAP, CATEGORY_ICON_NAMES, getCategoryIcon } from '@/lib/categoryIcons'
 import type { TagCategory } from '@/types'
 
@@ -96,9 +91,7 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
   }, [queryClient])
 
   useEffect(() => {
-    if (retagJob.isComplete) {
-      invalidate()
-    }
+    if (retagJob.isComplete) invalidate()
   }, [retagJob.isComplete, invalidate])
 
   const invalidateAndMark = useCallback(() => {
@@ -106,8 +99,8 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
     invalidate()
   }, [invalidate])
 
-  const activeCat = categories.find((c) => c.name === selectedCategory) ?? null
-  const effectiveSelection = activeCat ? activeCat.name : (categories[0]?.name ?? null)
+  const effectiveSelection =
+    categories.find((c) => c.name === selectedCategory)?.name ?? categories[0]?.name ?? null
 
   useEffect(() => {
     if (!selectedCategory && categories.length > 0) {
@@ -120,13 +113,13 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
       <DialogContent className="max-w-3xl w-full h-[75vh] flex flex-col gap-0 border-border/50 bg-card p-0 overflow-hidden">
         {/* Header */}
         <div
-          className="px-4 py-3 border-b border-border/60 flex-shrink-0"
-          style={{ background: DARK_SURFACE }}
+          className="px-4 border-b border-border flex-shrink-0"
+          style={{ background: DARK_SURFACE, padding: '10px 12px 10px 16px' }}
         >
-          <div className="flex items-end justify-between">
-            <div>
-              <div className="flex items-center gap-3">
-                <span className="font-display text-[13px] font-medium tracking-[0.06em] text-foreground">
+          <div className="flex items-center justify-between">
+            <div className="flex flex-col" style={{ gap: 5 }}>
+              <div className="flex items-center" style={{ gap: 12 }}>
+                <span className="font-display text-[13px] font-medium tracking-[0.06em] text-foreground leading-none">
                   Tag Management
                 </span>
                 <button
@@ -144,15 +137,23 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
                     })
                   }
                   disabled={retagMut.isPending || retagJob.isRunning}
-                  className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] transition-colors disabled:opacity-40 ${
-                    vocabDirty
-                      ? 'text-amber-400 bg-amber-400/10 hover:bg-amber-400/20 ring-1 ring-amber-400/30'
-                      : 'text-muted-foreground hover:text-amber-400 hover:bg-secondary'
-                  }`}
+                  className="flex items-center gap-[5px] text-primary transition-colors disabled:opacity-40"
+                  style={{
+                    fontSize: '11.5px',
+                    fontWeight: 500,
+                    letterSpacing: '0.02em',
+                    background: vocabDirty
+                      ? 'hsla(38, 60%, 58%, 0.12)'
+                      : 'hsla(38, 60%, 58%, 0.09)',
+                    border: `1px solid hsla(38, 60%, 58%, ${vocabDirty ? '0.35' : '0.28'})`,
+                    borderRadius: 5,
+                    padding: '4px 10px',
+                  }}
                   title="Regenerate auto-tags for all images from their filenames. Manually applied tags are always preserved."
                 >
                   <RefreshCw
-                    className={`w-3 h-3 ${retagMut.isPending || retagJob.isRunning ? 'animate-spin' : ''}`}
+                    className={retagMut.isPending || retagJob.isRunning ? 'animate-spin' : ''}
+                    style={{ width: 11, height: 11 }}
                     strokeWidth={1.5}
                   />
                   {retagJob.isRunning
@@ -160,13 +161,14 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
                     : 'Regenerate auto-tags'}
                 </button>
               </div>
-              <div className="mt-[3px] h-px w-7 bg-gradient-to-r from-primary to-transparent" />
+              <div className="h-px w-7 bg-gradient-to-r from-primary to-transparent" />
             </div>
             <button
               onClick={onClose}
-              className="rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 text-muted-foreground hover:text-foreground"
+              className="flex items-center justify-center rounded text-muted-foreground hover:text-foreground transition-colors"
+              style={{ width: 26, height: 26 }}
             >
-              <X className="h-4 w-4" strokeWidth={1.5} />
+              <X style={{ width: 14, height: 14 }} strokeWidth={1.5} />
               <span className="sr-only">Close</span>
             </button>
           </div>
@@ -178,15 +180,12 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
           </div>
         ) : (
           <div className="flex flex-1 min-h-0">
-            {/* Left Panel — Category List */}
             <CategoryList
               categories={categories}
               selected={effectiveSelection}
               onSelect={setSelectedCategory}
               invalidate={invalidateAndMark}
             />
-
-            {/* Right Panel — Category Editor */}
             <div className="flex-1 min-w-0 flex flex-col">
               {effectiveSelection ? (
                 <CategoryEditor
@@ -212,15 +211,14 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
 
         {/* Footer */}
         <div
-          className="px-4 py-2.5 border-t border-border/60 flex-shrink-0"
-          style={{ background: DARK_SURFACE }}
+          className="border-t border-border flex-shrink-0"
+          style={{ background: DARK_SURFACE, padding: '8px 16px' }}
         >
-          <span className="text-[10.5px] text-muted-foreground italic">
-            Changes save automatically
+          <span className="text-[11px] text-muted-foreground italic" style={{ opacity: 0.7 }}>
+            Click a value to rename it · click aliases to edit
           </span>
         </div>
 
-        {/* Confirm overlay */}
         {confirmAction && (
           <ConfirmOverlay action={confirmAction} onCancel={() => setConfirmAction(null)} />
         )}
@@ -229,7 +227,7 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
   )
 }
 
-// ── Category List (Left Panel) ───────────────────────────────────────────────
+// ── Category List (Left Panel) ────────────────────────────────────────────────
 
 function CategoryList({
   categories,
@@ -268,44 +266,58 @@ function CategoryList({
 
   return (
     <div
-      className="w-52 shrink-0 border-r border-border/60 flex flex-col overflow-hidden"
-      style={{ background: DARK_SURFACE }}
+      className="flex-shrink-0 border-r border-border flex flex-col overflow-hidden"
+      style={{ width: 188, background: DARK_SURFACE }}
     >
-      <div className="flex-1 overflow-y-auto py-[6px]">
+      {/* Section label */}
+      <p
+        className="flex-shrink-0 text-[9.5px] font-semibold tracking-[0.1em] uppercase text-muted-foreground"
+        style={{ padding: '9px 14px 5px' }}
+      >
+        Categories
+      </p>
+
+      {/* Scrollable category list */}
+      <div className="flex-1 overflow-y-auto" style={{ paddingTop: 2, paddingBottom: 2 }}>
         {categories.map((cat) => {
           const colors = getTagColor(cat.color)
           const CatIcon = getCategoryIcon(cat.icon)
           const isActive = cat.name === selected
-          const activeClass = `${colors.bg} ${colors.text} font-medium ${colors.border}`
+          const valueCount = parseCommonValues(cat.common_values).length
 
           return (
             <button
               key={cat.name}
               onClick={() => onSelect(cat.name)}
-              style={{ padding: '7px 10px 7px 12px' }}
-              className={`w-full flex items-center gap-[7px] text-left text-[12px] transition-colors border-l-2 capitalize ${
-                isActive ? activeClass : 'text-muted-foreground border-transparent'
+              style={{ padding: '7px 12px 7px 14px' }}
+              className={`w-full flex items-center gap-2 text-left text-[12px] border-l-2 capitalize transition-colors ${
+                isActive
+                  ? `font-medium border-current ${colors.text} bg-[hsl(222_20%_14%)]`
+                  : `text-muted-foreground border-transparent hover:bg-[hsl(222_20%_14%)]`
               }`}
-              onMouseEnter={(e) => {
-                if (!isActive)
-                  (e.currentTarget as HTMLElement).style.background = 'hsl(222 20% 14%)'
-              }}
-              onMouseLeave={(e) => {
-                if (!isActive) (e.currentTarget as HTMLElement).style.background = ''
-              }}
             >
               <CatIcon
-                className={`h-3 w-3 flex-shrink-0 ${isActive ? '' : `${colors.text} opacity-60`}`}
+                className={isActive ? 'flex-shrink-0' : `flex-shrink-0 ${colors.text} opacity-60`}
+                style={{ width: 13, height: 13 }}
                 strokeWidth={1.5}
               />
-              <span className="truncate flex-1">{cat.name}</span>
+              <span className="flex-1 truncate">{cat.name}</span>
+              {valueCount > 0 && (
+                <span
+                  className={`text-[10px] tabular-nums flex-shrink-0 ${isActive ? 'opacity-60' : 'opacity-40'}`}
+                >
+                  {valueCount}
+                </span>
+              )}
             </button>
           )
         })}
+      </div>
 
-        {/* Inline create */}
+      {/* Footer — new category */}
+      <div className="flex-shrink-0 border-t border-border" style={{ padding: '7px 12px 9px' }}>
         {creating ? (
-          <div className="flex items-center gap-1 px-2 py-1.5 mx-1">
+          <div className="flex items-center gap-1">
             <input
               ref={inputRef}
               value={newName}
@@ -317,11 +329,11 @@ function CategoryList({
                   setNewName('')
                 }
               }}
-              placeholder="name"
-              className="flex-1 min-w-0 bg-secondary border border-border rounded px-1.5 py-0.5 text-[12px] text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary/50"
+              placeholder="category name"
+              className="flex-1 min-w-0 bg-secondary border border-border rounded px-1.5 py-0.5 text-[11.5px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/50"
             />
             <button onClick={handleCreate} className="p-0.5 text-primary hover:text-primary/80">
-              <Check className="w-3 h-3" strokeWidth={1.5} />
+              <Check style={{ width: 11, height: 11 }} strokeWidth={1.5} />
             </button>
             <button
               onClick={() => {
@@ -330,23 +342,23 @@ function CategoryList({
               }}
               className="p-0.5 text-muted-foreground hover:text-foreground"
             >
-              <X className="w-3 h-3" strokeWidth={1.5} />
+              <X style={{ width: 11, height: 11 }} strokeWidth={1.5} />
             </button>
           </div>
         ) : (
           <button
             onClick={() => setCreating(true)}
-            style={{ padding: '7px 10px 7px 12px' }}
-            className="w-full flex items-center gap-[7px] text-[12px] text-muted-foreground hover:text-primary/80 transition-colors border-l-2 border-transparent"
-            onMouseEnter={(e) => {
-              ;(e.currentTarget as HTMLElement).style.background = 'hsl(222 20% 14%)'
-            }}
-            onMouseLeave={(e) => {
-              ;(e.currentTarget as HTMLElement).style.background = ''
+            className="w-full flex items-center gap-[6px] text-muted-foreground hover:text-foreground transition-colors"
+            style={{
+              padding: '5px 8px',
+              fontSize: '11.5px',
+              background: 'transparent',
+              border: '1px dashed hsla(220, 18%, 36%, 0.6)',
+              borderRadius: 5,
             }}
           >
-            <Plus className="h-3 w-3 shrink-0" strokeWidth={1.5} />
-            <span>New category</span>
+            <Plus style={{ width: 11, height: 11 }} strokeWidth={1.5} />
+            New category
           </button>
         )}
       </div>
@@ -354,7 +366,7 @@ function CategoryList({
   )
 }
 
-// ── Category Editor (Right Panel) ────────────────────────────────────────────
+// ── Category Editor (Right Panel) ─────────────────────────────────────────────
 
 function CategoryEditor({
   category,
@@ -378,7 +390,6 @@ function CategoryEditor({
 
   const colors = getTagColor(category.color)
   const CatIcon = getCategoryIcon(category.icon)
-
   const values = parseCommonValues(category.common_values)
 
   const updateMut = useMutation({
@@ -417,107 +428,136 @@ function CategoryEditor({
     }
   }
 
-  const handleDeleteClick = () => {
-    setConfirmAction({
-      label: `Delete "${category.name}"?`,
-      detail: 'This will permanently remove the category and delete all its tags from every image.',
-      onConfirm: () => {
-        deleteMut.mutate()
-        setConfirmAction(null)
-      },
-    })
-  }
-
   useEffect(() => {
     if (editingName) nameRef.current?.focus()
   }, [editingName])
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Heading area */}
-      <div className="px-4 pt-3.5 pb-3 border-b border-border/50 flex-shrink-0">
-        <p className="text-[9.5px] font-medium tracking-[0.18em] uppercase text-muted-foreground mb-1.5">
-          Editing
-        </p>
-        <div className="flex items-center gap-2">
-          <CatIcon
-            className={`h-3.5 w-3.5 flex-shrink-0 opacity-80 ${colors.text}`}
-            strokeWidth={1.5}
-          />
-          {editingName ? (
-            <>
-              <input
-                ref={nameRef}
-                value={nameInput}
-                onChange={(e) => setNameInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleNameSave()
-                  if (e.key === 'Escape') {
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Heading */}
+      <div
+        className="border-b border-border flex-shrink-0"
+        style={{ padding: '11px 14px 10px 16px' }}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+            <p className="text-[9.5px] font-semibold tracking-[0.1em] uppercase text-muted-foreground">
+              Editing
+            </p>
+            {editingName ? (
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <input
+                  ref={nameRef}
+                  value={nameInput}
+                  onChange={(e) => setNameInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleNameSave()
+                    if (e.key === 'Escape') {
+                      setEditingName(false)
+                      setNameInput(category.name)
+                    }
+                  }}
+                  className="flex-1 bg-secondary border border-border rounded px-2 py-0.5 font-display text-[15px] text-foreground focus:outline-none focus:border-primary/50"
+                />
+                <button
+                  onClick={handleNameSave}
+                  className="p-0.5 text-primary hover:text-primary/80"
+                >
+                  <Check style={{ width: 13, height: 13 }} strokeWidth={1.5} />
+                </button>
+                <button
+                  onClick={() => {
                     setEditingName(false)
                     setNameInput(category.name)
-                  }
-                }}
-                className="flex-1 bg-secondary border border-border rounded px-2 py-1 font-display text-[15px] text-foreground focus:outline-none focus:border-primary/50"
-              />
-              <button onClick={handleNameSave} className="p-0.5 text-primary hover:text-primary/80">
-                <Check className="w-3.5 h-3.5" strokeWidth={1.5} />
-              </button>
-              <button
-                onClick={() => {
-                  setEditingName(false)
-                  setNameInput(category.name)
-                }}
-                className="p-0.5 text-muted-foreground hover:text-foreground"
-              >
-                <X className="w-3.5 h-3.5" strokeWidth={1.5} />
-              </button>
-            </>
-          ) : (
-            <>
+                  }}
+                  className="p-0.5 text-muted-foreground hover:text-foreground"
+                >
+                  <X style={{ width: 13, height: 13 }} strokeWidth={1.5} />
+                </button>
+              </div>
+            ) : (
               <button
                 onClick={() => setEditingName(true)}
-                className="flex items-center gap-1.5 group"
+                className={`flex items-center gap-[7px] mt-0.5 text-left ${colors.text}`}
                 title="Click to rename"
               >
-                <h3
-                  className={`font-display text-[17px] font-medium tracking-[0.04em] leading-none capitalize ${colors.text}`}
-                >
-                  {category.name}
-                </h3>
-                <Pencil
-                  className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                <CatIcon
+                  className="flex-shrink-0 opacity-80"
+                  style={{ width: 15, height: 15 }}
                   strokeWidth={1.5}
                 />
+                <span className="font-display text-[17px] font-medium tracking-[0.04em] leading-[1.2] capitalize">
+                  {category.name}
+                </span>
               </button>
-              <span className="flex-1" />
-              <button
-                onClick={handleDeleteClick}
-                className="p-1 text-muted-foreground hover:text-destructive/70 transition-colors rounded"
-                title={`Delete ${category.name}`}
-              >
-                <Trash2 className="w-3 h-3" strokeWidth={1.5} />
-              </button>
-            </>
+            )}
+          </div>
+
+          {/* Delete category button */}
+          {!editingName && (
+            <button
+              onClick={() =>
+                setConfirmAction({
+                  label: `Delete "${category.name}"?`,
+                  detail:
+                    'This will permanently remove the category and delete all its tags from every image.',
+                  onConfirm: () => {
+                    deleteMut.mutate()
+                    setConfirmAction(null)
+                  },
+                })
+              }
+              className="flex-shrink-0 flex items-center justify-center transition-colors hover:bg-destructive/10"
+              style={{
+                width: 26,
+                height: 26,
+                marginTop: 12,
+                background: 'transparent',
+                border: '1px solid hsla(0, 62%, 57%, 0.2)',
+                borderRadius: 5,
+                color: 'hsla(0, 62%, 57%, 0.55)',
+              }}
+              title={`Delete ${category.name}`}
+            >
+              <Trash2 style={{ width: 12, height: 12 }} strokeWidth={1.5} />
+            </button>
           )}
         </div>
-        <input
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          onBlur={handleDescSave}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') handleDescSave()
-          }}
-          placeholder="Add a description…"
-          className="mt-1.5 w-full bg-transparent border-none text-[12px] text-muted-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:text-foreground"
-        />
+
+        {/* Description textarea */}
+        <div style={{ marginTop: 8 }}>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            onBlur={handleDescSave}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                handleDescSave()
+              }
+            }}
+            placeholder="Add a description…"
+            rows={1}
+            className="w-full text-[11.5px] text-muted-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:text-foreground resize-none"
+            style={{
+              background: 'hsla(220, 22%, 9%, 0.8)',
+              border: '1px solid hsl(220 18% 19%)',
+              borderRadius: 5,
+              padding: '5px 8px',
+              height: 34,
+              lineHeight: 1.4,
+              fontFamily: 'inherit',
+            }}
+          />
+        </div>
       </div>
 
       {/* Icon picker */}
-      <div className="px-4 py-2.5 border-b border-border/60">
-        <div className="text-[10px] text-muted-foreground uppercase tracking-[0.12em] mb-2">
+      <div className="border-b border-border flex-shrink-0" style={{ padding: '8px 16px' }}>
+        <p className="text-[9.5px] font-semibold tracking-[0.1em] uppercase text-muted-foreground mb-[6px]">
           Icon
-        </div>
-        <div className="grid grid-cols-8 gap-1">
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 24px)', gap: 3 }}>
           {CATEGORY_ICON_NAMES.map((iconName) => {
             const IconComp = CATEGORY_ICON_MAP[iconName]
             const isSelected = category.icon === iconName
@@ -526,68 +566,89 @@ function CategoryEditor({
                 key={iconName}
                 onClick={() => updateMut.mutate({ icon: iconName })}
                 title={iconName}
-                className={`flex items-center justify-center p-1.5 rounded-md transition-all ${
+                className={`flex items-center justify-center rounded transition-all ${
                   isSelected
-                    ? `${colors.bg} ${colors.text} ring-1 ${colors.border}`
+                    ? 'text-foreground'
                     : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
                 }`}
+                style={{
+                  width: 24,
+                  height: 24,
+                  ...(isSelected
+                    ? { outline: '2px solid var(--foreground)', outlineOffset: 1 }
+                    : {}),
+                }}
               >
-                <IconComp className="h-3 w-3" strokeWidth={1.5} />
+                <IconComp style={{ width: 14, height: 14 }} strokeWidth={1.5} />
               </button>
             )
           })}
         </div>
       </div>
 
-      {/* Colour picker */}
-      <div className="px-4 py-2.5 border-b border-border/60">
-        <div className="text-[10px] text-muted-foreground uppercase tracking-[0.12em] mb-2">
+      {/* Color picker */}
+      <div className="border-b border-border flex-shrink-0" style={{ padding: '8px 16px' }}>
+        <p className="text-[9.5px] font-semibold tracking-[0.1em] uppercase text-muted-foreground mb-[6px]">
           Color
-        </div>
-        <div className="grid grid-cols-12 gap-1.5">
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 20px)', gap: 5 }}>
           {PALETTE_KEYS.map((key) => {
             const isSelected = category.color === key
             return (
               <button
                 key={key}
                 onClick={() => updateMut.mutate({ color: key })}
-                className={`w-full aspect-square rounded-full transition-all ${COLOR_PALETTE[key].dot} ${
-                  isSelected
-                    ? 'scale-105 outline outline-2 outline-offset-2 outline-white/60'
-                    : 'opacity-60 hover:opacity-100 hover:scale-105'
-                }`}
                 title={key}
+                className={`w-5 h-5 rounded-full transition-all ${
+                  isSelected ? '' : 'opacity-60 hover:opacity-100 hover:scale-105'
+                } ${COLOR_PALETTE[key].dot}`}
+                style={{
+                  border: '1px solid hsla(220, 18%, 30%, 0.3)',
+                  ...(isSelected
+                    ? { outline: '2px solid var(--foreground)', outlineOffset: 2 }
+                    : {}),
+                }}
               />
             )
           })}
         </div>
       </div>
 
-      {/* Tag Values */}
-      <div className="flex-1 overflow-y-auto">
-        <TagValueList
-          categoryName={category.name}
-          values={values}
-          facetCounts={facetCounts}
-          invalidate={invalidate}
-          setConfirmAction={setConfirmAction}
-        />
+      {/* Tag values */}
+      <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+        <div className="flex-shrink-0" style={{ padding: '7px 16px 3px' }}>
+          <p className="text-[9.5px] font-semibold tracking-[0.1em] uppercase text-muted-foreground">
+            Tag Values
+          </p>
+        </div>
+        <div className="flex-1 overflow-y-auto" style={{ padding: '1px 10px 8px' }}>
+          <TagValueList
+            categoryName={category.name}
+            values={values}
+            colors={colors}
+            facetCounts={facetCounts}
+            invalidate={invalidate}
+            setConfirmAction={setConfirmAction}
+          />
+        </div>
       </div>
     </div>
   )
 }
 
-// ── Tag Value List ───────────────────────────────────────────────────────────
+// ── Tag Value List ────────────────────────────────────────────────────────────
 
 function TagValueList({
   categoryName,
   values,
+  colors,
   facetCounts,
   invalidate,
   setConfirmAction,
 }: {
   categoryName: string
   values: TagValueEntry[]
+  colors: TagColor
   facetCounts: { value: string; count: number }[]
   invalidate: () => void
   setConfirmAction: (a: ConfirmAction | null) => void
@@ -631,6 +692,7 @@ function TagValueList({
             categoryName={categoryName}
             entry={entry}
             count={count}
+            colors={colors}
             invalidate={invalidate}
             onDelete={() => {
               if (count > 0) {
@@ -648,66 +710,83 @@ function TagValueList({
       })}
 
       {/* Add new value */}
-      {addingValue ? (
-        <div className="flex items-center gap-1.5 px-4 py-2">
-          <input
-            ref={addRef}
-            value={newValue}
-            onChange={(e) => setNewValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleAdd()
-              if (e.key === 'Escape') {
+      <div style={{ marginTop: 4 }}>
+        {addingValue ? (
+          <div
+            className="flex items-center gap-1.5 rounded-[5px]"
+            style={{
+              padding: '5px 8px',
+              background: 'hsla(222, 20%, 14%, 1)',
+              border: '1px solid hsl(220 18% 19%)',
+            }}
+          >
+            <input
+              ref={addRef}
+              value={newValue}
+              onChange={(e) => setNewValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleAdd()
+                if (e.key === 'Escape') {
+                  setAddingValue(false)
+                  setNewValue('')
+                }
+              }}
+              placeholder="tag value"
+              className="flex-1 min-w-0 bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
+            />
+            <button onClick={handleAdd} className="p-0.5 text-primary hover:text-primary/80">
+              <Check style={{ width: 11, height: 11 }} strokeWidth={1.5} />
+            </button>
+            <button
+              onClick={() => {
                 setAddingValue(false)
                 setNewValue('')
-              }
-            }}
-            placeholder="tag value"
-            className="flex-1 min-w-0 bg-secondary border border-border rounded px-2 py-1 text-[13px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/50"
-          />
-          <button onClick={handleAdd} className="p-1 text-primary hover:text-primary/80">
-            <Check className="w-3.5 h-3.5" strokeWidth={1.5} />
-          </button>
+              }}
+              className="p-0.5 text-muted-foreground hover:text-foreground"
+            >
+              <X style={{ width: 11, height: 11 }} strokeWidth={1.5} />
+            </button>
+          </div>
+        ) : (
           <button
-            onClick={() => {
-              setAddingValue(false)
-              setNewValue('')
+            onClick={() => setAddingValue(true)}
+            className="w-full flex items-center gap-[6px] text-muted-foreground hover:text-foreground transition-colors"
+            style={{
+              padding: '5px 8px',
+              fontSize: '11.5px',
+              background: 'transparent',
+              border: '1px dashed hsla(220, 18%, 36%, 0.6)',
+              borderRadius: 5,
             }}
-            className="p-1 text-muted-foreground hover:text-foreground"
           >
-            <X className="w-3.5 h-3.5" strokeWidth={1.5} />
+            <Plus style={{ width: 11, height: 11 }} strokeWidth={1.5} />
+            Add tag value
           </button>
-        </div>
-      ) : (
-        <button
-          onClick={() => setAddingValue(true)}
-          className="flex items-center gap-1.5 px-4 py-2 text-[12px] text-muted-foreground hover:text-primary/80 transition-colors"
-        >
-          <Plus className="w-3 h-3" strokeWidth={1.5} />
-          <span>Add value</span>
-        </button>
-      )}
+        )}
+      </div>
     </div>
   )
 }
 
-// ── Single Tag Value Row ─────────────────────────────────────────────────────
+// ── Single Tag Value Row ──────────────────────────────────────────────────────
 
 function TagValueRow({
   categoryName,
   entry,
   count,
+  colors,
   invalidate,
   onDelete,
 }: {
   categoryName: string
   entry: TagValueEntry
   count: number
+  colors: TagColor
   invalidate: () => void
   onDelete: () => void
 }) {
-  const [editingValue, setEditingValue] = useState(false)
+  const [editMode, setEditMode] = useState<'none' | 'name' | 'aliases'>('none')
   const [editVal, setEditVal] = useState(entry.value)
-  const [editingAliases, setEditingAliases] = useState(false)
   const [aliasInput, setAliasInput] = useState('')
   const editRef = useRef<HTMLInputElement>(null)
   const aliasRef = useRef<HTMLInputElement>(null)
@@ -716,7 +795,7 @@ function TagValueRow({
     mutationFn: (newValue: string) => tagApi.renameTagValue(categoryName, entry.value, newValue),
     onSuccess: () => {
       invalidate()
-      setEditingValue(false)
+      setEditMode('none')
     },
   })
 
@@ -726,17 +805,17 @@ function TagValueRow({
   })
 
   useEffect(() => {
-    if (editingValue) editRef.current?.focus()
-  }, [editingValue])
+    if (editMode === 'name') editRef.current?.focus()
+  }, [editMode])
 
   useEffect(() => {
-    if (editingAliases) aliasRef.current?.focus()
-  }, [editingAliases])
+    if (editMode === 'aliases') aliasRef.current?.focus()
+  }, [editMode])
 
   const handleRename = () => {
     const trimmed = editVal.trim()
     if (!trimmed || trimmed === entry.value) {
-      setEditingValue(false)
+      setEditMode('none')
       setEditVal(entry.value)
       return
     }
@@ -754,119 +833,163 @@ function TagValueRow({
     upsertMut.mutate(entry.aliases.filter((a) => a !== alias))
   }
 
+  const isEditing = editMode !== 'none'
+
   return (
-    <div className="group px-4 py-2 hover:bg-secondary/30 transition-colors">
+    <div
+      className="rounded-[6px] mb-[1px] transition-colors"
+      style={{ background: isEditing ? 'hsl(222 20% 15%)' : undefined }}
+    >
       {/* Main row */}
-      <div className="flex items-center gap-2">
-        {editingValue ? (
-          <>
-            <input
-              ref={editRef}
-              value={editVal}
-              onChange={(e) => setEditVal(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleRename()
-                if (e.key === 'Escape') {
-                  setEditingValue(false)
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9, padding: '6px 8px 3px' }}>
+        {/* Colored dot */}
+        <span
+          className={`rounded-full flex-shrink-0 ${colors.dot}`}
+          style={{ width: 6, height: 6, marginTop: 5 }}
+        />
+
+        {/* Name + aliases */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {editMode === 'name' ? (
+            <div className="flex items-center gap-1.5">
+              <input
+                ref={editRef}
+                value={editVal}
+                onChange={(e) => setEditVal(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleRename()
+                  if (e.key === 'Escape') {
+                    setEditMode('none')
+                    setEditVal(entry.value)
+                  }
+                }}
+                className="flex-1 min-w-0 bg-secondary border border-border rounded px-1.5 py-0.5 text-[13px] text-foreground focus:outline-none focus:border-primary/50"
+              />
+              <button
+                onClick={handleRename}
+                className="p-0.5 text-primary hover:text-primary/80 flex-shrink-0"
+              >
+                <Check style={{ width: 11, height: 11 }} strokeWidth={1.5} />
+              </button>
+              <button
+                onClick={() => {
+                  setEditMode('none')
                   setEditVal(entry.value)
-                }
-              }}
-              className="flex-1 min-w-0 bg-secondary border border-border rounded px-2 py-0.5 text-[13px] text-foreground focus:outline-none focus:border-primary/50"
-            />
-            <button onClick={handleRename} className="p-0.5 text-primary hover:text-primary/80">
-              <Check className="w-3 h-3" strokeWidth={1.5} />
-            </button>
-            <button
-              onClick={() => {
-                setEditingValue(false)
-                setEditVal(entry.value)
-              }}
-              className="p-0.5 text-muted-foreground hover:text-foreground"
-            >
-              <X className="w-3 h-3" strokeWidth={1.5} />
-            </button>
-          </>
-        ) : (
-          <>
-            <span className="text-[13px] text-foreground capitalize">{entry.value}</span>
-            <span className="flex-1" />
-            {count > 0 && (
-              <span className="text-[12px] text-muted-foreground tabular-nums shrink-0 w-8 text-right">
-                {count}
-              </span>
-            )}
-            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity ml-1">
-              <button
-                onClick={() => setEditingAliases(!editingAliases)}
-                className="p-1 text-muted-foreground hover:text-foreground"
-                title="Edit aliases"
+                }}
+                className="p-0.5 text-muted-foreground hover:text-foreground flex-shrink-0"
               >
-                <Tag className="w-3 h-3" strokeWidth={1.5} />
-              </button>
-              <button
-                onClick={() => setEditingValue(true)}
-                className="p-1 text-muted-foreground hover:text-foreground"
-                title="Rename"
-              >
-                <Pencil className="w-3 h-3" strokeWidth={1.5} />
-              </button>
-              <button
-                onClick={onDelete}
-                className="p-1 text-muted-foreground hover:text-destructive/70"
-                title="Delete"
-              >
-                <Trash2 className="w-3 h-3" strokeWidth={1.5} />
+                <X style={{ width: 11, height: 11 }} strokeWidth={1.5} />
               </button>
             </div>
-          </>
-        )}
+          ) : (
+            <button
+              onClick={() => setEditMode('name')}
+              className="text-left text-[13px] font-medium text-foreground capitalize leading-[1.3] cursor-pointer hover:text-foreground/80 transition-colors w-full"
+            >
+              {entry.value}
+            </button>
+          )}
+
+          {/* Aliases summary — shown when not editing name */}
+          {editMode !== 'name' && editMode !== 'aliases' && (
+            <button
+              onClick={() => setEditMode('aliases')}
+              className={`text-left text-[11px] leading-[1.35] mt-[1px] block w-full transition-colors ${
+                entry.aliases.length > 0
+                  ? 'text-muted-foreground hover:text-foreground/60 capitalize'
+                  : 'italic hover:text-muted-foreground/70'
+              }`}
+              style={entry.aliases.length === 0 ? { color: 'hsla(37,8%,50%,0.55)' } : undefined}
+            >
+              {entry.aliases.length > 0 ? entry.aliases.join(', ') : 'no aliases'}
+            </button>
+          )}
+        </div>
+
+        {/* Right: count + delete */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            flexShrink: 0,
+            marginTop: 2,
+          }}
+        >
+          {count > 0 && (
+            <span className="text-[11px] text-muted-foreground tabular-nums">{count}</span>
+          )}
+          <button
+            onClick={onDelete}
+            className="flex items-center justify-center rounded-[3px] transition-colors hover:bg-destructive/10"
+            style={{
+              width: 20,
+              height: 20,
+              color: 'hsla(0, 62%, 57%, 0.45)',
+              padding: 0,
+            }}
+            title="Delete"
+          >
+            <Trash2 style={{ width: 11, height: 11 }} strokeWidth={1.5} />
+          </button>
+        </div>
       </div>
 
-      {/* Aliases row */}
-      {!editingValue && (
-        <div className="mt-0.5 ml-0.5">
-          {editingAliases ? (
-            <div className="flex flex-wrap items-center gap-1">
+      {/* Alias editor — shown when editMode === 'aliases' */}
+      {editMode === 'aliases' && (
+        <div style={{ padding: '2px 8px 8px 23px' }}>
+          {/* Existing alias chips */}
+          {entry.aliases.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 5 }}>
               {entry.aliases.map((alias) => (
                 <span
                   key={alias}
-                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] bg-secondary text-muted-foreground capitalize"
+                  className={`inline-flex items-center gap-[3px] text-[11px] border capitalize ${colors.bg} ${colors.border} ${colors.text}`}
+                  style={{ padding: '2px 7px', borderRadius: 999 }}
                 >
                   {alias}
                   <button
                     onClick={() => removeAlias(alias)}
-                    className="text-muted-foreground/60 hover:text-destructive/70"
+                    className="opacity-50 hover:opacity-100 transition-opacity"
+                    style={{ marginLeft: 1 }}
                   >
-                    <X className="w-2.5 h-2.5" strokeWidth={1.5} />
+                    <X style={{ width: 9, height: 9 }} strokeWidth={1.5} />
                   </button>
                 </span>
               ))}
-              <input
-                ref={aliasRef}
-                value={aliasInput}
-                onChange={(e) => setAliasInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') addAlias()
-                  if (e.key === 'Escape') setEditingAliases(false)
-                }}
-                placeholder="add alias…"
-                className="h-6 px-1.5 text-[11px] bg-secondary/50 border border-border/60 rounded text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/40"
-              />
-              <button
-                onClick={() => setEditingAliases(false)}
-                className="p-0.5 text-muted-foreground hover:text-foreground"
-                title="Done"
-              >
-                <Check className="w-3 h-3" strokeWidth={1.5} />
-              </button>
             </div>
-          ) : (
-            entry.aliases.length > 0 && (
-              <p className="text-[11px] text-muted-foreground capitalize leading-tight">
-                {entry.aliases.join(', ')}
-              </p>
-            )
           )}
+
+          {/* Input row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              ref={aliasRef}
+              value={aliasInput}
+              onChange={(e) => setAliasInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') addAlias()
+                if (e.key === 'Escape') setEditMode('none')
+              }}
+              placeholder="add alias…"
+              className="text-[11.5px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none"
+              style={{
+                flex: 1,
+                maxWidth: 155,
+                background: 'hsla(220, 22%, 9%, 0.9)',
+                border: '1px solid hsl(220 18% 19%)',
+                borderRadius: 4,
+                padding: '3px 8px',
+                fontFamily: 'inherit',
+              }}
+            />
+            <button
+              onClick={() => setEditMode('none')}
+              className="text-[10.5px] text-muted-foreground italic hover:text-foreground transition-colors"
+              style={{ opacity: 0.7 }}
+            >
+              done
+            </button>
+          </div>
         </div>
       )}
     </div>
