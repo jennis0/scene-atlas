@@ -124,6 +124,12 @@ export function FilterMenuContent({
   const [search, setSearch] = useState('')
   const [tab, setTab] = useState('all')
   const [customColors, setCustomColors] = useState<string[]>(loadCustomColors)
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  // Reset scroll position when switching tabs so you don't land mid-page
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 })
+  }, [tab])
 
   const searchLower = search.toLowerCase()
 
@@ -349,7 +355,7 @@ export function FilterMenuContent({
           )}
 
           {/* Options area */}
-          <div className="flex-1 overflow-y-auto min-w-0 [scrollbar-gutter:stable]">
+          <div ref={scrollRef} className="flex-1 overflow-y-auto min-w-0 [scrollbar-gutter:stable]">
             {visibleGroups.length === 0 && (
               <p className="px-3 py-5 text-xs text-muted-foreground text-center">
                 {search ? `No results for "${search}"` : 'No options available'}
@@ -374,11 +380,10 @@ export function FilterMenuContent({
                       >
                         {(() => {
                           const SectionIcon = getGroupIcon(group.id)
-                          return <SectionIcon className={`h-3 w-3 flex-shrink-0 opacity-75`} />
+                          return <SectionIcon className="h-3 w-3 flex-shrink-0 opacity-75" />
                         })()}
                         <span className="capitalize">{group.label}</span>
                       </div>
-                      <div className="mt-[3px] h-px w-5 bg-gradient-to-r from-primary/40 to-transparent" />
                     </div>
                   )}
 
@@ -395,6 +400,7 @@ export function FilterMenuContent({
                       getActiveState={getActiveState}
                       onInclude={handleInclude}
                       onExclude={handleExclude}
+                      compact={tab === 'all'}
                     />
                   ) : group.type === 'color' ? (
                     <div
@@ -452,7 +458,7 @@ export function FilterMenuContent({
                     </div>
                   ) : (
                     <div
-                      className={`flex flex-wrap gap-1.5 px-3.5 pb-3 ${tab !== 'all' ? 'pt-3' : ''}`}
+                      className={`flex flex-wrap gap-1.5 px-3.5 pb-3 ${tab !== 'all' ? 'pt-3' : 'pt-1'}`}
                     >
                       {group.options.map((opt) => {
                         const state = getActiveState(group.type, opt.filterValue)
@@ -681,16 +687,18 @@ function GridTileSelector({
   getActiveState,
   onInclude,
   onExclude,
+  compact = false,
 }: {
   group: FilterOptionGroup
   getActiveState: (type: ActiveFilter['type'], value: string) => 'include' | 'exclude' | null
   onInclude: (group: FilterOptionGroup, opt: FilterOption) => void
   onExclude: (e: React.MouseEvent, group: FilterOptionGroup, opt: FilterOption) => void
+  compact?: boolean
 }) {
   return (
     <div>
       {/* 3-column compact layout — fits all 5 tiles in 2 rows */}
-      <div className="grid grid-cols-3 gap-1.5 p-3">
+      <div className={`grid grid-cols-3 gap-1.5 px-3 pb-3 ${compact ? 'pt-1' : 'pt-3'}`}>
         {group.options.map((opt) => {
           const state = getActiveState(group.type, opt.filterValue)
           const config = GRID_TILE_CONFIG[opt.filterValue]
@@ -757,9 +765,11 @@ function GridTileSelector({
           )
         })}
       </div>
-      <p className="px-3.5 pb-3 text-[10.5px] text-muted-foreground italic">
-        Right-click a tile to exclude that grid type
-      </p>
+      {!compact && (
+        <p className="px-3.5 pb-3 text-[10.5px] text-muted-foreground italic">
+          Right-click a tile to exclude that grid type
+        </p>
+      )}
     </div>
   )
 }
