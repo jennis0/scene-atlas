@@ -85,13 +85,13 @@ function getGroupIcon(id: string): LucideIcon {
   return GROUP_ICONS[id] ?? Tag
 }
 
-// Labels and sub-labels for grid filter tiles
-const GRID_TILE_CONFIG: Record<string, { label: string; sub: string }> = {
-  square: { label: 'Square', sub: 'square grid' },
-  hex: { label: 'Hex', sub: 'hex grid' },
-  gridded: { label: 'Any Grid', sub: 'all gridded' },
-  gridless: { label: 'No Grid', sub: 'gridless' },
-  unknown: { label: 'Unknown', sub: 'undetected' },
+// Display labels for grid filter tiles
+const GRID_TILE_CONFIG: Record<string, { label: string }> = {
+  square: { label: 'Square' },
+  hex: { label: 'Hex' },
+  gridded: { label: 'Any Grid' },
+  gridless: { label: 'No Grid' },
+  unknown: { label: 'Unknown' },
 }
 
 // Darker surface colour shared by the nav and footer, matching the mockup
@@ -356,25 +356,30 @@ export function FilterMenuContent({
               </p>
             )}
 
-            {visibleGroups.map((group) => {
+            {visibleGroups.map((group, groupIdx) => {
               const colorId = NON_TAG_GROUPS.has(group.id) ? null : group.id
               const colors = colorId ? getTagColor(colorId) : DEFAULT_TAG_COLOR
+              const isNonTag = colorId === null
+              // Non-tag groups (Author, Grid, Color…) use amber primary in section headings
+              const headingText = isNonTag ? 'text-primary/70' : colors.text
+              const headingIcon = isNonTag ? 'text-primary/50' : `${colors.text} opacity-60`
 
               return (
                 <div key={group.id}>
+                  {/* Divider between groups in "All" mode (not before the first) */}
+                  {tab === 'all' && groupIdx > 0 && (
+                    <div className="mx-3 border-t border-border/40" />
+                  )}
+
                   {/* Section heading — only in "All" mode */}
                   {tab === 'all' && (
-                    <div className="px-3 pt-3 pb-1.5 flex items-center gap-1.5">
+                    <div className="px-3 pt-2.5 pb-1 flex items-center gap-1.5">
                       {(() => {
                         const SectionIcon = getGroupIcon(group.id)
-                        return (
-                          <SectionIcon
-                            className={`h-3 w-3 flex-shrink-0 opacity-60 ${colors.text}`}
-                          />
-                        )
+                        return <SectionIcon className={`h-3 w-3 flex-shrink-0 ${headingIcon}`} />
                       })()}
                       <span
-                        className={`text-[11px] font-semibold tracking-wider uppercase capitalize ${colors.text}`}
+                        className={`text-[10.5px] font-semibold tracking-wider uppercase capitalize ${headingText}`}
                       >
                         {group.label}
                       </span>
@@ -546,16 +551,20 @@ function CategoryNavItem({
   onClick: () => void
 }) {
   const getTagColor = useGetTagColor()
-  const colors = colorId ? getTagColor(colorId) : DEFAULT_TAG_COLOR
+  // null = system group (Author, Grid, Color…) → primary amber when active
+  // set  = tag category → use its assigned color
+  const colors = colorId ? getTagColor(colorId) : null
+
+  const activeClass = colors
+    ? `${colors.bg} ${colors.text} font-medium ${colors.border}`
+    : 'bg-[hsl(222_20%_15%)] text-foreground font-medium border-primary/60'
 
   return (
     <button
       onClick={onClick}
       style={{ padding: '7px 10px 7px 12px' }}
       className={`w-full flex items-center gap-[7px] text-left text-[12px] transition-colors border-l-2 ${
-        active
-          ? `${colors.bg} ${colors.text} font-medium ${colors.border}`
-          : 'text-muted-foreground hover:text-foreground border-transparent'
+        active ? activeClass : 'text-muted-foreground hover:text-foreground border-transparent'
       }`}
       onMouseEnter={(e) => {
         if (!active) (e.currentTarget as HTMLElement).style.background = 'hsl(222 20% 14%)'
@@ -564,12 +573,17 @@ function CategoryNavItem({
         if (!active) (e.currentTarget as HTMLElement).style.background = ''
       }}
     >
-      <Icon className={`h-3.5 w-3.5 flex-shrink-0 ${active ? '' : 'opacity-50'}`} />
-      <span className="truncate flex-1">{label}</span>
+      {/* Tag-category icons retain their colour even when inactive */}
+      <Icon
+        className={`h-3.5 w-3.5 flex-shrink-0 ${
+          active ? '' : colors ? `${colors.text} opacity-60` : 'opacity-50'
+        }`}
+      />
+      <span className="truncate flex-1 capitalize">{label}</span>
       {activeCount > 0 && (
         <span
           className={`text-[10px] font-semibold tabular-nums flex-shrink-0 ${
-            active ? colors.text : 'text-muted-foreground'
+            active ? (colors ? colors.text : 'text-primary/80') : 'text-muted-foreground'
           }`}
         >
           {activeCount}
@@ -679,7 +693,8 @@ function GridTileSelector({
 }) {
   return (
     <div>
-      <div className="grid grid-cols-2 gap-2 p-3.5">
+      {/* 3-column compact layout — fits all 5 tiles in 2 rows */}
+      <div className="grid grid-cols-3 gap-1.5 p-3">
         {group.options.map((opt) => {
           const state = getActiveState(group.type, opt.filterValue)
           const config = GRID_TILE_CONFIG[opt.filterValue]
@@ -692,7 +707,7 @@ function GridTileSelector({
               onClick={() => onInclude(group, opt)}
               onContextMenu={(e) => onExclude(e, group, opt)}
               title={`${opt.label} — right-click to exclude`}
-              className={`flex flex-col items-center gap-[7px] py-3.5 px-2 rounded-lg border-[1.5px] transition-all select-none ${
+              className={`flex flex-col items-center gap-[4px] py-2.5 px-1.5 rounded-lg border-[1.5px] transition-all select-none ${
                 isActive
                   ? 'border-primary text-foreground'
                   : isExcluded
@@ -707,7 +722,7 @@ function GridTileSelector({
                     : 'hsl(var(--secondary))',
               }}
             >
-              {/* SVG preview */}
+              {/* SVG preview — scaled down for compact 3-col layout */}
               <div className="transition-opacity" style={{ opacity: state ? 1 : 0.65 }}>
                 {opt.filterValue === 'square' && (
                   <SquareGridSVG active={isActive} excluded={isExcluded} />
@@ -726,14 +741,13 @@ function GridTileSelector({
                 )}
               </div>
 
-              <span className="text-[12px] font-medium tracking-[0.02em]">
+              <span className="text-[11px] font-medium tracking-[0.02em] text-center leading-tight">
                 {config?.label ?? opt.label}
               </span>
-              <span className="text-[10px] -mt-1 text-muted-foreground">{config?.sub}</span>
 
               {/* Status line — always takes space so tiles stay same height */}
               <span
-                className={`text-[10px] font-semibold h-4 ${
+                className={`text-[9.5px] font-semibold h-[13px] ${
                   isActive
                     ? 'text-primary'
                     : isExcluded
@@ -766,7 +780,7 @@ function SquareGridSVG({ active, excluded }: { active: boolean; excluded: boolea
   const c = gridColor(active, excluded)
   const op = active ? 0.7 : 0.5
   return (
-    <svg width="52" height="44" viewBox="0 0 52 44" fill="none" style={{ color: c }}>
+    <svg width="40" height="34" viewBox="0 0 52 44" fill="none" style={{ color: c }}>
       <rect
         x="2"
         y="2"
@@ -830,7 +844,7 @@ function HexGridSVG({ active, excluded }: { active: boolean; excluded: boolean }
   const c = gridColor(active, excluded)
   const op = active ? 0.8 : 0.55
   return (
-    <svg width="52" height="44" viewBox="0 0 52 44" fill="none" style={{ color: c }}>
+    <svg width="40" height="34" viewBox="0 0 52 44" fill="none" style={{ color: c }}>
       <rect
         x="2"
         y="2"
@@ -883,7 +897,7 @@ function HexGridSVG({ active, excluded }: { active: boolean; excluded: boolean }
 function GridlessSVG({ active, excluded }: { active: boolean; excluded: boolean }) {
   const c = gridColor(active, excluded)
   return (
-    <svg width="52" height="44" viewBox="0 0 52 44" fill="none" style={{ color: c }}>
+    <svg width="40" height="34" viewBox="0 0 52 44" fill="none" style={{ color: c }}>
       <rect
         x="2"
         y="2"
@@ -912,7 +926,7 @@ function GridlessSVG({ active, excluded }: { active: boolean; excluded: boolean 
 function AnyGridSVG({ active, excluded }: { active: boolean; excluded: boolean }) {
   const c = gridColor(active, excluded)
   return (
-    <svg width="52" height="44" viewBox="0 0 52 44" fill="none" style={{ color: c }}>
+    <svg width="40" height="34" viewBox="0 0 52 44" fill="none" style={{ color: c }}>
       <rect
         x="2"
         y="2"
@@ -964,7 +978,7 @@ function AnyGridSVG({ active, excluded }: { active: boolean; excluded: boolean }
 function UnknownGridSVG({ active, excluded }: { active: boolean; excluded: boolean }) {
   const c = gridColor(active, excluded)
   return (
-    <svg width="52" height="44" viewBox="0 0 52 44" fill="none" style={{ color: c }}>
+    <svg width="40" height="34" viewBox="0 0 52 44" fill="none" style={{ color: c }}>
       <rect
         x="2"
         y="2"
@@ -1084,19 +1098,29 @@ function ColorSwatch({
               ? 'click to include'
               : 'right-click to exclude'
         }`}
-        className={`aspect-square w-full rounded border-2 transition-all ${
+        className={`aspect-square w-full rounded-md transition-all ${
           activeState === 'include'
-            ? 'scale-105 border-primary'
+            ? 'scale-105 border-2 border-primary/70'
             : activeState === 'exclude'
-              ? 'border-destructive opacity-30'
-              : 'border-border/40 hover:border-foreground/50 hover:scale-105'
+              ? 'border-2 border-destructive/50 opacity-40'
+              : 'border border-border/20 hover:border-foreground/35 hover:scale-105'
         }`}
         style={{
           backgroundColor: hex,
           ...(activeState === 'include'
-            ? { boxShadow: '0 0 0 2px hsl(var(--popover)), 0 0 0 4px hsl(var(--primary))' }
+            ? {
+                outlineStyle: 'solid',
+                outlineWidth: '2px',
+                outlineOffset: '2px',
+                outlineColor: 'hsl(var(--primary))',
+              }
             : activeState === 'exclude'
-              ? { boxShadow: '0 0 0 2px hsl(var(--popover)), 0 0 0 4px hsl(var(--destructive))' }
+              ? {
+                  outlineStyle: 'solid',
+                  outlineWidth: '2px',
+                  outlineOffset: '2px',
+                  outlineColor: 'hsl(var(--destructive))',
+                }
               : {}),
         }}
       />
