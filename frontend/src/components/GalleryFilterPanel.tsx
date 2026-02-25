@@ -136,13 +136,13 @@ export function GalleryFilterPanel({ filters, facets, onFiltersChange }: Gallery
       <PopoverTrigger asChild>
         <Button
           variant="outline"
-          size="icon"
-          className={`relative flex-shrink-0 ${filters.length > 0 ? 'border-primary/60 text-primary' : ''}`}
+          className={`h-10 gap-2 flex-shrink-0 text-sm ${filters.length > 0 ? 'border-primary/60 text-primary' : 'text-muted-foreground hover:text-foreground'}`}
           title="Filters"
         >
-          <SlidersHorizontal className="h-4 w-4" />
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+          Filters
           {filters.length > 0 && (
-            <span className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-primary text-[10px] font-bold text-primary-foreground flex items-center justify-center">
+            <span className="h-4 min-w-4 px-1 rounded-full bg-primary text-[10px] font-bold text-primary-foreground flex items-center justify-center tabular-nums">
               {filters.length}
             </span>
           )}

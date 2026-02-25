@@ -13,7 +13,9 @@ import {
   Tag,
   Settings,
   ArrowUpDown,
-  ChevronDown,
+  Compass,
+  Map,
+  Mountain,
 } from 'lucide-react'
 import { searchApi, groupApi, importApi } from '@/lib/api'
 import { RELEVANCE_MIN, RELEVANCE_MAX, RELEVANCE_STEP, relevanceToPercent } from '@/lib/constants'
@@ -365,12 +367,12 @@ export function Gallery() {
       >
         <div className="container mx-auto px-4">
           {/* Title row */}
-          <div className="pt-5 pb-4 flex items-start justify-between">
+          <div className="pt-4 pb-3 flex items-start justify-between border-b border-border/70">
             <div>
-              <h1 className="font-display text-3xl font-semibold tracking-wide text-foreground">
+              <h1 className="font-display text-2xl font-medium tracking-wide text-foreground">
                 Scene Atlas
               </h1>
-              <div className="mt-2.5 h-[2px] w-14 rounded-full bg-primary/50" />
+              <div className="mt-0.5 h-[1.5px] w-16 bg-gradient-to-r from-primary/70 to-transparent" />
             </div>
             {/* Admin cluster: utility actions (ghost) + gap + primary Import CTA */}
             <div className="flex items-center gap-1 mt-2">
@@ -410,50 +412,63 @@ export function Gallery() {
             </div>
           </div>
 
-          {/* Search + controls row */}
-          <div className="flex items-center gap-2 pb-3">
-            <form onSubmit={handleSubmit} className="flex flex-1 min-w-0">
-              {/* Type toggle — segmented control on large screens, dropdown on small */}
-              {(['all', 'battlemap', 'scene'] as const).map((type, i) => (
-                <button
-                  key={type}
-                  type="button"
-                  onClick={() => handleImageTypeChange(type)}
-                  className={`hidden sm:flex h-10 px-3 items-center text-xs font-medium border border-input border-r-0 shrink-0 transition-colors
-                    ${i === 0 ? 'rounded-l-md' : ''}
-                    ${
-                      imageType === type
-                        ? 'bg-secondary text-foreground'
-                        : 'bg-background text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-                    }`}
-                >
-                  {type === 'all' ? 'All' : type === 'battlemap' ? 'Maps' : 'Scenes'}
-                </button>
-              ))}
-
-              {/* Scope dropdown — small screens only */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
+          {/* Tab strip — mode selector */}
+          {(() => {
+            const typeCounts = Object.fromEntries(
+              (facets?.image_types ?? []).map((t) => [t.value, t.count]),
+            )
+            const total = Object.values(typeCounts).reduce((s, n) => s + n, 0)
+            const tabs = [
+              { value: 'all' as ImageTypeFilter, label: 'All', Icon: Compass, count: total },
+              {
+                value: 'battlemap' as ImageTypeFilter,
+                label: 'Maps',
+                Icon: Map,
+                count: typeCounts['battlemap'] ?? 0,
+              },
+              {
+                value: 'scene' as ImageTypeFilter,
+                label: 'Scenes',
+                Icon: Mountain,
+                count: typeCounts['scene'] ?? 0,
+              },
+            ]
+            return (
+              <div className="-mx-4 px-4 flex items-stretch border-b border-border/60">
+                {tabs.map(({ value, label, Icon, count }) => (
                   <button
-                    type="button"
-                    className="sm:hidden flex items-center gap-1.5 h-10 px-3 shrink-0 bg-secondary border border-input rounded-l-md border-r-0 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:z-10"
+                    key={value}
+                    onClick={() => handleImageTypeChange(value)}
+                    className={`flex items-center gap-2 py-2.5 pr-4 mr-1 text-sm font-medium border-b-2 transition-colors
+                      ${
+                        imageType === value
+                          ? 'border-primary text-foreground'
+                          : 'border-transparent text-muted-foreground hover:text-foreground'
+                      }`}
                   >
-                    {imageType === 'all' ? 'All' : imageType === 'battlemap' ? 'Maps' : 'Scenes'}
-                    <ChevronDown className="h-3 w-3 opacity-50" />
+                    <Icon className="h-3.5 w-3.5 shrink-0" />
+                    {label}
+                    {count > 0 && (
+                      <span
+                        className={`text-[10px] font-normal px-1.5 py-px rounded-full transition-colors
+                        ${
+                          imageType === value
+                            ? 'bg-primary/15 text-primary'
+                            : 'bg-secondary text-muted-foreground'
+                        }`}
+                      >
+                        {count.toLocaleString()}
+                      </span>
+                    )}
                   </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-28">
-                  <DropdownMenuRadioGroup
-                    value={imageType}
-                    onValueChange={(v) => handleImageTypeChange(v as ImageTypeFilter)}
-                  >
-                    <DropdownMenuRadioItem value="all">All</DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="battlemap">Maps</DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="scene">Scenes</DropdownMenuRadioItem>
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                ))}
+              </div>
+            )
+          })()}
 
+          {/* Search + controls row */}
+          <div className="flex items-center gap-2 pt-3 pb-3">
+            <form onSubmit={handleSubmit} className="flex flex-1 min-w-0">
               {/* Input with inline clear button */}
               <div className="relative flex-1 min-w-0">
                 {isSemantic ? (
@@ -465,10 +480,10 @@ export function Gallery() {
                 )}
                 <Input
                   type="text"
-                  placeholder="Search scenes…  prefix ~ for visual, = for keyword"
+                  placeholder={`Search ${imageType === 'all' ? 'scenes' : imageType === 'battlemap' ? 'maps' : 'scenes'}…  prefix ~ for visual, = for keyword`}
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
-                  className="h-10 w-full pl-9 pr-8 rounded-none border-l-0 border-r-0 focus-visible:z-10"
+                  className="h-10 w-full pl-9 pr-8 rounded-r-none border-r-0 focus-visible:z-10"
                 />
                 {searchInput && (
                   <button
@@ -548,13 +563,26 @@ export function Gallery() {
               )}
             </div>
 
-            {/* Right cluster: sort · edit all · relevance · count */}
-            <div className="flex items-center ml-auto shrink-0 text-xs text-muted-foreground">
+            {/* Right cluster: count · sort · edit all · relevance */}
+            <div className="flex items-center ml-auto shrink-0 text-xs text-muted-foreground gap-0">
+              {/* Count */}
+              {!isSearching && (
+                <span className="tabular-nums">
+                  {hasActiveSearch
+                    ? showRelevanceSlider
+                      ? `${filteredCount} / ${totalBeforeFilter} result${totalBeforeFilter !== 1 ? 's' : ''}${searchModeSuffix}`
+                      : `${filteredCount} result${filteredCount !== 1 ? 's' : ''}${searchModeSuffix}`
+                    : `${facets?.total_images ?? 0} scenes`}
+                </span>
+              )}
+
+              {/* Sort */}
+              <span className="text-border/60 px-1.5">·</span>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button className="flex items-center gap-1.5 px-2 hover:text-foreground transition-colors">
-                    <ArrowUpDown className="h-3 w-3" />
+                  <button className="flex items-center gap-1 hover:text-foreground transition-colors">
                     {SORT_OPTIONS.find((o) => `${o.value}:${o.dir}` === sortKey)?.label ?? 'Sort'}
+                    <ArrowUpDown className="h-2.5 w-2.5 opacity-50" />
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-40">
@@ -575,13 +603,14 @@ export function Gallery() {
                 </DropdownMenuContent>
               </DropdownMenu>
 
+              {/* Edit all — contextual */}
               {displayImages.length > 0 && (
                 <>
-                  <span className="text-border px-0.5">·</span>
+                  <span className="text-border/60 px-1.5">·</span>
                   <button
                     onClick={() => setShowMassEdit(true)}
                     title="Bulk-edit all scenes in current results"
-                    className="flex items-center gap-1.5 px-2 hover:text-foreground transition-colors"
+                    className="flex items-center gap-1.5 hover:text-foreground transition-colors"
                   >
                     <Pencil className="h-3 w-3" />
                     Edit all ({displayImages.length})
@@ -589,10 +618,11 @@ export function Gallery() {
                 </>
               )}
 
+              {/* Relevance slider — contextual */}
               {showRelevanceSlider && (
                 <>
-                  <span className="text-border px-0.5">·</span>
-                  <div className="flex items-center gap-2 px-2" title="Minimum relevance threshold">
+                  <span className="text-border/60 px-1.5">·</span>
+                  <div className="flex items-center gap-2" title="Minimum relevance threshold">
                     <span>Relevance</span>
                     <input
                       type="range"
@@ -612,34 +642,6 @@ export function Gallery() {
                       {minScore > 0 ? `${relevanceToPercent(minScore)}%` : 'All'}
                     </span>
                   </div>
-                </>
-              )}
-
-              {!isSearching && (
-                <>
-                  <span className="text-border px-0.5">·</span>
-                  <span className="px-2 tabular-nums">
-                    {hasActiveSearch ? (
-                      showRelevanceSlider ? (
-                        <>
-                          <span
-                            style={{
-                              display: 'inline-block',
-                              minWidth: `${String(totalBeforeFilter).length}ch`,
-                              textAlign: 'right',
-                            }}
-                          >
-                            {filteredCount}
-                          </span>
-                          {` / ${totalBeforeFilter} result${totalBeforeFilter !== 1 ? 's' : ''}${searchModeSuffix}`}
-                        </>
-                      ) : (
-                        `${filteredCount} result${filteredCount !== 1 ? 's' : ''}${searchModeSuffix}`
-                      )
-                    ) : (
-                      `${facets?.total_images ?? 0} scenes`
-                    )}
-                  </span>
                 </>
               )}
             </div>
