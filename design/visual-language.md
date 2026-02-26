@@ -159,7 +159,19 @@ Use for standalone "add to list" actions (new category, add tag value, etc.). Th
 
 ### Color swatch pickers
 
-Circles everywhere (`rounded-full`). Default ring: `ring-1 ring-white/15`. Selected: `outline: 2px solid hsl(var(--foreground))` with `outlineOffset: 2`. Unselected: `opacity-70 hover:opacity-100 hover:scale-105`.
+Circles (`rounded-full`), 26×26px in an 8-col grid with 6px gap. No default ring — let the color speak. Selected: `outline: 2px solid hsl(var(--foreground))` with `outlineOffset: 3` (3px prevents overlap with neighbors at current gap). Unselected: `opacity-70 hover:opacity-100 hover:scale-110`.
+
+### Icon grid pickers
+
+32×32px cells in an 8-col grid, 2px gap. Selected: `bg-secondary text-foreground` + `outline: 2px solid hsl(var(--foreground) / 0.5)` with `outlineOffset: 1`. Unselected: `text-muted-foreground hover:text-foreground hover:bg-secondary`. Icons at 17×17px inside cells.
+
+When an element has both icon and color pickers, combine them into a single **appearance popover** — one trigger button (icon in category color, `bg-secondary/60` background), opening a single `PopoverContent` with icon grid on top, `h-px bg-border/50` divider, color grid below.
+
+### Conditional action buttons
+
+For actions that only become relevant when state changes (e.g. "Regenerate" after vocabulary edits), use ghost text by default and highlight only when dirty:
+- **Clean state:** `text-muted-foreground hover:text-foreground`, transparent border
+- **Dirty state:** `text-primary`, `bg-primary/12`, `border-primary/35`
 
 ### Icon strokeWidth
 
@@ -390,10 +402,14 @@ Dropdown: `bg-card border-border shadow-2xl shadow-black/40`
 ## Component-Level Rules
 
 ### Borders and separators
-- Between major sections: `border-b border-border/30`
-- Between items in a list: `border-border/50`
+
+**Structural frame borders** (header/footer edges, sidebar/content splits, panel outlines): `border-border` at full opacity is fine — these define the skeleton.
+
+**Content dividers** (within a section or list):
+- Between major content sections: `border-border/30`
+- Between items in a dense list: `border-border/40` to `border-border/50`
 - Very subtle internal structure: `border-border/20`
-- Never use `border-border` at full opacity for internal dividers
+- Never use `border-border` at full opacity for content-area dividers
 
 ### Scrollbars
 Styled globally in index.css: 5px wide, `bg-border` thumb, transparent track. Do not override per-component.
@@ -406,11 +422,67 @@ Styled globally in index.css: 5px wide, `bg-border` thumb, transparent track. Do
 ### Popovers
 Use Radix `<Popover>` with `<PopoverContent className="p-0 ...">` — do not add internal padding at the content level, let child components define their own spacing.
 
+### Confirm overlays
+
+Inline confirmation (displayed over parent container, not a separate dialog):
+```tsx
+<div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+  <div className="bg-card border border-border rounded-xl p-5 max-w-sm mx-4 shadow-2xl shadow-black/70">
+    {/* AlertTriangle icon (text-primary) + title + detail */}
+    {/* Cancel (ghost) + Confirm (tinted: primary for warning, destructive for danger) */}
+  </div>
+</div>
+```
+
+Confirm button styles:
+- Warning: `text-primary bg-primary/10 hover:bg-primary/20 border-primary/20`
+- Danger: `text-destructive bg-destructive/10 hover:bg-destructive/20 border-destructive/20`
+
 ### Z-index conventions
 - Sticky variant header inside scroll container: `z-10`
 - ImageViewer overlay: `z-50`
 - Tag picker / subgroup picker dropdowns: `z-50`
 - Global amber top stripe (body::before): `z-1000`
+
+---
+
+## Dense Editing Lists (Ledger Style)
+
+For management dialogs with editable lists (tag values, vocabulary entries), use the ledger row pattern:
+
+```tsx
+<div className={`group/valrow flex items-stretch border-b border-border/40 transition-colors last:border-b-0 ${
+  isEditing ? 'bg-muted/50' : 'hover:bg-muted/30'
+}`}>
+  {/* Content area — click to enter edit mode */}
+  <div className="flex-1 min-w-0 py-[7px] px-[10px] cursor-text" onClick={...}>
+    <span className={`text-[13px] font-medium capitalize ${colors.text}`}>{value}</span>
+    <button className="text-[10.5px] text-muted-foreground italic ...">aliases or "No aliases"</button>
+  </div>
+  {/* Margin column — count + actions */}
+  <div className="w-[54px] shrink-0 flex items-center justify-end gap-1 px-2">
+    <Pencil /> <span className="tabular-nums">{count}</span> <Trash2 />
+  </div>
+</div>
+```
+
+Key rules:
+- `group/valrow` on the entire row — hover effects are row-level, not per-element
+- Ruled lines: `border-b border-border/40`, remove on last row
+- Editing state: `bg-muted/50` replaces hover bg
+- Pencil appears in margin on row hover: `opacity-0 group-hover/valrow:opacity-50`
+
+### Blur-safe inline editing
+
+When click-to-edit rows contain their own click handler, use a cooldown ref to prevent blur → click re-entry:
+
+```tsx
+const editEndedAt = useRef(0)
+// On blur/escape/done: editEndedAt.current = Date.now()
+// On row click: if (Date.now() - editEndedAt.current > 150) setEditMode('name')
+```
+
+This prevents the row click from immediately re-opening the editor when the user clicks outside the input to dismiss it.
 
 ---
 

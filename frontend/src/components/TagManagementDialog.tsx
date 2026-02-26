@@ -188,7 +188,7 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
               })
             }
             disabled={retagMut.isPending || retagJob.isRunning}
-            className={`flex items-center gap-[5px] transition-colors disabled:opacity-40 ${
+            className={`flex items-center gap-[5px] transition-colors disabled:opacity-30 ${
               vocabDirty ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
             }`}
             style={{
@@ -964,7 +964,7 @@ function TagValueRow({
 function ConfirmOverlay({ action, onCancel }: { action: ConfirmAction; onCancel: () => void }) {
   return (
     <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-card border border-border rounded-lg p-5 max-w-sm mx-4 shadow-xl">
+      <div className="bg-card border border-border rounded-xl p-5 max-w-sm mx-4 shadow-2xl shadow-black/70">
         <div className="flex items-start gap-3">
           <AlertTriangle className="w-4 h-4 text-primary shrink-0 mt-0.5" />
           <div>
