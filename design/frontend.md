@@ -60,11 +60,11 @@ The main page. Contains:
 **State management:** All filter/search state is local `useState`. Image data fetched via React Query. View mode state controls which grid component renders. The `useImageGrouping` hook transforms flat results into groups client-side.
 
 ### ImportDialog (`components/ImportDialog.tsx`)
-Three-state dialog for the web import flow:
+Group management tool for organizing files before import. Per-file metadata editing (tags, grid, name) is deferred to post-import via `ImageViewer` and `EditGroupDialog`.
 
 1. **Upload** — file picker (files or folder via `webkitdirectory`) + zip support. Uploads to `/imports/upload`, gets back grouped variant info.
-2. **Preview** — tabbed view (one tab per detected image group). Each tab: editable author + group name fields, file list with detected tags/grid badges, per-file image type selector. "Import This Group" or "Import All" buttons.
-3. **Processing/Done** — progress per group, completion summary.
+2. **Preview** — tabbed view (one tab per detected image group). Each tab: editable author + group name, compact file cards (`ImportFileCard`) with thumbnail/name/type toggle, simplified toolbar (`ImportFileToolbar`) with search/filter/bulk actions for group management. "Import This Group" or "Import All" buttons.
+3. **Processing/Done** — progress per group, completion summary. Clicking completed job in ImportTray opens `EditGroupDialog` for post-import metadata review.
 
 State is preserved if dialog is closed during processing (re-open to check progress). An `onActiveChange` callback notifies the Gallery to show a pulsing indicator on the Import button.
 

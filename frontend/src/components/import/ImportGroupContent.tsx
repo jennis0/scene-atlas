@@ -1,6 +1,6 @@
 import { Check, AlertCircle, Loader2, SkipForward, Undo2, Search } from 'lucide-react'
-import { FileCard } from './FileCard'
-import { FileToolbar } from './FileToolbar'
+import { ImportFileCard } from './ImportFileCard'
+import { ImportFileToolbar } from './ImportFileToolbar'
 import { MetadataForm } from './MetadataForm'
 import { SubgroupHeading } from '@/components/SubgroupHeading'
 import type { UseImportStateReturn } from '@/hooks/useImportState'
@@ -26,34 +26,26 @@ export function ImportGroupContent({ s }: ImportGroupContentProps) {
     allSameAuthor,
     canImportActive,
     canImportAll,
-    tagVocab,
     fileFilter,
     jobId,
     groups,
     activeTab,
     state,
     authorSuggestions,
-    editingSvHeading,
     setFileFilter,
     setGroups,
-    setEditingSvHeading,
     updateGroup,
     updateFile,
     updateFileAnyGroup,
     selectAllVisible,
     deselectAll,
     toggleFileSelection,
-    bulkAddTag,
-    bulkSetGrid,
     bulkSetImageType,
-    bulkSetSubgroup,
     bulkExclude,
     bulkSetDuplicateAction,
     duplicateCount,
     skippedDuplicateCount,
     moveToNewGroup,
-    clearSubgroupLabel,
-    renameSubgroup,
     handleConfirmGroup,
     handleConfirmAll,
   } = s
@@ -105,21 +97,15 @@ export function ImportGroupContent({ s }: ImportGroupContentProps) {
           {/* File toolbar */}
           {(isAllTab || activeGroup?.status === 'pending') && (
             <div className="px-5 shrink-0">
-              <FileToolbar
+              <ImportFileToolbar
                 files={sourceFiles}
                 filteredFiles={filteredFiles}
                 selection={activeSelection}
                 filter={fileFilter}
-                vocab={tagVocab}
                 onFilterChange={setFileFilter}
                 onSelectAll={() => selectAllVisible(activeGroupId, filteredFiles)}
                 onDeselectAll={() => deselectAll(activeGroupId)}
-                onBulkAddTag={(tag) => bulkAddTag(isAllTab ? null : activeGroupId, tag)}
-                onBulkSetGrid={(gridded, gridType) =>
-                  bulkSetGrid(isAllTab ? null : activeGroupId, gridded, gridType)
-                }
                 onBulkSetImageType={(v) => bulkSetImageType(isAllTab ? null : activeGroupId, v)}
-                onBulkSetSubgroup={(v) => bulkSetSubgroup(isAllTab ? null : activeGroupId, v)}
                 onBulkExclude={() => bulkExclude(isAllTab ? null : activeGroupId)}
                 onMoveToNewGroup={
                   !isAllTab && activeGroup?.id ? () => moveToNewGroup(activeGroup.id) : undefined
@@ -129,7 +115,6 @@ export function ImportGroupContent({ s }: ImportGroupContentProps) {
                 onBulkSetDuplicateAction={(action) =>
                   bulkSetDuplicateAction(isAllTab ? null : activeGroupId, action)
                 }
-                alwaysShowTypeToggle
               />
             </div>
           )}
@@ -139,33 +124,25 @@ export function ImportGroupContent({ s }: ImportGroupContentProps) {
             {showSubgroupHeadings ? (
               subgroupGroups.map((svGroup) => {
                 const nonExcluded = svGroup.files.filter((f) => !f.excluded).length
-                const groupOwner = !isAllTab ? activeGroup : null
-                const isEditing =
-                  !isAllTab && editingSvHeading === svGroup.subgroup && svGroup.subgroup !== null
                 return (
                   <div key={svGroup.subgroup ?? '__main__'} className="mb-2">
                     <SubgroupHeading
                       subgroup={svGroup.subgroup}
                       count={nonExcluded}
-                      isEditing={isEditing}
+                      isEditing={false}
                       existingSubgroups={groupSubgroups}
-                      onStartEdit={() => setEditingSvHeading(svGroup.subgroup!)}
-                      onCommit={(val) => {
-                        renameSubgroup(activeGroup!.id, svGroup.subgroup!, val)
-                        setEditingSvHeading(null)
-                      }}
-                      onCancel={() => setEditingSvHeading(null)}
-                      onClear={() => clearSubgroupLabel(activeGroup!.id, svGroup.subgroup!)}
-                      canEdit={groupOwner?.status === 'pending'}
+                      onStartEdit={() => {}}
+                      onCommit={() => {}}
+                      onCancel={() => {}}
+                      onClear={() => {}}
+                      canEdit={false}
                     />
                     <div className="space-y-1.5 pb-2">
                       {svGroup.files.map((file) => (
-                        <FileCard
+                        <ImportFileCard
                           key={file.relative_path}
                           file={file}
                           jobId={jobId!}
-                          vocab={tagVocab}
-                          existingSubgroups={groupSubgroups}
                           selected={activeSelection.has(file.relative_path)}
                           onToggleSelect={() =>
                             toggleFileSelection(activeGroupId, file.relative_path)
@@ -185,12 +162,10 @@ export function ImportGroupContent({ s }: ImportGroupContentProps) {
             ) : (
               <div className="space-y-1.5">
                 {filteredFiles.map((file) => (
-                  <FileCard
+                  <ImportFileCard
                     key={file.relative_path}
                     file={file}
                     jobId={jobId!}
-                    vocab={tagVocab}
-                    existingSubgroups={groupSubgroups}
                     selected={activeSelection.has(file.relative_path)}
                     onToggleSelect={() => toggleFileSelection(activeGroupId, file.relative_path)}
                     onUpdate={(updates) =>

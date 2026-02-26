@@ -125,6 +125,8 @@ See [parser.md](parser.md) for the full algorithm. Summary:
 
 ## Frontend: ImportDialog
 
+The import dialog is a **group management tool** — it handles file organization into groups before import. Per-file metadata editing (tags, grid, name, subgroup) is deferred to post-import via `ImageViewer` and `EditGroupDialog` (import-review mode). See [plan-simplify-import.md](plan-simplify-import.md) for rationale.
+
 Three states:
 
 ### Upload State
@@ -141,13 +143,18 @@ Three states:
 - Each tab shows:
   - Editable **Author** text input (pre-filled from detection, may be empty)
   - Editable **Group Name** text input (pre-filled)
-  - File cards with:
-    - Preview thumbnail (80x80, from preview endpoint)
-    - Filename
-    - Removable tag badges (click X to remove) + "Add Tag" inline dropdown (category → value)
-    - Grid status toggle (3-state: Gridded / Gridless / Unknown) — hidden for scene-type files
-    - **Image type selector** (per-file override: Battlemap / Scene)
-    - Exclude button (dims row, shows Restore)
+  - Compact file cards (`ImportFileCard`) with:
+    - Preview thumbnail (clickable for lightbox)
+    - Parsed name (read-only)
+    - Subgroup badge (read-only, if detected)
+    - Image type toggle (Battlemap / Scene)
+    - Duplicate indicator (with skip/import toggle)
+    - Selection checkbox + exclude button
+  - Simplified toolbar (`ImportFileToolbar`) with:
+    - Search/filter, select all/deselect all
+    - Bulk set image type, bulk exclude, split to new group
+    - Duplicate bulk controls
+  - Subgroup headings (read-only, no rename/clear during import)
 - "Import This Group" button (disabled if author is empty)
 - "Import All" button if multiple pending groups
 
@@ -161,13 +168,16 @@ Three states:
 
 ```
 Upload → analyse_upload (+ thumbnail generation) → ImportUploadResponse
-  → User edits everything (tags, grid, author, group, exclusions, skip, merge)
+  → User manages groups (merge, split, skip, exclude, set author/type)
+  → Auto-detected tags/grid hints pass through unchanged (user doesn't edit these during import)
   → Confirm sends { author, group_name, files: ImportConfirmFile[] }
   → process_import_group uses metadata AS-IS (no re-parsing)
   → process_single_image(metadata={from confirm request directly})
+  → Grid detection, CLIP, color extraction run during processing
+  → Post-import: user reviews enriched metadata via EditGroupDialog (import-review mode)
 ```
 
-Key design decision: The confirm request sends each file's **complete metadata**. The `process_import_group` flow does not re-parse filenames — it passes per-file metadata straight through to `process_single_image(metadata=...)`.
+Key design decision: The confirm request sends each file's **complete metadata** including auto-detected tags and grid hints from filename parsing. The import dialog does not expose editors for these — they pass through unchanged. The `process_import_group` flow does not re-parse filenames — it passes per-file metadata straight through to `process_single_image(metadata=...)`.
 
 ## Staging Cleanup
 
