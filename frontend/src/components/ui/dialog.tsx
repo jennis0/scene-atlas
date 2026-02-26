@@ -48,9 +48,9 @@ const DialogContent = React.forwardRef<
     {onClose && (
       <button
         onClick={onClose}
-        className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+        className="absolute right-4 top-4 h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
       >
-        <X className="h-4 w-4" />
+        <X className="h-3.5 w-3.5" />
         <span className="sr-only">Close</span>
       </button>
     )}

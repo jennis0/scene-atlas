@@ -1,0 +1,1212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scene Atlas — Gallery Grid Variants</title>
+<style>
+  :root {
+    --surface-canvas: #0b0e14;
+    --background: #0e1118;
+    --popover: #12171f;
+    --card: #161c28;
+    --muted: #181f2e;
+    --secondary: #1c2231;
+    --primary: #d4a853;
+    --primary-fg: #1a1400;
+    --destructive: #e04e4e;
+    --border: #222a38;
+    --foreground: #ede8dc;
+    --muted-fg: #8a8272;
+  }
+
+  @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Figtree:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Figtree', system-ui, sans-serif;
+    background: var(--background);
+    color: var(--foreground);
+    min-height: 100vh;
+    padding: 24px;
+    background-image: radial-gradient(circle, var(--border) 0.5px, transparent 0.5px);
+    background-size: 28px 28px;
+  }
+
+  .page-header { text-align: center; margin-bottom: 24px; }
+  .page-header h1 { font-family: 'Cinzel', serif; font-size: 28px; font-weight: 600; margin-bottom: 6px; }
+  .page-header p { color: var(--muted-fg); font-size: 14px; }
+
+  /* Tab bar */
+  .tab-bar {
+    display: flex; gap: 2px; margin-bottom: 24px; background: var(--secondary);
+    border-radius: 8px; padding: 3px; max-width: 600px; margin-left: auto; margin-right: auto;
+  }
+  .tab-btn {
+    flex: 1; padding: 10px 16px; border: none; background: transparent; color: var(--muted-fg);
+    font-family: 'Figtree', sans-serif; font-size: 13px; font-weight: 500; cursor: pointer;
+    border-radius: 6px; transition: all 0.2s;
+  }
+  .tab-btn:hover { color: var(--foreground); background: rgba(255,255,255,0.03); }
+  .tab-btn.active { background: var(--card); color: var(--primary); box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  .variant-label {
+    text-align: center; padding: 16px 0 6px; font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.15em; color: rgba(212,168,83,0.5); font-weight: 600;
+  }
+  .variant-desc {
+    text-align: center; padding: 0 40px 20px; font-size: 13px; color: var(--muted-fg);
+    max-width: 720px; margin: 0 auto; line-height: 1.6;
+  }
+
+  /* ── Dialog Shell ── */
+  .dialog {
+    max-width: 1100px; height: 720px; margin: 0 auto 48px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    overflow: hidden; display: flex; flex-direction: column;
+    box-shadow: 0 25px 50px -12px rgba(0,0,0,0.7); position: relative;
+  }
+  .dialog::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(to right, rgba(212,168,83,0.7), rgba(212,168,83,0.3), transparent);
+    border-radius: 12px 12px 0 0; z-index: 10;
+  }
+  .dialog-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 24px 24px 12px; flex-shrink: 0;
+  }
+  .dialog-title {
+    font-family: 'Cinzel', serif; font-size: 18px; font-weight: 600;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .dialog-title svg { color: var(--primary); width: 20px; height: 20px; }
+  .dialog-actions { display: flex; gap: 4px; align-items: center; }
+  .dialog-actions button {
+    background: none; border: none; color: var(--muted-fg); cursor: pointer;
+    padding: 6px; border-radius: 6px; transition: all 0.15s; display: flex;
+    align-items: center; justify-content: center; width: 28px; height: 28px;
+  }
+  .dialog-actions button:hover { color: var(--foreground); background: var(--secondary); }
+  .amber-rule {
+    height: 1px;
+    background: linear-gradient(to right, rgba(212,168,83,0.6), rgba(212,168,83,0.2), transparent);
+    margin: 0 24px; flex-shrink: 0;
+  }
+  .dialog-body { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    width: 190px; flex-shrink: 0; border-right: 1px solid rgba(34,42,56,0.3);
+    display: flex; flex-direction: column; background: rgba(24,31,46,0.2); overflow: hidden;
+  }
+  .sidebar-header {
+    padding: 10px 12px; border-bottom: 1px solid rgba(34,42,56,0.3); flex-shrink: 0;
+  }
+  .sidebar-header span {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+    color: rgba(138,130,114,0.6); font-weight: 600;
+  }
+  .sidebar-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+  .sidebar-item {
+    display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 12px;
+    color: var(--muted-fg); cursor: pointer; transition: all 0.15s;
+    border-left: 2px solid transparent; position: relative;
+  }
+  .sidebar-item:hover { color: var(--foreground); background: rgba(28,34,49,0.5); }
+  .sidebar-item.active {
+    border-left-color: var(--primary); background: rgba(212,168,83,0.1); color: var(--primary);
+  }
+  .sidebar-item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sidebar-item .count {
+    font-size: 11px; color: rgba(138,130,114,0.4); font-variant-numeric: tabular-nums; flex-shrink: 0;
+  }
+  .sidebar-item .dot {
+    width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: 0.5; flex-shrink: 0;
+  }
+  .sidebar-item.all-tab { font-family: 'Cinzel', serif; font-size: 13px; font-weight: 600; }
+  .sidebar-divider { height: 1px; background: rgba(34,42,56,0.3); margin: 2px 12px; }
+
+  /* ··· menu button on sidebar items */
+  .sidebar-item .menu-btn {
+    opacity: 0; width: 20px; height: 20px; border: none; background: none;
+    color: rgba(138,130,114,0.4); cursor: pointer; border-radius: 4px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    transition: all 0.15s; font-size: 14px;
+  }
+  .sidebar-item:hover .menu-btn { opacity: 1; }
+  .sidebar-item .menu-btn:hover { color: var(--foreground); background: var(--secondary); }
+
+  .sidebar-footer {
+    padding: 10px; border-top: 1px solid rgba(34,42,56,0.3); flex-shrink: 0;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .sidebar-footer button {
+    width: 100%; padding: 6px; font-size: 12px; border-radius: 6px; border: 1px solid;
+    cursor: pointer; font-family: inherit; display: flex; align-items: center;
+    justify-content: center; gap: 6px; transition: all 0.15s;
+  }
+  .btn-merge {
+    border-color: rgba(34,42,56,0.4) !important; background: rgba(28,34,49,0.3) !important; color: var(--muted-fg) !important;
+  }
+  .btn-merge:hover { background: rgba(28,34,49,0.6) !important; color: var(--foreground) !important; }
+  .btn-import {
+    border-color: rgba(212,168,83,0.4) !important; background: rgba(212,168,83,0.1) !important; color: var(--primary) !important;
+  }
+  .btn-import:hover { background: rgba(212,168,83,0.2) !important; }
+
+  /* ── Content ── */
+  .content {
+    flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden;
+  }
+  .metadata-form {
+    padding: 16px 20px 12px; border-bottom: 1px solid rgba(34,42,56,0.3);
+    flex-shrink: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  }
+  .form-field label {
+    display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--muted-fg); font-weight: 600; margin-bottom: 4px;
+  }
+  .form-field input {
+    width: 100%; height: 32px; padding: 0 12px; font-size: 13px; font-family: inherit;
+    background: var(--secondary); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--foreground); outline: none; transition: all 0.15s;
+  }
+  .form-field input:focus { border-color: rgba(212,168,83,0.4); box-shadow: 0 0 0 1px rgba(212,168,83,0.15); }
+  .form-field input::placeholder { color: rgba(138,130,114,0.5); }
+
+  .toolbar {
+    padding: 8px 20px; display: flex; align-items: center; gap: 8px;
+    border-bottom: 1px solid rgba(34,42,56,0.3); flex-shrink: 0;
+  }
+  .toolbar-checkbox {
+    width: 14px; height: 14px; border-radius: 3px; border: 1.5px solid var(--border);
+    background: transparent; cursor: pointer; appearance: none; flex-shrink: 0; position: relative;
+  }
+  .toolbar-checkbox:checked { background: rgba(212,168,83,0.3); border-color: var(--primary); }
+  .toolbar-checkbox:checked::after {
+    content: '✓'; position: absolute; top: -1px; left: 1px; font-size: 10px; color: var(--primary);
+  }
+  .toolbar-count { font-size: 12px; color: var(--muted-fg); font-variant-numeric: tabular-nums; white-space: nowrap; flex-shrink: 0; }
+  .toolbar-count strong { color: var(--foreground); font-weight: 500; }
+  .toolbar-search { flex: 1; min-width: 0; position: relative; }
+  .toolbar-search input {
+    width: 100%; height: 28px; padding: 0 28px 0 32px; font-size: 13px; font-family: inherit;
+    background: var(--secondary); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--foreground); outline: none;
+  }
+  .toolbar-search input::placeholder { color: rgba(138,130,114,0.4); }
+  .toolbar-search .si {
+    position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+    color: rgba(138,130,114,0.4); font-size: 14px; pointer-events: none;
+  }
+  .toolbar-actions { display: flex; gap: 2px; flex-shrink: 0; }
+  .toolbar-btn {
+    padding: 4px 8px; font-size: 12px; border: none; background: none; color: var(--muted-fg);
+    cursor: pointer; border-radius: 4px; font-family: inherit; transition: all 0.15s;
+    display: flex; align-items: center; gap: 4px; white-space: nowrap;
+  }
+  .toolbar-btn:hover { color: var(--foreground); background: var(--secondary); }
+  .toolbar-btn.destructive:hover { color: var(--destructive); background: rgba(224,78,78,0.1); }
+
+  .gallery {
+    flex: 1; overflow-y: auto; padding: 12px 20px; min-height: 0;
+  }
+  .gallery::-webkit-scrollbar { width: 5px; }
+  .gallery::-webkit-scrollbar-track { background: transparent; }
+  .gallery::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .dialog-footer {
+    padding: 12px 20px; border-top: 1px solid rgba(34,42,56,0.3); flex-shrink: 0;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .footer-left { display: flex; align-items: center; gap: 6px; }
+  .footer-right { display: flex; align-items: center; gap: 8px; }
+  .footer-btn {
+    padding: 6px 12px; font-size: 13px; border-radius: 6px; cursor: pointer;
+    font-family: inherit; transition: all 0.15s; display: flex; align-items: center; gap: 6px;
+    border: none; background: none;
+  }
+  .footer-btn.primary {
+    background: rgba(212,168,83,0.2); color: var(--primary); border: 1px solid rgba(212,168,83,0.4);
+  }
+  .footer-btn.primary:hover { background: rgba(212,168,83,0.3); }
+  .footer-btn.ghost { color: var(--muted-fg); }
+  .footer-btn.ghost:hover { color: var(--foreground); background: var(--secondary); }
+  .footer-btn.destructive { color: rgba(224,78,78,0.7); }
+  .footer-btn.destructive:hover { color: var(--destructive); background: rgba(224,78,78,0.1); }
+  .saved-indicator { font-size: 12px; color: rgba(34,197,94,0.7); display: flex; align-items: center; gap: 4px; }
+
+  /* ── Shared small pieces ── */
+  .type-toggle {
+    display: inline-flex; border-radius: 4px; border: 1px solid var(--border);
+    overflow: hidden; flex-shrink: 0; background: rgba(28,34,49,0.5);
+  }
+  .type-toggle button {
+    padding: 2px 7px; font-size: 10px; border: none; background: none;
+    color: rgba(138,130,114,0.5); cursor: pointer; font-family: inherit; transition: all 0.12s;
+  }
+  .type-toggle button.active { background: rgba(212,168,83,0.2); color: var(--primary); font-weight: 500; }
+
+  .grid-toggle {
+    display: inline-flex; border-radius: 4px; overflow: hidden; border: 1px solid var(--border);
+    background: rgba(28,34,49,0.5);
+  }
+  .grid-toggle button {
+    padding: 2px 6px; font-size: 10px; font-weight: 500; border: none; background: none;
+    color: rgba(138,130,114,0.5); cursor: pointer; font-family: inherit; transition: all 0.12s;
+    border-left: 1px solid var(--border);
+  }
+  .grid-toggle button:first-child { border-left: none; }
+  .grid-toggle button.active { background: rgba(212,168,83,0.2); color: var(--primary); }
+
+  .grid-size {
+    display: inline-flex; align-items: center; gap: 3px; font-size: 10px; color: var(--muted-fg);
+  }
+  .grid-size input {
+    width: 36px; height: 20px; text-align: center; font-size: 10px; font-family: inherit;
+    background: var(--secondary); border: 1px solid var(--border); border-radius: 3px;
+    color: var(--foreground); outline: none; -moz-appearance: textfield;
+  }
+  .grid-size input::-webkit-outer-spin-button,
+  .grid-size input::-webkit-inner-spin-button { -webkit-appearance: none; }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; border-radius: 3px;
+    border: 1px solid var(--border); background: var(--secondary); font-size: 10px;
+    color: rgba(237,232,220,0.8); text-transform: capitalize; white-space: nowrap;
+  }
+  .tag-pill {
+    display: inline-flex; align-items: center; gap: 3px; padding: 0px 6px; border-radius: 99px;
+    font-size: 10px; text-transform: capitalize; white-space: nowrap;
+  }
+  .tag-pill.terrain { background: rgba(52,211,153,0.1); color: #6ee7b7; border: 1px solid rgba(52,211,153,0.3); }
+  .tag-pill.lighting { background: rgba(251,191,36,0.1); color: #fcd34d; border: 1px solid rgba(251,191,36,0.3); }
+  .tag-pill.structure { background: rgba(168,162,158,0.1); color: #d6d3d1; border: 1px solid rgba(168,162,158,0.3); }
+  .tag-pill.mood { background: rgba(251,113,133,0.1); color: #fda4af; border: 1px solid rgba(251,113,133,0.3); }
+  .tag-pill.weather { background: rgba(56,189,248,0.1); color: #7dd3fc; border: 1px solid rgba(56,189,248,0.3); }
+  .tag-pill.biome { background: rgba(74,222,128,0.1); color: #86efac; border: 1px solid rgba(74,222,128,0.3); }
+  .tag-pill .rx { cursor: pointer; opacity: 0.4; font-size: 8px; transition: opacity 0.15s; margin-left: 1px; }
+  .tag-pill .rx:hover { opacity: 1; }
+  .tag-add {
+    font-size: 10px; color: var(--muted-fg); cursor: pointer; padding: 0px 6px;
+    border: 1px dashed rgba(34,42,56,0.5); border-radius: 99px; background: none;
+    font-family: inherit; transition: all 0.15s;
+  }
+  .tag-add:hover { border-color: var(--primary); color: var(--primary); }
+  .tag-overflow {
+    font-size: 10px; color: rgba(138,130,114,0.5); padding: 0 4px; cursor: pointer;
+    font-family: inherit; border: none; background: none; transition: color 0.15s;
+  }
+  .tag-overflow:hover { color: var(--primary); }
+
+  /* Faux thumbnails */
+  .t1 { background: linear-gradient(135deg, #1a3a2a, #2a5a3a, #1a4030); }
+  .t2 { background: linear-gradient(135deg, #2a2040, #3a3060, #201835); }
+  .t3 { background: linear-gradient(135deg, #3a2a1a, #5a4020, #302010); }
+  .t4 { background: linear-gradient(135deg, #1a2a3a, #2a4060, #102030); }
+  .t5 { background: linear-gradient(135deg, #2a1a2a, #402040, #201020); }
+  .t6 { background: linear-gradient(135deg, #1a3a3a, #205050, #103030); }
+
+  /* ═══════════════════════════════════════════════════════════
+     SUBGROUP HEADING — shared across all variants
+     ═══════════════════════════════════════════════════════════ */
+  .subgroup-section {
+    position: relative;
+    padding-left: 0;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     B1: HOVER REVEAL — Clean thumbnails, controls on hover
+     ═══════════════════════════════════════════════════════════ */
+
+  /* Subgroup: sticky horizontal bar */
+  .b1-subgroup-header {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 0; margin-bottom: 4px;
+    background: var(--card);
+  }
+  .b1-subgroup-header .sg-label {
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--muted-fg); white-space: nowrap;
+  }
+  .b1-subgroup-header .sg-count {
+    font-size: 10px; color: rgba(138,130,114,0.4); font-variant-numeric: tabular-nums;
+  }
+  .b1-subgroup-header .sg-line { flex: 1; height: 1px; background: rgba(34,42,56,0.3); }
+  .b1-subgroup-spacer { height: 16px; }
+
+  .b1-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); gap: 8px; }
+
+  .b1-card {
+    border-radius: 8px; border: 1px solid rgba(34,42,56,0.4); background: var(--card);
+    overflow: hidden; cursor: pointer; transition: all 0.2s; position: relative;
+  }
+  .b1-card:hover { border-color: rgba(34,42,56,0.7); }
+  .b1-card.selected {
+    border-color: rgba(212,168,83,0.5);
+    box-shadow: 0 0 0 1px rgba(212,168,83,0.2), 0 4px 12px rgba(212,168,83,0.08);
+  }
+
+  .b1-card .thumb-area {
+    width: 100%; aspect-ratio: 4/3; position: relative; overflow: hidden;
+  }
+  .b1-card .overlay {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    padding: 24px 10px 8px;
+    background: linear-gradient(to top, rgba(0,0,0,0.85), rgba(0,0,0,0.4), transparent);
+    transition: padding 0.2s;
+  }
+  .b1-card .overlay .name {
+    font-family: 'Cinzel', serif; font-size: 12px; font-weight: 500; color: white;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  /* Controls strip — always visible, compact */
+  .b1-card .controls-strip {
+    padding: 6px 8px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+    min-height: 32px;
+  }
+
+  /* Tag area — collapsed by default, shows on hover/select */
+  .b1-card .tag-area {
+    max-height: 0; overflow: hidden; transition: max-height 0.2s ease, padding 0.2s ease;
+    padding: 0 8px; display: flex; gap: 3px; flex-wrap: wrap;
+  }
+  .b1-card:hover .tag-area,
+  .b1-card.selected .tag-area {
+    max-height: 80px; padding: 0 8px 8px;
+  }
+
+  /* Trash button */
+  .b1-card .trash-btn {
+    position: absolute; top: 6px; right: 6px;
+    width: 24px; height: 24px; border-radius: 6px;
+    background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);
+    border: none; color: rgba(255,255,255,0.4); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: all 0.15s;
+  }
+  .b1-card:hover .trash-btn { opacity: 1; }
+  .b1-card .trash-btn:hover { color: white; background: rgba(224,78,78,0.7); }
+
+  /* Selection indicator */
+  .b1-card .sel-ring {
+    position: absolute; top: 6px; left: 6px;
+    width: 20px; height: 20px; border-radius: 4px;
+    background: rgba(0,0,0,0.3); backdrop-filter: blur(4px);
+    border: 1.5px solid rgba(255,255,255,0.2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; color: transparent; transition: all 0.15s;
+  }
+  .b1-card.selected .sel-ring {
+    background: rgba(212,168,83,0.9); border-color: var(--primary); color: var(--primary-fg); font-weight: 700;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     B2: BADGE OVERLAY — Type/grid on thumbnail, tags compact
+     ═══════════════════════════════════════════════════════════ */
+
+  /* Subgroup: full-width block header with border accent */
+  .b2-subgroup-header {
+    position: sticky; top: 0; z-index: 5;
+    background: var(--card);
+    padding: 8px 0 6px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid rgba(34,42,56,0.3);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .b2-subgroup-header .sg-title {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .b2-subgroup-header .sg-accent {
+    width: 3px; height: 14px; border-radius: 2px; background: var(--primary); opacity: 0.5;
+  }
+  .b2-subgroup-header .sg-label {
+    font-family: 'Cinzel', serif; font-size: 12px; font-weight: 600;
+    color: var(--foreground); text-transform: capitalize;
+  }
+  .b2-subgroup-header .sg-count {
+    font-size: 10px; color: rgba(138,130,114,0.4); font-variant-numeric: tabular-nums;
+    padding-right: 4px;
+  }
+  .b2-subgroup-spacer { height: 20px; }
+
+  .b2-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 8px; }
+
+  .b2-card {
+    border-radius: 8px; border: 1px solid rgba(34,42,56,0.4); background: var(--card);
+    overflow: hidden; cursor: pointer; transition: all 0.2s; position: relative;
+  }
+  .b2-card:hover { border-color: rgba(34,42,56,0.7); transform: scale(1.02); }
+  .b2-card.selected {
+    border-color: rgba(212,168,83,0.5);
+    box-shadow: 0 0 0 1px rgba(212,168,83,0.2), 0 4px 12px rgba(212,168,83,0.08);
+  }
+  .b2-card .thumb-area {
+    width: 100%; aspect-ratio: 4/3; position: relative; overflow: hidden;
+  }
+
+  /* Badge overlays on thumbnail corners */
+  .b2-card .badge-tl {
+    position: absolute; top: 6px; left: 6px;
+    display: flex; gap: 3px;
+  }
+  .b2-card .badge-tl .b-pill {
+    padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 600;
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); color: rgba(255,255,255,0.8);
+    text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .b2-card .badge-tl .b-pill.amber { color: var(--primary); }
+
+  .b2-card .overlay {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    padding: 28px 10px 8px;
+    background: linear-gradient(to top, rgba(0,0,0,0.88), rgba(0,0,0,0.5), transparent);
+  }
+  .b2-card .overlay .name {
+    font-family: 'Cinzel', serif; font-size: 12px; font-weight: 500; color: white;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  /* Compact tag row — single line with overflow */
+  .b2-card .tag-row {
+    padding: 6px 8px; display: flex; align-items: center; gap: 3px;
+    overflow: hidden; min-height: 28px;
+  }
+  .b2-card .tag-row .tag-pill { flex-shrink: 0; }
+
+  /* Trash + select */
+  .b2-card .trash-btn {
+    position: absolute; top: 6px; right: 6px;
+    width: 24px; height: 24px; border-radius: 6px;
+    background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);
+    border: none; color: rgba(255,255,255,0.4); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: all 0.15s;
+  }
+  .b2-card:hover .trash-btn { opacity: 1; }
+  .b2-card .trash-btn:hover { color: white; background: rgba(224,78,78,0.7); }
+
+  .b2-card .sel-ring {
+    position: absolute; bottom: 46px; right: 8px;
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 1.5px solid rgba(255,255,255,0.25); background: rgba(0,0,0,0.3);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; color: transparent; transition: all 0.15s; backdrop-filter: blur(2px);
+  }
+  .b2-card.selected .sel-ring {
+    background: var(--primary); border-color: var(--primary); color: var(--primary-fg); font-weight: 700;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     B3: EXPANDING CARDS — Thumbnail-only default, expand on select
+     ═══════════════════════════════════════════════════════════ */
+
+  /* Subgroup: sidebar-style vertical sections */
+  .b3-section {
+    display: flex; min-height: 0;
+  }
+  .b3-subgroup-rail {
+    width: 28px; flex-shrink: 0; position: relative;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  .b3-subgroup-rail .rail-line {
+    width: 1px; flex: 1; background: rgba(34,42,56,0.4);
+  }
+  .b3-subgroup-rail .rail-label {
+    writing-mode: vertical-lr; text-orientation: mixed;
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em;
+    color: rgba(138,130,114,0.5); padding: 8px 0; white-space: nowrap;
+    position: sticky; top: 8px;
+  }
+  .b3-subgroup-content { flex: 1; min-width: 0; }
+
+  .b3-subgroup-header {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 0 6px; background: var(--card);
+  }
+  .b3-subgroup-header .sg-label {
+    font-size: 11px; font-weight: 600; color: var(--foreground);
+    text-transform: capitalize;
+  }
+  .b3-subgroup-header .sg-count {
+    font-size: 10px; color: rgba(138,130,114,0.4); font-variant-numeric: tabular-nums;
+  }
+  .b3-subgroup-header .sg-line { flex: 1; height: 1px; background: rgba(34,42,56,0.25); }
+  .b3-subgroup-spacer { height: 20px; }
+
+  .b3-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px;
+    padding-bottom: 8px;
+  }
+
+  .b3-card {
+    border-radius: 8px; border: 1px solid rgba(34,42,56,0.35); background: var(--card);
+    overflow: hidden; cursor: pointer; transition: all 0.25s ease; position: relative;
+  }
+  .b3-card:hover { border-color: rgba(34,42,56,0.6); }
+  .b3-card.selected {
+    border-color: rgba(212,168,83,0.5);
+    box-shadow: 0 0 0 1px rgba(212,168,83,0.2), 0 8px 20px rgba(0,0,0,0.3);
+    grid-column: span 2;
+  }
+  .b3-card .thumb-area {
+    width: 100%; aspect-ratio: 4/3; position: relative; overflow: hidden;
+  }
+  .b3-card .overlay {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    padding: 20px 8px 6px;
+    background: linear-gradient(to top, rgba(0,0,0,0.85), rgba(0,0,0,0.3), transparent);
+  }
+  .b3-card .overlay .name {
+    font-family: 'Cinzel', serif; font-size: 11px; font-weight: 500; color: white;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  /* Expanded detail — only visible when selected */
+  .b3-card .expanded {
+    max-height: 0; overflow: hidden; transition: max-height 0.3s ease;
+  }
+  .b3-card.selected .expanded {
+    max-height: 200px;
+  }
+  .b3-card .expanded-inner {
+    padding: 8px 10px 10px;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .b3-card .expanded-inner .controls-row {
+    display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  }
+  .b3-card .expanded-inner .tag-list {
+    display: flex; gap: 3px; flex-wrap: wrap;
+  }
+
+  /* Trash */
+  .b3-card .trash-btn {
+    position: absolute; top: 5px; right: 5px;
+    width: 22px; height: 22px; border-radius: 5px;
+    background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);
+    border: none; color: rgba(255,255,255,0.4); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: all 0.15s; font-size: 11px;
+  }
+  .b3-card:hover .trash-btn { opacity: 1; }
+  .b3-card .trash-btn:hover { color: white; background: rgba(224,78,78,0.7); }
+
+  /* SVG icons inline */
+  .icon-trash { display: inline-block; width: 14px; height: 14px; }
+  .icon-trash svg { width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>Gallery Grid Variants</h1>
+  <p>Three approaches to the gallery card pattern — addressing tag density, subgroup sections, and interaction</p>
+</div>
+
+<div class="tab-bar">
+  <button class="tab-btn active" onclick="showTab('b1')">B1: Hover Reveal</button>
+  <button class="tab-btn" onclick="showTab('b2')">B2: Badge Overlay</button>
+  <button class="tab-btn" onclick="showTab('b3')">B3: Expanding Cards</button>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     B1: HOVER REVEAL
+     ═══════════════════════════════════════════════════════ -->
+<div class="tab-content active" id="tab-b1">
+
+<div class="variant-label">B1 — Hover Reveal</div>
+<div class="variant-desc">
+  Cards show type/grid controls at all times in a thin strip. Tags are hidden by default and
+  slide open on hover or selection — keeping cards compact when browsing, detailed when you focus.
+  Subgroups use sticky horizontal dividers. Handles many tags gracefully because they only
+  appear when you're actually looking at a card.
+</div>
+
+<div class="dialog">
+  <div class="dialog-header">
+    <div class="dialog-title">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+      Edit Group
+    </div>
+    <div class="dialog-actions">
+      <button title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+  </div>
+  <div class="amber-rule"></div>
+  <div class="dialog-body">
+    <div class="sidebar">
+      <div class="sidebar-header"><span>2 groups · 22 files</span></div>
+      <div class="sidebar-list">
+        <div class="sidebar-item all-tab"><span class="name">All</span><span class="count">22</span></div>
+        <div class="sidebar-divider"></div>
+        <div class="sidebar-item active">
+          <span class="name">Moonlit Tavern</span>
+          <span class="count">14</span>
+          <button class="menu-btn" title="Group actions">⋯</button>
+        </div>
+        <div class="sidebar-item">
+          <span class="name">Forest Clearing</span>
+          <span class="count">8</span>
+          <button class="menu-btn" title="Group actions">⋯</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="metadata-form">
+        <div class="form-field"><label>Author</label><input value="Tom Cartos"></div>
+        <div class="form-field"><label>Group Name</label><input value="Moonlit Tavern"></div>
+      </div>
+      <div class="toolbar">
+        <input type="checkbox" class="toolbar-checkbox">
+        <span class="toolbar-count">14 files</span>
+        <div class="toolbar-search"><span class="si">⌕</span><input placeholder="Filter files…"></div>
+        <div class="toolbar-actions">
+          <button class="toolbar-btn">+ Tag</button>
+          <button class="toolbar-btn">Type ▾</button>
+          <button class="toolbar-btn">Grid ▾</button>
+          <button class="toolbar-btn destructive">🗑 Delete</button>
+        </div>
+      </div>
+
+      <div class="gallery">
+        <!-- Subgroup: Summer -->
+        <div class="b1-subgroup-header">
+          <span class="sg-label">Summer</span>
+          <span class="sg-count">6</span>
+          <span class="sg-line"></span>
+        </div>
+        <div class="b1-grid">
+          <div class="b1-card selected">
+            <div class="sel-ring">✓</div>
+            <button class="trash-btn">🗑</button>
+            <div class="thumb-area t1"></div>
+            <div class="overlay"><div class="name">Moonlit Tavern — Interior</div></div>
+            <div class="controls-strip">
+              <div class="type-toggle"><button class="active">Map</button><button>Scene</button></div>
+              <div class="grid-toggle"><button class="active">Sq</button><button>Hex</button><button>—</button></div>
+              <div class="grid-size"><input value="32"><span>×</span><input value="44"></div>
+            </div>
+            <div class="tag-area">
+              <span class="tag-pill lighting">torchlit <span class="rx">✕</span></span>
+              <span class="tag-pill structure">tavern <span class="rx">✕</span></span>
+              <span class="tag-pill mood">cozy <span class="rx">✕</span></span>
+              <span class="tag-pill biome">forest <span class="rx">✕</span></span>
+              <span class="tag-pill weather">clear <span class="rx">✕</span></span>
+              <button class="tag-add">+ Tag</button>
+            </div>
+          </div>
+          <div class="b1-card">
+            <div class="sel-ring"></div>
+            <button class="trash-btn">🗑</button>
+            <div class="thumb-area t2"></div>
+            <div class="overlay"><div class="name">Moonlit Tavern — Exterior</div></div>
+            <div class="controls-strip">
+              <div class="type-toggle"><button class="active">Map</button><button>Scene</button></div>
+              <div class="grid-toggle"><button class="active">Sq</button><button>Hex</button><button>—</button></div>
+              <div class="grid-size"><input value="28"><span>×</span><input value="40"></div>
+            </div>
+            <div class="tag-area">
+              <span class="tag-pill lighting">moonlit <span class="rx">✕</span></span>
+              <span class="tag-pill terrain">cobblestone <span class="rx">✕</span></span>
+              <button class="tag-add">+ Tag</button>
+            </div>
+          </div>
+          <div class="b1-card">
+            <div class="sel-ring"></div>
+            <button class="trash-btn">🗑</button>
+            <div class="thumb-area t3"></div>
+            <div class="overlay"><div class="name">Moonlit Tavern — Cellar</div></div>
+            <div class="controls-strip">
+              <div class="type-toggle"><button class="active">Map</button><button>Scene</button></div>
+              <div class="grid-toggle"><button class="active">Sq</button><button>Hex</button><button>—</button></div>
+            </div>
+            <div class="tag-area">
+              <span class="tag-pill mood">dark <span class="rx">✕</span></span>
+              <button class="tag-add">+ Tag</button>
+            </div>
+          </div>
+          <div class="b1-card">
+            <div class="sel-ring"></div>
+            <button class="trash-btn">🗑</button>
+            <div class="thumb-area t6"></div>
+            <div class="overlay"><div class="name">Moonlit Tavern — Garden</div></div>
+            <div class="controls-strip">
+              <div class="type-toggle"><button class="active">Map</button><button>Scene</button></div>
+              <div class="grid-toggle"><button class="active">Sq</button><button>Hex</button><button>—</button></div>
+              <div class="grid-size"><input value="32"><span>×</span><input value="44"></div>
+            </div>
+            <div class="tag-area">
+              <span class="tag-pill terrain">garden <span class="rx">✕</span></span>
+              <span class="tag-pill biome">fey <span class="rx">✕</span></span>
+              <button class="tag-add">+ Tag</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="b1-subgroup-spacer"></div>
+
+        <!-- Subgroup: Winter -->
+        <div class="b1-subgroup-header">
+          <span class="sg-label">Winter</span>
+          <span class="sg-count">4</span>
+          <span class="sg-line"></span>
+        </div>
+        <div class="b1-grid">
+          <div class="b1-card">
+            <div class="sel-ring"></div>
+            <button class="trash-btn">🗑</button>
+            <div class="thumb-area t4"></div>
+            <div class="overlay"><div class="name">Moonlit Tavern — Snowy</div></div>
+            <div class="controls-strip">
+              <div class="type-toggle"><button>Map</button><button class="active">Scene</button></div>
+            </div>
+            <div class="tag-area">
+              <span class="tag-pill weather">snow <span class="rx">✕</span></span>
+              <button class="tag-add">+ Tag</button>
+            </div>
+          </div>
+          <div class="b1-card">
+            <div class="sel-ring"></div>
+            <button class="trash-btn">🗑</button>
+            <div class="thumb-area t5"></div>
+            <div class="overlay"><div class="name">Moonlit Tavern — Frozen River</div></div>
+            <div class="controls-strip">
+              <div class="type-toggle"><button class="active">Map</button><button>Scene</button></div>
+              <div class="grid-toggle"><button class="active">Sq</button><button>Hex</button><button>—</button></div>
+            </div>
+            <div class="tag-area">
+              <span class="tag-pill weather">ice <span class="rx">✕</span></span>
+              <span class="tag-pill terrain">river <span class="rx">✕</span></span>
+              <button class="tag-add">+ Tag</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dialog-footer">
+        <div class="footer-left">
+          <button class="footer-btn destructive">🗑 Delete Group</button>
+          <button class="footer-btn ghost">⤵ Merge into…</button>
+        </div>
+        <div class="footer-right">
+          <span class="saved-indicator">✓ Saved</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     B2: BADGE OVERLAY
+     ═══════════════════════════════════════════════════════ -->
+<div class="tab-content" id="tab-b2">
+
+<div class="variant-label">B2 — Badge Overlay</div>
+<div class="variant-desc">
+  Type and grid status shown as small pill badges overlaid on the thumbnail's top-left corner.
+  Tags in a single-line strip below the card with an overflow count (+N) for cards with many tags.
+  Subgroups get bold Cinzel headings with an amber accent bar. Maximizes thumbnail visibility
+  while keeping metadata scannable.
+</div>
+
+<div class="dialog">
+  <div class="dialog-header">
+    <div class="dialog-title">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+      Edit Group
+    </div>
+    <div class="dialog-actions">
+      <button title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+  </div>
+  <div class="amber-rule"></div>
+  <div class="dialog-body">
+    <div class="sidebar">
+      <div class="sidebar-header"><span>2 groups · 22 files</span></div>
+      <div class="sidebar-list">
+        <div class="sidebar-item all-tab"><span class="name">All</span><span class="count">22</span></div>
+        <div class="sidebar-divider"></div>
+        <div class="sidebar-item active">
+          <span class="name">Moonlit Tavern</span>
+          <span class="count">14</span>
+          <button class="menu-btn">⋯</button>
+        </div>
+        <div class="sidebar-item">
+          <span class="name">Forest Clearing</span>
+          <span class="count">8</span>
+          <button class="menu-btn">⋯</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="metadata-form">
+        <div class="form-field"><label>Author</label><input value="Tom Cartos"></div>
+        <div class="form-field"><label>Group Name</label><input value="Moonlit Tavern"></div>
+      </div>
+      <div class="toolbar">
+        <input type="checkbox" class="toolbar-checkbox" checked>
+        <span class="toolbar-count"><strong>1</strong> / 14</span>
+        <div class="toolbar-search"><span class="si">⌕</span><input placeholder="Filter files…"></div>
+        <div class="toolbar-actions">
+          <button class="toolbar-btn">+ Tag</button>
+          <button class="toolbar-btn">Type ▾</button>
+          <button class="toolbar-btn">Grid ▾</button>
+          <button class="toolbar-btn destructive">🗑 Delete</button>
+        </div>
+      </div>
+
+      <div class="gallery">
+        <!-- Subgroup: Summer -->
+        <div class="b2-subgroup-header">
+          <div class="sg-title">
+            <div class="sg-accent"></div>
+            <span class="sg-label">Summer</span>
+          </div>
+          <span class="sg-count">6 files</span>
+        </div>
+        <div class="b2-grid">
+          <div class="b2-card selected">
+            <div class="thumb-area t1">
+              <div class="badge-tl">
+                <span class="b-pill amber">MAP</span>
+                <span class="b-pill">SQ 32×44</span>
+              </div>
+              <button class="trash-btn">🗑</button>
+              <div class="sel-ring">✓</div>
+              <div class="overlay"><div class="name">Moonlit Tavern — Interior</div></div>
+            </div>
+            <div class="tag-row">
+              <span class="tag-pill lighting">torchlit</span>
+              <span class="tag-pill structure">tavern</span>
+              <span class="tag-pill mood">cozy</span>
+              <button class="tag-overflow">+2</button>
+            </div>
+          </div>
+
+          <div class="b2-card">
+            <div class="thumb-area t2">
+              <div class="badge-tl">
+                <span class="b-pill amber">MAP</span>
+                <span class="b-pill">SQ 28×40</span>
+              </div>
+              <button class="trash-btn">🗑</button>
+              <div class="sel-ring"></div>
+              <div class="overlay"><div class="name">Moonlit Tavern — Exterior</div></div>
+            </div>
+            <div class="tag-row">
+              <span class="tag-pill lighting">moonlit</span>
+              <span class="tag-pill terrain">cobblestone</span>
+              <button class="tag-add">+</button>
+            </div>
+          </div>
+
+          <div class="b2-card">
+            <div class="thumb-area t3">
+              <div class="badge-tl">
+                <span class="b-pill amber">MAP</span>
+                <span class="b-pill">SQ</span>
+              </div>
+              <button class="trash-btn">🗑</button>
+              <div class="sel-ring"></div>
+              <div class="overlay"><div class="name">Moonlit Tavern — Cellar</div></div>
+            </div>
+            <div class="tag-row">
+              <span class="tag-pill mood">dark</span>
+              <span class="tag-pill structure">dungeon</span>
+              <button class="tag-add">+</button>
+            </div>
+          </div>
+
+          <div class="b2-card">
+            <div class="thumb-area t6">
+              <div class="badge-tl">
+                <span class="b-pill amber">MAP</span>
+                <span class="b-pill">SQ 32×44</span>
+              </div>
+              <button class="trash-btn">🗑</button>
+              <div class="sel-ring"></div>
+              <div class="overlay"><div class="name">Moonlit Tavern — Garden</div></div>
+            </div>
+            <div class="tag-row">
+              <span class="tag-pill terrain">garden</span>
+              <span class="tag-pill biome">fey</span>
+              <span class="tag-pill lighting">glowing</span>
+              <button class="tag-overflow">+1</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="b2-subgroup-spacer"></div>
+
+        <!-- Subgroup: Winter -->
+        <div class="b2-subgroup-header">
+          <div class="sg-title">
+            <div class="sg-accent"></div>
+            <span class="sg-label">Winter</span>
+          </div>
+          <span class="sg-count">4 files</span>
+        </div>
+        <div class="b2-grid">
+          <div class="b2-card">
+            <div class="thumb-area t4">
+              <div class="badge-tl">
+                <span class="b-pill">SCENE</span>
+              </div>
+              <button class="trash-btn">🗑</button>
+              <div class="sel-ring"></div>
+              <div class="overlay"><div class="name">Moonlit Tavern — Snowy</div></div>
+            </div>
+            <div class="tag-row">
+              <span class="tag-pill weather">snow</span>
+              <span class="tag-pill mood">peaceful</span>
+              <button class="tag-add">+</button>
+            </div>
+          </div>
+
+          <div class="b2-card">
+            <div class="thumb-area t5">
+              <div class="badge-tl">
+                <span class="b-pill amber">MAP</span>
+                <span class="b-pill">SQ</span>
+              </div>
+              <button class="trash-btn">🗑</button>
+              <div class="sel-ring"></div>
+              <div class="overlay"><div class="name">Moonlit Tavern — Frozen River</div></div>
+            </div>
+            <div class="tag-row">
+              <span class="tag-pill weather">ice</span>
+              <span class="tag-pill terrain">river</span>
+              <button class="tag-add">+</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dialog-footer">
+        <div class="footer-left">
+          <button class="footer-btn destructive">🗑 Delete Group</button>
+          <button class="footer-btn ghost">⤵ Merge into…</button>
+        </div>
+        <div class="footer-right">
+          <span class="saved-indicator">✓ Saved</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     B3: EXPANDING CARDS
+     ═══════════════════════════════════════════════════════ -->
+<div class="tab-content" id="tab-b3">
+
+<div class="variant-label">B3 — Expanding Cards</div>
+<div class="variant-desc">
+  Cards are thumbnail-only by default — extremely compact, showing maximum images at once.
+  Clicking a card selects it AND expands it to reveal full controls and tags. The selected card
+  spans two columns to make room. Subgroups use a vertical rail with rotated labels as
+  persistent section markers. Best density when browsing; full control when editing.
+</div>
+
+<div class="dialog">
+  <div class="dialog-header">
+    <div class="dialog-title">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+      Edit Group
+    </div>
+    <div class="dialog-actions">
+      <button title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+  </div>
+  <div class="amber-rule"></div>
+  <div class="dialog-body">
+    <div class="sidebar">
+      <div class="sidebar-header"><span>2 groups · 22 files</span></div>
+      <div class="sidebar-list">
+        <div class="sidebar-item all-tab"><span class="name">All</span><span class="count">22</span></div>
+        <div class="sidebar-divider"></div>
+        <div class="sidebar-item active">
+          <span class="name">Moonlit Tavern</span>
+          <span class="count">14</span>
+          <button class="menu-btn">⋯</button>
+        </div>
+        <div class="sidebar-item">
+          <span class="name">Forest Clearing</span>
+          <span class="count">8</span>
+          <button class="menu-btn">⋯</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="metadata-form">
+        <div class="form-field"><label>Author</label><input value="Tom Cartos"></div>
+        <div class="form-field"><label>Group Name</label><input value="Moonlit Tavern"></div>
+      </div>
+      <div class="toolbar">
+        <input type="checkbox" class="toolbar-checkbox">
+        <span class="toolbar-count">14 files</span>
+        <div class="toolbar-search"><span class="si">⌕</span><input placeholder="Filter files…"></div>
+        <div class="toolbar-actions">
+          <button class="toolbar-btn">+ Tag</button>
+          <button class="toolbar-btn">Type ▾</button>
+          <button class="toolbar-btn">Grid ▾</button>
+          <button class="toolbar-btn destructive">🗑 Delete</button>
+        </div>
+      </div>
+
+      <div class="gallery">
+        <!-- Summer section with vertical rail -->
+        <div class="b3-section">
+          <div class="b3-subgroup-rail">
+            <div class="rail-line"></div>
+            <div class="rail-label">Summer</div>
+            <div class="rail-line"></div>
+          </div>
+          <div class="b3-subgroup-content">
+            <div class="b3-grid">
+              <!-- Selected / expanded card -->
+              <div class="b3-card selected">
+                <button class="trash-btn">🗑</button>
+                <div class="thumb-area t1">
+                  <div class="overlay"><div class="name">Moonlit Tavern — Interior</div></div>
+                </div>
+                <div class="expanded">
+                  <div class="expanded-inner">
+                    <div class="controls-row">
+                      <div class="type-toggle"><button class="active">Map</button><button>Scene</button></div>
+                      <div class="grid-toggle"><button class="active">Sq</button><button>Hex</button><button>—</button><button>?</button></div>
+                      <div class="grid-size"><input value="32"><span>×</span><input value="44"></div>
+                    </div>
+                    <div class="tag-list">
+                      <span class="tag-pill lighting">torchlit <span class="rx">✕</span></span>
+                      <span class="tag-pill structure">tavern <span class="rx">✕</span></span>
+                      <span class="tag-pill mood">cozy <span class="rx">✕</span></span>
+                      <span class="tag-pill biome">forest <span class="rx">✕</span></span>
+                      <span class="tag-pill weather">clear <span class="rx">✕</span></span>
+                      <button class="tag-add">+ Tag</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Collapsed cards -->
+              <div class="b3-card">
+                <button class="trash-btn">🗑</button>
+                <div class="thumb-area t2">
+                  <div class="overlay"><div class="name">Exterior</div></div>
+                </div>
+                <div class="expanded"></div>
+              </div>
+              <div class="b3-card">
+                <button class="trash-btn">🗑</button>
+                <div class="thumb-area t3">
+                  <div class="overlay"><div class="name">Cellar</div></div>
+                </div>
+                <div class="expanded"></div>
+              </div>
+              <div class="b3-card">
+                <button class="trash-btn">🗑</button>
+                <div class="thumb-area t6">
+                  <div class="overlay"><div class="name">Garden</div></div>
+                </div>
+                <div class="expanded"></div>
+              </div>
+              <div class="b3-card">
+                <button class="trash-btn">🗑</button>
+                <div class="thumb-area t4">
+                  <div class="overlay"><div class="name">Rooftop</div></div>
+                </div>
+                <div class="expanded"></div>
+              </div>
+              <div class="b3-card">
+                <button class="trash-btn">🗑</button>
+                <div class="thumb-area t5">
+                  <div class="overlay"><div class="name">Back Alley</div></div>
+                </div>
+                <div class="expanded"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="b3-subgroup-spacer"></div>
+
+        <!-- Winter section -->
+        <div class="b3-section">
+          <div class="b3-subgroup-rail">
+            <div class="rail-line"></div>
+            <div class="rail-label">Winter</div>
+            <div class="rail-line"></div>
+          </div>
+          <div class="b3-subgroup-content">
+            <div class="b3-grid">
+              <div class="b3-card">
+                <button class="trash-btn">🗑</button>
+                <div class="thumb-area t4">
+                  <div class="overlay"><div class="name">Snowy</div></div>
+                </div>
+                <div class="expanded"></div>
+              </div>
+              <div class="b3-card">
+                <button class="trash-btn">🗑</button>
+                <div class="thumb-area t5">
+                  <div class="overlay"><div class="name">Frozen River</div></div>
+                </div>
+                <div class="expanded"></div>
+              </div>
+              <div class="b3-card">
+                <button class="trash-btn">🗑</button>
+                <div class="thumb-area t1">
+                  <div class="overlay"><div class="name">Blizzard</div></div>
+                </div>
+                <div class="expanded"></div>
+              </div>
+              <div class="b3-card">
+                <button class="trash-btn">🗑</button>
+                <div class="thumb-area t2">
+                  <div class="overlay"><div class="name">Ice Cave</div></div>
+                </div>
+                <div class="expanded"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dialog-footer">
+        <div class="footer-left">
+          <button class="footer-btn destructive">🗑 Delete Group</button>
+          <button class="footer-btn ghost">⤵ Merge into…</button>
+        </div>
+        <div class="footer-right">
+          <span class="saved-indicator">✓ Saved</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+function showTab(id) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + id).classList.add('active');
+  event.target.classList.add('active');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+</script>
+
+</body>
+</html>

@@ -28,8 +28,8 @@ export function LoadingScreen({
 }: LoadingScreenProps) {
   const [showDetail, setShowDetail] = useState(false)
 
-  const amber = (alpha: number) => `hsl(38 60% 58% / ${alpha})`
-  const red = (alpha: number) => `hsl(0 62% 57% / ${alpha})`
+  const amber = (alpha: number) => `hsl(var(--primary) / ${alpha})`
+  const red = (alpha: number) => `hsl(var(--destructive) / ${alpha})`
   const accent = isError ? red : amber
 
   return (

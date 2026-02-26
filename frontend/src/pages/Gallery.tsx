@@ -362,7 +362,7 @@ export function Gallery() {
         className="border-b border-border/70 backdrop-blur-md"
         style={{
           background:
-            'linear-gradient(180deg, hsl(38 60% 58% / 0.08) 0%, hsl(222 22% 12% / 0.97) 65%)',
+            'linear-gradient(180deg, hsl(var(--primary) / 0.08) 0%, hsl(var(--card) / 0.97) 65%)',
         }}
       >
         <div className="container mx-auto px-4">

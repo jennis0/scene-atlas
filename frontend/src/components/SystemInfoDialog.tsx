@@ -408,7 +408,7 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
                 disabled={patchSettingsMut.isPending || !appSettings}
                 className={[
                   'shrink-0 relative inline-flex h-5 w-9 cursor-pointer rounded-full border-2 border-transparent',
-                  'transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  'transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40',
                   'disabled:cursor-not-allowed disabled:opacity-50',
                   appSettings?.enable_image_grid_detection ? 'bg-primary' : 'bg-input',
                 ].join(' ')}

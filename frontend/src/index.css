@@ -37,6 +37,9 @@
     --input: 220 18% 19%; /* input border */
     --ring: 38 60% 58%; /* amber focus ring */
     --radius: 0.375rem; /* 6px — precise, cartographic */
+
+    /* ── Extended surfaces ────────────────────────────────── */
+    --surface-canvas: 222 22% 6%; /* ImageViewer deep canvas bg */
   }
 }
 
@@ -109,5 +112,10 @@
   /* Mono for filenames, codes, dimensions */
   .font-mono {
     font-family: 'JetBrains Mono', Consolas, monospace;
+  }
+
+  /* Section label — small uppercase heading for panel sections */
+  .section-label {
+    @apply text-[10px] font-semibold tracking-[0.1em] uppercase text-muted-foreground;
   }
 }

@@ -34,6 +34,7 @@ import {
   Layers,
   type LucideIcon,
 } from 'lucide-react'
+import { Input } from '@/components/ui/input'
 import { DEFAULT_TAG_COLOR } from '@/components/import/tagColors'
 import { useGetTagColor } from '@/contexts/TagColorContext'
 import { getCategoryIcon } from '@/lib/categoryIcons'
@@ -97,8 +98,8 @@ const GRID_TILE_CONFIG: Record<string, { label: string }> = {
   unknown: { label: 'Unknown' },
 }
 
-// Darker surface colour shared by the nav and footer, matching the mockup
-const DARK_SURFACE = 'hsl(222 22% 10%)'
+// Darker surface colour shared by the nav and footer — uses --popover token
+const DARK_SURFACE = 'hsl(var(--popover))'
 
 /**
  * Scores how well a filter option matches a search query.
@@ -247,7 +248,7 @@ export function FilterMenuContent({
               Filters
             </span>
             {totalActive > 0 && (
-              <span className="inline-flex items-center h-[18px] px-[7px] rounded-full bg-primary/12 border border-primary/25 text-[10px] font-semibold text-primary font-sans">
+              <span className="inline-flex items-center px-1.5 py-px rounded-full bg-primary/15 text-[10px] font-medium text-primary tabular-nums">
                 {totalActive} active
               </span>
             )}
@@ -268,11 +269,12 @@ export function FilterMenuContent({
       <div className="px-3 py-2 border-b border-border/50 flex-shrink-0">
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
-          <input
+          <Input
+            inputSize="compact"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search filters…"
-            className="w-full h-[30px] pl-7 pr-6 text-[12px] bg-secondary border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/50 text-foreground placeholder:text-muted-foreground"
+            className="pl-7 pr-6"
           />
           {search && (
             <button
@@ -338,16 +340,14 @@ export function FilterMenuContent({
           {selectedGroup && SelectedIcon && selectedColors && (
             <div className="px-3.5 pt-3.5 pb-2.5 border-b border-border/50 flex-shrink-0 flex items-end justify-between">
               <div>
-                <p className="text-[9.5px] font-medium tracking-[0.18em] uppercase text-muted-foreground mb-0.5">
-                  Filter by
-                </p>
+                <p className="section-label mb-0.5">Filter by</p>
                 <div
                   className={`flex items-center gap-[7px] font-display text-[17px] font-medium tracking-[0.04em] leading-none ${selectedColors.text}`}
                 >
                   <SelectedIcon className="h-3.5 w-3.5 flex-shrink-0 opacity-80" />
                   <span className="capitalize">{selectedGroup.label}</span>
                 </div>
-                <div className="mt-[3px] h-px w-6 bg-gradient-to-r from-primary/60 to-transparent" />
+                <div className="mt-[3px] h-px w-7 bg-gradient-to-r from-primary to-transparent" />
               </div>
               {selectedGroup.type !== 'color' && (
                 <span className="text-[11px] text-muted-foreground pb-0.5">
@@ -562,7 +562,7 @@ function CategoryNavItem({
 
   const activeClass = colors
     ? `${colors.bg} ${colors.text} font-medium ${colors.border}`
-    : 'bg-[hsl(222_20%_15%)] text-foreground font-medium border-primary/60'
+    : 'bg-muted text-foreground font-medium border-primary/60'
 
   return (
     <button
@@ -572,7 +572,7 @@ function CategoryNavItem({
         active ? activeClass : 'text-muted-foreground hover:text-foreground border-transparent'
       }`}
       onMouseEnter={(e) => {
-        if (!active) (e.currentTarget as HTMLElement).style.background = 'hsl(222 20% 14%)'
+        if (!active) (e.currentTarget as HTMLElement).style.background = 'hsl(var(--muted))'
       }}
       onMouseLeave={(e) => {
         if (!active) (e.currentTarget as HTMLElement).style.background = ''
@@ -632,14 +632,14 @@ function AuthorChecklist({
               padding: '0 14px 0 10px',
               backgroundColor:
                 state === 'include'
-                  ? 'hsl(38 60% 58% / 0.06)'
+                  ? 'hsl(var(--primary) / 0.06)'
                   : state === 'exclude'
-                    ? 'hsl(0 62% 57% / 0.05)'
+                    ? 'hsl(var(--destructive) / 0.05)'
                     : undefined,
             }}
             onMouseEnter={(e) => {
               if (!state)
-                (e.currentTarget as HTMLElement).style.backgroundColor = 'hsl(222 20% 15%)'
+                (e.currentTarget as HTMLElement).style.backgroundColor = 'hsl(var(--muted))'
             }}
             onMouseLeave={(e) => {
               if (!state) (e.currentTarget as HTMLElement).style.backgroundColor = ''
@@ -652,7 +652,7 @@ function AuthorChecklist({
                   ? 'bg-primary border border-primary'
                   : state === 'exclude'
                     ? 'bg-destructive/15 border border-destructive/50'
-                    : 'border border-[hsl(220_18%_28%)]'
+                    : 'border border-border'
               }`}
             >
               {state === 'include' && <Check className="h-[9px] w-[9px] text-primary-foreground" />}
@@ -718,14 +718,14 @@ function GridTileSelector({
                 isActive
                   ? 'border-primary text-foreground'
                   : isExcluded
-                    ? 'border-destructive/50 text-[hsl(0_62%_72%)] opacity-80'
+                    ? 'border-destructive/50 text-destructive opacity-80'
                     : 'border-border text-muted-foreground hover:border-border/80 hover:text-foreground'
               }`}
               style={{
                 background: isActive
-                  ? 'hsl(38 60% 58% / 0.12)'
+                  ? 'hsl(var(--primary) / 0.12)'
                   : isExcluded
-                    ? 'hsl(0 62% 57% / 0.08)'
+                    ? 'hsl(var(--destructive) / 0.08)'
                     : 'hsl(var(--secondary))',
               }}
             >
@@ -755,11 +755,7 @@ function GridTileSelector({
               {/* Status line — always takes space so tiles stay same height */}
               <span
                 className={`text-[9.5px] font-semibold h-[13px] ${
-                  isActive
-                    ? 'text-primary'
-                    : isExcluded
-                      ? 'text-[hsl(0_62%_70%)]'
-                      : 'text-transparent'
+                  isActive ? 'text-primary' : isExcluded ? 'text-destructive' : 'text-transparent'
                 }`}
               >
                 {isActive ? '✓ included' : isExcluded ? '− excluded' : '·'}
@@ -1107,12 +1103,12 @@ function ColorSwatch({
               ? 'click to include'
               : 'right-click to exclude'
         }`}
-        className={`aspect-square w-full rounded-md transition-all ${
+        className={`aspect-square w-full rounded-full transition-all ${
           activeState === 'include'
-            ? 'scale-105 border-2 border-primary/70'
+            ? 'scale-105 ring-2 ring-primary/70'
             : activeState === 'exclude'
-              ? 'border-2 border-destructive/50 opacity-40'
-              : 'border border-border/20 hover:border-foreground/35 hover:scale-105'
+              ? 'ring-2 ring-destructive/50 opacity-40'
+              : 'ring-1 ring-white/15 hover:ring-white/30 hover:scale-105'
         }`}
         style={{
           backgroundColor: hex,
@@ -1202,7 +1198,7 @@ function CustomColorPicker({
     <button
       onClick={() => inputRef.current?.click()}
       title="Pick a custom color"
-      className="aspect-square w-full rounded border-2 border-dashed border-border/60 hover:border-foreground/50 transition-all flex items-center justify-center bg-secondary/50 hover:bg-secondary"
+      className="aspect-square w-full rounded-full border-2 border-dashed border-border/60 hover:border-foreground/50 transition-all flex items-center justify-center bg-secondary/50 hover:bg-secondary"
     >
       <Plus className="h-3.5 w-3.5 text-muted-foreground" />
       <input ref={inputRef} type="color" className="sr-only" />

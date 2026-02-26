@@ -12,6 +12,7 @@ import {
   FolderDown,
   Trash2,
 } from 'lucide-react'
+import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { SceneTile } from '@/components/SceneTile'
 import { SubgroupDropdown } from '@/components/SubgroupDropdown'
@@ -41,8 +42,8 @@ interface ImageViewerProps {
 
 // Dot-grid canvas background — gives the image a defined "stage"
 const CANVAS_STYLE: React.CSSProperties = {
-  background: 'hsl(222 22% 6%)',
-  backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.045) 1px, transparent 1px)',
+  background: 'hsl(var(--surface-canvas))',
+  backgroundImage: 'radial-gradient(circle, hsl(var(--foreground) / 0.045) 1px, transparent 1px)',
   backgroundSize: '24px 24px',
 }
 
@@ -408,7 +409,7 @@ export function ImageViewer({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-8"
-      style={{ background: 'rgba(0,0,0,0.88)' }}
+      style={{ background: 'hsl(var(--background) / 0.88)' }}
       onClick={onClose}
     >
       <div
@@ -581,9 +582,7 @@ export function ImageViewer({
 
             {/* Sub-variant — inline editable property row */}
             <div className="group/sv relative flex items-center gap-2 mb-2 min-w-0">
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 w-[72px] shrink-0">
-                Subgroup
-              </span>
+              <span className="section-label w-[72px] shrink-0">Subgroup</span>
               <div className="relative flex-1 min-w-0">
                 <button
                   onClick={() => !editingSV && setEditingSV(true)}
@@ -622,9 +621,7 @@ export function ImageViewer({
 
             {/* Image type toggle */}
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 w-[72px] shrink-0">
-                Type
-              </span>
+              <span className="section-label w-[72px] shrink-0">Type</span>
               <div className="inline-flex rounded border border-border p-px bg-secondary/50">
                 <button
                   onClick={() => patchMutation.mutate({ image_type: 'battlemap' })}
@@ -654,9 +651,7 @@ export function ImageViewer({
             {/* Gridded toggle + optional grid size inputs (hidden for scenes) */}
             {img.image_type !== 'scene' && (
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 w-[72px] shrink-0">
-                  Grid
-                </span>
+                <span className="section-label w-[72px] shrink-0">Grid</span>
                 <div className="flex items-center gap-2 flex-1 min-w-0">
                   <GridToggle
                     gridded={img.gridded ?? null}
@@ -775,11 +770,12 @@ export function ImageViewer({
                   {/* Search */}
                   <div className="relative flex-1">
                     <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
-                    <input
+                    <Input
+                      inputSize="sm"
                       value={sceneSearch}
                       onChange={(e) => setVariantSearch(e.target.value)}
                       placeholder="Filter…"
-                      className={`w-full h-6 pl-6 text-xs bg-secondary border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary/40 text-foreground placeholder:text-muted-foreground ${
+                      className={`pl-6 ${
                         sceneSearch || sceneTypeFilter !== 'all' ? 'pr-6' : 'pr-2'
                       }`}
                     />
@@ -811,7 +807,7 @@ export function ImageViewer({
                           onClick={() => setSceneTypeFilter(val)}
                           className={`px-1.5 py-0.5 text-[10px] transition-colors ${
                             sceneTypeFilter === val
-                              ? 'bg-secondary text-foreground font-medium'
+                              ? 'bg-primary/20 text-primary font-medium'
                               : 'text-muted-foreground/60 hover:text-muted-foreground hover:bg-secondary/50'
                           }`}
                         >
@@ -840,7 +836,7 @@ export function ImageViewer({
                       >
                         <SlidersHorizontal className="h-3 w-3" />
                         {hasActiveFilters && (
-                          <span className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-primary text-[9px] font-bold text-primary-foreground flex items-center justify-center">
+                          <span className="absolute -top-1 -right-1 h-4 min-w-4 px-1 rounded-full bg-primary text-[10px] font-bold text-primary-foreground flex items-center justify-center tabular-nums">
                             {sceneFilters.length}
                           </span>
                         )}

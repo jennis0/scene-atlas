@@ -19,15 +19,16 @@ A comprehensive reference for the Scene Atlas UI. All new components must confor
 
 ## Design Tokens
 
-All values sourced from CSS custom properties defined in `frontend/src/index.css`. **Never use raw hex/rgb values** — always use token names.
+All values sourced from CSS custom properties defined in `frontend/src/index.css`. **Never use raw hex/rgb/hsl values** — always use `hsl(var(--token))` or Tailwind token classes. For opacity variants, use `hsl(var(--token) / 0.N)`. This enables future light mode support.
 
 ### Surface Hierarchy (darkest → lightest)
 | Token | Approx. hex | Role |
 |-------|-------------|------|
+| `--surface-canvas` | `#0b0e14` | ImageViewer deep canvas bg |
 | `--background` | `#0e1118` | Page base, dot-grid applied |
-| `--popover` | `#12171f` | Dropdowns, popovers |
+| `--popover` | `#12171f` | Dropdowns, popovers, panel headers/footers |
 | `--card` | `#161c28` | Card surfaces, panel backgrounds |
-| `--muted` | `#181f2e` | Muted/recessed surfaces |
+| `--muted` | `#181f2e` | Muted/recessed surfaces, hover backgrounds |
 | `--secondary` | `#1c2231` | Inputs, hover states, raised elements |
 
 ### Accent / Semantic
@@ -64,8 +65,8 @@ Three font families, used in distinct roles. **Never mix roles.**
 - Section heading (e.g. viewer name): `font-display text-xl font-semibold`
 - Card name: `text-[13px] font-medium` (gradient overlay) or `text-sm font-semibold`
 - Metadata / labels: `text-[11px]` or `text-xs text-muted-foreground`
-- Micro badges / counts: `text-[10px]` or `text-[9px]`
-- Category labels: `text-[10px] uppercase tracking-wider text-muted-foreground/60`
+- Micro badges / counts: `text-[10px]`
+- Section labels: `.section-label` utility — `text-[10px] font-semibold tracking-[0.1em] uppercase text-muted-foreground`
 
 ---
 
@@ -78,9 +79,10 @@ Amber (`primary`) is the single accent colour. It draws the eye, so it must be u
 | Top-of-viewport stripe | `body::before` in index.css — always present |
 | Top of modal/panel | Split gradient: canvas side `from-transparent to-primary/80`, sidebar side `from-primary/80 to-transparent` — brightest at the join line |
 | Active/selected states | `bg-primary/20 text-primary border border-primary/40` |
-| Focus rings | `focus:ring-1 focus:ring-primary/40` |
+| Focus rings | `focus-visible:ring-1 focus-visible:ring-primary/40` (unified across all components) |
 | Hover on interactive text | `hover:text-primary` |
-| Decorative rule | `border-primary/60` |
+| Page-level decorative rule | `h-[1.5px] w-16 bg-gradient-to-r from-primary/70 to-transparent` |
+| Panel-level decorative rule | `h-px w-7 bg-gradient-to-r from-primary to-transparent` |
 
 **Never use amber as a background fill** (except `bg-primary` for the tiny count badge on filter buttons, where text-primary-foreground ensures contrast).
 
@@ -100,11 +102,21 @@ Applied consistently across all interactive elements:
 | Destructive hover | `hover:text-destructive hover:bg-destructive/10` |
 
 ### Inputs and text fields
+
+Use the `<Input>` component from `ui/input.tsx` which supports CVA variants:
+
+| Variant | Height | Size | Used for |
+|---------|--------|------|----------|
+| `default` | h-10 | text-sm | Gallery search, forms |
+| `compact` | h-[30px] | text-[12px] | Filter search, panel inputs |
+| `sm` | h-6 | text-xs | Scene search, grid W×H inputs |
+
+Shared base: `bg-secondary border-border rounded-md focus-visible:ring-1 focus-visible:ring-primary/40`
+
+```tsx
+<Input inputSize="compact" placeholder="Search filters…" />
 ```
-bg-secondary border border-border rounded
-text-foreground placeholder:text-muted-foreground
-focus:outline-none focus:ring-1 focus:ring-primary/40
-```
+
 For inline editing (no box, just underline): `bg-transparent border-b border-primary/70 focus:outline-none`
 
 ### Number inputs — always hide native spinners
@@ -113,6 +125,45 @@ For inline editing (no box, just underline): `bg-transparent border-b border-pri
 [&::-webkit-outer-spin-button]:appearance-none
 [&::-webkit-inner-spin-button]:appearance-none
 ```
+
+### Count badges
+
+Two tiers:
+
+| Tier | Classes | Used for |
+|------|---------|----------|
+| **Solid** (button overlays) | `h-4 min-w-4 px-1 rounded-full bg-primary text-[10px] font-bold text-primary-foreground flex items-center justify-center tabular-nums` | Gallery filter button, ImageViewer filter badge |
+| **Tinted** (inline context) | `px-1.5 py-px rounded-full bg-primary/15 text-[10px] font-medium text-primary tabular-nums` | Tab counts, "N active" badges |
+
+### Close buttons
+
+Standard close button (used in dialogs and panels):
+```tsx
+<button className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
+  <X className="h-3.5 w-3.5" />
+  <span className="sr-only">Close</span>
+</button>
+```
+
+### Create / add buttons (standalone)
+
+Ghost text only — no border, no background. Subtle default, brightens on hover:
+```tsx
+<button className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground/70 hover:text-muted-foreground transition-colors">
+  <Plus className="h-[11px] w-[11px]" />
+  New category
+</button>
+```
+
+Use for standalone "add to list" actions (new category, add tag value, etc.). The `+ Tag` dashed pill in TagPicker is a different pattern — it's an inline popover trigger in a tag flow.
+
+### Color swatch pickers
+
+Circles everywhere (`rounded-full`). Default ring: `ring-1 ring-white/15`. Selected: `outline: 2px solid hsl(var(--foreground))` with `outlineOffset: 2`. Unselected: `opacity-70 hover:opacity-100 hover:scale-105`.
+
+### Icon strokeWidth
+
+All Lucide icons use the **default strokeWidth (2)**. Never override to 1.5 — it creates visual inconsistency with other components.
 
 ---
 
@@ -262,7 +313,7 @@ Full-screen overlay with fixed image canvas + structured sidebar:
 ### Key layout rules
 - Container: `max-width: 1600px; height: 88vh` — fixed size, image fits within canvas
 - Canvas: `flex-1 relative`, `min-w-0` (allows flex shrink)
-- Canvas background: `hsl(222 22% 6%)` + `radial-gradient(circle, rgba(255,255,255,0.045) 1px, transparent 1px)` at 24px
+- Canvas background: `hsl(var(--surface-canvas))` + `radial-gradient(circle, hsl(var(--foreground) / 0.045) 1px, transparent 1px)` at 24px
 - Sidebar: `w-[440px] shrink-0 flex flex-col` — **does not grow or shrink**
 
 ### Sidebar sections (top to bottom)
@@ -294,7 +345,7 @@ The stripe spans the full viewer top but is **brightest at the canvas/sidebar jo
 Displayed as a labeled property row, **not** a tag pill. Uses inline editing:
 ```tsx
 <div className="group/sv flex items-center gap-2 mb-2 min-w-0">
-  <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 w-[72px] shrink-0">Subgroup</span>
+  <span className="section-label w-[72px] shrink-0">Subgroup</span>
   {/* editing: underline input with datalist suggestions from sibling scenes */}
   {/* display: current value text (or italic "none"), hover reveals ✎ and ✕ */}
 </div>
