@@ -8,9 +8,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
-from .api import export, groups, images, imports, jobs, search, settings as settings_api, system, tags
+from .api import export, groups, images, imports, jobs, search, system, tags
+from .api import settings as settings_api
 from .config import settings
-from .models import get_engine, get_session_local, init_db, seed_default_settings, seed_tag_categories
+from .models import (
+    get_engine,
+    get_session_local,
+    init_db,
+    seed_default_settings,
+    seed_tag_categories,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -128,9 +135,7 @@ app.include_router(groups.router, prefix=f"{settings.api_prefix}/groups", tags=[
 app.include_router(jobs.router, prefix=f"{settings.api_prefix}/jobs", tags=["jobs"])
 app.include_router(export.router, prefix=f"{settings.api_prefix}/export", tags=["export"])
 app.include_router(system.router, prefix=f"{settings.api_prefix}/system", tags=["system"])
-app.include_router(
-    settings_api.router, prefix=f"{settings.api_prefix}/settings", tags=["settings"]
-)
+app.include_router(settings_api.router, prefix=f"{settings.api_prefix}/settings", tags=["settings"])
 
 
 @app.get("/")

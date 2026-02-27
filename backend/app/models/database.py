@@ -576,7 +576,7 @@ def seed_default_settings(session):
 
     defaults = {
         # Grid detection (image analysis)
-        "enable_image_grid_detection": False,
+        "enable_image_grid_detection": True,
         "grid_min_cell_px": 32,
         "grid_max_cell_px": 320,
         "grid_detection_max_dim": 20000,
@@ -593,8 +593,8 @@ def seed_default_settings(session):
         "ingestion_batch_size": 16,
         "max_concurrent_prepare": 8,
         # Import limits
-        "max_import_file_size": 200 * 1024 * 1024,
-        "max_video_file_size": 200 * 1024 * 1024,
+        "max_import_file_size": 2000 * 1024 * 1024,
+        "max_video_file_size": 2000 * 1024 * 1024,
         "max_import_files": 1000,
         "max_import_total_size": 2048 * 1024 * 1024,
         # Job runner

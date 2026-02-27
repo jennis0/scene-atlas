@@ -447,7 +447,7 @@ class AppSettings(BaseModel):
     """
 
     # Grid detection (image analysis)
-    enable_image_grid_detection: bool = False
+    enable_image_grid_detection: bool = True
     grid_min_cell_px: int = 32
     grid_max_cell_px: int = 320
     grid_detection_max_dim: int = 20_000
@@ -467,8 +467,8 @@ class AppSettings(BaseModel):
     max_concurrent_prepare: int = 8
 
     # Import limits
-    max_import_file_size: int = 200 * 1024 * 1024
-    max_video_file_size: int = 200 * 1024 * 1024
+    max_import_file_size: int = 2000 * 1024 * 1024
+    max_video_file_size: int = 2000 * 1024 * 1024
     max_import_files: int = 1000
     max_import_total_size: int = 2048 * 1024 * 1024
 

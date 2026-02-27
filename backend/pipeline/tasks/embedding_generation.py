@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-from backend.app.config import settings
 from backend.app.services import get_clip_service
 from backend.pipeline.logger import get_logger
 
