@@ -347,7 +347,6 @@ export function FilterMenuContent({
                   <SelectedIcon className="h-3.5 w-3.5 flex-shrink-0 opacity-80" />
                   <span className="capitalize">{selectedGroup.label}</span>
                 </div>
-                <div className="mt-[3px] h-px w-7 bg-gradient-to-r from-primary to-transparent" />
               </div>
               {selectedGroup.type !== 'color' && (
                 <span className="text-[11px] text-muted-foreground pb-0.5">
@@ -368,9 +367,6 @@ export function FilterMenuContent({
             {visibleGroups.map((group, groupIdx) => {
               const colorId = NON_TAG_GROUPS.has(group.id) ? null : group.id
               const colors = colorId ? getTagColor(colorId) : DEFAULT_TAG_COLOR
-              const isNonTag = colorId === null
-              // Non-tag groups (Author, Grid, Color…) use amber primary in section headings
-              const headingText = isNonTag ? 'text-primary/70' : colors.text
 
               return (
                 <div key={group.id}>
@@ -379,7 +375,7 @@ export function FilterMenuContent({
                     <div className={`px-3.5 pb-1.5 ${groupIdx === 0 ? 'pt-3' : 'pt-3.5'}`}>
                       {groupIdx > 0 && <div className="mb-2.5 border-t border-border/30" />}
                       <div
-                        className={`flex items-center gap-[6px] font-display text-[13px] font-medium tracking-[0.04em] leading-none ${headingText}`}
+                        className={`flex items-center gap-[6px] font-display text-[13px] font-medium tracking-[0.04em] leading-none ${colors.text}`}
                       >
                         {(() => {
                           const SectionIcon = getGroupIcon(group.id, group.iconName)
@@ -569,14 +565,10 @@ function CategoryNavItem({
       onClick={onClick}
       style={{ padding: '7px 10px 7px 12px' }}
       className={`w-full flex items-center gap-[7px] text-left text-[12px] transition-colors border-l-2 ${
-        active ? activeClass : 'text-muted-foreground hover:text-foreground border-transparent'
+        active
+          ? activeClass
+          : 'text-muted-foreground hover:text-foreground hover:bg-muted border-transparent'
       }`}
-      onMouseEnter={(e) => {
-        if (!active) (e.currentTarget as HTMLElement).style.background = 'hsl(var(--muted))'
-      }}
-      onMouseLeave={(e) => {
-        if (!active) (e.currentTarget as HTMLElement).style.background = ''
-      }}
     >
       {/* Tag-category icons retain their colour even when inactive */}
       <Icon
@@ -623,27 +615,12 @@ function AuthorChecklist({
             title={`${opt.label}${opt.count !== undefined ? ` (${opt.count})` : ''} — right-click to exclude`}
             className={`w-full h-8 flex items-center text-left text-[12.5px] border-l-2 transition-colors ${
               state === 'include'
-                ? 'border-l-primary text-foreground'
+                ? 'border-l-primary text-foreground bg-primary/[0.06]'
                 : state === 'exclude'
-                  ? 'border-l-destructive text-destructive/70'
-                  : 'border-l-transparent text-muted-foreground'
+                  ? 'border-l-destructive text-destructive/70 bg-destructive/[0.05]'
+                  : 'border-l-transparent text-muted-foreground hover:bg-muted'
             }`}
-            style={{
-              padding: '0 14px 0 10px',
-              backgroundColor:
-                state === 'include'
-                  ? 'hsl(var(--primary) / 0.06)'
-                  : state === 'exclude'
-                    ? 'hsl(var(--destructive) / 0.05)'
-                    : undefined,
-            }}
-            onMouseEnter={(e) => {
-              if (!state)
-                (e.currentTarget as HTMLElement).style.backgroundColor = 'hsl(var(--muted))'
-            }}
-            onMouseLeave={(e) => {
-              if (!state) (e.currentTarget as HTMLElement).style.backgroundColor = ''
-            }}
+            style={{ padding: '0 14px 0 10px' }}
           >
             {/* Checkbox */}
             <span

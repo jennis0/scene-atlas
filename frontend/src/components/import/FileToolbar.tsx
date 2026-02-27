@@ -252,7 +252,7 @@ export function FileToolbar({
                 <SlidersHorizontal className="h-3.5 w-3.5" />
               </button>
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-80 p-0 h-72 flex flex-col">
+            <PopoverContent align="end" className="w-[400px] p-0 h-[480px] flex flex-col">
               <FilterMenuContent
                 groups={filterGroups}
                 activeFilters={filter.active}

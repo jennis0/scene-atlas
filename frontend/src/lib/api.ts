@@ -396,11 +396,11 @@ export const getImageUrlById = (id: number): string => resolveApiUrl(`/api/v1/im
 
 export const settingsApi = {
   get: async (): Promise<AppSettings> => {
-    const { data } = await api.get('/api/v1/settings/')
+    const { data } = await api.get('/settings/')
     return data
   },
   patch: async (patch: Partial<AppSettings>): Promise<AppSettings> => {
-    const { data } = await api.patch('/api/v1/settings/', patch)
+    const { data } = await api.patch('/settings/', patch)
     return data
   },
 }

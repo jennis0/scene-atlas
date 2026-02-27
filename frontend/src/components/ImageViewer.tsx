@@ -807,7 +807,7 @@ export function ImageViewer({
                       <PopoverContent
                         align="end"
                         side="left"
-                        className="w-[320px] p-0 h-[360px] flex flex-col"
+                        className="w-[400px] p-0 h-[480px] flex flex-col"
                       >
                         <FilterMenuContent
                           groups={sceneFilterGroups}
