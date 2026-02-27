@@ -20,6 +20,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { useGetTagColor } from '@/contexts/TagColorContext'
 import { TagPicker } from '@/components/import/TagPicker'
 import { GridToggle } from '@/components/import/GridToggle'
+import { GridSizeInput } from '@/components/import/GridSizeInput'
 import {
   FilterMenuContent,
   FilterChipList,
@@ -96,10 +97,6 @@ export function ImageViewer({
   const [downloading, setDownloading] = useState(false)
   const [downloadingGroup, setDownloadingGroup] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
-  const [gridWidthDraft, setGridWidthDraft] = useState<string>(image.grid_width?.toString() ?? '')
-  const [gridHeightDraft, setGridHeightDraft] = useState<string>(
-    image.grid_height?.toString() ?? '',
-  )
 
   // Reset UI state on image navigation (not on within-group variant click).
   // lastProcessedIdRef guards against React Strict Mode running this effect twice
@@ -120,8 +117,6 @@ export function ImageViewer({
     setVariantSearch('')
     setSceneTypeFilter('all')
     setVariantFilters([])
-    setGridWidthDraft(src.grid_width?.toString() ?? '')
-    setGridHeightDraft(src.grid_height?.toString() ?? '')
     if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0
     // image.id is the correct dep — displayImage/image body is intentionally not tracked here
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -130,16 +125,9 @@ export function ImageViewer({
   // Sync drafts when fresh image data arrives (e.g. after a patch succeeds)
   useEffect(() => {
     if (!editingName) setNameDraft(displayImage?.name ?? '')
-    setGridWidthDraft(displayImage?.grid_width?.toString() ?? '')
-    setGridHeightDraft(displayImage?.grid_height?.toString() ?? '')
     // editingName/editingSV intentionally omitted: adding them would overwrite in-progress edits
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    displayImage?.name,
-    displayImage?.subgroup,
-    displayImage?.grid_width,
-    displayImage?.grid_height,
-  ])
+  }, [displayImage?.name, displayImage?.subgroup])
 
   // Keyboard shortcuts — skip when any input/select/textarea is focused
   useEffect(() => {
@@ -667,39 +655,12 @@ export function ImageViewer({
                     disabled={patchMutation.isPending}
                   />
                   {img.gridded === true && (
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <input
-                        type="number"
-                        value={gridWidthDraft}
-                        onChange={(e) => setGridWidthDraft(e.target.value)}
-                        onBlur={() => {
-                          const w = parseInt(gridWidthDraft) || null
-                          if (w !== img.grid_width) patchMutation.mutate({ grid_width: w })
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-                        }}
-                        placeholder="W"
-                        min={1}
-                        className="w-11 bg-secondary border border-border rounded px-1.5 py-0.5 text-foreground text-center placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 text-[11px] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                      />
-                      <span className="text-[11px]">×</span>
-                      <input
-                        type="number"
-                        value={gridHeightDraft}
-                        onChange={(e) => setGridHeightDraft(e.target.value)}
-                        onBlur={() => {
-                          const h = parseInt(gridHeightDraft) || null
-                          if (h !== img.grid_height) patchMutation.mutate({ grid_height: h })
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-                        }}
-                        placeholder="H"
-                        min={1}
-                        className="w-11 bg-secondary border border-border rounded px-1.5 py-0.5 text-foreground text-center placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 text-[11px] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                      />
-                    </div>
+                    <GridSizeInput
+                      width={img.grid_width ?? null}
+                      height={img.grid_height ?? null}
+                      onChange={(w, h) => patchMutation.mutate({ grid_width: w, grid_height: h })}
+                      disabled={patchMutation.isPending}
+                    />
                   )}
                 </div>
               </div>
