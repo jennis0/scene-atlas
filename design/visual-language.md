@@ -397,6 +397,17 @@ Popup picker showing existing subgroups from the group as quick-select options, 
 Trigger: `text-muted-foreground hover:text-primary`
 Dropdown: `bg-card border-border shadow-2xl shadow-black/40`
 
+### ActivityDock (`frontend/src/components/ActivityDock.tsx`)
+Floating bottom-right card for viewing background job status.
+
+**Collapsed pill:** `bg-card/95 backdrop-blur-sm border border-border/40 rounded-full shadow-lg shadow-black/40`. Hover: `bg-secondary hover:-translate-y-px`. Shows Loader2 (spinning) when active, Package when idle. Active count badge uses the solid tier.
+
+**Expanded card:** `w-[320px] max-h-[min(520px,65vh)] bg-card rounded-xl border border-border/30 shadow-2xl shadow-black/60`. Amber stripe at top. Header follows panel header pattern (Cinzel title + amber rule). Footer uses `bg-popover`.
+
+**Job cards:** `rounded-md border-border/30 bg-secondary/20 hover:bg-secondary/40`. Terminal: `opacity-75 hover:opacity-100`. Progress: 3px track.
+
+**Visibility:** Hidden when no jobs exist. No auto-expand — user clicks pill to open.
+
 ---
 
 ## Component-Level Rules
