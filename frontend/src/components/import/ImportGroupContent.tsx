@@ -137,12 +137,13 @@ export function ImportGroupContent({ s }: ImportGroupContentProps) {
                       onClear={() => {}}
                       canEdit={false}
                     />
-                    <div className="space-y-1.5 pb-2">
+                    <div className="grid grid-cols-2 gap-2 pb-2">
                       {svGroup.files.map((file) => (
                         <ImportFileCard
                           key={file.relative_path}
                           file={file}
                           jobId={jobId!}
+                          existingSubgroups={groupSubgroups}
                           selected={activeSelection.has(file.relative_path)}
                           onToggleSelect={() =>
                             toggleFileSelection(activeGroupId, file.relative_path)
@@ -160,12 +161,13 @@ export function ImportGroupContent({ s }: ImportGroupContentProps) {
                 )
               })
             ) : (
-              <div className="space-y-1.5">
+              <div className="grid grid-cols-2 gap-2">
                 {filteredFiles.map((file) => (
                   <ImportFileCard
                     key={file.relative_path}
                     file={file}
                     jobId={jobId!}
+                    existingSubgroups={groupSubgroups}
                     selected={activeSelection.has(file.relative_path)}
                     onToggleSelect={() => toggleFileSelection(activeGroupId, file.relative_path)}
                     onUpdate={(updates) =>
