@@ -3,6 +3,7 @@ interface GridToggleProps {
   gridType: string | null
   onChange: (gridded: boolean | null, gridType: string | null) => void
   disabled?: boolean
+  compact?: boolean
 }
 
 type GridOption = {
@@ -26,7 +27,9 @@ function isActive(opt: GridOption, gridded: boolean | null, gridType: string | n
   return true
 }
 
-export function GridToggle({ gridded, gridType, onChange, disabled }: GridToggleProps) {
+export function GridToggle({ gridded, gridType, onChange, disabled, compact }: GridToggleProps) {
+  const btnSize = compact ? 'px-1.5 py-0.5 text-[10px]' : 'px-2.5 py-1 text-[11px]'
+
   return (
     <div className="inline-flex rounded-md overflow-hidden border border-border">
       {OPTIONS.map((opt, i) => (
@@ -34,7 +37,7 @@ export function GridToggle({ gridded, gridType, onChange, disabled }: GridToggle
           key={opt.label}
           disabled={disabled}
           onClick={() => onChange(opt.gridded, opt.gridType)}
-          className={`px-2.5 py-1 text-[11px] font-medium transition-all disabled:opacity-40
+          className={`${btnSize} font-medium transition-all disabled:opacity-40
             ${i > 0 ? 'border-l border-border' : ''}
             ${
               isActive(opt, gridded, gridType)
