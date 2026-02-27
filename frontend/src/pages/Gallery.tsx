@@ -23,7 +23,7 @@ import { ImageGrid } from '@/components/ImageGrid'
 import { GroupGrid } from '@/components/GroupGrid'
 import { ImageViewer } from '@/components/ImageViewer'
 import { ImportDialog } from '@/components/ImportDialog'
-import { ImportTray } from '@/components/ImportTray'
+import { ActivityDock } from '@/components/ActivityDock'
 import { EditGroupDialog } from '@/components/EditGroupDialog'
 import { TagManagementDialog } from '@/components/TagManagementDialog'
 import { MergeGroupPicker } from '@/components/MergeGroupPicker'
@@ -779,8 +779,8 @@ export function Gallery() {
 
       <SystemInfoDialog open={showSystemInfo} onClose={() => setShowSystemInfo(false)} />
 
-      {/* Import tray — right-side overlay showing active imports */}
-      <ImportTray
+      {/* Activity dock — bottom-right floating panel showing all jobs */}
+      <ActivityDock
         jobs={activeImports.jobs}
         hasActive={activeImports.hasActive}
         backgroundJobs={backgroundJobs.jobs}
