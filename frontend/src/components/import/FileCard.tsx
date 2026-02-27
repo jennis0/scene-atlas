@@ -370,32 +370,34 @@ export function FileCard({
               </div>
             </div>
 
-            {/* GRID prop-row (maps only) */}
-            {file.image_type !== 'scene' && (
-              <div className="flex items-center gap-1.5 min-h-5">
-                <span className="w-8 shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/50 text-right leading-none">
-                  Grid
-                </span>
-                <div className="flex-1 min-w-0 flex items-center gap-1">
-                  <GridToggle
-                    gridded={file.gridded}
-                    gridType={file.grid_type ?? null}
-                    onChange={(gridded, gridType) => onUpdate({ gridded, grid_type: gridType })}
-                    disabled={disabled}
-                    compact
-                  />
-                  {file.gridded === true && (
-                    <GridSizeInput
-                      width={file.grid_width ?? null}
-                      height={file.grid_height ?? null}
-                      onChange={(w, h) => onUpdate({ grid_width: w, grid_height: h })}
+            {/* GRID prop-row (maps only, but always rendered for consistent card height) */}
+            <div className="flex items-center gap-1.5 min-h-5">
+              {file.image_type !== 'scene' && (
+                <>
+                  <span className="w-8 shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/50 text-right leading-none">
+                    Grid
+                  </span>
+                  <div className="flex-1 min-w-0 flex items-center gap-1">
+                    <GridToggle
+                      gridded={file.gridded}
+                      gridType={file.grid_type ?? null}
+                      onChange={(gridded, gridType) => onUpdate({ gridded, grid_type: gridType })}
                       disabled={disabled}
                       compact
                     />
-                  )}
-                </div>
-              </div>
-            )}
+                    {file.gridded === true && (
+                      <GridSizeInput
+                        width={file.grid_width ?? null}
+                        height={file.grid_height ?? null}
+                        onChange={(w, h) => onUpdate({ grid_width: w, grid_height: h })}
+                        disabled={disabled}
+                        compact
+                      />
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
           {/* end property rows */}
 
