@@ -988,7 +988,7 @@ export function EditGroupDialog({
                           onClear={() => clearSubgroupLabel(activeGroup!.id, svGroup.subVariant!)}
                           canEdit={!isAllTab}
                         />
-                        <div className="space-y-1.5 pb-2">
+                        <div className="grid grid-cols-2 gap-2 pb-2">
                           {svGroup.files.map((file) => (
                             <FileCard
                               key={file.relative_path}
@@ -1015,7 +1015,7 @@ export function EditGroupDialog({
                     )
                   })
                 ) : (
-                  <div className="space-y-1.5">
+                  <div className="grid grid-cols-2 gap-2">
                     {filteredInScope.map((file) => (
                       <FileCard
                         key={file.relative_path}
@@ -1055,7 +1055,7 @@ export function EditGroupDialog({
                       </span>
                       <div className="flex-1 h-px bg-border/20" />
                     </div>
-                    <div className="space-y-1.5">
+                    <div className="grid grid-cols-2 gap-2">
                       {outOfScopeFiles.map((file) => (
                         <FileCard
                           key={file.relative_path}
