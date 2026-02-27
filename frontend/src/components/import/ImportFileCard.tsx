@@ -130,13 +130,13 @@ export function ImportFileCard({
     return (
       <>
         <div
-          className="group/card flex rounded-lg border border-border/40 bg-card opacity-35 overflow-hidden"
+          className="group/card flex rounded-lg border border-border/40 bg-card overflow-hidden"
           onClick={handleCardClick}
         >
-          {renderThumb()}
+          <div className="opacity-35">{renderThumb()}</div>
           <div className="flex-1 min-w-0 flex flex-col py-[7px] px-[9px]">
             {/* Name row — "Skipped" badge replaces X button */}
-            <div className="flex items-center gap-1 mb-px">
+            <div className="flex items-center gap-1 mb-px opacity-35">
               <span
                 className="font-display text-[12px] font-semibold text-muted-foreground line-through truncate flex-1 min-w-0 leading-snug"
                 title={file.relative_path}
@@ -148,15 +148,15 @@ export function ImportFileCard({
                 Skipped
               </span>
             </div>
-            <div className="font-mono text-[9px] text-muted-foreground/25 truncate leading-relaxed">
+            <div className="font-mono text-[9px] text-muted-foreground/25 truncate leading-relaxed opacity-35">
               {file.filename}
             </div>
-            {/* Unskip button */}
+            {/* Unskip button — full opacity so it's clearly interactable */}
             {!disabled && (
               <button
                 data-no-select=""
                 onClick={() => onUpdate({ duplicate_action: 'import' })}
-                className="mt-1 text-[10px] rounded border border-amber-500/30 text-amber-400/80 hover:bg-amber-500/10 px-1.5 py-0.5 transition-colors self-start"
+                className="mt-1.5 text-[10px] rounded border border-primary/40 text-primary bg-primary/10 hover:bg-primary/20 px-1.5 py-0.5 transition-colors self-start"
               >
                 Import as new
               </button>
