@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Activity Dock — Scene Atlas Mockup</title>
+
+<!-- Fonts matching visual-language.md -->
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Figtree:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+  /* ── Design tokens from visual-language.md ──────────────────────── */
+  :root {
+    --surface-canvas: 218 40% 6%;
+    --background: 222 30% 7%;
+    --popover: 220 26% 9.5%;
+    --card: 220 25% 12%;
+    --muted: 220 25% 14%;
+    --secondary: 222 20% 15%;
+    --primary: 40 55% 58%;
+    --primary-foreground: 220 20% 8%;
+    --destructive: 0 68% 59%;
+    --border: 220 22% 17%;
+    --foreground: 42 30% 91%;
+    --muted-foreground: 42 10% 60%;
+    --ring: 40 55% 58%;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Figtree', sans-serif;
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
+    min-height: 100vh;
+    overflow: hidden;
+  }
+
+  .font-display { font-family: 'Cinzel', serif; }
+  .font-mono { font-family: 'JetBrains Mono', monospace; }
+
+  /* ── Fake gallery background to show context ────────────────────── */
+  .gallery-bg {
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(circle, hsl(var(--foreground) / 0.025) 1px, transparent 1px),
+      hsl(var(--background));
+    background-size: 24px 24px;
+    z-index: 0;
+  }
+  .gallery-bg::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(to right, hsl(var(--primary) / 0.8), hsl(var(--primary) / 0.3), transparent);
+    z-index: 1000;
+  }
+  .gallery-placeholder {
+    position: relative;
+    z-index: 1;
+    padding: 48px 56px;
+    opacity: 0.3;
+  }
+  .gallery-placeholder h1 {
+    font-family: 'Cinzel', serif;
+    font-size: 28px;
+    font-weight: 600;
+    color: hsl(var(--foreground));
+    margin-bottom: 6px;
+  }
+  .gallery-placeholder .rule {
+    height: 1px;
+    width: 64px;
+    background: linear-gradient(to right, hsl(var(--primary) / 0.7), transparent);
+    margin-bottom: 32px;
+  }
+  .gallery-placeholder .cards {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 16px;
+  }
+  .gallery-placeholder .card {
+    aspect-ratio: 4 / 3;
+    border-radius: 8px;
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border) / 0.4);
+  }
+
+  /* ── Mockup layout ──────────────────────────────────────────────── */
+  .mockup-states {
+    position: fixed;
+    bottom: 0;
+    right: 0;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 16px;
+    padding: 24px;
+  }
+
+  /* ── Toggle buttons to switch mockup view ───────────────────────── */
+  .mockup-controls {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 100;
+    display: flex;
+    gap: 6px;
+  }
+  .mockup-controls button {
+    font-family: 'Figtree', sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: 1px solid hsl(var(--border));
+    background: hsl(var(--card));
+    color: hsl(var(--muted-foreground));
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .mockup-controls button:hover {
+    color: hsl(var(--foreground));
+    background: hsl(var(--secondary));
+  }
+  .mockup-controls button.active {
+    background: hsl(var(--primary) / 0.2);
+    color: hsl(var(--primary));
+    border-color: hsl(var(--primary) / 0.4);
+  }
+
+  /* ════════════════════════════════════════════════════════════════
+     COLLAPSED PILL — the floating indicator
+     ════════════════════════════════════════════════════════════════ */
+
+  .dock-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px 8px 12px;
+    background: hsl(var(--card) / 0.95);
+    backdrop-filter: blur(12px);
+    border: 1px solid hsl(var(--border) / 0.4);
+    border-radius: 999px;
+    box-shadow:
+      0 8px 32px hsl(0 0% 0% / 0.4),
+      0 0 0 1px hsl(var(--border) / 0.1);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
+  }
+  .dock-pill:hover {
+    background: hsl(var(--secondary));
+    border-color: hsl(var(--border) / 0.6);
+    box-shadow:
+      0 12px 40px hsl(0 0% 0% / 0.5),
+      0 0 0 1px hsl(var(--border) / 0.15);
+    transform: translateY(-1px);
+  }
+  .dock-pill .pill-icon {
+    width: 16px;
+    height: 16px;
+    color: hsl(var(--primary));
+    flex-shrink: 0;
+  }
+  .dock-pill .pill-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: hsl(var(--muted-foreground));
+    letter-spacing: 0.02em;
+  }
+  .dock-pill:hover .pill-label {
+    color: hsl(var(--foreground));
+  }
+  .dock-pill .pill-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    font-size: 10px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+  /* Pill with no active jobs — just shows completed indicator */
+  .dock-pill.idle .pill-badge {
+    background: hsl(var(--primary) / 0.15);
+    color: hsl(var(--primary));
+  }
+
+  /* Spinner for the pill icon when jobs are active */
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .dock-pill .pill-icon.spinning svg {
+    animation: spin 2s linear infinite;
+  }
+
+  /* ════════════════════════════════════════════════════════════════
+     EXPANDED CARD — the full activity panel
+     ════════════════════════════════════════════════════════════════ */
+
+  .dock-card {
+    width: 320px;
+    max-height: min(520px, 65vh);
+    display: flex;
+    flex-direction: column;
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border) / 0.3);
+    border-radius: 12px;
+    box-shadow:
+      0 20px 60px hsl(0 0% 0% / 0.6),
+      0 0 0 1px hsl(var(--border) / 0.08);
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* Top amber stripe */
+  .dock-card .amber-stripe {
+    height: 2px;
+    flex-shrink: 0;
+    background: linear-gradient(to right, transparent, hsl(var(--primary) / 0.7));
+  }
+
+  /* ── Header ── */
+  .dock-card .dock-header {
+    padding: 10px 12px 0 14px;
+    flex-shrink: 0;
+  }
+  .dock-card .dock-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .dock-card .dock-title-area {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .dock-card .dock-title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .dock-card .dock-title-text {
+    font-family: 'Cinzel', serif;
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    color: hsl(var(--foreground));
+    line-height: 1;
+  }
+  .dock-card .dock-title-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: hsl(var(--primary) / 0.15);
+    color: hsl(var(--primary));
+    font-size: 10px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+  .dock-card .dock-amber-rule {
+    margin-top: 3px;
+    height: 1px;
+    width: 28px;
+    background: linear-gradient(to right, hsl(var(--primary)), transparent);
+  }
+  .dock-card .dock-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .dock-card .dock-header-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    border: none;
+    background: transparent;
+    color: hsl(var(--muted-foreground));
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+  }
+  .dock-card .dock-header-btn:hover {
+    color: hsl(var(--foreground));
+    background: hsl(var(--secondary));
+  }
+  .dock-card .dock-header-btn.destructive:hover {
+    color: hsl(var(--destructive));
+    background: hsl(var(--destructive) / 0.1);
+  }
+
+  /* ── Divider under header ── */
+  .dock-card .dock-divider {
+    margin: 8px 14px 0;
+    height: 1px;
+    background: hsl(var(--border) / 0.4);
+    flex-shrink: 0;
+  }
+
+  /* ── Job list (scrollable) ── */
+  .dock-card .dock-jobs {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 8px 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-height: 0;
+  }
+  /* Custom scrollbar matching index.css */
+  .dock-card .dock-jobs::-webkit-scrollbar { width: 5px; }
+  .dock-card .dock-jobs::-webkit-scrollbar-track { background: transparent; }
+  .dock-card .dock-jobs::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 999px;
+  }
+
+  /* Section divider within job list */
+  .dock-jobs .section-divider {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 4px 2px;
+  }
+  .dock-jobs .section-divider .line {
+    flex: 1;
+    height: 1px;
+    background: hsl(var(--border) / 0.3);
+  }
+  .dock-jobs .section-divider .label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: hsl(var(--muted-foreground) / 0.4);
+    flex-shrink: 0;
+  }
+
+  /* ── Footer ── */
+  .dock-card .dock-footer {
+    padding: 7px 14px;
+    border-top: 1px solid hsl(var(--border) / 0.3);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: hsl(var(--popover));
+  }
+  .dock-card .dock-footer .hint {
+    font-size: 10.5px;
+    color: hsl(var(--muted-foreground) / 0.5);
+    font-style: italic;
+  }
+  .dock-card .dock-footer .job-count {
+    font-size: 10.5px;
+    color: hsl(var(--muted-foreground) / 0.4);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ════════════════════════════════════════════════════════════════
+     JOB CARD — individual job row
+     ════════════════════════════════════════════════════════════════ */
+
+  .job-card {
+    border-radius: 6px;
+    border: 1px solid hsl(var(--border) / 0.3);
+    background: hsl(var(--secondary) / 0.2);
+    transition: all 0.15s;
+    cursor: pointer;
+    overflow: hidden;
+  }
+  .job-card:hover {
+    background: hsl(var(--secondary) / 0.4);
+    border-color: hsl(var(--border) / 0.5);
+  }
+  .job-card.terminal {
+    border-color: hsl(var(--border) / 0.15);
+    background: hsl(var(--muted) / 0.1);
+    opacity: 0.75;
+  }
+  .job-card.terminal:hover {
+    opacity: 1;
+    background: hsl(var(--secondary) / 0.3);
+  }
+
+  .job-card-inner {
+    padding: 10px 10px 9px;
+  }
+
+  /* Top row: icon + name + action */
+  .job-card .job-top {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+  }
+  .job-card .job-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .job-card .job-icon.running { color: hsl(var(--primary)); }
+  .job-card .job-icon.queued { color: hsl(var(--muted-foreground) / 0.5); }
+  .job-card .job-icon.completed { color: hsl(var(--primary) / 0.6); }
+  .job-card .job-icon.failed { color: hsl(var(--destructive) / 0.7); }
+  .job-card .job-icon.staging { color: hsl(var(--primary) / 0.5); }
+  .job-card .job-icon.cancelled { color: hsl(var(--muted-foreground) / 0.4); }
+
+  .job-card .job-icon.running svg { animation: spin 1.5s linear infinite; }
+
+  .job-card .job-name {
+    flex: 1;
+    font-size: 12px;
+    font-weight: 500;
+    color: hsl(var(--foreground));
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.3;
+  }
+  .job-card.terminal .job-name {
+    color: hsl(var(--muted-foreground));
+  }
+
+  .job-card .job-action {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    border: none;
+    background: transparent;
+    color: hsl(var(--muted-foreground) / 0.3);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.15s;
+    opacity: 0;
+  }
+  .job-card:hover .job-action { opacity: 1; }
+  .job-card .job-action:hover {
+    color: hsl(var(--foreground));
+    background: hsl(var(--secondary));
+  }
+  .job-card .job-action.cancel:hover {
+    color: hsl(var(--destructive));
+    background: hsl(var(--destructive) / 0.1);
+  }
+
+  /* Progress bar */
+  .job-card .job-progress-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 7px;
+  }
+  .job-card .job-progress-track {
+    flex: 1;
+    height: 3px;
+    border-radius: 999px;
+    background: hsl(var(--border) / 0.3);
+    overflow: hidden;
+  }
+  .job-card .job-progress-fill {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 0.7s ease-out;
+  }
+  .job-card .job-progress-fill.running {
+    background: hsl(var(--primary) / 0.7);
+  }
+  .job-card .job-progress-fill.completed {
+    background: hsl(var(--primary) / 0.45);
+  }
+  .job-card .job-progress-fill.failed {
+    background: hsl(var(--destructive) / 0.55);
+  }
+  /* Queued — pulsing indeterminate */
+  .job-card .job-progress-fill.queued {
+    width: 100% !important;
+    background: hsl(var(--muted-foreground) / 0.15);
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+  }
+  .job-card .job-progress-counts {
+    font-size: 10px;
+    color: hsl(var(--muted-foreground) / 0.55);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* Status summary line */
+  .job-card .job-status {
+    margin-top: 4px;
+    font-size: 10px;
+    color: hsl(var(--muted-foreground) / 0.45);
+    line-height: 1.4;
+  }
+  .job-card .job-status .error {
+    color: hsl(var(--destructive) / 0.65);
+  }
+
+  /* ── Expanded inline detail (for background jobs) ── */
+  .job-card .job-detail {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px dashed hsl(var(--border) / 0.3);
+  }
+  .job-card .job-detail .detail-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 10px;
+    color: hsl(var(--muted-foreground) / 0.5);
+    line-height: 1.7;
+  }
+  .job-card .job-detail .detail-label {
+    color: hsl(var(--muted-foreground) / 0.35);
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .job-card .job-detail .detail-value {
+    font-variant-numeric: tabular-nums;
+  }
+  .job-card .job-detail .detail-value.success { color: hsl(var(--primary) / 0.7); }
+  .job-card .job-detail .detail-value.error { color: hsl(var(--destructive) / 0.65); }
+
+  /* ── Import-specific: clickable indicator ── */
+  .job-card.import-job .job-name::after {
+    content: '›';
+    margin-left: 5px;
+    color: hsl(var(--muted-foreground) / 0.25);
+    font-size: 13px;
+    transition: all 0.15s;
+  }
+  .job-card.import-job:hover .job-name::after {
+    color: hsl(var(--primary) / 0.6);
+    margin-left: 7px;
+  }
+
+  /* ════════════════════════════════════════════════════════════════
+     STATES: show/hide different mockup views
+     ════════════════════════════════════════════════════════════════ */
+
+  .state { display: none; }
+  .state.visible { display: flex; }
+
+  /* Annotations for the mockup */
+  .annotation {
+    position: fixed;
+    font-size: 11px;
+    font-weight: 500;
+    color: hsl(var(--primary) / 0.7);
+    letter-spacing: 0.03em;
+    pointer-events: none;
+  }
+  .annotation::before {
+    content: '←';
+    margin-right: 6px;
+    opacity: 0.5;
+  }
+</style>
+</head>
+
+<body>
+
+<!-- Fake gallery background for context -->
+<div class="gallery-bg"></div>
+<div class="gallery-placeholder">
+  <h1 class="font-display">Scene Atlas</h1>
+  <div class="rule"></div>
+  <div class="cards">
+    <div class="card"></div>
+    <div class="card"></div>
+    <div class="card"></div>
+    <div class="card"></div>
+    <div class="card"></div>
+    <div class="card"></div>
+    <div class="card"></div>
+    <div class="card"></div>
+    <div class="card"></div>
+    <div class="card"></div>
+  </div>
+</div>
+
+<!-- Mockup state controls -->
+<div class="mockup-controls">
+  <button class="active" onclick="showState('collapsed-active')">Pill (active)</button>
+  <button onclick="showState('collapsed-idle')">Pill (idle)</button>
+  <button onclick="showState('expanded')">Expanded</button>
+  <button onclick="showState('expanded-detail')">With Detail</button>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- STATE: Collapsed pill with active jobs                         -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="mockup-states">
+  <div id="state-collapsed-active" class="state visible" style="flex-direction: column; align-items: flex-end;">
+    <div class="dock-pill" onclick="showState('expanded')">
+      <span class="pill-icon spinning">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+        </svg>
+      </span>
+      <span class="pill-label">Activity</span>
+      <span class="pill-badge">3</span>
+    </div>
+  </div>
+
+  <!-- STATE: Collapsed pill with no active jobs (just history) -->
+  <div id="state-collapsed-idle" class="state" style="flex-direction: column; align-items: flex-end;">
+    <div class="dock-pill idle" onclick="showState('expanded')">
+      <span class="pill-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m7.5 4.27 9 5.15M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/>
+          <path d="m3.3 7 8.7 5 8.7-5M12 22V12"/>
+        </svg>
+      </span>
+      <span class="pill-label">Activity</span>
+    </div>
+  </div>
+
+  <!-- STATE: Expanded card with mixed jobs -->
+  <div id="state-expanded" class="state" style="flex-direction: column; align-items: flex-end;">
+    <div class="dock-card">
+      <div class="amber-stripe"></div>
+
+      <!-- Header -->
+      <div class="dock-header">
+        <div class="dock-header-row">
+          <div class="dock-title-area">
+            <div class="dock-title">
+              <span class="dock-title-text font-display">Activity</span>
+              <span class="dock-title-badge">3 active</span>
+            </div>
+            <div class="dock-amber-rule"></div>
+          </div>
+          <div class="dock-header-actions">
+            <button class="dock-header-btn destructive" title="Clear completed">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
+              </svg>
+            </button>
+            <button class="dock-header-btn" title="Collapse" onclick="showState('collapsed-active')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m6 9 6 6 6-6"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="dock-divider"></div>
+
+      <!-- Job list -->
+      <div class="dock-jobs">
+
+        <!-- ── IMPORT JOB: Running ── -->
+        <div class="job-card import-job">
+          <div class="job-card-inner">
+            <div class="job-top">
+              <span class="job-icon running">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                </svg>
+              </span>
+              <span class="job-name">Dark Forest Maps</span>
+              <button class="job-action cancel" title="Cancel">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M18 6 6 18M6 6l12 12"/>
+                </svg>
+              </button>
+            </div>
+            <div class="job-progress-row">
+              <div class="job-progress-track">
+                <div class="job-progress-fill running" style="width: 37%"></div>
+              </div>
+              <span class="job-progress-counts">3/8</span>
+            </div>
+            <div class="job-status">2 processing, 3 pending</div>
+          </div>
+        </div>
+
+        <!-- ── BACKGROUND JOB: Running (retag) ── -->
+        <div class="job-card">
+          <div class="job-card-inner">
+            <div class="job-top">
+              <span class="job-icon running">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>
+              </span>
+              <span class="job-name">Regenerate Auto-Tags</span>
+            </div>
+            <div class="job-progress-row">
+              <div class="job-progress-track">
+                <div class="job-progress-fill running" style="width: 47%"></div>
+              </div>
+              <span class="job-progress-counts">142/300</span>
+            </div>
+            <div class="job-status">Processing tags...</div>
+          </div>
+        </div>
+
+        <!-- ── BACKGROUND JOB: Queued ── -->
+        <div class="job-card">
+          <div class="job-card-inner">
+            <div class="job-top">
+              <span class="job-icon queued">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"/>
+                  <polyline points="12 6 12 12 16 14"/>
+                </svg>
+              </span>
+              <span class="job-name">Update Colour Palettes</span>
+            </div>
+            <div class="job-progress-row">
+              <div class="job-progress-track">
+                <div class="job-progress-fill queued"></div>
+              </div>
+              <span class="job-progress-counts" style="opacity: 0.35">queued</span>
+            </div>
+            <div class="job-status">Waiting for auto-tags to finish</div>
+          </div>
+        </div>
+
+        <!-- Section divider -->
+        <div class="section-divider">
+          <div class="line"></div>
+          <span class="label">Recent</span>
+          <div class="line"></div>
+        </div>
+
+        <!-- ── IMPORT JOB: Completed ── -->
+        <div class="job-card terminal import-job">
+          <div class="job-card-inner">
+            <div class="job-top">
+              <span class="job-icon completed">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20 6 9 17l-5-5"/>
+                </svg>
+              </span>
+              <span class="job-name">Coastal Ruins Pack</span>
+              <button class="job-action" title="Dismiss">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M18 6 6 18M6 6l12 12"/>
+                </svg>
+              </button>
+            </div>
+            <div class="job-progress-row">
+              <div class="job-progress-track">
+                <div class="job-progress-fill completed" style="width: 100%"></div>
+              </div>
+              <span class="job-progress-counts">4/4</span>
+            </div>
+            <div class="job-status">4 groups imported</div>
+          </div>
+        </div>
+
+        <!-- ── BACKGROUND JOB: Failed ── -->
+        <div class="job-card terminal">
+          <div class="job-card-inner">
+            <div class="job-top">
+              <span class="job-icon failed">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="12" x2="12" y1="8" y2="12"/>
+                  <line x1="12" x2="12.01" y1="16" y2="16"/>
+                </svg>
+              </span>
+              <span class="job-name">Grid Detection Batch</span>
+              <button class="job-action" title="Dismiss">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M18 6 6 18M6 6l12 12"/>
+                </svg>
+              </button>
+            </div>
+            <div class="job-progress-row">
+              <div class="job-progress-track">
+                <div class="job-progress-fill failed" style="width: 65%"></div>
+              </div>
+              <span class="job-progress-counts">39/60</span>
+            </div>
+            <div class="job-status"><span class="error">Connection timeout after 39 images</span></div>
+          </div>
+        </div>
+
+        <!-- ── BACKGROUND JOB: Completed ── -->
+        <div class="job-card terminal">
+          <div class="job-card-inner">
+            <div class="job-top">
+              <span class="job-icon completed">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20 6 9 17l-5-5"/>
+                </svg>
+              </span>
+              <span class="job-name">Rebuild Search Vectors</span>
+              <button class="job-action" title="Dismiss">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M18 6 6 18M6 6l12 12"/>
+                </svg>
+              </button>
+            </div>
+            <div class="job-progress-row">
+              <div class="job-progress-track">
+                <div class="job-progress-fill completed" style="width: 100%"></div>
+              </div>
+              <span class="job-progress-counts">300/300</span>
+            </div>
+            <div class="job-status">300 vectors updated</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Footer -->
+      <div class="dock-footer">
+        <span class="hint">Click imports to open dialog</span>
+        <span class="job-count">6 jobs</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- STATE: Expanded with inline detail open -->
+  <div id="state-expanded-detail" class="state" style="flex-direction: column; align-items: flex-end;">
+    <div class="dock-card">
+      <div class="amber-stripe"></div>
+
+      <div class="dock-header">
+        <div class="dock-header-row">
+          <div class="dock-title-area">
+            <div class="dock-title">
+              <span class="dock-title-text font-display">Activity</span>
+              <span class="dock-title-badge">1 active</span>
+            </div>
+            <div class="dock-amber-rule"></div>
+          </div>
+          <div class="dock-header-actions">
+            <button class="dock-header-btn destructive" title="Clear completed">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
+              </svg>
+            </button>
+            <button class="dock-header-btn" title="Collapse" onclick="showState('collapsed-active')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m6 9 6 6 6-6"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="dock-divider"></div>
+
+      <div class="dock-jobs">
+
+        <!-- Running import -->
+        <div class="job-card import-job">
+          <div class="job-card-inner">
+            <div class="job-top">
+              <span class="job-icon running">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                </svg>
+              </span>
+              <span class="job-name">Dungeon Pack Vol. 3</span>
+              <button class="job-action cancel" title="Cancel">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M18 6 6 18M6 6l12 12"/>
+                </svg>
+              </button>
+            </div>
+            <div class="job-progress-row">
+              <div class="job-progress-track">
+                <div class="job-progress-fill running" style="width: 62%"></div>
+              </div>
+              <span class="job-progress-counts">5/8</span>
+            </div>
+            <div class="job-status">1 processing, 2 pending</div>
+          </div>
+        </div>
+
+        <div class="section-divider">
+          <div class="line"></div>
+          <span class="label">Recent</span>
+          <div class="line"></div>
+        </div>
+
+        <!-- ── EXPANDED background job (clicked) ── -->
+        <div class="job-card terminal" style="border-color: hsl(var(--border) / 0.3); background: hsl(var(--muted) / 0.15); opacity: 1;">
+          <div class="job-card-inner">
+            <div class="job-top">
+              <span class="job-icon completed">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20 6 9 17l-5-5"/>
+                </svg>
+              </span>
+              <span class="job-name" style="color: hsl(var(--foreground));">Regenerate Auto-Tags</span>
+              <!-- Chevron up to indicate expanded -->
+              <button class="job-action" style="opacity: 1; color: hsl(var(--muted-foreground) / 0.5);">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="m18 15-6-6-6 6"/>
+                </svg>
+              </button>
+            </div>
+            <div class="job-progress-row">
+              <div class="job-progress-track">
+                <div class="job-progress-fill completed" style="width: 100%"></div>
+              </div>
+              <span class="job-progress-counts">300/300</span>
+            </div>
+            <div class="job-status">Completed</div>
+
+            <!-- Expanded detail -->
+            <div class="job-detail">
+              <div class="detail-row">
+                <span class="detail-label">Result</span>
+                <span class="detail-value success">847 tags assigned</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Errors</span>
+                <span class="detail-value">0</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── EXPANDED failed job ── -->
+        <div class="job-card terminal" style="border-color: hsl(var(--destructive) / 0.15); background: hsl(var(--destructive) / 0.03); opacity: 1;">
+          <div class="job-card-inner">
+            <div class="job-top">
+              <span class="job-icon failed">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="12" x2="12" y1="8" y2="12"/>
+                  <line x1="12" x2="12.01" y1="16" y2="16"/>
+                </svg>
+              </span>
+              <span class="job-name" style="color: hsl(var(--foreground));">Grid Detection Batch</span>
+              <button class="job-action" style="opacity: 1; color: hsl(var(--muted-foreground) / 0.5);">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="m18 15-6-6-6 6"/>
+                </svg>
+              </button>
+            </div>
+            <div class="job-progress-row">
+              <div class="job-progress-track">
+                <div class="job-progress-fill failed" style="width: 65%"></div>
+              </div>
+              <span class="job-progress-counts">39/60</span>
+            </div>
+            <div class="job-status"><span class="error">Failed</span></div>
+
+            <div class="job-detail">
+              <div class="detail-row">
+                <span class="detail-label">Processed</span>
+                <span class="detail-value">39 images</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Error</span>
+                <span class="detail-value error">Connection timeout — CUDA out of memory</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Simple completed -->
+        <div class="job-card terminal">
+          <div class="job-card-inner">
+            <div class="job-top">
+              <span class="job-icon completed">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20 6 9 17l-5-5"/>
+                </svg>
+              </span>
+              <span class="job-name">Rebuild Search Vectors</span>
+              <button class="job-action" title="Dismiss">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M18 6 6 18M6 6l12 12"/>
+                </svg>
+              </button>
+            </div>
+            <div class="job-progress-row">
+              <div class="job-progress-track">
+                <div class="job-progress-fill completed" style="width: 100%"></div>
+              </div>
+              <span class="job-progress-counts">300/300</span>
+            </div>
+            <div class="job-status">300 vectors updated</div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="dock-footer">
+        <span class="hint">Click imports to open dialog</span>
+        <span class="job-count">4 jobs</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function showState(stateId) {
+    // Hide all states
+    document.querySelectorAll('.state').forEach(el => el.classList.remove('visible'));
+    // Show target
+    const target = document.getElementById('state-' + stateId);
+    if (target) target.classList.add('visible');
+    // Update control buttons
+    document.querySelectorAll('.mockup-controls button').forEach(btn => btn.classList.remove('active'));
+    const buttons = document.querySelectorAll('.mockup-controls button');
+    const map = { 'collapsed-active': 0, 'collapsed-idle': 1, 'expanded': 2, 'expanded-detail': 3 };
+    if (map[stateId] !== undefined && buttons[map[stateId]]) {
+      buttons[map[stateId]].classList.add('active');
+    }
+  }
+</script>
+
+</body>
+</html>
