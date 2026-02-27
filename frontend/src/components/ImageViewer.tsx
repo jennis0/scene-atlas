@@ -574,7 +574,7 @@ export function ImageViewer({
               <div className="relative flex-1 min-w-0">
                 <button
                   onClick={() => !editingSV && setEditingSV(true)}
-                  className="w-full h-6 px-2 text-left text-xs bg-secondary border border-border rounded flex items-center hover:border-primary/40 transition-colors"
+                  className={`w-full h-6 px-2 text-left text-xs bg-secondary border border-border flex items-center hover:border-primary/40 transition-colors ${editingSV ? 'rounded-t border-b-0' : 'rounded'}`}
                   title={img.subgroup ?? undefined}
                 >
                   {img.subgroup ? (
@@ -598,6 +598,7 @@ export function ImageViewer({
                   isOpen={editingSV}
                   existingSubgroups={existingSubgroups}
                   initialValue={img.subgroup ?? ''}
+                  variant="attached"
                   onCommit={(val) => {
                     patchMutation.mutate({ subgroup: val || null })
                     setEditingSV(false)

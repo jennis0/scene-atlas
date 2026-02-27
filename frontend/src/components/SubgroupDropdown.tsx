@@ -12,6 +12,12 @@ interface SubgroupDropdownProps {
   onCommit: (value: string) => void
   /** Called on Escape or click outside */
   onCancel: () => void
+  /**
+   * 'attached' — seamless combobox: merges visually with the trigger button above
+   *              (flat top, no top border, full width, no gap).
+   * 'floating' — standalone dropdown with its own rounding and gap (default).
+   */
+  variant?: 'attached' | 'floating'
 }
 
 export function SubgroupDropdown({
@@ -20,6 +26,7 @@ export function SubgroupDropdown({
   initialValue = '',
   onCommit,
   onCancel,
+  variant = 'floating',
 }: SubgroupDropdownProps) {
   const [draft, setDraft] = useState(initialValue)
   const ref = useRef<HTMLDivElement>(null)
@@ -42,11 +49,16 @@ export function SubgroupDropdown({
   if (!isOpen) return null
 
   const others = existingSubgroups.filter((s) => s !== initialValue)
+  const isAttached = variant === 'attached'
 
   return (
     <div
       ref={ref}
-      className="absolute left-0 top-full mt-1 z-50 w-52 rounded-lg border border-border bg-card shadow-2xl shadow-black/40 overflow-hidden"
+      className={
+        isAttached
+          ? 'absolute left-0 top-full z-50 w-full rounded-b border border-border border-t-0 bg-card shadow-2xl shadow-black/40 overflow-hidden'
+          : 'absolute left-0 top-full mt-1 z-50 w-52 rounded-md border border-border bg-card shadow-2xl shadow-black/40 overflow-hidden'
+      }
     >
       {others.length > 0 && (
         <div className="py-1">
@@ -57,12 +69,12 @@ export function SubgroupDropdown({
             <button
               key={sv}
               onClick={() => onCommit(sv)}
-              className="flex w-full items-center px-3 py-1.5 text-sm text-foreground hover:bg-primary/10 hover:text-primary transition-colors capitalize text-left"
+              className="flex w-full items-center px-3 py-1.5 text-[12px] text-foreground hover:bg-primary/10 hover:text-primary transition-colors capitalize text-left"
             >
               {sv}
             </button>
           ))}
-          <div className="h-px bg-border mx-2 mt-1" />
+          <div className="h-px bg-border/50 mx-2 mt-1" />
         </div>
       )}
       <div className="p-2">
@@ -72,15 +84,16 @@ export function SubgroupDropdown({
             onChange={(e) => setDraft(e.target.value)}
             placeholder="Rename…"
             autoFocus
-            className="flex-1 min-w-0 h-7 px-2 text-sm bg-secondary border border-border rounded text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
+            className="flex-1 min-w-0 h-6 px-2 text-[12px] bg-secondary border border-border rounded text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
             onKeyDown={(e) => {
               if (e.key === 'Enter' && draft.trim()) onCommit(draft.trim())
               if (e.key === 'Escape') onCancel()
             }}
           />
           <Button
+            variant="outline"
             size="sm"
-            className="h-7 text-xs flex-shrink-0"
+            className="h-6 text-xs flex-shrink-0"
             onClick={() => {
               if (draft.trim()) onCommit(draft.trim())
             }}

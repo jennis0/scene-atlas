@@ -60,9 +60,7 @@ function Shimmer({ className = '' }: { className?: string }) {
 function StatCard({ label, value, loading }: { label: string; value: string; loading?: boolean }) {
   return (
     <div className="flex-1 min-w-0 rounded-md bg-secondary/60 px-3 py-2.5">
-      <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
-        {label}
-      </p>
+      <p className="section-label mb-1">{label}</p>
       {loading ? (
         <Shimmer className="h-5 w-16" />
       ) : (
@@ -76,8 +74,8 @@ function StorageBar({ storage }: { storage: SystemInfo['storage'] }) {
   const total = storage.total_bytes || 1
   const segments = [
     { key: 'images', label: 'Images', bytes: storage.images_bytes, color: 'bg-primary' },
-    { key: 'vectors', label: 'Vectors', bytes: storage.vectors_bytes, color: 'bg-sky-500' },
-    { key: 'metadata', label: 'Metadata', bytes: storage.metadata_bytes, color: 'bg-emerald-500' },
+    { key: 'vectors', label: 'Vectors', bytes: storage.vectors_bytes, color: 'bg-sky-400' },
+    { key: 'metadata', label: 'Metadata', bytes: storage.metadata_bytes, color: 'bg-emerald-400' },
   ]
   const accounted = segments.reduce((s, seg) => s + seg.bytes, 0)
   const other = Math.max(0, storage.total_bytes - accounted)
@@ -243,16 +241,29 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-[440px] bg-card border-border/50 p-0 overflow-hidden">
+        {/* ── Amber stripe ─────────────────────────────────────── */}
+        <div className="absolute top-0 inset-x-0 h-0.5 bg-gradient-to-r from-primary/70 via-primary/30 to-transparent pointer-events-none rounded-t-xl" />
+
         {/* ── Header ─────────────────────────────────────────── */}
-        <div className="flex items-center justify-between px-5 pt-5 pb-0">
-          <h2 className="font-display text-base tracking-wide text-foreground">System</h2>
-          <button
-            onClick={onClose}
-            className="rounded-sm p-1 text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <X className="h-4 w-4" />
-            <span className="sr-only">Close</span>
-          </button>
+        <div
+          className="px-4 border-b border-border shrink-0 bg-popover"
+          style={{ padding: '10px 12px 10px 16px' }}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex flex-col">
+              <span className="font-display text-[13px] font-medium tracking-[0.06em] text-foreground leading-none">
+                System
+              </span>
+              <div className="mt-[3px] h-px w-7 bg-gradient-to-r from-primary to-transparent" />
+            </div>
+            <button
+              onClick={onClose}
+              className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+            >
+              <X className="h-3.5 w-3.5" />
+              <span className="sr-only">Close</span>
+            </button>
+          </div>
         </div>
 
         {/* ── Body ───────────────────────────────────────────── */}
@@ -298,9 +309,7 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
           {/* ── Library location (Electron only) ──────────────── */}
           {isElectron && (
             <section>
-              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
-                Library Location
-              </p>
+              <p className="section-label mb-2">Library Location</p>
 
               {locationPhase === 'restarting' ? (
                 <div className="flex items-center gap-2.5 py-2">
@@ -311,9 +320,7 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
                 <div className="space-y-3">
                   <div className="rounded-md border border-border bg-secondary/40 p-3 space-y-2.5">
                     <div className="space-y-1">
-                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                        Current
-                      </span>
+                      <span className="section-label">Current</span>
                       <p className="text-sm text-muted-foreground break-all leading-relaxed">
                         {dataDir ?? '—'}
                       </p>
@@ -323,7 +330,7 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
                       <div className="h-px flex-1 border-t border-dashed border-border" />
                     </div>
                     <div className="space-y-1">
-                      <span className="text-[10px] text-primary/70 uppercase tracking-wider">
+                      <span className="text-[10px] font-semibold text-primary/70 uppercase tracking-[0.1em]">
                         New
                       </span>
                       <p className="text-sm text-primary break-all leading-relaxed">{pendingDir}</p>
@@ -341,7 +348,12 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
                     >
                       Cancel
                     </Button>
-                    <Button size="sm" onClick={handleConfirmChange} className="flex-1 h-8">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleConfirmChange}
+                      className="flex-1 h-8 text-primary border-primary/40 hover:bg-primary/10"
+                    >
                       Restart &amp; Apply
                     </Button>
                   </div>
@@ -386,9 +398,7 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
 
           {/* ── Settings ──────────────────────────────────────── */}
           <section>
-            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-2.5">
-              Settings
-            </p>
+            <p className="section-label mb-2.5">Settings</p>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-sm text-foreground/90">Image grid detection</p>
@@ -424,7 +434,7 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
           </section>
 
           {/* ── Divider ───────────────────────────────────────── */}
-          <div className="border-t border-border" />
+          <div className="border-t border-border/50" />
 
           {/* ── Actions row ───────────────────────────────────── */}
           <div className="flex items-center gap-2">
@@ -462,7 +472,7 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
                   </span>
                 </div>
               ) : purgeJob.isComplete ? (
-                <span className="text-sm text-emerald-400 shrink-0">Done</span>
+                <span className="text-sm text-emerald-300 shrink-0">Done</span>
               ) : purgeJob.isFailed ? (
                 <span
                   className="text-sm text-destructive shrink-0"

@@ -3,6 +3,7 @@ import { Plus, ChevronLeft, Search, X } from 'lucide-react'
 import type { TagData } from '@/types'
 import type { ParsedTagVocab } from './types'
 import { useGetTagColor } from '@/contexts/TagColorContext'
+import { getCategoryIcon } from '@/lib/categoryIcons'
 
 interface TagPickerProps {
   vocab: ParsedTagVocab[]
@@ -46,6 +47,8 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
     [existingTags],
   )
   const selectedVocab = vocab.find((v) => v.category === selectedCategory)
+  const selectedColor = selectedCategory ? getTagColor(selectedCategory) : null
+  const SelectedIcon = selectedVocab ? getCategoryIcon(selectedVocab.icon) : null
   const availableValues = selectedVocab
     ? selectedVocab.values.filter((v) => !existingKeys.has(`${selectedCategory}:${v}`))
     : []
@@ -100,7 +103,7 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full mt-1.5 z-50 w-[220px] rounded-xl border border-border bg-card shadow-2xl shadow-black/40 overflow-hidden flex flex-col">
+        <div className="absolute left-0 top-full mt-1.5 z-50 w-[220px] rounded-md border border-border bg-card shadow-2xl shadow-black/40 overflow-hidden flex flex-col">
           {/* Search input */}
           <div className="px-2 pt-2 pb-1.5 border-b border-border/50 shrink-0">
             <div className="relative">
@@ -146,10 +149,9 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
                     <button
                       key={`${category}:${value}`}
                       onClick={() => handleAdd(category, value)}
-                      className="flex w-full items-center gap-2 px-3 py-1.5 text-sm hover:bg-secondary transition-colors text-left"
+                      className={`flex w-full items-center gap-2 px-3 py-1.5 text-[12px] ${color.text} hover:bg-primary/10 hover:text-primary transition-colors text-left`}
                     >
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${color.dot}`} />
-                      <span className="text-foreground capitalize flex-1 truncate">{value}</span>
+                      <span className="capitalize flex-1 truncate">{value}</span>
                       <span className="text-[10px] text-muted-foreground/50 capitalize shrink-0">
                         {category}
                       </span>
@@ -159,20 +161,20 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
               )
             ) : !selectedCategory ? (
               <>
-                <div className="px-3 pt-1 pb-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
-                  Pick category
-                </div>
+                <div className="section-label px-3 pt-1 pb-1.5">Pick category</div>
                 {vocab.map((v) => {
                   const color = getTagColor(v.category)
+                  const CatIcon = getCategoryIcon(v.icon)
                   return (
                     <button
                       key={v.category}
                       onClick={() => setSelectedCategory(v.category)}
-                      className="flex w-full items-center gap-2 px-3 py-1.5 text-sm hover:bg-secondary transition-colors text-left group"
+                      className={`flex w-full items-center gap-2 text-left text-[12px] border-l-2 ${color.border} text-muted-foreground hover:text-foreground hover:bg-muted transition-colors`}
+                      style={{ padding: '7px 10px 7px 12px' }}
                     >
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${color.dot}`} />
-                      <span className="capitalize text-foreground">{v.category}</span>
-                      <span className="ml-auto text-xs text-muted-foreground/60">
+                      <CatIcon className={`h-3.5 w-3.5 shrink-0 ${color.text} opacity-60`} />
+                      <span className="capitalize flex-1 truncate">{v.category}</span>
+                      <span className="text-[10px] tabular-nums shrink-0 opacity-50">
                         {v.values.length}
                       </span>
                     </button>
@@ -181,25 +183,37 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
               </>
             ) : (
               <>
-                <button
-                  onClick={() => setSelectedCategory(null)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-full"
-                >
-                  <ChevronLeft className="h-3 w-3" />
-                  <span className="capitalize">{selectedCategory}</span>
-                </button>
-                <div className="h-px bg-border mx-2" />
+                {/* Category detail header */}
+                <div className="px-3 pt-1.5 pb-1.5 border-b border-border/50 flex items-center gap-2">
+                  <button
+                    onClick={() => setSelectedCategory(null)}
+                    className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </button>
+                  {SelectedIcon && (
+                    <SelectedIcon className={`h-3.5 w-3.5 shrink-0 ${selectedColor!.text}`} />
+                  )}
+                  <span
+                    className={`text-[12px] font-medium capitalize truncate ${selectedColor!.text}`}
+                  >
+                    {selectedCategory}
+                  </span>
+                  <span className="ml-auto text-[10px] text-muted-foreground/50 shrink-0">
+                    {availableValues.length}
+                  </span>
+                </div>
                 <div className="py-1">
                   {availableValues.length === 0 ? (
                     <div className="px-3 py-3 text-xs text-muted-foreground italic text-center">
                       All values applied
                     </div>
                   ) : (
-                    availableValues.map((value) => (
+                    availableValues.map((value, i) => (
                       <button
                         key={value}
                         onClick={() => handleAdd(selectedCategory, value)}
-                        className="flex w-full items-center px-3 py-1.5 text-sm text-foreground hover:bg-primary/10 hover:text-primary transition-colors text-left capitalize"
+                        className={`flex w-full items-center px-3 py-1.5 text-[12px] ${selectedColor!.text} hover:bg-primary/10 hover:text-primary transition-colors text-left capitalize ${i < availableValues.length - 1 ? 'border-b border-border/40' : ''}`}
                       >
                         {value}
                       </button>

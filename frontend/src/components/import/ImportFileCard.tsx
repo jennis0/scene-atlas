@@ -237,7 +237,7 @@ export function ImportFileCard({
                 {file.subgroup ? (
                   <button
                     data-no-select=""
-                    className="flex-1 min-w-0 h-5 px-1.5 text-[10px] bg-secondary border border-border rounded text-foreground/80 capitalize text-left truncate flex items-center gap-1 hover:border-primary/40 transition-colors"
+                    className={`flex-1 min-w-0 h-5 px-1.5 text-[10px] bg-secondary border border-border text-foreground/80 capitalize text-left truncate flex items-center gap-1 hover:border-primary/40 transition-colors ${isSubgroupOpen ? 'rounded-t border-b-0' : 'rounded'}`}
                     onClick={() => !disabled && setIsSubgroupOpen(true)}
                   >
                     <span className="truncate">{file.subgroup}</span>
@@ -256,7 +256,7 @@ export function ImportFileCard({
                 ) : (
                   <button
                     data-no-select=""
-                    className="flex-1 min-w-0 h-5 px-1.5 text-[10px] bg-secondary border border-border rounded text-muted-foreground/30 italic text-left truncate hover:border-primary/40 transition-colors"
+                    className={`flex-1 min-w-0 h-5 px-1.5 text-[10px] bg-secondary border border-border text-muted-foreground/30 italic text-left truncate hover:border-primary/40 transition-colors ${isSubgroupOpen ? 'rounded-t border-b-0' : 'rounded'}`}
                     onClick={() => !disabled && setIsSubgroupOpen(true)}
                     disabled={disabled}
                   >
@@ -267,6 +267,7 @@ export function ImportFileCard({
                   isOpen={isSubgroupOpen}
                   existingSubgroups={existingSubgroups}
                   initialValue={file.subgroup ?? ''}
+                  variant="attached"
                   onCommit={(value) => {
                     onUpdate({ subgroup: value || null })
                     setIsSubgroupOpen(false)

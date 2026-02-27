@@ -28,7 +28,7 @@ export function parseTagVocabulary(categories: TagCategory[]): ParsedTagVocab[] 
           /* skip malformed */
         }
       }
-      return { category: cat.name, values, aliases }
+      return { category: cat.name, icon: cat.icon, values, aliases }
     })
     .filter((v) => v.values.length > 0)
 }

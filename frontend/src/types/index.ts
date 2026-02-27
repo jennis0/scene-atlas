@@ -372,6 +372,7 @@ export interface BackgroundJob {
 
 export interface ParsedTagVocab {
   category: string
+  icon: string | null
   values: string[]
   aliases: Record<string, string[]> // canonical value → alias list
 }
