@@ -28,8 +28,8 @@ vi.mock('@/lib/api', () => ({
       mode: 'app',
       storage: {
         images_bytes: 1048576, // 1 MB
-        thumbnails_bytes: 524288, // 512 KB
-        qdrant_bytes: 262144, // 256 KB
+        vectors_bytes: 524288, // 512 KB
+        metadata_bytes: 262144, // 256 KB
         total_bytes: 1835008,
       },
       library: {
@@ -44,6 +44,19 @@ vi.mock('@/lib/api', () => ({
       seeded_categories: 10,
     }),
   },
+  settingsApi: {
+    get: vi.fn().mockResolvedValue({
+      enable_image_grid_detection: true,
+      grid_min_cell_px: 20,
+      grid_max_cell_px: 200,
+      grid_detection_max_dim: 2048,
+      grid_presence_threshold: 0.5,
+      grid_size_threshold: 0.5,
+      grid_period_ratio_threshold: 0.3,
+      grid_hex_rot_conf: 0.5,
+    }),
+    patch: vi.fn().mockResolvedValue({}),
+  },
   jobApi: {
     get: vi.fn().mockResolvedValue({
       id: 'test-purge-1',
@@ -54,6 +67,7 @@ vi.mock('@/lib/api', () => ({
       error: null,
     }),
   },
+  getLibraryExportUrl: vi.fn().mockReturnValue('/api/v1/export'),
 }))
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -86,10 +100,10 @@ describe('SystemInfoDialog', () => {
   it('displays storage sizes when data loads', async () => {
     renderWithProviders(<SystemInfoDialog open onClose={vi.fn()} />)
     await waitFor(() => {
-      expect(screen.getByText('1.0 MB')).toBeInTheDocument() // images
-      expect(screen.getByText('512.0 KB')).toBeInTheDocument() // thumbnails
-      expect(screen.getByText('256.0 KB')).toBeInTheDocument() // qdrant
-      expect(screen.getByText('1.8 MB')).toBeInTheDocument() // total
+      expect(screen.getByText('1.8 MB')).toBeInTheDocument() // total in stat card
+      expect(screen.getByText('1.0 MB')).toBeInTheDocument() // images in storage bar
+      expect(screen.getByText('512.0 KB')).toBeInTheDocument() // vectors in storage bar
+      expect(screen.getByText('256.0 KB')).toBeInTheDocument() // metadata in storage bar
     })
   })
 
@@ -189,9 +203,10 @@ describe('SystemInfoDialog', () => {
   it('shows danger zone section with delete and reset buttons', async () => {
     renderWithProviders(<SystemInfoDialog open onClose={vi.fn()} />)
     await waitFor(() => {
-      expect(screen.getByText('Danger Zone')).toBeInTheDocument()
       expect(screen.getByText('Delete library')).toBeInTheDocument()
       expect(screen.getByText('Reset tags')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /^delete$/i })).toBeInTheDocument()
+      expect(screen.getAllByRole('button', { name: /^reset$/i }).length).toBeGreaterThan(0)
     })
   })
 
@@ -200,7 +215,7 @@ describe('SystemInfoDialog', () => {
     renderWithProviders(<SystemInfoDialog open onClose={vi.fn()} />)
 
     await waitFor(() => {
-      expect(screen.getByText('Danger Zone')).toBeInTheDocument()
+      expect(screen.getByText('Delete library')).toBeInTheDocument()
     })
 
     await user.click(screen.getByRole('button', { name: /^delete$/i }))
@@ -217,7 +232,7 @@ describe('SystemInfoDialog', () => {
     renderWithProviders(<SystemInfoDialog open onClose={vi.fn()} />)
 
     await waitFor(() => {
-      expect(screen.getByText('Danger Zone')).toBeInTheDocument()
+      expect(screen.getByText('Reset tags')).toBeInTheDocument()
     })
 
     // Find the Reset button inside the danger zone (near "Reset tags" label)
