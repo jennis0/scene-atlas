@@ -283,120 +283,121 @@ export function FileCard({
             </div>
           )}
 
-          {/* Divider */}
-          <div className="h-px bg-gradient-to-r from-border/50 to-transparent my-1" />
-
-          {/* SUB prop-row */}
-          <div className="flex items-center gap-1.5 min-h-5">
-            <span className="w-8 shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/50 text-right leading-none">
-              Sub
-            </span>
-            <div className="flex-1 min-w-0 flex items-center gap-1 relative">
-              {file.subgroup ? (
-                <button
-                  data-no-select=""
-                  className="flex-1 min-w-0 h-5 px-1.5 text-[10px] bg-secondary border border-border rounded text-foreground/80 capitalize text-left truncate flex items-center gap-1 hover:border-primary/40 transition-colors"
-                  onClick={() => !disabled && setIsSubgroupOpen(true)}
-                >
-                  <span className="truncate">{file.subgroup}</span>
-                  {!disabled && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onUpdate({ subgroup: null })
-                      }}
-                      className="ml-auto shrink-0 text-muted-foreground/30 hover:text-foreground opacity-0 group-hover/card:opacity-100 transition-opacity"
-                    >
-                      <X className="h-2.5 w-2.5" />
-                    </button>
-                  )}
-                </button>
-              ) : (
-                <button
-                  data-no-select=""
-                  className="flex-1 min-w-0 h-5 px-1.5 text-[10px] bg-secondary border border-border rounded text-muted-foreground/30 italic text-left truncate hover:border-primary/40 transition-colors"
-                  onClick={() => !disabled && setIsSubgroupOpen(true)}
-                  disabled={disabled}
-                >
-                  —
-                </button>
-              )}
-              <SubgroupDropdown
-                isOpen={isSubgroupOpen}
-                existingSubgroups={existingSubgroups}
-                initialValue={file.subgroup ?? ''}
-                onCommit={(value) => {
-                  onUpdate({ subgroup: value || null })
-                  setIsSubgroupOpen(false)
-                }}
-                onCancel={() => setIsSubgroupOpen(false)}
-              />
-            </div>
-          </div>
-
-          {/* TYPE prop-row */}
-          <div className="flex items-center gap-1.5 min-h-5">
-            <span className="w-8 shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/50 text-right leading-none">
-              Type
-            </span>
-            <div className="flex-1 min-w-0 flex items-center gap-1">
-              {!disabled ? (
-                <div className="inline-flex rounded-md overflow-hidden border border-border">
-                  <button
-                    onClick={() => onUpdate({ image_type: 'battlemap' })}
-                    className={`px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
-                      file.image_type !== 'scene'
-                        ? 'bg-primary/20 text-primary'
-                        : 'text-muted-foreground/50 hover:text-muted-foreground'
-                    }`}
-                  >
-                    Map
-                  </button>
-                  <button
-                    onClick={() => onUpdate({ image_type: 'scene' })}
-                    className={`px-1.5 py-0.5 text-[10px] font-medium border-l border-border transition-colors ${
-                      file.image_type === 'scene'
-                        ? 'bg-primary/20 text-primary'
-                        : 'text-muted-foreground/50 hover:text-muted-foreground'
-                    }`}
-                  >
-                    Scene
-                  </button>
-                </div>
-              ) : (
-                <span className="text-[10px] text-muted-foreground/60 capitalize">
-                  {file.image_type === 'scene' ? 'Scene' : 'Map'}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* GRID prop-row (maps only) */}
-          {file.image_type !== 'scene' && (
+          {/* Property rows */}
+          <div className="flex flex-col gap-1">
+            {/* SUB prop-row */}
             <div className="flex items-center gap-1.5 min-h-5">
               <span className="w-8 shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/50 text-right leading-none">
-                Grid
+                Sub
+              </span>
+              <div className="flex-1 min-w-0 flex items-center gap-1 relative">
+                {file.subgroup ? (
+                  <button
+                    data-no-select=""
+                    className="flex-1 min-w-0 h-5 px-1.5 text-[10px] bg-secondary border border-border rounded text-foreground/80 capitalize text-left truncate flex items-center gap-1 hover:border-primary/40 transition-colors"
+                    onClick={() => !disabled && setIsSubgroupOpen(true)}
+                  >
+                    <span className="truncate">{file.subgroup}</span>
+                    {!disabled && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onUpdate({ subgroup: null })
+                        }}
+                        className="ml-auto shrink-0 text-muted-foreground/30 hover:text-foreground opacity-0 group-hover/card:opacity-100 transition-opacity"
+                      >
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                    )}
+                  </button>
+                ) : (
+                  <button
+                    data-no-select=""
+                    className="flex-1 min-w-0 h-5 px-1.5 text-[10px] bg-secondary border border-border rounded text-muted-foreground/30 italic text-left truncate hover:border-primary/40 transition-colors"
+                    onClick={() => !disabled && setIsSubgroupOpen(true)}
+                    disabled={disabled}
+                  >
+                    —
+                  </button>
+                )}
+                <SubgroupDropdown
+                  isOpen={isSubgroupOpen}
+                  existingSubgroups={existingSubgroups}
+                  initialValue={file.subgroup ?? ''}
+                  onCommit={(value) => {
+                    onUpdate({ subgroup: value || null })
+                    setIsSubgroupOpen(false)
+                  }}
+                  onCancel={() => setIsSubgroupOpen(false)}
+                />
+              </div>
+            </div>
+
+            {/* TYPE prop-row */}
+            <div className="flex items-center gap-1.5 min-h-5">
+              <span className="w-8 shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/50 text-right leading-none">
+                Type
               </span>
               <div className="flex-1 min-w-0 flex items-center gap-1">
-                <GridToggle
-                  gridded={file.gridded}
-                  gridType={file.grid_type ?? null}
-                  onChange={(gridded, gridType) => onUpdate({ gridded, grid_type: gridType })}
-                  disabled={disabled}
-                  compact
-                />
-                {file.gridded === true && (
-                  <GridSizeInput
-                    width={file.grid_width ?? null}
-                    height={file.grid_height ?? null}
-                    onChange={(w, h) => onUpdate({ grid_width: w, grid_height: h })}
-                    disabled={disabled}
-                    compact
-                  />
+                {!disabled ? (
+                  <div className="inline-flex rounded-md overflow-hidden border border-border">
+                    <button
+                      onClick={() => onUpdate({ image_type: 'battlemap' })}
+                      className={`px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+                        file.image_type !== 'scene'
+                          ? 'bg-primary/20 text-primary'
+                          : 'text-muted-foreground/50 hover:text-muted-foreground'
+                      }`}
+                    >
+                      Map
+                    </button>
+                    <button
+                      onClick={() => onUpdate({ image_type: 'scene' })}
+                      className={`px-1.5 py-0.5 text-[10px] font-medium border-l border-border transition-colors ${
+                        file.image_type === 'scene'
+                          ? 'bg-primary/20 text-primary'
+                          : 'text-muted-foreground/50 hover:text-muted-foreground'
+                      }`}
+                    >
+                      Scene
+                    </button>
+                  </div>
+                ) : (
+                  <span className="text-[10px] text-muted-foreground/60 capitalize">
+                    {file.image_type === 'scene' ? 'Scene' : 'Map'}
+                  </span>
                 )}
               </div>
             </div>
-          )}
+
+            {/* GRID prop-row (maps only) */}
+            {file.image_type !== 'scene' && (
+              <div className="flex items-center gap-1.5 min-h-5">
+                <span className="w-8 shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/50 text-right leading-none">
+                  Grid
+                </span>
+                <div className="flex-1 min-w-0 flex items-center gap-1">
+                  <GridToggle
+                    gridded={file.gridded}
+                    gridType={file.grid_type ?? null}
+                    onChange={(gridded, gridType) => onUpdate({ gridded, grid_type: gridType })}
+                    disabled={disabled}
+                    compact
+                  />
+                  {file.gridded === true && (
+                    <GridSizeInput
+                      width={file.grid_width ?? null}
+                      height={file.grid_height ?? null}
+                      onChange={(w, h) => onUpdate({ grid_width: w, grid_height: h })}
+                      disabled={disabled}
+                      compact
+                    />
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+          {/* end property rows */}
 
           {/* Divider */}
           <div className="h-px bg-gradient-to-r from-border/50 to-transparent my-1" />
