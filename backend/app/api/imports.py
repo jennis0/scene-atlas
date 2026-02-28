@@ -40,7 +40,7 @@ from ..models.schemas import (
 )
 from ..services.app_settings import get_settings as get_app_settings
 from ..services.job_runner import get_job_runner
-from ..services.validation import check_zip_safety, verify_media_mime
+from ..services.validation import check_zip_safety, is_path_within, verify_media_mime
 
 
 class ImportConfirmAllRequest(BaseModel):
@@ -994,17 +994,14 @@ async def get_preview_thumbnail(
     thumb_path = staging_dir / ".thumbs" / safe_name
 
     if thumb_path.exists():
-        # Path traversal guard
-        resolved = thumb_path.resolve()
-        if not str(resolved).startswith(str(staging_dir.resolve())):
+        if not is_path_within(staging_dir, thumb_path):
             raise HTTPException(status_code=403, detail="Access denied")
         return FileResponse(thumb_path, media_type="image/jpeg")
 
     # Fall back to original file
     original_path = staging_dir / relative_path
     if original_path.exists():
-        resolved = original_path.resolve()
-        if not str(resolved).startswith(str(staging_dir.resolve())):
+        if not is_path_within(staging_dir, original_path):
             raise HTTPException(status_code=403, detail="Access denied")
         suffix = original_path.suffix.lower()
         media_types = {

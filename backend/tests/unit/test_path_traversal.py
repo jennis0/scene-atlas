@@ -16,9 +16,12 @@ import pytest
 
 
 def _is_within_base(base_dir: Path, target: Path) -> bool:
-    """Mirror the path traversal guard used in imports.py and images.py."""
-    resolved = target.resolve()
-    return str(resolved).startswith(str(base_dir.resolve()))
+    """Path containment guard using relative_to (no prefix false-positives)."""
+    try:
+        target.resolve().relative_to(base_dir.resolve())
+        return True
+    except ValueError:
+        return False
 
 
 class TestPathTraversalGuard:
@@ -81,29 +84,11 @@ class TestPathTraversalGuard:
 
     # ── Known limitation ───────────────────────────────────────────────────────
 
-    def test_adjacent_prefix_known_limitation(self, tmp_path):
-        """Documents a known false-positive in the startswith guard.
-
-        A path whose string representation *starts with* the base dir string
-        but is NOT a descendant of it (e.g. a sibling directory whose name
-        starts with the same characters) is incorrectly accepted.
-
-        Example:
-            base  = /data/staging/job1
-            path  = /data/staging/job1evil/file.jpg
-            str(path).startswith(str(base))  →  True  ← incorrect!
-
-        In this application this is not practically exploitable because job IDs
-        are random 16-character hex strings, making a collision effectively
-        impossible.  The correct fix is to use Path.relative_to() instead of
-        str.startswith().  If this test starts failing it means the guard has
-        been fixed, and the test should be updated or removed.
-        """
+    def test_adjacent_prefix_correctly_blocked(self, tmp_path):
+        """Sibling directory with shared prefix must be blocked."""
         base_dir = tmp_path / "job1"
-        # Sibling directory whose name starts with "job1" but is not inside it
         sibling = tmp_path / "job1evil" / "file.jpg"
-        # Acknowledge the false positive: the guard returns True (incorrectly)
-        assert _is_within_base(base_dir, sibling) is True  # known false positive
+        assert _is_within_base(base_dir, sibling) is False
 
 
 class TestPathTraversalGuardWithRealFiles:
