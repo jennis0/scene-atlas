@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { filterByMagicBytes } from '@/lib/mimeCheck'
 import { importApi } from '@/lib/api'
 import { resolveApiUrl } from '@/lib/apiBase'
@@ -41,6 +41,16 @@ export function useImportUpload({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
   const blobUrlsRef = useRef<string[]>([])
+
+  // Revoke all blob URLs on unmount to prevent memory leaks.
+  // Normally reset() handles this, but if the component is unmounted without
+  // reset() being called (e.g., parent key change causes remount), this
+  // cleanup ensures blob URLs are still freed.
+  useEffect(() => {
+    return () => {
+      blobUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
+    }
+  }, [])
 
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
