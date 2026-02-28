@@ -40,6 +40,28 @@ describe('getApiErrorMessage', () => {
   it('uses custom fallback message', () => {
     expect(getApiErrorMessage(null, 'Custom fallback')).toBe('Custom fallback')
   })
+
+  it('truncates messages longer than 500 characters', () => {
+    const longMessage = 'x'.repeat(1000)
+    const err = makeAxiosError(500, longMessage)
+    const result = getApiErrorMessage(err)
+    expect(result).toHaveLength(501) // 500 chars + ellipsis
+    expect(result).toBe('x'.repeat(500) + '\u2026')
+  })
+
+  it('does not truncate messages at exactly 500 characters', () => {
+    const exactMessage = 'y'.repeat(500)
+    const err = makeAxiosError(400, exactMessage)
+    expect(getApiErrorMessage(err)).toBe(exactMessage)
+  })
+
+  it('truncates long standard Error messages', () => {
+    const longMessage = 'z'.repeat(600)
+    const err = new Error(longMessage)
+    const result = getApiErrorMessage(err)
+    expect(result).toHaveLength(501)
+    expect(result.endsWith('\u2026')).toBe(true)
+  })
 })
 
 describe('isNotFoundError', () => {
