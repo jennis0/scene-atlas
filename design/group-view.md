@@ -136,5 +136,5 @@ All card components follow the shared visual language documented in [visual-lang
 
 - Dedicated backend endpoint for grouped search (if client-side grouping becomes a bottleneck)
 - Expand/collapse group cards inline to see all scenes without opening ImageViewer
-- Group-level actions (download all scenes, tag all scenes)
+- Group-level bulk tagging (tag all scenes in a group at once)
 - `description` field on ImageGroup for user-added notes

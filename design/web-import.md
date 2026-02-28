@@ -197,7 +197,9 @@ See [parser.md](parser.md) for the full algorithm. Summary:
 
 ## Frontend: ImportDialog
 
-The import dialog is a **group management tool** — it handles file organization into groups before import. Per-file metadata editing (tags, grid, name, subgroup) is deferred to post-import via `ImageViewer` and `EditGroupDialog` (import-review mode). See [plan-simplify-import.md](plan-simplify-import.md) for rationale.
+The import dialog is a **group management tool** — it handles file organization into groups before import. Per-file metadata editing (tags, grid, name, subgroup) is deferred to post-import via `ImageViewer` and `EditGroupDialog` (import-review mode).
+
+**Design philosophy:** The import dialog intentionally avoids per-file metadata editing because (a) it doesn't scale — imports can have hundreds of files, making per-file editing tedious, (b) users would be editing "blind" before ML enrichment (grid detection, CLIP embedding, color extraction) has run, and (c) post-import review via `EditGroupDialog` and `ImageViewer` shows enriched metadata, making edits more informed. The import dialog focuses on the things only the user can decide upfront: grouping, authorship, and image type.
 
 Four dialog states (mapped from backend status via `backendStatusToDialogState()`):
 

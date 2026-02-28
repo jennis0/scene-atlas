@@ -8,37 +8,58 @@ Architecture and design documentation for the Scene Atlas project. These documen
 |------|-------------|
 | [decisions.md](decisions.md) | **Architecture Decision Log** — numbered record of all major design decisions |
 | [backend.md](backend.md) | Backend API server — FastAPI, services, configuration, endpoints |
-| [frontend.md](frontend.md) | Frontend SPA — React, components, API client, filter logic |
-| [storage.md](storage.md) | Data storage — SQLite schema, Qdrant vectors, ImageStore filesystem |
-| [ingestion.md](ingestion.md) | Ingestion pipeline — Prefect flows, processing steps, infrastructure |
+| [frontend.md](frontend.md) | Frontend SPA — React, components, hooks, filter logic |
+| [electron.md](electron.md) | Electron desktop app — windows, IPC, sidecar lifecycle, packaging |
+| [storage.md](storage.md) | Data storage — SQLite schema, Qdrant vectors, ImageStore filesystem, backups |
+| [testing.md](testing.md) | Testing strategy — CI/CD tiers, coverage targets, test patterns |
+| [ingestion.md](ingestion.md) | Ingestion pipeline — batched processing, CLIP embeddings, background jobs |
 | [web-import.md](web-import.md) | Web import flow — upload, grouping, preview, confirm, processing |
 | [parser.md](parser.md) | ImageParser — filename parsing, tag extraction, image group detection |
+| [import-state-machine.md](import-state-machine.md) | Import state machine — 8 statuses, transitions, frontend mapping |
 | [group-view.md](group-view.md) | Group view — hero+mosaic card layout for browsing by image group |
+| [visual-language.md](visual-language.md) | Visual design system — tokens, typography, components, patterns |
 
 ## System Overview
 
 ```
-┌─────────────────────┐     ┌──────────────────┐
-│   React Frontend    │────▶│   FastAPI Backend │
-│   (Vite :5173)      │     │   (:8000)         │
-└─────────────────────┘     └──────┬───────────┘
-                                   │
-                    ┌──────────────┼──────────────┐
-                    │              │              │
-              ┌─────▼─────┐ ┌─────▼─────┐ ┌─────▼──────┐
-              │  SQLite   │ │  Qdrant   │ │ ImageStore │
-              │  (metadata│ │  (vectors)│ │ (files)    │
-              │  + tags)  │ │  :6333    │ │ hash-shard │
-              └───────────┘ └───────────┘ └────────────┘
-                                   │
-                            ┌──────▼──────┐
-                            │   Prefect   │
-                            │   Server    │
-                            │   :4200     │
-                            │ (Postgres + │
-                            │  Redis)     │
-                            └─────────────┘
+┌─────────────────────────────────┐
+│      Electron Main Process      │  (desktop mode only)
+│  ┌───────────┐  ┌────────────┐  │
+│  │ Setup     │  │ Main       │  │
+│  │ Window    │  │ Window     │  │
+│  └───────────┘  └─────┬──────┘  │
+│                       │ IPC     │
+└───────────────────────┼─────────┘
+                        │
+┌───────────────────────▼─────────┐
+│        React Frontend           │
+│        (Vite :5173)             │
+└───────────────┬─────────────────┘
+                │ HTTP
+┌───────────────▼─────────────────┐
+│        FastAPI Backend          │
+│        (:8000)                  │
+└──────┬──────────┬───────────────┘
+       │          │
+ ┌─────▼─────┐ ┌─▼──────────┐ ┌──────────────┐
+ │  SQLite   │ │  Qdrant    │ │  ImageStore  │
+ │ (metadata,│ │ (embedded  │ │  (files,     │
+ │  tags,    │ │  vectors)  │ │  hash-shard) │
+ │  FTS5)    │ └────────────┘ └──────────────┘
+ └───────────┘
 ```
+
+## Deployment Modes
+
+| Mode | Frontend | Backend | Notes |
+|------|----------|---------|-------|
+| **Electron app** | Bundled in `frontend/dist/` | PyInstaller sidecar subprocess | For non-technical users. See [electron.md](electron.md) |
+| **Web server** | Served by reverse proxy | Uvicorn behind reverse proxy | For power users with remote access |
+| **Developer** | `npm run dev` (:5173) | `uv run python scripts/start.py` (:8000) | Hot reload on both |
+
+## Archive
+
+Completed implementation plans, resolved design audits, and mockups are preserved in [`./archive/`](archive/) for historical reference. These are not current-state documents.
 
 ## Keeping These Docs Updated
 

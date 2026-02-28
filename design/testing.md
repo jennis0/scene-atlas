@@ -94,7 +94,15 @@ backend/tests/
 │   ├── test_video_utils.py        # verify_video_mime, extract_first_frame, get_video_dimensions
 │   ├── test_color_search.py       # HSL color distance, color index search
 │   ├── test_deletion_service.py   # safe_delete_image, file + DB + Qdrant cleanup
-│   └── test_system_info.py        # dir_size utility
+│   ├── test_system_info.py        # dir_size utility
+│   ├── test_path_traversal.py     # Path traversal prevention
+│   ├── test_validation.py         # Input validation helpers
+│   ├── test_import_state.py       # Import state machine transitions
+│   ├── test_fts_service.py        # FTS5 full-text search
+│   ├── test_grid_detector.py      # Image-based grid detection algorithm
+│   ├── test_image_store.py        # Hash-sharded filesystem storage
+│   ├── test_maintenance.py        # Backup + cleanup tasks
+│   └── test_config_mode.py        # APP_MODE config detection
 ├── integration/                   # Real SQLite DB, mocked CLIP/Qdrant
 │   ├── test_metadata_roundtrip.py # User edits survive to DB (highest priority)
 │   ├── test_analyse_upload.py     # analyse_upload (grouping + thumbnails)
@@ -103,22 +111,41 @@ backend/tests/
 │   ├── test_upload_endpoint.py    # POST /imports/upload
 │   ├── test_confirm_endpoint.py   # POST /imports/{id}/confirm
 │   ├── test_preview_endpoint.py   # GET /imports/{id}/preview/{path}
+│   ├── test_imports_status.py     # GET /imports/{id}/status + active
 │   ├── test_search_endpoint.py    # GET /api/v1/search/ + facets
 │   ├── test_images_endpoint.py    # GET/PATCH/DELETE /api/v1/images/ + scenes + file serving
+│   ├── test_groups_endpoint.py    # Groups CRUD, merge, move-images, download
+│   ├── test_tags_endpoint.py      # Tags/categories CRUD + cascading
 │   ├── test_export_endpoint.py    # GET /api/v1/export/library (ZIP structure + metadata)
 │   ├── test_system_admin.py       # GET /api/v1/system/ endpoints
+│   ├── test_system_endpoint.py    # System info + delete library
+│   ├── test_health_endpoint.py    # GET /health deep health check
+│   ├── test_backup_restore.py     # Backup + restore pipeline
+│   ├── test_expire_stale_jobs.py  # Stale job expiry + staging cleanup
 │   └── test_clip_heavy.py         # Real CLIP model tests (marked @heavy, excluded by default)
-├── e2e/                           # Full infrastructure tests (future)
-└── legacy/                        # Old manual scripts — delete as replaced
+└── e2e/                           # Full infrastructure tests (future)
 
 frontend/src/
 ├── components/
+│   ├── ActivityDock.test.tsx
 │   ├── DesktopGate.test.tsx
-│   └── SystemInfoDialog.test.tsx
+│   ├── SystemInfoDialog.test.tsx
+│   └── import/
+│       ├── fileFilter.test.ts
+│       ├── tagColors.test.ts
+│       └── types.test.ts
 ├── hooks/
+│   ├── useFileEditing.test.ts
+│   ├── useImageGrouping.test.ts
 │   └── useJobPolling.test.ts
 └── lib/
-    └── appMode.test.ts
+    ├── apiBase.test.ts
+    ├── appMode.test.ts
+    ├── categoryIcons.test.ts
+    ├── constants.test.ts
+    ├── getErrorMessage.test.ts
+    ├── importStorage.test.ts
+    └── mimeCheck.test.ts
 ```
 
 ## Conventions

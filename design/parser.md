@@ -53,7 +53,7 @@ Given a relative path like `czepeku/Island Fort/Gridded/IslandFort_Night_Rain_30
   5. Validate against image dimensions (snap to nearest clean divisor → tile count)
 - Outputs: `grid_type` ("square"/"hex"), `grid_width`/`grid_height` (tile counts), `grid_confidence` (0.0–1.0)
 - Service: `backend/app/services/grid_detector.py`
-- Task: `backend/flows/tasks/grid_detection.py`
+- Task: `backend/pipeline/tasks/grid_detection.py`
 
 ### 3. Folder Hierarchy Parsing
 
@@ -145,7 +145,7 @@ Example: `AbandonedCampsiteNight30x30` → `Abandoned Campsite Night 30 x 30`
 
 ### Integration with Ingestion
 
-In `flows/ingestion.py`, the `Image.name` field is populated from `parsed["name"]` (falling back to `group_name` if absent). This gives each image a distinct, human-readable display name separate from its group.
+In `pipeline/ingestion.py`, the `Image.name` field is populated from `parsed["name"]` (falling back to `group_name` if absent). This gives each image a distinct, human-readable display name separate from its group.
 
 ## Group Detection (`group_files()`)
 

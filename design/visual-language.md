@@ -514,3 +514,15 @@ The following patterns appear in older code (especially FileCard and import-flow
 | Hiding filter button when no filterable data | Show it greyed out (`opacity-25 cursor-not-allowed`) |
 | Metadata bar with fixed height below card | Remove; use gradient overlay on card |
 | `rounded-lg border bg-white shadow-black/5` for dropdowns | `rounded-xl border border-border bg-card shadow-2xl shadow-black/40` |
+
+---
+
+## Open Items (Low Priority)
+
+Remaining items from the design language audit (2026-02-25) that have not yet been addressed:
+
+1. **Confirm dialogs** — `ConfirmDialog` component uses default Radix styling rather than the documented token-based patterns (low visual impact since it's rarely seen)
+2. **Hover state implementation** — Some components use hardcoded hover colors instead of token-based `hover:bg-muted` or `hover:bg-primary/10`
+3. **Card scale on hover** — GroupCard uses `hover:scale-[1.01]` which is inconsistent with ImageGrid cards that have no scale transform
+4. **Font weight consistency** — Mixed usage of `font-medium` vs `font-semibold` for section labels across FilterMenuContent and ImageViewer
+5. **ImportDialog dark mode** — The ImportDialog and its sub-components use hardcoded light colours (`bg-white`, `bg-slate-50`, etc.) and need `dark:` variants to match the design system. This is tracked as deferred work.

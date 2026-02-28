@@ -55,36 +55,102 @@ backend/
 
 ## API Endpoints
 
+All endpoints are prefixed with `/api/v1`.
+
+### Images (`/images`)
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/api/v1/images/` | List images (paginated) |
-| GET | `/api/v1/images/{id}` | Get single image |
-| DELETE | `/api/v1/images/{id}` | Delete image + files |
-| GET | `/api/v1/images/{id}/scenes` | Get group members (scenes) |
-| GET | `/api/v1/images/{id}/file` | Serve original image file |
-| GET | `/api/v1/images/{id}/thumbnail` | Serve thumbnail (falls back to original) |
-| POST | `/api/v1/images/backfill-grids` | Trigger grid detection backfill |
-| GET | `/api/v1/search/` | Multi-faceted search (text, tags, colors, semantic) |
-| GET | `/api/v1/search/facets` | Filter panel facet counts |
-| POST | `/api/v1/search/rebuild-embeddings` | Trigger CLIP embedding rebuild |
-| GET | `/api/v1/groups/` | List image groups |
-| GET | `/api/v1/groups/{id}` | Get group with members |
-| PUT | `/api/v1/groups/{id}` | Update group metadata |
-| DELETE | `/api/v1/groups/{id}` | Delete group |
-| POST | `/api/v1/groups/{id}/merge` | Merge another group into this one |
-| PUT | `/api/v1/groups/mass-edit` | Bulk update multiple groups |
-| GET | `/api/v1/tags/categories` | List tag categories |
-| GET | `/api/v1/tags/values/{category}` | List values for a category |
-| POST | `/api/v1/tags/image/{id}` | Add tag to image |
-| DELETE | `/api/v1/tags/{tag_id}` | Remove a tag |
-| POST | `/api/v1/tags/retag-all` | Trigger full retag job |
-| POST | `/api/v1/imports/upload` | Upload files for import analysis |
-| POST | `/api/v1/imports/{job_id}/confirm` | Confirm a group for processing |
-| POST | `/api/v1/imports/{job_id}/confirm-all` | Confirm all groups at once |
-| GET | `/api/v1/imports/{job_id}/status` | Check import job progress |
-| GET | `/api/v1/imports/active` | List active import jobs |
-| GET | `/api/v1/jobs/` | List background jobs |
-| GET | `/api/v1/jobs/{id}` | Get background job status |
+| GET | `/` | List images (paginated) |
+| GET | `/authors` | List distinct author values |
+| GET | `/{id}` | Get single image |
+| PATCH | `/{id}` | Update image metadata (name, subgroup, grid info, type) |
+| DELETE | `/{id}` | Delete image + files |
+| GET | `/{id}/scenes` | Get group members (scenes) |
+| GET | `/{id}/file` | Serve original image file |
+| GET | `/{id}/thumbnail` | Serve thumbnail (falls back to original) |
+| POST | `/backfill-grids` | Trigger grid detection backfill (background job) |
+
+### Search (`/search`)
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/` | Multi-faceted search (text + tags + colors + semantic) |
+| GET | `/facets` | Filter panel facet counts |
+| POST | `/rebuild-embeddings` | Trigger CLIP embedding rebuild (background job) |
+
+### Groups (`/groups`)
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/search` | Search groups by name (token Jaccard similarity) |
+| GET | `/{id}` | Get group with members |
+| GET | `/{id}/download` | Stream group as ZIP archive |
+| PUT | `/{id}` | Update group metadata |
+| DELETE | `/{id}` | Delete group |
+| POST | `/{id}/move-images` | Move images between groups |
+| POST | `/{id}/merge` | Merge another group into this one |
+
+### Tags (`/tags`)
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/categories` | List tag categories |
+| POST | `/categories` | Create new category |
+| GET | `/categories/{name}` | Get specific category |
+| PATCH | `/categories/{name}` | Update category (cascade renames) |
+| DELETE | `/categories/{name}` | Delete category (cascade deletes) |
+| PUT | `/categories/{name}/tags/{value}` | Add/update tag value + aliases |
+| PATCH | `/categories/{name}/tags/{value}` | Rename a tag value |
+| DELETE | `/categories/{name}/tags/{value}` | Delete a tag value |
+| GET | `/values/{category}` | List values for a category |
+| GET | `/image/{id}` | List tags for an image |
+| POST | `/image/{id}` | Add tag to image |
+| DELETE | `/{tag_id}` | Remove a tag |
+| GET | `/stats` | Tag statistics |
+| POST | `/retag-all` | Trigger full retag job |
+
+### Imports (`/imports`)
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/check-hashes` | Pre-flight duplicate check via content hash |
+| POST | `/init` | Initialise a new import job |
+| POST | `/upload` | Upload files for import analysis |
+| POST | `/{job_id}/confirm` | Confirm a group for processing |
+| POST | `/{job_id}/confirm-all` | Confirm all groups at once |
+| GET | `/{job_id}/status` | Check import job progress |
+| GET | `/{job_id}/analysis` | Get or reconnect to analysis results |
+| POST | `/{job_id}/finalize` | Mark job as done |
+| POST | `/{job_id}/cancel` | Cancel an import job |
+| POST | `/{job_id}/groups/{gid}/cancel` | Cancel a single group |
+| GET | `/{job_id}/preview/{path}` | Serve preview thumbnail |
+| GET | `/active` | List active import jobs |
+| DELETE | `/cleanup` | Clean up old/expired imports |
+
+### Jobs (`/jobs`)
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/` | List background jobs |
+| GET | `/{id}` | Get background job status |
+
+### Export (`/export`)
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/library` | Stream entire library as ZIP |
+
+### System (`/system`)
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/info` | Storage usage and library stats |
+| DELETE | `/library` | Delete entire library (background job) |
+| POST | `/tags/reset` | Reset tags to seed defaults |
+
+### Settings (`/settings`)
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/` | Get app settings |
+| PATCH | `/` | Update app settings |
+
+### Health
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/health` | Deep health check (DB + Qdrant + job runner) |
 
 ## Services
 
@@ -99,6 +165,24 @@ Embedded Qdrant vector DB client (local mode, no Docker). Manages the `battlemap
 
 ### ImageParser
 Filename/path parser with DB-driven tag vocabulary. See [parser.md](parser.md).
+
+### FTSService
+SQLite FTS5 full-text search. Manages the `image_fts` virtual table with Porter stemmer. Provides `search(query) -> [(image_id, rank)]` for BM25-ranked text search.
+
+### ColorSearch
+Color-based image search using CIE LAB distance. Finds images with dominant colors near a given hex color within a configurable threshold.
+
+### ImportStateService
+State machine for import job lifecycle. Validates transitions between the 8 import statuses (uploading → staging → active ↔ awaiting_input → completed/failed/cancelled/expired). See [import-state-machine.md](import-state-machine.md).
+
+### DeletionService
+Cascade deletion of images — removes DB records, ImageStore files, thumbnails, and Qdrant embeddings in a single transaction.
+
+### ValidationService
+Input validation helpers (file size, file type, path traversal prevention).
+
+### VideoUtils
+Video frame extraction and dimension reading for video media type support.
 
 ### JobRunner
 In-process background job runner using `ThreadPoolExecutor` (default 2 workers). Tracks job status, progress, and results in memory. Jobs are submitted from API endpoints and execute pipeline functions.

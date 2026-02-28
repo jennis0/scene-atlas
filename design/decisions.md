@@ -261,3 +261,30 @@ Pipeline functions in `backend/pipeline/` are now plain Python functions — no 
 - Frontend Activity tray shows background job progress via polling `/api/v1/jobs/`
 - CLI scripts still work directly: `uv run python -m backend.pipeline.<script>`
 - The `flow_run_id` column was dropped from `ImportGroupJob` (migration 005)
+
+---
+
+## ADR-013: Electron for desktop deployment (over Tauri)
+
+**Date:** 2026-02
+**Status:** Accepted
+
+**Context:** The project needs a desktop app for non-technical users. Two approaches were evaluated in detail (see archived plans `plan-electron-desktop.md` and `plan-tauri-desktop.md`):
+
+- **Tauri v2** — Rust-based shell, smaller binary (~300-500MB), native webview. Requires Rust toolchain, more complex sidecar management, less mature ecosystem for Python sidecar bundling.
+- **Electron** — Node.js-based shell, larger binary (~450-650MB due to bundled Chromium), mature ecosystem. TypeScript main process, straightforward sidecar management via `child_process`, well-established `electron-builder` for multi-platform packaging.
+
+**Decision:** Use Electron. The main factors:
+
+1. **No Rust requirement** — all desktop code is TypeScript, matching the frontend skill set
+2. **Simpler sidecar bundling** — `extraResources` in electron-builder copies the PyInstaller output directly; no Rust-side process management needed
+3. **Mature auto-updates** — `electron-updater` provides built-in GitHub Releases integration
+4. **Proven ecosystem** — electron-builder handles code signing, DMG/NSIS/AppImage/DEB packaging across all platforms
+5. **Binary size difference (~150MB) is acceptable** for a tool that bundles a full ML model (~600MB CLIP) regardless of shell choice
+
+**Consequences:**
+- Desktop app bundles Chromium (~150MB overhead vs native webview)
+- Main process in TypeScript (`electron/src/main.ts`) handles windowing, IPC, sidecar lifecycle
+- PyInstaller `--onedir` output bundled as `extraResources/sidecar/`
+- Borderless window with platform-specific titlebar (hiddenInset on macOS, titleBarOverlay on Windows/Linux)
+- See [electron.md](electron.md) for full architecture documentation
