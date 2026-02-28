@@ -5,7 +5,7 @@ import { resolveApiUrl } from '@/lib/apiBase'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { humanizeFilename } from '@/components/import/types'
 import { collectFilesFromDataTransfer } from '@/lib/fsEntryTraversal'
-import { saveImportJobInit } from '@/lib/importStorage'
+import { saveImportJobInit, importPreviewUrl } from '@/lib/importStorage'
 import type { ImportUploadResponse, EditableGroupState } from '@/types'
 import type { DialogState } from './useImportState'
 import { ALL_TAB } from './useFileEditing'
@@ -291,7 +291,7 @@ export function mapAnalysisToEditable(
       excluded: false,
       previewUrl: f.duplicate_of
         ? resolveApiUrl(`/api/v1/images/${f.duplicate_of.image_id}/thumbnail`)
-        : (blobUrlMap?.[f.relative_path] ?? `/api/v1/imports/${jobId}/preview/${f.relative_path}`),
+        : (blobUrlMap?.[f.relative_path] ?? importPreviewUrl(jobId, f.relative_path)),
       content_hash: f.content_hash ?? hashMap?.get(f.relative_path),
       duplicate_of: f.duplicate_of,
       duplicate_action: f.duplicate_of ? 'skip' : undefined,

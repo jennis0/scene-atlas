@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { X, Undo2, Copy } from 'lucide-react'
 import type { EditableFileState } from '@/types'
 import { resolveApiUrl } from '@/lib/apiBase'
+import { importPreviewUrl } from '@/lib/importStorage'
 import { SubgroupDropdown } from '@/components/SubgroupDropdown'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 
@@ -28,8 +29,7 @@ export function ImportFileCard({
   const [isSubgroupOpen, setIsSubgroupOpen] = useState(false)
 
   const isVideo = file.media_type === 'video'
-  const previewUrl =
-    file.previewUrl ?? resolveApiUrl(`/api/v1/imports/${jobId}/preview/${file.relative_path}`)
+  const previewUrl = file.previewUrl ?? resolveApiUrl(importPreviewUrl(jobId, file.relative_path))
   const useVideoThumb = isVideo && !!file.previewUrl?.startsWith('blob:')
   const isSkipped = file.duplicate_action === 'skip'
 
