@@ -55,3 +55,9 @@ class TestPreviewEndpoint:
     def test_nonexistent_job_returns_404(self, test_client, staged_with_thumbs):
         resp = test_client.get("/api/v1/imports/no-such-job/preview/file.jpg")
         assert resp.status_code == 404
+
+    def test_path_traversal_blocked(self, test_client, staged_with_thumbs):
+        """Relative paths with ../ must be rejected."""
+        job_id, _ = staged_with_thumbs
+        resp = test_client.get(f"/api/v1/imports/{job_id}/preview/../../../etc/passwd")
+        assert resp.status_code in (403, 404)

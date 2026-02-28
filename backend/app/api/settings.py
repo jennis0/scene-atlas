@@ -1,23 +1,13 @@
 """App settings API — GET and PATCH /api/v1/settings."""
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from ..models import get_session_local
 from ..models.schemas import AppSettings, AppSettingsPatch
 from ..services.app_settings import get_settings, update_settings
+from .dependencies import get_db
 
 router = APIRouter()
-
-
-def get_db(request: Request):
-    """Dependency to get database session."""
-    SessionLocal = get_session_local(request.app.state.db_engine)
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.get("/", response_model=AppSettings)

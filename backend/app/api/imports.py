@@ -22,7 +22,6 @@ from ..config import settings
 from ..models import (
     ImportGroupJob,
     ImportJob,
-    get_session_local,
 )
 from ..models.schemas import (
     ActiveImportsResponse,
@@ -40,7 +39,8 @@ from ..models.schemas import (
 )
 from ..services.app_settings import get_settings as get_app_settings
 from ..services.job_runner import get_job_runner
-from ..services.validation import check_zip_safety, verify_media_mime
+from ..services.validation import check_zip_safety, is_path_within, verify_media_mime
+from .dependencies import get_db
 
 
 class ImportConfirmAllRequest(BaseModel):
@@ -65,16 +65,6 @@ def _get_detected_group_count(job: ImportJob) -> int:
         return len(parsed)  # Legacy format (plain list)
     except (json.JSONDecodeError, TypeError):
         return 0
-
-
-def get_db(request: Request):
-    """Dependency to get database session."""
-    SessionLocal = get_session_local(request.app.state.db_engine)
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.post("/check-hashes", response_model=HashCheckResponse)
@@ -214,6 +204,14 @@ async def upload_files(
             manifest_entries = json.loads(manifest)
         except (json.JSONDecodeError, TypeError):
             manifest_entries = []
+
+    # Validate image_type if provided
+    VALID_IMAGE_TYPES = {"battlemap", "scene"}
+    if image_type and image_type not in VALID_IMAGE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid image_type '{image_type}'. Must be one of: {', '.join(sorted(VALID_IMAGE_TYPES))}",
+        )
 
     # Read import limits from DB-backed settings
     app_settings = get_app_settings(db)
@@ -994,17 +992,14 @@ async def get_preview_thumbnail(
     thumb_path = staging_dir / ".thumbs" / safe_name
 
     if thumb_path.exists():
-        # Path traversal guard
-        resolved = thumb_path.resolve()
-        if not str(resolved).startswith(str(staging_dir.resolve())):
+        if not is_path_within(staging_dir, thumb_path):
             raise HTTPException(status_code=403, detail="Access denied")
         return FileResponse(thumb_path, media_type="image/jpeg")
 
     # Fall back to original file
     original_path = staging_dir / relative_path
     if original_path.exists():
-        resolved = original_path.resolve()
-        if not str(resolved).startswith(str(staging_dir.resolve())):
+        if not is_path_within(staging_dir, original_path):
             raise HTTPException(status_code=403, detail="Access denied")
         suffix = original_path.suffix.lower()
         media_types = {

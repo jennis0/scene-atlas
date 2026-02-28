@@ -1,6 +1,6 @@
 """Images API endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -8,9 +8,9 @@ from sqlalchemy.orm import Session
 from ..models import (
     Image,
     ImageResponse,
-    get_session_local,
 )
 from ..services import get_image_store, get_thumbnail_store, safe_delete_image
+from .dependencies import get_db
 
 
 class ImagePatch(BaseModel):
@@ -24,16 +24,6 @@ class ImagePatch(BaseModel):
 
 
 router = APIRouter()
-
-
-def get_db(request: Request):
-    """Dependency to get database session."""
-    SessionLocal = get_session_local(request.app.state.db_engine)
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.get("/authors", response_model=list[str])

@@ -18,22 +18,12 @@ from ..models import (
     ImportJob,
     Tag,
     TagCategory,
-    get_session_local,
     seed_tag_categories,
 )
+from .dependencies import get_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-def get_db(request: Request):
-    """Dependency to get database session."""
-    SessionLocal = get_session_local(request.app.state.db_engine)
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 def _dir_size(path: Path) -> int:

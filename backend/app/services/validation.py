@@ -12,6 +12,19 @@ from zipfile import BadZipFile, ZipFile
 logger = logging.getLogger(__name__)
 
 
+def is_path_within(base_dir: Path, target: Path) -> bool:
+    """Return True if *target* resolves to a path inside *base_dir*.
+
+    Uses Path.relative_to() — immune to the adjacent-prefix false-positive
+    that str.startswith() suffers from.
+    """
+    try:
+        target.resolve().relative_to(base_dir.resolve())
+        return True
+    except ValueError:
+        return False
+
+
 def check_zip_safety(zip_path: Path, max_files: int, max_uncompressed_bytes: int) -> None:
     """Raise ValueError if ZIP exceeds file count or total uncompressed size.
 
@@ -28,6 +41,19 @@ def check_zip_safety(zip_path: Path, max_files: int, max_uncompressed_bytes: int
     try:
         with ZipFile(zip_path, "r") as zf:
             entries = zf.infolist()
+
+            # Check for path traversal in member names (zip-slip)
+            for entry in entries:
+                if entry.is_dir():
+                    continue
+                name = entry.filename
+                member = Path(name)
+                # Check absolute paths (both OS-native and Unix-style for portability)
+                if member.is_absolute() or name.startswith("/"):
+                    raise ValueError(f"Path traversal detected in ZIP member: {name}")
+                if ".." in member.parts:
+                    raise ValueError(f"Path traversal detected in ZIP member: {name}")
+
             file_count = sum(1 for e in entries if not e.is_dir())
             total_uncompressed = sum(e.file_size for e in entries if not e.is_dir())
     except BadZipFile as exc:

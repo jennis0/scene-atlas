@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Check, X, AlertTriangle, Loader2, RefreshCw, Pencil } from 'lucide-react'
+import { Plus, Trash2, Check, X, Loader2, RefreshCw, Pencil } from 'lucide-react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { tagApi, searchApi } from '@/lib/api'
 import { useJobPolling } from '@/hooks/useJobPolling'
@@ -30,7 +31,8 @@ function parseCommonValues(raw: string | null): TagValueEntry[] {
         ? { value: v, aliases: [] }
         : { value: v.value, aliases: v.aliases ?? [] },
     )
-  } catch {
+  } catch (e) {
+    console.warn('Failed to parse common_values JSON:', e)
     return []
   }
 }
@@ -106,126 +108,135 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
   }, [categories, selectedCategory])
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-[600px] w-full h-[75vh] flex flex-col gap-0 border-border/50 bg-card p-0 overflow-hidden">
-        {/* Header */}
-        <div
-          className="px-4 border-b border-border flex-shrink-0 bg-popover"
-          style={{ padding: '10px 12px 10px 16px' }}
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex flex-col">
-              <span className="font-display text-[13px] font-medium tracking-[0.06em] text-foreground leading-none">
-                Tag Management
-              </span>
-              <div className="mt-[3px] h-px w-7 bg-gradient-to-r from-primary to-transparent" />
+    <>
+      <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+        <DialogContent className="max-w-[600px] w-full h-[75vh] flex flex-col gap-0 border-border/50 bg-card p-0 overflow-hidden">
+          {/* Header */}
+          <div
+            className="px-4 border-b border-border flex-shrink-0 bg-popover"
+            style={{ padding: '10px 12px 10px 16px' }}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex flex-col">
+                <span className="font-display text-[13px] font-medium tracking-[0.06em] text-foreground leading-none">
+                  Tag Management
+                </span>
+                <div className="mt-[3px] h-px w-7 bg-gradient-to-r from-primary to-transparent" />
+              </div>
+              <button
+                onClick={onClose}
+                className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+              >
+                <X className="h-3.5 w-3.5" />
+                <span className="sr-only">Close</span>
+              </button>
             </div>
+          </div>
+
+          {isLoading ? (
+            <div className="flex-1 flex items-center justify-center">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div className="flex flex-1 min-h-0">
+              <CategoryList
+                categories={categories}
+                selected={effectiveSelection}
+                onSelect={setSelectedCategory}
+                invalidate={invalidateAndMark}
+              />
+              <div className="flex-1 min-w-0 flex flex-col">
+                {effectiveSelection ? (
+                  <CategoryEditor
+                    key={effectiveSelection}
+                    category={categories.find((c) => c.name === effectiveSelection)!}
+                    invalidate={invalidateAndMark}
+                    setConfirmAction={setConfirmAction}
+                    onCategoryRenamed={setSelectedCategory}
+                    onDeleted={() => {
+                      const next = categories.find((c) => c.name !== effectiveSelection)
+                      setSelectedCategory(next?.name ?? null)
+                    }}
+                    facetCounts={facets?.tags[effectiveSelection] ?? []}
+                  />
+                ) : (
+                  <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
+                    Create a category to get started
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Footer */}
+          <div
+            className="border-t border-border flex-shrink-0 bg-popover flex items-center justify-between"
+            style={{ padding: '8px 16px' }}
+          >
+            <span className="text-[11px] text-muted-foreground italic" style={{ opacity: 0.7 }}>
+              Click a value to rename · click aliases to edit
+            </span>
             <button
-              onClick={onClose}
-              className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+              onClick={() =>
+                setConfirmAction({
+                  label: 'Regenerate auto-tags?',
+                  detail:
+                    'This will delete all automatically assigned tags across every image and regenerate them from filenames. Manually applied tags are kept.',
+                  confirmLabel: 'Regenerate',
+                  confirmStyle: 'warning',
+                  onConfirm: () => {
+                    retagMut.mutate()
+                    setConfirmAction(null)
+                  },
+                })
+              }
+              disabled={retagMut.isPending || retagJob.isRunning}
+              className={`flex items-center gap-[5px] transition-colors disabled:opacity-30 ${
+                vocabDirty ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+              }`}
+              style={{
+                fontSize: '11.5px',
+                fontWeight: 500,
+                letterSpacing: '0.02em',
+                ...(vocabDirty
+                  ? {
+                      background: 'hsl(var(--primary) / 0.12)',
+                      border: '1px solid hsl(var(--primary) / 0.35)',
+                      borderRadius: 5,
+                      padding: '4px 10px',
+                    }
+                  : {
+                      background: 'transparent',
+                      border: '1px solid transparent',
+                      borderRadius: 5,
+                      padding: '4px 10px',
+                    }),
+              }}
+              title="Regenerate auto-tags for all images from their filenames. Manually applied tags are always preserved."
             >
-              <X className="h-3.5 w-3.5" />
-              <span className="sr-only">Close</span>
+              <RefreshCw
+                className={retagMut.isPending || retagJob.isRunning ? 'animate-spin' : ''}
+                style={{ width: 11, height: 11 }}
+              />
+              {retagJob.isRunning
+                ? `Retagging${retagJob.progressPct != null ? ` (${retagJob.progressPct}%)` : '…'}`
+                : 'Regenerate auto-tags'}
             </button>
           </div>
-        </div>
-
-        {isLoading ? (
-          <div className="flex-1 flex items-center justify-center">
-            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : (
-          <div className="flex flex-1 min-h-0">
-            <CategoryList
-              categories={categories}
-              selected={effectiveSelection}
-              onSelect={setSelectedCategory}
-              invalidate={invalidateAndMark}
-            />
-            <div className="flex-1 min-w-0 flex flex-col">
-              {effectiveSelection ? (
-                <CategoryEditor
-                  key={effectiveSelection}
-                  category={categories.find((c) => c.name === effectiveSelection)!}
-                  invalidate={invalidateAndMark}
-                  setConfirmAction={setConfirmAction}
-                  onCategoryRenamed={setSelectedCategory}
-                  onDeleted={() => {
-                    const next = categories.find((c) => c.name !== effectiveSelection)
-                    setSelectedCategory(next?.name ?? null)
-                  }}
-                  facetCounts={facets?.tags[effectiveSelection] ?? []}
-                />
-              ) : (
-                <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
-                  Create a category to get started
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Footer */}
-        <div
-          className="border-t border-border flex-shrink-0 bg-popover flex items-center justify-between"
-          style={{ padding: '8px 16px' }}
-        >
-          <span className="text-[11px] text-muted-foreground italic" style={{ opacity: 0.7 }}>
-            Click a value to rename · click aliases to edit
-          </span>
-          <button
-            onClick={() =>
-              setConfirmAction({
-                label: 'Regenerate auto-tags?',
-                detail:
-                  'This will delete all automatically assigned tags across every image and regenerate them from filenames. Manually applied tags are kept.',
-                confirmLabel: 'Regenerate',
-                confirmStyle: 'warning',
-                onConfirm: () => {
-                  retagMut.mutate()
-                  setConfirmAction(null)
-                },
-              })
-            }
-            disabled={retagMut.isPending || retagJob.isRunning}
-            className={`flex items-center gap-[5px] transition-colors disabled:opacity-30 ${
-              vocabDirty ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
-            }`}
-            style={{
-              fontSize: '11.5px',
-              fontWeight: 500,
-              letterSpacing: '0.02em',
-              ...(vocabDirty
-                ? {
-                    background: 'hsl(var(--primary) / 0.12)',
-                    border: '1px solid hsl(var(--primary) / 0.35)',
-                    borderRadius: 5,
-                    padding: '4px 10px',
-                  }
-                : {
-                    background: 'transparent',
-                    border: '1px solid transparent',
-                    borderRadius: 5,
-                    padding: '4px 10px',
-                  }),
-            }}
-            title="Regenerate auto-tags for all images from their filenames. Manually applied tags are always preserved."
-          >
-            <RefreshCw
-              className={retagMut.isPending || retagJob.isRunning ? 'animate-spin' : ''}
-              style={{ width: 11, height: 11 }}
-            />
-            {retagJob.isRunning
-              ? `Retagging${retagJob.progressPct != null ? ` (${retagJob.progressPct}%)` : '…'}`
-              : 'Regenerate auto-tags'}
-          </button>
-        </div>
-
-        {confirmAction && (
-          <ConfirmOverlay action={confirmAction} onCancel={() => setConfirmAction(null)} />
-        )}
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
+      <ConfirmDialog
+        open={confirmAction !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmAction(null)
+        }}
+        title={confirmAction?.label ?? ''}
+        description={confirmAction?.detail ?? ''}
+        confirmLabel={confirmAction?.confirmLabel ?? 'Delete'}
+        confirmVariant={confirmAction?.confirmStyle === 'warning' ? 'default' : 'destructive'}
+        onConfirm={() => confirmAction?.onConfirm()}
+      />
+    </>
   )
 }
 
@@ -418,6 +429,24 @@ function CategoryEditor({
       updateMut.mutate({ description: description.trim() || undefined })
     }
   }
+
+  // Save unsaved description on unmount (dialog close or category switch)
+  const descriptionRef = useRef(description)
+  descriptionRef.current = description
+
+  const categoryDescRef = useRef(category.description ?? '')
+  categoryDescRef.current = category.description ?? ''
+
+  useEffect(() => {
+    return () => {
+      const current = descriptionRef.current.trim()
+      const original = categoryDescRef.current
+      if (current !== original) {
+        updateMut.mutate({ description: current || undefined })
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     if (editingName) nameRef.current?.focus()
@@ -954,42 +983,6 @@ function TagValueRow({
         >
           <Trash2 style={{ width: 11, height: 11 }} />
         </button>
-      </div>
-    </div>
-  )
-}
-
-// ── Confirm Overlay ──────────────────────────────────────────────────────────
-
-function ConfirmOverlay({ action, onCancel }: { action: ConfirmAction; onCancel: () => void }) {
-  return (
-    <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-card border border-border rounded-xl p-5 max-w-sm mx-4 shadow-2xl shadow-black/70">
-        <div className="flex items-start gap-3">
-          <AlertTriangle className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-          <div>
-            <h4 className="text-sm font-semibold text-foreground">{action.label}</h4>
-            <p className="text-[12px] text-muted-foreground mt-1">{action.detail}</p>
-          </div>
-        </div>
-        <div className="flex justify-end gap-2 mt-4">
-          <button
-            onClick={onCancel}
-            className="px-3 py-1.5 text-[12px] text-muted-foreground hover:text-foreground rounded-md hover:bg-secondary transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={action.onConfirm}
-            className={`px-3 py-1.5 text-[12px] rounded-md border transition-colors ${
-              action.confirmStyle === 'warning'
-                ? 'text-primary hover:text-primary/80 bg-primary/10 hover:bg-primary/20 border-primary/20'
-                : 'text-destructive hover:text-destructive/80 bg-destructive/10 hover:bg-destructive/20 border-destructive/20'
-            }`}
-          >
-            {action.confirmLabel ?? 'Delete'}
-          </button>
-        </div>
       </div>
     </div>
   )

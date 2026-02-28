@@ -121,6 +121,26 @@ class TestCheckZipSafety:
         # Only 1 file — must pass with limit 1
         check_zip_safety(zip_path, max_files=1, max_uncompressed_bytes=10 * 1024 * 1024)
 
+    def test_zip_with_path_traversal_member_rejected(self, tmp_path):
+        """ZIP member names with ../ path traversal must be rejected."""
+        zip_path = tmp_path / "evil.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            info = zipfile.ZipInfo("../../etc/passwd")
+            info.file_size = 5
+            zf.writestr(info, b"evil!")
+        with pytest.raises(ValueError, match="[Pp]ath traversal"):
+            check_zip_safety(zip_path, max_files=10, max_uncompressed_bytes=10 * 1024 * 1024)
+
+    def test_zip_with_absolute_path_member_rejected(self, tmp_path):
+        """ZIP member names with absolute paths must be rejected."""
+        zip_path = tmp_path / "evil.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            info = zipfile.ZipInfo("/etc/passwd")
+            info.file_size = 5
+            zf.writestr(info, b"evil!")
+        with pytest.raises(ValueError, match="[Pp]ath traversal"):
+            check_zip_safety(zip_path, max_files=10, max_uncompressed_bytes=10 * 1024 * 1024)
+
 
 class TestVerifyImageMime:
     def test_valid_jpeg_accepted(self):

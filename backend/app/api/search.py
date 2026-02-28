@@ -3,7 +3,7 @@
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
@@ -12,24 +12,14 @@ from ..models import (
     Image,
     ImageSearchResponse,
     Tag,
-    get_session_local,
 )
 from ..services import get_clip_service, get_qdrant_service
 from ..services.fts_service import fts_search
+from .dependencies import get_db
 
 router = APIRouter()
 
 logger = logging.getLogger(__name__)
-
-
-def get_db(request: Request):
-    """Dependency to get database session."""
-    SessionLocal = get_session_local(request.app.state.db_engine)
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.get("/facets")
