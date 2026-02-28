@@ -217,6 +217,7 @@ export interface ImportConfirmRequest {
   author: string
   group_name: string
   files: ImportConfirmFile[]
+  remaining_groups?: string[]
 }
 
 // Import types — editable state (frontend only)
@@ -253,6 +254,8 @@ export interface EditableGroupState {
   total: number
   /** Error message from a failed confirm, displayed in the footer */
   error?: string
+  /** Backend group job ID, set after confirm response. Used for robust status matching. */
+  group_job_id?: string
 }
 
 // Group search/merge types
@@ -325,6 +328,7 @@ export interface GroupEditResponse {
 
 // Import types — status response
 export interface ImportGroupStatus {
+  group_job_id: string
   group_name: string
   total_files: number
   processed_files: number

@@ -822,7 +822,7 @@ export function Gallery() {
               }
             })
           } else {
-            // Still has pending groups, or staging/active — reopen ImportDialog
+            // staging, active, awaiting_input, or has pending groups — reopen ImportDialog
             setImportDialogKey((k) => k + 1)
             setImportDialogJobId(jobId)
           }

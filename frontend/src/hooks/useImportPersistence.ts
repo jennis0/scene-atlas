@@ -8,6 +8,7 @@ import {
 } from '@/lib/importStorage'
 import { importApi } from '@/lib/api'
 import { mapAnalysisToEditable } from './useImportUpload'
+import { backendStatusToDialogState } from './useImportPolling'
 import { ALL_TAB } from './useFileEditing'
 import type { EditableGroupState, ParsedTagVocab } from '@/types'
 import type { DialogState } from './useImportState'
@@ -95,10 +96,10 @@ export function useImportPersistence({
       importApi
         .status(reconnectJobId)
         .then((status) => {
-          if (status.status === 'uploading') {
-            // Upload still in progress — show upload state
+          const dialogState = backendStatusToDialogState(status.status)
+          if (dialogState === 'upload') {
             setState('upload')
-          } else if (status.status === 'staging' || status.status === 'active') {
+          } else if (dialogState === 'preview' || dialogState === 'processing') {
             // Upload finished — fetch full analysis to rebuild groups
             importApi
               .getAnalysis(reconnectJobId)
@@ -112,7 +113,6 @@ export function useImportPersistence({
                 setState('done')
               })
           } else {
-            // Terminal or unknown status
             setState('done')
           }
         })
@@ -128,7 +128,8 @@ export function useImportPersistence({
     setActiveTab(persisted.activeTab)
     if (persisted.tagVocab.length > 0) setTagVocab(persisted.tagVocab)
 
-    // Determine dialog state based on group statuses
+    // Set an initial state from localStorage for immediate display,
+    // then sync with backend below for the authoritative state.
     const hasRunning = restoredGroups.some((g) => g.status === 'running')
     const hasPending = restoredGroups.some((g) => g.status === 'pending' && !g.skip)
     if (hasRunning) {
@@ -139,35 +140,29 @@ export function useImportPersistence({
       setState('done')
     }
 
-    // Sync with backend for confirmed groups and re-derive dialog state
+    // Sync with backend — backend status is authoritative
     importApi
       .status(reconnectJobId)
       .then((status) => {
         setGroups((prev) => {
-          const next = prev.map((g) => {
-            const gs = status.groups.find((s) => s.group_name === g.group_name)
+          return prev.map((g) => {
+            // Match by group_job_id (robust) or fall back to group_name
+            const gs =
+              (g.group_job_id && status.groups.find((s) => s.group_job_id === g.group_job_id)) ||
+              status.groups.find((s) => s.group_name === g.group_name)
             if (!gs) return g
             return {
               ...g,
+              group_job_id: gs.group_job_id || g.group_job_id,
               status: gs.status as EditableGroupState['status'],
               processed: gs.processed_files,
               failed: gs.failed_files,
               total: gs.total_files || g.total,
             }
           })
-          // Re-derive dialog state after backend sync
-          const hasRunningNow = next.some((g) => g.status === 'running')
-          const hasPendingNow = next.some((g) => g.status === 'pending' && !g.skip)
-          const backendPending = (status.pending_group_count ?? 0) > 0
-          if (hasRunningNow) {
-            setState('processing')
-          } else if (hasPendingNow || backendPending) {
-            setState('preview')
-          } else {
-            setState('done')
-          }
-          return next
         })
+        // Trust backend status for dialog state
+        setState(backendStatusToDialogState(status.status))
       })
       .catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: only reconnect on mount/jobId change; setters are stable dispatch functions

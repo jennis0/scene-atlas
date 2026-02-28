@@ -54,19 +54,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _get_detected_group_count(job: ImportJob) -> int:
-    """Parse the analysis_result JSON to get the number of initially detected groups."""
-    if not job.analysis_result:
-        return 0
-    try:
-        parsed = json.loads(job.analysis_result)
-        if isinstance(parsed, dict):
-            return len(parsed.get("summary", []))
-        return len(parsed)  # Legacy format (plain list)
-    except (json.JSONDecodeError, TypeError):
-        return 0
-
-
 def get_db(request: Request):
     """Dependency to get database session."""
     SessionLocal = get_session_local(request.app.state.db_engine)
@@ -434,6 +421,7 @@ async def upload_files(
             existing_job.source_label = source_label
             existing_job.total_files = len(all_relative_paths)
             existing_job.analysis_result = json.dumps(analysis_data)
+            existing_job.pending_groups = len(import_groups)
             existing_job.updated_at = datetime.now(UTC).replace(tzinfo=None)
         else:
             # Create new job inline (backward compat)
@@ -443,6 +431,7 @@ async def upload_files(
                 source_label=source_label,
                 total_files=len(all_relative_paths),
                 analysis_result=json.dumps(analysis_data),
+                pending_groups=len(import_groups),
             )
             db.add(import_job)
         db.commit()
@@ -529,6 +518,8 @@ async def confirm_import(
         name=f"Import: {body.group_name}",
     )
 
+    # Sync pending groups from frontend (handles merge/split correctly)
+    job.pending_groups = len(body.remaining_groups)
     job.status = "active"
     job.updated_at = datetime.now(UTC).replace(tzinfo=None)
     db.commit()
@@ -538,6 +529,7 @@ async def confirm_import(
         status="active",
         groups=[
             ImportGroupStatus(
+                group_job_id=group_job_id,
                 group_name=body.group_name,
                 total_files=len(valid_files),
                 processed_files=0,
@@ -608,6 +600,7 @@ async def confirm_all_groups(
         )
         group_statuses.append(
             ImportGroupStatus(
+                group_job_id=group_job_id,
                 group_name=group_req.group_name,
                 total_files=len(valid_files),
                 processed_files=0,
@@ -636,6 +629,7 @@ async def confirm_all_groups(
 
     job.status = "active"
     job.all_confirmed = True
+    job.pending_groups = 0
     job.updated_at = datetime.now(UTC).replace(tzinfo=None)
     db.commit()
 
@@ -673,6 +667,7 @@ async def get_import_status(
 
     groups = [
         ImportGroupStatus(
+            group_job_id=gj.id,
             group_name=gj.group_name,
             total_files=gj.total_files,
             processed_files=gj.processed_files,
@@ -683,34 +678,13 @@ async def get_import_status(
         for gj in group_jobs
     ]
 
-    # Compute detected/pending group counts from analysis_result
-    detected_count = _get_detected_group_count(job)
-    submitted_count = len(group_jobs)
-    pending_count = max(0, detected_count - submitted_count)
-
-    # Derive overall job status from group statuses
-    if group_jobs:
-        terminal = {"completed", "failed", "cancelled"}
-        all_terminal = all(gj.status in terminal for gj in group_jobs)
-        if all_terminal:
-            if not job.all_confirmed and pending_count > 0:
-                # Single-confirm path with unsubmitted groups: stay active
-                overall_status = "active"
-            else:
-                overall_status = "completed"
-        elif any(gj.status == "running" for gj in group_jobs):
-            overall_status = "active"
-        else:
-            overall_status = job.status
-    else:
-        overall_status = job.status
-
+    # Status is authoritative from DB — no derivation needed
     return ImportJobResponse(
         job_id=job.id,
-        status=overall_status,
+        status=job.status,
         groups=groups,
-        detected_group_count=detected_count,
-        pending_group_count=pending_count,
+        detected_group_count=job.pending_groups + len(group_jobs),
+        pending_group_count=job.pending_groups,
         created_at=job.created_at,
         completed_at=job.completed_at,
     )
@@ -749,13 +723,11 @@ async def get_import_analysis(job_id: str, db: Session = Depends(get_db)):
 async def get_active_imports(db: Session = Depends(get_db)):
     """List non-terminal import jobs for the import tray.
 
-    Returns staging/running jobs and recently-completed ones (within 1 hour).
-    Effective status is derived from group states so jobs show correctly even
-    if the background job hasn't written back to ImportJob yet.
+    Returns staging/active/awaiting_input jobs and recently-completed ones
+    (within 1 hour). Status is authoritative from the ImportJob table.
     """
     from datetime import timedelta
 
-    terminal_statuses = {"completed", "failed", "cancelled"}
     cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=1)
 
     # Fetch recent jobs — import tables are small so fetching last 7 days is fine
@@ -771,51 +743,22 @@ async def get_active_imports(db: Session = Depends(get_db)):
     for job in all_jobs:
         groups = db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job.id).all()
 
-        # Compute pending group count from analysis_result
-        detected_count = _get_detected_group_count(job)
-        submitted_count = len(groups)
-        pending_count = max(0, detected_count - submitted_count)
-
-        # Derive effective status from groups (more accurate than stale job.status)
-        if not groups:
-            effective_status = job.status
-            completed_at = job.completed_at
-        elif all(g.status in terminal_statuses for g in groups):
-            if not job.all_confirmed and pending_count > 0:
-                # Single-confirm with unsubmitted groups: stay active
-                effective_status = "active"
-                completed_at = None
-            else:
-                effective_status = (
-                    "failed" if any(g.status == "failed" for g in groups) else "completed"
-                )
-                completed_at = max(
-                    (g.completed_at for g in groups if g.completed_at),
-                    default=job.completed_at,
-                )
-        elif any(g.status == "running" for g in groups):
-            effective_status = "active"
-            completed_at = None
-        else:
-            effective_status = job.status
-            completed_at = job.completed_at
-
-        # Filter: always include staging/active; terminal only within 1h
+        # Status is authoritative from DB — no derivation needed
         truly_terminal = {"completed", "failed", "cancelled", "expired"}
-        if effective_status in truly_terminal:
-            if completed_at is None or completed_at < cutoff:
+        if job.status in truly_terminal:
+            if job.completed_at is None or job.completed_at < cutoff:
                 continue
 
         summaries.append(
             ImportJobSummary(
                 job_id=job.id,
                 source_label=job.source_label,
-                status=effective_status,
-                total_groups=max(detected_count, len(groups)),
+                status=job.status,
+                total_groups=job.pending_groups + len(groups),
                 completed_groups=sum(1 for g in groups if g.status == "completed"),
                 failed_groups=sum(1 for g in groups if g.status == "failed"),
                 running_groups=sum(1 for g in groups if g.status == "running"),
-                pending_groups=pending_count,
+                pending_groups=job.pending_groups,
                 total_files=job.total_files,
                 processed_files=sum(g.processed_files for g in groups),
                 created_at=job.created_at,
@@ -831,7 +774,7 @@ async def cleanup_old_imports(db: Session = Depends(get_db)):
 
     Never deletes jobs that are currently staging (pending user review) or running.
     """
-    # Fetch all groups so we can derive the effective status of each job
+    # Only delete jobs in terminal status — status is authoritative from DB
     terminal_statuses = {"completed", "failed", "cancelled", "expired"}
 
     all_jobs = db.query(ImportJob).all()
@@ -888,10 +831,18 @@ async def finalize_import(job_id: str, db: Session = Depends(get_db)):
             status_code=409, detail="Cannot finalize while groups are still processing"
         )
 
+    # User is declaring they're done — clear pending groups and compute final status
+    job.pending_groups = 0
+
     groups = db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job_id).all()
-    has_failures = any(g.status == "failed" for g in groups)
-    job.status = "failed" if has_failures else "completed"
-    job.completed_at = datetime.now(UTC).replace(tzinfo=None)
+    if groups:
+        from ..services.import_state import transition_job_status
+
+        transition_job_status(db, job_id)
+    else:
+        # No groups were ever confirmed — just mark completed
+        job.status = "completed"
+        job.completed_at = datetime.now(UTC).replace(tzinfo=None)
 
     staging_dir = settings.staging_dir / job_id
     staging_cleaned = False
@@ -930,14 +881,19 @@ async def cancel_import(job_id: str, db: Session = Depends(get_db)):
         shutil.rmtree(staging_dir, ignore_errors=True)
 
     # Update job status
+    job.pending_groups = 0  # Cancelling means no more groups to confirm
     all_groups = db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job_id).all()
     if not all_groups:
         # No groups were ever confirmed — pure cancellation
         job.status = "cancelled"
+        job.completed_at = datetime.now(UTC).replace(tzinfo=None)
     elif all(g.status in ("completed", "failed", "cancelled") for g in all_groups):
-        job.status = "completed"
+        # All groups terminal — use transition to compute final status
+        from ..services.import_state import transition_job_status
 
-    job.completed_at = datetime.now(UTC).replace(tzinfo=None)
+        transition_job_status(db, job_id)
+    # else: some groups still running — leave status as-is, pipeline will finalize
+
     db.commit()
 
     return {"status": job.status, "staging_cleaned": running_groups == 0}

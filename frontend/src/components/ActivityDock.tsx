@@ -11,6 +11,7 @@ import {
   Ban,
   Upload,
   Cog,
+  Bell,
 } from 'lucide-react'
 import { importApi } from '@/lib/api'
 import type { ActiveImportJob } from '@/hooks/useActiveImports'
@@ -53,7 +54,11 @@ export function ActivityDock({
   if (!hasAnything) return null
 
   const activeImportCount = jobs.filter(
-    (j) => j.status === 'staging' || j.status === 'running' || j.pendingGroups > 0,
+    (j) =>
+      j.status === 'uploading' ||
+      j.status === 'active' ||
+      j.status === 'running' ||
+      j.runningGroups > 0,
   ).length
   const activeJobCount = backgroundJobs.filter(
     (j) => j.status === 'queued' || j.status === 'running',
@@ -437,6 +442,8 @@ function ImportStatusIcon({ status }: { status: ActiveImportJob['status'] }) {
     case 'running':
     case 'active':
       return <Loader2 className="h-3.5 w-3.5 text-primary animate-spin shrink-0 mt-0.5" />
+    case 'awaiting_input':
+      return <Bell className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
     case 'completed':
       return <Check className="h-3.5 w-3.5 text-primary/60 shrink-0 mt-0.5" />
     case 'failed':
@@ -474,6 +481,12 @@ function ImportStatusText({ job }: { job: ActiveImportJob }) {
           {job.totalFiles > 0
             ? `${job.totalFiles} image${job.totalFiles !== 1 ? 's' : ''} ready to review`
             : `${job.pendingGroups} group${job.pendingGroups !== 1 ? 's' : ''} ready to review`}
+        </span>
+      )
+    case 'awaiting_input':
+      return (
+        <span className="text-amber-600 dark:text-amber-400">
+          {job.pendingGroups} group{job.pendingGroups !== 1 ? 's' : ''} awaiting confirmation
         </span>
       )
     case 'running':

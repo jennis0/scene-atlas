@@ -371,11 +371,21 @@ export function useImportState(
     updateGroup(index, { status: 'running' })
     setState('processing')
     try {
-      await importApi.confirm(jobId, {
+      // Tell backend which groups remain unconfirmed
+      const remaining = groups
+        .filter((g, i) => i !== index && g.status === 'pending' && !g.skip)
+        .map((g) => g.group_name)
+      const response = await importApi.confirm(jobId, {
         author: group.author,
         group_name: group.group_name,
         files: confirmFiles,
+        remaining_groups: remaining,
       })
+      // Store group_job_id from response for robust status matching
+      const matchedGroup = response.groups.find((gs) => gs.group_name === group.group_name)
+      if (matchedGroup?.group_job_id) {
+        updateGroup(index, { group_job_id: matchedGroup.group_job_id })
+      }
       setTimeout(saveNow, 100)
     } catch {
       updateGroup(index, { status: 'failed' })
@@ -403,10 +413,17 @@ export function useImportState(
     if (toSubmit.length === 0) return
     toSubmit.forEach(({ i }) => updateGroup(i, { status: 'running' }))
     try {
-      await importApi.confirmAll(
+      const response = await importApi.confirmAll(
         jobId,
         toSubmit.map(({ author, group_name, files }) => ({ author, group_name, files })),
       )
+      // Store group_job_ids from response for robust status matching
+      for (const { i, group_name } of toSubmit) {
+        const matchedGroup = response.groups.find((gs) => gs.group_name === group_name)
+        if (matchedGroup?.group_job_id) {
+          updateGroup(i, { group_job_id: matchedGroup.group_job_id })
+        }
+      }
       setTimeout(saveNow, 100)
     } catch {
       toSubmit.forEach(({ i }) => updateGroup(i, { status: 'failed' }))

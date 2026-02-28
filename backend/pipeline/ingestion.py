@@ -22,7 +22,6 @@ from backend.app.models import (
     Image,
     ImageGroup,
     ImportGroupJob,
-    ImportJob,
     Tag,
     TagCategory,
     get_engine,
@@ -1076,38 +1075,19 @@ def _mark_group_job_failed(group_job_id: str, error_message: str) -> None:
 def _finalize_import_job(job_id: str) -> None:
     """Update ImportJob status after a group finishes processing.
 
-    Called at the end of every import flow so the parent job status is
-    written back to the DB — the tray and /active endpoint both read this.
-
-    Behaviour depends on ``all_confirmed``:
-    - If True (confirm-all path): auto-complete when all groups are terminal.
-    - If False (single-confirm path): stay ``active`` so the user can submit
-      more groups.  The job only reaches ``completed`` via the explicit
-      ``/finalize`` endpoint.
+    Delegates to the central transition_job_status() function which is the
+    single authoritative source for import job status transitions.
     """
+    from backend.app.services.import_state import transition_job_status
+
     logger = get_logger(__name__)
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)
     db = SessionLocal()
     try:
-        job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
-        if not job:
-            return
-        groups = db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job_id).all()
-        if not groups:
-            return
-        terminal = {"completed", "failed", "cancelled"}
-        if all(g.status in terminal for g in groups):
-            if job.all_confirmed:
-                # confirm-all path: auto-complete
-                job.status = "failed" if any(g.status == "failed" for g in groups) else "completed"
-                job.completed_at = datetime.now(UTC).replace(tzinfo=None)
-                logger.info(f"Import job {job_id} finalized as '{job.status}'")
-            else:
-                # single-confirm path: stay active for more groups
-                job.status = "active"
-                logger.info(f"Import job {job_id} staying active (single-confirm path)")
-            db.commit()
+        new_status = transition_job_status(db, job_id)
+        db.commit()
+        logger.info(f"Import job {job_id} transitioned to '{new_status}'")
     finally:
         db.close()
 

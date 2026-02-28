@@ -22,6 +22,7 @@ export interface ActiveImportJob {
     | 'uploading'
     | 'staging'
     | 'active'
+    | 'awaiting_input'
     | 'running'
     | 'completed'
     | 'failed'
@@ -146,6 +147,7 @@ export function useActiveImports(): UseActiveImportsReturn {
       j.status === 'uploading' ||
       j.status === 'staging' ||
       j.status === 'active' ||
+      j.status === 'awaiting_input' ||
       j.status === 'running' ||
       j.pendingGroups > 0,
   )
