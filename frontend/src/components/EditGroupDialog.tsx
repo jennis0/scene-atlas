@@ -3,8 +3,6 @@ import { useQueryClient } from '@tanstack/react-query'
 import {
   DndContext,
   DragOverlay,
-  useDraggable,
-  useDroppable,
   PointerSensor,
   KeyboardSensor,
   useSensor,
@@ -22,7 +20,6 @@ import {
   Merge,
   MoreHorizontal,
   EyeOff,
-  GripVertical,
 } from 'lucide-react'
 import { groupApi, tagApi, imageApi, getThumbnailUrlById, getImageUrlById } from '@/lib/api'
 import { getApiErrorMessage, isNotFoundError } from '@/lib/getErrorMessage'
@@ -51,6 +48,16 @@ import { SubgroupHeading } from './SubgroupHeading'
 import { parseTagVocabulary } from './import/types'
 import { EMPTY_FILTER, applyFileFilter } from './import/fileFilter'
 import { useFileEditing, ALL_TAB } from '@/hooks/useFileEditing'
+import {
+  DraggableFileCardWrapper,
+  DroppableGroupRow,
+  DraggableGroupRow,
+  DroppableSubgroupSection,
+  DragOverlayContent,
+  type DragData,
+  type DropData,
+  type ActiveDragState,
+} from './import/shared/dnd'
 
 interface EditGroupDialogProps {
   // Single-group mode: pass groupId
@@ -106,137 +113,6 @@ function buildPayload(group: EditableGroupState): GroupEditRequest {
     })),
     new_groups: [],
   }
-}
-
-// ── DnD types ──────────────────────────────────────────────────────────────
-
-interface DragData {
-  type: 'card' | 'group'
-  id: string // relative_path for cards, group id for groups
-  groupId: string // source group id
-}
-
-interface DropData {
-  type: 'group' | 'subgroup'
-  groupId?: string
-  subgroup?: string | null
-}
-
-interface ActiveDragState {
-  type: 'card' | 'group'
-  id: string
-  groupId: string
-  selectedCount: number
-  previewUrl?: string
-  label?: string
-}
-
-// ── DnD wrapper components ─────────────────────────────────────────────────
-
-function DraggableFileCardWrapper({
-  file,
-  groupId,
-  isDndEnabled,
-  children,
-}: {
-  file: EditableFileState
-  groupId: string
-  isDndEnabled: boolean
-  children: React.ReactNode
-}) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: `card-${groupId}-${file.relative_path}`,
-    data: { type: 'card', id: file.relative_path, groupId } satisfies DragData,
-    disabled: !isDndEnabled || file.excluded || file.outOfScope,
-  })
-
-  return (
-    <div
-      ref={setNodeRef}
-      {...listeners}
-      {...attributes}
-      style={{ opacity: isDragging ? 0.35 : 1, transition: 'opacity 150ms' }}
-    >
-      {children}
-    </div>
-  )
-}
-
-function DroppableGroupRow({
-  groupId,
-  activeDrag,
-  children,
-}: {
-  groupId: string
-  activeDrag: ActiveDragState | null
-  children: React.ReactNode
-}) {
-  const { isOver, setNodeRef } = useDroppable({
-    id: `group-drop-${groupId}`,
-    data: { type: 'group', groupId } satisfies DropData,
-    disabled: !activeDrag || activeDrag.groupId === groupId,
-  })
-
-  // Only highlight when a compatible drag is over (card→group or group→group, not self)
-  const showHighlight = isOver && activeDrag && activeDrag.groupId !== groupId
-
-  return (
-    <div
-      ref={setNodeRef}
-      className={`transition-colors ${showHighlight ? 'ring-1 ring-inset ring-primary/50 bg-primary/5' : ''}`}
-    >
-      {children}
-    </div>
-  )
-}
-
-function DraggableGroupRow({
-  groupId,
-  isDndEnabled,
-  children,
-}: {
-  groupId: string
-  isDndEnabled: boolean
-  children: React.ReactNode
-}) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: `group-${groupId}`,
-    data: { type: 'group', id: groupId, groupId } satisfies DragData,
-    disabled: !isDndEnabled,
-  })
-
-  return (
-    <div ref={setNodeRef} {...listeners} {...attributes} style={{ opacity: isDragging ? 0.35 : 1 }}>
-      {children}
-    </div>
-  )
-}
-
-function DroppableSubgroupSection({
-  subVariant,
-  activeDrag,
-  children,
-}: {
-  subVariant: string | null
-  activeDrag: ActiveDragState | null
-  children: React.ReactNode
-}) {
-  const { isOver, setNodeRef } = useDroppable({
-    id: `subgroup-${subVariant ?? '__main__'}`,
-    data: { type: 'subgroup', subgroup: subVariant } satisfies DropData,
-    disabled: !activeDrag || activeDrag.type !== 'card',
-  })
-
-  const showHighlight = isOver && activeDrag?.type === 'card'
-
-  return (
-    <div
-      ref={setNodeRef}
-      className={`mb-2 transition-colors rounded ${showHighlight ? 'ring-1 ring-inset ring-primary/40 bg-primary/5' : ''}`}
-    >
-      {children}
-    </div>
-  )
 }
 
 // ── Main component ─────────────────────────────────────────────────────────
@@ -1705,33 +1581,7 @@ export default function EditGroupDialog({
 
             {/* ── Drag overlay ── */}
             <DragOverlay dropAnimation={null}>
-              {activeDrag?.type === 'card' && (
-                <div className="flex items-center gap-2 rounded-lg border border-primary/50 bg-card shadow-lg px-3 py-2 pointer-events-none max-w-[200px]">
-                  {activeDrag.previewUrl && (
-                    <img
-                      src={activeDrag.previewUrl}
-                      alt=""
-                      className="w-10 h-10 object-cover rounded shrink-0"
-                    />
-                  )}
-                  <span className="text-xs text-foreground truncate">
-                    {activeDrag.label ?? 'Image'}
-                  </span>
-                  {activeDrag.selectedCount > 1 && (
-                    <span className="ml-auto shrink-0 w-5 h-5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center">
-                      {activeDrag.selectedCount}
-                    </span>
-                  )}
-                </div>
-              )}
-              {activeDrag?.type === 'group' && (
-                <div className="flex items-center gap-2 rounded-lg border border-primary/50 bg-card shadow-lg px-3 py-2 pointer-events-none max-w-[180px]">
-                  <GripVertical className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                  <span className="text-xs text-foreground truncate">
-                    {activeDrag.label ?? 'Group'}
-                  </span>
-                </div>
-              )}
+              <DragOverlayContent activeDrag={activeDrag} />
             </DragOverlay>
           </DndContext>
         )}
