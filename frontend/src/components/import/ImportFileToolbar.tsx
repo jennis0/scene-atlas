@@ -9,7 +9,8 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import type { EditableFileState } from '@/types'
-import type { FileFilter, ImageTypeFilter } from './fileFilter'
+import type { FileFilter } from './fileFilter'
+import { TypeToggle } from './shared/TypeToggle'
 import {
   FilterMenuContent,
   FilterChipList,
@@ -254,37 +255,6 @@ export function ImportFileToolbar({
           <FilterChipList filters={filter.active} onFiltersChange={handleFiltersChange} />
         </div>
       )}
-    </div>
-  )
-}
-
-function TypeToggle({
-  value,
-  onChange,
-}: {
-  value: ImageTypeFilter
-  onChange: (v: ImageTypeFilter) => void
-}) {
-  const opts: { label: string; val: ImageTypeFilter }[] = [
-    { label: 'All', val: 'all' },
-    { label: 'Maps', val: 'battlemap' },
-    { label: 'Scenes', val: 'scene' },
-  ]
-  return (
-    <div className="inline-flex rounded border border-border overflow-hidden shrink-0">
-      {opts.map((opt) => (
-        <button
-          key={opt.val}
-          onClick={() => onChange(opt.val)}
-          className={`px-1.5 py-0.5 text-[11px] transition-colors ${
-            value === opt.val
-              ? 'bg-secondary text-foreground font-medium'
-              : 'text-muted-foreground/60 hover:text-muted-foreground hover:bg-secondary/50'
-          }`}
-        >
-          {opt.label}
-        </button>
-      ))}
     </div>
   )
 }
