@@ -419,6 +419,24 @@ function CategoryEditor({
     }
   }
 
+  // Save unsaved description on unmount (dialog close or category switch)
+  const descriptionRef = useRef(description)
+  descriptionRef.current = description
+
+  const categoryDescRef = useRef(category.description ?? '')
+  categoryDescRef.current = category.description ?? ''
+
+  useEffect(() => {
+    return () => {
+      const current = descriptionRef.current.trim()
+      const original = categoryDescRef.current
+      if (current !== original) {
+        updateMut.mutate({ description: current || undefined })
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   useEffect(() => {
     if (editingName) nameRef.current?.focus()
   }, [editingName])
