@@ -404,11 +404,13 @@ class ImportConfirmRequest(BaseModel):
     author: str
     group_name: str
     files: list[ImportConfirmFile]
+    remaining_groups: list[str] = []  # Names of groups still unconfirmed — syncs pending count
 
 
 class ImportGroupStatus(BaseModel):
     """Status of one group within an import job."""
 
+    group_job_id: str = ""  # Stable ID for frontend matching (ImportGroupJob.id)
     group_name: str
     total_files: int = 0
     processed_files: int = 0
@@ -421,7 +423,7 @@ class ImportJobResponse(BaseModel):
     """Import job status response."""
 
     job_id: str
-    status: str  # staging, active, completed, failed, cancelled, expired
+    status: str  # uploading, staging, active, awaiting_input, completed, failed, cancelled, expired
     groups: list[ImportGroupStatus] = []
     detected_group_count: int = 0
     pending_group_count: int = 0

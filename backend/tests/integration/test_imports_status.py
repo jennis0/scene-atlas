@@ -82,7 +82,9 @@ def seeded_completed_job(test_client, tmp_db):
     """One ImportJob + one completed ImportGroupJob (completed very recently)."""
     _, SessionLocal = tmp_db
     db = SessionLocal()
-    _make_job(db, "jobdonebb", status="completed", total_files=2)
+    now = datetime.now(UTC).replace(tzinfo=None)
+    job = _make_job(db, "jobdonebb", status="completed", total_files=2)
+    job.completed_at = now
     _make_group_job(
         db,
         "jobdonebb",
@@ -90,7 +92,7 @@ def seeded_completed_job(test_client, tmp_db):
         status="completed",
         processed=2,
         total=2,
-        completed_at=datetime.now(UTC).replace(tzinfo=None),
+        completed_at=now,
     )
     db.commit()
     db.close()
@@ -230,10 +232,11 @@ class TestImportStatus:
         assert resp.json()["status"] == "completed"
 
     def test_mixed_terminal_status_with_all_confirmed(self, test_client, tmp_db):
-        """When all_confirmed=True and all groups terminal, job is auto-completed."""
+        """When all_confirmed=True and all groups terminal, job status is failed (has failures)."""
         _, SessionLocal = tmp_db
         db = SessionLocal()
-        job = _make_job(db, "jobmixedcc", status="active", total_files=4)
+        # Status is authoritative — set it to what transition_job_status would compute
+        job = _make_job(db, "jobmixedcc", status="failed", total_files=4)
         job.all_confirmed = True
         _make_group_job(db, "jobmixedcc", "grp_ok", status="completed", processed=2, total=2)
         _make_group_job(
@@ -245,18 +248,17 @@ class TestImportStatus:
         resp = test_client.get("/api/v1/imports/jobmixedcc/status")
         assert resp.status_code == 200
         data = resp.json()
-        # all_confirmed + all terminal → completed (status derived in status endpoint)
-        assert data["status"] == "completed"
+        assert data["status"] == "failed"
         statuses = {g["group_name"]: g["status"] for g in data["groups"]}
         assert statuses["FailGroup"] == "failed"
 
-    def test_mixed_terminal_stays_active_without_all_confirmed(self, test_client, tmp_db):
-        """When all_confirmed=False and all groups terminal, job stays active (pending groups)."""
+    def test_awaiting_input_with_pending_groups(self, test_client, tmp_db):
+        """When all submitted groups terminal but pending_groups > 0, status is awaiting_input."""
         _, SessionLocal = tmp_db
         db = SessionLocal()
-        job = _make_job(db, "jobmixeddd", status="active", total_files=4)
+        job = _make_job(db, "jobmixeddd", status="awaiting_input", total_files=4)
         job.all_confirmed = False
-        job.analysis_result = '[{"group_name":"G1","author":"A","file_count":2},{"group_name":"G2","author":"A","file_count":2},{"group_name":"G3","author":"A","file_count":2}]'
+        job.pending_groups = 1  # One group still unconfirmed
         _make_group_job(db, "jobmixeddd", "grp_ok2", status="completed", processed=2, total=2)
         _make_group_job(
             db, "jobmixeddd", "grp_fail2", group_name="FailGroup", status="failed", total=2
@@ -267,10 +269,9 @@ class TestImportStatus:
         resp = test_client.get("/api/v1/imports/jobmixeddd/status")
         assert resp.status_code == 200
         data = resp.json()
-        # Not all_confirmed + pending groups → stays active
-        assert data["status"] == "active"
-        assert data["detected_group_count"] == 3
-        assert data["pending_group_count"] == 1  # 3 detected - 2 submitted
+        assert data["status"] == "awaiting_input"
+        assert data["detected_group_count"] == 3  # pending_groups + submitted
+        assert data["pending_group_count"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -395,7 +396,12 @@ class TestCancelImport:
         # staging_cleaned should be False because there's a running group
         assert resp.json()["staging_cleaned"] is False
 
-    def test_cancel_all_terminal_groups_sets_completed(self, test_client, tmp_db):
+    def test_cancel_all_terminal_groups_uses_transition(self, test_client, tmp_db):
+        """Cancel with all-terminal groups delegates to transition_job_status.
+
+        With one completed and one failed group, the result is 'failed' (not
+        'completed') because the transition function correctly detects failures.
+        """
         _, SessionLocal = tmp_db
         db = SessionLocal()
         _make_job(db, "jobtermeee", status="active", total_files=2)
@@ -406,7 +412,7 @@ class TestCancelImport:
 
         resp = test_client.post("/api/v1/imports/jobtermeee/cancel")
         assert resp.status_code == 200
-        assert resp.json()["status"] == "completed"
+        assert resp.json()["status"] == "failed"
 
 
 # ---------------------------------------------------------------------------
@@ -522,21 +528,12 @@ class TestFinalizeImport:
 
 class TestActiveImportsPendingGroups:
     def test_active_job_shows_pending_groups(self, test_client, tmp_db):
-        """An active job with analysis_result reports pending_groups count."""
+        """An active job with pending_groups reports the count correctly."""
         _, SessionLocal = tmp_db
         db = SessionLocal()
-        import json
-
-        analysis = json.dumps(
-            [
-                {"group_name": "Map A", "author": "Auth", "file_count": 2},
-                {"group_name": "Map B", "author": "Auth", "file_count": 3},
-                {"group_name": "Map C", "author": "Auth", "file_count": 1},
-            ]
-        )
-        job = _make_job(db, "jobpending", status="active", total_files=6)
-        job.analysis_result = analysis
-        # Only one group submitted so far
+        job = _make_job(db, "jobpending", status="awaiting_input", total_files=6)
+        job.pending_groups = 2
+        # One group submitted and completed
         _make_group_job(db, "jobpending", "grp_pa", status="completed", processed=2, total=2)
         db.commit()
         db.close()
@@ -545,30 +542,22 @@ class TestActiveImportsPendingGroups:
         assert resp.status_code == 200
         jobs = {j["job_id"]: j for j in resp.json()["jobs"]}
         j = jobs["jobpending"]
-        assert j["pending_groups"] == 2  # 3 detected - 1 submitted
+        assert j["pending_groups"] == 2
 
     def test_status_endpoint_shows_pending_counts(self, test_client, tmp_db):
         """Status endpoint includes detected_group_count and pending_group_count."""
         _, SessionLocal = tmp_db
         db = SessionLocal()
-        import json
-
-        analysis = json.dumps(
-            [
-                {"group_name": "G1", "author": "A", "file_count": 1},
-                {"group_name": "G2", "author": "A", "file_count": 1},
-            ]
-        )
-        job = _make_job(db, "jobpendstat", status="active", total_files=2)
-        job.analysis_result = analysis
+        job = _make_job(db, "jobpendstat", status="staging", total_files=2)
+        job.pending_groups = 2
         db.commit()
         db.close()
 
         resp = test_client.get("/api/v1/imports/jobpendstat/status")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["detected_group_count"] == 2
-        assert data["pending_group_count"] == 2  # none submitted yet
+        assert data["detected_group_count"] == 2  # pending_groups + 0 submitted
+        assert data["pending_group_count"] == 2
 
 
 # ---------------------------------------------------------------------------
@@ -720,26 +709,17 @@ class TestGetAnalysis:
         resp = test_client.get("/api/v1/imports/job-legacy/analysis")
         assert resp.status_code == 404  # No full groups available
 
-    def test_detected_group_count_with_new_format(self, test_client, tmp_db):
-        """Status endpoint correctly counts groups from new dict analysis format."""
-        import json
-
+    def test_pending_groups_reflected_in_status(self, test_client, tmp_db):
+        """Status endpoint reports pending_groups from DB, not analysis_result."""
         _, SessionLocal = tmp_db
         db = SessionLocal()
-        analysis_data = {
-            "summary": [
-                {"group_name": "G1", "author": "A", "file_count": 1},
-                {"group_name": "G2", "author": "A", "file_count": 2},
-            ],
-            "groups": [],  # groups data not needed for this test
-        }
         job = _make_job(db, "job-newformat", status="staging", total_files=3)
-        job.analysis_result = json.dumps(analysis_data)
+        job.pending_groups = 3
         db.commit()
         db.close()
 
         resp = test_client.get("/api/v1/imports/job-newformat/status")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["detected_group_count"] == 2
-        assert data["pending_group_count"] == 2
+        assert data["detected_group_count"] == 3  # pending_groups + 0 submitted
+        assert data["pending_group_count"] == 3

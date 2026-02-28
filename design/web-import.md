@@ -2,44 +2,57 @@
 
 ## Overview
 
-The web import allows users to upload images (files, folders, or zip archives) through the browser, review detected metadata, and confirm import into the system. It replaces the CLI-only `run_ingestion.py` for ad-hoc imports.
+The web import allows users to upload images (files, folders, or zip archives) through the browser, review detected metadata, and confirm import into the system.
+
+For state machine details, see [import-state-machine.md](import-state-machine.md).
 
 ## User Flow
 
 ```
 Gallery → [Import button] → ImportDialog opens
   → Select files or folder (or .zip)
-  → Files uploaded to staging
+  → Files uploaded to staging (two-phase: init + upload)
   → Backend analyses files, groups into image groups, generates preview thumbnails
   → Dialog shows tabbed preview (one tab per image group)
-  → User reviews/edits author, group name, tags, grid status, image type per file
-  → User can exclude files, skip groups, merge groups
+  → User reviews/edits author, group name, image types per file
+  → User can exclude files, skip groups, merge groups, split groups
   → User confirms one group or all groups
-  → Confirm sends full per-file metadata (no re-parsing on backend)
-  → Async processing starts
-  → Progress indicator (polling)
+  → Confirm sends full per-file metadata + remaining_groups list
+  → Async processing starts via JobRunner
+  → Progress indicator (polling with group_job_id matching)
+  → If pending groups remain → back to preview (awaiting_input)
   → Done → gallery refreshes
 ```
 
-## Backend: Upload Endpoint
+## Two-Phase Upload
+
+### Phase 1: Init
+
+**`POST /api/v1/imports/init`**
+
+Creates a job in `uploading` status with an empty staging directory. Returns `{ job_id }`. This allows the frontend to start uploading files immediately and show progress.
+
+### Phase 2: Upload
 
 **`POST /api/v1/imports/upload`**
 
 Accepts `multipart/form-data`:
 - `files`: one or more image files or .zip archives
 - `relative_paths` (optional): JSON array of relative paths (from `webkitRelativePath` or zip structure)
+- `job_id` (optional): ID from init endpoint. If provided, reuses the existing job.
 
 **Processing:**
-1. Generate `job_id` (UUID hex, 16 chars)
+1. If `job_id` not provided, generate one (UUID hex, 16 chars)
 2. Create staging directory: `data/staging/{job_id}/`
 3. For each file:
    - If `.zip`: extract, skip `__MACOSX`/`._` files, filter to supported formats
    - Otherwise: save to staging preserving relative path structure
-4. Submit `analyse_upload` Prefect deployment (synchronous, `timeout=120`)
+4. Run `analyse_upload` synchronously via `JobRunner.run_sync()`
    - Runs `ImageParser.group_files()` on all saved relative paths
    - Generates preview thumbnails (120x120 JPEG) into `data/staging/{job_id}/.thumbs/`
-5. Create `ImportJob` row in DB (status: `staging`)
-6. Return `ImportUploadResponse` with job_id and groups
+5. Create or update `ImportJob` row (status: `staging`, `pending_groups = len(groups)`)
+6. Store analysis result for reconnection (`analysis_result` JSON)
+7. Return `ImportUploadResponse` with job_id and groups
 
 **Response shape:**
 ```json
@@ -87,6 +100,7 @@ Accepts JSON body with **full per-file metadata** — the backend does not re-pa
 {
   "author": "czepeku",
   "group_name": "Island Fort",
+  "remaining_groups": ["Coastal Cliffs", "Desert Oasis"],
   "files": [
     {
       "relative_path": "czepeku/Island Fort/IslandFort_Night.jpg",
@@ -103,16 +117,74 @@ Accepts JSON body with **full per-file metadata** — the backend does not re-pa
 
 **Processing:**
 1. Validate each `file.relative_path` exists in staging
-2. Serialize file metadata as dicts
-3. Submit `process_import_group` Prefect deployment (async, `timeout=0`)
-4. Store `flow_run_id` on ImportJob, set status to `running`
-5. Return immediately
+2. Set `job.pending_groups = len(remaining_groups)` (synced from frontend)
+3. Create `ImportGroupJob` row (status: `running`)
+4. Submit `process_import_group` via `JobRunner.submit()` (async)
+5. Return `ImportJobResponse` with `group_job_id` for each group
+
+The `remaining_groups` field tells the backend how many unconfirmed groups remain, accounting for any merges/splits the user did in the preview UI.
+
+## Backend: Confirm All Endpoint
+
+**`POST /api/v1/imports/{job_id}/confirm-all`**
+
+Confirms all pending groups in one request:
+```json
+{
+  "groups": [
+    { "author": "...", "group_name": "...", "files": [...] },
+    { "author": "...", "group_name": "...", "files": [...] }
+  ]
+}
+```
+
+Sets `pending_groups = 0` and `all_confirmed = True`.
 
 ## Backend: Status Endpoint
 
 **`GET /api/v1/imports/{job_id}/status`**
 
-Returns current job status with per-group progress. Reads from ImportJob table counters (updated by the Prefect flow after each image).
+Returns current job status with per-group progress. Status is read directly from `ImportJob.status` in the database (authoritative, not derived).
+
+Response includes `group_job_id` for each group, enabling robust frontend matching.
+
+```json
+{
+  "job_id": "a1b2c3d4e5f67890",
+  "status": "awaiting_input",
+  "groups": [
+    {
+      "group_job_id": "abc123",
+      "group_name": "Island Fort",
+      "total_files": 6,
+      "processed_files": 6,
+      "failed_files": 0,
+      "status": "completed",
+      "group_id": 42
+    }
+  ],
+  "detected_group_count": 3,
+  "pending_group_count": 2
+}
+```
+
+## Backend: Analysis Endpoint
+
+**`GET /api/v1/imports/{job_id}/analysis`**
+
+Returns the stored analysis for reconnection — rebuilds the preview UI when a dialog is reopened after the page was closed during/after upload. Only available for staging/active/awaiting_input jobs that have `analysis_result` data with the full `groups` key.
+
+## Backend: Finalize Endpoint
+
+**`POST /api/v1/imports/{job_id}/finalize`**
+
+Explicitly marks a job as complete. Sets `pending_groups = 0` and runs `transition_job_status()`. Rejects jobs with running groups.
+
+## Backend: Cancel Endpoint
+
+**`POST /api/v1/imports/{job_id}/cancel`**
+
+Cancels an import job. Cancels any running group jobs, sets `pending_groups = 0`, and runs `transition_job_status()` for terminal groups or sets `cancelled` directly.
 
 ## Group Detection
 
@@ -127,15 +199,15 @@ See [parser.md](parser.md) for the full algorithm. Summary:
 
 The import dialog is a **group management tool** — it handles file organization into groups before import. Per-file metadata editing (tags, grid, name, subgroup) is deferred to post-import via `ImageViewer` and `EditGroupDialog` (import-review mode). See [plan-simplify-import.md](plan-simplify-import.md) for rationale.
 
-Three states:
+Four dialog states (mapped from backend status via `backendStatusToDialogState()`):
 
-### Upload State
+### Upload State (`uploading`)
 - File picker button (accepts `.jpg`, `.jpeg`, `.png`, `.webp`, `.zip`)
 - Folder picker button (via `webkitdirectory`)
 - Shows spinner during upload
 - Displays error if upload fails
 
-### Preview State
+### Preview State (`staging` or `awaiting_input`)
 - **Default Author bar** above tabs: Input + "Apply to Empty" button fills all empty author fields
 - Tab bar if multiple image groups detected (tab per group)
   - Each tab has a DropdownMenu with "Skip Group" and "Merge into [other group]"
@@ -143,45 +215,51 @@ Three states:
 - Each tab shows:
   - Editable **Author** text input (pre-filled from detection, may be empty)
   - Editable **Group Name** text input (pre-filled)
-  - Compact file cards (`ImportFileCard`) with:
-    - Preview thumbnail (clickable for lightbox)
-    - Parsed name (read-only)
-    - Subgroup badge (read-only, if detected)
-    - Image type toggle (Battlemap / Scene)
-    - Duplicate indicator (with skip/import toggle)
-    - Selection checkbox + exclude button
-  - Simplified toolbar (`ImportFileToolbar`) with:
-    - Search/filter, select all/deselect all
-    - Bulk set image type, bulk exclude, split to new group
-    - Duplicate bulk controls
-  - Subgroup headings (read-only, no rename/clear during import)
+  - Compact file cards (`ImportFileCard`) with thumbnail, name, type toggle, duplicate indicator
+  - Simplified toolbar (`ImportFileToolbar`) with search, select, bulk actions
+  - Subgroup headings (read-only)
 - "Import This Group" button (disabled if author is empty)
 - "Import All" button if multiple pending groups
 
-### Processing/Done State
+### Processing State (`active`)
 - Per-group status: spinner while running, checkmark when complete
-- Processing indicator survives dialog close (state preserved, pulsing dot on Import button)
+- Processing indicator survives dialog close (state preserved in localStorage)
 - Re-open dialog to check progress
-- "Close" button on completion → refreshes gallery queries
+
+### Done State (`completed`, `failed`, `cancelled`, `expired`)
+- Shows final status
+- "Close" button → refreshes gallery queries
+
+## Frontend State Hooks
+
+| Hook | Purpose |
+|------|---------|
+| `useImportState` | Main state orchestrator: groups, dialog state, confirm handlers |
+| `useImportUpload` | File upload handling, analysis response mapping |
+| `useImportPolling` | Polls backend during processing, matches by `group_job_id` |
+| `useImportPersistence` | localStorage save/restore, reconnection with backend sync |
+| `useActiveImports` | Import tray: merges localStorage + backend data, polling |
 
 ## Data Flow
 
 ```
-Upload → analyse_upload (+ thumbnail generation) → ImportUploadResponse
+POST /init → job created (uploading)
+POST /upload → analyse_upload (sync) → ImportUploadResponse (staging)
   → User manages groups (merge, split, skip, exclude, set author/type)
-  → Auto-detected tags/grid hints pass through unchanged (user doesn't edit these during import)
-  → Confirm sends { author, group_name, files: ImportConfirmFile[] }
-  → process_import_group uses metadata AS-IS (no re-parsing)
-  → process_single_image(metadata={from confirm request directly})
-  → Grid detection, CLIP, color extraction run during processing
-  → Post-import: user reviews enriched metadata via EditGroupDialog (import-review mode)
+  → Auto-detected tags/grid hints pass through unchanged
+  → POST /confirm sends { author, group_name, files, remaining_groups }
+  → process_import_group runs async via JobRunner
+  → transition_job_status() → active (has running groups)
+  → Group completes → transition_job_status() → awaiting_input or completed
+  → If awaiting_input: user confirms more groups → active again
+  → All groups done → completed or failed
+  → Post-import: user reviews enriched metadata via EditGroupDialog
 ```
-
-Key design decision: The confirm request sends each file's **complete metadata** including auto-detected tags and grid hints from filename parsing. The import dialog does not expose editors for these — they pass through unchanged. The `process_import_group` flow does not re-parse filenames — it passes per-file metadata straight through to `process_single_image(metadata=...)`.
 
 ## Staging Cleanup
 
-Staging directories (`data/staging/{job_id}/`) are created on upload and include a `.thumbs/` subdirectory for preview thumbnails. They are currently NOT automatically cleaned up after processing completes. This should be addressed — either:
-- Clean up in `process_import_group` after all files are processed
-- Add a periodic cleanup job for old staging dirs
-- Clean up when the ImportJob transitions to `completed`
+Staging directories (`data/staging/{job_id}/`) are created on upload and include a `.thumbs/` subdirectory for preview thumbnails. They are cleaned up by:
+- The periodic `cleanup_staging` scheduler task (every 6h, removes dirs older than 24h)
+- The `expire_stale_jobs` scheduler task (every 6h, cleans staging for expired jobs)
+- `POST /cancel` endpoint (removes staging dir)
+- `POST /finalize` endpoint (removes staging dir)

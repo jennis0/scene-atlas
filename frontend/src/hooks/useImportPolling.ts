@@ -4,6 +4,23 @@ import { POLL_INTERVAL_MS } from '@/lib/constants'
 import type { EditableGroupState } from '@/types'
 import type { DialogState } from './useImportState'
 
+/** Map backend job status to the frontend dialog state.
+ *  Backend status is authoritative — the frontend trusts it. */
+export function backendStatusToDialogState(status: string): DialogState {
+  switch (status) {
+    case 'uploading':
+      return 'upload'
+    case 'staging':
+    case 'awaiting_input':
+      return 'preview'
+    case 'active':
+      return 'processing'
+    default:
+      // completed, failed, cancelled, expired
+      return 'done'
+  }
+}
+
 interface UseImportPollingOptions {
   state: DialogState
   jobId: string | null
@@ -23,29 +40,27 @@ export function useImportPolling({
     const poll = async () => {
       try {
         const status = await importApi.status(jobId)
-        let hasPendingLocally = false
         setGroups((prev) => {
-          const next = prev.map((g) => {
-            const gs = status.groups.find((s) => s.group_name === g.group_name)
+          return prev.map((g) => {
+            // Match by group_job_id (robust) or fall back to group_name
+            const gs =
+              (g.group_job_id && status.groups.find((s) => s.group_job_id === g.group_job_id)) ||
+              status.groups.find((s) => s.group_name === g.group_name)
             if (!gs) return g
             return {
               ...g,
+              group_job_id: gs.group_job_id || g.group_job_id,
               status: gs.status as EditableGroupState['status'],
               processed: gs.processed_files,
               failed: gs.failed_files,
               total: gs.total_files || g.total,
             }
           })
-          hasPendingLocally = next.some((g) => g.status === 'pending')
-          return next
         })
-        const allSubmittedDone =
-          status.groups.length > 0 &&
-          status.groups.every((gs) => gs.status === 'completed' || gs.status === 'failed')
-        if (allSubmittedDone) {
-          // Check both local state and backend-derived pending count
-          const backendHasPending = (status.pending_group_count ?? 0) > 0
-          setState(hasPendingLocally || backendHasPending ? 'preview' : 'done')
+        // Trust backend status for dialog state transitions
+        const dialogState = backendStatusToDialogState(status.status)
+        if (dialogState !== 'processing') {
+          setState(dialogState)
         }
       } catch {
         /* ignore transient poll errors */
