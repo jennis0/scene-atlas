@@ -672,7 +672,7 @@ export function ImageViewer({
                     .map((color) => (
                       <div
                         key={color.id}
-                        className="h-5 w-5 rounded-full ring-1 ring-white/15 shadow-sm"
+                        className="h-5 w-5 rounded-full ring-1 ring-foreground/15 shadow-sm"
                         style={{ backgroundColor: color.color_hex }}
                         title={`${color.color_hex} (${(color.percentage * 100).toFixed(1)}%)`}
                       />

@@ -6,9 +6,9 @@ A comprehensive reference for the Scene Atlas UI. All new components must confor
 
 ## Aesthetic Direction
 
-**Theme:** Dark cartographic / archival. Think a scholar's map room at night — deep navy surfaces, warm parchment text, amber gold accents used sparingly for wayfinding.
+**Theme:** Cartographic / archival. The dark mode evokes a scholar's map room at night — deep navy surfaces, warm parchment text, amber gold accents used sparingly for wayfinding. The light mode uses warm parchment tones reminiscent of aged paper, with the same amber accent adapted for readability.
 
-**NOT:** generic dark mode, purple gradients, high-contrast tech aesthetics.
+**NOT:** generic dark/light mode, purple gradients, cold whites/greys, high-contrast tech aesthetics.
 
 ### Core Adjectives
 - Precise and measured (tight spacing, clean alignment)
@@ -19,9 +19,11 @@ A comprehensive reference for the Scene Atlas UI. All new components must confor
 
 ## Design Tokens
 
-All values sourced from CSS custom properties defined in `frontend/src/index.css`. **Never use raw hex/rgb/hsl values** — always use `hsl(var(--token))` or Tailwind token classes. For opacity variants, use `hsl(var(--token) / 0.N)`. This enables future light mode support.
+All values sourced from CSS custom properties defined in `frontend/src/index.css`. **Never use raw hex/rgb/hsl values** — always use `hsl(var(--token))` or Tailwind token classes. For opacity variants, use `hsl(var(--token) / 0.N)`.
 
-### Surface Hierarchy (darkest → lightest)
+**Theme switching:** Light mode values are in `:root`, dark mode values in `.dark`. The `dark` class on `<html>` activates dark mode (Tailwind `darkMode: ["class"]`). Default theme is dark; toggled via `ThemeContext` (stored in localStorage as `scene-atlas-theme`).
+
+### Surface Hierarchy — Dark Mode (darkest → lightest)
 | Token | Approx. hex | Role |
 |-------|-------------|------|
 | `--surface-canvas` | `#0b0e14` | ImageViewer deep canvas bg |
@@ -30,6 +32,16 @@ All values sourced from CSS custom properties defined in `frontend/src/index.css
 | `--card` | `#161c28` | Card surfaces, panel backgrounds |
 | `--muted` | `#181f2e` | Muted/recessed surfaces, hover backgrounds |
 | `--secondary` | `#1c2231` | Inputs, hover states, raised elements |
+
+### Surface Hierarchy — Light Mode (warm parchment)
+| Token | Approx. hex | Role |
+|-------|-------------|------|
+| `--secondary` | `#e5ddd0` | Subtle warm recessed surface |
+| `--muted` | `#ece6dc` | Muted surfaces |
+| `--surface-canvas` | `#ece5db` | ImageViewer canvas bg |
+| `--background` | `#f3ede5` | Warm parchment base, dot-grid applied |
+| `--card` | `#f8f5f0` | Card surfaces (slightly lighter than bg) |
+| `--popover` | `#faf7f3` | Lightest surface for floating layers |
 
 ### Accent / Semantic
 | Token | Approx. hex | Role |
@@ -183,14 +195,21 @@ All Lucide icons use the **default strokeWidth (2)**. Never override to 1.5 — 
 
 Tags are coloured by category. The colour replaces any need for a text category label. Defined in `frontend/src/components/import/tagColors.ts`.
 
-### Colour pattern (dark-mode opacity tints)
+### Colour pattern (theme-aware)
+
+Each palette entry has both dark and light variants. The `useGetTagColor()` hook automatically selects the correct variant based on the current theme.
+
+**Dark mode:**
 ```typescript
 { bg: 'bg-{colour}-400/10', text: 'text-{colour}-300', border: 'border-{colour}-400/30', dot: 'bg-{colour}-400' }
 ```
-- `bg-*-400/10` — very subtle tint, doesn't dominate
-- `text-*-300` — lighter shade readable on dark backgrounds
-- `border-*-400/30` — 30% opacity border, cohesive with bg tint
-- `dot` — solid colour for small dot indicators (2×2 in category nav lists)
+
+**Light mode:**
+```typescript
+{ bg: 'bg-{colour}-50', text: 'text-{colour}-700', border: 'border-{colour}-200', dot: 'bg-{colour}-400' }
+```
+
+The colour identity (hue) stays the same — red is always red, teal is always teal. Only the shade shifts to suit the background. The `dot` colour is theme-independent since solid dots work on both backgrounds.
 
 ### Assigned categories
 | Category | Colour family |
@@ -525,4 +544,3 @@ Remaining items from the design language audit (2026-02-25) that have not yet be
 2. **Hover state implementation** — Some components use hardcoded hover colors instead of token-based `hover:bg-muted` or `hover:bg-primary/10`
 3. **Card scale on hover** — GroupCard uses `hover:scale-[1.01]` which is inconsistent with ImageGrid cards that have no scale transform
 4. **Font weight consistency** — Mixed usage of `font-medium` vs `font-semibold` for section labels across FilterMenuContent and ImageViewer
-5. **ImportDialog dark mode** — The ImportDialog and its sub-components use hardcoded light colours (`bg-white`, `bg-slate-50`, etc.) and need `dark:` variants to match the design system. This is tracked as deferred work.

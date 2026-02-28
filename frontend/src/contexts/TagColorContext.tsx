@@ -1,8 +1,10 @@
 import { createContext, useContext, useMemo, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { tagApi } from '@/lib/api'
+import { useTheme } from '@/contexts/ThemeContext'
 import { getTagColor } from '@/components/import/tagColors'
 import type { TagColor } from '@/components/import/tagColors'
+import type { Theme } from '@/contexts/ThemeContext'
 import type { TagCategory } from '@/types'
 
 type CategoryColorMap = Map<string, string>
@@ -36,13 +38,19 @@ export function useCategoryColorMap(): CategoryColorMap {
 }
 
 /**
- * Returns a function: (categoryName: string) => TagColor
- * Drop-in replacement for the old getTagColor(categoryName) pattern.
+ * Returns a function: (categoryName: string | null | undefined) => TagColor
+ * Automatically selects dark/light variant based on current theme.
+ * Accepts null/undefined for fallback to default tag color.
  */
 // eslint-disable-next-line react-refresh/only-export-components -- context hooks intentionally co-exported with provider
-export function useGetTagColor(): (categoryName: string) => TagColor {
+export function useGetTagColor(): (categoryName: string | null | undefined) => TagColor {
   const map = useContext(TagColorContext)
-  return useCallback((categoryName: string) => getTagColor(map.get(categoryName) ?? null), [map])
+  const { theme } = useTheme()
+  return useCallback(
+    (categoryName: string | null | undefined) =>
+      getTagColor(categoryName ? (map.get(categoryName) ?? null) : null, theme),
+    [map, theme],
+  )
 }
 
 /**
@@ -51,10 +59,13 @@ export function useGetTagColor(): (categoryName: string) => TagColor {
  * (e.g. FilterMenuContent receives them as props).
  */
 // eslint-disable-next-line react-refresh/only-export-components -- utility function intentionally co-exported with provider
-export function buildColorLookup(categories: TagCategory[]): (categoryName: string) => TagColor {
+export function buildColorLookup(
+  categories: TagCategory[],
+  theme: Theme = 'dark',
+): (categoryName: string) => TagColor {
   const map = new Map<string, string>()
   for (const cat of categories) {
     if (cat.color) map.set(cat.name, cat.color)
   }
-  return (name: string) => getTagColor(map.get(name) ?? null)
+  return (name: string) => getTagColor(map.get(name) ?? null, theme)
 }
