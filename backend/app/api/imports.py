@@ -817,6 +817,7 @@ async def get_active_imports(db: Session = Depends(get_db)):
                 running_groups=sum(1 for g in groups if g.status == "running"),
                 pending_groups=pending_count,
                 total_files=job.total_files,
+                processed_files=sum(g.processed_files for g in groups),
                 created_at=job.created_at,
             )
         )

@@ -33,6 +33,7 @@ export interface ActiveImportJob {
   runningGroups: number
   pendingGroups: number
   totalFiles: number
+  processedFiles: number
   createdAt: string
   /** Whether this job only exists in localStorage (not yet on backend). */
   localOnly: boolean
@@ -52,21 +53,28 @@ export function useActiveImports(): UseActiveImportsReturn {
   const [jobs, setJobs] = useState<ActiveImportJob[]>([])
   const prevJobStatusRef = useRef<Map<string, string>>(new Map())
   const completionListeners = useRef<Set<() => void>>(new Set())
+  /** Job IDs the user has dismissed this session — prevents them reappearing on poll. */
+  const dismissedIdsRef = useRef<Set<string>>(new Set())
 
   const refresh = useCallback(() => {
     cleanupExpiredImports()
     const localIndex = loadImportJobsIndex()
+    const dismissed = dismissedIdsRef.current
 
     // Fetch backend active imports
     importApi
       .active()
       .then((response) => {
-        const merged = mergeJobs(localIndex.jobs, response.jobs)
+        const merged = mergeJobs(localIndex.jobs, response.jobs).filter(
+          (j) => !dismissed.has(j.jobId),
+        )
         setJobs(merged)
       })
       .catch(() => {
         // Backend unavailable — just use localStorage
-        const localJobs = localIndex.jobs.map(localToActiveJob)
+        const localJobs = localIndex.jobs
+          .map(localToActiveJob)
+          .filter((j) => !dismissed.has(j.jobId))
         setJobs(localJobs)
       })
   }, [])
@@ -112,6 +120,7 @@ export function useActiveImports(): UseActiveImportsReturn {
   }, [])
 
   const dismissJob = useCallback((jobId: string) => {
+    dismissedIdsRef.current.add(jobId)
     removeImportState(jobId)
     setJobs((prev) => prev.filter((j) => j.jobId !== jobId))
   }, [])
@@ -155,6 +164,7 @@ function localToActiveJob(entry: ImportJobIndexEntry): ActiveImportJob {
     runningGroups: entry.hasRunningGroups ? 1 : 0,
     pendingGroups: entry.pendingGroups,
     totalFiles: 0,
+    processedFiles: 0,
     createdAt: entry.createdAt,
     localOnly: true,
   }
@@ -171,6 +181,7 @@ function backendToActiveJob(summary: ImportJobSummary): ActiveImportJob {
     runningGroups: summary.running_groups,
     pendingGroups: summary.pending_groups, // Now from backend
     totalFiles: summary.total_files,
+    processedFiles: summary.processed_files,
     createdAt: summary.created_at,
     localOnly: false,
   }

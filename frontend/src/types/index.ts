@@ -347,6 +347,7 @@ export interface ImportJobSummary {
   running_groups: number
   pending_groups: number
   total_files: number
+  processed_files: number
   created_at: string
 }
 

@@ -23,7 +23,10 @@ export function useBackgroundJobs(): UseBackgroundJobsReturn {
   const refresh = useCallback(() => {
     jobApi
       .list()
-      .then(setJobs)
+      .then((all) => {
+        // Filter out import-related jobs — those are tracked in the imports section
+        setJobs(all.filter((j) => !j.name.startsWith('Import')))
+      })
       .catch(() => {
         // Backend unavailable — keep stale data
       })

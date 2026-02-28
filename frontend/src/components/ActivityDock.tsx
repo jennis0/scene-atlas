@@ -243,11 +243,7 @@ function ImportJobCard({
     job.status === 'expired'
   const canCancel =
     job.status === 'uploading' || job.status === 'staging' || job.status === 'active'
-  const effectiveTotal =
-    job.totalGroups > 0
-      ? job.totalGroups
-      : job.pendingGroups + job.completedGroups + job.failedGroups + job.runningGroups
-  const progressRatio = effectiveTotal > 0 ? job.completedGroups / effectiveTotal : 0
+  const progressRatio = job.totalFiles > 0 ? job.processedFiles / job.totalFiles : 0
 
   return (
     <div
@@ -318,9 +314,11 @@ function ImportJobCard({
               style={{ width: `${Math.round(progressRatio * 100)}%` }}
             />
           </div>
-          <span className="text-[10px] text-muted-foreground/55 tabular-nums shrink-0">
-            {job.completedGroups}/{effectiveTotal}
-          </span>
+          {job.totalFiles > 0 && (
+            <span className="text-[10px] text-muted-foreground/55 tabular-nums shrink-0">
+              {job.processedFiles}/{job.totalFiles}
+            </span>
+          )}
         </div>
 
         {/* Status summary */}
@@ -473,28 +471,33 @@ function ImportStatusText({ job }: { job: ActiveImportJob }) {
     case 'staging':
       return (
         <span>
-          {job.pendingGroups} group{job.pendingGroups !== 1 ? 's' : ''} ready to review
+          {job.totalFiles > 0
+            ? `${job.totalFiles} image${job.totalFiles !== 1 ? 's' : ''} ready to review`
+            : `${job.pendingGroups} group${job.pendingGroups !== 1 ? 's' : ''} ready to review`}
         </span>
       )
     case 'running':
-    case 'active': {
-      const parts: string[] = []
-      if (job.runningGroups > 0) parts.push(`${job.runningGroups} processing`)
-      if (job.completedGroups > 0) parts.push(`${job.completedGroups} imported`)
-      if (job.pendingGroups > 0) parts.push(`${job.pendingGroups} pending`)
-      return <span>{parts.length > 0 ? parts.join(', ') : 'Processing…'}</span>
-    }
+    case 'active':
+      return (
+        <span>
+          {job.processedFiles > 0
+            ? `${job.processedFiles} of ${job.totalFiles} images processed`
+            : 'Processing…'}
+        </span>
+      )
     case 'completed':
       return (
         <span>
-          {job.completedGroups} group{job.completedGroups !== 1 ? 's' : ''} imported
+          {job.totalFiles > 0
+            ? `${job.processedFiles} image${job.processedFiles !== 1 ? 's' : ''} imported`
+            : `${job.completedGroups} group${job.completedGroups !== 1 ? 's' : ''} imported`}
         </span>
       )
     case 'failed':
       return (
         <span className="text-destructive/65">
-          {job.failedGroups} failed
-          {job.completedGroups > 0 ? `, ${job.completedGroups} completed` : ''}
+          {job.failedGroups} group{job.failedGroups !== 1 ? 's' : ''} failed
+          {job.processedFiles > 0 ? `, ${job.processedFiles} images processed` : ''}
         </span>
       )
     case 'cancelled':
