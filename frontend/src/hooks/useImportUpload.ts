@@ -6,6 +6,7 @@ import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { humanizeFilename } from '@/components/import/types'
 import { collectFilesFromDataTransfer } from '@/lib/fsEntryTraversal'
 import { saveImportJobInit, importPreviewUrl } from '@/lib/importStorage'
+import { MAX_FILE_SIZE_BYTES, MAX_FILE_SIZE_MB } from '@/lib/constants'
 import type { ImportUploadResponse, EditableGroupState } from '@/types'
 import type { DialogState } from './useImportState'
 import { ALL_TAB } from './useFileEditing'
@@ -79,13 +80,29 @@ export function useImportUpload({
           return
         }
 
+        // ── Phase 0.1: File size check ──────────────────────────
+        const oversized = validPairs.filter((p) => p.file.size > MAX_FILE_SIZE_BYTES)
+        const sizeLimitedPairs = validPairs.filter((p) => p.file.size <= MAX_FILE_SIZE_BYTES)
+        if (oversized.length > 0) {
+          const oversizedNames = oversized.map(
+            (p) => `${p.file.name} (too large, >${MAX_FILE_SIZE_MB}MB)`,
+          )
+          setSkippedFiles((prev) => [...prev, ...oversizedNames])
+        }
+        if (sizeLimitedPairs.length === 0) {
+          setUploadError(
+            `All files exceed the ${MAX_FILE_SIZE_MB}MB size limit. Please use smaller files.`,
+          )
+          return
+        }
+
         // ── Phase 0.5: Create backend job immediately ───────────
         // This ensures the job_id is persisted to localStorage before the
         // upload starts, so closing the dialog mid-upload doesn't lose it.
         setUploadPhase('Initializing\u2026')
         const { job_id: earlyJobId } = await importApi.init()
         setJobId(earlyJobId)
-        saveImportJobInit(earlyJobId, validPairs[0]?.file.name ?? 'Import')
+        saveImportJobInit(earlyJobId, sizeLimitedPairs[0]?.file.name ?? 'Import')
 
         // Build relative paths, blob URLs, and separate ZIPs from image files
         const imageFiles: File[] = []
@@ -95,7 +112,7 @@ export function useImportUpload({
         const blobUrlMap: Record<string, string> = {}
         const fileByPath: Record<string, File> = {}
 
-        for (const { file, relativePath } of validPairs) {
+        for (const { file, relativePath } of sizeLimitedPairs) {
           fileByPath[relativePath] = file
           if (file.name.toLowerCase().endsWith('.zip')) {
             zipFiles.push(file)
