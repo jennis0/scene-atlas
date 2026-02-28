@@ -90,6 +90,26 @@ describe('useFileEditing — CRUD', () => {
     )
   })
 
+  it('updateFile rapid successive calls on different files both persist', () => {
+    const file1 = makeFile({ relative_path: 'a.jpg', name: 'a' })
+    const file2 = makeFile({ relative_path: 'b.jpg', name: 'b' })
+    const { result } = renderHook(() => useFileEditing())
+
+    act(() => {
+      result.current.setGroups([makeGroup({ files: [file1, file2] })])
+    })
+
+    // Call updateFile twice in the same act() — without functional updater,
+    // the second call would read stale `groups` and overwrite the first.
+    act(() => {
+      result.current.updateFile(0, 'a.jpg', { name: 'updated-a' })
+      result.current.updateFile(0, 'b.jpg', { name: 'updated-b' })
+    })
+
+    expect(result.current.groups[0].files[0].name).toBe('updated-a')
+    expect(result.current.groups[0].files[1].name).toBe('updated-b')
+  })
+
   it('updateFileAnyGroup updates file across all groups', () => {
     const file = makeFile({ relative_path: 'shared.jpg' })
     const { result } = renderHook(() => useFileEditing())
