@@ -183,6 +183,22 @@ class GroupMergeResponse(BaseModel):
     source_group_deleted: bool
 
 
+class MoveImagesRequest(BaseModel):
+    """Move specific images from one group to another."""
+
+    target_group_id: int
+    image_ids: list[int]
+
+
+class MoveImagesResponse(BaseModel):
+    """Result of moving images between groups."""
+
+    source_group_id: int
+    target_group_id: int
+    images_moved: int
+    source_group_deleted: bool
+
+
 class ImageEditPayload(BaseModel):
     """Per-image edit data sent from the edit dialog."""
 

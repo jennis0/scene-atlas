@@ -1,5 +1,16 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import {
+  DndContext,
+  DragOverlay,
+  useDraggable,
+  useDroppable,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core'
+import type { DragStartEvent, DragEndEvent } from '@dnd-kit/core'
 import {
   AlertCircle,
   Check,
@@ -11,6 +22,7 @@ import {
   Merge,
   MoreHorizontal,
   EyeOff,
+  GripVertical,
 } from 'lucide-react'
 import { groupApi, tagApi, imageApi, getThumbnailUrlById, getImageUrlById } from '@/lib/api'
 import { getApiErrorMessage, isNotFoundError } from '@/lib/getErrorMessage'
@@ -96,6 +108,139 @@ function buildPayload(group: EditableGroupState): GroupEditRequest {
   }
 }
 
+// ── DnD types ──────────────────────────────────────────────────────────────
+
+interface DragData {
+  type: 'card' | 'group'
+  id: string // relative_path for cards, group id for groups
+  groupId: string // source group id
+}
+
+interface DropData {
+  type: 'group' | 'subgroup'
+  groupId?: string
+  subgroup?: string | null
+}
+
+interface ActiveDragState {
+  type: 'card' | 'group'
+  id: string
+  groupId: string
+  selectedCount: number
+  previewUrl?: string
+  label?: string
+}
+
+// ── DnD wrapper components ─────────────────────────────────────────────────
+
+function DraggableFileCardWrapper({
+  file,
+  groupId,
+  isDndEnabled,
+  children,
+}: {
+  file: EditableFileState
+  groupId: string
+  isDndEnabled: boolean
+  children: React.ReactNode
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `card-${groupId}-${file.relative_path}`,
+    data: { type: 'card', id: file.relative_path, groupId } satisfies DragData,
+    disabled: !isDndEnabled || file.excluded || file.outOfScope,
+  })
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      style={{ opacity: isDragging ? 0.35 : 1, transition: 'opacity 150ms' }}
+    >
+      {children}
+    </div>
+  )
+}
+
+function DroppableGroupRow({
+  groupId,
+  activeDrag,
+  children,
+}: {
+  groupId: string
+  activeDrag: ActiveDragState | null
+  children: React.ReactNode
+}) {
+  const { isOver, setNodeRef } = useDroppable({
+    id: `group-drop-${groupId}`,
+    data: { type: 'group', groupId } satisfies DropData,
+    disabled: !activeDrag || activeDrag.groupId === groupId,
+  })
+
+  // Only highlight when a compatible drag is over (card→group or group→group, not self)
+  const showHighlight = isOver && activeDrag && activeDrag.groupId !== groupId
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`transition-colors ${showHighlight ? 'ring-1 ring-inset ring-primary/50 bg-primary/5' : ''}`}
+    >
+      {children}
+    </div>
+  )
+}
+
+function DraggableGroupRow({
+  groupId,
+  isDndEnabled,
+  children,
+}: {
+  groupId: string
+  isDndEnabled: boolean
+  children: React.ReactNode
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `group-${groupId}`,
+    data: { type: 'group', id: groupId, groupId } satisfies DragData,
+    disabled: !isDndEnabled,
+  })
+
+  return (
+    <div ref={setNodeRef} {...listeners} {...attributes} style={{ opacity: isDragging ? 0.35 : 1 }}>
+      {children}
+    </div>
+  )
+}
+
+function DroppableSubgroupSection({
+  subVariant,
+  activeDrag,
+  children,
+}: {
+  subVariant: string | null
+  activeDrag: ActiveDragState | null
+  children: React.ReactNode
+}) {
+  const { isOver, setNodeRef } = useDroppable({
+    id: `subgroup-${subVariant ?? '__main__'}`,
+    data: { type: 'subgroup', subgroup: subVariant } satisfies DropData,
+    disabled: !activeDrag || activeDrag.type !== 'card',
+  })
+
+  const showHighlight = isOver && activeDrag?.type === 'card'
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`mb-2 transition-colors rounded ${showHighlight ? 'ring-1 ring-inset ring-primary/40 bg-primary/5' : ''}`}
+    >
+      {children}
+    </div>
+  )
+}
+
+// ── Main component ─────────────────────────────────────────────────────────
+
 export function EditGroupDialog({
   groupId,
   seedImages,
@@ -128,6 +273,22 @@ export function EditGroupDialog({
   const [mergeSourceGroupId, setMergeSourceGroupId] = useState<string | null>(null)
   const [deleteConfirmGroupId, setDeleteConfirmGroupId] = useState<string | null>(null)
   const [ungroupedCount, setUngroupedCount] = useState(0)
+
+  // ── Drag & drop state ────────────────────────────────────────────────
+  const [activeDrag, setActiveDrag] = useState<ActiveDragState | null>(null)
+  const [dragMergeSource, setDragMergeSource] = useState<string | null>(null)
+  const [dragMergeTarget, setDragMergeTarget] = useState<string | null>(null)
+
+  // ── Sidebar multiselect state ────────────────────────────────────────
+  const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set())
+  const [lastClickedGroupIndex, setLastClickedGroupIndex] = useState<number | null>(null)
+  const [confirmingBulkMerge, setConfirmingBulkMerge] = useState(false)
+  const [confirmingBulkDelete, setConfirmingBulkDelete] = useState(false)
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor),
+  )
 
   // ── Auto-save ────────────────────────────────────────────────────────
 
@@ -188,6 +349,7 @@ export function EditGroupDialog({
     updateGroup,
     updateFile,
     updateFileAnyGroup,
+    updateFilesInGroup,
     toggleFileSelection,
     selectAllVisible,
     deselectAll,
@@ -217,6 +379,13 @@ export function EditGroupDialog({
     setMergeSourceGroupId(null)
     setDeleteConfirmGroupId(null)
     setUngroupedCount(0)
+    setActiveDrag(null)
+    setDragMergeSource(null)
+    setDragMergeTarget(null)
+    setSelectedGroupIds(new Set())
+    setLastClickedGroupIndex(null)
+    setConfirmingBulkMerge(false)
+    setConfirmingBulkDelete(false)
     setGroups([])
     setActiveTab(0)
     setFileFilter(EMPTY_FILTER)
@@ -651,6 +820,321 @@ export function EditGroupDialog({
     }
   }
 
+  // ── Drag & drop handlers ─────────────────────────────────────────
+
+  const handleMoveImagesToGroup = useCallback(
+    async (drag: ActiveDragState, targetGroupId: string) => {
+      if (drag.groupId === targetGroupId) return
+
+      const sel = selections[drag.groupId] ?? new Set<string>()
+      const imageIds = sel.has(drag.id) ? [...sel].map(Number) : [Number(drag.id)]
+
+      setSaving(true)
+      setSaveError(null)
+      try {
+        const result = await groupApi.moveImages(
+          Number(drag.groupId),
+          Number(targetGroupId),
+          imageIds,
+        )
+
+        // Remove moved files from source group in local state
+        const movedIdSet = new Set(imageIds.map(String))
+        let newGroups = groups.map((g) => {
+          if (g.id !== drag.groupId) return g
+          return {
+            ...g,
+            files: g.files.filter((f) => !movedIdSet.has(f.relative_path)),
+            total: g.files.filter((f) => !movedIdSet.has(f.relative_path)).length,
+          }
+        })
+
+        // If source group was auto-deleted, remove it from the array
+        if (result.source_group_deleted) {
+          const sourceIdx = newGroups.findIndex((g) => g.id === drag.groupId)
+          newGroups = newGroups.filter((g) => g.id !== drag.groupId)
+          if (activeTab !== ALL_TAB) {
+            if (sourceIdx < activeTab) setActiveTab(activeTab - 1)
+            else if (sourceIdx === activeTab) setActiveTab(Math.max(0, activeTab - 1))
+          }
+        }
+
+        // Reload target group from API to get accurate data
+        const targetInGroups = newGroups.some((g) => g.id === targetGroupId)
+        if (targetInGroups) {
+          const reloaded = await groupApi.get(Number(targetGroupId))
+          newGroups = newGroups.map((g) => {
+            if (g.id !== targetGroupId) return g
+            // Preserve outOfScope flags for images that were already in scope
+            const originalSeedIds = new Set(
+              g.files.filter((f) => !f.outOfScope).map((f) => Number(f.relative_path)),
+            )
+            // Images we just moved should be in scope
+            imageIds.forEach((id) => originalSeedIds.add(id))
+            return {
+              ...g,
+              files: reloaded.images.map((img) =>
+                imageToEditable(img, !originalSeedIds.has(img.id)),
+              ),
+              total: reloaded.images.length,
+            }
+          })
+        }
+
+        setGroups(newGroups)
+        // Clear selections for the moved files
+        deselectAll(drag.groupId)
+        invalidateGallery()
+      } catch (err) {
+        setSaveError(getApiErrorMessage(err, 'Move failed'))
+      } finally {
+        setSaving(false)
+      }
+    },
+    [selections, groups, activeTab, setGroups, deselectAll, invalidateGallery, setActiveTab],
+  )
+
+  const handleMoveImagesToSubgroup = useCallback(
+    (drag: ActiveDragState, targetSubgroup: string | null) => {
+      const sel = selections[drag.groupId] ?? new Set<string>()
+      const paths = sel.has(drag.id) ? [...sel] : [drag.id]
+      updateFilesInGroup(drag.groupId, paths, { subgroup: targetSubgroup })
+    },
+    [selections, updateFilesInGroup],
+  )
+
+  // Refs to avoid stale closures in handleDragEnd — these always point to the
+  // latest versions of the handlers regardless of when handleDragEnd was memoized.
+  const moveToGroupRef = useRef(handleMoveImagesToGroup)
+  moveToGroupRef.current = handleMoveImagesToGroup
+  const moveToSubgroupRef = useRef(handleMoveImagesToSubgroup)
+  moveToSubgroupRef.current = handleMoveImagesToSubgroup
+
+  const handleDragStart = useCallback(
+    (event: DragStartEvent) => {
+      const data = event.active.data.current as DragData
+      if (data.type === 'card') {
+        const sel = selections[data.groupId] ?? new Set<string>()
+        const count = sel.has(data.id) ? sel.size : 1
+        const file = groups
+          .find((g) => g.id === data.groupId)
+          ?.files.find((f) => f.relative_path === data.id)
+        setActiveDrag({
+          type: 'card',
+          id: data.id,
+          groupId: data.groupId,
+          selectedCount: count,
+          previewUrl: file?.previewUrl,
+          label: file?.name || file?.filename,
+        })
+      } else {
+        const group = groups.find((g) => g.id === data.groupId)
+        setActiveDrag({
+          type: 'group',
+          id: data.id,
+          groupId: data.groupId,
+          selectedCount: 1,
+          label: group?.group_name,
+        })
+      }
+    },
+    [selections, groups],
+  )
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { over } = event
+      if (!over || !activeDrag) {
+        setActiveDrag(null)
+        return
+      }
+
+      const dropData = over.data.current as DropData
+      if (activeDrag.type === 'card' && dropData.type === 'group' && dropData.groupId) {
+        moveToGroupRef.current(activeDrag, dropData.groupId)
+      } else if (activeDrag.type === 'card' && dropData.type === 'subgroup') {
+        moveToSubgroupRef.current(activeDrag, dropData.subgroup ?? null)
+      } else if (activeDrag.type === 'group' && dropData.type === 'group' && dropData.groupId) {
+        if (activeDrag.groupId !== dropData.groupId) {
+          setDragMergeSource(activeDrag.groupId)
+          setDragMergeTarget(dropData.groupId)
+        }
+      }
+      setActiveDrag(null)
+    },
+    [activeDrag],
+  )
+
+  const handleDragMergeConfirm = async () => {
+    if (!dragMergeSource || !dragMergeTarget) return
+    setMerging(true)
+    setSaveError(null)
+    try {
+      await groupApi.merge(Number(dragMergeSource), Number(dragMergeTarget))
+
+      const sourceIdx = groups.findIndex((g) => g.id === dragMergeSource)
+      const targetInGroups = groups.some((g) => g.id === dragMergeTarget)
+      let updatedGroups = groups.filter((g) => g.id !== dragMergeSource)
+
+      if (targetInGroups) {
+        const reloaded = await groupApi.get(Number(dragMergeTarget))
+        const originalSeedIds = new Set(
+          groups
+            .filter((g) => g.id === dragMergeTarget || g.id === dragMergeSource)
+            .flatMap((g) =>
+              g.files.filter((f) => !f.outOfScope).map((f) => Number(f.relative_path)),
+            ),
+        )
+        updatedGroups = updatedGroups.map((g) => {
+          if (g.id !== dragMergeTarget) return g
+          return {
+            ...g,
+            files: reloaded.images.map((img) => imageToEditable(img, !originalSeedIds.has(img.id))),
+            total: reloaded.images.length,
+          }
+        })
+      }
+
+      setGroups(updatedGroups)
+      if (activeTab !== ALL_TAB) {
+        if (sourceIdx < activeTab) setActiveTab(activeTab - 1)
+        else if (sourceIdx === activeTab) setActiveTab(Math.max(0, activeTab - 1))
+      }
+      invalidateGallery()
+    } catch (err) {
+      setSaveError(getApiErrorMessage(err, 'Merge failed'))
+    } finally {
+      setMerging(false)
+      setDragMergeSource(null)
+      setDragMergeTarget(null)
+    }
+  }
+
+  // ── Sidebar multiselect handlers ─────────────────────────────────
+
+  const handleGroupClick = useCallback(
+    (index: number, groupId: string, event: React.MouseEvent) => {
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault()
+        setSelectedGroupIds((prev) => {
+          const next = new Set(prev)
+          if (next.has(groupId)) next.delete(groupId)
+          else next.add(groupId)
+          return next
+        })
+        setLastClickedGroupIndex(index)
+        return
+      }
+      if (event.shiftKey && lastClickedGroupIndex !== null) {
+        event.preventDefault()
+        const start = Math.min(lastClickedGroupIndex, index)
+        const end = Math.max(lastClickedGroupIndex, index)
+        const rangeIds = groups.slice(start, end + 1).map((g) => g.id)
+        setSelectedGroupIds(new Set(rangeIds))
+        return
+      }
+      // Normal click: navigate to group, clear multiselect
+      setActiveTab(index)
+      setSelectedGroupIds(new Set())
+      setLastClickedGroupIndex(index)
+    },
+    [lastClickedGroupIndex, groups, setActiveTab],
+  )
+
+  const handleBulkMerge = async () => {
+    const ids = [...selectedGroupIds]
+    if (ids.length < 2) return
+    const targetId = ids[0]
+    const sourceIds = ids.slice(1)
+    setMerging(true)
+    setSaveError(null)
+    setConfirmingBulkMerge(false)
+
+    const mergedSourceIds: string[] = []
+    try {
+      for (const sourceId of sourceIds) {
+        await groupApi.merge(Number(sourceId), Number(targetId))
+        mergedSourceIds.push(sourceId)
+      }
+    } catch (err) {
+      setSaveError(
+        getApiErrorMessage(
+          err,
+          `Bulk merge failed after merging ${mergedSourceIds.length}/${sourceIds.length} groups`,
+        ),
+      )
+    }
+
+    // Resync local state from the API regardless of partial failure
+    try {
+      const seedIds = new Set(
+        groups
+          .filter((g) => selectedGroupIds.has(g.id))
+          .flatMap((g) => g.files.filter((f) => !f.outOfScope).map((f) => Number(f.relative_path))),
+      )
+      const deletedSet = new Set(mergedSourceIds)
+      const remainingGroups = groups.filter((g) => !deletedSet.has(g.id))
+
+      // Reload the target to get its current state
+      const reloaded = await groupApi.get(Number(targetId))
+      setGroups(
+        remainingGroups.map((g) => {
+          if (g.id !== targetId) return g
+          return {
+            ...g,
+            author: reloaded.author ?? '',
+            group_name: reloaded.base_name,
+            files: reloaded.images.map((img) => imageToEditable(img, !seedIds.has(img.id))),
+            total: reloaded.images.length,
+          }
+        }),
+      )
+      setSelectedGroupIds(new Set())
+      setActiveTab(ALL_TAB)
+      invalidateGallery()
+    } catch {
+      // If even the resync fails, we can't do much — the error is already shown
+    } finally {
+      setMerging(false)
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    const ids = [...selectedGroupIds]
+    setSaving(true)
+    setSaveError(null)
+    setConfirmingBulkDelete(false)
+
+    const deletedIds: string[] = []
+    try {
+      for (const id of ids) {
+        await groupApi.delete(Number(id))
+        deletedIds.push(id)
+      }
+    } catch (err) {
+      setSaveError(
+        getApiErrorMessage(
+          err,
+          `Bulk delete failed after deleting ${deletedIds.length}/${ids.length} groups`,
+        ),
+      )
+    }
+
+    // Resync: remove successfully deleted groups from local state
+    if (deletedIds.length > 0) {
+      const deletedSet = new Set(deletedIds)
+      setGroups((prev) => prev.filter((g) => !deletedSet.has(g.id)))
+      setSelectedGroupIds((prev) => {
+        const next = new Set(prev)
+        deletedIds.forEach((id) => next.delete(id))
+        return next
+      })
+      if (deletedIds.length === ids.length) setActiveTab(ALL_TAB)
+      invalidateGallery()
+    }
+    setSaving(false)
+  }
+
   // ── Derived values ─────────────────────────────────────────────
 
   // All tab shows only in-scope files; per-group tab shows all (incl. out-of-scope for context)
@@ -766,401 +1250,490 @@ export function EditGroupDialog({
 
         {/* ── Main content ── */}
         {!loading && !loadError && groups.length > 0 && (
-          <div className="flex min-h-0 flex-1 overflow-hidden">
-            {/* ── Left: groups nav (only when >1 group) ── */}
-            {groups.length > 1 && (
-              <div className="w-[190px] shrink-0 border-r border-border/30 flex flex-col overflow-hidden bg-muted/20">
-                <div className="px-3 py-2.5 border-b border-border/30 shrink-0">
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-semibold">
-                    {groups.length} groups
-                  </span>
-                </div>
-
-                <div className="flex-1 overflow-y-auto py-1">
-                  {/* "All" entry */}
-                  <button
-                    onClick={() => setActiveTab(ALL_TAB)}
-                    className={`w-full flex items-center gap-2 px-3 py-2 text-left transition-colors border-l-2 ${
-                      isAllTab
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-                    }`}
-                  >
-                    <span className="font-display text-[13px] font-semibold flex-1">All</span>
-                    <span className="text-[11px] text-muted-foreground/40 tabular-nums shrink-0">
-                      {groups.reduce(
-                        (s, g) => s + g.files.filter((f) => !f.excluded && !f.outOfScope).length,
-                        0,
-                      )}
+          <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+            <div className="flex min-h-0 flex-1 overflow-hidden">
+              {/* ── Left: groups nav (only when >1 group) ── */}
+              {groups.length > 1 && (
+                <div className="w-[190px] shrink-0 border-r border-border/30 flex flex-col overflow-hidden bg-muted/20">
+                  <div className="px-3 py-2.5 border-b border-border/30 shrink-0">
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-semibold">
+                      {groups.length} groups
                     </span>
-                  </button>
-                  <div className="h-px bg-border/30 mx-3 my-0.5" />
+                  </div>
 
-                  {groups.map((g, i) => (
-                    <div key={g.id} className="group/navrow">
-                      {deleteConfirmGroupId === g.id ? (
-                        <div className="px-3 py-2 border-l-2 border-destructive/50 bg-destructive/5">
-                          <p className="text-[11px] text-destructive/80 mb-1.5">
-                            Delete this group?
-                          </p>
+                  <div className="flex-1 overflow-y-auto py-1">
+                    {/* "All" entry */}
+                    <button
+                      onClick={() => setActiveTab(ALL_TAB)}
+                      className={`w-full flex items-center gap-2 px-3 py-2 text-left transition-colors border-l-2 ${
+                        isAllTab
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+                      }`}
+                    >
+                      <span className="font-display text-[13px] font-semibold flex-1">All</span>
+                      <span className="text-[11px] text-muted-foreground/40 tabular-nums shrink-0">
+                        {groups.reduce(
+                          (s, g) => s + g.files.filter((f) => !f.excluded && !f.outOfScope).length,
+                          0,
+                        )}
+                      </span>
+                    </button>
+                    <div className="h-px bg-border/30 mx-3 my-0.5" />
+
+                    {groups.map((g, i) => (
+                      <DroppableGroupRow key={g.id} groupId={g.id} activeDrag={activeDrag}>
+                        <DraggableGroupRow groupId={g.id} isDndEnabled={isMassEdit}>
+                          <div className="group/navrow">
+                            {deleteConfirmGroupId === g.id ? (
+                              <div className="px-3 py-2 border-l-2 border-destructive/50 bg-destructive/5">
+                                <p className="text-[11px] text-destructive/80 mb-1.5">
+                                  Delete this group?
+                                </p>
+                                <div className="flex gap-1">
+                                  <button
+                                    onClick={() => handleDeleteGroup(g.id)}
+                                    disabled={saving}
+                                    className="px-2 py-0.5 rounded border border-destructive/50 bg-destructive/10 text-destructive text-[10px] hover:bg-destructive/20 transition-colors disabled:opacity-50"
+                                  >
+                                    {saving ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      'Delete'
+                                    )}
+                                  </button>
+                                  <button
+                                    onClick={() => setDeleteConfirmGroupId(null)}
+                                    disabled={saving}
+                                    className="px-2 py-0.5 rounded border border-border bg-secondary text-muted-foreground text-[10px] hover:text-foreground transition-colors disabled:opacity-50"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-center">
+                                <button
+                                  onClick={(e) => handleGroupClick(i, g.id, e)}
+                                  className={`flex-1 flex items-center gap-2 pl-3 pr-1 py-2 text-left transition-colors border-l-2 min-w-0 ${
+                                    selectedGroupIds.has(g.id)
+                                      ? 'border-primary/60 bg-primary/15 text-primary'
+                                      : activeTab === i
+                                        ? 'border-primary bg-primary/10 text-primary'
+                                        : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+                                  }`}
+                                >
+                                  <span className="flex-1 text-[12px] truncate">
+                                    {g.group_name}
+                                  </span>
+                                  <span className="text-[11px] text-muted-foreground/40 tabular-nums shrink-0 flex items-center gap-1">
+                                    {g.files.filter((f) => !f.excluded && !f.outOfScope).length}
+                                    {g.files.some((f) => f.outOfScope) && (
+                                      <span className="ml-0.5 opacity-50">
+                                        +{g.files.filter((f) => f.outOfScope).length}
+                                      </span>
+                                    )}
+                                    {groupSaving.has(g.id) ? (
+                                      <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/40 ml-1" />
+                                    ) : groupSaved.has(g.id) ? (
+                                      <Check className="h-3 w-3 text-green-500/70 ml-1" />
+                                    ) : null}
+                                  </span>
+                                </button>
+                                {isMassEdit && (
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <button
+                                        className="opacity-0 group-hover/navrow:opacity-100 focus:opacity-100 h-7 w-6 mr-1 flex items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-all shrink-0"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        <MoreHorizontal className="h-3.5 w-3.5" />
+                                      </button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                      <DropdownMenuItem onClick={() => setMergeSourceGroupId(g.id)}>
+                                        <Merge className="h-4 w-4 mr-2" />
+                                        Merge into…
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem onClick={() => removeGroupFromView(g.id)}>
+                                        <EyeOff className="h-4 w-4 mr-2" />
+                                        Remove from view
+                                      </DropdownMenuItem>
+                                      <DropdownMenuSeparator />
+                                      <DropdownMenuItem
+                                        onClick={() => setDeleteConfirmGroupId(g.id)}
+                                        className="text-destructive focus:text-destructive"
+                                      >
+                                        <Trash2 className="h-4 w-4 mr-2" />
+                                        Delete group
+                                      </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </DraggableGroupRow>
+                      </DroppableGroupRow>
+                    ))}
+                  </div>
+
+                  {/* Sidebar footer: bulk actions or Merge All */}
+                  {isMassEdit && groups.length >= 2 && (
+                    <div className="p-2.5 border-t border-border/30 shrink-0">
+                      {selectedGroupIds.size >= 2 ? (
+                        <div className="space-y-1.5">
+                          <span className="text-[10px] text-muted-foreground/60 font-semibold uppercase tracking-wider">
+                            {selectedGroupIds.size} selected
+                          </span>
                           <div className="flex gap-1">
                             <button
-                              onClick={() => handleDeleteGroup(g.id)}
-                              disabled={saving}
-                              className="px-2 py-0.5 rounded border border-destructive/50 bg-destructive/10 text-destructive text-[10px] hover:bg-destructive/20 transition-colors disabled:opacity-50"
+                              onClick={() => setConfirmingBulkMerge(true)}
+                              disabled={merging || saving}
+                              className="flex-1 text-[11px] py-1 rounded border border-border/40 bg-secondary/30 text-muted-foreground hover:bg-secondary/60 hover:text-foreground transition-colors flex items-center justify-center gap-1 disabled:opacity-40"
                             >
-                              {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Delete'}
+                              <Merge className="h-3 w-3" />
+                              Merge
                             </button>
                             <button
-                              onClick={() => setDeleteConfirmGroupId(null)}
-                              disabled={saving}
-                              className="px-2 py-0.5 rounded border border-border bg-secondary text-muted-foreground text-[10px] hover:text-foreground transition-colors disabled:opacity-50"
+                              onClick={() => setConfirmingBulkDelete(true)}
+                              disabled={merging || saving}
+                              className="flex-1 text-[11px] py-1 rounded border border-destructive/30 bg-destructive/5 text-destructive/70 hover:bg-destructive/10 hover:text-destructive transition-colors flex items-center justify-center gap-1 disabled:opacity-40"
                             >
-                              Cancel
+                              <Trash2 className="h-3 w-3" />
+                              Delete
                             </button>
                           </div>
                         </div>
                       ) : (
-                        <div className="flex items-center">
-                          <button
-                            onClick={() => setActiveTab(i)}
-                            className={`flex-1 flex items-center gap-2 pl-3 pr-1 py-2 text-left transition-colors border-l-2 min-w-0 ${
-                              activeTab === i
-                                ? 'border-primary bg-primary/10 text-primary'
-                                : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-                            }`}
-                          >
-                            <span className="flex-1 text-[12px] truncate">{g.group_name}</span>
-                            <span className="text-[11px] text-muted-foreground/40 tabular-nums shrink-0 flex items-center gap-1">
-                              {g.files.filter((f) => !f.excluded && !f.outOfScope).length}
-                              {g.files.some((f) => f.outOfScope) && (
-                                <span className="ml-0.5 opacity-50">
-                                  +{g.files.filter((f) => f.outOfScope).length}
-                                </span>
-                              )}
-                              {groupSaving.has(g.id) ? (
-                                <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/40 ml-1" />
-                              ) : groupSaved.has(g.id) ? (
-                                <Check className="h-3 w-3 text-green-500/70 ml-1" />
-                              ) : null}
-                            </span>
-                          </button>
-                          {isMassEdit && (
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <button
-                                  className="opacity-0 group-hover/navrow:opacity-100 focus:opacity-100 h-7 w-6 mr-1 flex items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-all shrink-0"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <MoreHorizontal className="h-3.5 w-3.5" />
-                                </button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => setMergeSourceGroupId(g.id)}>
-                                  <Merge className="h-4 w-4 mr-2" />
-                                  Merge into…
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => removeGroupFromView(g.id)}>
-                                  <EyeOff className="h-4 w-4 mr-2" />
-                                  Remove from view
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  onClick={() => setDeleteConfirmGroupId(g.id)}
-                                  className="text-destructive focus:text-destructive"
-                                >
-                                  <Trash2 className="h-4 w-4 mr-2" />
-                                  Delete group
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          )}
-                        </div>
+                        <button
+                          onClick={() => setConfirmingMergeAll(true)}
+                          disabled={merging || saving}
+                          className="w-full text-[12px] py-1.5 rounded border border-border/40 bg-secondary/30 text-muted-foreground hover:bg-secondary/60 hover:text-foreground transition-colors flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <Merge className="h-3.5 w-3.5" />
+                          {merging ? 'Merging…' : 'Merge All'}
+                        </button>
                       )}
                     </div>
-                  ))}
+                  )}
+                </div>
+              )}
+
+              {/* ── Right: active group content ── */}
+              <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+                {/* Group metadata */}
+                <div className="px-5 pt-4 pb-3 border-b border-border/30 shrink-0">
+                  <MetadataForm
+                    author={isAllTab ? allSameAuthor : (activeGroup?.author ?? '')}
+                    groupName={isAllTab ? '' : (activeGroup?.group_name ?? '')}
+                    authorPlaceholder={
+                      isAllTab && !allSameAuthor
+                        ? 'Multiple — type to set for all groups'
+                        : 'Author name'
+                    }
+                    groupNamePlaceholder={isAllTab ? '— (select a group to rename)' : 'Group name'}
+                    groupNameDisabled={isAllTab}
+                    isMassEdit={isMassEdit}
+                    isAllTab={isAllTab}
+                    authorSuggestions={authorSuggestions}
+                    suggestionsListId="author-suggestions-edit"
+                    onAuthorChange={(val) => {
+                      if (isAllTab) {
+                        setGroups((prev) => prev.map((g) => ({ ...g, author: val })))
+                      } else {
+                        updateGroup(activeTab, { author: val })
+                      }
+                    }}
+                    onGroupNameChange={(val) =>
+                      !isAllTab && updateGroup(activeTab, { group_name: val })
+                    }
+                    onBlur={() => {
+                      if (isAllTab) {
+                        groups.forEach(autoSaveGroup)
+                      } else if (activeGroup) {
+                        autoSaveGroup(activeGroup)
+                      }
+                    }}
+                  />
                 </div>
 
-                {/* Merge All button */}
-                {isMassEdit && groups.length >= 2 && (
-                  <div className="p-2.5 border-t border-border/30 shrink-0">
-                    <button
-                      onClick={() => setConfirmingMergeAll(true)}
-                      disabled={merging || saving}
-                      className="w-full text-[12px] py-1.5 rounded border border-border/40 bg-secondary/30 text-muted-foreground hover:bg-secondary/60 hover:text-foreground transition-colors flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <Merge className="h-3.5 w-3.5" />
-                      {merging ? 'Merging…' : 'Merge All'}
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── Right: active group content ── */}
-            <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-              {/* Group metadata */}
-              <div className="px-5 pt-4 pb-3 border-b border-border/30 shrink-0">
-                <MetadataForm
-                  author={isAllTab ? allSameAuthor : (activeGroup?.author ?? '')}
-                  groupName={isAllTab ? '' : (activeGroup?.group_name ?? '')}
-                  authorPlaceholder={
-                    isAllTab && !allSameAuthor
-                      ? 'Multiple — type to set for all groups'
-                      : 'Author name'
-                  }
-                  groupNamePlaceholder={isAllTab ? '— (select a group to rename)' : 'Group name'}
-                  groupNameDisabled={isAllTab}
-                  isMassEdit={isMassEdit}
-                  isAllTab={isAllTab}
-                  authorSuggestions={authorSuggestions}
-                  suggestionsListId="author-suggestions-edit"
-                  onAuthorChange={(val) => {
-                    if (isAllTab) {
-                      setGroups((prev) => prev.map((g) => ({ ...g, author: val })))
-                    } else {
-                      updateGroup(activeTab, { author: val })
+                {/* File toolbar */}
+                <div className="px-5 shrink-0">
+                  <FileToolbar
+                    files={inScopeSource}
+                    filteredFiles={filteredInScope}
+                    selection={activeSelection}
+                    filter={fileFilter}
+                    vocab={tagVocab}
+                    onFilterChange={setFileFilter}
+                    onSelectAll={() => selectAllVisible(activeGroupId, filteredInScope)}
+                    onDeselectAll={() => deselectAll(activeGroupId)}
+                    onBulkAddTag={(tag) => bulkAddTag(isAllTab ? null : activeGroupId, tag)}
+                    onBulkSetGrid={(gridded, gridType) =>
+                      bulkSetGrid(isAllTab ? null : activeGroupId, gridded, gridType)
                     }
-                  }}
-                  onGroupNameChange={(val) =>
-                    !isAllTab && updateGroup(activeTab, { group_name: val })
-                  }
-                  onBlur={() => {
-                    if (isAllTab) {
-                      groups.forEach(autoSaveGroup)
-                    } else if (activeGroup) {
-                      autoSaveGroup(activeGroup)
+                    onBulkSetImageType={(v) => bulkSetImageType(isAllTab ? null : activeGroupId, v)}
+                    onBulkSetSubgroup={(v) => bulkSetSubgroup(isAllTab ? null : activeGroupId, v)}
+                    onBulkExclude={() => bulkExclude(isAllTab ? null : activeGroupId)}
+                    onMoveToNewGroup={
+                      !isAllTab && !isMassEdit && activeGroup?.id
+                        ? () => moveToNewGroup(activeGroup.id)
+                        : undefined
                     }
-                  }}
-                />
-              </div>
+                    excludeLabel={isMassEdit ? 'Remove' : 'Delete'}
+                    alwaysShowTypeToggle
+                  />
+                </div>
 
-              {/* File toolbar */}
-              <div className="px-5 shrink-0">
-                <FileToolbar
-                  files={inScopeSource}
-                  filteredFiles={filteredInScope}
-                  selection={activeSelection}
-                  filter={fileFilter}
-                  vocab={tagVocab}
-                  onFilterChange={setFileFilter}
-                  onSelectAll={() => selectAllVisible(activeGroupId, filteredInScope)}
-                  onDeselectAll={() => deselectAll(activeGroupId)}
-                  onBulkAddTag={(tag) => bulkAddTag(isAllTab ? null : activeGroupId, tag)}
-                  onBulkSetGrid={(gridded, gridType) =>
-                    bulkSetGrid(isAllTab ? null : activeGroupId, gridded, gridType)
-                  }
-                  onBulkSetImageType={(v) => bulkSetImageType(isAllTab ? null : activeGroupId, v)}
-                  onBulkSetSubgroup={(v) => bulkSetSubgroup(isAllTab ? null : activeGroupId, v)}
-                  onBulkExclude={() => bulkExclude(isAllTab ? null : activeGroupId)}
-                  onMoveToNewGroup={
-                    !isAllTab && !isMassEdit && activeGroup?.id
-                      ? () => moveToNewGroup(activeGroup.id)
-                      : undefined
-                  }
-                  excludeLabel={isMassEdit ? 'Remove' : 'Delete'}
-                  alwaysShowTypeToggle
-                />
-              </div>
-
-              {/* File gallery */}
-              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
-                {showSubVariantHeadings ? (
-                  subVariantGroups.map((svGroup) => {
-                    const nonExcluded = svGroup.files.filter((f) => !f.excluded).length
-                    const isEditing =
-                      !isAllTab &&
-                      editingSvHeading === svGroup.subVariant &&
-                      svGroup.subVariant !== null
-                    return (
-                      <div key={svGroup.subVariant ?? '__main__'} className="mb-2">
-                        <SubgroupHeading
-                          subgroup={svGroup.subVariant}
-                          count={nonExcluded}
-                          isEditing={isEditing}
-                          existingSubgroups={groupSubVariants}
-                          onStartEdit={() => setEditingSvHeading(svGroup.subVariant!)}
-                          onCommit={(val) => {
-                            renameSubgroup(activeGroup!.id, svGroup.subVariant!, val)
-                            setEditingSvHeading(null)
-                          }}
-                          onCancel={() => setEditingSvHeading(null)}
-                          onClear={() => clearSubgroupLabel(activeGroup!.id, svGroup.subVariant!)}
-                          canEdit={!isAllTab}
-                        />
-                        <div className="grid grid-cols-2 gap-2 pb-2">
-                          {svGroup.files.map((file) => (
-                            <FileCard
-                              key={file.relative_path}
-                              file={file}
-                              jobId=""
-                              vocab={tagVocab}
-                              existingSubgroups={groupSubVariants}
-                              selected={activeSelection.has(file.relative_path)}
-                              onToggleSelect={() =>
-                                toggleFileSelection(activeGroupId, file.relative_path)
-                              }
-                              onUpdate={(updates) =>
-                                isAllTab
-                                  ? updateFileAnyGroup(file.relative_path, updates)
-                                  : updateFile(activeTab, file.relative_path, updates)
-                              }
-                              excludeTooltip={
-                                isMassEdit ? 'Remove from group' : 'Mark for deletion'
-                              }
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )
-                  })
-                ) : (
-                  <div className="grid grid-cols-2 gap-2">
-                    {filteredInScope.map((file) => (
-                      <FileCard
-                        key={file.relative_path}
-                        file={file}
-                        jobId=""
-                        vocab={tagVocab}
-                        existingSubgroups={groupSubVariants}
-                        selected={activeSelection.has(file.relative_path)}
-                        onToggleSelect={() =>
-                          toggleFileSelection(activeGroupId, file.relative_path)
-                        }
-                        onUpdate={(updates) =>
-                          isAllTab
-                            ? updateFileAnyGroup(file.relative_path, updates)
-                            : updateFile(activeTab, file.relative_path, updates)
-                        }
-                        excludeTooltip={isMassEdit ? 'Remove from group' : 'Mark for deletion'}
-                      />
-                    ))}
-                  </div>
-                )}
-
-                {filteredInScope.length === 0 && hasActiveFilter && (
-                  <div className="flex flex-col items-center py-12 text-muted-foreground gap-2">
-                    <Search className="h-8 w-8 text-muted-foreground/30" />
-                    <p className="text-sm">No files match the current filter</p>
-                  </div>
-                )}
-
-                {/* Out-of-scope files — shown in per-group tab only, as context */}
-                {outOfScopeFiles.length > 0 && (
-                  <div className="mt-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="flex-1 h-px bg-border/20" />
-                      <span className="text-[10px] font-semibold text-muted-foreground/40 uppercase tracking-wider whitespace-nowrap">
-                        Other images in this group
-                      </span>
-                      <div className="flex-1 h-px bg-border/20" />
-                    </div>
+                {/* File gallery */}
+                <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
+                  {showSubVariantHeadings ? (
+                    subVariantGroups.map((svGroup) => {
+                      const nonExcluded = svGroup.files.filter((f) => !f.excluded).length
+                      const isEditing =
+                        !isAllTab &&
+                        editingSvHeading === svGroup.subVariant &&
+                        svGroup.subVariant !== null
+                      return (
+                        <DroppableSubgroupSection
+                          key={svGroup.subVariant ?? '__main__'}
+                          subVariant={svGroup.subVariant}
+                          activeDrag={activeDrag}
+                        >
+                          <SubgroupHeading
+                            subgroup={svGroup.subVariant}
+                            count={nonExcluded}
+                            isEditing={isEditing}
+                            existingSubgroups={groupSubVariants}
+                            onStartEdit={() => setEditingSvHeading(svGroup.subVariant!)}
+                            onCommit={(val) => {
+                              renameSubgroup(activeGroup!.id, svGroup.subVariant!, val)
+                              setEditingSvHeading(null)
+                            }}
+                            onCancel={() => setEditingSvHeading(null)}
+                            onClear={() => clearSubgroupLabel(activeGroup!.id, svGroup.subVariant!)}
+                            canEdit={!isAllTab}
+                          />
+                          <div className="grid grid-cols-2 gap-2 pb-2">
+                            {svGroup.files.map((file) => (
+                              <DraggableFileCardWrapper
+                                key={file.relative_path}
+                                file={file}
+                                groupId={activeGroupId}
+                                isDndEnabled={!file.excluded && !file.outOfScope}
+                              >
+                                <FileCard
+                                  file={file}
+                                  jobId=""
+                                  vocab={tagVocab}
+                                  existingSubgroups={groupSubVariants}
+                                  selected={activeSelection.has(file.relative_path)}
+                                  onToggleSelect={() =>
+                                    toggleFileSelection(activeGroupId, file.relative_path)
+                                  }
+                                  onUpdate={(updates) =>
+                                    isAllTab
+                                      ? updateFileAnyGroup(file.relative_path, updates)
+                                      : updateFile(activeTab, file.relative_path, updates)
+                                  }
+                                  excludeTooltip={
+                                    isMassEdit ? 'Remove from group' : 'Mark for deletion'
+                                  }
+                                />
+                              </DraggableFileCardWrapper>
+                            ))}
+                          </div>
+                        </DroppableSubgroupSection>
+                      )
+                    })
+                  ) : (
                     <div className="grid grid-cols-2 gap-2">
-                      {outOfScopeFiles.map((file) => (
-                        <FileCard
+                      {filteredInScope.map((file) => (
+                        <DraggableFileCardWrapper
                           key={file.relative_path}
                           file={file}
-                          jobId=""
-                          vocab={tagVocab}
-                          existingSubgroups={groupSubVariants}
-                          selected={false}
-                          onToggleSelect={() => {}}
-                          onUpdate={(updates) => updateFile(activeTab, file.relative_path, updates)}
-                        />
+                          groupId={activeGroupId}
+                          isDndEnabled={!file.excluded && !file.outOfScope}
+                        >
+                          <FileCard
+                            file={file}
+                            jobId=""
+                            vocab={tagVocab}
+                            existingSubgroups={groupSubVariants}
+                            selected={activeSelection.has(file.relative_path)}
+                            onToggleSelect={() =>
+                              toggleFileSelection(activeGroupId, file.relative_path)
+                            }
+                            onUpdate={(updates) =>
+                              isAllTab
+                                ? updateFileAnyGroup(file.relative_path, updates)
+                                : updateFile(activeTab, file.relative_path, updates)
+                            }
+                            excludeTooltip={isMassEdit ? 'Remove from group' : 'Mark for deletion'}
+                          />
+                        </DraggableFileCardWrapper>
                       ))}
                     </div>
-                  </div>
-                )}
-              </div>
+                  )}
 
-              {/* ── Footer ── */}
-              <div className="px-5 py-3 border-t border-border/30 shrink-0 flex items-center justify-between gap-3">
-                {/* Delete group (single-group mode only, for the original persisted group) */}
-                {isOriginalGroup ? (
-                  confirmingDelete ? (
-                    <div className="flex items-center gap-2 text-sm text-destructive">
-                      <span>Delete this group and all its images?</span>
-                      <button
-                        onClick={handleDelete}
-                        disabled={saving}
-                        className="px-2.5 py-1 text-xs rounded border border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors disabled:opacity-50"
-                      >
-                        {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Confirm'}
-                      </button>
-                      <button
-                        onClick={() => setConfirmingDelete(false)}
-                        disabled={saving}
-                        className="px-2.5 py-1 text-xs rounded border border-border bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-                      >
-                        Cancel
-                      </button>
+                  {filteredInScope.length === 0 && hasActiveFilter && (
+                    <div className="flex flex-col items-center py-12 text-muted-foreground gap-2">
+                      <Search className="h-8 w-8 text-muted-foreground/30" />
+                      <p className="text-sm">No files match the current filter</p>
                     </div>
-                  ) : (
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => setConfirmingDelete(true)}
-                        className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded text-destructive/70 hover:text-destructive hover:bg-destructive/10 transition-colors"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        Delete Group
-                      </button>
-                      <button
-                        onClick={() => setShowMergePicker(true)}
-                        disabled={saving || merging}
-                        className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors disabled:opacity-50"
-                      >
-                        <Merge className="h-3.5 w-3.5" />
-                        Merge into…
-                      </button>
-                    </div>
-                  )
-                ) : (
-                  <div />
-                )}
+                  )}
 
-                {/* Save status + Done */}
-                <div className="flex items-center gap-2">
-                  {saveError && (
-                    <span className="text-xs text-destructive flex items-center gap-1 max-w-xs truncate">
-                      <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                      {saveError}
-                    </span>
+                  {/* Out-of-scope files — shown in per-group tab only, as context */}
+                  {outOfScopeFiles.length > 0 && (
+                    <div className="mt-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="flex-1 h-px bg-border/20" />
+                        <span className="text-[10px] font-semibold text-muted-foreground/40 uppercase tracking-wider whitespace-nowrap">
+                          Other images in this group
+                        </span>
+                        <div className="flex-1 h-px bg-border/20" />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {outOfScopeFiles.map((file) => (
+                          <FileCard
+                            key={file.relative_path}
+                            file={file}
+                            jobId=""
+                            vocab={tagVocab}
+                            existingSubgroups={groupSubVariants}
+                            selected={false}
+                            onToggleSelect={() => {}}
+                            onUpdate={(updates) =>
+                              updateFile(activeTab, file.relative_path, updates)
+                            }
+                          />
+                        ))}
+                      </div>
+                    </div>
                   )}
-                  {!saveError && groupSaving.size > 0 && (
-                    <span className="text-xs text-muted-foreground/60 flex items-center gap-1">
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                      Saving…
-                    </span>
-                  )}
-                  {!saveError && groupSaving.size === 0 && groupSaved.size > 0 && (
-                    <span className="text-xs text-green-500/70 flex items-center gap-1">
-                      <Check className="h-3 w-3" />
-                      Saved
-                    </span>
-                  )}
-                  <button
-                    onClick={handleDone}
-                    disabled={isBusy}
-                    className="px-3 py-1.5 text-sm rounded border border-primary/40 bg-primary/20 text-primary hover:bg-primary/30 transition-colors disabled:opacity-40"
-                  >
-                    {saving ? (
-                      <>
-                        <Loader2 className="h-3.5 w-3.5 animate-spin inline mr-1" />
-                        Working…
-                      </>
-                    ) : groupSaving.size > 0 ? (
-                      <>
-                        <Loader2 className="h-3.5 w-3.5 animate-spin inline mr-1" />
-                        Saving…
-                      </>
+                </div>
+
+                {/* ── Footer ── */}
+                <div className="px-5 py-3 border-t border-border/30 shrink-0 flex items-center justify-between gap-3">
+                  {/* Delete group (single-group mode only, for the original persisted group) */}
+                  {isOriginalGroup ? (
+                    confirmingDelete ? (
+                      <div className="flex items-center gap-2 text-sm text-destructive">
+                        <span>Delete this group and all its images?</span>
+                        <button
+                          onClick={handleDelete}
+                          disabled={saving}
+                          className="px-2.5 py-1 text-xs rounded border border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors disabled:opacity-50"
+                        >
+                          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Confirm'}
+                        </button>
+                        <button
+                          onClick={() => setConfirmingDelete(false)}
+                          disabled={saving}
+                          className="px-2.5 py-1 text-xs rounded border border-border bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     ) : (
-                      'Done'
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setConfirmingDelete(true)}
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded text-destructive/70 hover:text-destructive hover:bg-destructive/10 transition-colors"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Delete Group
+                        </button>
+                        <button
+                          onClick={() => setShowMergePicker(true)}
+                          disabled={saving || merging}
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors disabled:opacity-50"
+                        >
+                          <Merge className="h-3.5 w-3.5" />
+                          Merge into…
+                        </button>
+                      </div>
+                    )
+                  ) : (
+                    <div />
+                  )}
+
+                  {/* Save status + Done */}
+                  <div className="flex items-center gap-2">
+                    {saveError && (
+                      <span className="text-xs text-destructive flex items-center gap-1 max-w-xs truncate">
+                        <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                        {saveError}
+                      </span>
                     )}
-                  </button>
+                    {!saveError && groupSaving.size > 0 && (
+                      <span className="text-xs text-muted-foreground/60 flex items-center gap-1">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Saving…
+                      </span>
+                    )}
+                    {!saveError && groupSaving.size === 0 && groupSaved.size > 0 && (
+                      <span className="text-xs text-green-500/70 flex items-center gap-1">
+                        <Check className="h-3 w-3" />
+                        Saved
+                      </span>
+                    )}
+                    <button
+                      onClick={handleDone}
+                      disabled={isBusy}
+                      className="px-3 py-1.5 text-sm rounded border border-primary/40 bg-primary/20 text-primary hover:bg-primary/30 transition-colors disabled:opacity-40"
+                    >
+                      {saving ? (
+                        <>
+                          <Loader2 className="h-3.5 w-3.5 animate-spin inline mr-1" />
+                          Working…
+                        </>
+                      ) : groupSaving.size > 0 ? (
+                        <>
+                          <Loader2 className="h-3.5 w-3.5 animate-spin inline mr-1" />
+                          Saving…
+                        </>
+                      ) : (
+                        'Done'
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+
+            {/* ── Drag overlay ── */}
+            <DragOverlay dropAnimation={null}>
+              {activeDrag?.type === 'card' && (
+                <div className="flex items-center gap-2 rounded-lg border border-primary/50 bg-card shadow-lg px-3 py-2 pointer-events-none max-w-[200px]">
+                  {activeDrag.previewUrl && (
+                    <img
+                      src={activeDrag.previewUrl}
+                      alt=""
+                      className="w-10 h-10 object-cover rounded shrink-0"
+                    />
+                  )}
+                  <span className="text-xs text-foreground truncate">
+                    {activeDrag.label ?? 'Image'}
+                  </span>
+                  {activeDrag.selectedCount > 1 && (
+                    <span className="ml-auto shrink-0 w-5 h-5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center">
+                      {activeDrag.selectedCount}
+                    </span>
+                  )}
+                </div>
+              )}
+              {activeDrag?.type === 'group' && (
+                <div className="flex items-center gap-2 rounded-lg border border-primary/50 bg-card shadow-lg px-3 py-2 pointer-events-none max-w-[180px]">
+                  <GripVertical className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <span className="text-xs text-foreground truncate">
+                    {activeDrag.label ?? 'Group'}
+                  </span>
+                </div>
+              )}
+            </DragOverlay>
+          </DndContext>
         )}
       </DialogContent>
 
@@ -1193,6 +1766,50 @@ export function EditGroupDialog({
         loadingLabel="Merging…"
         onConfirm={handleMergeAll}
         isLoading={merging}
+      />
+
+      {/* Merge via drag confirmation */}
+      <ConfirmDialog
+        open={dragMergeSource !== null && dragMergeTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDragMergeSource(null)
+            setDragMergeTarget(null)
+          }
+        }}
+        title="Merge Groups"
+        description={`Merge "${groups.find((g) => g.id === dragMergeSource)?.group_name ?? ''}" (${groups.find((g) => g.id === dragMergeSource)?.files.filter((f) => !f.excluded).length ?? 0} images) into "${groups.find((g) => g.id === dragMergeTarget)?.group_name ?? ''}"? This cannot be undone.`}
+        confirmLabel="Merge"
+        confirmVariant="default"
+        loadingLabel="Merging…"
+        onConfirm={handleDragMergeConfirm}
+        isLoading={merging}
+      />
+
+      {/* Bulk merge confirmation (sidebar multiselect) */}
+      <ConfirmDialog
+        open={confirmingBulkMerge}
+        onOpenChange={setConfirmingBulkMerge}
+        title="Merge Selected Groups"
+        description={`This will merge ${selectedGroupIds.size} selected groups into "${groups.find((g) => g.id === [...selectedGroupIds][0])?.group_name ?? ''}". This cannot be undone.`}
+        confirmLabel="Merge Selected"
+        confirmVariant="default"
+        loadingLabel="Merging…"
+        onConfirm={handleBulkMerge}
+        isLoading={merging}
+      />
+
+      {/* Bulk delete confirmation (sidebar multiselect) */}
+      <ConfirmDialog
+        open={confirmingBulkDelete}
+        onOpenChange={setConfirmingBulkDelete}
+        title="Delete Selected Groups"
+        description={`This will permanently delete ${selectedGroupIds.size} groups and all their images. This cannot be undone.`}
+        confirmLabel="Delete All"
+        confirmVariant="destructive"
+        loadingLabel="Deleting…"
+        onConfirm={handleBulkDelete}
+        isLoading={saving}
       />
     </Dialog>
   )

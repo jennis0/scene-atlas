@@ -276,6 +276,13 @@ export interface GroupMergeResponse {
   source_group_deleted: boolean
 }
 
+export interface MoveImagesResponse {
+  source_group_id: number
+  target_group_id: number
+  images_moved: number
+  source_group_deleted: boolean
+}
+
 // Group edit types
 export interface GroupDetail {
   id: number

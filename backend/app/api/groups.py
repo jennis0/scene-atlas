@@ -23,6 +23,8 @@ from ..models.schemas import (
     GroupMergeResponse,
     GroupSearchItem,
     GroupSearchResponse,
+    MoveImagesRequest,
+    MoveImagesResponse,
 )
 from ..services import get_image_store, safe_delete_image
 
@@ -283,6 +285,74 @@ async def delete_group(
     db.delete(group)
     db.commit()
     return {"message": f"Group {group_id} and all its images deleted"}
+
+
+@router.post("/{group_id}/move-images", response_model=MoveImagesResponse)
+async def move_images(
+    group_id: int,
+    payload: MoveImagesRequest,
+    db: Session = Depends(get_db),
+):
+    """Move specific images from source group to target group.
+
+    Unlike merge, this moves only the listed images and keeps the source group
+    alive (unless it becomes empty, in which case it is auto-deleted).
+    """
+    if group_id == payload.target_group_id:
+        raise HTTPException(status_code=400, detail="Source and target group are the same")
+
+    source = db.query(ImageGroup).filter(ImageGroup.id == group_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Source group not found")
+
+    target = db.query(ImageGroup).filter(ImageGroup.id == payload.target_group_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Target group not found")
+
+    # Validate all image_ids belong to source group
+    images = (
+        db.query(Image).filter(Image.id.in_(payload.image_ids), Image.group_id == group_id).all()
+    )
+    if len(images) != len(payload.image_ids):
+        found_ids = {img.id for img in images}
+        missing = [i for i in payload.image_ids if i not in found_ids]
+        raise HTTPException(
+            status_code=400,
+            detail=f"Images not found in source group: {missing}",
+        )
+
+    # Move images to target
+    for image in images:
+        image.group_id = target.id
+        image.author = target.author
+
+    images_moved = len(images)
+
+    # Fix primary_image_id on source if it was moved
+    if source.primary_image_id and source.primary_image_id in {img.id for img in images}:
+        remaining = (
+            db.query(Image)
+            .filter(Image.group_id == group_id, Image.id.notin_(payload.image_ids))
+            .first()
+        )
+        source.primary_image_id = remaining.id if remaining else None
+
+    db.flush()
+
+    # Auto-delete source if now empty
+    remaining_count = db.query(func.count(Image.id)).filter(Image.group_id == group_id).scalar()
+    source_deleted = remaining_count == 0
+    if source_deleted:
+        db.delete(source)
+
+    db.commit()
+
+    return MoveImagesResponse(
+        source_group_id=group_id,
+        target_group_id=target.id,
+        images_moved=images_moved,
+        source_group_deleted=source_deleted,
+    )
 
 
 @router.post("/{group_id}/merge", response_model=GroupMergeResponse)

@@ -36,6 +36,11 @@ export interface UseFileEditingReturn {
     updates: Partial<EditableFileState>,
   ) => void
   updateFileAnyGroup: (relativePath: string, updates: Partial<EditableFileState>) => void
+  updateFilesInGroup: (
+    groupId: string,
+    paths: string[],
+    updates: Partial<EditableFileState>,
+  ) => void
 
   // Selection
   toggleFileSelection: (groupId: string, relativePath: string) => void
@@ -109,6 +114,24 @@ export function useFileEditing({
     setGroups(newGroups)
     const affected = newGroups.filter((g) => g.files.some((f) => f.relative_path === relativePath))
     onGroupChange?.(affected)
+  }
+
+  const updateFilesInGroup = (
+    groupId: string,
+    paths: string[],
+    updates: Partial<EditableFileState>,
+  ) => {
+    const currentGroup = groups.find((g) => g.id === groupId)
+    if (!currentGroup) return
+    const pathSet = new Set(paths)
+    const newGroup = {
+      ...currentGroup,
+      files: currentGroup.files.map((f) =>
+        pathSet.has(f.relative_path) ? { ...f, ...updates } : f,
+      ),
+    }
+    setGroups((prev) => prev.map((g) => (g.id === groupId ? newGroup : g)))
+    onGroupChange?.([newGroup])
   }
 
   // ── Selection ─────────────────────────────────────────────────────
@@ -271,6 +294,7 @@ export function useFileEditing({
     updateGroup,
     updateFile,
     updateFileAnyGroup,
+    updateFilesInGroup,
     toggleFileSelection,
     selectAllVisible,
     deselectAll,
