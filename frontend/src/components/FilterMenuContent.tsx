@@ -308,6 +308,7 @@ export function FilterMenuContent({
             colorId={null}
             icon={Layers}
             onClick={() => setTab('all')}
+            getTagColor={getTagColor}
           />
 
           {groups.length > 0 && <div className="mx-2 my-1 h-px bg-border/50" />}
@@ -321,6 +322,7 @@ export function FilterMenuContent({
               colorId={null}
               icon={getGroupIcon(g.id)}
               onClick={() => setTab(g.id)}
+              getTagColor={getTagColor}
             />
           ))}
 
@@ -337,6 +339,7 @@ export function FilterMenuContent({
               colorId={g.id}
               icon={getCategoryIcon(g.iconName)}
               onClick={() => setTab(g.id)}
+              getTagColor={getTagColor}
             />
           ))}
         </div>
@@ -477,6 +480,7 @@ export function FilterMenuContent({
                             colorId={colorId}
                             onInclude={() => handleInclude(group, opt)}
                             onExclude={(e) => handleExclude(e, group, opt)}
+                            getTagColor={getTagColor}
                           />
                         )
                       })}
@@ -550,6 +554,7 @@ function CategoryNavItem({
   colorId,
   icon: Icon,
   onClick,
+  getTagColor,
 }: {
   label: string
   active: boolean
@@ -557,8 +562,8 @@ function CategoryNavItem({
   colorId: string | null
   icon: LucideIcon
   onClick: () => void
+  getTagColor: ReturnType<typeof useGetTagColor>
 }) {
-  const getTagColor = useGetTagColor()
   // null = system group (Author, Grid, Color…) → primary amber when active
   // set  = tag category → use its assigned color
   const colors = colorId ? getTagColor(colorId) : null
@@ -766,6 +771,7 @@ function OptionPill({
   colorId,
   onInclude,
   onExclude,
+  getTagColor,
 }: {
   label: string
   count?: number
@@ -773,8 +779,8 @@ function OptionPill({
   colorId: string | null
   onInclude: () => void
   onExclude: (e: React.MouseEvent) => void
+  getTagColor: ReturnType<typeof useGetTagColor>
 }) {
-  const getTagColor = useGetTagColor()
   const colors = colorId ? getTagColor(colorId) : DEFAULT_TAG_COLOR
 
   if (activeState === 'include') {
