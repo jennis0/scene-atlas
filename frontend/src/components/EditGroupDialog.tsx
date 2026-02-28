@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   DndContext,
@@ -6,6 +6,7 @@ import {
   useDraggable,
   useDroppable,
   PointerSensor,
+  KeyboardSensor,
   useSensor,
   useSensors,
 } from '@dnd-kit/core'
@@ -284,7 +285,10 @@ export function EditGroupDialog({
   const [confirmingBulkMerge, setConfirmingBulkMerge] = useState(false)
   const [confirmingBulkDelete, setConfirmingBulkDelete] = useState(false)
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor),
+  )
 
   // ── Auto-save ────────────────────────────────────────────────────────
 
@@ -345,6 +349,7 @@ export function EditGroupDialog({
     updateGroup,
     updateFile,
     updateFileAnyGroup,
+    updateFilesInGroup,
     toggleFileSelection,
     selectAllVisible,
     deselectAll,
@@ -817,6 +822,94 @@ export function EditGroupDialog({
 
   // ── Drag & drop handlers ─────────────────────────────────────────
 
+  const handleMoveImagesToGroup = useCallback(
+    async (drag: ActiveDragState, targetGroupId: string) => {
+      if (drag.groupId === targetGroupId) return
+
+      const sel = selections[drag.groupId] ?? new Set<string>()
+      const imageIds = sel.has(drag.id) ? [...sel].map(Number) : [Number(drag.id)]
+
+      setSaving(true)
+      setSaveError(null)
+      try {
+        const result = await groupApi.moveImages(
+          Number(drag.groupId),
+          Number(targetGroupId),
+          imageIds,
+        )
+
+        // Remove moved files from source group in local state
+        const movedIdSet = new Set(imageIds.map(String))
+        let newGroups = groups.map((g) => {
+          if (g.id !== drag.groupId) return g
+          return {
+            ...g,
+            files: g.files.filter((f) => !movedIdSet.has(f.relative_path)),
+            total: g.files.filter((f) => !movedIdSet.has(f.relative_path)).length,
+          }
+        })
+
+        // If source group was auto-deleted, remove it from the array
+        if (result.source_group_deleted) {
+          const sourceIdx = newGroups.findIndex((g) => g.id === drag.groupId)
+          newGroups = newGroups.filter((g) => g.id !== drag.groupId)
+          if (activeTab !== ALL_TAB) {
+            if (sourceIdx < activeTab) setActiveTab(activeTab - 1)
+            else if (sourceIdx === activeTab) setActiveTab(Math.max(0, activeTab - 1))
+          }
+        }
+
+        // Reload target group from API to get accurate data
+        const targetInGroups = newGroups.some((g) => g.id === targetGroupId)
+        if (targetInGroups) {
+          const reloaded = await groupApi.get(Number(targetGroupId))
+          newGroups = newGroups.map((g) => {
+            if (g.id !== targetGroupId) return g
+            // Preserve outOfScope flags for images that were already in scope
+            const originalSeedIds = new Set(
+              g.files.filter((f) => !f.outOfScope).map((f) => Number(f.relative_path)),
+            )
+            // Images we just moved should be in scope
+            imageIds.forEach((id) => originalSeedIds.add(id))
+            return {
+              ...g,
+              files: reloaded.images.map((img) =>
+                imageToEditable(img, !originalSeedIds.has(img.id)),
+              ),
+              total: reloaded.images.length,
+            }
+          })
+        }
+
+        setGroups(newGroups)
+        // Clear selections for the moved files
+        deselectAll(drag.groupId)
+        invalidateGallery()
+      } catch (err) {
+        setSaveError(getApiErrorMessage(err, 'Move failed'))
+      } finally {
+        setSaving(false)
+      }
+    },
+    [selections, groups, activeTab, setGroups, deselectAll, invalidateGallery, setActiveTab],
+  )
+
+  const handleMoveImagesToSubgroup = useCallback(
+    (drag: ActiveDragState, targetSubgroup: string | null) => {
+      const sel = selections[drag.groupId] ?? new Set<string>()
+      const paths = sel.has(drag.id) ? [...sel] : [drag.id]
+      updateFilesInGroup(drag.groupId, paths, { subgroup: targetSubgroup })
+    },
+    [selections, updateFilesInGroup],
+  )
+
+  // Refs to avoid stale closures in handleDragEnd — these always point to the
+  // latest versions of the handlers regardless of when handleDragEnd was memoized.
+  const moveToGroupRef = useRef(handleMoveImagesToGroup)
+  moveToGroupRef.current = handleMoveImagesToGroup
+  const moveToSubgroupRef = useRef(handleMoveImagesToSubgroup)
+  moveToSubgroupRef.current = handleMoveImagesToSubgroup
+
   const handleDragStart = useCallback(
     (event: DragStartEvent) => {
       const data = event.active.data.current as DragData
@@ -858,9 +951,9 @@ export function EditGroupDialog({
 
       const dropData = over.data.current as DropData
       if (activeDrag.type === 'card' && dropData.type === 'group' && dropData.groupId) {
-        handleMoveImagesToGroup(activeDrag, dropData.groupId)
+        moveToGroupRef.current(activeDrag, dropData.groupId)
       } else if (activeDrag.type === 'card' && dropData.type === 'subgroup') {
-        handleMoveImagesToSubgroup(activeDrag, dropData.subgroup ?? null)
+        moveToSubgroupRef.current(activeDrag, dropData.subgroup ?? null)
       } else if (activeDrag.type === 'group' && dropData.type === 'group' && dropData.groupId) {
         if (activeDrag.groupId !== dropData.groupId) {
           setDragMergeSource(activeDrag.groupId)
@@ -869,100 +962,8 @@ export function EditGroupDialog({
       }
       setActiveDrag(null)
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [activeDrag],
   )
-
-  const handleMoveImagesToGroup = async (drag: ActiveDragState, targetGroupId: string) => {
-    if (drag.groupId === targetGroupId) return
-
-    const sel = selections[drag.groupId] ?? new Set<string>()
-    const imageIds = sel.has(drag.id) ? [...sel].map(Number) : [Number(drag.id)]
-
-    setSaving(true)
-    setSaveError(null)
-    try {
-      const result = await groupApi.moveImages(
-        Number(drag.groupId),
-        Number(targetGroupId),
-        imageIds,
-      )
-
-      // Remove moved files from source group in local state
-      const movedIdSet = new Set(imageIds.map(String))
-      let newGroups = groups.map((g) => {
-        if (g.id !== drag.groupId) return g
-        return {
-          ...g,
-          files: g.files.filter((f) => !movedIdSet.has(f.relative_path)),
-          total: g.files.filter((f) => !movedIdSet.has(f.relative_path)).length,
-        }
-      })
-
-      // If source group was auto-deleted, remove it from the array
-      if (result.source_group_deleted) {
-        const sourceIdx = newGroups.findIndex((g) => g.id === drag.groupId)
-        newGroups = newGroups.filter((g) => g.id !== drag.groupId)
-        if (activeTab !== ALL_TAB) {
-          if (sourceIdx < activeTab) setActiveTab(activeTab - 1)
-          else if (sourceIdx === activeTab) setActiveTab(Math.max(0, activeTab - 1))
-        }
-      }
-
-      // Reload target group from API to get accurate data
-      const targetInGroups = newGroups.some((g) => g.id === targetGroupId)
-      if (targetInGroups) {
-        const reloaded = await groupApi.get(Number(targetGroupId))
-        newGroups = newGroups.map((g) => {
-          if (g.id !== targetGroupId) return g
-          // Preserve outOfScope flags for images that were already in scope
-          const originalSeedIds = new Set(
-            g.files.filter((f) => !f.outOfScope).map((f) => Number(f.relative_path)),
-          )
-          // Images we just moved should be in scope
-          imageIds.forEach((id) => originalSeedIds.add(id))
-          return {
-            ...g,
-            files: reloaded.images.map((img) => imageToEditable(img, !originalSeedIds.has(img.id))),
-            total: reloaded.images.length,
-          }
-        })
-      }
-
-      setGroups(newGroups)
-      // Clear selections for the moved files
-      deselectAll(drag.groupId)
-      invalidateGallery()
-    } catch (err) {
-      setSaveError(getApiErrorMessage(err, 'Move failed'))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleMoveImagesToSubgroup = (drag: ActiveDragState, targetSubgroup: string | null) => {
-    const sel = selections[drag.groupId] ?? new Set<string>()
-    const paths = sel.has(drag.id) ? [...sel] : [drag.id]
-
-    // Find the group index for this drag source
-    const groupIdx = groups.findIndex((g) => g.id === drag.groupId)
-    if (groupIdx === -1) return
-
-    // Update each file's subgroup
-    const newGroups = groups.map((g, i) => {
-      if (i !== groupIdx) return g
-      return {
-        ...g,
-        files: g.files.map((f) =>
-          paths.includes(f.relative_path) ? { ...f, subgroup: targetSubgroup } : f,
-        ),
-      }
-    })
-    setGroups(newGroups)
-    // Trigger auto-save for the affected group
-    const affected = newGroups[groupIdx]
-    if (affected) autoSaveGroup(affected)
-  }
 
   const handleDragMergeConfirm = async () => {
     if (!dragMergeSource || !dragMergeTarget) return
@@ -1048,17 +1049,34 @@ export function EditGroupDialog({
     setMerging(true)
     setSaveError(null)
     setConfirmingBulkMerge(false)
+
+    const mergedSourceIds: string[] = []
     try {
       for (const sourceId of sourceIds) {
         await groupApi.merge(Number(sourceId), Number(targetId))
+        mergedSourceIds.push(sourceId)
       }
-      const reloaded = await groupApi.get(Number(targetId))
+    } catch (err) {
+      setSaveError(
+        getApiErrorMessage(
+          err,
+          `Bulk merge failed after merging ${mergedSourceIds.length}/${sourceIds.length} groups`,
+        ),
+      )
+    }
+
+    // Resync local state from the API regardless of partial failure
+    try {
       const seedIds = new Set(
         groups
           .filter((g) => selectedGroupIds.has(g.id))
           .flatMap((g) => g.files.filter((f) => !f.outOfScope).map((f) => Number(f.relative_path))),
       )
-      const remainingGroups = groups.filter((g) => !selectedGroupIds.has(g.id) || g.id === targetId)
+      const deletedSet = new Set(mergedSourceIds)
+      const remainingGroups = groups.filter((g) => !deletedSet.has(g.id))
+
+      // Reload the target to get its current state
+      const reloaded = await groupApi.get(Number(targetId))
       setGroups(
         remainingGroups.map((g) => {
           if (g.id !== targetId) return g
@@ -1074,8 +1092,8 @@ export function EditGroupDialog({
       setSelectedGroupIds(new Set())
       setActiveTab(ALL_TAB)
       invalidateGallery()
-    } catch (err) {
-      setSaveError(getApiErrorMessage(err, 'Bulk merge failed'))
+    } catch {
+      // If even the resync fails, we can't do much — the error is already shown
     } finally {
       setMerging(false)
     }
@@ -1086,19 +1104,35 @@ export function EditGroupDialog({
     setSaving(true)
     setSaveError(null)
     setConfirmingBulkDelete(false)
+
+    const deletedIds: string[] = []
     try {
       for (const id of ids) {
         await groupApi.delete(Number(id))
+        deletedIds.push(id)
       }
-      setGroups((prev) => prev.filter((g) => !selectedGroupIds.has(g.id)))
-      setSelectedGroupIds(new Set())
-      setActiveTab(ALL_TAB)
-      invalidateGallery()
     } catch (err) {
-      setSaveError(getApiErrorMessage(err, 'Bulk delete failed'))
-    } finally {
-      setSaving(false)
+      setSaveError(
+        getApiErrorMessage(
+          err,
+          `Bulk delete failed after deleting ${deletedIds.length}/${ids.length} groups`,
+        ),
+      )
     }
+
+    // Resync: remove successfully deleted groups from local state
+    if (deletedIds.length > 0) {
+      const deletedSet = new Set(deletedIds)
+      setGroups((prev) => prev.filter((g) => !deletedSet.has(g.id)))
+      setSelectedGroupIds((prev) => {
+        const next = new Set(prev)
+        deletedIds.forEach((id) => next.delete(id))
+        return next
+      })
+      if (deletedIds.length === ids.length) setActiveTab(ALL_TAB)
+      invalidateGallery()
+    }
+    setSaving(false)
   }
 
   // ── Derived values ─────────────────────────────────────────────

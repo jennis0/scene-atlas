@@ -1,6 +1,7 @@
 """Integration tests for the groups API endpoints.
 
-Tests GET/PUT/DELETE /api/v1/groups/* and POST /api/v1/groups/{id}/merge.
+Tests GET/PUT/DELETE /api/v1/groups/* and POST /api/v1/groups/{id}/merge
+and POST /api/v1/groups/{id}/move-images.
 """
 
 import pytest
@@ -544,3 +545,130 @@ class TestGroupDelete:
         client, _, _ = seeded_group
         resp = client.delete("/api/v1/groups/999999")
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/groups/{id}/move-images
+# ---------------------------------------------------------------------------
+
+
+class TestGroupMoveImages:
+    def test_move_subset_of_images(self, two_groups):
+        """Move one image from source to target; source keeps the other."""
+        client, data = two_groups
+        source_id = data["source_id"]
+        target_id = data["target_id"]
+        moved_img = data["source_img_ids"][0]
+
+        resp = client.post(
+            f"/api/v1/groups/{source_id}/move-images",
+            json={"target_group_id": target_id, "image_ids": [moved_img]},
+        )
+        assert resp.status_code == 200
+        result = resp.json()
+        assert result["images_moved"] == 1
+        assert result["source_group_deleted"] is False
+
+        # Image now in target
+        target_detail = client.get(f"/api/v1/groups/{target_id}").json()
+        target_img_ids = [img["id"] for img in target_detail["images"]]
+        assert moved_img in target_img_ids
+
+        # Source still exists with remaining image
+        source_detail = client.get(f"/api/v1/groups/{source_id}").json()
+        assert len(source_detail["images"]) == 1
+        assert source_detail["images"][0]["id"] == data["source_img_ids"][1]
+
+    def test_move_all_images_deletes_source(self, two_groups):
+        """Moving all images from source auto-deletes the empty source group."""
+        client, data = two_groups
+        source_id = data["source_id"]
+        target_id = data["target_id"]
+
+        resp = client.post(
+            f"/api/v1/groups/{source_id}/move-images",
+            json={"target_group_id": target_id, "image_ids": data["source_img_ids"]},
+        )
+        assert resp.status_code == 200
+        result = resp.json()
+        assert result["images_moved"] == 2
+        assert result["source_group_deleted"] is True
+
+        # Source group no longer exists
+        assert client.get(f"/api/v1/groups/{source_id}").status_code == 404
+
+        # All images are now in target
+        target_detail = client.get(f"/api/v1/groups/{target_id}").json()
+        target_img_ids = {img["id"] for img in target_detail["images"]}
+        for img_id in data["source_img_ids"]:
+            assert img_id in target_img_ids
+
+    def test_moved_images_inherit_target_author(self, two_groups):
+        """Moved images should have their author synced to the target group."""
+        client, data = two_groups
+        target_id = data["target_id"]
+        moved_img = data["source_img_ids"][0]
+
+        client.post(
+            f"/api/v1/groups/{data['source_id']}/move-images",
+            json={"target_group_id": target_id, "image_ids": [moved_img]},
+        )
+
+        target_detail = client.get(f"/api/v1/groups/{target_id}").json()
+        moved = next(img for img in target_detail["images"] if img["id"] == moved_img)
+        assert moved["author"] == "AuthorB"  # target group's author
+
+    def test_move_reassigns_primary_image_on_source(self, two_groups):
+        """If the source's primary image is moved, primary_image_id is reassigned."""
+        client, data = two_groups
+        source_id = data["source_id"]
+        target_id = data["target_id"]
+        # img_s1 is the primary (set in the fixture)
+        primary_img = data["source_img_ids"][0]
+        remaining_img = data["source_img_ids"][1]
+
+        client.post(
+            f"/api/v1/groups/{source_id}/move-images",
+            json={"target_group_id": target_id, "image_ids": [primary_img]},
+        )
+
+        source_detail = client.get(f"/api/v1/groups/{source_id}").json()
+        assert source_detail["primary_image_id"] == remaining_img
+
+    def test_self_move_returns_400(self, seeded_group):
+        client, group_id, img_ids = seeded_group
+        resp = client.post(
+            f"/api/v1/groups/{group_id}/move-images",
+            json={"target_group_id": group_id, "image_ids": [img_ids[0]]},
+        )
+        assert resp.status_code == 400
+
+    def test_move_nonexistent_source_returns_404(self, seeded_group):
+        client, group_id, _ = seeded_group
+        resp = client.post(
+            "/api/v1/groups/999999/move-images",
+            json={"target_group_id": group_id, "image_ids": [1]},
+        )
+        assert resp.status_code == 404
+
+    def test_move_nonexistent_target_returns_404(self, seeded_group):
+        client, group_id, img_ids = seeded_group
+        resp = client.post(
+            f"/api/v1/groups/{group_id}/move-images",
+            json={"target_group_id": 999999, "image_ids": [img_ids[0]]},
+        )
+        assert resp.status_code == 404
+
+    def test_move_image_not_in_source_returns_400(self, two_groups):
+        """Image IDs that don't belong to the source group should fail."""
+        client, data = two_groups
+        source_id = data["source_id"]
+        target_id = data["target_id"]
+        # target_img_ids[0] belongs to the target, not the source
+        wrong_img = data["target_img_ids"][0]
+
+        resp = client.post(
+            f"/api/v1/groups/{source_id}/move-images",
+            json={"target_group_id": target_id, "image_ids": [wrong_img]},
+        )
+        assert resp.status_code == 400

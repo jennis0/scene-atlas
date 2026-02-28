@@ -36,7 +36,7 @@ export function SubgroupHeading({
   const showActions = canEdit && subgroup !== null && !isEditing
 
   return (
-    <div className="sticky top-0 z-10 bg-background relative flex items-center gap-2 py-1.5 mt-2 first:mt-0">
+    <div className="sticky top-0 z-10 bg-card relative flex items-center gap-2 py-1.5 mt-2 first:mt-0">
       <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider capitalize whitespace-nowrap">
         {subgroup ?? 'Main'}
       </span>
