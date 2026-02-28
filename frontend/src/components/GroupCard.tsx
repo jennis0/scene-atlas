@@ -55,7 +55,7 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
 
   return (
     <div
-      className="group/card relative cursor-pointer overflow-hidden rounded-lg border border-border/30 bg-card transition-all duration-200 hover:border-primary/40 hover:shadow-xl hover:shadow-black/40"
+      className="group/card relative cursor-pointer overflow-hidden rounded-lg border border-border/30 bg-card transition-[transform,box-shadow] duration-200 hover:border-primary/40 hover:shadow-xl hover:shadow-black/40"
       onClick={onClick}
     >
       {/* Action menu — top-right, visible on hover */}
@@ -107,6 +107,9 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
           <img
             src={getThumbnailUrl(heroImage)}
             alt={baseName}
+            width={240}
+            height={160}
+            decoding="async"
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
             loading="lazy"
           />
@@ -125,6 +128,9 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
                     <img
                       src={getThumbnailUrl(img)}
                       alt={img.subgroup || img.name}
+                      width={96}
+                      height={80}
+                      decoding="async"
                       className="h-full w-full object-cover"
                       loading="lazy"
                     />
