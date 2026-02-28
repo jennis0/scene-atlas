@@ -226,8 +226,8 @@ class GroupEditRequest(BaseModel):
 
     base_name: str
     author: str | None = None
-    images: list[ImageEditPayload]  # images to keep; others are deleted
-    new_groups: list[NewGroupPayload] = []  # split-off groups
+    images: list[ImageEditPayload]  # images to keep (with metadata updates)
+    new_groups: list[NewGroupPayload] = []  # split-off groups; their images are moved, not deleted
 
 
 class GroupEditResponse(BaseModel):

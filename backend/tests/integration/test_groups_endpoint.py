@@ -469,10 +469,10 @@ class TestGroupEditAdvanced:
         assert detail["primary_image_id"] in kept
 
     def test_split_off_new_group(self, seeded_group):
-        """Create a split-off group (lines 197-211) from a subset of images.
+        """Create a split-off group from a subset of images.
 
-        The image being split off must also appear in payload.images so it isn't
-        deleted in step 2 before it can be reassigned to the new group in step 5.
+        Images referenced in new_groups are moved, not deleted — they don't
+        need to appear in payload.images (but may, for metadata updates).
         """
         client, group_id, img_ids = seeded_group
         resp = client.put(
@@ -530,6 +530,58 @@ class TestGroupEditAdvanced:
         new_group = client.get(f"/api/v1/groups/{new_group_id}").json()
         assert new_group["base_name"] == "Ancient Ruins Night Edition"
         assert any(img["id"] == img_ids[1] for img in new_group["images"])
+
+    def test_split_does_not_delete_moved_images(self, seeded_group):
+        """Images in new_groups but NOT in payload.images must be moved, not deleted.
+
+        Regression test: previously, omitting moved images from payload.images
+        caused them to be permanently deleted before the new group assignment.
+        """
+        client, group_id, img_ids = seeded_group
+        # Only include img_ids[0] in images — split img_ids[1] without listing it
+        resp = client.put(
+            f"/api/v1/groups/{group_id}",
+            json={
+                "base_name": "Ancient Ruins",
+                "author": "TestAuthor",
+                "images": [
+                    {
+                        "id": img_ids[0],
+                        "name": "Ancient Ruins Day",
+                        "gridded": None,
+                        "grid_width": None,
+                        "grid_height": None,
+                        "subgroup": None,
+                        "image_type": None,
+                        "tags": [],
+                    },
+                ],
+                "new_groups": [
+                    {
+                        "base_name": "Split Group",
+                        "author": "TestAuthor",
+                        "image_ids": [img_ids[1]],
+                    }
+                ],
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        # img_ids[2] was in neither images nor new_groups — it should be deleted
+        assert img_ids[2] in data["deleted_image_ids"]
+        # img_ids[1] was in new_groups — it must NOT be deleted
+        assert img_ids[1] not in data["deleted_image_ids"]
+
+        # The new group should contain the moved image
+        new_group_id = data["new_group_ids"][0]
+        new_group = client.get(f"/api/v1/groups/{new_group_id}").json()
+        assert any(img["id"] == img_ids[1] for img in new_group["images"])
+
+        # The source group should only have img_ids[0]
+        source = client.get(f"/api/v1/groups/{group_id}").json()
+        source_img_ids = [img["id"] for img in source["images"]]
+        assert img_ids[0] in source_img_ids
+        assert img_ids[1] not in source_img_ids
 
 
 class TestGroupDelete:

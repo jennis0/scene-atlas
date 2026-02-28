@@ -196,13 +196,15 @@ async def edit_group(
     group.base_name = payload.base_name
     group.author = payload.author
 
-    # 2. Determine which images to keep
+    # 2. Determine which images to keep vs delete.
+    # Images referenced in new_groups are being moved, not deleted — protect them.
     kept_ids = {img.id for img in payload.images}
+    moving_ids = {img_id for ng in payload.new_groups for img_id in ng.image_ids}
     all_images = db.query(Image).filter(Image.group_id == group_id).all()
 
     deleted_ids: list[int] = []
     for image in all_images:
-        if image.id not in kept_ids:
+        if image.id not in kept_ids and image.id not in moving_ids:
             deleted_ids.append(image.id)
             safe_delete_image(db, image)
 

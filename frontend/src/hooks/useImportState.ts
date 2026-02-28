@@ -253,7 +253,7 @@ export function useImportState(
         .filter((_, i) => i !== sourceIndex)
     })
     setActiveTab((prev) => {
-      if (prev === ALL_TAB) return ALL_TAB
+      if (prev === ALL_TAB) return groups.length <= 2 ? 0 : ALL_TAB
       if (sourceIndex < prev) return prev - 1
       if (sourceIndex === prev) return Math.min(targetIndex, groups.length - 2)
       return prev

@@ -53,7 +53,14 @@ export function ActivityDock({
   if (!hasAnything) return null
 
   const activeImportCount = jobs.filter(
-    (j) => j.status === 'staging' || j.status === 'running' || j.pendingGroups > 0,
+    (j) =>
+      j.status === 'staging' ||
+      j.status === 'running' ||
+      (j.pendingGroups > 0 &&
+        j.status !== 'completed' &&
+        j.status !== 'failed' &&
+        j.status !== 'cancelled' &&
+        j.status !== 'expired'),
   ).length
   const activeJobCount = backgroundJobs.filter(
     (j) => j.status === 'queued' || j.status === 'running',
