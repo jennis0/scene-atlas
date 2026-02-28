@@ -30,108 +30,112 @@ export function GalleryFilterPanel({ filters, facets, onFiltersChange }: Gallery
     [tagCategories],
   )
 
-  const groups: FilterOptionGroup[] = []
+  const groups: FilterOptionGroup[] = useMemo(() => {
+    const result: FilterOptionGroup[] = []
 
-  const authors = facets?.authors ?? []
-  if (authors.length > 0) {
-    groups.push({
-      id: 'author',
-      label: 'Author',
-      type: 'author',
-      options: authors.map((a) => ({
-        filterValue: a.value,
-        label: a.value,
-        filterLabel: `author: ${a.value}`,
-        count: a.count,
+    const authors = facets?.authors ?? []
+    if (authors.length > 0) {
+      result.push({
+        id: 'author',
+        label: 'Author',
+        type: 'author',
+        options: authors.map((a) => ({
+          filterValue: a.value,
+          label: a.value,
+          filterLabel: `author: ${a.value}`,
+          count: a.count,
+        })),
+      })
+    }
+
+    const gridded = facets?.gridded
+    if (gridded) {
+      result.push({
+        id: 'gridded',
+        label: 'Grid',
+        type: 'gridded',
+        options: [
+          {
+            filterValue: 'square',
+            label: 'Square grid',
+            filterLabel: 'grid: Square',
+            count: gridded.square,
+          },
+          {
+            filterValue: 'hex',
+            label: 'Hex grid',
+            filterLabel: 'grid: Hex',
+            count: gridded.hex,
+          },
+          {
+            filterValue: 'gridded',
+            label: 'Any gridded',
+            filterLabel: 'grid: Gridded',
+            count: gridded.gridded,
+          },
+          {
+            filterValue: 'gridless',
+            label: 'Gridless',
+            filterLabel: 'grid: Gridless',
+            count: gridded.gridless,
+          },
+          {
+            filterValue: 'unknown',
+            label: 'Unknown',
+            filterLabel: 'grid: Unknown',
+            count: gridded.unknown,
+          },
+        ].filter((o) => o.count > 0),
+      })
+    }
+
+    const mediaTypes = facets?.media_types ?? []
+    if (mediaTypes.length > 1) {
+      result.push({
+        id: 'media_type',
+        label: 'Media',
+        type: 'media_type',
+        options: mediaTypes.map((m) => ({
+          filterValue: m.value,
+          label: m.value === 'image' ? 'Images' : m.value === 'video' ? 'Videos' : m.value,
+          filterLabel: `media: ${m.value === 'image' ? 'Images' : m.value === 'video' ? 'Videos' : m.value}`,
+          count: m.count,
+        })),
+      })
+    }
+
+    result.push({
+      id: 'color',
+      label: 'Color',
+      type: 'color',
+      options: COLOR_FILTER_PALETTE.map((c) => ({
+        filterValue: c.hex,
+        label: c.label,
+        filterLabel: c.label,
       })),
     })
-  }
 
-  const gridded = facets?.gridded
-  if (gridded) {
-    groups.push({
-      id: 'gridded',
-      label: 'Grid',
-      type: 'gridded',
-      options: [
-        {
-          filterValue: 'square',
-          label: 'Square grid',
-          filterLabel: 'grid: Square',
-          count: gridded.square,
-        },
-        {
-          filterValue: 'hex',
-          label: 'Hex grid',
-          filterLabel: 'grid: Hex',
-          count: gridded.hex,
-        },
-        {
-          filterValue: 'gridded',
-          label: 'Any gridded',
-          filterLabel: 'grid: Gridded',
-          count: gridded.gridded,
-        },
-        {
-          filterValue: 'gridless',
-          label: 'Gridless',
-          filterLabel: 'grid: Gridless',
-          count: gridded.gridless,
-        },
-        {
-          filterValue: 'unknown',
-          label: 'Unknown',
-          filterLabel: 'grid: Unknown',
-          count: gridded.unknown,
-        },
-      ].filter((o) => o.count > 0),
-    })
-  }
+    for (const [cat, values] of Object.entries(facets?.tags ?? {})) {
+      if (values.length === 0) continue
+      const vocabEntry = tagVocab.find((v) => v.category === cat)
+      const catMeta = tagCategories?.find((c) => c.name === cat)
+      result.push({
+        id: cat,
+        label: cat,
+        type: 'tag',
+        iconName: catMeta?.icon ?? null,
+        options: values.map((v) => ({
+          filterValue: `${cat}:${v.value}`,
+          label: v.value,
+          filterLabel: `${cat}: ${v.value}`,
+          count: v.count,
+          aliases: vocabEntry?.aliases[v.value],
+        })),
+      })
+    }
 
-  const mediaTypes = facets?.media_types ?? []
-  if (mediaTypes.length > 1) {
-    groups.push({
-      id: 'media_type',
-      label: 'Media',
-      type: 'media_type',
-      options: mediaTypes.map((m) => ({
-        filterValue: m.value,
-        label: m.value === 'image' ? 'Images' : m.value === 'video' ? 'Videos' : m.value,
-        filterLabel: `media: ${m.value === 'image' ? 'Images' : m.value === 'video' ? 'Videos' : m.value}`,
-        count: m.count,
-      })),
-    })
-  }
-
-  groups.push({
-    id: 'color',
-    label: 'Color',
-    type: 'color',
-    options: COLOR_FILTER_PALETTE.map((c) => ({
-      filterValue: c.hex,
-      label: c.label,
-      filterLabel: c.label,
-    })),
-  })
-
-  for (const [cat, values] of Object.entries(facets?.tags ?? {})) {
-    if (values.length === 0) continue
-    const vocabEntry = tagVocab.find((v) => v.category === cat)
-    const catMeta = tagCategories?.find((c) => c.name === cat)
-    groups.push({
-      id: cat,
-      label: cat,
-      type: 'tag',
-      iconName: catMeta?.icon ?? null,
-      options: values.map((v) => ({
-        filterValue: `${cat}:${v.value}`,
-        label: v.value,
-        filterLabel: `${cat}: ${v.value}`,
-        count: v.count,
-        aliases: vocabEntry?.aliases[v.value],
-      })),
-    })
-  }
+    return result
+  }, [facets, tagVocab, tagCategories])
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
