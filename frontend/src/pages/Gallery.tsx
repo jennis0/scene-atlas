@@ -661,23 +661,47 @@ export function Gallery() {
         ) : displayImages.length === 0 ? (
           <div className="flex h-full items-center justify-center">
             <div className="text-center max-w-md">
-              <p className="text-muted-foreground mb-2">
-                {hasActiveSearch ? 'No images match your search' : 'No images available'}
-              </p>
-              {isSemantic && (
-                <p className="text-sm text-muted-foreground">
-                  Try: "abandoned mine with crystals" or "winter forest temple"
-                </p>
-              )}
-              {minScore > 0 && (
-                <p className="text-sm text-muted-foreground">
-                  Lower the relevance threshold to see more results.
-                </p>
-              )}
-              {hasActiveSearch && (
-                <Button variant="outline" size="sm" onClick={clearAll} className="mt-4">
-                  Clear search
-                </Button>
+              {!hasActiveSearch && (facets?.total_images ?? 0) === 0 ? (
+                <>
+                  <Mountain className="h-10 w-10 text-muted-foreground/30 mx-auto mb-4" />
+                  <p className="text-muted-foreground mb-1">Your library is empty</p>
+                  <p className="text-sm text-muted-foreground/70 mb-5">
+                    Import some battlemaps and scenes to get started.
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-primary border-primary/40 hover:bg-primary/10"
+                    onClick={() => {
+                      setImportDialogKey((k) => k + 1)
+                      setImportDialogJobId('new')
+                    }}
+                  >
+                    <Upload className="h-3.5 w-3.5 mr-1.5" />
+                    Import
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <p className="text-muted-foreground mb-2">
+                    {hasActiveSearch ? 'No images match your search' : 'No images available'}
+                  </p>
+                  {isSemantic && (
+                    <p className="text-sm text-muted-foreground">
+                      Try: "abandoned mine with crystals" or "winter forest temple"
+                    </p>
+                  )}
+                  {minScore > 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      Lower the relevance threshold to see more results.
+                    </p>
+                  )}
+                  {hasActiveSearch && (
+                    <Button variant="outline" size="sm" onClick={clearAll} className="mt-4">
+                      Clear search
+                    </Button>
+                  )}
+                </>
               )}
             </div>
           </div>
