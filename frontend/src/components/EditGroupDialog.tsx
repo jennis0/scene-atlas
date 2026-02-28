@@ -1336,7 +1336,7 @@ export default function EditGroupDialog({
                                     {groupSaving.has(g.id) ? (
                                       <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/40 ml-1" />
                                     ) : groupSaved.has(g.id) ? (
-                                      <Check className="h-3 w-3 text-green-500/70 ml-1" />
+                                      <Check className="h-3 w-3 text-emerald-600 dark:text-emerald-400/70 ml-1" />
                                     ) : null}
                                   </span>
                                 </button>
@@ -1674,7 +1674,7 @@ export default function EditGroupDialog({
                       </span>
                     )}
                     {!saveError && groupSaving.size === 0 && groupSaved.size > 0 && (
-                      <span className="text-xs text-green-500/70 flex items-center gap-1">
+                      <span className="text-xs text-emerald-600 dark:text-emerald-400/70 flex items-center gap-1">
                         <Check className="h-3 w-3" />
                         Saved
                       </span>

@@ -14,6 +14,8 @@ import {
   Compass,
   Map,
   Mountain,
+  Sun,
+  Moon,
 } from 'lucide-react'
 import { GalleryFilterPanel } from '@/components/GalleryFilterPanel'
 import { FilterChipList } from '@/components/FilterMenuContent'
@@ -26,6 +28,7 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu'
+import { useTheme } from '@/contexts/ThemeContext'
 import { isApp } from '@/lib/appMode'
 import { RELEVANCE_MIN, RELEVANCE_MAX, RELEVANCE_STEP, relevanceToPercent } from '@/lib/constants'
 import { SORT_OPTIONS } from '@/hooks/useGallerySearch'
@@ -64,6 +67,7 @@ export function GalleryHeader({
   onOpenMassEdit,
   displayImageCount,
 }: GalleryHeaderProps) {
+  const { theme, toggleTheme } = useTheme()
   const {
     searchInput,
     setSearchInput,
@@ -186,6 +190,15 @@ export function GalleryHeader({
               className="h-8 w-8 text-muted-foreground hover:text-foreground"
             >
               <Settings className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleTheme}
+              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              className="h-8 w-8 text-muted-foreground hover:text-foreground"
+            >
+              {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
             {/* Spacer */}
             <div className="w-4 shrink-0" />

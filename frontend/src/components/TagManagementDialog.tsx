@@ -7,11 +7,12 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { tagApi, searchApi } from '@/lib/api'
 import { useJobPolling } from '@/hooks/useJobPolling'
 import {
-  COLOR_PALETTE,
   PALETTE_KEYS,
   getTagColor,
+  getDotColor,
   type TagColor,
 } from '@/components/import/tagColors'
+import { useTheme } from '@/contexts/ThemeContext'
 import { CATEGORY_ICON_MAP, CATEGORY_ICON_NAMES, getCategoryIcon } from '@/lib/categoryIcons'
 import type { TagCategory } from '@/types'
 
@@ -253,6 +254,7 @@ function CategoryList({
   onSelect: (name: string) => void
   invalidate: () => void
 }) {
+  const { theme } = useTheme()
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -290,7 +292,7 @@ function CategoryList({
       {/* Scrollable category list */}
       <div className="flex-1 overflow-y-auto" style={{ paddingTop: 2, paddingBottom: 2 }}>
         {categories.map((cat) => {
-          const colors = getTagColor(cat.color)
+          const colors = getTagColor(cat.color, theme)
           const CatIcon = getCategoryIcon(cat.icon)
           const isActive = cat.name === selected
           const valueCount = parseCommonValues(cat.common_values).length
@@ -385,12 +387,13 @@ function CategoryEditor({
   onDeleted: () => void
   facetCounts: { value: string; count: number }[]
 }) {
+  const { theme } = useTheme()
   const [editingName, setEditingName] = useState(false)
   const [nameInput, setNameInput] = useState(category.name)
   const [description, setDescription] = useState(category.description ?? '')
   const nameRef = useRef<HTMLInputElement>(null)
 
-  const colors = getTagColor(category.color)
+  const colors = getTagColor(category.color, theme)
   const CatIcon = getCategoryIcon(category.icon)
   const values = parseCommonValues(category.common_values)
 
@@ -518,7 +521,7 @@ function CategoryEditor({
                           title={key}
                           className={`rounded-full transition-all ${
                             isSelected ? '' : 'opacity-70 hover:opacity-100 hover:scale-110'
-                          } ${COLOR_PALETTE[key].dot}`}
+                          } ${getDotColor(key)}`}
                           style={{
                             width: 26,
                             height: 26,
