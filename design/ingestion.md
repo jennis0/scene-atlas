@@ -191,8 +191,13 @@ Periodic maintenance (backup, staging cleanup) runs through the **Scheduler** (`
 - `uv run python -m backend.pipeline.fix_orphaned_images` — fix orphaned images
 - `uv run python -m backend.pipeline.maintenance` — run maintenance manually
 
+## Import Job Lifecycle
+
+After processing each group, `_finalize_import_job()` calls `transition_job_status()` to update the import job's status based on the state machine. See [import-state-machine.md](import-state-machine.md) for the full state machine design.
+
 ## Staging Cleanup
 
-Staging directories (`data/staging/{job_id}/`) are created on upload and include a `.thumbs/` subdirectory for preview thumbnails. They are cleaned up:
-- At the end of `process_import_job` after all groups are processed
-- By the periodic `cleanup_staging` scheduler task (every 6h, removes dirs older than 24h)
+Staging directories (`data/staging/{job_id}/`) are created on upload and include a `.thumbs/` subdirectory for preview thumbnails. They are cleaned up by:
+- The periodic `cleanup_staging` scheduler task (every 6h, removes dirs older than 24h)
+- The `expire_stale_jobs` scheduler task (every 6h, cleans staging for expired jobs)
+- `POST /cancel` and `POST /finalize` endpoints
