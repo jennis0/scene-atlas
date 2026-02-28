@@ -236,11 +236,16 @@ export function useImportState(
   // ── Import-specific mutations ─────────────────────────────────────
 
   const mergeGroups = (sourceIndex: number, targetIndex: number) => {
+    // Track the new group count so setActiveTab doesn't read a stale closure.
+    let newLength = 0
     setGroups((prev) => {
       const source = prev[sourceIndex]
       const target = prev[targetIndex]
-      if (!source || !target) return prev
-      return prev
+      if (!source || !target) {
+        newLength = prev.length
+        return prev
+      }
+      const next = prev
         .map((g, i) => {
           if (i === targetIndex)
             return {
@@ -251,11 +256,15 @@ export function useImportState(
           return g
         })
         .filter((_, i) => i !== sourceIndex)
+      newLength = next.length
+      return next
     })
     setActiveTab((prev) => {
-      if (prev === ALL_TAB) return groups.length <= 2 ? 0 : ALL_TAB
+      // newLength is set by the setGroups updater above (both run synchronously
+      // within the same React batch), so it reflects the post-merge group count.
+      if (prev === ALL_TAB) return newLength <= 1 ? 0 : ALL_TAB
       if (sourceIndex < prev) return prev - 1
-      if (sourceIndex === prev) return Math.min(targetIndex, groups.length - 2)
+      if (sourceIndex === prev) return Math.min(targetIndex, newLength - 1)
       return prev
     })
   }
@@ -282,8 +291,10 @@ export function useImportState(
         .filter((_, i) => !sourceIndices.has(i)),
     )
 
-    // All sourceIndices are > targetIdx (targetIdx is the minimum eligible index),
-    // so no elements before targetIdx are removed — the merged group stays at targetIdx.
+    // targetIdx is the *minimum* eligible index. All source groups have strictly
+    // higher indices, so the filter only removes elements after targetIdx.
+    // This means no array positions before targetIdx shift, and the merged group
+    // remains at index targetIdx in the new array — the value is still valid.
     setActiveTab(targetIdx)
   }
 
@@ -478,10 +489,14 @@ export function useImportState(
   )
 
   const showSubgroupHeadings = distinctSubgroups.length > 1
-  const subgroupGroups = distinctSubgroups.map((sv) => ({
-    subgroup: sv,
-    files: filteredFiles.filter((f) => f.subgroup === sv),
-  }))
+  const subgroupGroups = useMemo(
+    () =>
+      distinctSubgroups.map((sv) => ({
+        subgroup: sv,
+        files: filteredFiles.filter((f) => f.subgroup === sv),
+      })),
+    [distinctSubgroups, filteredFiles],
+  )
 
   const pendingGroups = groups.filter((g) => g.status === 'pending' && !g.skip)
   const completedCount = groups.filter((g) => g.status === 'completed').length
