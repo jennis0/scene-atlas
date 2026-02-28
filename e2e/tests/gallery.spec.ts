@@ -20,8 +20,10 @@ test.describe('Gallery', () => {
     await page.getByRole('button', { name: /Scenes/ }).click()
     await expect(page).toHaveURL(/image_type=scene/)
 
-    // Click "All" tab to reset
+    // Click "All" tab to reset — URL should no longer contain image_type
     await page.getByRole('button', { name: /All/ }).click()
+    await expect(page).not.toHaveURL(/image_type=/)
+    await expect(page.getByText(/\d+ scenes/)).toBeVisible({ timeout: 5_000 })
   })
 
   test('view mode toggle switches between individual and grouped', async ({ page }) => {
@@ -45,5 +47,8 @@ test.describe('Gallery', () => {
 
     // Select "Name A–Z"
     await page.getByRole('menuitemradio', { name: /Name A/ }).click()
+
+    // Sort button label should update to reflect the new sort
+    await expect(page.getByRole('button', { name: /Name A/ })).toBeVisible()
   })
 })

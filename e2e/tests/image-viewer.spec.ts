@@ -9,8 +9,8 @@ test.describe('Image Viewer', () => {
     const firstTile = page.locator('img[loading="lazy"]').first()
     await firstTile.click()
 
-    // The ImageViewer overlay should appear (fixed position, z-50)
-    const viewer = page.locator('div.fixed.inset-0.z-50')
+    // The ImageViewer overlay should appear
+    const viewer = page.getByTestId('image-viewer')
     await expect(viewer).toBeVisible({ timeout: 5_000 })
   })
 
@@ -22,7 +22,7 @@ test.describe('Image Viewer', () => {
     const firstTile = page.locator('img[loading="lazy"]').first()
     await firstTile.click()
 
-    const viewer = page.locator('div.fixed.inset-0.z-50')
+    const viewer = page.getByTestId('image-viewer')
     await expect(viewer).toBeVisible({ timeout: 5_000 })
 
     // Press Escape
@@ -40,16 +40,23 @@ test.describe('Image Viewer', () => {
     const firstTile = page.locator('img[loading="lazy"]').first()
     await firstTile.click()
 
-    const viewer = page.locator('div.fixed.inset-0.z-50')
+    const viewer = page.getByTestId('image-viewer')
     await expect(viewer).toBeVisible({ timeout: 5_000 })
+
+    // Capture the current image src
+    const viewerImg = viewer.locator('img').first()
+    const initialSrc = await viewerImg.getAttribute('src')
 
     // Navigate forward with arrow key
     await page.keyboard.press('ArrowRight')
 
+    // The displayed image should change
+    await expect(viewerImg).not.toHaveAttribute('src', initialSrc!)
+
     // Navigate back
     await page.keyboard.press('ArrowLeft')
 
-    // Viewer should still be open
-    await expect(viewer).toBeVisible()
+    // Should return to the original image
+    await expect(viewerImg).toHaveAttribute('src', initialSrc!)
   })
 })

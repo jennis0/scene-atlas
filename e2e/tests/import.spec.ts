@@ -35,14 +35,16 @@ test.describe('Import flow', () => {
       process.env.E2E_IMAGE_DIR ||
       path.resolve(__dirname, '..', '.tmp-images')
 
-    // Only run this test if test images are available
+    // In CI, images must be available — fail hard if missing
     if (!fs.existsSync(imageDir)) {
+      if (process.env.CI) throw new Error(`Image dir missing: ${imageDir}`)
       test.skip()
       return
     }
 
     const testFile = path.resolve(imageDir, 'LooseFile_Tavern.jpg')
     if (!fs.existsSync(testFile)) {
+      if (process.env.CI) throw new Error(`Test file missing: ${testFile}`)
       test.skip()
       return
     }

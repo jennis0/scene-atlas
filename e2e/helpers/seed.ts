@@ -109,9 +109,13 @@ export async function seedTestData(imageDir: string): Promise<void> {
   )
 
   // 6. Finalize the import
-  await fetch(`${BACKEND_URL}/api/v1/imports/${jobId}/finalize`, {
+  const finalizeRes = await fetch(`${BACKEND_URL}/api/v1/imports/${jobId}/finalize`, {
     method: 'POST',
   })
+  if (!finalizeRes.ok) {
+    const body = await finalizeRes.text()
+    throw new Error(`Finalize failed: ${finalizeRes.status} ${body}`)
+  }
 }
 
 /** Collect all .jpg/.jpeg files recursively from a directory. */

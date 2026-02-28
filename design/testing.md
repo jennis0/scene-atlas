@@ -164,8 +164,7 @@ e2e/                                  # Playwright E2E tests (full stack, real b
 ├── fixtures/
 │   └── base.ts                       # Worker-scoped seed fixture (uploads via API)
 ├── helpers/
-│   ├── seed.ts                       # API-based data seeding orchestration
-│   └── test-images.ts                # Calls Python script to generate JPEGs
+│   └── seed.ts                       # API-based data seeding orchestration
 └── tests/
     ├── smoke.spec.ts                 # Health check, page load
     ├── gallery.spec.ts               # Image display, type tabs, view toggle, sort

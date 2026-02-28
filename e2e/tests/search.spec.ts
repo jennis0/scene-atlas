@@ -11,7 +11,7 @@ test.describe('Search', () => {
     await page.getByRole('button', { name: 'Search' }).click()
 
     // Should show results and URL should contain query
-    await expect(page.getByText(/result/)).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText(/\d+ result/)).toBeVisible({ timeout: 10_000 })
     await expect(page).toHaveURL(/q=ForestClearing/)
   })
 
@@ -23,7 +23,7 @@ test.describe('Search', () => {
     const searchInput = page.getByPlaceholder(/Search/)
     await searchInput.fill('Cave')
     await page.getByRole('button', { name: 'Search' }).click()
-    await expect(page.getByText(/result/)).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText(/\d+ result/)).toBeVisible({ timeout: 10_000 })
 
     // Clear the search
     await searchInput.clear()
