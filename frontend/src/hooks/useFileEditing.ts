@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { EMPTY_FILTER } from '@/components/import/fileFilter'
 import type { FileFilter } from '@/components/import/fileFilter'
 import type { EditableFileState, EditableGroupState, TagData, ParsedTagVocab } from '@/types'
@@ -82,6 +82,27 @@ export function useFileEditing({
     setEditingSvHeading(null)
   }, [activeTab])
 
+  // ── Deferred onGroupChange callback ────────────────────────────
+  // React 18 batches state updates, so updater fns inside setGroups()
+  // may not execute synchronously. We accumulate affected groups in a
+  // ref (keyed by ID to deduplicate) and flush via useEffect after render.
+  const onGroupChangeRef = useRef(onGroupChange)
+  onGroupChangeRef.current = onGroupChange
+  const pendingGroupChanges = useRef<Map<string, EditableGroupState>>(new Map())
+
+  useEffect(() => {
+    const pending = pendingGroupChanges.current
+    if (pending.size > 0) {
+      const groups = [...pending.values()]
+      pendingGroupChanges.current = new Map()
+      onGroupChangeRef.current?.(groups)
+    }
+  })
+
+  const notifyGroupChange = (groups: EditableGroupState[]) => {
+    for (const g of groups) pendingGroupChanges.current.set(g.id, g)
+  }
+
   // ── Helpers ──────────────────────────────────────────────────────
 
   /** Transforms files in a single group by ID, notifies onGroupChange. */
@@ -89,16 +110,15 @@ export function useFileEditing({
     groupId: string,
     transform: (f: EditableFileState) => EditableFileState,
   ) => {
-    let affected: EditableGroupState | undefined
     setGroups((prev) => {
       const newGroups = prev.map((g) => {
         if (g.id !== groupId) return g
         return { ...g, files: g.files.map(transform) }
       })
-      affected = newGroups.find((g) => g.id === groupId)
+      const affected = newGroups.find((g) => g.id === groupId)
+      if (affected) notifyGroupChange([affected])
       return newGroups
     })
-    if (affected) onGroupChange?.([affected])
   }
 
   // ── CRUD ──────────────────────────────────────────────────────────
@@ -112,7 +132,6 @@ export function useFileEditing({
     relativePath: string,
     updates: Partial<EditableFileState>,
   ) => {
-    let affected: EditableGroupState | undefined
     setGroups((prev) => {
       const currentGroup = prev[groupIndex]
       if (!currentGroup) return prev
@@ -122,23 +141,23 @@ export function useFileEditing({
           f.relative_path === relativePath ? { ...f, ...updates } : f,
         ),
       }
-      affected = newGroup
+      notifyGroupChange([newGroup])
       return prev.map((g, i) => (i === groupIndex ? newGroup : g))
     })
-    if (affected) onGroupChange?.([affected])
   }
 
   const updateFileAnyGroup = (relativePath: string, updates: Partial<EditableFileState>) => {
-    let affected: EditableGroupState[] = []
     setGroups((prev) => {
       const newGroups = prev.map((g) => ({
         ...g,
         files: g.files.map((f) => (f.relative_path === relativePath ? { ...f, ...updates } : f)),
       }))
-      affected = newGroups.filter((g) => g.files.some((f) => f.relative_path === relativePath))
+      const affected = newGroups.filter((g) =>
+        g.files.some((f) => f.relative_path === relativePath),
+      )
+      if (affected.length > 0) notifyGroupChange(affected)
       return newGroups
     })
-    if (affected.length > 0) onGroupChange?.(affected)
   }
 
   const updateFilesInGroup = (
@@ -185,7 +204,6 @@ export function useFileEditing({
   ) => {
     const selId = groupId ?? ALL_GROUP_ID
     const sel = selections[selId] ?? new Set<string>()
-    let toSave: EditableGroupState[] = []
     setGroups((prev) => {
       const newGroups = prev.map((g) => {
         if (groupId !== null && g.id !== groupId) return g
@@ -197,10 +215,10 @@ export function useFileEditing({
           }),
         }
       })
-      toSave = groupId !== null ? newGroups.filter((g) => g.id === groupId) : newGroups
+      const toSave = groupId !== null ? newGroups.filter((g) => g.id === groupId) : newGroups
+      if (toSave.length > 0) notifyGroupChange(toSave)
       return newGroups
     })
-    if (toSave.length > 0) onGroupChange?.(toSave)
   }
 
   const bulkAddTag = (groupId: string | null, tag: TagData) =>
@@ -221,7 +239,6 @@ export function useFileEditing({
   const bulkExclude = (groupId: string | null) => {
     const selId = groupId ?? ALL_GROUP_ID
     const sel = selections[selId] ?? new Set<string>()
-    let toSave: EditableGroupState[] = []
     setGroups((prev) => {
       const newGroups = prev.map((g) => {
         if (groupId !== null && g.id !== groupId) return g
@@ -232,11 +249,11 @@ export function useFileEditing({
           ),
         }
       })
-      toSave = groupId !== null ? newGroups.filter((g) => g.id === groupId) : newGroups
+      const toSave = groupId !== null ? newGroups.filter((g) => g.id === groupId) : newGroups
+      if (toSave.length > 0) notifyGroupChange(toSave)
       return newGroups
     })
     deselectAll(selId)
-    if (toSave.length > 0) onGroupChange?.(toSave)
   }
 
   // ── Subgroup ops ──────────────────────────────────────────────────
