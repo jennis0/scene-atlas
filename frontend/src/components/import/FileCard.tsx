@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { X, Undo2, Pencil, Plus, Copy } from 'lucide-react'
 import type { EditableFileState, TagData } from '@/types'
 import { resolveApiUrl } from '@/lib/apiBase'
+import { importPreviewUrl } from '@/lib/importStorage'
 import { TagPicker } from './TagPicker'
 import { GridToggle } from './GridToggle'
 import { GridSizeInput } from './GridSizeInput'
@@ -40,8 +41,7 @@ export function FileCard({
   const [isSubgroupOpen, setIsSubgroupOpen] = useState(false)
 
   const isVideo = file.media_type === 'video'
-  const previewUrl =
-    file.previewUrl ?? resolveApiUrl(`/api/v1/imports/${jobId}/preview/${file.relative_path}`)
+  const previewUrl = file.previewUrl ?? resolveApiUrl(importPreviewUrl(jobId, file.relative_path))
   const useVideoThumb = isVideo && !!file.previewUrl?.startsWith('blob:')
 
   const handleCardClick = (e: React.MouseEvent) => {

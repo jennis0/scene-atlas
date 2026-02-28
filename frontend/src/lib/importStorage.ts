@@ -219,6 +219,11 @@ function stripPreviewUrls(groups: EditableGroupState[]): EditableGroupState[] {
   }))
 }
 
+/** Build the server preview URL for a file within an import job. */
+export function importPreviewUrl(jobId: string, relativePath: string): string {
+  return `/api/v1/imports/${jobId}/preview/${encodeURI(relativePath)}`
+}
+
 /** Restore preview URLs from server endpoint after loading from localStorage. */
 export function restorePreviewUrls(
   jobId: string,
@@ -228,7 +233,7 @@ export function restorePreviewUrls(
     ...g,
     files: g.files.map((f) => ({
       ...f,
-      previewUrl: `/api/v1/imports/${jobId}/preview/${f.relative_path}`,
+      previewUrl: importPreviewUrl(jobId, f.relative_path),
     })),
   }))
 }
