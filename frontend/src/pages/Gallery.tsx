@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback, Suspense, lazy } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -24,7 +24,7 @@ import { GroupGrid } from '@/components/GroupGrid'
 import { ImageViewer } from '@/components/ImageViewer'
 import { ImportDialog } from '@/components/ImportDialog'
 import { ActivityDock } from '@/components/ActivityDock'
-import { EditGroupDialog } from '@/components/EditGroupDialog'
+const EditGroupDialog = lazy(() => import('@/components/EditGroupDialog'))
 import { TagManagementDialog } from '@/components/TagManagementDialog'
 import { MergeGroupPicker } from '@/components/MergeGroupPicker'
 import { GalleryFilterPanel } from '@/components/GalleryFilterPanel'
@@ -178,6 +178,7 @@ export function Gallery() {
     const stored = localStorage.getItem('gallery-relevance')
     return stored ? parseFloat(stored) : 0.2
   })
+  const relevanceSaveRef = useRef<ReturnType<typeof setTimeout>>()
 
   // Facets — lightweight cached fetch, replaces the old 10k image fetch
   const { data: facets } = useQuery({
@@ -307,10 +308,13 @@ export function Gallery() {
     setUrlParams(buildUrlParams(submittedQuery, newFilters, imageType))
   }
 
-  const handleImageTypeChange = (type: ImageTypeFilter) => {
-    setImageType(type)
-    setUrlParams(buildUrlParams(submittedQuery, filters, type))
-  }
+  const handleImageTypeChange = useCallback(
+    (type: ImageTypeFilter) => {
+      setImageType(type)
+      setUrlParams(buildUrlParams(submittedQuery, filters, type))
+    },
+    [submittedQuery, filters, setUrlParams],
+  )
 
   const invalidateGallery = () => {
     queryClient.invalidateQueries({ queryKey: ['search'] })
@@ -354,6 +358,60 @@ export function Gallery() {
 
   // Result count label suffix
   const searchModeSuffix = isSemantic ? ' · visual' : isTextOnly ? ' · keyword' : ''
+
+  // Tab strip — memoised so it only recalculates when facets or selection change
+  const tabStrip = useMemo(() => {
+    const typeCounts = Object.fromEntries(
+      (facets?.image_types ?? []).map((t) => [t.value, t.count]),
+    )
+    const total = Object.values(typeCounts).reduce((s, n) => s + n, 0)
+    const tabs = [
+      { value: 'all' as ImageTypeFilter, label: 'All', Icon: Compass, count: total },
+      {
+        value: 'battlemap' as ImageTypeFilter,
+        label: 'Maps',
+        Icon: Map,
+        count: typeCounts['battlemap'] ?? 0,
+      },
+      {
+        value: 'scene' as ImageTypeFilter,
+        label: 'Scenes',
+        Icon: Mountain,
+        count: typeCounts['scene'] ?? 0,
+      },
+    ]
+    return (
+      <div className="-mx-4 px-4 flex items-stretch border-b border-border/60">
+        {tabs.map(({ value, label, Icon, count }) => (
+          <button
+            key={value}
+            onClick={() => handleImageTypeChange(value)}
+            className={`flex items-center gap-2 py-2.5 pr-4 mr-1 text-sm font-medium border-b-2 transition-colors
+              ${
+                imageType === value
+                  ? 'border-primary text-foreground'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
+          >
+            <Icon className="h-3.5 w-3.5 shrink-0" />
+            {label}
+            {count > 0 && (
+              <span
+                className={`text-[10px] font-normal px-1.5 py-px rounded-full transition-colors
+                ${
+                  imageType === value
+                    ? 'bg-primary/15 text-primary'
+                    : 'bg-secondary text-muted-foreground'
+                }`}
+              >
+                {count.toLocaleString()}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+    )
+  }, [facets, imageType, handleImageTypeChange])
 
   return (
     <div className="flex h-screen flex-col">
@@ -413,58 +471,7 @@ export function Gallery() {
           </div>
 
           {/* Tab strip — mode selector */}
-          {(() => {
-            const typeCounts = Object.fromEntries(
-              (facets?.image_types ?? []).map((t) => [t.value, t.count]),
-            )
-            const total = Object.values(typeCounts).reduce((s, n) => s + n, 0)
-            const tabs = [
-              { value: 'all' as ImageTypeFilter, label: 'All', Icon: Compass, count: total },
-              {
-                value: 'battlemap' as ImageTypeFilter,
-                label: 'Maps',
-                Icon: Map,
-                count: typeCounts['battlemap'] ?? 0,
-              },
-              {
-                value: 'scene' as ImageTypeFilter,
-                label: 'Scenes',
-                Icon: Mountain,
-                count: typeCounts['scene'] ?? 0,
-              },
-            ]
-            return (
-              <div className="-mx-4 px-4 flex items-stretch border-b border-border/60">
-                {tabs.map(({ value, label, Icon, count }) => (
-                  <button
-                    key={value}
-                    onClick={() => handleImageTypeChange(value)}
-                    className={`flex items-center gap-2 py-2.5 pr-4 mr-1 text-sm font-medium border-b-2 transition-colors
-                      ${
-                        imageType === value
-                          ? 'border-primary text-foreground'
-                          : 'border-transparent text-muted-foreground hover:text-foreground'
-                      }`}
-                  >
-                    <Icon className="h-3.5 w-3.5 shrink-0" />
-                    {label}
-                    {count > 0 && (
-                      <span
-                        className={`text-[10px] font-normal px-1.5 py-px rounded-full transition-colors
-                        ${
-                          imageType === value
-                            ? 'bg-primary/15 text-primary'
-                            : 'bg-secondary text-muted-foreground'
-                        }`}
-                      >
-                        {count.toLocaleString()}
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )
-          })()}
+          {tabStrip}
 
           {/* Search + controls row */}
           <div className="flex items-center gap-2 pt-3 pb-3">
@@ -633,7 +640,10 @@ export function Gallery() {
                       onChange={(e) => {
                         const val = parseFloat(e.target.value)
                         setMinScore(val)
-                        localStorage.setItem('gallery-relevance', String(val))
+                        clearTimeout(relevanceSaveRef.current)
+                        relevanceSaveRef.current = setTimeout(() => {
+                          localStorage.setItem('gallery-relevance', String(val))
+                        }, 300)
                       }}
                       className="w-20 cursor-pointer accent-primary"
                       style={{ height: '4px' }}
@@ -752,38 +762,41 @@ export function Gallery() {
         />
       )}
 
-      {/* Edit group dialog — single group (from image viewer) */}
-      <EditGroupDialog
-        groupId={editGroupId}
-        open={editGroupId !== null}
-        onClose={() => setEditGroupId(null)}
-        onSave={() => {
-          setEditGroupId(null)
-          invalidateGallery()
-        }}
-      />
+      {/* Edit group dialogs — lazy-loaded since they pull in @dnd-kit */}
+      <Suspense fallback={null}>
+        {/* Edit group dialog — single group (from image viewer) */}
+        <EditGroupDialog
+          groupId={editGroupId}
+          open={editGroupId !== null}
+          onClose={() => setEditGroupId(null)}
+          onSave={() => {
+            setEditGroupId(null)
+            invalidateGallery()
+          }}
+        />
 
-      {/* Import-review dialog — opened by clicking a completed job in the tray */}
-      <EditGroupDialog
-        groupIds={importReviewGroupIds ?? undefined}
-        open={importReviewGroupIds !== null}
-        onClose={() => setImportReviewGroupIds(null)}
-        onSave={() => {
-          setImportReviewGroupIds(null)
-          invalidateGallery()
-        }}
-      />
+        {/* Import-review dialog — opened by clicking a completed job in the tray */}
+        <EditGroupDialog
+          groupIds={importReviewGroupIds ?? undefined}
+          open={importReviewGroupIds !== null}
+          onClose={() => setImportReviewGroupIds(null)}
+          onSave={() => {
+            setImportReviewGroupIds(null)
+            invalidateGallery()
+          }}
+        />
 
-      {/* Mass-edit dialog — all images in current search results */}
-      <EditGroupDialog
-        seedImages={displayImages}
-        open={showMassEdit}
-        onClose={() => setShowMassEdit(false)}
-        onSave={() => {
-          setShowMassEdit(false)
-          invalidateGallery()
-        }}
-      />
+        {/* Mass-edit dialog — all images in current search results */}
+        <EditGroupDialog
+          seedImages={displayImages}
+          open={showMassEdit}
+          onClose={() => setShowMassEdit(false)}
+          onSave={() => {
+            setShowMassEdit(false)
+            invalidateGallery()
+          }}
+        />
+      </Suspense>
 
       {/* Import dialog — key forces remount so each open starts fresh */}
       <ImportDialog

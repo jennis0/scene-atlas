@@ -241,7 +241,7 @@ function DroppableSubgroupSection({
 
 // ── Main component ─────────────────────────────────────────────────────────
 
-export function EditGroupDialog({
+export default function EditGroupDialog({
   groupId,
   seedImages,
   groupIds,
