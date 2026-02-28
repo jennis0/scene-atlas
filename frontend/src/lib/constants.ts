@@ -24,5 +24,9 @@ export const AUTO_SAVE_INTERVAL_MS = 60_000
 export const SAVED_INDICATOR_DURATION_MS = 1_500
 export const IMPORT_STORAGE_EXPIRY_MS = 24 * 60 * 60 * 1_000 // 24 hours
 
+// ── Upload limits ────────────────────────────────────────────────────────────
+export const MAX_FILE_SIZE_MB = 200
+export const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
+
 // ── Canvas / image viewer ────────────────────────────────────────────────────
 export const CANVAS_DOT_SIZE = 24
