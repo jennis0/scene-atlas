@@ -22,86 +22,97 @@ export { ALL_TAB, ALL_GROUP_ID }
 export type DialogState = 'upload' | 'preview' | 'processing' | 'done'
 
 export interface UseImportStateReturn {
-  // Core state
-  state: DialogState
-  uploading: boolean
-  uploadError: string | null
-  uploadPhase: string | null
-  skippedFiles: string[]
-  jobId: string | null
-  groups: EditableGroupState[]
-  activeTab: number
-  tagVocab: ParsedTagVocab[]
-  selections: Record<string, Set<string>>
-  fileFilter: FileFilter
-  authorSuggestions: string[]
-  editingSvHeading: string | null
-  defaultImageType: 'battlemap' | 'scene'
-
-  // Refs
-  fileInputRef: React.RefObject<HTMLInputElement>
-  folderInputRef: React.RefObject<HTMLInputElement>
-
-  // Derived values
-  isAllTab: boolean
-  activeGroup: EditableGroupState | null
-  activeGroupId: string
-  allPendingFiles: EditableFileState[]
-  sourceFiles: EditableFileState[]
-  filteredFiles: EditableFileState[]
-  activeSelection: Set<string>
-  groupSubgroups: string[]
-  distinctSubgroups: (string | null)[]
-  showSubgroupHeadings: boolean
-  subgroupGroups: { subgroup: string | null; files: EditableFileState[] }[]
-  pendingGroups: EditableGroupState[]
-  completedCount: number
-  totalFiles: number
-  allSameAuthor: string
-  duplicateCount: number
-  skippedDuplicateCount: number
-  canImportActive: boolean
-  canImportAll: boolean
-  canMergeAll: boolean
-
-  // State setters
-  setState: (state: DialogState) => void
-  setActiveTab: (tab: number) => void
-  setFileFilter: (filter: FileFilter) => void
-  setEditingSvHeading: (heading: string | null) => void
-  setGroups: React.Dispatch<React.SetStateAction<EditableGroupState[]>>
-  setDefaultImageType: (type: 'battlemap' | 'scene') => void
-
-  // Actions
-  reset: () => void
-  handleFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => Promise<void>
-  handleDrop: (e: React.DragEvent) => Promise<void>
-  updateGroup: (index: number, updates: Partial<EditableGroupState>) => void
-  updateFile: (
-    groupIndex: number,
-    relativePath: string,
-    updates: Partial<EditableFileState>,
-  ) => void
-  updateFileAnyGroup: (relativePath: string, updates: Partial<EditableFileState>) => void
-  mergeGroups: (sourceIndex: number, targetIndex: number) => void
-  mergeAllGroups: () => void
-  toggleFileSelection: (groupId: string, relativePath: string) => void
-  selectAllVisible: (groupId: string, visibleFiles: EditableFileState[]) => void
-  deselectAll: (groupId: string) => void
-  bulkAddTag: (groupId: string | null, tag: TagData) => void
-  bulkSetGrid: (groupId: string | null, gridded: boolean | null, gridType: string | null) => void
-  bulkSetImageType: (groupId: string | null, value: 'battlemap' | 'scene') => void
-  bulkSetSubgroup: (groupId: string | null, value: string) => void
-  bulkExclude: (groupId: string | null) => void
-  bulkSetDuplicateAction: (groupId: string | null, action: 'skip' | 'import') => void
-  clearSubgroupLabel: (groupId: string, subgroup: string) => void
-  renameSubgroup: (groupId: string, oldVal: string, newVal: string) => void
-  moveToNewGroup: (sourceGroupId: string) => void
-  handleConfirmGroup: (index: number) => Promise<void>
-  handleConfirmAll: () => Promise<void>
-  handleFinalize: () => Promise<void>
-  buildConfirmFiles: (group: EditableGroupState) => ImportConfirmFile[]
-  saveNow: () => void
+  workflow: {
+    state: DialogState
+    setState: (state: DialogState) => void
+    uploading: boolean
+    uploadError: string | null
+    uploadPhase: string | null
+    skippedFiles: string[]
+    jobId: string | null
+    reset: () => void
+  }
+  files: {
+    groups: EditableGroupState[]
+    setGroups: React.Dispatch<React.SetStateAction<EditableGroupState[]>>
+    activeTab: number
+    setActiveTab: (tab: number) => void
+    isAllTab: boolean
+    activeGroup: EditableGroupState | null
+    activeGroupId: string
+    sourceFiles: EditableFileState[]
+    filteredFiles: EditableFileState[]
+    allPendingFiles: EditableFileState[]
+    pendingGroups: EditableGroupState[]
+    totalFiles: number
+    completedCount: number
+    allSameAuthor: string
+  }
+  editing: {
+    updateGroup: (index: number, updates: Partial<EditableGroupState>) => void
+    updateFile: (
+      groupIndex: number,
+      relativePath: string,
+      updates: Partial<EditableFileState>,
+    ) => void
+    updateFileAnyGroup: (relativePath: string, updates: Partial<EditableFileState>) => void
+    mergeGroups: (sourceIndex: number, targetIndex: number) => void
+    mergeAllGroups: () => void
+    moveToNewGroup: (sourceGroupId: string) => void
+    selections: Record<string, Set<string>>
+    toggleFileSelection: (groupId: string, relativePath: string) => void
+    selectAllVisible: (groupId: string, visibleFiles: EditableFileState[]) => void
+    deselectAll: (groupId: string) => void
+    activeSelection: Set<string>
+  }
+  bulk: {
+    bulkAddTag: (groupId: string | null, tag: TagData) => void
+    bulkSetGrid: (groupId: string | null, gridded: boolean | null, gridType: string | null) => void
+    bulkSetImageType: (groupId: string | null, value: 'battlemap' | 'scene') => void
+    bulkSetSubgroup: (groupId: string | null, value: string) => void
+    bulkExclude: (groupId: string | null) => void
+    bulkSetDuplicateAction: (groupId: string | null, action: 'skip' | 'import') => void
+  }
+  filter: {
+    fileFilter: FileFilter
+    setFileFilter: (filter: FileFilter) => void
+    editingSvHeading: string | null
+    setEditingSvHeading: (heading: string | null) => void
+  }
+  subgroups: {
+    groupSubgroups: string[]
+    distinctSubgroups: (string | null)[]
+    showSubgroupHeadings: boolean
+    subgroupGroups: { subgroup: string | null; files: EditableFileState[] }[]
+    clearSubgroupLabel: (groupId: string, subgroup: string) => void
+    renameSubgroup: (groupId: string, oldVal: string, newVal: string) => void
+  }
+  metadata: {
+    tagVocab: ParsedTagVocab[]
+    authorSuggestions: string[]
+    defaultImageType: 'battlemap' | 'scene'
+    setDefaultImageType: (type: 'battlemap' | 'scene') => void
+    duplicateCount: number
+    skippedDuplicateCount: number
+  }
+  upload: {
+    fileInputRef: React.RefObject<HTMLInputElement>
+    folderInputRef: React.RefObject<HTMLInputElement>
+    handleFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => Promise<void>
+    handleDrop: (e: React.DragEvent) => Promise<void>
+  }
+  confirm: {
+    handleConfirmGroup: (index: number) => Promise<void>
+    handleConfirmAll: () => Promise<void>
+    handleFinalize: () => Promise<void>
+    buildConfirmFiles: (group: EditableGroupState) => ImportConfirmFile[]
+    canImportActive: boolean
+    canImportAll: boolean
+    canMergeAll: boolean
+  }
+  persistence: {
+    saveNow: () => void
+  }
 }
 
 export function useImportState(
@@ -519,72 +530,92 @@ export function useImportState(
   const canMergeAll = pendingGroups.length >= 2
 
   return {
-    state,
-    uploading,
-    uploadError,
-    uploadPhase,
-    skippedFiles,
-    jobId,
-    groups,
-    activeTab,
-    tagVocab,
-    selections,
-    fileFilter,
-    authorSuggestions,
-    editingSvHeading,
-    defaultImageType,
-    fileInputRef,
-    folderInputRef,
-    isAllTab,
-    activeGroup,
-    activeGroupId,
-    allPendingFiles,
-    sourceFiles,
-    filteredFiles,
-    activeSelection,
-    groupSubgroups,
-    distinctSubgroups,
-    showSubgroupHeadings,
-    subgroupGroups,
-    pendingGroups,
-    completedCount,
-    totalFiles,
-    duplicateCount,
-    skippedDuplicateCount,
-    allSameAuthor,
-    canImportActive,
-    canImportAll,
-    canMergeAll,
-    setState,
-    setActiveTab,
-    setFileFilter,
-    setEditingSvHeading,
-    setGroups,
-    setDefaultImageType,
-    reset,
-    handleFileSelect,
-    handleDrop,
-    updateGroup,
-    updateFile,
-    updateFileAnyGroup,
-    mergeGroups,
-    mergeAllGroups,
-    toggleFileSelection,
-    selectAllVisible,
-    deselectAll,
-    bulkAddTag,
-    bulkSetGrid,
-    bulkSetImageType,
-    bulkSetSubgroup,
-    bulkExclude,
-    bulkSetDuplicateAction,
-    clearSubgroupLabel,
-    renameSubgroup,
-    moveToNewGroup,
-    handleConfirmGroup,
-    handleConfirmAll,
-    handleFinalize,
-    buildConfirmFiles,
-    saveNow,
+    workflow: {
+      state,
+      setState,
+      uploading,
+      uploadError,
+      uploadPhase,
+      skippedFiles,
+      jobId,
+      reset,
+    },
+    files: {
+      groups,
+      setGroups,
+      activeTab,
+      setActiveTab,
+      isAllTab,
+      activeGroup,
+      activeGroupId,
+      sourceFiles,
+      filteredFiles,
+      allPendingFiles,
+      pendingGroups,
+      totalFiles,
+      completedCount,
+      allSameAuthor,
+    },
+    editing: {
+      updateGroup,
+      updateFile,
+      updateFileAnyGroup,
+      mergeGroups,
+      mergeAllGroups,
+      moveToNewGroup,
+      selections,
+      toggleFileSelection,
+      selectAllVisible,
+      deselectAll,
+      activeSelection,
+    },
+    bulk: {
+      bulkAddTag,
+      bulkSetGrid,
+      bulkSetImageType,
+      bulkSetSubgroup,
+      bulkExclude,
+      bulkSetDuplicateAction,
+    },
+    filter: {
+      fileFilter,
+      setFileFilter,
+      editingSvHeading,
+      setEditingSvHeading,
+    },
+    subgroups: {
+      groupSubgroups,
+      distinctSubgroups,
+      showSubgroupHeadings,
+      subgroupGroups,
+      clearSubgroupLabel,
+      renameSubgroup,
+    },
+    metadata: {
+      tagVocab,
+      authorSuggestions,
+      defaultImageType,
+      setDefaultImageType,
+      duplicateCount,
+      skippedDuplicateCount,
+    },
+    upload: {
+      fileInputRef,
+      folderInputRef,
+      handleFileSelect,
+      handleDrop,
+    },
+    confirm: {
+      handleConfirmGroup,
+      handleConfirmAll,
+      handleFinalize,
+      buildConfirmFiles,
+      canImportActive,
+      canImportAll,
+      canMergeAll,
+    },
+    persistence: {
+      saveNow,
+    },
   }
 }

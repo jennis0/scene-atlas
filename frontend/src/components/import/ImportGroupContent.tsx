@@ -291,37 +291,28 @@ export function ImportGroupContent({ s }: ImportGroupContentProps) {
     activeGroupId,
     sourceFiles,
     filteredFiles,
-    activeSelection,
-    groupSubgroups,
-    showSubgroupHeadings,
-    subgroupGroups,
     pendingGroups,
     allSameAuthor,
-    canImportActive,
-    canImportAll,
-    fileFilter,
-    jobId,
     groups,
     activeTab,
-    state,
-    authorSuggestions,
-    setFileFilter,
     setGroups,
+  } = s.files
+  const {
+    toggleFileSelection,
+    selectAllVisible,
+    deselectAll,
+    activeSelection,
     updateGroup,
     updateFile,
     updateFileAnyGroup,
-    selectAllVisible,
-    deselectAll,
-    toggleFileSelection,
-    bulkSetImageType,
-    bulkExclude,
-    bulkSetDuplicateAction,
-    duplicateCount,
-    skippedDuplicateCount,
     moveToNewGroup,
-    handleConfirmGroup,
-    handleConfirmAll,
-  } = s
+  } = s.editing
+  const { bulkSetImageType, bulkExclude, bulkSetDuplicateAction } = s.bulk
+  const { fileFilter, setFileFilter } = s.filter
+  const { subgroupGroups, showSubgroupHeadings, groupSubgroups } = s.subgroups
+  const { authorSuggestions, duplicateCount, skippedDuplicateCount } = s.metadata
+  const { handleConfirmGroup, handleConfirmAll, canImportActive, canImportAll } = s.confirm
+  const { state, jobId } = s.workflow
 
   return (
     <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
