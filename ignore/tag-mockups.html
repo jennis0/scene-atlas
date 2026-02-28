@@ -1,0 +1,1232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tag Management Mockups</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Figtree:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0e1118;
+    --popover: #12171f;
+    --card: #161c28;
+    --muted: #181f2e;
+    --secondary: #1c2231;
+    --border: #222a38;
+    --primary: #d4a853;
+    --destructive: #e04e4e;
+    --foreground: #ede8dc;
+    --muted-fg: #8b8475;
+  }
+
+  body {
+    background: #080a0e;
+    color: var(--foreground);
+    font-family: 'Figtree', sans-serif;
+    padding: 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 60px;
+    align-items: center;
+  }
+
+  h1 {
+    font-family: 'Cinzel', serif;
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--foreground);
+    text-align: center;
+    letter-spacing: 0.04em;
+  }
+  .subtitle {
+    text-align: center;
+    color: var(--muted-fg);
+    font-size: 13px;
+    margin-top: 6px;
+  }
+
+  .mockup-label {
+    font-family: 'Cinzel', serif;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--primary);
+    letter-spacing: 0.06em;
+    margin-bottom: 12px;
+    text-align: center;
+  }
+  .mockup-desc {
+    font-size: 12px;
+    color: var(--muted-fg);
+    max-width: 700px;
+    text-align: center;
+    margin-bottom: 20px;
+    line-height: 1.6;
+  }
+
+  .dialog {
+    width: 768px;
+    height: 520px;
+    background: var(--card);
+    border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 25px 50px -12px rgba(0,0,0,0.7);
+  }
+
+  .header {
+    padding: 10px 12px 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--popover);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .header-left {
+    display: flex;
+    flex-direction: column;
+  }
+  .header-title {
+    font-family: 'Cinzel', serif;
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    color: var(--foreground);
+  }
+  .amber-rule {
+    margin-top: 3px;
+    height: 1px;
+    width: 28px;
+    background: linear-gradient(to right, var(--primary), transparent);
+  }
+  .close-btn {
+    width: 28px; height: 28px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 4px;
+    color: var(--muted-fg);
+    background: none; border: none; cursor: pointer;
+    font-size: 14px;
+  }
+
+  .body {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+  }
+
+  /* Left panel */
+  .sidebar {
+    width: 188px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--border);
+    background: var(--popover);
+    display: flex;
+    flex-direction: column;
+  }
+  .section-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted-fg);
+    padding: 9px 14px 5px;
+  }
+  .cat-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 2px 0;
+  }
+  .cat-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px 7px 14px;
+    font-size: 12px;
+    text-transform: capitalize;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+    transition: background 0.15s;
+    color: var(--muted-fg);
+  }
+  .cat-item:hover { background: var(--muted); }
+  .cat-item.active {
+    font-weight: 500;
+    border-left-color: #34d399;
+    color: #6ee7b7;
+    background: var(--muted);
+  }
+  .cat-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .cat-count {
+    font-size: 10px;
+    margin-left: auto;
+    opacity: 0.4;
+    font-variant-numeric: tabular-nums;
+  }
+  .cat-footer {
+    padding: 7px 12px 9px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  /* Ghost create button */
+  .ghost-create {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    color: color-mix(in srgb, var(--muted-fg) 70%, transparent);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 8px;
+    transition: color 0.15s;
+  }
+  .ghost-create:hover { color: var(--muted-fg); }
+  .ghost-create .plus {
+    font-size: 13px;
+    line-height: 1;
+  }
+
+  /* Dashed create button (old style, for comparison) */
+  .dashed-create {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    color: var(--muted-fg);
+    background: none;
+    border: 1px dashed color-mix(in srgb, var(--muted-fg) 30%, transparent);
+    border-radius: 5px;
+    cursor: pointer;
+    padding: 5px 8px;
+    width: 100%;
+    transition: all 0.15s;
+  }
+
+  /* Right panel */
+  .editor {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Footer */
+  .footer {
+    padding: 8px 16px;
+    border-top: 1px solid var(--border);
+    background: var(--popover);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .footer-hint {
+    font-size: 11px;
+    color: var(--muted-fg);
+    font-style: italic;
+    opacity: 0.7;
+  }
+  .regen-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 9%, transparent);
+    border: 1px solid color-mix(in srgb, var(--primary) 28%, transparent);
+    border-radius: 5px;
+    padding: 4px 10px;
+    cursor: pointer;
+  }
+
+  /* ── Mockup A: Plan As-Is ─────────────────────────────────── */
+
+  .ed-heading-a {
+    border-bottom: 1px solid var(--border);
+    padding: 11px 14px 10px 16px;
+    flex-shrink: 0;
+  }
+  .ed-heading-a .top-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .ed-heading-a .cat-name-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-top: 3px;
+  }
+  .ed-heading-a .cat-icon-trigger {
+    width: 26px; height: 26px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 5px;
+    background: color-mix(in srgb, var(--secondary) 60%, transparent);
+    border: none; cursor: pointer;
+    color: var(--foreground);
+    opacity: 0.8;
+    font-size: 15px;
+    transition: background 0.15s;
+  }
+  .ed-heading-a .cat-icon-trigger:hover { background: var(--secondary); }
+  .cat-name {
+    font-family: 'Cinzel', serif;
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    line-height: 1.2;
+    text-transform: capitalize;
+  }
+  .pencil {
+    opacity: 0;
+    transition: opacity 0.15s;
+    color: var(--muted-fg);
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .cat-name-row:hover .pencil { opacity: 0.6; }
+  .color-dot-trigger {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    border: none; cursor: pointer;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.15);
+    transition: transform 0.15s;
+  }
+  .color-dot-trigger:hover { transform: scale(1.15); }
+  .delete-btn {
+    width: 26px; height: 26px;
+    display: flex; align-items: center; justify-content: center;
+    background: none;
+    border: 1px solid color-mix(in srgb, var(--destructive) 20%, transparent);
+    border-radius: 5px;
+    color: color-mix(in srgb, var(--destructive) 55%, transparent);
+    cursor: pointer;
+    font-size: 12px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .description-underline {
+    width: 100%;
+    font-size: 11.5px;
+    color: var(--muted-fg);
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+    padding: 4px 0;
+    margin-top: 8px;
+    font-family: 'Figtree', sans-serif;
+    outline: none;
+    resize: none;
+  }
+
+  /* Tag values — standard */
+  .tag-values-header {
+    padding: 7px 16px 3px;
+    flex-shrink: 0;
+  }
+  .tag-values-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1px 10px 8px;
+  }
+  .tag-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 8px 3px;
+    border-radius: 6px;
+    transition: background 0.12s;
+    cursor: default;
+  }
+  .tag-row:hover {
+    background: color-mix(in srgb, var(--muted) 50%, transparent);
+  }
+  .tag-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    margin-top: 5.5px;
+    flex-shrink: 0;
+  }
+  .tag-content {
+    flex: 1;
+    min-width: 0;
+  }
+  .tag-name {
+    font-size: 13px;
+    font-weight: 500;
+    text-transform: capitalize;
+    line-height: 1.3;
+    cursor: text;
+  }
+  .tag-aliases {
+    font-size: 11px;
+    color: var(--muted-fg);
+    text-transform: capitalize;
+    margin-top: 1px;
+    line-height: 1.35;
+  }
+  .tag-aliases.empty {
+    font-style: italic;
+    color: color-mix(in srgb, var(--muted-fg) 55%, transparent);
+  }
+  .tag-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .tag-pencil {
+    opacity: 0;
+    color: var(--muted-fg);
+    font-size: 10px;
+    transition: opacity 0.15s;
+  }
+  .tag-row:hover .tag-pencil { opacity: 0.5; }
+  .tag-count {
+    font-size: 11px;
+    color: var(--muted-fg);
+    font-variant-numeric: tabular-nums;
+  }
+  .tag-delete {
+    width: 20px; height: 20px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 3px;
+    color: color-mix(in srgb, var(--destructive) 45%, transparent);
+    background: none; border: none; cursor: pointer;
+    font-size: 11px;
+  }
+
+  /* ── Mockup B: Ledger Lite ────────────────────────────────── */
+
+  .tag-row-ledger {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 7px 8px 6px;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 25%, transparent);
+    transition: background 0.12s;
+    cursor: default;
+  }
+  .tag-row-ledger:hover {
+    background: color-mix(in srgb, var(--muted) 35%, transparent);
+  }
+  .tag-row-ledger:last-child {
+    border-bottom: none;
+  }
+  .tag-right-ledger {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    margin-top: 1px;
+    padding-left: 8px;
+    border-left: 1px solid color-mix(in srgb, var(--border) 20%, transparent);
+    min-width: 56px;
+    justify-content: flex-end;
+  }
+  .tag-row-ledger:hover .tag-pencil { opacity: 0.5; }
+
+  /* ── Mockup C: Specimen Ledger (Full) ─────────────────────── */
+
+  .ed-heading-c {
+    padding: 14px 16px 12px;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .stamp-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .stamp {
+    width: 40px;
+    height: 40px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    position: relative;
+  }
+  .stamp::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 6px;
+    border: 1.5px solid currentColor;
+    opacity: 0.25;
+  }
+  .stamp-info {
+    flex: 1;
+    min-width: 0;
+  }
+  .stamp-info .cat-name {
+    font-size: 19px;
+  }
+  .stamp-info .description-underline {
+    margin-top: 4px;
+    font-size: 11px;
+  }
+  .stamp-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  /* Centered section divider */
+  .section-divider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px 6px;
+    flex-shrink: 0;
+  }
+  .section-divider .rule {
+    flex: 1;
+    height: 1px;
+    background: color-mix(in srgb, var(--border) 40%, transparent);
+  }
+  .section-divider .label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted-fg);
+    white-space: nowrap;
+  }
+
+  /* Gutter style tag rows */
+  .tag-row-specimen {
+    display: flex;
+    align-items: stretch;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 18%, transparent);
+    transition: background 0.12s;
+    cursor: default;
+  }
+  .tag-row-specimen:hover {
+    background: color-mix(in srgb, var(--muted) 30%, transparent);
+  }
+  .tag-gutter {
+    width: 28px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 10px;
+    border-right: 1px solid color-mix(in srgb, var(--border) 15%, transparent);
+  }
+  .tag-gutter .ink-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+  }
+  .tag-specimen-content {
+    flex: 1;
+    min-width: 0;
+    padding: 7px 10px 6px;
+  }
+  .tag-specimen-name {
+    font-size: 13px;
+    font-weight: 500;
+    text-transform: capitalize;
+    line-height: 1.3;
+    cursor: text;
+  }
+  .tag-specimen-aliases {
+    font-size: 10.5px;
+    color: var(--muted-fg);
+    text-transform: capitalize;
+    margin-top: 2px;
+    font-style: italic;
+    opacity: 0.7;
+    line-height: 1.3;
+  }
+  .tag-margin {
+    width: 60px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+    padding: 0 8px;
+    border-left: 1px solid color-mix(in srgb, var(--border) 15%, transparent);
+  }
+  .tag-margin-count {
+    font-size: 11px;
+    color: var(--muted-fg);
+    font-variant-numeric: tabular-nums;
+    opacity: 0.6;
+  }
+  .tag-row-specimen:hover .tag-pencil { opacity: 0.5; }
+
+  /* Tab-style active category */
+  .cat-item-tab {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px 7px 14px;
+    font-size: 12px;
+    text-transform: capitalize;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+    transition: all 0.15s;
+    color: var(--muted-fg);
+    position: relative;
+  }
+  .cat-item-tab:hover { background: var(--muted); }
+  .cat-item-tab.active {
+    font-weight: 500;
+    border-left-color: #34d399;
+    color: #6ee7b7;
+    background: var(--card);
+    border-right: 1px solid var(--card);
+    margin-right: -1px;
+    z-index: 1;
+  }
+
+  /* Color classes */
+  .emerald { color: #6ee7b7; }
+  .emerald-dot { background: #34d399; }
+  .emerald-bg { background: color-mix(in srgb, #34d399 8%, transparent); }
+  .amber { color: #fcd34d; }
+  .amber-dot { background: #f59e0b; }
+  .sky { color: #7dd3fc; }
+  .sky-dot { background: #38bdf8; }
+  .orange { color: #fdba74; }
+  .orange-dot { background: #fb923c; }
+  .rose { color: #fda4af; }
+  .rose-dot { background: #fb7185; }
+  .violet { color: #c4b5fd; }
+  .violet-dot { background: #a78bfa; }
+</style>
+</head>
+<body>
+
+<div>
+  <h1>Tag Management — Design Mockups</h1>
+  <p class="subtitle">Three approaches, same data. Compare the feel.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- MOCKUP A: Plan As-Is -->
+<!-- ════════════════════════════════════════════════════════════ -->
+
+<div>
+  <div class="mockup-label">A · Plan As-Is</div>
+  <div class="mockup-desc">
+    Popover-based icon/color pickers, ghost create buttons, row-level hover, category-tinted names.<br>
+    Functional cleanup without aesthetic rethinking.
+  </div>
+  <div class="dialog">
+    <div class="header">
+      <div class="header-left">
+        <span class="header-title">Tag Management</span>
+        <div class="amber-rule"></div>
+      </div>
+      <button class="close-btn">✕</button>
+    </div>
+
+    <div class="body">
+      <div class="sidebar">
+        <p class="section-label">Categories</p>
+        <div class="cat-list">
+          <div class="cat-item active">
+            <span class="cat-dot emerald-dot"></span>
+            <span style="flex:1">terrain</span>
+            <span class="cat-count">8</span>
+          </div>
+          <div class="cat-item">
+            <span class="cat-dot amber-dot"></span>
+            <span style="flex:1">lighting</span>
+            <span class="cat-count">5</span>
+          </div>
+          <div class="cat-item">
+            <span class="cat-dot sky-dot"></span>
+            <span style="flex:1">weather</span>
+            <span class="cat-count">6</span>
+          </div>
+          <div class="cat-item">
+            <span class="cat-dot orange-dot"></span>
+            <span style="flex:1">season</span>
+            <span class="cat-count">4</span>
+          </div>
+          <div class="cat-item">
+            <span class="cat-dot rose-dot"></span>
+            <span style="flex:1">mood</span>
+            <span class="cat-count">3</span>
+          </div>
+          <div class="cat-item">
+            <span class="cat-dot violet-dot"></span>
+            <span style="flex:1">feature</span>
+            <span class="cat-count">7</span>
+          </div>
+        </div>
+        <div class="cat-footer">
+          <button class="ghost-create">
+            <span class="plus">+</span> New category
+          </button>
+        </div>
+      </div>
+
+      <div class="editor">
+        <div class="ed-heading-a">
+          <div class="top-row">
+            <div style="flex:1; min-width:0">
+              <p class="section-label" style="padding:0; margin-bottom:3px">Editing</p>
+              <div class="cat-name-row">
+                <button class="cat-icon-trigger" title="Change icon">⛰</button>
+                <span class="cat-name emerald">terrain</span>
+                <span class="pencil">✎</span>
+                <button class="color-dot-trigger emerald-dot" title="Change color" style="margin-left: 4px;"></button>
+              </div>
+            </div>
+            <button class="delete-btn" title="Delete category">🗑</button>
+          </div>
+          <input class="description-underline" placeholder="Add a description…" value="Landscape and ground features">
+        </div>
+
+        <div class="tag-values-header">
+          <p class="section-label" style="padding:0">Tag Values</p>
+        </div>
+        <div class="tag-values-scroll">
+          <div class="tag-row">
+            <span class="tag-dot emerald-dot"></span>
+            <div class="tag-content">
+              <div class="tag-name emerald">mountain</div>
+              <div class="tag-aliases">peak, summit, highland</div>
+            </div>
+            <div class="tag-right">
+              <span class="tag-pencil">✎</span>
+              <span class="tag-count">12</span>
+              <button class="tag-delete">🗑</button>
+            </div>
+          </div>
+          <div class="tag-row">
+            <span class="tag-dot emerald-dot"></span>
+            <div class="tag-content">
+              <div class="tag-name emerald">forest</div>
+              <div class="tag-aliases">woodland, woods</div>
+            </div>
+            <div class="tag-right">
+              <span class="tag-pencil">✎</span>
+              <span class="tag-count">7</span>
+              <button class="tag-delete">🗑</button>
+            </div>
+          </div>
+          <div class="tag-row">
+            <span class="tag-dot emerald-dot"></span>
+            <div class="tag-content">
+              <div class="tag-name emerald">river</div>
+              <div class="tag-aliases">stream, creek</div>
+            </div>
+            <div class="tag-right">
+              <span class="tag-pencil">✎</span>
+              <span class="tag-count">5</span>
+              <button class="tag-delete">🗑</button>
+            </div>
+          </div>
+          <div class="tag-row">
+            <span class="tag-dot emerald-dot"></span>
+            <div class="tag-content">
+              <div class="tag-name emerald">cave</div>
+              <div class="tag-aliases">cavern, grotto</div>
+            </div>
+            <div class="tag-right">
+              <span class="tag-pencil">✎</span>
+              <span class="tag-count">3</span>
+              <button class="tag-delete">🗑</button>
+            </div>
+          </div>
+          <div class="tag-row">
+            <span class="tag-dot emerald-dot"></span>
+            <div class="tag-content">
+              <div class="tag-name emerald">desert</div>
+              <div class="tag-aliases empty">no aliases</div>
+            </div>
+            <div class="tag-right">
+              <span class="tag-pencil">✎</span>
+              <span class="tag-count">2</span>
+              <button class="tag-delete">🗑</button>
+            </div>
+          </div>
+          <div class="tag-row">
+            <span class="tag-dot emerald-dot"></span>
+            <div class="tag-content">
+              <div class="tag-name emerald">swamp</div>
+              <div class="tag-aliases">marsh, wetland, bog</div>
+            </div>
+            <div class="tag-right">
+              <span class="tag-pencil">✎</span>
+              <span class="tag-count">2</span>
+              <button class="tag-delete">🗑</button>
+            </div>
+          </div>
+          <div class="tag-row">
+            <span class="tag-dot emerald-dot"></span>
+            <div class="tag-content">
+              <div class="tag-name emerald">cliff</div>
+              <div class="tag-aliases empty">no aliases</div>
+            </div>
+            <div class="tag-right">
+              <span class="tag-pencil">✎</span>
+              <span class="tag-count">1</span>
+              <button class="tag-delete">🗑</button>
+            </div>
+          </div>
+          <div class="tag-row">
+            <span class="tag-dot emerald-dot"></span>
+            <div class="tag-content">
+              <div class="tag-name emerald">plains</div>
+              <div class="tag-aliases">grassland, steppe</div>
+            </div>
+            <div class="tag-right">
+              <span class="tag-pencil">✎</span>
+              <span class="tag-count">1</span>
+              <button class="tag-delete">🗑</button>
+            </div>
+          </div>
+          <div style="margin-top: 4px;">
+            <button class="ghost-create">
+              <span class="plus">+</span> Add tag value
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span class="footer-hint">Click a value to rename · click aliases to edit</span>
+      <button class="regen-btn">↻ Regenerate auto-tags</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- MOCKUP B: Ledger Lite -->
+<!-- ════════════════════════════════════════════════════════════ -->
+
+<div>
+  <div class="mockup-label">B · Ledger Lite</div>
+  <div class="mockup-desc">
+    Same as A, plus: ruled lines between entries, right margin column for counts, more ledger-like feel.<br>
+    Modest effort, meaningfully more archival.
+  </div>
+  <div class="dialog">
+    <div class="header">
+      <div class="header-left">
+        <span class="header-title">Tag Management</span>
+        <div class="amber-rule"></div>
+      </div>
+      <button class="close-btn">✕</button>
+    </div>
+
+    <div class="body">
+      <div class="sidebar">
+        <p class="section-label">Categories</p>
+        <div class="cat-list">
+          <div class="cat-item active">
+            <span class="cat-dot emerald-dot"></span>
+            <span style="flex:1">terrain</span>
+            <span class="cat-count">8</span>
+          </div>
+          <div class="cat-item">
+            <span class="cat-dot amber-dot"></span>
+            <span style="flex:1">lighting</span>
+            <span class="cat-count">5</span>
+          </div>
+          <div class="cat-item">
+            <span class="cat-dot sky-dot"></span>
+            <span style="flex:1">weather</span>
+            <span class="cat-count">6</span>
+          </div>
+          <div class="cat-item">
+            <span class="cat-dot orange-dot"></span>
+            <span style="flex:1">season</span>
+            <span class="cat-count">4</span>
+          </div>
+          <div class="cat-item">
+            <span class="cat-dot rose-dot"></span>
+            <span style="flex:1">mood</span>
+            <span class="cat-count">3</span>
+          </div>
+          <div class="cat-item">
+            <span class="cat-dot violet-dot"></span>
+            <span style="flex:1">feature</span>
+            <span class="cat-count">7</span>
+          </div>
+        </div>
+        <div class="cat-footer">
+          <button class="ghost-create">
+            <span class="plus">+</span> New category
+          </button>
+        </div>
+      </div>
+
+      <div class="editor">
+        <div class="ed-heading-a">
+          <div class="top-row">
+            <div style="flex:1; min-width:0">
+              <p class="section-label" style="padding:0; margin-bottom:3px">Editing</p>
+              <div class="cat-name-row">
+                <button class="cat-icon-trigger" title="Change icon">⛰</button>
+                <span class="cat-name emerald">terrain</span>
+                <span class="pencil">✎</span>
+                <button class="color-dot-trigger emerald-dot" title="Change color" style="margin-left: 4px;"></button>
+              </div>
+            </div>
+            <button class="delete-btn" title="Delete category">🗑</button>
+          </div>
+          <input class="description-underline" placeholder="Add a description…" value="Landscape and ground features">
+        </div>
+
+        <div class="tag-values-header">
+          <p class="section-label" style="padding:0">Tag Values</p>
+        </div>
+        <div class="tag-values-scroll">
+          <div class="tag-row-ledger">
+            <span class="tag-dot emerald-dot"></span>
+            <div class="tag-content">
+              <div class="tag-name emerald">mountain</div>
+              <div class="tag-aliases">peak, summit, highland</div>
+            </div>
+            <div class="tag-right-ledger">
+              <span class="tag-pencil">✎</span>
+              <span class="tag-count">12</span>
+              <button class="tag-delete">🗑</button>
+            </div>
+          </div>
+          <div class="tag-row-ledger">
+            <span class="tag-dot emerald-dot"></span>
+            <div class="tag-content">
+              <div class="tag-name emerald">forest</div>
+              <div class="tag-aliases">woodland, woods</div>
+            </div>
+            <div class="tag-right-ledger">
+              <span class="tag-pencil">✎</span>
+              <span class="tag-count">7</span>
+              <button class="tag-delete">🗑</button>
+            </div>
+          </div>
+          <div class="tag-row-ledger">
+            <span class="tag-dot emerald-dot"></span>
+            <div class="tag-content">
+              <div class="tag-name emerald">river</div>
+              <div class="tag-aliases">stream, creek</div>
+            </div>
+            <div class="tag-right-ledger">
+              <span class="tag-pencil">✎</span>
+              <span class="tag-count">5</span>
+              <button class="tag-delete">🗑</button>
+            </div>
+          </div>
+          <div class="tag-row-ledger">
+            <span class="tag-dot emerald-dot"></span>
+            <div class="tag-content">
+              <div class="tag-name emerald">cave</div>
+              <div class="tag-aliases">cavern, grotto</div>
+            </div>
+            <div class="tag-right-ledger">
+              <span class="tag-pencil">✎</span>
+              <span class="tag-count">3</span>
+              <button class="tag-delete">🗑</button>
+            </div>
+          </div>
+          <div class="tag-row-ledger">
+            <span class="tag-dot emerald-dot"></span>
+            <div class="tag-content">
+              <div class="tag-name emerald">desert</div>
+              <div class="tag-aliases empty">no aliases</div>
+            </div>
+            <div class="tag-right-ledger">
+              <span class="tag-pencil">✎</span>
+              <span class="tag-count">2</span>
+              <button class="tag-delete">🗑</button>
+            </div>
+          </div>
+          <div class="tag-row-ledger">
+            <span class="tag-dot emerald-dot"></span>
+            <div class="tag-content">
+              <div class="tag-name emerald">swamp</div>
+              <div class="tag-aliases">marsh, wetland, bog</div>
+            </div>
+            <div class="tag-right-ledger">
+              <span class="tag-pencil">✎</span>
+              <span class="tag-count">2</span>
+              <button class="tag-delete">🗑</button>
+            </div>
+          </div>
+          <div class="tag-row-ledger">
+            <span class="tag-dot emerald-dot"></span>
+            <div class="tag-content">
+              <div class="tag-name emerald">cliff</div>
+              <div class="tag-aliases empty">no aliases</div>
+            </div>
+            <div class="tag-right-ledger">
+              <span class="tag-pencil">✎</span>
+              <span class="tag-count">1</span>
+              <button class="tag-delete">🗑</button>
+            </div>
+          </div>
+          <div class="tag-row-ledger" style="border-bottom: none;">
+            <span class="tag-dot emerald-dot"></span>
+            <div class="tag-content">
+              <div class="tag-name emerald">plains</div>
+              <div class="tag-aliases">grassland, steppe</div>
+            </div>
+            <div class="tag-right-ledger">
+              <span class="tag-pencil">✎</span>
+              <span class="tag-count">1</span>
+              <button class="tag-delete">🗑</button>
+            </div>
+          </div>
+          <div style="margin-top: 6px; padding: 0 8px;">
+            <button class="ghost-create">
+              <span class="plus">+</span> Add tag value
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span class="footer-hint">Click a value to rename · click aliases to edit</span>
+      <button class="regen-btn">↻ Regenerate auto-tags</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- MOCKUP C: Specimen Ledger (Full) -->
+<!-- ════════════════════════════════════════════════════════════ -->
+
+<div>
+  <div class="mockup-label">C · Specimen Ledger</div>
+  <div class="mockup-desc">
+    Full archival treatment: stamp-style category mark, centered section dividers, gutter dots,<br>
+    margin column with vertical rule, tab-style active category. Maximum character.
+  </div>
+  <div class="dialog">
+    <div class="header">
+      <div class="header-left">
+        <span class="header-title">Tag Management</span>
+        <div class="amber-rule"></div>
+      </div>
+      <button class="close-btn">✕</button>
+    </div>
+
+    <div class="body">
+      <div class="sidebar" style="background: var(--popover);">
+        <p class="section-label">Categories</p>
+        <div class="cat-list">
+          <div class="cat-item-tab active">
+            <span class="cat-dot emerald-dot"></span>
+            <span style="flex:1">terrain</span>
+            <span class="cat-count" style="opacity:0.6">8</span>
+          </div>
+          <div class="cat-item-tab">
+            <span class="cat-dot amber-dot"></span>
+            <span style="flex:1">lighting</span>
+            <span class="cat-count">5</span>
+          </div>
+          <div class="cat-item-tab">
+            <span class="cat-dot sky-dot"></span>
+            <span style="flex:1">weather</span>
+            <span class="cat-count">6</span>
+          </div>
+          <div class="cat-item-tab">
+            <span class="cat-dot orange-dot"></span>
+            <span style="flex:1">season</span>
+            <span class="cat-count">4</span>
+          </div>
+          <div class="cat-item-tab">
+            <span class="cat-dot rose-dot"></span>
+            <span style="flex:1">mood</span>
+            <span class="cat-count">3</span>
+          </div>
+          <div class="cat-item-tab">
+            <span class="cat-dot violet-dot"></span>
+            <span style="flex:1">feature</span>
+            <span class="cat-count">7</span>
+          </div>
+        </div>
+        <div class="cat-footer">
+          <button class="ghost-create">
+            <span class="plus">+</span> New category
+          </button>
+        </div>
+      </div>
+
+      <div class="editor">
+        <div class="ed-heading-c">
+          <div class="stamp-row">
+            <div class="stamp emerald emerald-bg" title="Click to change icon">
+              ⛰
+            </div>
+            <div class="stamp-info">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="cat-name emerald">terrain</span>
+                <span class="pencil">✎</span>
+                <button class="color-dot-trigger emerald-dot" title="Change color" style="margin-left: auto;"></button>
+              </div>
+              <input class="description-underline" placeholder="Add a description…" value="Landscape and ground features" style="margin-top: 6px; font-size: 11px;">
+            </div>
+            <div class="stamp-actions">
+              <button class="delete-btn" title="Delete category">🗑</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-divider">
+          <div class="rule"></div>
+          <span class="label">Entries (8)</span>
+          <div class="rule"></div>
+        </div>
+
+        <div class="tag-values-scroll">
+          <div class="tag-row-specimen">
+            <div class="tag-gutter">
+              <div class="ink-dot emerald-dot"></div>
+            </div>
+            <div class="tag-specimen-content">
+              <div class="tag-specimen-name emerald">mountain</div>
+              <div class="tag-specimen-aliases">peak, summit, highland</div>
+            </div>
+            <div class="tag-margin">
+              <span class="tag-pencil">✎</span>
+              <span class="tag-margin-count">12</span>
+              <button class="tag-delete" style="width:16px; height:16px;">🗑</button>
+            </div>
+          </div>
+          <div class="tag-row-specimen">
+            <div class="tag-gutter">
+              <div class="ink-dot emerald-dot"></div>
+            </div>
+            <div class="tag-specimen-content">
+              <div class="tag-specimen-name emerald">forest</div>
+              <div class="tag-specimen-aliases">woodland, woods</div>
+            </div>
+            <div class="tag-margin">
+              <span class="tag-pencil">✎</span>
+              <span class="tag-margin-count">7</span>
+              <button class="tag-delete" style="width:16px; height:16px;">🗑</button>
+            </div>
+          </div>
+          <div class="tag-row-specimen">
+            <div class="tag-gutter">
+              <div class="ink-dot emerald-dot"></div>
+            </div>
+            <div class="tag-specimen-content">
+              <div class="tag-specimen-name emerald">river</div>
+              <div class="tag-specimen-aliases">stream, creek</div>
+            </div>
+            <div class="tag-margin">
+              <span class="tag-pencil">✎</span>
+              <span class="tag-margin-count">5</span>
+              <button class="tag-delete" style="width:16px; height:16px;">🗑</button>
+            </div>
+          </div>
+          <div class="tag-row-specimen">
+            <div class="tag-gutter">
+              <div class="ink-dot emerald-dot"></div>
+            </div>
+            <div class="tag-specimen-content">
+              <div class="tag-specimen-name emerald">cave</div>
+              <div class="tag-specimen-aliases">cavern, grotto</div>
+            </div>
+            <div class="tag-margin">
+              <span class="tag-pencil">✎</span>
+              <span class="tag-margin-count">3</span>
+              <button class="tag-delete" style="width:16px; height:16px;">🗑</button>
+            </div>
+          </div>
+          <div class="tag-row-specimen">
+            <div class="tag-gutter">
+              <div class="ink-dot emerald-dot"></div>
+            </div>
+            <div class="tag-specimen-content">
+              <div class="tag-specimen-name emerald">desert</div>
+              <div class="tag-specimen-aliases" style="opacity: 0.4;">—</div>
+            </div>
+            <div class="tag-margin">
+              <span class="tag-pencil">✎</span>
+              <span class="tag-margin-count">2</span>
+              <button class="tag-delete" style="width:16px; height:16px;">🗑</button>
+            </div>
+          </div>
+          <div class="tag-row-specimen">
+            <div class="tag-gutter">
+              <div class="ink-dot emerald-dot"></div>
+            </div>
+            <div class="tag-specimen-content">
+              <div class="tag-specimen-name emerald">swamp</div>
+              <div class="tag-specimen-aliases">marsh, wetland, bog</div>
+            </div>
+            <div class="tag-margin">
+              <span class="tag-pencil">✎</span>
+              <span class="tag-margin-count">2</span>
+              <button class="tag-delete" style="width:16px; height:16px;">🗑</button>
+            </div>
+          </div>
+          <div class="tag-row-specimen">
+            <div class="tag-gutter">
+              <div class="ink-dot emerald-dot"></div>
+            </div>
+            <div class="tag-specimen-content">
+              <div class="tag-specimen-name emerald">cliff</div>
+              <div class="tag-specimen-aliases" style="opacity: 0.4;">—</div>
+            </div>
+            <div class="tag-margin">
+              <span class="tag-pencil">✎</span>
+              <span class="tag-margin-count">1</span>
+              <button class="tag-delete" style="width:16px; height:16px;">🗑</button>
+            </div>
+          </div>
+          <div class="tag-row-specimen" style="border-bottom: none;">
+            <div class="tag-gutter">
+              <div class="ink-dot emerald-dot"></div>
+            </div>
+            <div class="tag-specimen-content">
+              <div class="tag-specimen-name emerald">plains</div>
+              <div class="tag-specimen-aliases">grassland, steppe</div>
+            </div>
+            <div class="tag-margin">
+              <span class="tag-pencil">✎</span>
+              <span class="tag-margin-count">1</span>
+              <button class="tag-delete" style="width:16px; height:16px;">🗑</button>
+            </div>
+          </div>
+          <div style="margin-top: 6px; padding: 0 28px;">
+            <button class="ghost-create">
+              <span class="plus">+</span> Add tag value
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span class="footer-hint">Click a value to rename · click aliases to edit</span>
+      <button class="regen-btn">↻ Regenerate auto-tags</button>
+    </div>
+  </div>
+</div>
+
+<div style="height: 40px;"></div>
+
+</body>
+</html>
