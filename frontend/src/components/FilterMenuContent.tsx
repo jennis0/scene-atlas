@@ -899,6 +899,7 @@ function ColorSwatch({
 const CUSTOM_COLORS_KEY = 'color-filter-custom-colors'
 
 function loadCustomColors(): string[] {
+  if (typeof window === 'undefined') return []
   try {
     const stored = localStorage.getItem(CUSTOM_COLORS_KEY)
     return stored ? JSON.parse(stored) : []
