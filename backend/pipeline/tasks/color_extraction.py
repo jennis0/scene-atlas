@@ -117,9 +117,9 @@ def extract_dominant_colors(
                 }
             )
 
-        logger.debug(f"Extracted {len(dominant_colors)} colors from {image_path}")
+        logger.debug("Extracted %s colors from %s", len(dominant_colors), image_path)
         return dominant_colors
 
     except Exception as e:
-        logger.error(f"Error extracting colors from {image_path}: {e}")
+        logger.error("Error extracting colors from %s: %s", image_path, e)
         raise

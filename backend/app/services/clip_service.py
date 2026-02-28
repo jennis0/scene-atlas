@@ -28,7 +28,7 @@ class CLIPService:
         """
         from transformers import CLIPModel, CLIPProcessor
 
-        logger.info(f"Loading CLIP model: {model_name}")
+        logger.info("Loading CLIP model: %s", model_name)
         self.device = device
         self.model_name = model_name
 
@@ -46,7 +46,7 @@ class CLIPService:
             self.processor = CLIPProcessor.from_pretrained(self.model_name)
 
         self.model.eval()
-        logger.info(f"CLIP model ready on device: {self.device}")
+        logger.info("CLIP model ready on device: %s", self.device)
 
     def encode_image(self, image_path: str | Path) -> list[float]:
         """Generate embedding for an image.
@@ -75,11 +75,11 @@ class CLIPService:
                 image_features = torch.nn.functional.normalize(image_features, p=2, dim=-1)
 
             embedding = image_features.cpu().numpy().flatten().tolist()
-            logger.debug(f"Generated embedding for {image_path}, size: {len(embedding)}")
+            logger.debug("Generated embedding for %s, size: %s", image_path, len(embedding))
             return embedding
 
         except Exception as e:
-            logger.error(f"Error encoding image {image_path}: {e}")
+            logger.error("Error encoding image %s: %s", image_path, e)
             raise
 
     def encode_text(self, text: str) -> list[float]:
@@ -102,11 +102,11 @@ class CLIPService:
                 text_features = torch.nn.functional.normalize(text_features, p=2, dim=-1)
 
             embedding = text_features.cpu().numpy().flatten().tolist()
-            logger.debug(f"Generated text embedding for '{text}', size: {len(embedding)}")
+            logger.debug("Generated text embedding for '%s', size: %s", text, len(embedding))
             return embedding
 
         except Exception as e:
-            logger.error(f"Error encoding text '{text}': {e}")
+            logger.error("Error encoding text '%s': %s", text, e)
             raise
 
     def batch_encode_images(self, image_paths: list[str | Path]) -> list[list[float]]:
@@ -136,11 +136,11 @@ class CLIPService:
                 image_features = torch.nn.functional.normalize(image_features, p=2, dim=-1)
 
             embeddings = image_features.cpu().numpy().tolist()
-            logger.debug(f"Generated batch embeddings for {len(image_paths)} images")
+            logger.debug("Generated batch embeddings for %s images", len(image_paths))
             return embeddings
 
         except Exception as e:
-            logger.error(f"Error batch encoding images: {e}")
+            logger.error("Error batch encoding images: %s", e)
             raise
 
 

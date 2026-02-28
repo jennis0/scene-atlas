@@ -249,6 +249,7 @@ class TestTriggerBackfillGrids:
     def test_submits_job(self, images_db, monkeypatch):
         client, _ = images_db
         mock_runner = MagicMock()
+        mock_runner.has_active_job.return_value = False
         mock_runner.submit.return_value = "job-123"
         monkeypatch.setattr(
             "backend.app.services.job_runner.get_job_runner",
@@ -258,9 +259,21 @@ class TestTriggerBackfillGrids:
         assert resp.status_code == 200
         assert resp.json()["job_id"] == "job-123"
 
+    def test_rejects_duplicate_job(self, images_db, monkeypatch):
+        client, _ = images_db
+        mock_runner = MagicMock()
+        mock_runner.has_active_job.return_value = True
+        monkeypatch.setattr(
+            "backend.app.services.job_runner.get_job_runner",
+            lambda: mock_runner,
+        )
+        resp = client.post("/api/v1/images/backfill-grids")
+        assert resp.status_code == 409
+
     def test_returns_503_on_failure(self, images_db, monkeypatch):
         client, _ = images_db
         mock_runner = MagicMock()
+        mock_runner.has_active_job.return_value = False
         mock_runner.submit.side_effect = RuntimeError("no workers")
         monkeypatch.setattr(
             "backend.app.services.job_runner.get_job_runner",

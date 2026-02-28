@@ -1,10 +1,10 @@
 """Groups API endpoints."""
 
-import io
 import re
-import zipfile
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+import zipstream
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
@@ -69,7 +69,8 @@ async def search_groups(
     query = db.query(ImageGroup)
 
     if q.strip():
-        query = query.filter(ImageGroup.base_name.ilike(f"%{q.strip()}%"))
+        escaped = re.sub(r"([%_\\])", r"\\\1", q.strip())
+        query = query.filter(ImageGroup.base_name.ilike(f"%{escaped}%"))
 
     if exclude_id is not None:
         query = query.filter(ImageGroup.id != exclude_id)
@@ -155,19 +156,20 @@ async def download_group(
     images = db.query(Image).filter(Image.group_id == group_id).all()
     image_store = get_image_store()
 
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
-        for img in images:
-            file_path = image_store.get_path(img.storage_key)
-            if file_path and file_path.exists():
-                zf.write(file_path, _zip_path(img, group.base_name))
+    zs = zipstream.ZipStream(compress_type=zipstream.ZIP_STORED, sized=True)
+    for img in images:
+        file_path = image_store.get_path(img.storage_key)
+        if file_path and file_path.exists():
+            zs.add_path(file_path, arcname=_zip_path(img, group.base_name))
 
-    buf.seek(0)
     zip_name = sanitize_segment(group.base_name) + ".zip"
-    return Response(
-        content=buf.read(),
+    return StreamingResponse(
+        zs,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{zip_name}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{zip_name}"',
+            "Content-Length": str(len(zs)),
+        },
     )
 
 

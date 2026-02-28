@@ -165,7 +165,7 @@ def scan_directory(directory: str) -> list[str]:
     """Scan directory for supported image files."""
     logger = get_logger(__name__)
     directory_obj = Path(directory)
-    logger.info(f"Scanning directory: {directory_obj}")
+    logger.info("Scanning directory: %s", directory_obj)
     image_paths = []
 
     for ext in settings.all_supported_formats:
@@ -174,7 +174,7 @@ def scan_directory(directory: str) -> list[str]:
                 continue
             image_paths.append(str(path))
 
-    logger.info(f"Found {len(image_paths)} images/videos in {directory_obj}")
+    logger.info("Found %s images/videos in %s", len(image_paths), directory_obj)
     return image_paths
 
 
@@ -203,7 +203,7 @@ def prepare_single_image(
     """
     logger = get_logger(__name__)
     image_path_obj = Path(image_path)
-    logger.info(f"Preparing image: {image_path_obj.name}")
+    logger.info("Preparing image: %s", image_path_obj.name)
 
     try:
         # --- Parse metadata ---
@@ -251,7 +251,7 @@ def prepare_single_image(
             image_store = get_image_store()
             if not image_store.get_path(reuse_storage_key).exists():
                 logger.warning(
-                    f"Reuse key {reuse_storage_key} not found on disk, falling back to normal path"
+                    "Reuse key %s not found on disk, falling back to normal path", reuse_storage_key
                 )
                 reuse_storage_key = None  # Fall through to normal path below
 
@@ -279,7 +279,7 @@ def prepare_single_image(
                     reuse_embedding_from = source_image.id
                 else:
                     # Source record gone — fall back to computing from file
-                    logger.warning(f"No DB record for storage_key={reuse_storage_key}")
+                    logger.warning("No DB record for storage_key=%s", reuse_storage_key)
                     reuse_storage_key = None
             finally:
                 db.close()
@@ -447,7 +447,7 @@ def prepare_single_image(
         }
 
     except Exception as e:
-        logger.error(f"Failed to prepare image {image_path_obj}: {e}")
+        logger.error("Failed to prepare image %s: %s", image_path_obj, e)
         return {
             "status": "failed",
             "original_image_path": image_path,
@@ -473,11 +473,11 @@ def save_to_database(image_data: dict) -> int:
     try:
         image_id = _save_image_to_db(db, image_data)
         db.commit()
-        logger.info(f"Saved image to database: {image_data['filename']} (ID: {image_id})")
+        logger.info("Saved image to database: %s (ID: %s)", image_data["filename"], image_id)
         return image_id
     except Exception as e:
         db.rollback()
-        logger.error(f"Error saving to database: {e}")
+        logger.error("Error saving to database: %s", e)
         raise
     finally:
         db.close()
@@ -493,10 +493,10 @@ def save_to_qdrant(image_id: int, embedding: list[float], metadata: dict) -> boo
             metadata=metadata,
         )
         if success:
-            logger.info(f"Saved embedding to Qdrant for image_id={image_id}")
+            logger.info("Saved embedding to Qdrant for image_id=%s", image_id)
         return success
     except Exception as e:
-        logger.error(f"Error saving to Qdrant: {e}")
+        logger.error("Error saving to Qdrant: %s", e)
         raise
 
 
@@ -524,11 +524,11 @@ def batch_save_to_database(image_data_list: list[dict]) -> list[int]:
             image_id = _save_image_to_db(db, image_data)
             image_ids.append(image_id)
         db.commit()
-        logger.info(f"Batch saved {len(image_ids)} images to database")
+        logger.info("Batch saved %s images to database", len(image_ids))
         return image_ids
     except Exception as e:
         db.rollback()
-        logger.error(f"Error batch saving to database: {e}")
+        logger.error("Error batch saving to database: %s", e)
         raise
     finally:
         db.close()
@@ -552,11 +552,11 @@ def batch_save_to_qdrant(items: list[dict]) -> bool:
     try:
         success = get_qdrant_service().batch_add_embeddings(items)
         if success:
-            logger.info(f"Batch saved {len(items)} embeddings to Qdrant")
+            logger.info("Batch saved %s embeddings to Qdrant", len(items))
         return success
     except Exception as e:
         logger.warning(
-            f"Qdrant batch save failed (non-fatal — {len(items)} embeddings not indexed): {e}"
+            "Qdrant batch save failed (non-fatal — %s embeddings not indexed): %s", len(items), e
         )
         return False
 
@@ -649,14 +649,14 @@ def _process_batch(
         else:
             # Fallback: generate from the stored file
             logger.warning(
-                f"Could not retrieve embedding for source image {source_id}, "
-                f"generating from stored file"
+                "Could not retrieve embedding for source image %s, generating from stored file",
+                source_id,
             )
             stored_path = get_image_store().get_path(prep["image_data"]["storage_key"])
             if stored_path.exists():
                 prep["embedding"] = generate_clip_embedding(str(stored_path))
             else:
-                logger.error(f"Stored file not found for reuse: {stored_path}")
+                logger.error("Stored file not found for reuse: %s", stored_path)
                 prep["status"] = "failed"
                 prep["error"] = "Could not retrieve or generate embedding"
                 batch_failed += 1
@@ -703,7 +703,7 @@ def process_single_image(
     """
     logger = get_logger(__name__)
     image_path_obj = Path(image_path)
-    logger.info(f"Processing image: {image_path_obj}")
+    logger.info("Processing image: %s", image_path_obj)
 
     try:
         # Prepare (thumbnails, colors, copy to store)
@@ -729,7 +729,7 @@ def process_single_image(
             metadata=prepared["qdrant_metadata"],
         )
 
-        logger.info(f"Successfully processed image: {image_path_obj}")
+        logger.info("Successfully processed image: %s", image_path_obj)
         return {
             "status": "success",
             "image_id": image_id,
@@ -737,7 +737,7 @@ def process_single_image(
         }
 
     except Exception as e:
-        logger.error(f"Failed to process image {image_path_obj}: {e}")
+        logger.error("Failed to process image %s: %s", image_path_obj, e)
         return {
             "status": "failed",
             "filepath": image_path,
@@ -761,7 +761,7 @@ def bulk_image_ingestion(
         pipeline_config = load_pipeline_config()
     batch_size = pipeline_config.ingestion_batch_size
     logger.info(
-        f"Starting bulk ingestion from {len(source_dirs)} directories (batch_size={batch_size})"
+        "Starting bulk ingestion from %s directories (batch_size=%s)", len(source_dirs), batch_size
     )
 
     successful = 0
@@ -775,7 +775,7 @@ def bulk_image_ingestion(
     for dir_path in source_dirs:
         directory = Path(dir_path)
         if not directory.exists():
-            logger.warning(f"Directory does not exist: {directory}")
+            logger.warning("Directory does not exist: %s", directory)
             continue
 
         image_paths = scan_directory(dir_path)
@@ -785,8 +785,11 @@ def bulk_image_ingestion(
         for batch_start in range(0, len(image_paths), batch_size):
             batch = image_paths[batch_start : batch_start + batch_size]
             logger.info(
-                f"Processing batch {batch_start // batch_size + 1} "
-                f"({len(batch)} images, {batch_start + len(batch)}/{len(image_paths)})"
+                "Processing batch %s (%s images, %s/%s)",
+                batch_start // batch_size + 1,
+                len(batch),
+                batch_start + len(batch),
+                len(image_paths),
             )
 
             # Step 1: Prepare images with bounded concurrency to control memory usage.
@@ -828,9 +831,9 @@ def bulk_image_ingestion(
             finally:
                 db_fts.close()
         except Exception as e:
-            logger.warning(f"FTS rebuild failed (non-fatal): {e}")
+            logger.warning("FTS rebuild failed (non-fatal): %s", e)
 
-    logger.info(f"Bulk ingestion complete: {successful} successful, {failed} failed")
+    logger.info("Bulk ingestion complete: %s successful, %s failed", successful, failed)
     return summary
 
 
@@ -853,7 +856,7 @@ def analyse_upload(
     type-specific parsing rules (e.g. skip grid detection for scenes).
     """
     logger = get_logger(__name__)
-    logger.info(f"Analysing {len(relative_paths)} uploaded files in {staging_dir}")
+    logger.info("Analysing %s uploaded files in %s", len(relative_paths), staging_dir)
     staging = Path(staging_dir)
     if precomputed_hashes is None:
         precomputed_hashes = {}
@@ -913,15 +916,17 @@ def analyse_upload(
                     for entry in entries:
                         entry["duplicate_of"] = dup_info
                     logger.info(
-                        f"  Duplicate detected: {len(entries)} file(s) match "
-                        f"image {existing.id} ({existing.name})"
+                        "  Duplicate detected: %s file(s) match image %s (%s)",
+                        len(entries),
+                        existing.id,
+                        existing.name,
                     )
     finally:
         db.close()
 
-    logger.info(f"Detected {len(groups)} group(s)")
+    logger.info("Detected %s group(s)", len(groups))
     for g in groups:
-        logger.info(f"  {g.get('author', '?')} / {g['group_name']} ({len(g['files'])} files)")
+        logger.info("  %s / %s (%s files)", g.get("author", "?"), g["group_name"], len(g["files"]))
 
     return groups
 
@@ -964,7 +969,7 @@ def _run_group(
             # image_path_obj.name for the filename in the reuse path
             valid_files.append((file_info, str(image_path)))
         else:
-            logger.warning(f"File not found in staging: {image_path}")
+            logger.warning("File not found in staging: %s", image_path)
             failed += 1
 
     if failed > 0:
@@ -974,8 +979,12 @@ def _run_group(
         for batch_start in range(0, len(valid_files), batch_size):
             batch = valid_files[batch_start : batch_start + batch_size]
             logger.info(
-                f"[{group_name}] batch {batch_start // batch_size + 1} "
-                f"({len(batch)} images, {batch_start + len(batch)}/{len(valid_files)})"
+                "[%s] batch %s (%s images, %s/%s)",
+                group_name,
+                batch_start // batch_size + 1,
+                len(batch),
+                batch_start + len(batch),
+                len(valid_files),
             )
 
             # Prepare images with bounded concurrency to control peak memory use.
@@ -1035,12 +1044,14 @@ def _run_group(
         update_import_group_job_progress(
             group_job_id, processed, failed, status="completed", created_group_id=_created_group_id
         )
-        logger.info(f"Group {group_job_id} ({group_name}): {processed} ok, {failed} failed")
+        logger.info("Group %s (%s): %s ok, %s failed", group_job_id, group_name, processed, failed)
     except Exception as e:
         # Count all files not yet processed as failed, mark group as failed
         remaining = len(valid_files) - processed - failed
         failed += remaining
-        logger.error(f"Group {group_job_id} ({group_name}) failed after {processed} images: {e}")
+        logger.error(
+            "Group %s (%s) failed after %s images: %s", group_job_id, group_name, processed, e
+        )
         update_import_group_job_progress(group_job_id, processed, failed, status="failed")
         raise  # re-raise so process_import_job can catch it per-group
 
@@ -1065,11 +1076,11 @@ def _mark_group_job_failed(group_job_id: str, error_message: str) -> None:
                 group_job.error_message = error_message[:500] if error_message else None
                 group_job.completed_at = datetime.now(UTC).replace(tzinfo=None)
                 db.commit()
-                logger.info(f"Marked group job {group_job_id} as failed")
+                logger.info("Marked group job %s as failed", group_job_id)
         finally:
             db.close()
     except Exception as e:
-        logger.warning(f"Could not mark group job {group_job_id} as failed: {e}")
+        logger.warning("Could not mark group job %s as failed: %s", group_job_id, e)
 
 
 def _finalize_import_job(job_id: str) -> None:
@@ -1087,7 +1098,7 @@ def _finalize_import_job(job_id: str) -> None:
     try:
         new_status = transition_job_status(db, job_id)
         db.commit()
-        logger.info(f"Import job {job_id} transitioned to '{new_status}'")
+        logger.info("Import job %s transitioned to '%s'", job_id, new_status)
     finally:
         db.close()
 
@@ -1105,7 +1116,7 @@ def _rebuild_fts() -> None:
         finally:
             db.close()
     except Exception as e:
-        logger.warning(f"FTS rebuild failed (non-fatal): {e}")
+        logger.warning("FTS rebuild failed (non-fatal): %s", e)
 
 
 def process_import_group(
@@ -1126,8 +1137,12 @@ def process_import_group(
     if pipeline_config is None:
         pipeline_config = load_pipeline_config()
     logger.info(
-        f"Processing import group '{group_name}' by '{author}' "
-        f"({len(files)} files) for job {job_id}, group {group_job_id}"
+        "Processing import group '%s' by '%s' (%s files) for job %s, group %s",
+        group_name,
+        author,
+        len(files),
+        job_id,
+        group_job_id,
     )
     processed, failed = _run_group(
         group_job_id, staging_dir, author, group_name, files, pipeline_config=pipeline_config
@@ -1170,7 +1185,7 @@ def process_import_job(
     logger = get_logger(__name__)
     if pipeline_config is None:
         pipeline_config = load_pipeline_config()
-    logger.info(f"Starting import job {job_id}: {len(groups)} group(s) in {staging_dir}")
+    logger.info("Starting import job %s: %s group(s) in %s", job_id, len(groups), staging_dir)
     total_processed = 0
     total_failed = 0
 
@@ -1180,7 +1195,7 @@ def process_import_job(
             author = group["author"]
             group_name = group["group_name"]
             files = group["files"]
-            logger.info(f"Processing group '{group_name}' by '{author}' ({len(files)} files)")
+            logger.info("Processing group '%s' by '%s' (%s files)", group_name, author, len(files))
             try:
                 processed, failed = _run_group(
                     group_job_id,
@@ -1197,8 +1212,10 @@ def process_import_job(
                 # We log the error, count all unprocessed files as failed, and
                 # continue with the next group so the job doesn't abort early.
                 logger.error(
-                    f"Group '{group_name}' ({group_job_id}) raised an unhandled exception, "
-                    f"skipping to next group: {e}"
+                    "Group '%s' (%s) raised an unhandled exception, skipping to next group: %s",
+                    group_name,
+                    group_job_id,
+                    e,
                 )
                 total_failed += len(files)
     finally:
@@ -1209,7 +1226,9 @@ def process_import_job(
         if total_processed > 0:
             _rebuild_fts()
 
-    logger.info(f"Import job {job_id} complete: {total_processed} processed, {total_failed} failed")
+    logger.info(
+        "Import job %s complete: %s processed, %s failed", job_id, total_processed, total_failed
+    )
     return {
         "job_id": job_id,
         "processed": total_processed,

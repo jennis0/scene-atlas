@@ -76,26 +76,29 @@ def detect_grids_batch(image_ids: list[int], force: bool = False) -> dict:
                 # Skip non-battlemaps and videos
                 if image.image_type != "battlemap" or image.media_type == "video":
                     logger.debug(
-                        f"Image {image.id}: skipped (type={image.image_type}, media={image.media_type})"
+                        "Image %s: skipped (type=%s, media=%s)",
+                        image.id,
+                        image.image_type,
+                        image.media_type,
                     )
                     skipped += 1
                     continue
 
                 # Skip if filename explicitly says no grid
                 if image.gridded is False and not force:
-                    logger.debug(f"Image {image.id}: skipped (gridded=False from filename)")
+                    logger.debug("Image %s: skipped (gridded=False from filename)", image.id)
                     skipped += 1
                     continue
 
                 # Resolve file path from store
                 file_path = image_store.get_path(image.storage_key)
                 if not file_path.exists():
-                    logger.warning(f"Image {image.id}: file not found at {file_path}")
+                    logger.warning("Image %s: file not found at %s", image.id, file_path)
                     skipped += 1
                     continue
 
                 if image.width is None or image.height is None:
-                    logger.warning(f"Image {image.id}: missing dimensions, skipping")
+                    logger.warning("Image %s: missing dimensions, skipping", image.id)
                     skipped += 1
                     continue
 
@@ -122,7 +125,7 @@ def detect_grids_batch(image_ids: list[int], force: bool = False) -> dict:
                 detected += 1
 
             except Exception as e:
-                logger.error(f"Image {image.id}: grid detection error: {e}")
+                logger.error("Image %s: grid detection error: %s", image.id, e)
                 errors += 1
 
         db.commit()

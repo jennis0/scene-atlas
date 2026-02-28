@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
     # Startup
-    logger.info(f"Starting {settings.app_name} v{settings.app_version}")
+    logger.info("Starting %s v%s", settings.app_name, settings.app_version)
 
     # Initialize database
     engine = get_engine(settings.database_url)
@@ -92,7 +92,7 @@ async def lifespan(app: FastAPI):
         await scheduler.start()
         logger.info("Scheduler started")
 
-    logger.info(f"Server ready on {settings.api_host}:{settings.api_port}")
+    logger.info("Server ready on %s:%s", settings.api_host, settings.api_port)
     # Signal to desktop shell (Electron) that the backend is ready.
     # CLIP is still loading in the background — the app is usable immediately;
     # searches with a query will wait for CLIP; empty queries use SQL only.
@@ -122,8 +122,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "Accept"],
 )
 
 # Include API routers
@@ -178,7 +178,8 @@ async def health(request: Request):
             conn.execute(text("SELECT 1"))
         checks["database"] = "ok"
     except Exception as exc:
-        checks["database"] = f"error: {exc}"
+        checks["database"] = "error"
+        logger.warning("Health check — database error: %s", exc)
         overall = "degraded"
 
     # Qdrant check
@@ -189,10 +190,12 @@ async def health(request: Request):
         if info:
             checks["qdrant"] = f"ok ({info.get('points_count', '?')} points)"
         else:
-            checks["qdrant"] = "error: empty collection info"
+            checks["qdrant"] = "error"
+            logger.warning("Health check — Qdrant returned empty collection info")
             overall = "degraded"
     except Exception as exc:
-        checks["qdrant"] = f"error: {exc}"
+        checks["qdrant"] = "error"
+        logger.warning("Health check — Qdrant error: %s", exc)
         overall = "degraded"
 
     # Job runner status

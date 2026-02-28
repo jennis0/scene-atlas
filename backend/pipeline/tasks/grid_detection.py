@@ -68,16 +68,19 @@ def detect_grid_from_image(
             result = detector.detect(path, width, height)
 
         logger.debug(
-            f"Grid detection for {path.name}: "
-            f"gridded={result['gridded']}, type={result['grid_type']}, "
-            f"size={result['grid_width']}x{result['grid_height']}, "
-            f"confidence={result['confidence']:.3f}"
+            "Grid detection for %s: gridded=%s, type=%s, size=%sx%s, confidence=%s",
+            path.name,
+            result["gridded"],
+            result["grid_type"],
+            result["grid_width"],
+            result["grid_height"],
+            result["confidence"],
         )
 
         return dict(result)
 
     except Exception as e:
-        logger.error(f"Grid detection failed for {image_path}: {e}")
+        logger.error("Grid detection failed for %s: %s", image_path, e)
         return {
             "gridded": None,
             "grid_type": None,

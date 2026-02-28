@@ -33,7 +33,7 @@ def get_settings(db: Session) -> AppSettings:
         try:
             data[row.key] = json.loads(row.value_json) if row.value_json is not None else None
         except (json.JSONDecodeError, TypeError):
-            logger.warning(f"Could not decode setting '{row.key}' — using default")
+            logger.warning("Could not decode setting '%s' — using default", row.key)
     return AppSettings(**data)
 
 

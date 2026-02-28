@@ -44,7 +44,7 @@ def backup_sqlite(backup_dir: Path, db_path: Path | None = None) -> Path:
         src.backup(dst)
 
     size_kb = backup_path.stat().st_size // 1024
-    logger.info(f"SQLite backed up to {backup_path} ({size_kb} KB)")
+    logger.info("SQLite backed up to %s (%s KB)", backup_path, size_kb)
     return backup_path
 
 
@@ -62,7 +62,7 @@ def backup_qdrant(backup_dir: Path) -> Path | None:
         backup_path = svc.backup_storage(backup_dir)
         return backup_path
     except Exception as e:
-        logger.warning(f"Qdrant backup failed: {e}")
+        logger.warning("Qdrant backup failed: %s", e)
         return None
 
 
@@ -113,7 +113,7 @@ def rotate_backups(backups_root: Path, keep_daily: int = 7, keep_weekly: int = 4
     for d in dirs:
         if d not in to_keep:
             shutil.rmtree(d, ignore_errors=True)
-            logger.info(f"Rotated old backup: {d.name}")
+            logger.info("Rotated old backup: %s", d.name)
             deleted += 1
 
     return deleted
@@ -136,7 +136,7 @@ def backup_database() -> dict:
         "qdrant_backup": str(qdrant_backup) if qdrant_backup else None,
         "rotated": deleted,
     }
-    logger.info(f"Backup complete: {result}")
+    logger.info("Backup complete: %s", result)
     return result
 
 
@@ -169,7 +169,7 @@ def cleanup_stale_staging(max_age_hours: int = 24) -> int:
         if mtime < cutoff:
             age = datetime.now(UTC) - mtime
             shutil.rmtree(staging_dir, ignore_errors=True)
-            logger.info(f"Cleaned stale staging dir: {staging_dir.name} (age: {age})")
+            logger.info("Cleaned stale staging dir: %s (age: %s)", staging_dir.name, age)
             deleted += 1
 
     return deleted
@@ -183,7 +183,7 @@ def cleanup_staging() -> dict:
     """
     logger = get_logger(__name__)
     deleted = cleanup_stale_staging()
-    logger.info(f"Staging cleanup complete: removed {deleted} stale director(ies)")
+    logger.info("Staging cleanup complete: removed %s stale director(ies)", deleted)
     return {"deleted": deleted}
 
 
@@ -236,7 +236,9 @@ def expire_stale_jobs(max_age_hours: int = 48) -> dict:
                 .count()
             )
             if running > 0:
-                logger.info(f"Skipping expiry for job {job.id}: {running} group(s) still running")
+                logger.info(
+                    "Skipping expiry for job %s: %s group(s) still running", job.id, running
+                )
                 continue
 
             job.status = "expired"
@@ -246,14 +248,14 @@ def expire_stale_jobs(max_age_hours: int = 48) -> dict:
             staging_dir = settings.staging_dir / job.id
             if staging_dir.exists():
                 shutil.rmtree(staging_dir, ignore_errors=True)
-                logger.info(f"Cleaned staging for expired job {job.id}")
+                logger.info("Cleaned staging for expired job %s", job.id)
 
             expired_count += 1
-            logger.info(f"Expired stale import job {job.id} (last activity: {last_activity})")
+            logger.info("Expired stale import job %s (last activity: %s)", job.id, last_activity)
 
         db.commit()
     finally:
         db.close()
 
-    logger.info(f"Stale job expiry complete: expired {expired_count} job(s)")
+    logger.info("Stale job expiry complete: expired %s job(s)", expired_count)
     return {"expired": expired_count}

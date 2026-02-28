@@ -178,6 +178,14 @@ class JobRunner:
             self._cleanup_old_jobs()
             return list(self._jobs.values())
 
+    def has_active_job(self, name: str) -> bool:
+        """Return True if a job with the given name is currently queued or running."""
+        with self._lock:
+            return any(
+                rec.name == name and rec.status in ("queued", "running")
+                for rec in self._jobs.values()
+            )
+
     def run_sync(self, fn: Callable, *args: Any, timeout: float = 120, **kwargs: Any) -> Any:
         """Run a function in the thread pool and block until complete.
 

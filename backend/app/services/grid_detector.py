@@ -145,8 +145,11 @@ class GridDetector:
         max_conf = max(std["confidence"], rot["confidence"])
 
         logger.debug(
-            f"Standard: conf={std['confidence']:.3f} ratio={std['ratio']:.3f}, "
-            f"Rotated: conf={rot['confidence']:.3f}, scale={scale:.3f}"
+            "Standard: conf=%s ratio=%s, Rotated: conf=%s, scale=%s",
+            std["confidence"],
+            std["ratio"],
+            rot["confidence"],
+            scale,
         )
 
         # --- Classification ---
@@ -268,7 +271,7 @@ class GridDetector:
         """
         img = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
         if img is None:
-            logger.warning(f"Could not read image: {image_path}")
+            logger.warning("Could not read image: %s", image_path)
             return None, 0.0
 
         h, w = img.shape
