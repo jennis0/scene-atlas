@@ -367,7 +367,7 @@ export function Gallery() {
     <div className="flex h-screen flex-col">
       {/* Header */}
       <header
-        className="border-b border-border/70 backdrop-blur-md"
+        className={`border-b border-border/70 backdrop-blur-md ${needsOverlayPadding ? 'pt-8' : ''}`}
         style={{
           background:
             'linear-gradient(180deg, hsl(var(--primary) / 0.08) 0%, hsl(var(--card) / 0.97) 65%)',

@@ -23,7 +23,7 @@ function borderlessOptions(): Partial<Electron.BrowserWindowConstructorOptions> 
       titleBarOverlay: {
         color: '#0e1118',
         symbolColor: '#ede8dc',
-        height: 40,
+        height: 32,
       },
     }),
   }
