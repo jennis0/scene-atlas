@@ -396,6 +396,7 @@ export function ImageViewer({
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div
+      data-testid="image-viewer"
       className="fixed inset-0 z-50 flex items-center justify-center p-8"
       style={{ background: 'hsl(var(--background) / 0.88)' }}
       onClick={onClose}
