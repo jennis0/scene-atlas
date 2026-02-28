@@ -120,7 +120,14 @@ function showSetupWindow(): void {
     minWidth: 520,
     minHeight: 560,
     backgroundColor: '#0e1118',
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    titleBarStyle: 'hidden',
+    ...(process.platform !== 'darwin' && {
+      titleBarOverlay: {
+        color: '#0e1118',
+        symbolColor: '#ede8dc',
+        height: 40,
+      },
+    }),
     webPreferences: {
       preload: path.join(__dirname, 'setup.preload.js'),
       contextIsolation: true,
@@ -146,13 +153,30 @@ function createMainWindow(): BrowserWindow {
     minWidth: 900,
     minHeight: 600,
     backgroundColor: '#0e1118',
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    titleBarStyle: 'hidden',
+    ...(process.platform !== 'darwin' && {
+      titleBarOverlay: {
+        color: '#0e1118',
+        symbolColor: '#ede8dc',
+        height: 40,
+      },
+    }),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
     },
+  })
+
+  // Dev tools shortcut: F12 or Ctrl+Shift+I in all builds
+  win.webContents.on('before-input-event', (_event, input) => {
+    if (
+      input.key === 'F12' ||
+      (input.control && input.shift && input.key === 'I')
+    ) {
+      win.webContents.toggleDevTools()
+    }
   })
 
   if (isDev) {

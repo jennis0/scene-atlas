@@ -54,6 +54,7 @@
       align-items: center;
       justify-content: center;
       padding: 2rem;
+      -webkit-app-region: drag;
     }
 
     .card {
@@ -144,6 +145,10 @@
       direction: rtl; /* shows the end of long paths */
       text-align: left;
       cursor: default;
+    }
+
+    button, input, .dir-row, .card {
+      -webkit-app-region: no-drag;
     }
 
     button {

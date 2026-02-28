@@ -43,8 +43,16 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu'
+import { isApp } from '@/lib/appMode'
 import type { Image, ImageGroup, SearchParams, SortBy, SortDir, ViewMode } from '@/types'
 import type { ActiveFilter, ImageTypeFilter } from '@/components/import/fileFilter'
+
+// ---------------------------------------------------------------------------
+// Platform helpers for borderless window layout
+// ---------------------------------------------------------------------------
+
+const isMac = isApp && navigator.platform.startsWith('Mac')
+const needsOverlayPadding = isApp && !isMac // Windows/Linux titlebar overlay
 
 // ---------------------------------------------------------------------------
 // Sort options
@@ -365,9 +373,13 @@ export function Gallery() {
             'linear-gradient(180deg, hsl(var(--primary) / 0.08) 0%, hsl(var(--card) / 0.97) 65%)',
         }}
       >
-        <div className="container mx-auto px-4">
+        <div
+          className={`container mx-auto px-4 ${needsOverlayPadding ? 'pr-[150px]' : ''} ${isMac ? 'pl-20' : ''}`}
+        >
           {/* Title row */}
-          <div className="pt-4 pb-3 flex items-start justify-between border-b border-border/70">
+          <div
+            className={`pt-4 pb-3 flex items-start justify-between border-b border-border/70 ${isApp ? 'drag-region' : ''}`}
+          >
             <div>
               <h1 className="font-display text-2xl font-medium tracking-wide text-foreground">
                 Scene Atlas
@@ -375,7 +387,7 @@ export function Gallery() {
               <div className="mt-0.5 h-[1.5px] w-16 bg-gradient-to-r from-primary/70 to-transparent" />
             </div>
             {/* Admin cluster: utility actions (ghost) + gap + primary Import CTA */}
-            <div className="flex items-center gap-1 mt-2">
+            <div className={`flex items-center gap-1 mt-2 ${isApp ? 'no-drag-region' : ''}`}>
               <Button
                 variant="ghost"
                 size="sm"

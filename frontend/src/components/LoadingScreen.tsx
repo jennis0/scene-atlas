@@ -1,5 +1,6 @@
 import { Compass } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { isApp } from '@/lib/appMode'
 
 interface LoadingScreenProps {
   status?: string
@@ -33,7 +34,9 @@ export function LoadingScreen({
   const accent = isError ? red : amber
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background">
+    <div
+      className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-background ${isApp ? 'drag-region' : ''}`}
+    >
       {/* Dot-grid background */}
       <div
         className="absolute inset-0 opacity-60"
@@ -127,7 +130,9 @@ export function LoadingScreen({
 
           {/* Error detail toggle */}
           {isError && errorDetail && (
-            <div className="flex flex-col items-center gap-2 max-w-sm">
+            <div
+              className={`flex flex-col items-center gap-2 max-w-sm ${isApp ? 'no-drag-region' : ''}`}
+            >
               <button
                 onClick={() => setShowDetail((v) => !v)}
                 className="font-mono text-[10px] tracking-wider text-muted-foreground/50 hover:text-muted-foreground/80 transition-colors"
