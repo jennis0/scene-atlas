@@ -26,7 +26,9 @@ export function ImportDialog({
 }: ImportDialogProps) {
   const queryClient = useQueryClient()
   const s = useImportState(onActiveChange, reconnectJobId)
-  const { jobId, reset, state, groups, saveNow } = s
+  const { state, uploading, jobId, reset } = s.workflow
+  const { groups } = s.files
+  const { saveNow } = s.persistence
 
   const handleCancel = useCallback(async () => {
     if (jobId) {
@@ -40,8 +42,6 @@ export function ImportDialog({
     reset()
     onOpenChange(false)
   }, [jobId, reset, onOpenChange])
-
-  const { uploading } = s
 
   const handleClose = useCallback(() => {
     // If uploading, just hide — upload continues in background, localStorage has job_id
@@ -90,7 +90,7 @@ export function ImportDialog({
     onOpenChange(false)
   }, [state, uploading, jobId, groups, queryClient, reset, saveNow, onOpenChange])
 
-  const isWide = s.state === 'preview' || s.state === 'processing'
+  const isWide = state === 'preview' || state === 'processing'
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -103,25 +103,25 @@ export function ImportDialog({
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-3 shrink-0">
           <h2 className="font-display text-lg font-semibold flex items-center gap-2 text-foreground">
-            {s.state === 'upload' && (
+            {state === 'upload' && (
               <>
                 <Upload className="h-5 w-5 text-primary shrink-0" />
                 Import Scenes
               </>
             )}
-            {s.state === 'preview' && (
+            {state === 'preview' && (
               <>
                 <FolderOpen className="h-5 w-5 text-primary shrink-0" />
                 Review Import
               </>
             )}
-            {s.state === 'processing' && (
+            {state === 'processing' && (
               <>
                 <Loader2 className="h-5 w-5 text-primary animate-spin shrink-0" />
                 Processing…
               </>
             )}
-            {s.state === 'done' && (
+            {state === 'done' && (
               <>
                 <Check className="h-5 w-5 text-primary shrink-0" />
                 Import Complete
@@ -129,12 +129,12 @@ export function ImportDialog({
             )}
           </h2>
           <div className="flex items-center gap-1">
-            {s.state === 'preview' &&
-              s.jobId &&
-              s.pendingGroups.length === 0 &&
-              s.completedCount > 0 && (
+            {state === 'preview' &&
+              jobId &&
+              s.files.pendingGroups.length === 0 &&
+              s.files.completedCount > 0 && (
                 <button
-                  onClick={s.handleFinalize}
+                  onClick={s.confirm.handleFinalize}
                   className="flex items-center gap-1.5 px-3 h-7 rounded text-sm bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
                   title="Finish import — all groups have been submitted"
                 >
@@ -142,7 +142,7 @@ export function ImportDialog({
                   Done
                 </button>
               )}
-            {s.state === 'preview' && s.jobId && (
+            {state === 'preview' && jobId && (
               <button
                 onClick={handleCancel}
                 className="flex items-center gap-1.5 px-2.5 h-7 rounded text-sm text-muted-foreground hover:text-destructive hover:bg-secondary transition-colors"
@@ -164,38 +164,38 @@ export function ImportDialog({
         <div className="h-px bg-gradient-to-r from-primary/60 via-primary/20 to-transparent mx-6 shrink-0" />
 
         {/* Upload state */}
-        {s.state === 'upload' && (
+        {state === 'upload' && (
           <ImportUploadPane
-            uploading={s.uploading}
-            uploadError={s.uploadError}
-            uploadPhase={s.uploadPhase}
-            skippedFiles={s.skippedFiles}
-            fileInputRef={s.fileInputRef}
-            folderInputRef={s.folderInputRef}
-            onFileSelect={s.handleFileSelect}
-            onDrop={s.handleDrop}
-            defaultImageType={s.defaultImageType}
-            onDefaultImageTypeChange={s.setDefaultImageType}
+            uploading={uploading}
+            uploadError={s.workflow.uploadError}
+            uploadPhase={s.workflow.uploadPhase}
+            skippedFiles={s.workflow.skippedFiles}
+            fileInputRef={s.upload.fileInputRef}
+            folderInputRef={s.upload.folderInputRef}
+            onFileSelect={s.upload.handleFileSelect}
+            onDrop={s.upload.handleDrop}
+            defaultImageType={s.metadata.defaultImageType}
+            onDefaultImageTypeChange={s.metadata.setDefaultImageType}
           />
         )}
 
         {/* Preview / Processing — two-column layout */}
-        {(s.state === 'preview' || s.state === 'processing') && s.groups.length > 0 && (
+        {(state === 'preview' || state === 'processing') && groups.length > 0 && (
           <div className="flex min-h-0 flex-1 overflow-hidden">
-            {s.groups.length > 1 && (
+            {groups.length > 1 && (
               <ImportGroupNav
-                groups={s.groups}
-                activeTab={s.activeTab}
-                state={s.state}
-                totalFiles={s.totalFiles}
-                pendingGroupCount={s.pendingGroups.length}
-                canImportAll={s.canImportAll}
-                canMergeAll={s.canMergeAll}
-                onSelectTab={s.setActiveTab}
-                onUpdateGroup={s.updateGroup}
-                onMergeGroups={s.mergeGroups}
-                onMergeAllGroups={s.mergeAllGroups}
-                onConfirmAll={s.handleConfirmAll}
+                groups={s.files.groups}
+                activeTab={s.files.activeTab}
+                state={state}
+                totalFiles={s.files.totalFiles}
+                pendingGroupCount={s.files.pendingGroups.length}
+                canImportAll={s.confirm.canImportAll}
+                canMergeAll={s.confirm.canMergeAll}
+                onSelectTab={s.files.setActiveTab}
+                onUpdateGroup={s.editing.updateGroup}
+                onMergeGroups={s.editing.mergeGroups}
+                onMergeAllGroups={s.editing.mergeAllGroups}
+                onConfirmAll={s.confirm.handleConfirmAll}
               />
             )}
             <ImportGroupContent s={s} />
@@ -203,8 +203,8 @@ export function ImportDialog({
         )}
 
         {/* Done */}
-        {s.state === 'done' && (
-          <ImportDonePane completedCount={s.completedCount} onClose={handleClose} />
+        {state === 'done' && (
+          <ImportDonePane completedCount={s.files.completedCount} onClose={handleClose} />
         )}
       </DialogContent>
     </Dialog>
