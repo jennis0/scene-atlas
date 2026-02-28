@@ -531,7 +531,12 @@ export function FilterChipList({ filters, onFiltersChange }: FilterChipListProps
   return (
     <div className="flex flex-wrap gap-1">
       {filters.map((af, i) => (
-        <FilterChip key={i} filter={af} onToggle={() => toggle(i)} onRemove={() => remove(i)} />
+        <FilterChip
+          key={`${af.type}:${af.value}:${af.exclude}`}
+          filter={af}
+          onToggle={() => toggle(i)}
+          onRemove={() => remove(i)}
+        />
       ))}
       {filters.length > 1 && (
         <button
