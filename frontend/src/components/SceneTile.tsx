@@ -33,7 +33,7 @@ export function SceneTile({
 
   return (
     <div
-      className={`group relative cursor-pointer overflow-hidden rounded-lg bg-card transition-all duration-200 ${
+      className={`group relative cursor-pointer overflow-hidden rounded-lg bg-card transition-[transform,box-shadow] duration-200 ${
         isActive
           ? 'border border-primary/60 ring-2 ring-primary/70 shadow-lg shadow-primary/15'
           : 'border border-border/30 hover:border-primary/40 hover:shadow-xl hover:shadow-black/40'
@@ -52,7 +52,10 @@ export function SceneTile({
         <img
           src={getThumbnailUrl(image)}
           alt={primaryText}
-          className={`h-full w-full object-cover transition-all duration-300 group-hover:scale-[1.05] ${
+          width={240}
+          height={180}
+          decoding="async"
+          className={`h-full w-full object-cover transition-[transform,opacity] duration-300 group-hover:scale-[1.05] ${
             loaded ? 'opacity-100' : 'opacity-0'
           }`}
           loading="lazy"
