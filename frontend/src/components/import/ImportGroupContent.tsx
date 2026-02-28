@@ -1,14 +1,287 @@
+import { useRef, useMemo } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { Check, AlertCircle, Loader2, SkipForward, Undo2, Search } from 'lucide-react'
 import { ImportFileCard } from './ImportFileCard'
 import { ImportFileToolbar } from './ImportFileToolbar'
 import { MetadataForm } from './MetadataForm'
 import { SubgroupHeading } from '@/components/SubgroupHeading'
 import type { UseImportStateReturn } from '@/hooks/useImportState'
+import type { FileFilter } from './fileFilter'
+import type { EditableFileState } from '@/types'
 
 type ImportState = UseImportStateReturn
 
 interface ImportGroupContentProps {
   s: ImportState
+}
+
+/** Threshold: only virtualize when file count reaches this */
+const VIRTUALIZE_THRESHOLD = 50
+
+/** Estimated heights (px) for the virtualizer */
+const CARD_ROW_HEIGHT = 120
+const SUBGROUP_HEADING_HEIGHT = 36
+
+// ── Flattened item types for virtualization with subgroup headings ──
+
+type FlatItem =
+  | { type: 'heading'; subgroup: string | null; count: number }
+  | { type: 'card-row'; files: EditableFileState[] }
+
+function flattenSubgroupItems(
+  subgroupGroups: { subgroup: string | null; files: EditableFileState[] }[],
+): FlatItem[] {
+  const items: FlatItem[] = []
+  for (const sg of subgroupGroups) {
+    const nonExcluded = sg.files.filter((f) => !f.excluded).length
+    items.push({ type: 'heading', subgroup: sg.subgroup, count: nonExcluded })
+    // Pair files into 2-column rows
+    for (let i = 0; i < sg.files.length; i += 2) {
+      items.push({ type: 'card-row', files: sg.files.slice(i, i + 2) })
+    }
+  }
+  return items
+}
+
+/** Pair flat files into 2-column rows */
+function pairIntoRows(files: EditableFileState[]): EditableFileState[][] {
+  const rows: EditableFileState[][] = []
+  for (let i = 0; i < files.length; i += 2) {
+    rows.push(files.slice(i, i + 2))
+  }
+  return rows
+}
+
+// ── FileGallery: handles both virtualized and non-virtualized rendering ──
+
+interface FileGalleryProps {
+  showSubgroupHeadings: boolean
+  subgroupGroups: { subgroup: string | null; files: EditableFileState[] }[]
+  filteredFiles: EditableFileState[]
+  groupSubgroups: string[]
+  activeSelection: Set<string>
+  activeGroupId: string
+  jobId: string
+  disabled: boolean
+  isAllTab: boolean
+  fileFilter: FileFilter
+  toggleFileSelection: (groupId: string, relativePath: string) => void
+  onUpdateFile: (relativePath: string, updates: Partial<EditableFileState>) => void
+}
+
+function FileGallery({
+  showSubgroupHeadings,
+  subgroupGroups,
+  filteredFiles,
+  groupSubgroups,
+  activeSelection,
+  activeGroupId,
+  jobId,
+  disabled,
+  isAllTab,
+  fileFilter,
+  toggleFileSelection,
+  onUpdateFile,
+}: FileGalleryProps) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  /** Render a 2-col row of ImportFileCards */
+  const renderCardRow = (files: EditableFileState[]) => (
+    <div className="grid grid-cols-2 gap-2 pb-2">
+      {files.map((file) => (
+        <ImportFileCard
+          key={file.relative_path}
+          file={file}
+          jobId={jobId}
+          existingSubgroups={groupSubgroups}
+          selected={activeSelection.has(file.relative_path)}
+          onToggleSelect={() => toggleFileSelection(activeGroupId, file.relative_path)}
+          onUpdate={(updates) => onUpdateFile(file.relative_path, updates)}
+          disabled={disabled}
+        />
+      ))}
+    </div>
+  )
+
+  // ── Flat-list virtualization (no subgroup headings) ──
+
+  const flatRows = useMemo(
+    () => (showSubgroupHeadings ? [] : pairIntoRows(filteredFiles)),
+    [showSubgroupHeadings, filteredFiles],
+  )
+
+  const flatVirtualizer = useVirtualizer({
+    count: flatRows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => CARD_ROW_HEIGHT,
+    overscan: 5,
+    enabled: !showSubgroupHeadings && filteredFiles.length >= VIRTUALIZE_THRESHOLD,
+  })
+
+  // ── Subgroup-heading virtualization ──
+
+  const subgroupItems = useMemo(
+    () => (showSubgroupHeadings ? flattenSubgroupItems(subgroupGroups) : []),
+    [showSubgroupHeadings, subgroupGroups],
+  )
+
+  const totalSubgroupFiles = useMemo(
+    () => (showSubgroupHeadings ? subgroupGroups.reduce((sum, sg) => sum + sg.files.length, 0) : 0),
+    [showSubgroupHeadings, subgroupGroups],
+  )
+
+  const subgroupVirtualizer = useVirtualizer({
+    count: subgroupItems.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: (index) =>
+      subgroupItems[index]?.type === 'heading' ? SUBGROUP_HEADING_HEIGHT : CARD_ROW_HEIGHT,
+    overscan: 5,
+    enabled: showSubgroupHeadings && totalSubgroupFiles >= VIRTUALIZE_THRESHOLD,
+  })
+
+  const shouldVirtualizeFlat = !showSubgroupHeadings && filteredFiles.length >= VIRTUALIZE_THRESHOLD
+  const shouldVirtualizeSubgroups =
+    showSubgroupHeadings && totalSubgroupFiles >= VIRTUALIZE_THRESHOLD
+
+  // ── Empty-state messages ──
+
+  const emptyFilterMessage =
+    filteredFiles.length === 0 && (fileFilter.text || fileFilter.active.length > 0)
+  const emptyAllTabMessage =
+    filteredFiles.length === 0 && !fileFilter.text && fileFilter.active.length === 0 && isAllTab
+
+  // ── Render ──
+
+  return (
+    <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
+      {/* Virtualized flat list */}
+      {shouldVirtualizeFlat && (
+        <div
+          style={{
+            height: `${flatVirtualizer.getTotalSize()}px`,
+            position: 'relative',
+            width: '100%',
+          }}
+        >
+          {flatVirtualizer.getVirtualItems().map((virtualRow) => (
+            <div
+              key={virtualRow.key}
+              data-index={virtualRow.index}
+              ref={flatVirtualizer.measureElement}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                transform: `translateY(${virtualRow.start}px)`,
+              }}
+            >
+              {renderCardRow(flatRows[virtualRow.index])}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Non-virtualized flat list */}
+      {!showSubgroupHeadings && !shouldVirtualizeFlat && (
+        <div className="grid grid-cols-2 gap-2">
+          {filteredFiles.map((file) => (
+            <ImportFileCard
+              key={file.relative_path}
+              file={file}
+              jobId={jobId}
+              existingSubgroups={groupSubgroups}
+              selected={activeSelection.has(file.relative_path)}
+              onToggleSelect={() => toggleFileSelection(activeGroupId, file.relative_path)}
+              onUpdate={(updates) => onUpdateFile(file.relative_path, updates)}
+              disabled={disabled}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Virtualized subgroup list */}
+      {shouldVirtualizeSubgroups && (
+        <div
+          style={{
+            height: `${subgroupVirtualizer.getTotalSize()}px`,
+            position: 'relative',
+            width: '100%',
+          }}
+        >
+          {subgroupVirtualizer.getVirtualItems().map((virtualItem) => {
+            const item = subgroupItems[virtualItem.index]
+            return (
+              <div
+                key={virtualItem.key}
+                data-index={virtualItem.index}
+                ref={subgroupVirtualizer.measureElement}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  transform: `translateY(${virtualItem.start}px)`,
+                }}
+              >
+                {item.type === 'heading' ? (
+                  <SubgroupHeading
+                    subgroup={item.subgroup}
+                    count={item.count}
+                    isEditing={false}
+                    existingSubgroups={groupSubgroups}
+                    onStartEdit={() => {}}
+                    onCommit={() => {}}
+                    onCancel={() => {}}
+                    onClear={() => {}}
+                    canEdit={false}
+                  />
+                ) : (
+                  renderCardRow(item.files)
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Non-virtualized subgroup list */}
+      {showSubgroupHeadings &&
+        !shouldVirtualizeSubgroups &&
+        subgroupGroups.map((svGroup) => {
+          const nonExcluded = svGroup.files.filter((f) => !f.excluded).length
+          return (
+            <div key={svGroup.subgroup ?? '__main__'} className="mb-2">
+              <SubgroupHeading
+                subgroup={svGroup.subgroup}
+                count={nonExcluded}
+                isEditing={false}
+                existingSubgroups={groupSubgroups}
+                onStartEdit={() => {}}
+                onCommit={() => {}}
+                onCancel={() => {}}
+                onClear={() => {}}
+                canEdit={false}
+              />
+              {renderCardRow(svGroup.files)}
+            </div>
+          )
+        })}
+
+      {/* Empty state messages */}
+      {emptyFilterMessage && (
+        <div className="flex flex-col items-center py-12 text-muted-foreground gap-2">
+          <Search className="h-8 w-8 text-muted-foreground/20" />
+          <p className="text-sm">No files match the current filter</p>
+        </div>
+      )}
+      {emptyAllTabMessage && (
+        <div className="flex flex-col items-center py-12 text-muted-foreground gap-2">
+          <p className="text-sm">All groups are complete or skipped</p>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function ImportGroupContent({ s }: ImportGroupContentProps) {
@@ -120,81 +393,24 @@ export function ImportGroupContent({ s }: ImportGroupContentProps) {
           )}
 
           {/* File gallery */}
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
-            {showSubgroupHeadings ? (
-              subgroupGroups.map((svGroup) => {
-                const nonExcluded = svGroup.files.filter((f) => !f.excluded).length
-                return (
-                  <div key={svGroup.subgroup ?? '__main__'} className="mb-2">
-                    <SubgroupHeading
-                      subgroup={svGroup.subgroup}
-                      count={nonExcluded}
-                      isEditing={false}
-                      existingSubgroups={groupSubgroups}
-                      onStartEdit={() => {}}
-                      onCommit={() => {}}
-                      onCancel={() => {}}
-                      onClear={() => {}}
-                      canEdit={false}
-                    />
-                    <div className="grid grid-cols-2 gap-2 pb-2">
-                      {svGroup.files.map((file) => (
-                        <ImportFileCard
-                          key={file.relative_path}
-                          file={file}
-                          jobId={jobId!}
-                          existingSubgroups={groupSubgroups}
-                          selected={activeSelection.has(file.relative_path)}
-                          onToggleSelect={() =>
-                            toggleFileSelection(activeGroupId, file.relative_path)
-                          }
-                          onUpdate={(updates) =>
-                            isAllTab
-                              ? updateFileAnyGroup(file.relative_path, updates)
-                              : updateFile(activeTab, file.relative_path, updates)
-                          }
-                          disabled={!isAllTab && activeGroup?.status !== 'pending'}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )
-              })
-            ) : (
-              <div className="grid grid-cols-2 gap-2">
-                {filteredFiles.map((file) => (
-                  <ImportFileCard
-                    key={file.relative_path}
-                    file={file}
-                    jobId={jobId!}
-                    existingSubgroups={groupSubgroups}
-                    selected={activeSelection.has(file.relative_path)}
-                    onToggleSelect={() => toggleFileSelection(activeGroupId, file.relative_path)}
-                    onUpdate={(updates) =>
-                      isAllTab
-                        ? updateFileAnyGroup(file.relative_path, updates)
-                        : updateFile(activeTab, file.relative_path, updates)
-                    }
-                    disabled={!isAllTab && activeGroup?.status !== 'pending'}
-                  />
-                ))}
-              </div>
-            )}
-            {filteredFiles.length === 0 && (fileFilter.text || fileFilter.active.length > 0) && (
-              <div className="flex flex-col items-center py-12 text-muted-foreground gap-2">
-                <Search className="h-8 w-8 text-muted-foreground/20" />
-                <p className="text-sm">No files match the current filter</p>
-              </div>
-            )}
-            {filteredFiles.length === 0 &&
-              !fileFilter.text &&
-              fileFilter.active.length === 0 &&
-              isAllTab && (
-                <div className="flex flex-col items-center py-12 text-muted-foreground gap-2">
-                  <p className="text-sm">All groups are complete or skipped</p>
-                </div>
-              )}
-          </div>
+          <FileGallery
+            showSubgroupHeadings={showSubgroupHeadings}
+            subgroupGroups={subgroupGroups}
+            filteredFiles={filteredFiles}
+            groupSubgroups={groupSubgroups}
+            activeSelection={activeSelection}
+            activeGroupId={activeGroupId}
+            jobId={jobId!}
+            disabled={!isAllTab && activeGroup?.status !== 'pending'}
+            isAllTab={isAllTab}
+            fileFilter={fileFilter}
+            toggleFileSelection={toggleFileSelection}
+            onUpdateFile={(relativePath, updates) =>
+              isAllTab
+                ? updateFileAnyGroup(relativePath, updates)
+                : updateFile(activeTab, relativePath, updates)
+            }
+          />
 
           {/* Per-group status / footer */}
           {!isAllTab && activeGroup && (
