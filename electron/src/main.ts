@@ -11,6 +11,35 @@ let sidecarProcess: ChildProcess | null = null
 let currentDataDir: string | null = null
 
 const isDev = !app.isPackaged
+const isMac = process.platform === 'darwin'
+
+// ── Shared window helpers ────────────────────────────────────────────────────
+
+/** Borderless titlebar config: hiddenInset on macOS, hidden + overlay on Win/Linux. */
+function borderlessOptions(): Partial<Electron.BrowserWindowConstructorOptions> {
+  return {
+    titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
+    ...(!isMac && {
+      titleBarOverlay: {
+        color: '#0e1118',
+        symbolColor: '#ede8dc',
+        height: 40,
+      },
+    }),
+  }
+}
+
+/** Enable F12 / Ctrl+Shift+I to toggle dev tools in any build. */
+function enableDevToolsShortcut(win: BrowserWindow): void {
+  win.webContents.on('before-input-event', (_event, input) => {
+    if (
+      input.key === 'F12' ||
+      (input.control && input.shift && input.key === 'I')
+    ) {
+      win.webContents.toggleDevTools()
+    }
+  })
+}
 
 // ── IPC handlers for the setup window ──────────────────────────────────────
 
@@ -120,14 +149,7 @@ function showSetupWindow(): void {
     minWidth: 520,
     minHeight: 560,
     backgroundColor: '#0e1118',
-    titleBarStyle: 'hidden',
-    ...(process.platform !== 'darwin' && {
-      titleBarOverlay: {
-        color: '#0e1118',
-        symbolColor: '#ede8dc',
-        height: 40,
-      },
-    }),
+    ...borderlessOptions(),
     webPreferences: {
       preload: path.join(__dirname, 'setup.preload.js'),
       contextIsolation: true,
@@ -136,6 +158,7 @@ function showSetupWindow(): void {
     },
   })
 
+  enableDevToolsShortcut(setupWindow)
   setupWindow.loadFile(path.join(__dirname, '..', 'setup.html'))
 
   setupWindow.on('closed', () => {
@@ -153,14 +176,7 @@ function createMainWindow(): BrowserWindow {
     minWidth: 900,
     minHeight: 600,
     backgroundColor: '#0e1118',
-    titleBarStyle: 'hidden',
-    ...(process.platform !== 'darwin' && {
-      titleBarOverlay: {
-        color: '#0e1118',
-        symbolColor: '#ede8dc',
-        height: 40,
-      },
-    }),
+    ...borderlessOptions(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -169,15 +185,7 @@ function createMainWindow(): BrowserWindow {
     },
   })
 
-  // Dev tools shortcut: F12 or Ctrl+Shift+I in all builds
-  win.webContents.on('before-input-event', (_event, input) => {
-    if (
-      input.key === 'F12' ||
-      (input.control && input.shift && input.key === 'I')
-    ) {
-      win.webContents.toggleDevTools()
-    }
-  })
+  enableDevToolsShortcut(win)
 
   if (isDev) {
     win.loadURL('http://localhost:5173')

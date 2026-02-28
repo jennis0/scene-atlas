@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  /** Host OS: 'darwin' | 'win32' | 'linux' — for platform-specific UI layout. */
+  platform: process.platform,
+
   onBackendReady: (callback: (port: number) => void) => {
     ipcRenderer.once('backend-ready', (_event, port: number) => callback(port))
   },

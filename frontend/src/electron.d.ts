@@ -4,6 +4,9 @@
  */
 
 interface ElectronAPI {
+  /** Host OS identifier for platform-specific UI layout. */
+  readonly platform: 'darwin' | 'win32' | 'linux'
+
   // Backend lifecycle events
   onBackendReady(callback: (port: number) => void): void
   onBackendError(callback: (message: string) => void): void

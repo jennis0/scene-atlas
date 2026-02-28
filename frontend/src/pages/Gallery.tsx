@@ -51,7 +51,7 @@ import type { ActiveFilter, ImageTypeFilter } from '@/components/import/fileFilt
 // Platform helpers for borderless window layout
 // ---------------------------------------------------------------------------
 
-const isMac = isApp && navigator.platform.startsWith('Mac')
+const isMac = isApp && window.electronAPI?.platform === 'darwin'
 const needsOverlayPadding = isApp && !isMac // Windows/Linux titlebar overlay
 
 // ---------------------------------------------------------------------------
