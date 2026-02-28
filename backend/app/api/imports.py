@@ -205,6 +205,14 @@ async def upload_files(
         except (json.JSONDecodeError, TypeError):
             manifest_entries = []
 
+    # Validate image_type if provided
+    VALID_IMAGE_TYPES = {"battlemap", "scene"}
+    if image_type and image_type not in VALID_IMAGE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid image_type '{image_type}'. Must be one of: {', '.join(sorted(VALID_IMAGE_TYPES))}",
+        )
+
     # Read import limits from DB-backed settings
     app_settings = get_app_settings(db)
 

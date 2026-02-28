@@ -149,6 +149,28 @@ class TestUploadEndpoint:
         assert resp.status_code == 400
         assert "invalid content" in resp.json()["detail"]
 
+    def test_invalid_image_type_rejected(self, test_client, _setup_upload):
+        """Unknown image_type values must be rejected."""
+        jpeg_data = _make_jpeg_bytes()
+        resp = test_client.post(
+            "/api/v1/imports/upload",
+            files=[("files", ("test.jpg", jpeg_data, "image/jpeg"))],
+            data={"image_type": "invalid_type"},
+        )
+        assert resp.status_code == 400
+        assert "Invalid image_type" in resp.json()["detail"]
+
+    def test_valid_image_type_accepted(self, test_client, _setup_upload):
+        """Valid image_type values must be accepted."""
+        jpeg_data = _make_jpeg_bytes()
+        for img_type in ("battlemap", "scene"):
+            resp = test_client.post(
+                "/api/v1/imports/upload",
+                files=[("files", ("test.jpg", jpeg_data, "image/jpeg"))],
+                data={"image_type": img_type},
+            )
+            assert resp.status_code == 200, f"image_type={img_type} rejected unexpectedly"
+
     def test_zip_bomb_rejected(self, test_client, _setup_upload, tmp_path, monkeypatch):
         """A ZIP whose uncompressed size exceeds the limit is rejected with 413."""
         from backend.app.models.schemas import AppSettings
