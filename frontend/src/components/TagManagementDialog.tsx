@@ -31,7 +31,8 @@ function parseCommonValues(raw: string | null): TagValueEntry[] {
         ? { value: v, aliases: [] }
         : { value: v.value, aliases: v.aliases ?? [] },
     )
-  } catch {
+  } catch (e) {
+    console.warn('Failed to parse common_values JSON:', e)
     return []
   }
 }
