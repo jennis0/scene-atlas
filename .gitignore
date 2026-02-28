@@ -95,4 +95,5 @@ transformers_cache/
 
 .ignore/
 .claude/
+.worktrees/
 data/
