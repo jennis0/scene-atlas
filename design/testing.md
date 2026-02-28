@@ -13,13 +13,13 @@ The test suite covers the ingestion pipeline end-to-end: parsing, pipeline funct
 ```
 Tier 1 — Pre-commit (local):  lint-staged (ruff + eslint + prettier on staged files)
 Tier 2 — Every push & PR:     lint + format + unit tests + frontend tests + build
-Tier 3 — Push to main:        + integration tests + heavy tests (CLIP) + coverage reporting
+Tier 3 — Push to main:        + integration tests + heavy tests (CLIP) + E2E (Playwright) + coverage
 Tier 4 — Version tags (v*):   gate check + multi-platform electron build + release
 ```
 
 ### GitHub Actions Workflows
 
-- `.github/workflows/ci.yml` — Tiers 1-3 (backend-lint → backend-unit → backend-integration + backend-heavy, frontend-lint → frontend-test/build → frontend-coverage)
+- `.github/workflows/ci.yml` — Tiers 1-3 (backend-lint → backend-unit → backend-integration + backend-heavy + e2e, frontend-lint → frontend-test/build → frontend-coverage)
 - `.github/workflows/electron-build.yml` — Tier 4 (gate job → matrix build for Windows/macOS/Linux)
 
 ### Coverage Thresholds
@@ -39,6 +39,8 @@ make check          # lint + format-check (both backend + frontend)
 make test           # unit tests + frontend tests (fast, ~15s)
 make test-all       # unit + integration + frontend (~30s)
 make test-heavy     # CLIP model tests (downloads ~600MB model on first run)
+make test-e2e       # Playwright E2E tests (Chromium, ~35s with warm servers)
+make test-e2e-ui    # Playwright interactive UI mode (for debugging)
 make test-cov       # full suite with coverage reporting
 make lint-fix       # auto-fix all lint + format issues
 ```
@@ -66,6 +68,11 @@ uv run python -m pytest -m heavy -v
 
 # Run everything including heavy
 uv run python -m pytest -m '' -v
+
+# E2E tests (requires backend + frontend running, or let Playwright start them)
+make test-e2e                    # headless Chromium
+make test-e2e-ui                 # interactive UI mode for debugging
+npm run test:e2e:headed          # headed Chromium (see the browser)
 ```
 
 ## Heavy Tests (CLIP)
@@ -80,7 +87,34 @@ Tests marked with `@pytest.mark.heavy` load the real CLIP model (~600 MB) and ru
 
 **Test fixture:** The `clip_service` fixture is `session`-scoped and also primes the module-level singleton, so both direct `CLIPService` usage and `get_clip_service()` code paths work.
 
-## Three-Layer Structure
+## E2E Tests (Playwright)
+
+Playwright tests validate critical user flows in a real browser against the full stack (real backend, real frontend, real CLIP model). This is the only test tier that exercises the complete system end-to-end, including real semantic search.
+
+**Architecture:**
+- Located in `e2e/` at project root (not inside `frontend/`) — tests exercise the full stack
+- Dual webServer config: Playwright starts both backend and frontend automatically
+- Real CLIP model (no mocking) — loads in a background thread, server responds immediately
+- Test data seeded via the import API using programmatically generated images (6 images, 2 groups)
+- Serial execution (`workers: 1`) — tests share backend state
+- Chromium only in CI; Firefox/WebKit available locally via `--project` flag
+
+**Key files:**
+- `e2e/playwright.config.ts` — Dual webServer, serial execution, CI/local reporter config
+- `e2e/fixtures/base.ts` — Worker-scoped auto fixture that generates images and seeds via API
+- `e2e/helpers/seed.ts` — Uploads images via `POST /imports/upload`, confirms, polls until done
+- `scripts/generate_e2e_images.py` — Creates 6 minimal test JPEGs (same PIL pattern as conftest.py)
+
+**Test coverage (15 tests across 5 files):**
+- `smoke.spec.ts` — Health check, page load, seeded data visible
+- `gallery.spec.ts` — Image count, type tabs, view toggle, sort dropdown
+- `search.spec.ts` — Text search, clear, semantic prefix with relevance slider
+- `image-viewer.spec.ts` — Open/close modal, keyboard navigation
+- `import.spec.ts` — Dialog open, file upload via file chooser
+
+**`reuseExistingServer`:** Locally, if you already have the backend and frontend running, Playwright reuses them — no cold-start overhead. In CI, Playwright starts both servers fresh.
+
+## Test Structure
 
 ```
 backend/tests/
@@ -123,7 +157,21 @@ backend/tests/
 │   ├── test_backup_restore.py     # Backup + restore pipeline
 │   ├── test_expire_stale_jobs.py  # Stale job expiry + staging cleanup
 │   └── test_clip_heavy.py         # Real CLIP model tests (marked @heavy, excluded by default)
-└── e2e/                           # Full infrastructure tests (future)
+
+e2e/                                  # Playwright E2E tests (full stack, real browser)
+├── playwright.config.ts              # Dual webServer (backend + frontend)
+├── tsconfig.json
+├── fixtures/
+│   └── base.ts                       # Worker-scoped seed fixture (uploads via API)
+├── helpers/
+│   ├── seed.ts                       # API-based data seeding orchestration
+│   └── test-images.ts                # Calls Python script to generate JPEGs
+└── tests/
+    ├── smoke.spec.ts                 # Health check, page load
+    ├── gallery.spec.ts               # Image display, type tabs, view toggle, sort
+    ├── search.spec.ts                # Text search, semantic prefix, clear
+    ├── image-viewer.spec.ts          # Modal open/close, keyboard nav
+    └── import.spec.ts                # Upload → preview flow
 
 frontend/src/
 ├── components/
@@ -211,12 +259,14 @@ monkeypatch.setattr("backend.app.config.settings.database_url", str(engine.url))
 | New API endpoint | New file in `integration/` — mock JobRunner, use TestClient |
 | New pipeline logic | `integration/` — call function directly, mock heavy services |
 | New metadata field | `test_metadata_roundtrip.py` — verify it survives the round-trip |
+| New user-facing flow | `e2e/tests/` — add Playwright spec exercising the UI flow |
 
 ## Known quirks
 
 - **Qdrant mocking must happen before import.** `conftest.py` patches `qdrant_client.QdrantClient` before `backend.app.services` loads, because `QdrantService.__init__()` creates an embedded local DB on disk. The lazy singleton (`get_qdrant_service()`) defers creation, but the QdrantClient class still needs to be mocked before any test triggers it.
 - **TestClient lifespan override.** The FastAPI lifespan sets `app.state.db_engine` to production. Fixtures must override it **after** `TestClient.__enter__()`, not before.
 
-## Future: Real Qdrant in integration tests
+## Future Improvements
 
-Since Qdrant now runs in embedded local mode (`QdrantClient(path=...)`), we could use a real instance pointed at `tmp_path` in integration tests. This would test real vector search behavior (add + query roundtrip) and remove the fragile import-order mocking. Still fast since it's just local files with no network.
+- **Real Qdrant in integration tests:** Since Qdrant now runs in embedded local mode (`QdrantClient(path=...)`), we could use a real instance pointed at `tmp_path` in integration tests. This would test real vector search behavior (add + query roundtrip) and remove the fragile import-order mocking. Still fast since it's just local files with no network.
+- **E2E coverage expansion:** Add tests for group editing, tag management, and export flows as those features stabilize.
