@@ -69,9 +69,8 @@
 
     --surface-canvas: 222 22% 6%;      /* ImageViewer deep canvas bg */
   }
-}
 
-@layer base {
+
   * {
     @apply border-border;
   }
