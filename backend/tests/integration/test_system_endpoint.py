@@ -35,10 +35,11 @@ class TestSystemInfoEndpoint:
 
     def test_response_top_level_keys(self, test_client):
         data = test_client.get("/api/v1/system/info").json()
-        assert "storage_path" in data
         assert "mode" in data
         assert "storage" in data
         assert "library" in data
+        # storage_path is only included in app (desktop) mode, not server mode
+        assert "storage_path" not in data
 
     def test_mode_field_is_server_by_default(self, test_client):
         data = test_client.get("/api/v1/system/info").json()

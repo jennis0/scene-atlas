@@ -48,12 +48,12 @@ def generate_thumbnails(image_path: str, storage_key_stem: str) -> dict:
                     size_name = ["small", "medium", "large"][idx] if idx < 3 else f"size_{idx}"
                     thumbnail_keys[size_name] = thumb_key
 
-                    logger.debug(f"Generated {size_name} thumbnail: {thumb_key}")
+                    logger.debug("Generated %s thumbnail: %s", size_name, thumb_key)
 
         return {"keys": thumbnail_keys, "dimensions": dimensions}
 
     except Exception as e:
-        logger.error(f"Error generating thumbnails for {image_path}: {e}")
+        logger.error("Error generating thumbnails for %s: %s", image_path, e)
         raise
 
 
@@ -93,11 +93,11 @@ def generate_preview_thumbnail(
         image.thumbnail((size, size), Image.Resampling.LANCZOS)
         image.save(thumb_path, format="JPEG", quality=85, optimize=True)
 
-        logger.debug(f"Generated preview thumbnail: {safe_name}")
+        logger.debug("Generated preview thumbnail: %s", safe_name)
         return safe_name
 
     except Exception as e:
-        logger.warning(f"Failed to generate preview thumbnail for {relative_path}: {e}")
+        logger.warning("Failed to generate preview thumbnail for %s: %s", relative_path, e)
         return None
 
 
@@ -115,7 +115,7 @@ def get_image_dimensions(image_path: str) -> tuple[int, int]:
         with Image.open(Path(image_path)) as img:
             return img.size
     except Exception as e:
-        logger.error(f"Error getting dimensions for {image_path}: {e}")
+        logger.error("Error getting dimensions for %s: %s", image_path, e)
         raise
 
 
@@ -132,5 +132,5 @@ def get_file_size(image_path: str) -> int:
     try:
         return Path(image_path).stat().st_size
     except Exception as e:
-        logger.error(f"Error getting file size for {image_path}: {e}")
+        logger.error("Error getting file size for %s: %s", image_path, e)
         raise

@@ -122,7 +122,7 @@ def backfill_search_text(db: Session) -> int:
         )
 
     db.commit()
-    logger.info(f"Backfilled search_text for {len(images)} images")
+    logger.info("Backfilled search_text for %s images", len(images))
 
     # Recreate triggers and rebuild FTS index
     db.execute(

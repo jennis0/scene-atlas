@@ -257,7 +257,7 @@ class ImageParser:
             try:
                 values = json.loads(raw) if isinstance(raw, str) else raw
             except (json.JSONDecodeError, TypeError):
-                logger.warning(f"Invalid common_values JSON for category '{category_name}'")
+                logger.warning("Invalid common_values JSON for category '%s'", category_name)
                 continue
 
             for entry in values:

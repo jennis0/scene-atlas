@@ -40,7 +40,7 @@ class QdrantService:
                 collection_names = [c.name for c in collections]
 
                 if self.collection_name not in collection_names:
-                    logger.info(f"Creating Qdrant collection: {self.collection_name}")
+                    logger.info("Creating Qdrant collection: %s", self.collection_name)
                     self.client.create_collection(
                         collection_name=self.collection_name,
                         vectors_config=VectorParams(
@@ -48,11 +48,11 @@ class QdrantService:
                             distance=Distance.COSINE,
                         ),
                     )
-                    logger.info(f"Collection {self.collection_name} created successfully")
+                    logger.info("Collection %s created successfully", self.collection_name)
                 else:
-                    logger.info(f"Collection {self.collection_name} already exists")
+                    logger.info("Collection %s already exists", self.collection_name)
             except Exception as e:
-                logger.error(f"Error ensuring collection exists: {e}")
+                logger.error("Error ensuring collection exists: %s", e)
                 raise
 
     def delete_collection(self):
@@ -60,9 +60,9 @@ class QdrantService:
         with self._lock:
             try:
                 self.client.delete_collection(collection_name=self.collection_name)
-                logger.info(f"Collection {self.collection_name} deleted successfully")
+                logger.info("Collection %s deleted successfully", self.collection_name)
             except Exception as e:
-                logger.error(f"Error deleting collection: {e}")
+                logger.error("Error deleting collection: %s", e)
                 raise
 
     def add_image_embedding(
@@ -84,10 +84,10 @@ class QdrantService:
                     collection_name=self.collection_name,
                     points=[point],
                 )
-                logger.debug(f"Added embedding for image_id={image_id}")
+                logger.debug("Added embedding for image_id=%s", image_id)
                 return True
             except Exception as e:
-                logger.error(f"Error adding embedding for image_id={image_id}: {e}")
+                logger.error("Error adding embedding for image_id=%s: %s", image_id, e)
                 return False
 
     def batch_add_embeddings(self, items: list[dict]) -> bool:
@@ -110,10 +110,10 @@ class QdrantService:
                     collection_name=self.collection_name,
                     points=points,
                 )
-                logger.debug(f"Batch added {len(points)} embeddings to Qdrant")
+                logger.debug("Batch added %s embeddings to Qdrant", len(points))
                 return True
             except Exception as e:
-                logger.error(f"Error batch adding embeddings: {e}")
+                logger.error("Error batch adding embeddings: %s", e)
                 return False
 
     def search_similar(
@@ -141,7 +141,7 @@ class QdrantService:
                     for point in results.points
                 ]
             except Exception as e:
-                logger.error(f"Error searching similar images: {e}")
+                logger.error("Error searching similar images: %s", e)
                 return []
 
     def delete_image_embedding(self, image_id: int) -> bool:
@@ -152,10 +152,10 @@ class QdrantService:
                     collection_name=self.collection_name,
                     points_selector=[image_id],
                 )
-                logger.debug(f"Deleted embedding for image_id={image_id}")
+                logger.debug("Deleted embedding for image_id=%s", image_id)
                 return True
             except Exception as e:
-                logger.error(f"Error deleting embedding for image_id={image_id}: {e}")
+                logger.error("Error deleting embedding for image_id=%s: %s", image_id, e)
                 return False
 
     def get_embedding(self, image_id: int) -> list[float] | None:
@@ -171,7 +171,7 @@ class QdrantService:
                     return results[0].vector
                 return None
             except Exception as e:
-                logger.warning(f"Error retrieving embedding for image_id={image_id}: {e}")
+                logger.warning("Error retrieving embedding for image_id=%s: %s", image_id, e)
                 return None
 
     def get_collection_info(self) -> dict:
@@ -186,7 +186,7 @@ class QdrantService:
                     "status": info.status,
                 }
             except Exception as e:
-                logger.error(f"Error getting collection info: {e}")
+                logger.error("Error getting collection info: %s", e)
                 return {}
 
     def backup_storage(self, target_dir: Path) -> Path:
@@ -194,7 +194,7 @@ class QdrantService:
         with self._lock:
             dest = target_dir / "qdrant_local"
             shutil.copytree(str(self._path), str(dest))
-            logger.info(f"Qdrant storage backed up to {dest}")
+            logger.info("Qdrant storage backed up to %s", dest)
             return dest
 
     def close(self):

@@ -376,7 +376,7 @@ def init_db(engine):
             command.upgrade(alembic_cfg, "head")
     else:
         # Already Alembic-managed: apply any pending migrations.
-        logger.info(f"Running Alembic upgrade (current: {current_rev})")
+        logger.info("Running Alembic upgrade (current: %s)", current_rev)
         command.upgrade(alembic_cfg, "head")
 
 
@@ -606,4 +606,4 @@ def seed_default_settings(session):
         session.add(AppSetting(key=key, value_json=json.dumps(value)))
 
     session.commit()
-    logger.info(f"Seeded {len(defaults)} default app settings")
+    logger.info("Seeded %s default app settings", len(defaults))

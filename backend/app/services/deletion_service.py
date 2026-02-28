@@ -30,20 +30,19 @@ def safe_delete_image(db: Session, image: Image) -> None:
     thumbnail_key = image.thumbnail_key
     image_id = image.id
 
-    # Count other records sharing this storage_key
-    ref_count = (
-        db.query(Image).filter(Image.storage_key == storage_key, Image.id != image_id).count()
-    )
-
     # Delete the DB record (cascades tags, colors)
     db.delete(image)
     db.flush()
+
+    # Count remaining references *after* this record is removed from the session,
+    # closing the race window that existed when counting before deletion.
+    ref_count = db.query(Image).filter(Image.storage_key == storage_key).count()
 
     # Always delete the per-image Qdrant point
     try:
         get_qdrant_service().delete_image_embedding(image_id)
     except Exception as e:
-        logger.warning(f"Failed to delete Qdrant embedding for image {image_id}: {e}")
+        logger.warning("Failed to delete Qdrant embedding for image %s: %s", image_id, e)
 
     # Only delete physical files if this was the last reference
     if ref_count == 0:
@@ -53,14 +52,15 @@ def safe_delete_image(db: Session, image: Image) -> None:
         try:
             image_store.delete(storage_key)
         except Exception as e:
-            logger.warning(f"Failed to delete image file {storage_key}: {e}")
+            logger.warning("Failed to delete image file %s: %s", storage_key, e)
 
         if thumbnail_key:
             _delete_all_thumbnails(thumbnail_store, thumbnail_key)
     else:
         logger.debug(
-            f"Kept physical files for storage_key={storage_key} "
-            f"({ref_count} other references remain)"
+            "Kept physical files for storage_key=%s (%s other references remain)",
+            storage_key,
+            ref_count,
         )
 
 
@@ -79,7 +79,7 @@ def _delete_all_thumbnails(thumbnail_store, thumbnail_key: str) -> None:
         try:
             thumbnail_store.delete(thumbnail_key)
         except Exception as e:
-            logger.warning(f"Failed to delete thumbnail {thumbnail_key}: {e}")
+            logger.warning("Failed to delete thumbnail %s: %s", thumbnail_key, e)
         return
 
     stem = match.group(1)
@@ -88,4 +88,4 @@ def _delete_all_thumbnails(thumbnail_store, thumbnail_key: str) -> None:
         try:
             thumbnail_store.delete(key)
         except Exception as e:
-            logger.debug(f"Failed to delete thumbnail {key}: {e}")
+            logger.debug("Failed to delete thumbnail %s: %s", key, e)

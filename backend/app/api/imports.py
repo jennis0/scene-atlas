@@ -141,7 +141,7 @@ async def init_import(db: Session = Depends(get_db)):
     )
     db.add(import_job)
     db.commit()
-    logger.info(f"Initialized import job {job_id} (uploading)")
+    logger.info("Initialized import job %s (uploading)", job_id)
     return {"job_id": job_id}
 
 
@@ -316,7 +316,7 @@ async def upload_files(
 
                 # Validate it's actually an image/video (not a renamed binary)
                 if not verify_media_mime(content, ext):
-                    logger.warning(f"Skipping invalid file (bad magic bytes): {filename}")
+                    logger.warning("Skipping invalid file (bad magic bytes): %s", filename)
                     skipped_invalid.append(filename)
                     continue
 
@@ -347,8 +347,10 @@ async def upload_files(
 
         # Run analyse_upload synchronously (fast — no CLIP, just filename parsing)
         logger.info(
-            f"Running analyse_upload for {len(all_relative_paths)} files "
-            f"({len(saved_relative_paths)} uploaded, {len(manifest_entries)} from manifest)"
+            "Running analyse_upload for %s files (%s uploaded, %s from manifest)",
+            len(all_relative_paths),
+            len(saved_relative_paths),
+            len(manifest_entries),
         )
         from ...pipeline.ingestion import analyse_upload
 
@@ -456,7 +458,7 @@ async def upload_files(
     except Exception as e:
         # Clean up on error
         shutil.rmtree(staging_dir, ignore_errors=True)
-        logger.error(f"Upload failed: {e}", exc_info=True)
+        logger.exception("Upload failed: %s", e)
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}") from e
 
 
@@ -485,7 +487,9 @@ async def confirm_import(
         if (staging_dir / file_info.relative_path).exists() or file_info.reuse_storage_key:
             valid_files.append(file_info.model_dump())
         else:
-            logger.warning(f"File not found in staging and no reuse key: {file_info.relative_path}")
+            logger.warning(
+                "File not found in staging and no reuse key: %s", file_info.relative_path
+            )
 
     if not valid_files:
         raise HTTPException(status_code=400, detail="No valid files to process")
@@ -506,8 +510,11 @@ async def confirm_import(
 
     # Submit process_import_group to background JobRunner (fire-and-forget)
     logger.info(
-        f"Submitting process_import_group for job {job_id}, "
-        f"group_job {group_job_id}: {len(valid_files)} files, group '{body.group_name}'"
+        "Submitting process_import_group for job %s, group_job %s: %s files, group '%s'",
+        job_id,
+        group_job_id,
+        len(valid_files),
+        body.group_name,
     )
     from ...pipeline.ingestion import process_import_group
     from ...pipeline.pipeline_config import PipelineConfig
@@ -580,7 +587,7 @@ async def confirm_all_groups(
             if (staging_dir / f.relative_path).exists() or f.reuse_storage_key
         ]
         if not valid_files:
-            logger.warning(f"No valid files for group '{group_req.group_name}', skipping")
+            logger.warning("No valid files for group '%s', skipping", group_req.group_name)
             continue
 
         group_job_id = uuid.uuid4().hex[:16]
@@ -637,7 +644,7 @@ async def confirm_all_groups(
     job.updated_at = datetime.now(UTC).replace(tzinfo=None)
     db.commit()
 
-    logger.info(f"Submitted process_import_job for job {job_id}: {len(groups_payload)} groups")
+    logger.info("Submitted process_import_job for job %s: %s groups", job_id, len(groups_payload))
 
     return ImportJobResponse(
         job_id=job.id,
@@ -899,7 +906,7 @@ async def finalize_import(job_id: str, db: Session = Depends(get_db)):
 
     db.commit()
     logger.info(
-        f"Import job {job_id} finalized as '{job.status}' (staging_cleaned={staging_cleaned})"
+        "Import job %s finalized as '%s' (staging_cleaned=%s)", job_id, job.status, staging_cleaned
     )
     return {"status": job.status, "staging_cleaned": staging_cleaned, "already_terminal": False}
 

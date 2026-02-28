@@ -6,7 +6,7 @@ import shutil
 from collections.abc import Callable
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from ..config import settings
@@ -56,8 +56,7 @@ def system_info(db: Session = Depends(get_db)):
     db_bytes = settings.db_path.stat().st_size if settings.db_path.exists() else 0
     total_bytes = _dir_size(settings.data_dir)
 
-    return {
-        "storage_path": str(settings.data_dir),
+    result = {
         "mode": settings.app_mode,
         "storage": {
             "images_bytes": images_bytes + thumbnails_bytes,
@@ -70,6 +69,11 @@ def system_info(db: Session = Depends(get_db)):
             "group_count": group_count,
         },
     }
+    # Only expose filesystem path in desktop mode — avoid leaking
+    # internal server structure when running behind a reverse proxy.
+    if settings.app_mode == "app":
+        result["storage_path"] = str(settings.data_dir)
+    return result
 
 
 # ── Library purge (background job) ────────────────────────────────────────────
@@ -144,6 +148,8 @@ async def delete_library(request: Request):
     from ..services.job_runner import get_job_runner
 
     runner = get_job_runner()
+    if runner.has_active_job("Purge library"):
+        raise HTTPException(status_code=409, detail="Library purge already in progress")
     job_id = runner.submit(
         _purge_library,
         request.app.state.db_engine,

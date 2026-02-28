@@ -348,7 +348,11 @@ async def trigger_retag_all():
 
     try:
         runner = get_job_runner()
+        if runner.has_active_job("Retag all images"):
+            raise HTTPException(status_code=409, detail="Retag job already in progress")
         job_id = runner.submit(retag_all_images, name="Retag all images")
         return {"job_id": job_id, "message": "Retag job started"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Could not start retag job: {e}") from e

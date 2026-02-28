@@ -19,10 +19,10 @@ def generate_clip_embedding(image_path: str) -> list[float]:
     try:
         clip_service = get_clip_service()
         embedding = clip_service.encode_image(Path(image_path))
-        logger.debug(f"Generated CLIP embedding for {image_path}, size: {len(embedding)}")
+        logger.debug("Generated CLIP embedding for %s, size: %s", image_path, len(embedding))
         return embedding
     except Exception as e:
-        logger.error(f"Error generating CLIP embedding for {image_path}: {e}")
+        logger.error("Error generating CLIP embedding for %s: %s", image_path, e)
         raise
 
 
@@ -57,11 +57,11 @@ def batch_generate_clip_embeddings(
             chunk_paths = [Path(p) for p in chunk]
             embeddings = clip_service.batch_encode_images(chunk_paths)
             all_embeddings.extend(embeddings)
-            logger.debug(f"Batch CLIP: processed {i + len(chunk)}/{len(image_paths)} images")
+            logger.debug("Batch CLIP: processed %s/%s images", i + len(chunk), len(image_paths))
 
-        logger.info(f"Generated batch embeddings for {len(image_paths)} images")
+        logger.info("Generated batch embeddings for %s images", len(image_paths))
         return all_embeddings
 
     except Exception as e:
-        logger.error(f"Error batch generating CLIP embeddings: {e}")
+        logger.error("Error batch generating CLIP embeddings: %s", e)
         raise

@@ -67,7 +67,7 @@ def retag_batch(image_ids: list[int], parser: ImageParser) -> dict:
                     )
                     tags_created += 1
             except Exception as e:
-                logger.error(f"Image {image.id}: error retagging: {e}")
+                logger.error("Image %s: error retagging: %s", image.id, e)
                 errors += 1
 
         db.commit()

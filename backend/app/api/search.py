@@ -116,8 +116,8 @@ async def search_images(
     gridded: bool | None = None,
     gridded_unknown: bool = False,
     grid_type: str | None = None,
-    limit: int = 500,
-    offset: int = 0,
+    limit: int = Query(500, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     sort_by: str = Query("created_at", pattern="^(created_at|name|relevance)$"),
     sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
     # Deprecated aliases kept for backward compat
@@ -324,7 +324,11 @@ async def trigger_rebuild_embeddings():
 
     try:
         runner = get_job_runner()
+        if runner.has_active_job("Rebuild embeddings"):
+            raise HTTPException(status_code=409, detail="Embedding rebuild already in progress")
         job_id = runner.submit(rebuild_all_embeddings, name="Rebuild embeddings")
         return {"job_id": job_id, "message": "Embedding rebuild started"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Could not start rebuild job: {e}") from e

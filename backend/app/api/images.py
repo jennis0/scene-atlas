@@ -143,8 +143,14 @@ async def trigger_backfill_grids(force: bool = False):
 
     try:
         runner = get_job_runner()
+        if runner.has_active_job("Backfill grid detection"):
+            raise HTTPException(
+                status_code=409, detail="Grid detection backfill already in progress"
+            )
         job_id = runner.submit(backfill_grid_detection, force=force, name="Backfill grid detection")
         return {"job_id": job_id, "message": "Grid detection backfill started"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=503, detail=f"Could not start grid backfill job: {e}"

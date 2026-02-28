@@ -59,7 +59,7 @@ def rebuild_all_embeddings(progress_fn=None) -> dict:
         db.close()
 
     total = len(image_dicts)
-    logger.info(f"Rebuilding embeddings for {total} images...")
+    logger.info("Rebuilding embeddings for %s images...", total)
 
     succeeded = 0
     failed = 0
@@ -69,7 +69,7 @@ def rebuild_all_embeddings(progress_fn=None) -> dict:
         batch = image_dicts[i : i + batch_size]
         batch_num = i // batch_size + 1
         total_batches = (total + batch_size - 1) // batch_size
-        logger.info(f"Batch {batch_num}/{total_batches} ({len(batch)} images)")
+        logger.info("Batch %s/%s (%s images)", batch_num, total_batches, len(batch))
 
         # Encode images
         items = []
@@ -90,7 +90,7 @@ def rebuild_all_embeddings(progress_fn=None) -> dict:
                 )
             except Exception:
                 logger.warning(
-                    f"Failed to encode image {rec['id']} ({rec['filename']})", exc_info=True
+                    "Failed to encode image %s (%s)", rec["id"], rec["filename"], exc_info=True
                 )
                 failed += 1
 
@@ -101,11 +101,11 @@ def rebuild_all_embeddings(progress_fn=None) -> dict:
                 succeeded += len(items)
             else:
                 failed += len(items)
-                logger.error(f"Batch {batch_num} Qdrant write failed")
+                logger.error("Batch %s Qdrant write failed", batch_num)
 
         if progress_fn:
             progress_fn(min(i + batch_size, total), total, f"Batch {batch_num}/{total_batches}")
 
     summary = {"total": total, "succeeded": succeeded, "failed": failed}
-    logger.info(f"Embedding rebuild complete: {summary}")
+    logger.info("Embedding rebuild complete: %s", summary)
     return summary

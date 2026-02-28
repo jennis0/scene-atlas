@@ -48,14 +48,14 @@ def backfill_batch(image_ids: list[int]) -> dict:
             try:
                 file_path = image_store.get_path(image.storage_key)
                 if not file_path.exists():
-                    logger.warning(f"Image {image.id}: file not found at {file_path}")
+                    logger.warning("Image %s: file not found at %s", image.id, file_path)
                     skipped += 1
                     continue
 
                 image.content_hash = _compute_file_hash(file_path)
                 updated += 1
             except Exception as e:
-                logger.error(f"Image {image.id}: error computing hash: {e}")
+                logger.error("Image %s: error computing hash: %s", image.id, e)
                 errors += 1
 
         db.commit()
