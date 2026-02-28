@@ -4,7 +4,7 @@ import io
 import re
 import zipfile
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
@@ -13,7 +13,6 @@ from ..models import (
     Image,
     ImageGroup,
     Tag,
-    get_session_local,
 )
 from ..models.schemas import (
     GroupDetailResponse,
@@ -27,6 +26,7 @@ from ..models.schemas import (
     MoveImagesResponse,
 )
 from ..services import get_image_store, safe_delete_image
+from .dependencies import get_db
 
 router = APIRouter()
 
@@ -51,16 +51,6 @@ def _zip_path(img: Image, group_name: str) -> str:
     if img.subgroup:
         folder = f"{folder}/{sanitize_segment(img.subgroup)}"
     return f"{folder}/{download_filename(img, group_name)}"
-
-
-def get_db(request: Request):
-    """Dependency to get database session."""
-    SessionLocal = get_session_local(request.app.state.db_engine)
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.get("/search", response_model=GroupSearchResponse)

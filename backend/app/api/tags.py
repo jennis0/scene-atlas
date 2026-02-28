@@ -2,7 +2,7 @@
 
 import json
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -15,20 +15,10 @@ from ..models import (
     TagCreate,
     TagResponse,
     TagValueUpdate,
-    get_session_local,
 )
+from .dependencies import get_db
 
 router = APIRouter()
-
-
-def get_db(request: Request):
-    """Dependency to get database session."""
-    SessionLocal = get_session_local(request.app.state.db_engine)
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 # ── Tag Categories ────────────────────────────────────────────────────────────

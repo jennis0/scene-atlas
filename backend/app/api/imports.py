@@ -22,7 +22,6 @@ from ..config import settings
 from ..models import (
     ImportGroupJob,
     ImportJob,
-    get_session_local,
 )
 from ..models.schemas import (
     ActiveImportsResponse,
@@ -41,6 +40,7 @@ from ..models.schemas import (
 from ..services.app_settings import get_settings as get_app_settings
 from ..services.job_runner import get_job_runner
 from ..services.validation import check_zip_safety, is_path_within, verify_media_mime
+from .dependencies import get_db
 
 
 class ImportConfirmAllRequest(BaseModel):
@@ -65,16 +65,6 @@ def _get_detected_group_count(job: ImportJob) -> int:
         return len(parsed)  # Legacy format (plain list)
     except (json.JSONDecodeError, TypeError):
         return 0
-
-
-def get_db(request: Request):
-    """Dependency to get database session."""
-    SessionLocal = get_session_local(request.app.state.db_engine)
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.post("/check-hashes", response_model=HashCheckResponse)

@@ -26,13 +26,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import zipstream
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
 from ...pipeline.naming import export_path
-from ..models import Image, get_session_local
+from ..models import Image
 from ..services import get_image_store
+from .dependencies import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -41,15 +42,6 @@ router = APIRouter()
 _BATCH = 500
 # ZIP local-file-header + data-descriptor overhead per entry (approximate)
 _ZIP_ENTRY_OVERHEAD = 62
-
-
-def get_db(request: Request):
-    SessionLocal = get_session_local(request.app.state.db_engine)
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 def _collect_entries(db: Session) -> tuple[list[tuple[str, Path]], dict]:
