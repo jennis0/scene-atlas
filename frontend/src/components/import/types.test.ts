@@ -28,7 +28,7 @@ describe('parseTagVocabulary', () => {
       common_values: JSON.stringify(['forest', 'dungeon', 'cave']),
     })
     expect(parseTagVocabulary([cat])).toEqual([
-      { category: 'environment', values: ['forest', 'dungeon', 'cave'], aliases: {} },
+      { category: 'environment', icon: null, values: ['forest', 'dungeon', 'cave'], aliases: {} },
     ])
   })
 
@@ -41,7 +41,7 @@ describe('parseTagVocabulary', () => {
       ]),
     })
     expect(parseTagVocabulary([cat])).toEqual([
-      { category: 'lighting', values: ['daylight', 'night'], aliases: {} },
+      { category: 'lighting', icon: null, values: ['daylight', 'night'], aliases: {} },
     ])
   })
 
@@ -67,8 +67,8 @@ describe('parseTagVocabulary', () => {
       makeCategory({ id: 3, name: 'season', common_values: JSON.stringify(['summer', 'winter']) }),
     ]
     expect(parseTagVocabulary(cats)).toEqual([
-      { category: 'environment', values: ['forest'], aliases: {} },
-      { category: 'season', values: ['summer', 'winter'], aliases: {} },
+      { category: 'environment', icon: null, values: ['forest'], aliases: {} },
+      { category: 'season', icon: null, values: ['summer', 'winter'], aliases: {} },
     ])
   })
 
@@ -78,7 +78,7 @@ describe('parseTagVocabulary', () => {
       common_values: JSON.stringify(['plain', { value: 'object-style' }]),
     })
     expect(parseTagVocabulary([cat])).toEqual([
-      { category: 'mixed', values: ['plain', 'object-style'], aliases: {} },
+      { category: 'mixed', icon: null, values: ['plain', 'object-style'], aliases: {} },
     ])
   })
 
@@ -94,6 +94,7 @@ describe('parseTagVocabulary', () => {
     expect(parseTagVocabulary([cat])).toEqual([
       {
         category: 'environment',
+        icon: null,
         values: ['forest', 'cave', 'dungeon'],
         aliases: { forest: ['woods', 'woodland'] },
       },
