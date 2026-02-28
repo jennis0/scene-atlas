@@ -18,6 +18,7 @@ import type {
   GroupEditResponse,
   GroupSearchResponse,
   GroupMergeResponse,
+  MoveImagesResponse,
   HashCheckItem,
   HashCheckResponse,
   DuplicateInfo,
@@ -340,6 +341,18 @@ export const groupApi = {
   merge: async (sourceId: number, targetGroupId: number): Promise<GroupMergeResponse> => {
     const { data } = await api.post<GroupMergeResponse>(`/groups/${sourceId}/merge`, {
       target_group_id: targetGroupId,
+    })
+    return data
+  },
+
+  moveImages: async (
+    sourceGroupId: number,
+    targetGroupId: number,
+    imageIds: number[],
+  ): Promise<MoveImagesResponse> => {
+    const { data } = await api.post<MoveImagesResponse>(`/groups/${sourceGroupId}/move-images`, {
+      target_group_id: targetGroupId,
+      image_ids: imageIds,
     })
     return data
   },
