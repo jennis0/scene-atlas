@@ -35,7 +35,6 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
-import { DEFAULT_TAG_COLOR } from '@/components/import/tagColors'
 import { useGetTagColor } from '@/contexts/TagColorContext'
 import { getCategoryIcon } from '@/lib/categoryIcons'
 import {
@@ -236,7 +235,7 @@ export function FilterMenuContent({
   const selectedColors = selectedGroup
     ? selectedIsTag
       ? getTagColor(selectedGroup.id)
-      : DEFAULT_TAG_COLOR
+      : getTagColor(null)
     : null
   const SelectedIcon = selectedGroup ? getGroupIcon(selectedGroup.id, selectedGroup.iconName) : null
 
@@ -376,7 +375,7 @@ export function FilterMenuContent({
 
             {visibleGroups.map((group, groupIdx) => {
               const colorId = NON_TAG_GROUPS.has(group.id) ? null : group.id
-              const colors = colorId ? getTagColor(colorId) : DEFAULT_TAG_COLOR
+              const colors = getTagColor(colorId)
 
               return (
                 <div key={group.id}>
@@ -786,7 +785,7 @@ function OptionPill({
   onExclude: (e: React.MouseEvent) => void
   getTagColor: ReturnType<typeof useGetTagColor>
 }) {
-  const colors = colorId ? getTagColor(colorId) : DEFAULT_TAG_COLOR
+  const colors = getTagColor(colorId)
 
   if (activeState === 'include') {
     return (
@@ -865,7 +864,7 @@ function ColorSwatch({
             ? 'scale-105 ring-2 ring-primary/70'
             : activeState === 'exclude'
               ? 'ring-2 ring-destructive/50 opacity-40'
-              : 'ring-1 ring-white/15 hover:ring-white/30 hover:scale-105'
+              : 'ring-1 ring-foreground/15 hover:ring-foreground/30 hover:scale-105'
         }`}
         style={{
           backgroundColor: hex,

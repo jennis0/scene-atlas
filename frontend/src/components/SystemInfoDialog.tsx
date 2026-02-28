@@ -472,7 +472,9 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
                   </span>
                 </div>
               ) : purgeJob.isComplete ? (
-                <span className="text-sm text-emerald-300 shrink-0">Done</span>
+                <span className="text-sm text-emerald-600 dark:text-emerald-300 shrink-0">
+                  Done
+                </span>
               ) : purgeJob.isFailed ? (
                 <span
                   className="text-sm text-destructive shrink-0"
