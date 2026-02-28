@@ -56,6 +56,9 @@ export function useActiveImports(): UseActiveImportsReturn {
   const completionListeners = useRef<Set<() => void>>(new Set())
   /** Job IDs the user has dismissed this session — prevents them reappearing on poll. */
   const dismissedIdsRef = useRef<Set<string>>(new Set())
+  /** Ref to access current jobs without adding it as a dependency to callbacks. */
+  const jobsRef = useRef(jobs)
+  jobsRef.current = jobs
 
   const refresh = useCallback(() => {
     cleanupExpiredImports()
@@ -126,21 +129,18 @@ export function useActiveImports(): UseActiveImportsReturn {
     setJobs((prev) => prev.filter((j) => j.jobId !== jobId))
   }, [])
 
-  const cancelJob = useCallback(
-    async (jobId: string) => {
-      const job = jobs.find((j) => j.jobId === jobId)
-      if (!job?.localOnly) {
-        try {
-          await importApi.cancel(jobId)
-        } catch {
-          /* ignore errors */
-        }
+  const cancelJob = useCallback(async (jobId: string) => {
+    const job = jobsRef.current.find((j) => j.jobId === jobId)
+    if (!job?.localOnly) {
+      try {
+        await importApi.cancel(jobId)
+      } catch {
+        /* ignore errors */
       }
-      removeImportState(jobId)
-      setJobs((prev) => prev.filter((j) => j.jobId !== jobId))
-    },
-    [jobs],
-  )
+    }
+    removeImportState(jobId)
+    setJobs((prev) => prev.filter((j) => j.jobId !== jobId))
+  }, [])
 
   const hasActive = jobs.some(
     (j) =>
