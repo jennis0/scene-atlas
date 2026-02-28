@@ -27,7 +27,7 @@
     "electron-builder": "^25.1.8",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
-    "typescript": "^5.3.3",
+    "typescript": "^5.9.3",
     "wait-on": "^8.0.0"
   }
 }
