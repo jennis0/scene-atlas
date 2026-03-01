@@ -11,7 +11,7 @@ For state machine details, see [import-state-machine.md](import-state-machine.md
 ```
 Gallery → [Import button] → ImportDialog opens
   → Select files or folder (or .zip)
-  → Files uploaded to staging (two-phase: init + upload)
+  → Files uploaded to staging in batches (init → upload-batch ×N → analyse)
   → Backend analyses files, groups into image groups, generates preview thumbnails
   → Dialog shows tabbed preview (one tab per image group)
   → User reviews/edits author, group name, image types per file
@@ -24,35 +24,56 @@ Gallery → [Import button] → ImportDialog opens
   → Done → gallery refreshes
 ```
 
-## Two-Phase Upload
+## Three-Phase Upload
+
+Files are uploaded in batches to avoid timeouts and enable progress tracking, then analysed separately.
 
 ### Phase 1: Init
 
 **`POST /api/v1/imports/init`**
 
-Creates a job in `uploading` status with an empty staging directory. Returns `{ job_id }`. This allows the frontend to start uploading files immediately and show progress.
+Creates a job in `uploading` status with an empty staging directory. Returns `{ job_id }`. The frontend immediately persists this to localStorage so the job survives dialog close.
 
-### Phase 2: Upload
+### Phase 2: Upload Batches (×N)
 
-**`POST /api/v1/imports/upload`**
+**`POST /api/v1/imports/{job_id}/upload-batch`**
 
 Accepts `multipart/form-data`:
-- `files`: one or more image files or .zip archives
+- `files`: one or more image files or .zip archives (max 20 files or 100 MB per batch)
 - `relative_paths` (optional): JSON array of relative paths (from `webkitRelativePath` or zip structure)
-- `job_id` (optional): ID from init endpoint. If provided, reuses the existing job.
 
 **Processing:**
-1. If `job_id` not provided, generate one (UUID hex, 16 chars)
-2. Create staging directory: `data/staging/{job_id}/`
-3. For each file:
+1. Validate job exists and is in `uploading` state
+2. For each file:
    - If `.zip`: extract, skip `__MACOSX`/`._` files, filter to supported formats
    - Otherwise: save to staging preserving relative path structure
+3. Return `BatchUploadResponse` with counts
+
+**Response:** `{ "files_saved": 5, "bytes_saved": 10485760, "skipped_invalid": [] }`
+
+The frontend splits files into batches (≤20 files, ≤100 MB each) and sends them sequentially. Each batch uses Axios `onUploadProgress` for byte-level progress feedback, which drives the progress bar in the UI. On network or 5xx errors, up to 2 retries are made with exponential backoff.
+
+**On failure:** The frontend calls `POST /{job_id}/cancel` to immediately clean up the staging directory.
+
+### Phase 3: Analyse
+
+**`POST /api/v1/imports/{job_id}/analyse`**
+
+Accepts JSON body:
+- `manifest`: list of duplicate-file entries (relative_path, filename, content_hash, duplicate_of)
+- `image_type`: default image type hint (`battlemap` or `scene`)
+
+**Processing:**
+1. Validate job exists and is in `uploading` state
+2. Walk staging directory to discover all saved files
+3. Merge discovered paths with manifest entries
 4. Run `analyse_upload` synchronously via `JobRunner.run_sync()`
-   - Runs `ImageParser.group_files()` on all saved relative paths
+   - Runs `ImageParser.group_files()` on all paths
    - Generates preview thumbnails (120x120 JPEG) into `data/staging/{job_id}/.thumbs/`
-5. Create or update `ImportJob` row (status: `staging`, `pending_groups = len(groups)`)
-6. Store analysis result for reconnection (`analysis_result` JSON)
-7. Return `ImportUploadResponse` with job_id and groups
+5. Update `ImportJob` row: status → `staging`, store `analysis_result`, set `pending_groups`
+6. Return `ImportUploadResponse` with job_id and groups
+
+**Client-side deduplication:** Before uploading, the frontend computes SHA-256 hashes of all image files and calls `POST /imports/check-hashes` to identify duplicates. Duplicate files are not uploaded; they're passed in the `manifest` so the backend can still include them in the analysis result (with `duplicate_of` set).
 
 **Response shape:**
 ```json
