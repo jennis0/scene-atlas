@@ -4,14 +4,20 @@ import type { ActiveDragState, DropData } from './types'
 export function DroppableSubgroupSection({
   subVariant,
   activeDrag,
+  idSuffix,
   children,
 }: {
   subVariant: string | null
   activeDrag: ActiveDragState | null
+  /** Optional suffix for unique droppable IDs when multiple zones share a subVariant (e.g. virtualized rows) */
+  idSuffix?: string | number
   children: React.ReactNode
 }) {
   const { isOver, setNodeRef } = useDroppable({
-    id: `subgroup-${subVariant ?? '__main__'}`,
+    id:
+      idSuffix != null
+        ? `subgroup-${subVariant ?? '__main__'}-${idSuffix}`
+        : `subgroup-${subVariant ?? '__main__'}`,
     data: { type: 'subgroup', subgroup: subVariant } satisfies DropData,
     disabled: !activeDrag || activeDrag.type !== 'card',
   })

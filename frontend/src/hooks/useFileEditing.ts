@@ -175,6 +175,7 @@ export function useFileEditing({
   // ── Move ops ────────────────────────────────────────────────────────
 
   const moveFilesToGroup = (sourceGroupId: string, targetGroupId: string, paths: string[]) => {
+    if (sourceGroupId === targetGroupId) return
     const pathSet = new Set(paths)
     setGroups((prev) => {
       const sourceGroup = prev.find((g) => g.id === sourceGroupId)

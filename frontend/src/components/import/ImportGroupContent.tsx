@@ -29,7 +29,7 @@ const SUBGROUP_HEADING_HEIGHT = 36
 
 type FlatItem =
   | { type: 'heading'; subgroup: string | null; count: number }
-  | { type: 'card-row'; files: EditableFileState[] }
+  | { type: 'card-row'; files: EditableFileState[]; subgroup: string | null }
 
 function flattenSubgroupItems(
   subgroupGroups: { subgroup: string | null; files: EditableFileState[] }[],
@@ -40,7 +40,7 @@ function flattenSubgroupItems(
     items.push({ type: 'heading', subgroup: sg.subgroup, count: nonExcluded })
     // Pair files into 2-column rows
     for (let i = 0; i < sg.files.length; i += 2) {
-      items.push({ type: 'card-row', files: sg.files.slice(i, i + 2) })
+      items.push({ type: 'card-row', files: sg.files.slice(i, i + 2), subgroup: sg.subgroup })
     }
   }
   return items
@@ -230,6 +230,7 @@ function FileGallery({
         >
           {subgroupVirtualizer.getVirtualItems().map((virtualItem) => {
             const item = subgroupItems[virtualItem.index]
+            const subVariant = item.type === 'heading' ? item.subgroup : item.subgroup
             return (
               <div
                 key={virtualItem.key}
@@ -243,21 +244,27 @@ function FileGallery({
                   transform: `translateY(${virtualItem.start}px)`,
                 }}
               >
-                {item.type === 'heading' ? (
-                  <SubgroupHeading
-                    subgroup={item.subgroup}
-                    count={item.count}
-                    isEditing={false}
-                    existingSubgroups={groupSubgroups}
-                    onStartEdit={() => {}}
-                    onCommit={() => {}}
-                    onCancel={() => {}}
-                    onClear={() => {}}
-                    canEdit={false}
-                  />
-                ) : (
-                  renderCardRow(item.files)
-                )}
+                <DroppableSubgroupSection
+                  subVariant={subVariant}
+                  activeDrag={activeDrag ?? null}
+                  idSuffix={virtualItem.index}
+                >
+                  {item.type === 'heading' ? (
+                    <SubgroupHeading
+                      subgroup={item.subgroup}
+                      count={item.count}
+                      isEditing={false}
+                      existingSubgroups={groupSubgroups}
+                      onStartEdit={() => {}}
+                      onCommit={() => {}}
+                      onCancel={() => {}}
+                      onClear={() => {}}
+                      canEdit={false}
+                    />
+                  ) : (
+                    renderCardRow(item.files)
+                  )}
+                </DroppableSubgroupSection>
               </div>
             )
           })}

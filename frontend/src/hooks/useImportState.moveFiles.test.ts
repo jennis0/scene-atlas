@@ -104,4 +104,82 @@ describe('moveFilesToGroup', () => {
 
     expect(result.current.selections['g1']?.size ?? 0).toBe(0)
   })
+
+  it('is a no-op when source group does not exist', () => {
+    const { result } = renderHook(() => useFileEditing())
+    const fileA = makeFile({ relative_path: 'a.jpg' })
+
+    act(() => {
+      result.current.setGroups([makeGroup({ id: 'g1', files: [fileA], total: 1 })])
+    })
+
+    act(() => {
+      result.current.moveFilesToGroup('nonexistent', 'g1', ['a.jpg'])
+    })
+
+    expect(result.current.groups).toHaveLength(1)
+    expect(result.current.groups[0].files).toHaveLength(1)
+  })
+
+  it('is a no-op when none of the specified paths exist in source', () => {
+    const { result } = renderHook(() => useFileEditing())
+    const fileA = makeFile({ relative_path: 'a.jpg' })
+    const fileB = makeFile({ relative_path: 'b.jpg' })
+
+    act(() => {
+      result.current.setGroups([
+        makeGroup({ id: 'g1', files: [fileA], total: 1 }),
+        makeGroup({ id: 'g2', files: [fileB], total: 1 }),
+      ])
+    })
+
+    act(() => {
+      result.current.moveFilesToGroup('g1', 'g2', ['nonexistent.jpg'])
+    })
+
+    expect(result.current.groups[0].files).toHaveLength(1)
+    expect(result.current.groups[1].files).toHaveLength(1)
+  })
+
+  it('is a no-op when moving to the same group', () => {
+    const { result } = renderHook(() => useFileEditing())
+    const fileA = makeFile({ relative_path: 'a.jpg' })
+    const fileB = makeFile({ relative_path: 'b.jpg' })
+
+    act(() => {
+      result.current.setGroups([makeGroup({ id: 'g1', files: [fileA, fileB], total: 2 })])
+    })
+
+    act(() => {
+      result.current.moveFilesToGroup('g1', 'g1', ['a.jpg'])
+    })
+
+    // Files should not be duplicated — source and target are the same
+    expect(result.current.groups[0].files).toHaveLength(2)
+  })
+
+  it('updates totals correctly when moving multiple files', () => {
+    const { result } = renderHook(() => useFileEditing())
+    const fileA = makeFile({ relative_path: 'a.jpg' })
+    const fileB = makeFile({ relative_path: 'b.jpg' })
+    const fileC = makeFile({ relative_path: 'c.jpg' })
+    const fileD = makeFile({ relative_path: 'd.jpg' })
+
+    act(() => {
+      result.current.setGroups([
+        makeGroup({ id: 'g1', files: [fileA, fileB, fileC], total: 3 }),
+        makeGroup({ id: 'g2', files: [fileD], total: 1 }),
+      ])
+    })
+
+    act(() => {
+      result.current.moveFilesToGroup('g1', 'g2', ['a.jpg', 'c.jpg'])
+    })
+
+    expect(result.current.groups[0].total).toBe(1)
+    expect(result.current.groups[0].files).toHaveLength(1)
+    expect(result.current.groups[0].files[0].relative_path).toBe('b.jpg')
+    expect(result.current.groups[1].total).toBe(3)
+    expect(result.current.groups[1].files).toHaveLength(3)
+  })
 })

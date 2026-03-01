@@ -60,6 +60,11 @@ export interface UseImportStateReturn {
     mergeAllGroups: () => void
     moveToNewGroup: (sourceGroupId: string) => void
     moveFilesToGroup: (sourceGroupId: string, targetGroupId: string, paths: string[]) => void
+    updateFilesInGroup: (
+      groupId: string,
+      paths: string[],
+      updates: Partial<EditableFileState>,
+    ) => void
     selections: Record<string, Set<string>>
     toggleFileSelection: (groupId: string, relativePath: string) => void
     selectAllVisible: (groupId: string, visibleFiles: EditableFileState[]) => void
@@ -145,6 +150,7 @@ export function useImportState(
     updateFile,
     updateFileAnyGroup,
     moveFilesToGroup: rawMoveFilesToGroup,
+    updateFilesInGroup,
     toggleFileSelection,
     selectAllVisible,
     deselectAll,
@@ -580,6 +586,7 @@ export function useImportState(
       mergeAllGroups,
       moveToNewGroup,
       moveFilesToGroup,
+      updateFilesInGroup,
       selections,
       toggleFileSelection,
       selectAllVisible,

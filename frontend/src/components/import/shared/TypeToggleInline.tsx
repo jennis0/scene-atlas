@@ -18,6 +18,7 @@ export function TypeToggleInline({ imageType, disabled, onUpdate }: TypeToggleIn
   return (
     <div className="inline-flex rounded-md overflow-hidden border border-border">
       <button
+        type="button"
         onClick={() => onUpdate('battlemap')}
         className={`px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
           imageType !== 'scene'
@@ -28,6 +29,7 @@ export function TypeToggleInline({ imageType, disabled, onUpdate }: TypeToggleIn
         Map
       </button>
       <button
+        type="button"
         onClick={() => onUpdate('scene')}
         className={`px-1.5 py-0.5 text-[10px] font-medium border-l border-border transition-colors ${
           imageType === 'scene'

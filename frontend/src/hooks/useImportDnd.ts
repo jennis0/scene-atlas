@@ -21,8 +21,8 @@ export function useImportDnd(s: UseImportStateReturn) {
   moveFilesRef.current = s.editing.moveFilesToGroup
   const mergeGroupsRef = useRef(s.editing.mergeGroups)
   mergeGroupsRef.current = s.editing.mergeGroups
-  const updateFileRef = useRef(s.editing.updateFile)
-  updateFileRef.current = s.editing.updateFile
+  const updateFilesRef = useRef(s.editing.updateFilesInGroup)
+  updateFilesRef.current = s.editing.updateFilesInGroup
 
   const handleDragStart = useCallback(
     (event: DragStartEvent) => {
@@ -76,13 +76,8 @@ export function useImportDnd(s: UseImportStateReturn) {
           moveFilesRef.current(activeDrag.groupId, dropData.groupId, paths)
         }
       } else if (activeDrag.type === 'card' && dropData.type === 'subgroup') {
-        // Card -> Subgroup: change file subgroup
-        const groupIndex = groups.findIndex((g) => g.id === activeDrag.groupId)
-        if (groupIndex !== -1) {
-          for (const path of paths) {
-            updateFileRef.current(groupIndex, path, { subgroup: dropData.subgroup ?? null })
-          }
-        }
+        // Card -> Subgroup: batch-update file subgroups
+        updateFilesRef.current(activeDrag.groupId, paths, { subgroup: dropData.subgroup ?? null })
       } else if (activeDrag.type === 'group' && dropData.type === 'group' && dropData.groupId) {
         // Group -> Group: merge groups
         if (activeDrag.groupId !== dropData.groupId) {
