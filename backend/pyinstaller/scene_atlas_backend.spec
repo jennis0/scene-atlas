@@ -12,18 +12,36 @@
 
 import sys
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_all
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 
 # Project root (2 levels up from this spec file: backend/pyinstaller -> backend -> root)
 project_root = Path(SPECPATH).parent.parent
 sys.path.insert(0, str(project_root))
 
-# collect_all must be called BEFORE Analysis and results passed as constructor
-# args — appending to a.datas/a.binaries after the fact mixes incompatible
-# tuple formats (2-tuple input vs 3-tuple internal) and breaks normalize_toc.
-torch_datas,        torch_binaries,        torch_hiddenimports        = collect_all('torch')
-transformers_datas, transformers_binaries, transformers_hiddenimports = collect_all('transformers')
-tokenizers_datas,   tokenizers_binaries,   tokenizers_hiddenimports   = collect_all('tokenizers')
+# -- torch: collect binaries only (no Python .pyc — they come via hiddenimports)
+torch_datas    = collect_data_files('torch', includes=['**/*.so', '**/*.pth'])
+torch_binaries = collect_dynamic_libs('torch')
+
+# -- transformers: targeted collection for CLIP only (avoids bundling model configs
+#    for hundreds of model types that collect_all would pull in)
+transformers_datas    = collect_data_files('transformers', includes=['**/*.json', '**/*.txt'])
+transformers_binaries = collect_dynamic_libs('transformers')
+transformers_hiddenimports = [
+    'transformers',
+    'transformers.models.clip',
+    'transformers.models.clip.modeling_clip',
+    'transformers.models.clip.processing_clip',
+    'transformers.models.clip.tokenization_clip',
+    'transformers.models.clip.feature_extraction_clip',
+    'transformers.image_processing_utils',
+    'transformers.tokenization_utils',
+    'transformers.tokenization_utils_base',
+    'transformers.tokenization_utils_fast',
+]
+
+# -- tokenizers: lightweight Rust binary
+from PyInstaller.utils.hooks import collect_all as _collect_all
+tokenizers_datas, tokenizers_binaries, tokenizers_hiddenimports = _collect_all('tokenizers')
 
 a = Analysis(
     [str(project_root / 'backend' / 'pyinstaller' / 'entry.py')],
@@ -74,7 +92,7 @@ a = Analysis(
         'qdrant_client',
         'qdrant_client.local',
         'qdrant_client.local.local_collection',
-        # OpenCV
+        # OpenCV (headless)
         'cv2',
         # scikit-learn
         'sklearn',
@@ -87,10 +105,8 @@ a = Analysis(
         'scipy.linalg.cython_blas',
         'scipy.linalg.cython_lapack',
         # Transformers / HuggingFace
-        'transformers',
-        'transformers.models.clip',
         'tokenizers',
-        # Torch (CPU)
+        # Torch (CPU-only — torch installed via pytorch-cpu index)
         'torch',
         'torch.nn',
         'torch.nn.functional',
@@ -99,7 +115,7 @@ a = Analysis(
         'PIL',
         'PIL.Image',
         'yaml',
-    ] + torch_hiddenimports + transformers_hiddenimports + tokenizers_hiddenimports,
+    ] + transformers_hiddenimports + tokenizers_hiddenimports,
     excludes=[
         # GUI toolkits — not needed server-side
         'tkinter',
@@ -116,8 +132,24 @@ a = Analysis(
         'notebook',
         'jupyter',
         'ipython',
-        # CUDA — ship CPU-only torch
+        'jedi',           # IDE code completion — not needed at runtime
+        # GPU / CUDA — CPU-only torch is used; these should not be present,
+        # but listed defensively in case of transitive imports
         'torch.cuda',
+        'torch.backends.cuda',
+        'torch.backends.cudnn',
+        'torch.distributed',
+        'torch.ao',
+        'torch.profiler',
+        'torch.testing',
+        'triton',         # GPU JIT compiler
+        # Unused database drivers (project uses SQLite, not PostgreSQL)
+        'asyncpg',
+        # Qdrant remote mode — project uses local embedded mode only
+        'grpc',
+        'grpcio',
+        # HuggingFace download accelerator — not needed in frozen sidecar
+        'hf_xet',
         # Prefect (removed — exclude in case of transitive dependency)
         'prefect',
     ],
@@ -125,6 +157,20 @@ a = Analysis(
     win_private_assemblies=False,
     noarchive=False,
 )
+
+# ── Post-analysis cleanup ─────────────────────────────────────────────────────
+# The torch package ships C++ unit test executables (torch/test/) and standalone
+# tools (torch/bin/) that are collected by hook-torch.py but serve no runtime
+# purpose. Remove them to save ~94 MB.
+_TORCH_JUNK = ('torch/test/', 'torch/bin/', 'torch/share/')
+
+def _keep_binary(entry):
+    name = entry[0].replace('\\', '/')
+    return not any(name.startswith(p) or f'/{p}' in name for p in _TORCH_JUNK)
+
+a.binaries = TOC([e for e in a.binaries if _keep_binary(e)])
+a.datas    = TOC([e for e in a.datas    if _keep_binary(e)])
+# ─────────────────────────────────────────────────────────────────────────────
 
 pyz = PYZ(a.pure)
 
@@ -136,7 +182,7 @@ exe = EXE(
     name='scene-atlas-backend',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=False,
+    strip=True,         # Strip debug symbols from binaries — safe on Linux, saves 20-40%
     upx=False,          # UPX causes issues with torch and opencv native libs
     console=True,       # Must be True: stdout is how we signal SCENE_ATLAS_READY
     disable_windowed_traceback=False,
@@ -151,7 +197,7 @@ coll = COLLECT(
     exe,
     a.binaries,
     a.datas,
-    strip=False,
+    strip=True,         # Strip debug symbols — matches EXE setting above
     upx=False,
     upx_exclude=[],
     name='scene-atlas-backend',
