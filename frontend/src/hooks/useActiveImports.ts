@@ -80,8 +80,10 @@ export function useActiveImports(): UseActiveImportsReturn {
           (j) => !dismissed.has(j.jobId),
         )
         setJobs(merged)
-        // Prune dismissed IDs whose jobs are no longer tracked by the backend
+        // Prune dismissed IDs whose jobs are no longer tracked by the backend,
+        // then sync the in-memory ref so it doesn't accumulate stale IDs.
         pruneDismissedJobs(new Set(response.jobs.map((j) => j.job_id)))
+        dismissedIdsRef.current = loadDismissedJobs()
       })
       .catch(() => {
         // Backend unavailable — just use localStorage
