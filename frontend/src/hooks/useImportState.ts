@@ -59,6 +59,12 @@ export interface UseImportStateReturn {
     mergeGroups: (sourceIndex: number, targetIndex: number) => void
     mergeAllGroups: () => void
     moveToNewGroup: (sourceGroupId: string) => void
+    moveFilesToGroup: (sourceGroupId: string, targetGroupId: string, paths: string[]) => void
+    updateFilesInGroup: (
+      groupId: string,
+      paths: string[],
+      updates: Partial<EditableFileState>,
+    ) => void
     selections: Record<string, Set<string>>
     toggleFileSelection: (groupId: string, relativePath: string) => void
     selectAllVisible: (groupId: string, visibleFiles: EditableFileState[]) => void
@@ -143,6 +149,8 @@ export function useImportState(
     updateGroup,
     updateFile,
     updateFileAnyGroup,
+    moveFilesToGroup: rawMoveFilesToGroup,
+    updateFilesInGroup,
     toggleFileSelection,
     selectAllVisible,
     deselectAll,
@@ -358,6 +366,20 @@ export function useImportState(
     setActiveTab(newGroups.length - 1)
   }
 
+  const moveFilesToGroup = (sourceGroupId: string, targetGroupId: string, paths: string[]) => {
+    const sourceIndex = groups.findIndex((g) => g.id === sourceGroupId)
+    const source = groups[sourceIndex]
+    if (!source) return
+
+    const remaining = source.files.filter((f) => !new Set(paths).has(f.relative_path))
+    rawMoveFilesToGroup(sourceGroupId, targetGroupId, paths)
+
+    // If source group will be empty and removed, adjust activeTab
+    if (remaining.length === 0 && sourceIndex <= activeTab) {
+      setActiveTab((prev) => Math.max(ALL_TAB, prev - 1))
+    }
+  }
+
   // ── Confirm ───────────────────────────────────────────────────────
 
   const buildConfirmFiles = (group: EditableGroupState): ImportConfirmFile[] =>
@@ -563,6 +585,8 @@ export function useImportState(
       mergeGroups,
       mergeAllGroups,
       moveToNewGroup,
+      moveFilesToGroup,
+      updateFilesInGroup,
       selections,
       toggleFileSelection,
       selectAllVisible,

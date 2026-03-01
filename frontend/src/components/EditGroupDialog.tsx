@@ -1,16 +1,6 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import {
-  DndContext,
-  DragOverlay,
-  useDraggable,
-  useDroppable,
-  PointerSensor,
-  KeyboardSensor,
-  useSensor,
-  useSensors,
-} from '@dnd-kit/core'
-import type { DragStartEvent, DragEndEvent } from '@dnd-kit/core'
+import { DndContext, DragOverlay } from '@dnd-kit/core'
 import {
   AlertCircle,
   Check,
@@ -22,19 +12,9 @@ import {
   Merge,
   MoreHorizontal,
   EyeOff,
-  GripVertical,
 } from 'lucide-react'
-import { groupApi, tagApi, imageApi, getThumbnailUrlById, getImageUrlById } from '@/lib/api'
-import { getApiErrorMessage, isNotFoundError } from '@/lib/getErrorMessage'
-import { SAVED_INDICATOR_DURATION_MS } from '@/lib/constants'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
-import type {
-  EditableFileState,
-  EditableGroupState,
-  Image,
-  GroupEditRequest,
-  GroupSearchItem,
-} from '@/types'
+import type { EditableGroupState, Image } from '@/types'
 import { MergeGroupPicker } from './MergeGroupPicker'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import {
@@ -48,9 +28,20 @@ import { FileCard } from './import/FileCard'
 import { FileToolbar } from './import/FileToolbar'
 import { MetadataForm } from './import/MetadataForm'
 import { SubgroupHeading } from './SubgroupHeading'
-import { parseTagVocabulary } from './import/types'
-import { EMPTY_FILTER, applyFileFilter } from './import/fileFilter'
+import { applyFileFilter } from './import/fileFilter'
 import { useFileEditing, ALL_TAB } from '@/hooks/useFileEditing'
+import { useEditGroupLoad } from '@/hooks/useEditGroupLoad'
+import { useEditGroupOperations } from '@/hooks/useEditGroupOperations'
+import { useEditGroupDnd } from '@/hooks/useEditGroupDnd'
+import { useGroupSidebarMultiselect } from '@/hooks/useGroupSidebarMultiselect'
+import {
+  DraggableFileCardWrapper,
+  DroppableGroupRow,
+  DraggableGroupRow,
+  DroppableSubgroupSection,
+  DragOverlayContent,
+} from './import/shared/dnd'
+import { GroupSidebarShell } from './import/shared/GroupSidebarShell'
 
 interface EditGroupDialogProps {
   // Single-group mode: pass groupId
@@ -64,181 +55,6 @@ interface EditGroupDialogProps {
   onSave: () => void
 }
 
-function imageToEditable(img: Image, outOfScope = false): EditableFileState {
-  return {
-    relative_path: String(img.id),
-    filename: img.filename,
-    name: img.name || img.filename,
-    tags: img.tags.map((t) => ({
-      category: t.category,
-      value: t.value,
-      confidence: t.confidence,
-      source: t.source,
-    })),
-    gridded: img.gridded ?? null,
-    grid_width: img.grid_width ?? null,
-    grid_height: img.grid_height ?? null,
-    grid_type: img.grid_type ?? null,
-    subgroup: img.subgroup ?? null,
-    image_type: img.image_type ?? 'battlemap',
-    excluded: false,
-    outOfScope,
-    previewUrl: getThumbnailUrlById(img.id),
-    fullImageUrl: getImageUrlById(img.id),
-  }
-}
-
-function buildPayload(group: EditableGroupState): GroupEditRequest {
-  const kept = group.files.filter((f) => !f.excluded)
-  return {
-    base_name: group.group_name,
-    author: group.author || undefined,
-    images: kept.map((f) => ({
-      id: Number(f.relative_path),
-      name: f.name,
-      tags: f.tags,
-      gridded: f.gridded,
-      grid_width: f.grid_width,
-      grid_height: f.grid_height,
-      grid_type: f.grid_type,
-      subgroup: f.subgroup,
-      image_type: f.image_type,
-    })),
-    new_groups: [],
-  }
-}
-
-// ── DnD types ──────────────────────────────────────────────────────────────
-
-interface DragData {
-  type: 'card' | 'group'
-  id: string // relative_path for cards, group id for groups
-  groupId: string // source group id
-}
-
-interface DropData {
-  type: 'group' | 'subgroup'
-  groupId?: string
-  subgroup?: string | null
-}
-
-interface ActiveDragState {
-  type: 'card' | 'group'
-  id: string
-  groupId: string
-  selectedCount: number
-  previewUrl?: string
-  label?: string
-}
-
-// ── DnD wrapper components ─────────────────────────────────────────────────
-
-function DraggableFileCardWrapper({
-  file,
-  groupId,
-  isDndEnabled,
-  children,
-}: {
-  file: EditableFileState
-  groupId: string
-  isDndEnabled: boolean
-  children: React.ReactNode
-}) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: `card-${groupId}-${file.relative_path}`,
-    data: { type: 'card', id: file.relative_path, groupId } satisfies DragData,
-    disabled: !isDndEnabled || file.excluded || file.outOfScope,
-  })
-
-  return (
-    <div
-      ref={setNodeRef}
-      {...listeners}
-      {...attributes}
-      style={{ opacity: isDragging ? 0.35 : 1, transition: 'opacity 150ms' }}
-    >
-      {children}
-    </div>
-  )
-}
-
-function DroppableGroupRow({
-  groupId,
-  activeDrag,
-  children,
-}: {
-  groupId: string
-  activeDrag: ActiveDragState | null
-  children: React.ReactNode
-}) {
-  const { isOver, setNodeRef } = useDroppable({
-    id: `group-drop-${groupId}`,
-    data: { type: 'group', groupId } satisfies DropData,
-    disabled: !activeDrag || activeDrag.groupId === groupId,
-  })
-
-  // Only highlight when a compatible drag is over (card→group or group→group, not self)
-  const showHighlight = isOver && activeDrag && activeDrag.groupId !== groupId
-
-  return (
-    <div
-      ref={setNodeRef}
-      className={`transition-colors ${showHighlight ? 'ring-1 ring-inset ring-primary/50 bg-primary/5' : ''}`}
-    >
-      {children}
-    </div>
-  )
-}
-
-function DraggableGroupRow({
-  groupId,
-  isDndEnabled,
-  children,
-}: {
-  groupId: string
-  isDndEnabled: boolean
-  children: React.ReactNode
-}) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: `group-${groupId}`,
-    data: { type: 'group', id: groupId, groupId } satisfies DragData,
-    disabled: !isDndEnabled,
-  })
-
-  return (
-    <div ref={setNodeRef} {...listeners} {...attributes} style={{ opacity: isDragging ? 0.35 : 1 }}>
-      {children}
-    </div>
-  )
-}
-
-function DroppableSubgroupSection({
-  subVariant,
-  activeDrag,
-  children,
-}: {
-  subVariant: string | null
-  activeDrag: ActiveDragState | null
-  children: React.ReactNode
-}) {
-  const { isOver, setNodeRef } = useDroppable({
-    id: `subgroup-${subVariant ?? '__main__'}`,
-    data: { type: 'subgroup', subgroup: subVariant } satisfies DropData,
-    disabled: !activeDrag || activeDrag.type !== 'card',
-  })
-
-  const showHighlight = isOver && activeDrag?.type === 'card'
-
-  return (
-    <div
-      ref={setNodeRef}
-      className={`mb-2 transition-colors rounded ${showHighlight ? 'ring-1 ring-inset ring-primary/40 bg-primary/5' : ''}`}
-    >
-      {children}
-    </div>
-  )
-}
-
 // ── Main component ─────────────────────────────────────────────────────────
 
 export default function EditGroupDialog({
@@ -249,8 +65,6 @@ export default function EditGroupDialog({
   onClose,
   onSave,
 }: EditGroupDialogProps) {
-  const isMassEdit = !!seedImages && seedImages.length > 0
-  const isImportReview = !!groupIds && groupIds.length > 0
   const queryClient = useQueryClient()
 
   const invalidateGallery = useCallback(() => {
@@ -258,79 +72,12 @@ export default function EditGroupDialog({
     queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
   }, [queryClient])
 
-  const [loading, setLoading] = useState(false)
-  const [loadError, setLoadError] = useState<string | null>(null)
-  // `saving` = a structural operation (delete/merge/split) is in progress — disables UI
-  const [saving, setSaving] = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
-  const [confirmingDelete, setConfirmingDelete] = useState(false)
-  const [showMergePicker, setShowMergePicker] = useState(false)
-  const [merging, setMerging] = useState(false)
-  // Per-group auto-save tracking
-  const [groupSaving, setGroupSaving] = useState<Set<string>>(new Set())
-  const [groupSaved, setGroupSaved] = useState<Set<string>>(new Set())
-  // Per-group nav actions (mass-edit mode)
-  const [mergeSourceGroupId, setMergeSourceGroupId] = useState<string | null>(null)
-  const [deleteConfirmGroupId, setDeleteConfirmGroupId] = useState<string | null>(null)
-  const [ungroupedCount, setUngroupedCount] = useState(0)
-
-  // ── Drag & drop state ────────────────────────────────────────────────
-  const [activeDrag, setActiveDrag] = useState<ActiveDragState | null>(null)
-  const [dragMergeSource, setDragMergeSource] = useState<string | null>(null)
-  const [dragMergeTarget, setDragMergeTarget] = useState<string | null>(null)
-
-  // ── Sidebar multiselect state ────────────────────────────────────────
-  const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set())
-  const [lastClickedGroupIndex, setLastClickedGroupIndex] = useState<number | null>(null)
-  const [confirmingBulkMerge, setConfirmingBulkMerge] = useState(false)
-  const [confirmingBulkDelete, setConfirmingBulkDelete] = useState(false)
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(KeyboardSensor),
-  )
-
-  // ── Auto-save ────────────────────────────────────────────────────────
-
-  const autoSaveGroup = useCallback(async (group: EditableGroupState) => {
-    const gId = Number(group.id)
-    if (isNaN(gId)) return // Skip locally-created groups (UUID keys — not in DB yet)
-
-    setGroupSaving((prev) => {
-      const s = new Set(prev)
-      s.add(group.id)
-      return s
-    })
-    setSaveError(null)
-    try {
-      await groupApi.edit(gId, buildPayload(group))
-      invalidateGallery()
-      setGroupSaved((prev) => {
-        const s = new Set(prev)
-        s.add(group.id)
-        return s
-      })
-      setTimeout(() => {
-        setGroupSaved((prev) => {
-          const s = new Set(prev)
-          s.delete(group.id)
-          return s
-        })
-      }, SAVED_INDICATOR_DURATION_MS)
-    } catch (err) {
-      setSaveError(getApiErrorMessage(err, 'Auto-save failed'))
-    } finally {
-      setGroupSaving((prev) => {
-        const s = new Set(prev)
-        s.delete(group.id)
-        return s
-      })
-    }
-    // All deps (state setters, invalidateGallery, groupApi) are stable refs
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
   // ── Shared file editing state and mutations ───────────────────────
+
+  // Use a ref to break the circular dependency between useFileEditing
+  // (needs autoSaveGroup in onGroupChange) and useEditGroupOperations
+  // (needs groups/setGroups from useFileEditing).
+  const autoSaveRef = useRef<(group: EditableGroupState) => void>(() => {})
 
   const {
     groups,
@@ -364,224 +111,62 @@ export default function EditGroupDialog({
     activeGroup,
     activeGroupId,
     allSameAuthor,
-  } = useFileEditing({ onGroupChange: (affected) => affected.forEach(autoSaveGroup) })
+  } = useFileEditing({
+    onGroupChange: (affected) => affected.forEach((g) => autoSaveRef.current(g)),
+  })
 
-  const reset = useCallback(() => {
-    setLoading(false)
-    setLoadError(null)
-    setSaving(false)
-    setSaveError(null)
-    setConfirmingDelete(false)
-    setShowMergePicker(false)
-    setMerging(false)
-    setGroupSaving(new Set())
-    setGroupSaved(new Set())
-    setMergeSourceGroupId(null)
-    setDeleteConfirmGroupId(null)
-    setUngroupedCount(0)
-    setActiveDrag(null)
-    setDragMergeSource(null)
-    setDragMergeTarget(null)
-    setSelectedGroupIds(new Set())
-    setLastClickedGroupIndex(null)
-    setConfirmingBulkMerge(false)
-    setConfirmingBulkDelete(false)
-    setGroups([])
-    setActiveTab(0)
-    setFileFilter(EMPTY_FILTER)
-    setEditingSvHeading(null)
-  }, [setGroups, setActiveTab, setFileFilter, setEditingSvHeading])
+  // ── Operations (save, merge, delete, split) ─────────────────────
+  const ops = useEditGroupOperations({
+    groupId,
+    groups,
+    setGroups,
+    activeTab,
+    setActiveTab,
+    selections,
+    deselectAll,
+    invalidateGallery,
+    onSave,
+    onClose,
+  })
+  autoSaveRef.current = ops.autoSaveGroup
 
-  // ── Load: single-group mode ──────────────────────────────────────
+  // ── Drag & drop ────────────────────────────────────────────────────
+  const dnd = useEditGroupDnd({
+    groups,
+    selections,
+    updateFilesInGroup,
+    handleMoveImagesToGroup: ops.handleMoveImagesToGroup,
+  })
 
-  useEffect(() => {
-    if (!open || isMassEdit || isImportReview) return
-    const gId = groupId ?? null
-    if (gId === null) {
-      reset()
-      return
-    }
+  // ── Sidebar multiselect ──────────────────────────────────────────────
+  const { selectedGroupIds, setSelectedGroupIds, handleGroupClick, resetMultiselect } =
+    useGroupSidebarMultiselect({ groups, onSelectTab: setActiveTab })
 
-    setLoading(true)
-    setLoadError(null)
+  // Reset dialog-local state (everything NOT owned by useEditGroupLoad or useFileEditing)
+  const { resetOperations } = ops
+  const { resetDnd } = dnd
+  const resetDialogState = useCallback(() => {
+    resetOperations()
+    resetDnd()
+    resetMultiselect()
+  }, [resetOperations, resetDnd, resetMultiselect])
 
-    Promise.all([groupApi.get(gId), tagApi.getCategories(), imageApi.getAuthors()])
-      .then(([group, categories, authors]) => {
-        setGroups([
-          {
-            id: String(group.id),
-            author: group.author ?? '',
-            group_name: group.base_name,
-            files: group.images.map((img) => imageToEditable(img)),
-            skip: false,
-            status: 'pending',
-            processed: 0,
-            failed: 0,
-            total: group.images.length,
-          },
-        ])
-        setTagVocab(parseTagVocabulary(categories))
-        setAuthorSuggestions(authors)
-        setActiveTab(0)
-      })
-      .catch((err: unknown) => {
-        if (isNotFoundError(err)) {
-          setLoadError('This group no longer exists — it may have been merged or deleted.')
-        } else {
-          setLoadError(getApiErrorMessage(err, 'Failed to load group'))
-        }
-      })
-      .finally(() => {
-        setLoading(false)
-      })
-  }, [
+  // ── Data loading (single-group / mass-edit / import-review) ────────
+  const { loading, loadError, isMassEdit, ungroupedCount } = useEditGroupLoad({
     open,
     groupId,
-    isMassEdit,
-    isImportReview,
-    reset,
-    setGroups,
-    setTagVocab,
-    setAuthorSuggestions,
-    setActiveTab,
-  ])
-
-  // ── Load: mass-edit mode ─────────────────────────────────────────
-
-  useEffect(() => {
-    if (!open || !isMassEdit) return
-
-    setLoading(true)
-    setLoadError(null)
-
-    // Group seed images by group_id
-    const byGroup = new Map<number, Image[]>()
-    let ungrouped = 0
-    for (const img of seedImages!) {
-      if (img.group_id === null) {
-        ungrouped++
-      } else {
-        const list = byGroup.get(img.group_id) ?? []
-        list.push(img)
-        byGroup.set(img.group_id, list)
-      }
-    }
-
-    const groupIds = [...byGroup.keys()]
-    if (groupIds.length === 0) {
-      setLoadError('None of the search results belong to a variant group.')
-      setLoading(false)
-      return
-    }
-
-    setUngroupedCount(ungrouped)
-
-    Promise.all([
-      ...groupIds.map((id) => groupApi.get(id)),
-      tagApi.getCategories(),
-      imageApi.getAuthors(),
-    ])
-      .then((results) => {
-        const groupDetails = results.slice(0, groupIds.length) as Awaited<
-          ReturnType<typeof groupApi.get>
-        >[]
-        const categories = results[groupIds.length] as Awaited<
-          ReturnType<typeof tagApi.getCategories>
-        >
-        const authors = results[groupIds.length + 1] as string[]
-
-        const editableGroups: EditableGroupState[] = groupDetails.map((detail) => {
-          const seedIds = new Set((byGroup.get(detail.id) ?? []).map((img) => img.id))
-          return {
-            id: String(detail.id),
-            author: detail.author ?? '',
-            group_name: detail.base_name,
-            // ALL images in the group; non-seed ones marked outOfScope
-            files: detail.images.map((img) => imageToEditable(img, !seedIds.has(img.id))),
-            skip: false,
-            status: 'pending',
-            processed: 0,
-            failed: 0,
-            total: detail.images.length,
-          }
-        })
-
-        setGroups(editableGroups)
-        setTagVocab(parseTagVocabulary(categories))
-        setAuthorSuggestions(authors)
-        setActiveTab(editableGroups.length > 1 ? ALL_TAB : 0)
-      })
-      .catch((err: unknown) => {
-        setLoadError(getApiErrorMessage(err, 'Failed to load groups'))
-      })
-      .finally(() => {
-        setLoading(false)
-      })
-  }, [
-    open,
     seedImages,
-    isMassEdit,
-    reset,
-    setGroups,
-    setTagVocab,
-    setAuthorSuggestions,
-    setActiveTab,
-  ])
-
-  // ── Load: import-review mode (multiple groups by ID, all images in scope) ──
-
-  useEffect(() => {
-    if (!open || !isImportReview) return
-
-    setLoading(true)
-    setLoadError(null)
-
-    const ids = groupIds!
-    Promise.all([
-      ...ids.map((id) => groupApi.get(id)),
-      tagApi.getCategories(),
-      imageApi.getAuthors(),
-    ])
-      .then((results) => {
-        const groupDetails = results.slice(0, ids.length) as Awaited<
-          ReturnType<typeof groupApi.get>
-        >[]
-        const categories = results[ids.length] as Awaited<ReturnType<typeof tagApi.getCategories>>
-        const authors = results[ids.length + 1] as string[]
-
-        const editableGroups: EditableGroupState[] = groupDetails.map((detail) => ({
-          id: String(detail.id),
-          author: detail.author ?? '',
-          group_name: detail.base_name,
-          files: detail.images.map((img) => imageToEditable(img)),
-          skip: false,
-          status: 'pending',
-          processed: 0,
-          failed: 0,
-          total: detail.images.length,
-        }))
-
-        setGroups(editableGroups)
-        setTagVocab(parseTagVocabulary(categories))
-        setAuthorSuggestions(authors)
-        setActiveTab(editableGroups.length > 1 ? ALL_TAB : 0)
-      })
-      .catch((err: unknown) => {
-        setLoadError(getApiErrorMessage(err, 'Failed to load imported groups'))
-      })
-      .finally(() => {
-        setLoading(false)
-      })
-  }, [
-    open,
     groupIds,
-    isImportReview,
-    reset,
-    setGroups,
-    setTagVocab,
-    setAuthorSuggestions,
-    setActiveTab,
-  ])
+    onResetDialogState: resetDialogState,
+    fileEditing: {
+      setGroups,
+      setActiveTab,
+      setFileFilter,
+      setEditingSvHeading,
+      setTagVocab,
+      setAuthorSuggestions,
+    },
+  })
 
   // ── Close / Done ────────────────────────────────────────────────
 
@@ -591,549 +176,50 @@ export default function EditGroupDialog({
     onClose()
   }, [onSave, onClose])
 
-  // ── moveToNewGroup (API-backed split) ──────────────────────────
+  // Destructure commonly-used operations for readability in JSX
+  const {
+    saving,
+    saveError,
+    merging,
+    groupSaving,
+    groupSaved,
+    moveToNewGroup,
+    handleDelete,
+    handleMerge,
+    handleDeleteGroup,
+    handleMergeGroup,
+    removeGroupFromView,
+    handleMergeAll,
+    handleBulkMerge,
+    handleBulkDelete,
+    handleDragMergeConfirm,
+    confirmingMergeAll,
+    setConfirmingMergeAll,
+    mergeSourceGroupId,
+    setMergeSourceGroupId,
+    deleteConfirmGroupId,
+    setDeleteConfirmGroupId,
+    showMergePicker,
+    setShowMergePicker,
+    confirmingDelete,
+    setConfirmingDelete,
+    confirmingBulkMerge,
+    setConfirmingBulkMerge,
+    confirmingBulkDelete,
+    setConfirmingBulkDelete,
+  } = ops
 
-  // Only available in single-group mode — triggers an immediate API call
-  const moveToNewGroup = async (sourceGroupId: string) => {
-    const sourceIndex = groups.findIndex((g) => g.id === sourceGroupId)
-    if (sourceIndex === -1) return
-    const source = groups[sourceIndex]
-    const sel = selections[sourceGroupId] ?? new Set<string>()
-    if (sel.size === 0) return
-    const sourceGId = Number(sourceGroupId)
-    if (isNaN(sourceGId)) return
-
-    const movedFiles = source.files.filter((f) => sel.has(f.relative_path))
-    const remainingFiles = source.files.filter((f) => !sel.has(f.relative_path))
-
-    setSaving(true)
-    setSaveError(null)
-    try {
-      const response = await groupApi.edit(sourceGId, {
-        base_name: source.group_name,
-        author: source.author || undefined,
-        images: remainingFiles
-          .filter((f) => !f.excluded)
-          .map((f) => ({
-            id: Number(f.relative_path),
-            name: f.name,
-            tags: f.tags,
-            gridded: f.gridded,
-            grid_width: f.grid_width,
-            grid_height: f.grid_height,
-            grid_type: f.grid_type,
-            subgroup: f.subgroup,
-            image_type: f.image_type,
-          })),
-        new_groups: [
-          {
-            base_name: `${source.group_name} (split)`,
-            author: source.author || undefined,
-            image_ids: movedFiles.filter((f) => !f.excluded).map((f) => Number(f.relative_path)),
-          },
-        ],
-      })
-
-      // Reload both groups from API so we have real IDs
-      const newGroupId = response.new_group_ids[0]
-      const fetches: Promise<Awaited<ReturnType<typeof groupApi.get>>>[] = [groupApi.get(sourceGId)]
-      if (newGroupId) fetches.push(groupApi.get(newGroupId))
-      const [updatedSource, newGroup] = await Promise.all(fetches)
-
-      const toEditable = (g: typeof updatedSource): EditableGroupState => ({
-        id: String(g.id),
-        author: g.author ?? '',
-        group_name: g.base_name,
-        files: g.images.map((img) => imageToEditable(img)),
-        skip: false,
-        status: 'pending',
-        processed: 0,
-        failed: 0,
-        total: g.images.length,
-      })
-
-      const newGroups = [
-        ...groups.map((g, i) => (i === sourceIndex ? toEditable(updatedSource) : g)),
-        ...(newGroup ? [toEditable(newGroup)] : []),
-      ]
-      setGroups(newGroups)
-      setActiveTab(newGroups.length - 1)
-      invalidateGallery()
-    } catch (err) {
-      setSaveError(getApiErrorMessage(err, 'Split failed'))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  // ── Delete group (single-group mode only) ──────────────────────
-
-  const handleDelete = async () => {
-    const gId = groupId ?? null
-    if (gId === null) return
-    setSaving(true)
-    try {
-      await groupApi.delete(gId)
-      onSave()
-      onClose()
-    } catch (err) {
-      setSaveError(getApiErrorMessage(err, 'Delete failed'))
-      setSaving(false)
-      setConfirmingDelete(false)
-    }
-  }
-
-  // ── Merge into another group (single-group mode only) ──────────
-
-  const handleMerge = async (targetGroup: { id: number }) => {
-    const gId = groupId ?? null
-    if (gId === null) return
-    setMerging(true)
-    try {
-      await groupApi.merge(gId, targetGroup.id)
-      setShowMergePicker(false)
-      onSave()
-      onClose()
-    } catch (err) {
-      setSaveError(getApiErrorMessage(err, 'Merge failed'))
-      setMerging(false)
-    }
-  }
-
-  // ── Per-group nav actions (mass-edit mode) ─────────────────────
-
-  const handleDeleteGroup = async (gId: string) => {
-    const idx = groups.findIndex((g) => g.id === gId)
-    setSaving(true)
-    setSaveError(null)
-    try {
-      await groupApi.delete(Number(gId))
-      setGroups((prev) => prev.filter((g) => g.id !== gId))
-      setDeleteConfirmGroupId(null)
-      if (activeTab !== ALL_TAB) {
-        if (idx < activeTab) setActiveTab(activeTab - 1)
-        else if (idx === activeTab) setActiveTab(Math.max(0, activeTab - 1))
-      }
-      invalidateGallery()
-    } catch (err) {
-      setSaveError(getApiErrorMessage(err, 'Delete failed'))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleMergeGroup = async (sourceId: string, targetGroup: GroupSearchItem) => {
-    const idx = groups.findIndex((g) => g.id === sourceId)
-    setMerging(true)
-    setSaveError(null)
-    try {
-      await groupApi.merge(Number(sourceId), targetGroup.id)
-
-      // If target group is also open in this dialog, reload it from the API
-      const targetInGroups = groups.some((g) => g.id === String(targetGroup.id))
-      let updatedGroups = groups.filter((g) => g.id !== sourceId)
-
-      if (targetInGroups) {
-        const reloaded = await groupApi.get(targetGroup.id)
-        // Preserve outOfScope flags for the target group's existing images
-        const originalTarget = groups.find((g) => g.id === String(targetGroup.id))
-        const originalSeedIds = new Set(
-          originalTarget?.files.filter((f) => !f.outOfScope).map((f) => Number(f.relative_path)) ??
-            [],
-        )
-        updatedGroups = updatedGroups.map((g) => {
-          if (g.id !== String(targetGroup.id)) return g
-          return {
-            ...g,
-            files: reloaded.images.map((img) => imageToEditable(img, !originalSeedIds.has(img.id))),
-            total: reloaded.images.length,
-          }
-        })
-      }
-
-      setGroups(updatedGroups)
-      setMergeSourceGroupId(null)
-      if (activeTab !== ALL_TAB) {
-        if (idx < activeTab) setActiveTab(activeTab - 1)
-        else if (idx === activeTab) setActiveTab(Math.max(0, activeTab - 1))
-      }
-      invalidateGallery()
-    } catch (err) {
-      setSaveError(getApiErrorMessage(err, 'Merge failed'))
-    } finally {
-      setMerging(false)
-    }
-  }
-
-  // ── Remove group from view (mass-edit only, no delete) ────────
-
-  const removeGroupFromView = (gId: string) => {
-    const idx = groups.findIndex((g) => g.id === gId)
-    setGroups((prev) => prev.filter((g) => g.id !== gId))
-    if (activeTab !== ALL_TAB) {
-      if (idx < activeTab) setActiveTab(activeTab - 1)
-      else if (idx === activeTab) setActiveTab(ALL_TAB)
-    }
-  }
-
-  // ── Merge all groups (mass-edit only) ────────────────────────
-
-  const [confirmingMergeAll, setConfirmingMergeAll] = useState(false)
-
-  const handleMergeAll = async () => {
-    if (groups.length < 2) return
-    const target = groups[0]
-    const sources = groups.slice(1)
-    setMerging(true)
-    setSaveError(null)
-    setConfirmingMergeAll(false)
-    try {
-      for (const source of sources) {
-        await groupApi.merge(Number(source.id), Number(target.id))
-      }
-      // Reload the merged target from API
-      const reloaded = await groupApi.get(Number(target.id))
-      const seedIds = new Set(
-        groups.flatMap((g) =>
-          g.files.filter((f) => !f.outOfScope).map((f) => Number(f.relative_path)),
-        ),
-      )
-      setGroups([
-        {
-          id: String(reloaded.id),
-          author: reloaded.author ?? '',
-          group_name: reloaded.base_name,
-          files: reloaded.images.map((img) => imageToEditable(img, !seedIds.has(img.id))),
-          skip: false,
-          status: 'pending',
-          processed: 0,
-          failed: 0,
-          total: reloaded.images.length,
-        },
-      ])
-      setActiveTab(0)
-      invalidateGallery()
-    } catch (err) {
-      setSaveError(getApiErrorMessage(err, 'Merge all failed'))
-    } finally {
-      setMerging(false)
-    }
-  }
-
-  // ── Drag & drop handlers ─────────────────────────────────────────
-
-  const handleMoveImagesToGroup = useCallback(
-    async (drag: ActiveDragState, targetGroupId: string) => {
-      if (drag.groupId === targetGroupId) return
-
-      const sel = selections[drag.groupId] ?? new Set<string>()
-      const imageIds = sel.has(drag.id) ? [...sel].map(Number) : [Number(drag.id)]
-
-      setSaving(true)
-      setSaveError(null)
-      try {
-        const result = await groupApi.moveImages(
-          Number(drag.groupId),
-          Number(targetGroupId),
-          imageIds,
-        )
-
-        // Remove moved files from source group in local state
-        const movedIdSet = new Set(imageIds.map(String))
-        let newGroups = groups.map((g) => {
-          if (g.id !== drag.groupId) return g
-          return {
-            ...g,
-            files: g.files.filter((f) => !movedIdSet.has(f.relative_path)),
-            total: g.files.filter((f) => !movedIdSet.has(f.relative_path)).length,
-          }
-        })
-
-        // If source group was auto-deleted, remove it from the array
-        if (result.source_group_deleted) {
-          const sourceIdx = newGroups.findIndex((g) => g.id === drag.groupId)
-          newGroups = newGroups.filter((g) => g.id !== drag.groupId)
-          if (activeTab !== ALL_TAB) {
-            if (sourceIdx < activeTab) setActiveTab(activeTab - 1)
-            else if (sourceIdx === activeTab) setActiveTab(Math.max(0, activeTab - 1))
-          }
-        }
-
-        // Reload target group from API to get accurate data
-        const targetInGroups = newGroups.some((g) => g.id === targetGroupId)
-        if (targetInGroups) {
-          const reloaded = await groupApi.get(Number(targetGroupId))
-          newGroups = newGroups.map((g) => {
-            if (g.id !== targetGroupId) return g
-            // Preserve outOfScope flags for images that were already in scope
-            const originalSeedIds = new Set(
-              g.files.filter((f) => !f.outOfScope).map((f) => Number(f.relative_path)),
-            )
-            // Images we just moved should be in scope
-            imageIds.forEach((id) => originalSeedIds.add(id))
-            return {
-              ...g,
-              files: reloaded.images.map((img) =>
-                imageToEditable(img, !originalSeedIds.has(img.id)),
-              ),
-              total: reloaded.images.length,
-            }
-          })
-        }
-
-        setGroups(newGroups)
-        // Clear selections for the moved files
-        deselectAll(drag.groupId)
-        invalidateGallery()
-      } catch (err) {
-        setSaveError(getApiErrorMessage(err, 'Move failed'))
-      } finally {
-        setSaving(false)
-      }
-    },
-    [selections, groups, activeTab, setGroups, deselectAll, invalidateGallery, setActiveTab],
-  )
-
-  const handleMoveImagesToSubgroup = useCallback(
-    (drag: ActiveDragState, targetSubgroup: string | null) => {
-      const sel = selections[drag.groupId] ?? new Set<string>()
-      const paths = sel.has(drag.id) ? [...sel] : [drag.id]
-      updateFilesInGroup(drag.groupId, paths, { subgroup: targetSubgroup })
-    },
-    [selections, updateFilesInGroup],
-  )
-
-  // Refs to avoid stale closures in handleDragEnd — these always point to the
-  // latest versions of the handlers regardless of when handleDragEnd was memoized.
-  const moveToGroupRef = useRef(handleMoveImagesToGroup)
-  moveToGroupRef.current = handleMoveImagesToGroup
-  const moveToSubgroupRef = useRef(handleMoveImagesToSubgroup)
-  moveToSubgroupRef.current = handleMoveImagesToSubgroup
-
-  const handleDragStart = useCallback(
-    (event: DragStartEvent) => {
-      const data = event.active.data.current as DragData
-      if (data.type === 'card') {
-        const sel = selections[data.groupId] ?? new Set<string>()
-        const count = sel.has(data.id) ? sel.size : 1
-        const file = groups
-          .find((g) => g.id === data.groupId)
-          ?.files.find((f) => f.relative_path === data.id)
-        setActiveDrag({
-          type: 'card',
-          id: data.id,
-          groupId: data.groupId,
-          selectedCount: count,
-          previewUrl: file?.previewUrl,
-          label: file?.name || file?.filename,
-        })
-      } else {
-        const group = groups.find((g) => g.id === data.groupId)
-        setActiveDrag({
-          type: 'group',
-          id: data.id,
-          groupId: data.groupId,
-          selectedCount: 1,
-          label: group?.group_name,
-        })
-      }
-    },
-    [selections, groups],
-  )
-
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { over } = event
-      if (!over || !activeDrag) {
-        setActiveDrag(null)
-        return
-      }
-
-      const dropData = over.data.current as DropData
-      if (activeDrag.type === 'card' && dropData.type === 'group' && dropData.groupId) {
-        moveToGroupRef.current(activeDrag, dropData.groupId)
-      } else if (activeDrag.type === 'card' && dropData.type === 'subgroup') {
-        moveToSubgroupRef.current(activeDrag, dropData.subgroup ?? null)
-      } else if (activeDrag.type === 'group' && dropData.type === 'group' && dropData.groupId) {
-        if (activeDrag.groupId !== dropData.groupId) {
-          setDragMergeSource(activeDrag.groupId)
-          setDragMergeTarget(dropData.groupId)
-        }
-      }
-      setActiveDrag(null)
-    },
-    [activeDrag],
-  )
-
-  const handleDragMergeConfirm = async () => {
-    if (!dragMergeSource || !dragMergeTarget) return
-    setMerging(true)
-    setSaveError(null)
-    try {
-      await groupApi.merge(Number(dragMergeSource), Number(dragMergeTarget))
-
-      const sourceIdx = groups.findIndex((g) => g.id === dragMergeSource)
-      const targetInGroups = groups.some((g) => g.id === dragMergeTarget)
-      let updatedGroups = groups.filter((g) => g.id !== dragMergeSource)
-
-      if (targetInGroups) {
-        const reloaded = await groupApi.get(Number(dragMergeTarget))
-        const originalSeedIds = new Set(
-          groups
-            .filter((g) => g.id === dragMergeTarget || g.id === dragMergeSource)
-            .flatMap((g) =>
-              g.files.filter((f) => !f.outOfScope).map((f) => Number(f.relative_path)),
-            ),
-        )
-        updatedGroups = updatedGroups.map((g) => {
-          if (g.id !== dragMergeTarget) return g
-          return {
-            ...g,
-            files: reloaded.images.map((img) => imageToEditable(img, !originalSeedIds.has(img.id))),
-            total: reloaded.images.length,
-          }
-        })
-      }
-
-      setGroups(updatedGroups)
-      if (activeTab !== ALL_TAB) {
-        if (sourceIdx < activeTab) setActiveTab(activeTab - 1)
-        else if (sourceIdx === activeTab) setActiveTab(Math.max(0, activeTab - 1))
-      }
-      invalidateGallery()
-    } catch (err) {
-      setSaveError(getApiErrorMessage(err, 'Merge failed'))
-    } finally {
-      setMerging(false)
-      setDragMergeSource(null)
-      setDragMergeTarget(null)
-    }
-  }
-
-  // ── Sidebar multiselect handlers ─────────────────────────────────
-
-  const handleGroupClick = useCallback(
-    (index: number, groupId: string, event: React.MouseEvent) => {
-      if (event.ctrlKey || event.metaKey) {
-        event.preventDefault()
-        setSelectedGroupIds((prev) => {
-          const next = new Set(prev)
-          if (next.has(groupId)) next.delete(groupId)
-          else next.add(groupId)
-          return next
-        })
-        setLastClickedGroupIndex(index)
-        return
-      }
-      if (event.shiftKey && lastClickedGroupIndex !== null) {
-        event.preventDefault()
-        const start = Math.min(lastClickedGroupIndex, index)
-        const end = Math.max(lastClickedGroupIndex, index)
-        const rangeIds = groups.slice(start, end + 1).map((g) => g.id)
-        setSelectedGroupIds(new Set(rangeIds))
-        return
-      }
-      // Normal click: navigate to group, clear multiselect
-      setActiveTab(index)
-      setSelectedGroupIds(new Set())
-      setLastClickedGroupIndex(index)
-    },
-    [lastClickedGroupIndex, groups, setActiveTab],
-  )
-
-  const handleBulkMerge = async () => {
-    const ids = [...selectedGroupIds]
-    if (ids.length < 2) return
-    const targetId = ids[0]
-    const sourceIds = ids.slice(1)
-    setMerging(true)
-    setSaveError(null)
-    setConfirmingBulkMerge(false)
-
-    const mergedSourceIds: string[] = []
-    try {
-      for (const sourceId of sourceIds) {
-        await groupApi.merge(Number(sourceId), Number(targetId))
-        mergedSourceIds.push(sourceId)
-      }
-    } catch (err) {
-      setSaveError(
-        getApiErrorMessage(
-          err,
-          `Bulk merge failed after merging ${mergedSourceIds.length}/${sourceIds.length} groups`,
-        ),
-      )
-    }
-
-    // Resync local state from the API regardless of partial failure
-    try {
-      const seedIds = new Set(
-        groups
-          .filter((g) => selectedGroupIds.has(g.id))
-          .flatMap((g) => g.files.filter((f) => !f.outOfScope).map((f) => Number(f.relative_path))),
-      )
-      const deletedSet = new Set(mergedSourceIds)
-      const remainingGroups = groups.filter((g) => !deletedSet.has(g.id))
-
-      // Reload the target to get its current state
-      const reloaded = await groupApi.get(Number(targetId))
-      setGroups(
-        remainingGroups.map((g) => {
-          if (g.id !== targetId) return g
-          return {
-            ...g,
-            author: reloaded.author ?? '',
-            group_name: reloaded.base_name,
-            files: reloaded.images.map((img) => imageToEditable(img, !seedIds.has(img.id))),
-            total: reloaded.images.length,
-          }
-        }),
-      )
-      setSelectedGroupIds(new Set())
-      setActiveTab(ALL_TAB)
-      invalidateGallery()
-    } catch {
-      // If even the resync fails, we can't do much — the error is already shown
-    } finally {
-      setMerging(false)
-    }
-  }
-
-  const handleBulkDelete = async () => {
-    const ids = [...selectedGroupIds]
-    setSaving(true)
-    setSaveError(null)
-    setConfirmingBulkDelete(false)
-
-    const deletedIds: string[] = []
-    try {
-      for (const id of ids) {
-        await groupApi.delete(Number(id))
-        deletedIds.push(id)
-      }
-    } catch (err) {
-      setSaveError(
-        getApiErrorMessage(
-          err,
-          `Bulk delete failed after deleting ${deletedIds.length}/${ids.length} groups`,
-        ),
-      )
-    }
-
-    // Resync: remove successfully deleted groups from local state
-    if (deletedIds.length > 0) {
-      const deletedSet = new Set(deletedIds)
-      setGroups((prev) => prev.filter((g) => !deletedSet.has(g.id)))
-      setSelectedGroupIds((prev) => {
-        const next = new Set(prev)
-        deletedIds.forEach((id) => next.delete(id))
-        return next
-      })
-      if (deletedIds.length === ids.length) setActiveTab(ALL_TAB)
-      invalidateGallery()
-    }
-    setSaving(false)
-  }
+  // Destructure DnD values for readability in JSX
+  const {
+    sensors,
+    activeDrag,
+    dragMergeSource,
+    dragMergeTarget,
+    setDragMergeSource,
+    setDragMergeTarget,
+    handleDragStart,
+    handleDragEnd,
+  } = dnd
 
   // ── Derived values ─────────────────────────────────────────────
 
@@ -1254,170 +340,142 @@ export default function EditGroupDialog({
             <div className="flex min-h-0 flex-1 overflow-hidden">
               {/* ── Left: groups nav (only when >1 group) ── */}
               {groups.length > 1 && (
-                <div className="w-[190px] shrink-0 border-r border-border/30 flex flex-col overflow-hidden bg-muted/20">
-                  <div className="px-3 py-2.5 border-b border-border/30 shrink-0">
-                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-semibold">
-                      {groups.length} groups
-                    </span>
-                  </div>
-
-                  <div className="flex-1 overflow-y-auto py-1">
-                    {/* "All" entry */}
-                    <button
-                      onClick={() => setActiveTab(ALL_TAB)}
-                      className={`w-full flex items-center gap-2 px-3 py-2 text-left transition-colors border-l-2 ${
-                        isAllTab
-                          ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-                      }`}
-                    >
-                      <span className="font-display text-[13px] font-semibold flex-1">All</span>
-                      <span className="text-[11px] text-muted-foreground/40 tabular-nums shrink-0">
-                        {groups.reduce(
-                          (s, g) => s + g.files.filter((f) => !f.excluded && !f.outOfScope).length,
-                          0,
+                <GroupSidebarShell
+                  headerLabel={`${groups.length} groups`}
+                  allCount={totalInScope}
+                  isAllActive={isAllTab}
+                  onSelectAll={() => setActiveTab(ALL_TAB)}
+                  footer={
+                    isMassEdit && groups.length >= 2 ? (
+                      <div className="p-2.5 border-t border-border/30 shrink-0">
+                        {selectedGroupIds.size >= 2 ? (
+                          <div className="space-y-1.5">
+                            <span className="text-[10px] text-muted-foreground/60 font-semibold uppercase tracking-wider">
+                              {selectedGroupIds.size} selected
+                            </span>
+                            <div className="flex gap-1">
+                              <button
+                                onClick={() => setConfirmingBulkMerge(true)}
+                                disabled={merging || saving}
+                                className="flex-1 text-[11px] py-1 rounded border border-border/40 bg-secondary/30 text-muted-foreground hover:bg-secondary/60 hover:text-foreground transition-colors flex items-center justify-center gap-1 disabled:opacity-40"
+                              >
+                                <Merge className="h-3 w-3" />
+                                Merge
+                              </button>
+                              <button
+                                onClick={() => setConfirmingBulkDelete(true)}
+                                disabled={merging || saving}
+                                className="flex-1 text-[11px] py-1 rounded border border-destructive/30 bg-destructive/5 text-destructive/70 hover:bg-destructive/10 hover:text-destructive transition-colors flex items-center justify-center gap-1 disabled:opacity-40"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmingMergeAll(true)}
+                            disabled={merging || saving}
+                            className="w-full text-[12px] py-1.5 rounded border border-border/40 bg-secondary/30 text-muted-foreground hover:bg-secondary/60 hover:text-foreground transition-colors flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <Merge className="h-3.5 w-3.5" />
+                            {merging ? 'Merging…' : 'Merge All'}
+                          </button>
                         )}
-                      </span>
-                    </button>
-                    <div className="h-px bg-border/30 mx-3 my-0.5" />
-
-                    {groups.map((g, i) => (
-                      <DroppableGroupRow key={g.id} groupId={g.id} activeDrag={activeDrag}>
-                        <DraggableGroupRow groupId={g.id} isDndEnabled={isMassEdit}>
-                          <div className="group/navrow">
-                            {deleteConfirmGroupId === g.id ? (
-                              <div className="px-3 py-2 border-l-2 border-destructive/50 bg-destructive/5">
-                                <p className="text-[11px] text-destructive/80 mb-1.5">
-                                  Delete this group?
-                                </p>
-                                <div className="flex gap-1">
-                                  <button
-                                    onClick={() => handleDeleteGroup(g.id)}
-                                    disabled={saving}
-                                    className="px-2 py-0.5 rounded border border-destructive/50 bg-destructive/10 text-destructive text-[10px] hover:bg-destructive/20 transition-colors disabled:opacity-50"
-                                  >
-                                    {saving ? (
-                                      <Loader2 className="h-3 w-3 animate-spin" />
-                                    ) : (
-                                      'Delete'
-                                    )}
-                                  </button>
-                                  <button
-                                    onClick={() => setDeleteConfirmGroupId(null)}
-                                    disabled={saving}
-                                    className="px-2 py-0.5 rounded border border-border bg-secondary text-muted-foreground text-[10px] hover:text-foreground transition-colors disabled:opacity-50"
-                                  >
-                                    Cancel
-                                  </button>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="flex items-center">
+                      </div>
+                    ) : undefined
+                  }
+                >
+                  {groups.map((g, i) => (
+                    <DroppableGroupRow key={g.id} groupId={g.id} activeDrag={activeDrag}>
+                      <DraggableGroupRow groupId={g.id} isDndEnabled={isMassEdit}>
+                        <div className="group/navrow">
+                          {deleteConfirmGroupId === g.id ? (
+                            <div className="px-3 py-2 border-l-2 border-destructive/50 bg-destructive/5">
+                              <p className="text-[11px] text-destructive/80 mb-1.5">
+                                Delete this group?
+                              </p>
+                              <div className="flex gap-1">
                                 <button
-                                  onClick={(e) => handleGroupClick(i, g.id, e)}
-                                  className={`flex-1 flex items-center gap-2 pl-3 pr-1 py-2 text-left transition-colors border-l-2 min-w-0 ${
-                                    selectedGroupIds.has(g.id)
-                                      ? 'border-primary/60 bg-primary/15 text-primary'
-                                      : activeTab === i
-                                        ? 'border-primary bg-primary/10 text-primary'
-                                        : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-                                  }`}
+                                  onClick={() => handleDeleteGroup(g.id)}
+                                  disabled={saving}
+                                  className="px-2 py-0.5 rounded border border-destructive/50 bg-destructive/10 text-destructive text-[10px] hover:bg-destructive/20 transition-colors disabled:opacity-50"
                                 >
-                                  <span className="flex-1 text-[12px] truncate">
-                                    {g.group_name}
-                                  </span>
-                                  <span className="text-[11px] text-muted-foreground/40 tabular-nums shrink-0 flex items-center gap-1">
-                                    {g.files.filter((f) => !f.excluded && !f.outOfScope).length}
-                                    {g.files.some((f) => f.outOfScope) && (
-                                      <span className="ml-0.5 opacity-50">
-                                        +{g.files.filter((f) => f.outOfScope).length}
-                                      </span>
-                                    )}
-                                    {groupSaving.has(g.id) ? (
-                                      <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/40 ml-1" />
-                                    ) : groupSaved.has(g.id) ? (
-                                      <Check className="h-3 w-3 text-emerald-600 dark:text-emerald-400/70 ml-1" />
-                                    ) : null}
-                                  </span>
+                                  {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Delete'}
                                 </button>
-                                {isMassEdit && (
-                                  <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                      <button
-                                        className="opacity-0 group-hover/navrow:opacity-100 focus:opacity-100 h-7 w-6 mr-1 flex items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-all shrink-0"
-                                        onClick={(e) => e.stopPropagation()}
-                                      >
-                                        <MoreHorizontal className="h-3.5 w-3.5" />
-                                      </button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end">
-                                      <DropdownMenuItem onClick={() => setMergeSourceGroupId(g.id)}>
-                                        <Merge className="h-4 w-4 mr-2" />
-                                        Merge into…
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem onClick={() => removeGroupFromView(g.id)}>
-                                        <EyeOff className="h-4 w-4 mr-2" />
-                                        Remove from view
-                                      </DropdownMenuItem>
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem
-                                        onClick={() => setDeleteConfirmGroupId(g.id)}
-                                        className="text-destructive focus:text-destructive"
-                                      >
-                                        <Trash2 className="h-4 w-4 mr-2" />
-                                        Delete group
-                                      </DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                  </DropdownMenu>
-                                )}
+                                <button
+                                  onClick={() => setDeleteConfirmGroupId(null)}
+                                  disabled={saving}
+                                  className="px-2 py-0.5 rounded border border-border bg-secondary text-muted-foreground text-[10px] hover:text-foreground transition-colors disabled:opacity-50"
+                                >
+                                  Cancel
+                                </button>
                               </div>
-                            )}
-                          </div>
-                        </DraggableGroupRow>
-                      </DroppableGroupRow>
-                    ))}
-                  </div>
-
-                  {/* Sidebar footer: bulk actions or Merge All */}
-                  {isMassEdit && groups.length >= 2 && (
-                    <div className="p-2.5 border-t border-border/30 shrink-0">
-                      {selectedGroupIds.size >= 2 ? (
-                        <div className="space-y-1.5">
-                          <span className="text-[10px] text-muted-foreground/60 font-semibold uppercase tracking-wider">
-                            {selectedGroupIds.size} selected
-                          </span>
-                          <div className="flex gap-1">
-                            <button
-                              onClick={() => setConfirmingBulkMerge(true)}
-                              disabled={merging || saving}
-                              className="flex-1 text-[11px] py-1 rounded border border-border/40 bg-secondary/30 text-muted-foreground hover:bg-secondary/60 hover:text-foreground transition-colors flex items-center justify-center gap-1 disabled:opacity-40"
-                            >
-                              <Merge className="h-3 w-3" />
-                              Merge
-                            </button>
-                            <button
-                              onClick={() => setConfirmingBulkDelete(true)}
-                              disabled={merging || saving}
-                              className="flex-1 text-[11px] py-1 rounded border border-destructive/30 bg-destructive/5 text-destructive/70 hover:bg-destructive/10 hover:text-destructive transition-colors flex items-center justify-center gap-1 disabled:opacity-40"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                              Delete
-                            </button>
-                          </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center">
+                              <button
+                                onClick={(e) => handleGroupClick(i, g.id, e)}
+                                className={`flex-1 flex items-center gap-2 pl-3 pr-1 py-2 text-left transition-colors border-l-2 min-w-0 ${
+                                  selectedGroupIds.has(g.id)
+                                    ? 'border-primary/60 bg-primary/15 text-primary'
+                                    : activeTab === i
+                                      ? 'border-primary bg-primary/10 text-primary'
+                                      : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+                                }`}
+                              >
+                                <span className="flex-1 text-[12px] truncate">{g.group_name}</span>
+                                <span className="text-[11px] text-muted-foreground/40 tabular-nums shrink-0 flex items-center gap-1">
+                                  {g.files.filter((f) => !f.excluded && !f.outOfScope).length}
+                                  {g.files.some((f) => f.outOfScope) && (
+                                    <span className="ml-0.5 opacity-50">
+                                      +{g.files.filter((f) => f.outOfScope).length}
+                                    </span>
+                                  )}
+                                  {groupSaving.has(g.id) ? (
+                                    <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/40 ml-1" />
+                                  ) : groupSaved.has(g.id) ? (
+                                    <Check className="h-3 w-3 text-emerald-600 dark:text-emerald-400/70 ml-1" />
+                                  ) : null}
+                                </span>
+                              </button>
+                              {isMassEdit && (
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <button
+                                      className="opacity-0 group-hover/navrow:opacity-100 focus:opacity-100 h-7 w-6 mr-1 flex items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-all shrink-0"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <MoreHorizontal className="h-3.5 w-3.5" />
+                                    </button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    <DropdownMenuItem onClick={() => setMergeSourceGroupId(g.id)}>
+                                      <Merge className="h-4 w-4 mr-2" />
+                                      Merge into…
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => removeGroupFromView(g.id)}>
+                                      <EyeOff className="h-4 w-4 mr-2" />
+                                      Remove from view
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      onClick={() => setDeleteConfirmGroupId(g.id)}
+                                      className="text-destructive focus:text-destructive"
+                                    >
+                                      <Trash2 className="h-4 w-4 mr-2" />
+                                      Delete group
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              )}
+                            </div>
+                          )}
                         </div>
-                      ) : (
-                        <button
-                          onClick={() => setConfirmingMergeAll(true)}
-                          disabled={merging || saving}
-                          className="w-full text-[12px] py-1.5 rounded border border-border/40 bg-secondary/30 text-muted-foreground hover:bg-secondary/60 hover:text-foreground transition-colors flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          <Merge className="h-3.5 w-3.5" />
-                          {merging ? 'Merging…' : 'Merge All'}
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
+                      </DraggableGroupRow>
+                    </DroppableGroupRow>
+                  ))}
+                </GroupSidebarShell>
               )}
 
               {/* ── Right: active group content ── */}
@@ -1450,9 +508,9 @@ export default function EditGroupDialog({
                     }
                     onBlur={() => {
                       if (isAllTab) {
-                        groups.forEach(autoSaveGroup)
+                        groups.forEach(ops.autoSaveGroup)
                       } else if (activeGroup) {
-                        autoSaveGroup(activeGroup)
+                        ops.autoSaveGroup(activeGroup)
                       }
                     }}
                   />
@@ -1705,33 +763,7 @@ export default function EditGroupDialog({
 
             {/* ── Drag overlay ── */}
             <DragOverlay dropAnimation={null}>
-              {activeDrag?.type === 'card' && (
-                <div className="flex items-center gap-2 rounded-lg border border-primary/50 bg-card shadow-lg px-3 py-2 pointer-events-none max-w-[200px]">
-                  {activeDrag.previewUrl && (
-                    <img
-                      src={activeDrag.previewUrl}
-                      alt=""
-                      className="w-10 h-10 object-cover rounded shrink-0"
-                    />
-                  )}
-                  <span className="text-xs text-foreground truncate">
-                    {activeDrag.label ?? 'Image'}
-                  </span>
-                  {activeDrag.selectedCount > 1 && (
-                    <span className="ml-auto shrink-0 w-5 h-5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center">
-                      {activeDrag.selectedCount}
-                    </span>
-                  )}
-                </div>
-              )}
-              {activeDrag?.type === 'group' && (
-                <div className="flex items-center gap-2 rounded-lg border border-primary/50 bg-card shadow-lg px-3 py-2 pointer-events-none max-w-[180px]">
-                  <GripVertical className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                  <span className="text-xs text-foreground truncate">
-                    {activeDrag.label ?? 'Group'}
-                  </span>
-                </div>
-              )}
+              <DragOverlayContent activeDrag={activeDrag} />
             </DragOverlay>
           </DndContext>
         )}
@@ -1782,7 +814,14 @@ export default function EditGroupDialog({
         confirmLabel="Merge"
         confirmVariant="default"
         loadingLabel="Merging…"
-        onConfirm={handleDragMergeConfirm}
+        onConfirm={() => {
+          if (dragMergeSource && dragMergeTarget) {
+            handleDragMergeConfirm(dragMergeSource, dragMergeTarget).then(() => {
+              setDragMergeSource(null)
+              setDragMergeTarget(null)
+            })
+          }
+        }}
         isLoading={merging}
       />
 
@@ -1795,7 +834,9 @@ export default function EditGroupDialog({
         confirmLabel="Merge Selected"
         confirmVariant="default"
         loadingLabel="Merging…"
-        onConfirm={handleBulkMerge}
+        onConfirm={() =>
+          handleBulkMerge(selectedGroupIds).then(() => setSelectedGroupIds(new Set()))
+        }
         isLoading={merging}
       />
 
@@ -1808,7 +849,9 @@ export default function EditGroupDialog({
         confirmLabel="Delete All"
         confirmVariant="destructive"
         loadingLabel="Deleting…"
-        onConfirm={handleBulkDelete}
+        onConfirm={() =>
+          handleBulkDelete(selectedGroupIds).then(() => setSelectedGroupIds(new Set()))
+        }
         isLoading={saving}
       />
     </Dialog>

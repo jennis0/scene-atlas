@@ -54,6 +54,9 @@ export interface UseFileEditingReturn {
   bulkSetSubgroup: (groupId: string | null, value: string) => void
   bulkExclude: (groupId: string | null) => void
 
+  // Move ops
+  moveFilesToGroup: (sourceGroupId: string, targetGroupId: string, paths: string[]) => void
+
   // Subgroup ops
   clearSubgroupLabel: (groupId: string, subgroup: string) => void
   renameSubgroup: (groupId: string, oldVal: string, newVal: string) => void
@@ -167,6 +170,52 @@ export function useFileEditing({
   ) => {
     const pathSet = new Set(paths)
     updateGroupFiles(groupId, (f) => (pathSet.has(f.relative_path) ? { ...f, ...updates } : f))
+  }
+
+  // ── Move ops ────────────────────────────────────────────────────────
+
+  const moveFilesToGroup = (sourceGroupId: string, targetGroupId: string, paths: string[]) => {
+    if (sourceGroupId === targetGroupId) return
+    const pathSet = new Set(paths)
+    setGroups((prev) => {
+      const sourceGroup = prev.find((g) => g.id === sourceGroupId)
+      if (!sourceGroup) return prev
+
+      const movedFiles = sourceGroup.files.filter((f) => pathSet.has(f.relative_path))
+      if (movedFiles.length === 0) return prev
+
+      const remainingFiles = sourceGroup.files.filter((f) => !pathSet.has(f.relative_path))
+      const sourceEmpty = remainingFiles.length === 0
+
+      let newGroups = prev.map((g) => {
+        if (g.id === sourceGroupId) {
+          return { ...g, files: remainingFiles, total: remainingFiles.length }
+        }
+        if (g.id === targetGroupId) {
+          return {
+            ...g,
+            files: [...g.files, ...movedFiles],
+            total: g.files.length + movedFiles.length,
+          }
+        }
+        return g
+      })
+
+      if (sourceEmpty) {
+        newGroups = newGroups.filter((g) => g.id !== sourceGroupId)
+      }
+
+      const affected = newGroups.filter((g) => g.id === sourceGroupId || g.id === targetGroupId)
+      if (affected.length > 0) notifyGroupChange(affected)
+      return newGroups
+    })
+
+    // Clear selections for source group
+    setSelections((prev) => {
+      const next = { ...prev }
+      delete next[sourceGroupId]
+      return next
+    })
   }
 
   // ── Selection ─────────────────────────────────────────────────────
@@ -301,6 +350,7 @@ export function useFileEditing({
     updateFile,
     updateFileAnyGroup,
     updateFilesInGroup,
+    moveFilesToGroup,
     toggleFileSelection,
     selectAllVisible,
     deselectAll,

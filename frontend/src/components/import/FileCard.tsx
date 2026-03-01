@@ -1,15 +1,18 @@
 import { useState } from 'react'
-import { X, Undo2, Pencil, Plus, Copy } from 'lucide-react'
+import { X, Pencil, Plus, Copy } from 'lucide-react'
 import type { EditableFileState, TagData } from '@/types'
 import { resolveApiUrl } from '@/lib/apiBase'
 import { importPreviewUrl } from '@/lib/importStorage'
 import { TagPicker } from './TagPicker'
 import { GridToggle } from './GridToggle'
 import { GridSizeInput } from './GridSizeInput'
-import { SubgroupDropdown } from '@/components/SubgroupDropdown'
 import type { ParsedTagVocab } from './types'
 import { useGetTagColor } from '@/contexts/TagColorContext'
-import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { FileCardThumbnail } from './shared/FileCardThumbnail'
+import { FileCardExcludedState } from './shared/FileCardExcludedState'
+import { FileCardLightbox } from './shared/FileCardLightbox'
+import { TypeToggleInline } from './shared/TypeToggleInline'
+import { SubgroupRow } from './shared/SubgroupRow'
 
 interface FileCardProps {
   file: EditableFileState
@@ -38,7 +41,6 @@ export function FileCard({
   const [isEditingName, setIsEditingName] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
   const [lightboxOpen, setLightboxOpen] = useState(false)
-  const [isSubgroupOpen, setIsSubgroupOpen] = useState(false)
 
   const isVideo = file.media_type === 'video'
   const previewUrl = file.previewUrl ?? resolveApiUrl(importPreviewUrl(jobId, file.relative_path))
@@ -51,66 +53,18 @@ export function FileCard({
     onToggleSelect()
   }
 
-  // ── Thumbnail renderer (shared across states) ──
-  const renderThumb = (opts?: { dimmed?: boolean; small?: boolean }) => {
-    const cls = opts?.small ? 'w-20' : 'w-[140px]'
-    const filter = opts?.dimmed ? 'grayscale(0.6)' : undefined
-    return (
-      <button
-        type="button"
-        className={`${cls} shrink-0 relative overflow-hidden rounded-l-lg bg-secondary cursor-zoom-in min-h-[80px]`}
-        style={{ filter }}
-        onClick={() => {
-          if (previewUrl) setLightboxOpen(true)
-        }}
-        tabIndex={-1}
-      >
-        {useVideoThumb ? (
-          <video
-            src={previewUrl}
-            muted
-            preload="metadata"
-            className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-          />
-        ) : (
-          <img
-            src={previewUrl}
-            alt={file.filename}
-            loading="lazy"
-            className="absolute inset-0 w-full h-full object-cover pointer-events-none transition-transform duration-300 group-hover/card:scale-[1.04]"
-            onError={(e) => {
-              const el = e.target as HTMLImageElement
-              el.style.display = 'none'
-              el.parentElement!.classList.add('flex', 'items-center', 'justify-center')
-              const placeholder = document.createElement('span')
-              placeholder.className =
-                'text-[10px] text-muted-foreground/40 font-medium text-center px-1'
-              placeholder.textContent = 'No preview'
-              el.parentElement!.appendChild(placeholder)
-            }}
-          />
-        )}
-        {/* Selection checkbox overlay */}
-        {!opts?.dimmed && (
-          <div
-            className={`absolute top-1.5 left-1.5 w-4 h-4 rounded-[3px] flex items-center justify-center text-[9px] transition-all backdrop-blur-sm ${
-              selected
-                ? 'bg-primary/90 border-primary text-primary-foreground font-bold'
-                : 'bg-black/35 border-white/20 text-transparent'
-            } border-[1.5px]`}
-          >
-            ✓
-          </div>
-        )}
-      </button>
-    )
-  }
-
   // ── Out-of-scope state ──
   if (file.outOfScope) {
     return (
       <div className="group/card flex rounded-lg border border-border/20 bg-card/40 opacity-50 hover:opacity-70 transition-opacity overflow-hidden">
-        {renderThumb({ small: true })}
+        <FileCardThumbnail
+          file={file}
+          previewUrl={previewUrl}
+          useVideoThumb={useVideoThumb}
+          selected={false}
+          small
+          onOpenLightbox={() => setLightboxOpen(true)}
+        />
         <div className="flex-1 min-w-0 py-2 px-2.5 flex items-center gap-2">
           <div className="flex-1 min-w-0">
             <span
@@ -153,31 +107,14 @@ export function FileCard({
   // ── Excluded state ──
   if (file.excluded) {
     return (
-      <div className="flex rounded-lg border border-dashed border-border/40 bg-muted/20 opacity-40 overflow-hidden">
-        {renderThumb({ dimmed: true })}
-        <div className="flex-1 min-w-0 py-2 px-2.5 flex items-center gap-2">
-          <div className="flex-1 min-w-0">
-            <span
-              className="font-display text-[12px] text-muted-foreground/40 line-through truncate block"
-              title={file.relative_path}
-            >
-              {file.name || file.filename}
-            </span>
-            <span className="font-mono text-[9px] text-muted-foreground/25 truncate block">
-              {file.filename}
-            </span>
-          </div>
-          {!disabled && (
-            <button
-              onClick={() => onUpdate({ excluded: false })}
-              className="text-xs text-muted-foreground hover:text-primary transition-colors shrink-0 flex items-center gap-1"
-            >
-              <Undo2 className="h-3 w-3" />
-              Restore
-            </button>
-          )}
-        </div>
-      </div>
+      <FileCardExcludedState
+        file={file}
+        previewUrl={previewUrl}
+        useVideoThumb={useVideoThumb}
+        disabled={disabled}
+        onRestore={() => onUpdate({ excluded: false })}
+        onOpenLightbox={() => setLightboxOpen(true)}
+      />
     )
   }
 
@@ -195,7 +132,13 @@ export function FileCard({
         onClick={handleCardClick}
       >
         {/* Thumbnail */}
-        {renderThumb()}
+        <FileCardThumbnail
+          file={file}
+          previewUrl={previewUrl}
+          useVideoThumb={useVideoThumb}
+          selected={selected}
+          onOpenLightbox={() => setLightboxOpen(true)}
+        />
 
         {/* Content */}
         <div className="flex-1 min-w-0 flex flex-col py-[7px] px-[9px]">
@@ -286,53 +229,12 @@ export function FileCard({
           {/* Property rows */}
           <div className="flex flex-col gap-1">
             {/* SUB prop-row */}
-            <div className="flex items-center gap-1.5 min-h-5">
-              <span className="w-8 shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/50 text-right leading-none">
-                Sub
-              </span>
-              <div className="flex-1 min-w-0 flex items-center gap-1 relative">
-                {file.subgroup ? (
-                  <button
-                    data-no-select=""
-                    className={`flex-1 min-w-0 h-5 px-1.5 text-[10px] bg-secondary border border-border text-foreground/80 capitalize text-left truncate flex items-center gap-1 hover:border-primary/40 transition-colors ${isSubgroupOpen ? 'rounded-t border-b-0' : 'rounded'}`}
-                    onClick={() => !disabled && setIsSubgroupOpen(true)}
-                  >
-                    <span className="truncate">{file.subgroup}</span>
-                    {!disabled && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onUpdate({ subgroup: null })
-                        }}
-                        className="ml-auto shrink-0 text-muted-foreground/30 hover:text-foreground opacity-0 group-hover/card:opacity-100 transition-opacity"
-                      >
-                        <X className="h-2.5 w-2.5" />
-                      </button>
-                    )}
-                  </button>
-                ) : (
-                  <button
-                    data-no-select=""
-                    className={`flex-1 min-w-0 h-5 px-1.5 text-[10px] bg-secondary border border-border text-muted-foreground/30 italic text-left truncate hover:border-primary/40 transition-colors ${isSubgroupOpen ? 'rounded-t border-b-0' : 'rounded'}`}
-                    onClick={() => !disabled && setIsSubgroupOpen(true)}
-                    disabled={disabled}
-                  >
-                    —
-                  </button>
-                )}
-                <SubgroupDropdown
-                  isOpen={isSubgroupOpen}
-                  existingSubgroups={existingSubgroups}
-                  initialValue={file.subgroup ?? ''}
-                  variant="attached"
-                  onCommit={(value) => {
-                    onUpdate({ subgroup: value || null })
-                    setIsSubgroupOpen(false)
-                  }}
-                  onCancel={() => setIsSubgroupOpen(false)}
-                />
-              </div>
-            </div>
+            <SubgroupRow
+              subgroup={file.subgroup}
+              existingSubgroups={existingSubgroups}
+              disabled={disabled}
+              onUpdate={(subgroup) => onUpdate({ subgroup })}
+            />
 
             {/* TYPE prop-row */}
             <div className="flex items-center gap-1.5 min-h-5">
@@ -340,34 +242,11 @@ export function FileCard({
                 Type
               </span>
               <div className="flex-1 min-w-0 flex items-center gap-1">
-                {!disabled ? (
-                  <div className="inline-flex rounded-md overflow-hidden border border-border">
-                    <button
-                      onClick={() => onUpdate({ image_type: 'battlemap' })}
-                      className={`px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
-                        file.image_type !== 'scene'
-                          ? 'bg-primary/20 text-primary'
-                          : 'text-muted-foreground/50 hover:text-muted-foreground'
-                      }`}
-                    >
-                      Map
-                    </button>
-                    <button
-                      onClick={() => onUpdate({ image_type: 'scene' })}
-                      className={`px-1.5 py-0.5 text-[10px] font-medium border-l border-border transition-colors ${
-                        file.image_type === 'scene'
-                          ? 'bg-primary/20 text-primary'
-                          : 'text-muted-foreground/50 hover:text-muted-foreground'
-                      }`}
-                    >
-                      Scene
-                    </button>
-                  </div>
-                ) : (
-                  <span className="text-[10px] text-muted-foreground/60 capitalize">
-                    {file.image_type === 'scene' ? 'Scene' : 'Map'}
-                  </span>
-                )}
+                <TypeToggleInline
+                  imageType={file.image_type}
+                  disabled={disabled}
+                  onUpdate={(imageType) => onUpdate({ image_type: imageType })}
+                />
               </div>
             </div>
 
@@ -441,32 +320,13 @@ export function FileCard({
       </div>
 
       {/* Lightbox */}
-      {lightboxOpen && (
-        <Dialog open onOpenChange={setLightboxOpen}>
-          <DialogContent
-            className="max-w-none max-h-none w-[95vw] h-[95vh] bg-black/95 border-0 p-4 flex items-center justify-center [&>button]:text-white [&>button]:hover:bg-white/20 cursor-pointer"
-            onClick={() => setLightboxOpen(false)}
-          >
-            {isVideo ? (
-              <video
-                src={file.fullImageUrl || previewUrl}
-                controls
-                autoPlay
-                loop
-                className="max-w-full max-h-full object-contain rounded cursor-default"
-                onClick={(e) => e.stopPropagation()}
-              />
-            ) : (
-              <img
-                src={file.fullImageUrl || previewUrl}
-                alt={file.name}
-                className="max-w-full max-h-full object-contain rounded cursor-default"
-                onClick={(e) => e.stopPropagation()}
-              />
-            )}
-          </DialogContent>
-        </Dialog>
-      )}
+      <FileCardLightbox
+        open={lightboxOpen}
+        onOpenChange={setLightboxOpen}
+        src={file.fullImageUrl || previewUrl}
+        alt={file.name}
+        isVideo={isVideo}
+      />
     </>
   )
 }
