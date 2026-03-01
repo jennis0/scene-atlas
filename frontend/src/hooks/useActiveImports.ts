@@ -46,14 +46,14 @@ export interface UseActiveImportsReturn {
   refresh: () => void
   dismissJob: (jobId: string) => void
   cancelJob: (jobId: string) => Promise<void>
-  /** Fired once each time a job transitions to 'completed'. */
-  onJobCompleted: (cb: () => void) => () => void
+  /** Fired once each time a job transitions to 'completed', with the completed job. */
+  onJobCompleted: (cb: (job: ActiveImportJob) => void) => () => void
 }
 
 export function useActiveImports(): UseActiveImportsReturn {
   const [jobs, setJobs] = useState<ActiveImportJob[]>([])
   const prevJobStatusRef = useRef<Map<string, string>>(new Map())
-  const completionListeners = useRef<Set<() => void>>(new Set())
+  const completionListeners = useRef<Set<(job: ActiveImportJob) => void>>(new Set())
   /** Job IDs the user has dismissed this session — prevents them reappearing on poll. */
   const dismissedIdsRef = useRef<Set<string>>(new Set())
   /** Ref to access current jobs without adding it as a dependency to callbacks. */
@@ -114,11 +114,16 @@ export function useActiveImports(): UseActiveImportsReturn {
       prev.set(job.jobId, job.status)
     }
     if (anyCompleted) {
-      completionListeners.current.forEach((cb) => cb())
+      for (const job of jobs) {
+        const prevStatus = prev.get(job.jobId)
+        if (prevStatus && prevStatus !== 'completed' && job.status === 'completed') {
+          completionListeners.current.forEach((cb) => cb(job))
+        }
+      }
     }
   }, [jobs])
 
-  const onJobCompleted = useCallback((cb: () => void) => {
+  const onJobCompleted = useCallback((cb: (job: ActiveImportJob) => void) => {
     completionListeners.current.add(cb)
     return () => completionListeners.current.delete(cb)
   }, [])

@@ -1,4 +1,5 @@
 import { HashRouter as Router, Routes, Route } from 'react-router-dom'
+import { Toaster } from 'sonner'
 import { Gallery } from './pages/Gallery'
 import ErrorBoundary from './components/ErrorBoundary'
 
@@ -12,6 +13,7 @@ function App() {
           </Routes>
         </div>
       </Router>
+      <Toaster position="bottom-right" richColors />
     </ErrorBoundary>
   )
 }

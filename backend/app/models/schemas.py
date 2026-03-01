@@ -488,6 +488,12 @@ class ActiveImportsResponse(BaseModel):
     jobs: list[ImportJobSummary]
 
 
+class ConfirmReviewRequest(BaseModel):
+    """Request body for POST /groups/confirm-review."""
+
+    group_ids: list[int]
+
+
 # ── App Settings ──────────────────────────────────────────────────────────────
 
 

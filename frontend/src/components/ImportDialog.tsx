@@ -1,17 +1,13 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { DndContext, DragOverlay } from '@dnd-kit/core'
-import { Upload, FolderOpen, Loader2, Check, X, Ban } from 'lucide-react'
+import { Upload, Loader2, Check, X, AlertCircle } from 'lucide-react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { useImportState } from '@/hooks/useImportState'
-import { useImportDnd } from '@/hooks/useImportDnd'
 import { removeImportState } from '@/lib/importStorage'
 import { importApi } from '@/lib/api'
 import { ImportUploadPane } from './import/ImportUploadPane'
-import { ImportGroupNav } from './import/ImportGroupNav'
-import { ImportGroupContent } from './import/ImportGroupContent'
 import { ImportDonePane } from './import/ImportDonePane'
-import { DragOverlayContent } from './import/shared/dnd'
+import type { EditableGroupState } from '@/types'
 
 interface ImportDialogProps {
   open: boolean
@@ -23,6 +19,31 @@ interface ImportDialogProps {
   reconnectJobId?: string
 }
 
+function GroupStatusRow({ group }: { group: EditableGroupState }) {
+  const { status, group_name, author, total, processed, failed } = group
+  return (
+    <div className="flex items-center gap-3 py-2.5 px-4 rounded-lg bg-secondary/40">
+      <div className="shrink-0">
+        {status === 'running' && <Loader2 className="h-4 w-4 text-primary animate-spin" />}
+        {status === 'completed' && <Check className="h-4 w-4 text-green-500" />}
+        {status === 'failed' && <AlertCircle className="h-4 w-4 text-destructive" />}
+        {status === 'pending' && <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" />}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium truncate">{group_name}</p>
+        {author && <p className="text-xs text-muted-foreground truncate">{author}</p>}
+      </div>
+      <div className="text-xs text-muted-foreground shrink-0">
+        {status === 'completed'
+          ? `${processed} / ${total}`
+          : status === 'failed'
+            ? `${failed} failed`
+            : `${processed} / ${total}`}
+      </div>
+    </div>
+  )
+}
+
 export function ImportDialog({
   open,
   onOpenChange,
@@ -32,7 +53,6 @@ export function ImportDialog({
 }: ImportDialogProps) {
   const queryClient = useQueryClient()
   const s = useImportState(onActiveChange, reconnectJobId)
-  const dnd = useImportDnd(s)
   const { state, uploading, jobId, reset } = s.workflow
 
   // Notify parent when our internal jobId changes so the dialog manager
@@ -42,8 +62,8 @@ export function ImportDialog({
   useEffect(() => {
     onJobIdChangeRef.current?.(jobId)
   }, [jobId])
+
   const { groups } = s.files
-  const { saveNow } = s.persistence
 
   const handleCancel = useCallback(async () => {
     if (jobId) {
@@ -66,7 +86,7 @@ export function ImportDialog({
     }
     // If processing, just hide the dialog — tray will show progress
     if (state === 'processing') {
-      saveNow()
+      s.persistence.saveNow()
       onOpenChange(false)
       return
     }
@@ -80,37 +100,17 @@ export function ImportDialog({
       onOpenChange(false)
       return
     }
-    // If in preview with pending groups, save state for later
-    if (state === 'preview' && groups.some((g) => g.status === 'pending' && !g.skip)) {
-      saveNow()
-      reset()
-      onOpenChange(false)
-      return
-    }
-    // If in preview with no pending groups but completed groups, auto-finalize
-    if (state === 'preview' && groups.some((g) => g.status === 'completed')) {
-      if (jobId) {
-        importApi.finalize(jobId).catch(() => {})
-        removeImportState(jobId)
-      }
-      queryClient.invalidateQueries({ queryKey: ['images'] })
-      queryClient.invalidateQueries({ queryKey: ['search'] })
-      queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
-      reset()
-      onOpenChange(false)
-      return
-    }
-    // Otherwise (upload state, or preview with no groups), just reset
+    // Otherwise (upload state with no active upload), just reset
     reset()
     onOpenChange(false)
-  }, [state, uploading, jobId, groups, queryClient, reset, saveNow, onOpenChange])
+  }, [state, uploading, jobId, queryClient, reset, s.persistence, onOpenChange])
 
-  const isWide = state === 'preview' || state === 'processing'
+  const isWide = state === 'processing'
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
-        className={`${isWide ? 'max-w-5xl h-[85vh]' : 'max-w-lg'} overflow-hidden flex flex-col p-0 gap-0`}
+        className={`${isWide ? 'max-w-2xl' : 'max-w-lg'} overflow-hidden flex flex-col p-0 gap-0`}
       >
         {/* Amber stripe */}
         <div className="absolute top-0 inset-x-0 h-0.5 bg-gradient-to-r from-primary/70 via-primary/30 to-transparent pointer-events-none rounded-t-xl" />
@@ -122,12 +122,6 @@ export function ImportDialog({
               <>
                 <Upload className="h-5 w-5 text-primary shrink-0" />
                 Import Scenes
-              </>
-            )}
-            {state === 'preview' && (
-              <>
-                <FolderOpen className="h-5 w-5 text-primary shrink-0" />
-                Review Import
               </>
             )}
             {state === 'processing' && (
@@ -144,26 +138,12 @@ export function ImportDialog({
             )}
           </h2>
           <div className="flex items-center gap-1">
-            {state === 'preview' &&
-              jobId &&
-              s.files.pendingGroups.length === 0 &&
-              s.files.completedCount > 0 && (
-                <button
-                  onClick={s.confirm.handleFinalize}
-                  className="flex items-center gap-1.5 px-3 h-7 rounded text-sm bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-                  title="Finish import — all groups have been submitted"
-                >
-                  <Check className="h-3.5 w-3.5" />
-                  Done
-                </button>
-              )}
-            {state === 'preview' && jobId && (
+            {state === 'upload' && jobId && (
               <button
                 onClick={handleCancel}
                 className="flex items-center gap-1.5 px-2.5 h-7 rounded text-sm text-muted-foreground hover:text-destructive hover:bg-secondary transition-colors"
                 title="Cancel and discard this import"
               >
-                <Ban className="h-3.5 w-3.5" />
                 Cancel
               </button>
             )}
@@ -195,37 +175,13 @@ export function ImportDialog({
           />
         )}
 
-        {/* Preview / Processing — two-column layout */}
-        {(state === 'preview' || state === 'processing') && groups.length > 0 && (
-          <DndContext
-            sensors={dnd.sensors}
-            onDragStart={dnd.handleDragStart}
-            onDragEnd={dnd.handleDragEnd}
-          >
-            <div className="flex min-h-0 flex-1 overflow-hidden">
-              {groups.length > 1 && (
-                <ImportGroupNav
-                  groups={s.files.groups}
-                  activeTab={s.files.activeTab}
-                  state={state}
-                  totalFiles={s.files.totalFiles}
-                  pendingGroupCount={s.files.pendingGroups.length}
-                  canImportAll={s.confirm.canImportAll}
-                  canMergeAll={s.confirm.canMergeAll}
-                  activeDrag={dnd.activeDrag}
-                  onSelectTab={s.files.setActiveTab}
-                  onUpdateGroup={s.editing.updateGroup}
-                  onMergeGroups={s.editing.mergeGroups}
-                  onMergeAllGroups={s.editing.mergeAllGroups}
-                  onConfirmAll={s.confirm.handleConfirmAll}
-                />
-              )}
-              <ImportGroupContent s={s} activeDrag={dnd.activeDrag} />
-            </div>
-            <DragOverlay dropAnimation={null}>
-              <DragOverlayContent activeDrag={dnd.activeDrag} />
-            </DragOverlay>
-          </DndContext>
+        {/* Processing state — per-group progress list */}
+        {state === 'processing' && groups.length > 0 && (
+          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-2">
+            {groups.map((group) => (
+              <GroupStatusRow key={group.id} group={group} />
+            ))}
+          </div>
         )}
 
         {/* Done */}

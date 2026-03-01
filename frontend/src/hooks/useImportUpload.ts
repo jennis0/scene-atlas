@@ -411,7 +411,7 @@ export function mapAnalysisToEditable(
 ): EditableGroupState[] {
   return response.groups.map((vg) => ({
     id: crypto.randomUUID(),
-    author: vg.author || '',
+    author: vg.author || 'Unknown',
     group_name: vg.group_name,
     files: vg.files.map((f) => ({
       relative_path: f.relative_path,
