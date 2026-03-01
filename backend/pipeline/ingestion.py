@@ -102,6 +102,7 @@ def _save_image_to_db(db: Session, image_data: dict) -> int:
         content_hash=image_data.get("content_hash"),
         media_type=image_data.get("media_type", "image"),
         needs_review=image_data.get("needs_review", False),
+        import_job_id=image_data.get("import_job_id"),
         search_text=build_search_text(
             name=image_data.get("name"),
             filename=image_data.get("filename"),
@@ -224,6 +225,7 @@ def prepare_single_image(
             reuse_storage_key = metadata.get("reuse_storage_key")
             reuse_thumbnail_key = metadata.get("reuse_thumbnail_key")
             needs_review = metadata.get("needs_review", False)
+            import_job_id = metadata.get("import_job_id")
         else:
             if parser is None:
                 parser = _build_parser()
@@ -247,6 +249,7 @@ def prepare_single_image(
             reuse_storage_key = None
             reuse_thumbnail_key = None
             needs_review = False
+            import_job_id = None
 
         # --- Duplicate reuse path ---
         # If we're reusing an existing file, skip copy/thumbnail/color extraction
@@ -312,6 +315,7 @@ def prepare_single_image(
                 "needs_review": needs_review,
                 "tags": tags,
                 "colors": colors,
+                "import_job_id": import_job_id,
             }
 
             qdrant_metadata = {
@@ -441,6 +445,7 @@ def prepare_single_image(
             "needs_review": needs_review,
             "tags": tags,
             "colors": colors,
+            "import_job_id": import_job_id,
         }
 
         qdrant_metadata = {
@@ -977,6 +982,7 @@ def _run_group(
     files: list[dict],
     pipeline_config: PipelineConfig | None = None,
     needs_review: bool = False,
+    job_id: str | None = None,
 ) -> tuple[int, int]:
     """Process one group end-to-end and return (processed, failed) counts.
 
@@ -1062,6 +1068,7 @@ def _run_group(
                             "reuse_storage_key": file_info.get("reuse_storage_key"),
                             "reuse_thumbnail_key": file_info.get("reuse_thumbnail_key"),
                             "needs_review": needs_review,
+                            "import_job_id": job_id,
                         },
                         pipeline_config=pipeline_config,
                     )
@@ -1222,7 +1229,7 @@ def process_import_group(
     )
     processed, failed = _run_group(
         group_job_id, staging_dir, author, group_name, files, pipeline_config=pipeline_config,
-        needs_review=True,
+        needs_review=True, job_id=job_id,
     )
     _finalize_import_job(job_id)
     if processed > 0:
@@ -1282,6 +1289,7 @@ def process_import_job(
                     files,
                     pipeline_config=pipeline_config,
                     needs_review=True,
+                    job_id=job_id,
                 )
                 total_processed += processed
                 total_failed += failed
