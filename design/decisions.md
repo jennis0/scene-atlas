@@ -288,3 +288,40 @@ Pipeline functions in `backend/pipeline/` are now plain Python functions — no 
 - PyInstaller `--onedir` output bundled as `extraResources/sidecar/`
 - Borderless window with platform-specific titlebar (hiddenInset on macOS, titleBarOverlay on Windows/Linux)
 - See [electron.md](electron.md) for full architecture documentation
+
+---
+
+## ADR-012: Replace torch+transformers with ONNX Runtime for CLIP inference
+
+**Date:** 2026-03
+**Status:** Accepted
+
+**Context:** The PyInstaller sidecar ships `libtorch_cpu.so` (~388 MB) and the full `transformers` package (~57 MB) — roughly 58% of the ~768 MB sidecar. The backend only uses CLIP for generating 512-d image and text embeddings. Running inference via `onnxruntime` with pre-exported ONNX graphs removes both heavy dependencies.
+
+**Alternatives considered:**
+- **FP32 ONNX** — Direct export, ~577 MB models. Larger than torch but removes torch dependency.
+- **FP16 ONNX** — Half-precision quantisation, ~289 MB models. Negligible accuracy loss (max dot-product diff from torch: 0.0004).
+- **INT8 ONNX** — Dynamic quantisation, ~146 MB models. Text encoder accuracy unacceptable (dot-product diff up to 0.36).
+
+**Decision:** Ship FP16-quantised ONNX models bundled into the sidecar. Use `onnxruntime` (CPU) + `tokenizers` for inference. Keep `torch` and `transformers` as dev-only dependencies for the export script and comparison tests.
+
+**Key changes:**
+- `backend/app/services/clip_service.py` — Rewritten to use ONNX Runtime; same public interface (`CLIPService`, `get_clip_service()`)
+- `scripts/export_clip_onnx.py` — Exports fp32/fp16/int8 ONNX models + tokenizer from the torch model
+- `backend/tests/integration/test_onnx_comparison.py` — Validates ONNX output vs torch across 50+ real images and 13 text queries
+- `backend/pyinstaller/scene_atlas_backend.spec` — Removed torch/transformers, bundles fp16 ONNX models
+- Image preprocessing done with PIL + numpy (no `CLIPImageProcessor` dependency)
+- Text tokenization via `tokenizers.Tokenizer` from exported `tokenizer.json`
+
+**Quantisation test results (50 images, 13 text queries):**
+| Variant | Vision Max Diff | Text Max Diff | Model Size |
+|---------|----------------|---------------|------------|
+| fp32    | 0.000001       | 0.000000      | 577.5 MB   |
+| fp16    | 0.000384       | 0.000331      | 289.1 MB   |
+| int8    | 0.039756       | 0.363677      | 145.6 MB   |
+
+**Consequences:**
+- Sidecar drops from ~768 MB to ~350 MB (estimated, with fp16 models + onnxruntime)
+- No first-run HuggingFace download (models are bundled)
+- ONNX models must be re-exported when changing the base CLIP model (`scripts/export_clip_onnx.py`)
+- `backend/models/` is gitignored; CI must run the export script before building

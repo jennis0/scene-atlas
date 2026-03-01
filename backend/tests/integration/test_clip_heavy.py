@@ -1,6 +1,6 @@
 """Heavy integration tests that use real CLIP model.
 
-These tests load the actual CLIP model (~600 MB) and run real inference.
+These tests load the ONNX CLIP models and run real inference.
 They are SKIPPED by default — run explicitly with:
 
     uv run python -m pytest -m heavy -v
@@ -9,9 +9,9 @@ Or run everything including heavy:
 
     uv run python -m pytest -m '' -v
 
-The model is cached by HuggingFace Transformers at ~/.cache/huggingface/hub/.
-On GitHub Actions, this directory is cached between runs so the model is only
-downloaded once.
+Requires ONNX models to be exported first:
+
+    uv run python scripts/export_clip_onnx.py
 """
 
 import pytest
