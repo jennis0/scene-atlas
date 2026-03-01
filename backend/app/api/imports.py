@@ -51,6 +51,20 @@ class ImportConfirmAllRequest(BaseModel):
 
 logger = logging.getLogger(__name__)
 
+
+def _parse_file_errors(raw: str | None) -> list[dict]:
+    """Parse JSON file_errors column, returning empty list on any failure."""
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            return parsed
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("Malformed file_errors JSON in ImportGroupJob: %s", raw[:200])
+    return []
+
+
 router = APIRouter()
 
 
@@ -679,7 +693,7 @@ async def get_import_status(
             failed_files=gj.failed_files,
             status=gj.status,
             group_id=gj.created_group_id,
-            file_errors=json.loads(gj.file_errors) if gj.file_errors else [],
+            file_errors=_parse_file_errors(gj.file_errors),
         )
         for gj in group_jobs
     ]

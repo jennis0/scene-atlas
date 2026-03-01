@@ -9,6 +9,7 @@ Functions:
 """
 
 import hashlib
+import json
 import logging
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -594,8 +595,6 @@ def update_import_group_job_progress(
             if created_group_id is not None:
                 group_job.created_group_id = created_group_id
             if file_errors:
-                import json
-
                 group_job.file_errors = json.dumps(file_errors)
             if status == "completed":
                 group_job.completed_at = datetime.now(UTC).replace(tzinfo=None)
@@ -645,6 +644,14 @@ def _process_batch(
             embeddings = batch_generate_clip_embeddings(image_paths)
             for prep, embedding in zip(new_images, embeddings, strict=True):
                 prep["embedding"] = embedding
+        except Exception as clip_exc:
+            logger.exception("Batch CLIP embedding failed for %d images", len(new_images))
+            error_info = classify_ingest_error(clip_exc, stage="embedding")
+            for prep in new_images:
+                prep["status"] = "failed"
+                prep["error"] = error_info["reason"]
+                prep["error_info"] = error_info
+                batch_failed += 1
         finally:
             # Clean up temp video frame files whether or not CLIP succeeded
             for prep in new_images:
@@ -720,6 +727,7 @@ def process_single_image(
     logger = logging.getLogger(__name__)
     image_path_obj = Path(image_path)
     logger.info("Processing image: %s", image_path_obj)
+    stage = "prepare"
 
     try:
         # Prepare (thumbnails, colors, copy to store)
@@ -733,12 +741,15 @@ def process_single_image(
             }
 
         # CLIP embedding (single image)
+        stage = "embedding"
         embedding = generate_clip_embedding(image_path)
 
         # Save to database
+        stage = "db_save"
         image_id = save_to_database(prepared["image_data"])
 
         # Save to Qdrant
+        stage = "qdrant_save"
         save_to_qdrant(
             image_id=image_id,
             embedding=embedding,
@@ -754,7 +765,7 @@ def process_single_image(
 
     except Exception as e:
         logger.exception("Failed to process image %s", image_path_obj)
-        error_info = classify_ingest_error(e, stage="embedding")
+        error_info = classify_ingest_error(e, stage=stage)
         return {
             "status": "failed",
             "filepath": image_path,
@@ -1099,7 +1110,9 @@ def _run_group(
         logger.error(
             "Group %s (%s) failed after %s images: %s", group_job_id, group_name, processed, e
         )
-        update_import_group_job_progress(group_job_id, processed, failed, status="failed")
+        update_import_group_job_progress(
+            group_job_id, processed, failed, status="failed", file_errors=all_file_errors
+        )
         raise  # re-raise so process_import_job can catch it per-group
 
     return processed, failed
