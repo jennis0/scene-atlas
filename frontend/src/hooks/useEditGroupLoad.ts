@@ -257,16 +257,7 @@ export function useEditGroupLoad({
       .finally(() => {
         setLoading(false)
       })
-  }, [
-    open,
-    seedImages,
-    isMassEdit,
-    resetLoad,
-    setGroups,
-    setTagVocab,
-    setAuthorSuggestions,
-    setActiveTab,
-  ])
+  }, [open, seedImages, isMassEdit, setGroups, setTagVocab, setAuthorSuggestions, setActiveTab])
 
   // ── Load: import-review mode (multiple groups by ID, all images in scope) ──
 
@@ -312,16 +303,7 @@ export function useEditGroupLoad({
       .finally(() => {
         setLoading(false)
       })
-  }, [
-    open,
-    groupIds,
-    isImportReview,
-    resetLoad,
-    setGroups,
-    setTagVocab,
-    setAuthorSuggestions,
-    setActiveTab,
-  ])
+  }, [open, groupIds, isImportReview, setGroups, setTagVocab, setAuthorSuggestions, setActiveTab])
 
   return {
     loading,

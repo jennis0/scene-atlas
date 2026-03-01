@@ -341,10 +341,7 @@ export default function EditGroupDialog({
               {groups.length > 1 && (
                 <GroupSidebarShell
                   headerLabel={`${groups.length} groups`}
-                  allCount={groups.reduce(
-                    (s, g) => s + g.files.filter((f) => !f.excluded && !f.outOfScope).length,
-                    0,
-                  )}
+                  allCount={totalInScope}
                   isAllActive={isAllTab}
                   onSelectAll={() => setActiveTab(ALL_TAB)}
                   footer={
