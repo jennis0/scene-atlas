@@ -21,11 +21,8 @@ import {
   MoreHorizontal,
   EyeOff,
 } from 'lucide-react'
-import { groupApi } from '@/lib/api'
-import { getApiErrorMessage } from '@/lib/getErrorMessage'
-import { SAVED_INDICATOR_DURATION_MS } from '@/lib/constants'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
-import type { EditableGroupState, Image, GroupSearchItem } from '@/types'
+import type { EditableGroupState, Image } from '@/types'
 import { MergeGroupPicker } from './MergeGroupPicker'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import {
@@ -41,7 +38,8 @@ import { MetadataForm } from './import/MetadataForm'
 import { SubgroupHeading } from './SubgroupHeading'
 import { applyFileFilter } from './import/fileFilter'
 import { useFileEditing, ALL_TAB } from '@/hooks/useFileEditing'
-import { useEditGroupLoad, imageToEditable, buildPayload } from '@/hooks/useEditGroupLoad'
+import { useEditGroupLoad } from '@/hooks/useEditGroupLoad'
+import { useEditGroupOperations } from '@/hooks/useEditGroupOperations'
 import {
   DraggableFileCardWrapper,
   DroppableGroupRow,
@@ -82,19 +80,6 @@ export default function EditGroupDialog({
     queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
   }, [queryClient])
 
-  // `saving` = a structural operation (delete/merge/split) is in progress — disables UI
-  const [saving, setSaving] = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
-  const [confirmingDelete, setConfirmingDelete] = useState(false)
-  const [showMergePicker, setShowMergePicker] = useState(false)
-  const [merging, setMerging] = useState(false)
-  // Per-group auto-save tracking
-  const [groupSaving, setGroupSaving] = useState<Set<string>>(new Set())
-  const [groupSaved, setGroupSaved] = useState<Set<string>>(new Set())
-  // Per-group nav actions (mass-edit mode)
-  const [mergeSourceGroupId, setMergeSourceGroupId] = useState<string | null>(null)
-  const [deleteConfirmGroupId, setDeleteConfirmGroupId] = useState<string | null>(null)
-
   // ── Drag & drop state ────────────────────────────────────────────────
   const [activeDrag, setActiveDrag] = useState<ActiveDragState | null>(null)
   const [dragMergeSource, setDragMergeSource] = useState<string | null>(null)
@@ -103,75 +88,18 @@ export default function EditGroupDialog({
   // ── Sidebar multiselect state ────────────────────────────────────────
   const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set())
   const [lastClickedGroupIndex, setLastClickedGroupIndex] = useState<number | null>(null)
-  const [confirmingBulkMerge, setConfirmingBulkMerge] = useState(false)
-  const [confirmingBulkDelete, setConfirmingBulkDelete] = useState(false)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor),
   )
 
-  // Reset dialog-local state (everything NOT owned by useEditGroupLoad or useFileEditing)
-  const resetDialogState = useCallback(() => {
-    setSaving(false)
-    setSaveError(null)
-    setConfirmingDelete(false)
-    setShowMergePicker(false)
-    setMerging(false)
-    setGroupSaving(new Set())
-    setGroupSaved(new Set())
-    setMergeSourceGroupId(null)
-    setDeleteConfirmGroupId(null)
-    setActiveDrag(null)
-    setDragMergeSource(null)
-    setDragMergeTarget(null)
-    setSelectedGroupIds(new Set())
-    setLastClickedGroupIndex(null)
-    setConfirmingBulkMerge(false)
-    setConfirmingBulkDelete(false)
-  }, [])
-
-  // ── Auto-save ────────────────────────────────────────────────────────
-
-  const autoSaveGroup = useCallback(async (group: EditableGroupState) => {
-    const gId = Number(group.id)
-    if (isNaN(gId)) return // Skip locally-created groups (UUID keys — not in DB yet)
-
-    setGroupSaving((prev) => {
-      const s = new Set(prev)
-      s.add(group.id)
-      return s
-    })
-    setSaveError(null)
-    try {
-      await groupApi.edit(gId, buildPayload(group))
-      invalidateGallery()
-      setGroupSaved((prev) => {
-        const s = new Set(prev)
-        s.add(group.id)
-        return s
-      })
-      setTimeout(() => {
-        setGroupSaved((prev) => {
-          const s = new Set(prev)
-          s.delete(group.id)
-          return s
-        })
-      }, SAVED_INDICATOR_DURATION_MS)
-    } catch (err) {
-      setSaveError(getApiErrorMessage(err, 'Auto-save failed'))
-    } finally {
-      setGroupSaving((prev) => {
-        const s = new Set(prev)
-        s.delete(group.id)
-        return s
-      })
-    }
-    // All deps (state setters, invalidateGallery, groupApi) are stable refs
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
   // ── Shared file editing state and mutations ───────────────────────
+
+  // Use a ref to break the circular dependency between useFileEditing
+  // (needs autoSaveGroup in onGroupChange) and useEditGroupOperations
+  // (needs groups/setGroups from useFileEditing).
+  const autoSaveRef = useRef<(group: EditableGroupState) => void>(() => {})
 
   const {
     groups,
@@ -205,7 +133,35 @@ export default function EditGroupDialog({
     activeGroup,
     activeGroupId,
     allSameAuthor,
-  } = useFileEditing({ onGroupChange: (affected) => affected.forEach(autoSaveGroup) })
+  } = useFileEditing({
+    onGroupChange: (affected) => affected.forEach((g) => autoSaveRef.current(g)),
+  })
+
+  // ── Operations (save, merge, delete, split) ─────────────────────
+  const ops = useEditGroupOperations({
+    groupId,
+    groups,
+    setGroups,
+    activeTab,
+    setActiveTab,
+    selections,
+    deselectAll,
+    invalidateGallery,
+    onSave,
+    onClose,
+  })
+  autoSaveRef.current = ops.autoSaveGroup
+
+  // Reset dialog-local state (everything NOT owned by useEditGroupLoad or useFileEditing)
+  const resetDialogState = useCallback(() => {
+    ops.resetOperations()
+    setActiveDrag(null)
+    setDragMergeSource(null)
+    setDragMergeTarget(null)
+    setSelectedGroupIds(new Set())
+    setLastClickedGroupIndex(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ops.resetOperations])
 
   // ── Data loading (single-group / mass-edit / import-review) ────────
   const { loading, loadError, isMassEdit, ungroupedCount } = useEditGroupLoad({
@@ -232,308 +188,41 @@ export default function EditGroupDialog({
     onClose()
   }, [onSave, onClose])
 
-  // ── moveToNewGroup (API-backed split) ──────────────────────────
-
-  // Only available in single-group mode — triggers an immediate API call
-  const moveToNewGroup = async (sourceGroupId: string) => {
-    const sourceIndex = groups.findIndex((g) => g.id === sourceGroupId)
-    if (sourceIndex === -1) return
-    const source = groups[sourceIndex]
-    const sel = selections[sourceGroupId] ?? new Set<string>()
-    if (sel.size === 0) return
-    const sourceGId = Number(sourceGroupId)
-    if (isNaN(sourceGId)) return
-
-    const movedFiles = source.files.filter((f) => sel.has(f.relative_path))
-    const remainingFiles = source.files.filter((f) => !sel.has(f.relative_path))
-
-    setSaving(true)
-    setSaveError(null)
-    try {
-      const response = await groupApi.edit(sourceGId, {
-        base_name: source.group_name,
-        author: source.author || undefined,
-        images: remainingFiles
-          .filter((f) => !f.excluded)
-          .map((f) => ({
-            id: Number(f.relative_path),
-            name: f.name,
-            tags: f.tags,
-            gridded: f.gridded,
-            grid_width: f.grid_width,
-            grid_height: f.grid_height,
-            grid_type: f.grid_type,
-            subgroup: f.subgroup,
-            image_type: f.image_type,
-          })),
-        new_groups: [
-          {
-            base_name: `${source.group_name} (split)`,
-            author: source.author || undefined,
-            image_ids: movedFiles.filter((f) => !f.excluded).map((f) => Number(f.relative_path)),
-          },
-        ],
-      })
-
-      // Reload both groups from API so we have real IDs
-      const newGroupId = response.new_group_ids[0]
-      const fetches: Promise<Awaited<ReturnType<typeof groupApi.get>>>[] = [groupApi.get(sourceGId)]
-      if (newGroupId) fetches.push(groupApi.get(newGroupId))
-      const [updatedSource, newGroup] = await Promise.all(fetches)
-
-      const toEditable = (g: typeof updatedSource): EditableGroupState => ({
-        id: String(g.id),
-        author: g.author ?? '',
-        group_name: g.base_name,
-        files: g.images.map((img) => imageToEditable(img)),
-        skip: false,
-        status: 'pending',
-        processed: 0,
-        failed: 0,
-        total: g.images.length,
-      })
-
-      const newGroups = [
-        ...groups.map((g, i) => (i === sourceIndex ? toEditable(updatedSource) : g)),
-        ...(newGroup ? [toEditable(newGroup)] : []),
-      ]
-      setGroups(newGroups)
-      setActiveTab(newGroups.length - 1)
-      invalidateGallery()
-    } catch (err) {
-      setSaveError(getApiErrorMessage(err, 'Split failed'))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  // ── Delete group (single-group mode only) ──────────────────────
-
-  const handleDelete = async () => {
-    const gId = groupId ?? null
-    if (gId === null) return
-    setSaving(true)
-    try {
-      await groupApi.delete(gId)
-      onSave()
-      onClose()
-    } catch (err) {
-      setSaveError(getApiErrorMessage(err, 'Delete failed'))
-      setSaving(false)
-      setConfirmingDelete(false)
-    }
-  }
-
-  // ── Merge into another group (single-group mode only) ──────────
-
-  const handleMerge = async (targetGroup: { id: number }) => {
-    const gId = groupId ?? null
-    if (gId === null) return
-    setMerging(true)
-    try {
-      await groupApi.merge(gId, targetGroup.id)
-      setShowMergePicker(false)
-      onSave()
-      onClose()
-    } catch (err) {
-      setSaveError(getApiErrorMessage(err, 'Merge failed'))
-      setMerging(false)
-    }
-  }
-
-  // ── Per-group nav actions (mass-edit mode) ─────────────────────
-
-  const handleDeleteGroup = async (gId: string) => {
-    const idx = groups.findIndex((g) => g.id === gId)
-    setSaving(true)
-    setSaveError(null)
-    try {
-      await groupApi.delete(Number(gId))
-      setGroups((prev) => prev.filter((g) => g.id !== gId))
-      setDeleteConfirmGroupId(null)
-      if (activeTab !== ALL_TAB) {
-        if (idx < activeTab) setActiveTab(activeTab - 1)
-        else if (idx === activeTab) setActiveTab(Math.max(0, activeTab - 1))
-      }
-      invalidateGallery()
-    } catch (err) {
-      setSaveError(getApiErrorMessage(err, 'Delete failed'))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleMergeGroup = async (sourceId: string, targetGroup: GroupSearchItem) => {
-    const idx = groups.findIndex((g) => g.id === sourceId)
-    setMerging(true)
-    setSaveError(null)
-    try {
-      await groupApi.merge(Number(sourceId), targetGroup.id)
-
-      // If target group is also open in this dialog, reload it from the API
-      const targetInGroups = groups.some((g) => g.id === String(targetGroup.id))
-      let updatedGroups = groups.filter((g) => g.id !== sourceId)
-
-      if (targetInGroups) {
-        const reloaded = await groupApi.get(targetGroup.id)
-        // Preserve outOfScope flags for the target group's existing images
-        const originalTarget = groups.find((g) => g.id === String(targetGroup.id))
-        const originalSeedIds = new Set(
-          originalTarget?.files.filter((f) => !f.outOfScope).map((f) => Number(f.relative_path)) ??
-            [],
-        )
-        updatedGroups = updatedGroups.map((g) => {
-          if (g.id !== String(targetGroup.id)) return g
-          return {
-            ...g,
-            files: reloaded.images.map((img) => imageToEditable(img, !originalSeedIds.has(img.id))),
-            total: reloaded.images.length,
-          }
-        })
-      }
-
-      setGroups(updatedGroups)
-      setMergeSourceGroupId(null)
-      if (activeTab !== ALL_TAB) {
-        if (idx < activeTab) setActiveTab(activeTab - 1)
-        else if (idx === activeTab) setActiveTab(Math.max(0, activeTab - 1))
-      }
-      invalidateGallery()
-    } catch (err) {
-      setSaveError(getApiErrorMessage(err, 'Merge failed'))
-    } finally {
-      setMerging(false)
-    }
-  }
-
-  // ── Remove group from view (mass-edit only, no delete) ────────
-
-  const removeGroupFromView = (gId: string) => {
-    const idx = groups.findIndex((g) => g.id === gId)
-    setGroups((prev) => prev.filter((g) => g.id !== gId))
-    if (activeTab !== ALL_TAB) {
-      if (idx < activeTab) setActiveTab(activeTab - 1)
-      else if (idx === activeTab) setActiveTab(ALL_TAB)
-    }
-  }
-
-  // ── Merge all groups (mass-edit only) ────────────────────────
-
-  const [confirmingMergeAll, setConfirmingMergeAll] = useState(false)
-
-  const handleMergeAll = async () => {
-    if (groups.length < 2) return
-    const target = groups[0]
-    const sources = groups.slice(1)
-    setMerging(true)
-    setSaveError(null)
-    setConfirmingMergeAll(false)
-    try {
-      for (const source of sources) {
-        await groupApi.merge(Number(source.id), Number(target.id))
-      }
-      // Reload the merged target from API
-      const reloaded = await groupApi.get(Number(target.id))
-      const seedIds = new Set(
-        groups.flatMap((g) =>
-          g.files.filter((f) => !f.outOfScope).map((f) => Number(f.relative_path)),
-        ),
-      )
-      setGroups([
-        {
-          id: String(reloaded.id),
-          author: reloaded.author ?? '',
-          group_name: reloaded.base_name,
-          files: reloaded.images.map((img) => imageToEditable(img, !seedIds.has(img.id))),
-          skip: false,
-          status: 'pending',
-          processed: 0,
-          failed: 0,
-          total: reloaded.images.length,
-        },
-      ])
-      setActiveTab(0)
-      invalidateGallery()
-    } catch (err) {
-      setSaveError(getApiErrorMessage(err, 'Merge all failed'))
-    } finally {
-      setMerging(false)
-    }
-  }
+  // Destructure commonly-used operations for readability in JSX
+  const {
+    saving,
+    saveError,
+    merging,
+    groupSaving,
+    groupSaved,
+    moveToNewGroup,
+    handleDelete,
+    handleMerge,
+    handleDeleteGroup,
+    handleMergeGroup,
+    removeGroupFromView,
+    handleMergeAll,
+    handleBulkMerge,
+    handleBulkDelete,
+    handleMoveImagesToGroup,
+    handleDragMergeConfirm,
+    confirmingMergeAll,
+    setConfirmingMergeAll,
+    mergeSourceGroupId,
+    setMergeSourceGroupId,
+    deleteConfirmGroupId,
+    setDeleteConfirmGroupId,
+    showMergePicker,
+    setShowMergePicker,
+    confirmingDelete,
+    setConfirmingDelete,
+    confirmingBulkMerge,
+    setConfirmingBulkMerge,
+    confirmingBulkDelete,
+    setConfirmingBulkDelete,
+  } = ops
 
   // ── Drag & drop handlers ─────────────────────────────────────────
-
-  const handleMoveImagesToGroup = useCallback(
-    async (drag: ActiveDragState, targetGroupId: string) => {
-      if (drag.groupId === targetGroupId) return
-
-      const sel = selections[drag.groupId] ?? new Set<string>()
-      const imageIds = sel.has(drag.id) ? [...sel].map(Number) : [Number(drag.id)]
-
-      setSaving(true)
-      setSaveError(null)
-      try {
-        const result = await groupApi.moveImages(
-          Number(drag.groupId),
-          Number(targetGroupId),
-          imageIds,
-        )
-
-        // Remove moved files from source group in local state
-        const movedIdSet = new Set(imageIds.map(String))
-        let newGroups = groups.map((g) => {
-          if (g.id !== drag.groupId) return g
-          return {
-            ...g,
-            files: g.files.filter((f) => !movedIdSet.has(f.relative_path)),
-            total: g.files.filter((f) => !movedIdSet.has(f.relative_path)).length,
-          }
-        })
-
-        // If source group was auto-deleted, remove it from the array
-        if (result.source_group_deleted) {
-          const sourceIdx = newGroups.findIndex((g) => g.id === drag.groupId)
-          newGroups = newGroups.filter((g) => g.id !== drag.groupId)
-          if (activeTab !== ALL_TAB) {
-            if (sourceIdx < activeTab) setActiveTab(activeTab - 1)
-            else if (sourceIdx === activeTab) setActiveTab(Math.max(0, activeTab - 1))
-          }
-        }
-
-        // Reload target group from API to get accurate data
-        const targetInGroups = newGroups.some((g) => g.id === targetGroupId)
-        if (targetInGroups) {
-          const reloaded = await groupApi.get(Number(targetGroupId))
-          newGroups = newGroups.map((g) => {
-            if (g.id !== targetGroupId) return g
-            // Preserve outOfScope flags for images that were already in scope
-            const originalSeedIds = new Set(
-              g.files.filter((f) => !f.outOfScope).map((f) => Number(f.relative_path)),
-            )
-            // Images we just moved should be in scope
-            imageIds.forEach((id) => originalSeedIds.add(id))
-            return {
-              ...g,
-              files: reloaded.images.map((img) =>
-                imageToEditable(img, !originalSeedIds.has(img.id)),
-              ),
-              total: reloaded.images.length,
-            }
-          })
-        }
-
-        setGroups(newGroups)
-        // Clear selections for the moved files
-        deselectAll(drag.groupId)
-        invalidateGallery()
-      } catch (err) {
-        setSaveError(getApiErrorMessage(err, 'Move failed'))
-      } finally {
-        setSaving(false)
-      }
-    },
-    [selections, groups, activeTab, setGroups, deselectAll, invalidateGallery, setActiveTab],
-  )
 
   const handleMoveImagesToSubgroup = useCallback(
     (drag: ActiveDragState, targetSubgroup: string | null) => {
@@ -544,8 +233,7 @@ export default function EditGroupDialog({
     [selections, updateFilesInGroup],
   )
 
-  // Refs to avoid stale closures in handleDragEnd — these always point to the
-  // latest versions of the handlers regardless of when handleDragEnd was memoized.
+  // Refs to avoid stale closures in handleDragEnd
   const moveToGroupRef = useRef(handleMoveImagesToGroup)
   moveToGroupRef.current = handleMoveImagesToGroup
   const moveToSubgroupRef = useRef(handleMoveImagesToSubgroup)
@@ -606,51 +294,6 @@ export default function EditGroupDialog({
     [activeDrag],
   )
 
-  const handleDragMergeConfirm = async () => {
-    if (!dragMergeSource || !dragMergeTarget) return
-    setMerging(true)
-    setSaveError(null)
-    try {
-      await groupApi.merge(Number(dragMergeSource), Number(dragMergeTarget))
-
-      const sourceIdx = groups.findIndex((g) => g.id === dragMergeSource)
-      const targetInGroups = groups.some((g) => g.id === dragMergeTarget)
-      let updatedGroups = groups.filter((g) => g.id !== dragMergeSource)
-
-      if (targetInGroups) {
-        const reloaded = await groupApi.get(Number(dragMergeTarget))
-        const originalSeedIds = new Set(
-          groups
-            .filter((g) => g.id === dragMergeTarget || g.id === dragMergeSource)
-            .flatMap((g) =>
-              g.files.filter((f) => !f.outOfScope).map((f) => Number(f.relative_path)),
-            ),
-        )
-        updatedGroups = updatedGroups.map((g) => {
-          if (g.id !== dragMergeTarget) return g
-          return {
-            ...g,
-            files: reloaded.images.map((img) => imageToEditable(img, !originalSeedIds.has(img.id))),
-            total: reloaded.images.length,
-          }
-        })
-      }
-
-      setGroups(updatedGroups)
-      if (activeTab !== ALL_TAB) {
-        if (sourceIdx < activeTab) setActiveTab(activeTab - 1)
-        else if (sourceIdx === activeTab) setActiveTab(Math.max(0, activeTab - 1))
-      }
-      invalidateGallery()
-    } catch (err) {
-      setSaveError(getApiErrorMessage(err, 'Merge failed'))
-    } finally {
-      setMerging(false)
-      setDragMergeSource(null)
-      setDragMergeTarget(null)
-    }
-  }
-
   // ── Sidebar multiselect handlers ─────────────────────────────────
 
   const handleGroupClick = useCallback(
@@ -681,100 +324,6 @@ export default function EditGroupDialog({
     },
     [lastClickedGroupIndex, groups, setActiveTab],
   )
-
-  const handleBulkMerge = async () => {
-    const ids = [...selectedGroupIds]
-    if (ids.length < 2) return
-    const targetId = ids[0]
-    const sourceIds = ids.slice(1)
-    setMerging(true)
-    setSaveError(null)
-    setConfirmingBulkMerge(false)
-
-    const mergedSourceIds: string[] = []
-    try {
-      for (const sourceId of sourceIds) {
-        await groupApi.merge(Number(sourceId), Number(targetId))
-        mergedSourceIds.push(sourceId)
-      }
-    } catch (err) {
-      setSaveError(
-        getApiErrorMessage(
-          err,
-          `Bulk merge failed after merging ${mergedSourceIds.length}/${sourceIds.length} groups`,
-        ),
-      )
-    }
-
-    // Resync local state from the API regardless of partial failure
-    try {
-      const seedIds = new Set(
-        groups
-          .filter((g) => selectedGroupIds.has(g.id))
-          .flatMap((g) => g.files.filter((f) => !f.outOfScope).map((f) => Number(f.relative_path))),
-      )
-      const deletedSet = new Set(mergedSourceIds)
-      const remainingGroups = groups.filter((g) => !deletedSet.has(g.id))
-
-      // Reload the target to get its current state
-      const reloaded = await groupApi.get(Number(targetId))
-      setGroups(
-        remainingGroups.map((g) => {
-          if (g.id !== targetId) return g
-          return {
-            ...g,
-            author: reloaded.author ?? '',
-            group_name: reloaded.base_name,
-            files: reloaded.images.map((img) => imageToEditable(img, !seedIds.has(img.id))),
-            total: reloaded.images.length,
-          }
-        }),
-      )
-      setSelectedGroupIds(new Set())
-      setActiveTab(ALL_TAB)
-      invalidateGallery()
-    } catch {
-      // If even the resync fails, we can't do much — the error is already shown
-    } finally {
-      setMerging(false)
-    }
-  }
-
-  const handleBulkDelete = async () => {
-    const ids = [...selectedGroupIds]
-    setSaving(true)
-    setSaveError(null)
-    setConfirmingBulkDelete(false)
-
-    const deletedIds: string[] = []
-    try {
-      for (const id of ids) {
-        await groupApi.delete(Number(id))
-        deletedIds.push(id)
-      }
-    } catch (err) {
-      setSaveError(
-        getApiErrorMessage(
-          err,
-          `Bulk delete failed after deleting ${deletedIds.length}/${ids.length} groups`,
-        ),
-      )
-    }
-
-    // Resync: remove successfully deleted groups from local state
-    if (deletedIds.length > 0) {
-      const deletedSet = new Set(deletedIds)
-      setGroups((prev) => prev.filter((g) => !deletedSet.has(g.id)))
-      setSelectedGroupIds((prev) => {
-        const next = new Set(prev)
-        deletedIds.forEach((id) => next.delete(id))
-        return next
-      })
-      if (deletedIds.length === ids.length) setActiveTab(ALL_TAB)
-      invalidateGallery()
-    }
-    setSaving(false)
-  }
 
   // ── Derived values ─────────────────────────────────────────────
 
@@ -1091,9 +640,9 @@ export default function EditGroupDialog({
                     }
                     onBlur={() => {
                       if (isAllTab) {
-                        groups.forEach(autoSaveGroup)
+                        groups.forEach(ops.autoSaveGroup)
                       } else if (activeGroup) {
-                        autoSaveGroup(activeGroup)
+                        ops.autoSaveGroup(activeGroup)
                       }
                     }}
                   />
@@ -1397,7 +946,14 @@ export default function EditGroupDialog({
         confirmLabel="Merge"
         confirmVariant="default"
         loadingLabel="Merging…"
-        onConfirm={handleDragMergeConfirm}
+        onConfirm={() => {
+          if (dragMergeSource && dragMergeTarget) {
+            handleDragMergeConfirm(dragMergeSource, dragMergeTarget).then(() => {
+              setDragMergeSource(null)
+              setDragMergeTarget(null)
+            })
+          }
+        }}
         isLoading={merging}
       />
 
@@ -1410,7 +966,9 @@ export default function EditGroupDialog({
         confirmLabel="Merge Selected"
         confirmVariant="default"
         loadingLabel="Merging…"
-        onConfirm={handleBulkMerge}
+        onConfirm={() =>
+          handleBulkMerge(selectedGroupIds).then(() => setSelectedGroupIds(new Set()))
+        }
         isLoading={merging}
       />
 
@@ -1423,7 +981,9 @@ export default function EditGroupDialog({
         confirmLabel="Delete All"
         confirmVariant="destructive"
         loadingLabel="Deleting…"
-        onConfirm={handleBulkDelete}
+        onConfirm={() =>
+          handleBulkDelete(selectedGroupIds).then(() => setSelectedGroupIds(new Set()))
+        }
         isLoading={saving}
       />
     </Dialog>
