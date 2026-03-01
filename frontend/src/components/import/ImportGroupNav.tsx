@@ -4,11 +4,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { ImportMergeGroupPicker } from './ImportMergeGroupPicker'
 import { DraggableGroupRow, DroppableGroupRow } from './shared/dnd'
 import type { ActiveDragState } from './shared/dnd'
 import { ALL_TAB } from '@/hooks/useImportState'
@@ -49,6 +49,7 @@ export function ImportGroupNav({
 }: ImportGroupNavProps) {
   const isAllTab = activeTab === ALL_TAB
   const [confirmingMergeAll, setConfirmingMergeAll] = useState(false)
+  const [mergeSourceIndex, setMergeSourceIndex] = useState<number | null>(null)
 
   // Split groups into active (pending) and submitted (non-pending), preserving original indices
   const activeGroups: { group: EditableGroupState; index: number }[] = []
@@ -133,17 +134,10 @@ export function ImportGroupNav({
                     {groups.length > 1 && (
                       <>
                         <DropdownMenuSeparator />
-                        <DropdownMenuLabel className="text-xs text-muted-foreground">
+                        <DropdownMenuItem onClick={() => setMergeSourceIndex(i)}>
+                          <Merge className="h-4 w-4 mr-2" />
                           Merge into…
-                        </DropdownMenuLabel>
-                        {groups.map((target, j) =>
-                          j !== i ? (
-                            <DropdownMenuItem key={target.id} onClick={() => onMergeGroups(i, j)}>
-                              <Merge className="h-4 w-4 mr-2" />
-                              {target.group_name}
-                            </DropdownMenuItem>
-                          ) : null,
-                        )}
+                        </DropdownMenuItem>
                       </>
                     )}
                   </DropdownMenuContent>
@@ -190,6 +184,20 @@ export function ImportGroupNav({
           </DroppableGroupRow>
         ))}
       </GroupSidebarShell>
+
+      <ImportMergeGroupPicker
+        open={mergeSourceIndex !== null}
+        onClose={() => setMergeSourceIndex(null)}
+        groups={groups}
+        sourceIndex={mergeSourceIndex ?? 0}
+        onSelect={(targetIndex) => {
+          if (mergeSourceIndex !== null) {
+            onMergeGroups(mergeSourceIndex, targetIndex)
+            setMergeSourceIndex(null)
+          }
+        }}
+        currentGroupName={mergeSourceIndex !== null ? groups[mergeSourceIndex]?.group_name : ''}
+      />
 
       <ConfirmDialog
         open={confirmingMergeAll}
