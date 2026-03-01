@@ -5,6 +5,8 @@ import { ImportFileCard } from './ImportFileCard'
 import { ImportFileToolbar } from './ImportFileToolbar'
 import { MetadataForm } from './MetadataForm'
 import { SubgroupHeading } from '@/components/SubgroupHeading'
+import { DraggableFileCardWrapper, DroppableSubgroupSection } from './shared/dnd'
+import type { ActiveDragState } from './shared/dnd'
 import type { UseImportStateReturn } from '@/hooks/useImportState'
 import type { FileFilter } from './fileFilter'
 import type { EditableFileState } from '@/types'
@@ -13,6 +15,7 @@ type ImportState = UseImportStateReturn
 
 interface ImportGroupContentProps {
   s: ImportState
+  activeDrag?: ActiveDragState | null
 }
 
 /** Threshold: only virtualize when file count reaches this */
@@ -65,6 +68,7 @@ interface FileGalleryProps {
   disabled: boolean
   isAllTab: boolean
   fileFilter: FileFilter
+  activeDrag?: ActiveDragState | null
   toggleFileSelection: (groupId: string, relativePath: string) => void
   onUpdateFile: (relativePath: string, updates: Partial<EditableFileState>) => void
 }
@@ -80,25 +84,34 @@ function FileGallery({
   disabled,
   isAllTab,
   fileFilter,
+  activeDrag,
   toggleFileSelection,
   onUpdateFile,
 }: FileGalleryProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
+  const isDndEnabled = !disabled && !isAllTab
+
   /** Render a 2-col row of ImportFileCards */
   const renderCardRow = (files: EditableFileState[]) => (
     <div className="grid grid-cols-2 gap-2 pb-2">
       {files.map((file) => (
-        <ImportFileCard
+        <DraggableFileCardWrapper
           key={file.relative_path}
           file={file}
-          jobId={jobId}
-          existingSubgroups={groupSubgroups}
-          selected={activeSelection.has(file.relative_path)}
-          onToggleSelect={() => toggleFileSelection(activeGroupId, file.relative_path)}
-          onUpdate={(updates) => onUpdateFile(file.relative_path, updates)}
-          disabled={disabled}
-        />
+          groupId={activeGroupId}
+          isDndEnabled={isDndEnabled}
+        >
+          <ImportFileCard
+            file={file}
+            jobId={jobId}
+            existingSubgroups={groupSubgroups}
+            selected={activeSelection.has(file.relative_path)}
+            onToggleSelect={() => toggleFileSelection(activeGroupId, file.relative_path)}
+            onUpdate={(updates) => onUpdateFile(file.relative_path, updates)}
+            disabled={disabled}
+          />
+        </DraggableFileCardWrapper>
       ))}
     </div>
   )
@@ -186,16 +199,22 @@ function FileGallery({
       {!showSubgroupHeadings && !shouldVirtualizeFlat && (
         <div className="grid grid-cols-2 gap-2">
           {filteredFiles.map((file) => (
-            <ImportFileCard
+            <DraggableFileCardWrapper
               key={file.relative_path}
               file={file}
-              jobId={jobId}
-              existingSubgroups={groupSubgroups}
-              selected={activeSelection.has(file.relative_path)}
-              onToggleSelect={() => toggleFileSelection(activeGroupId, file.relative_path)}
-              onUpdate={(updates) => onUpdateFile(file.relative_path, updates)}
-              disabled={disabled}
-            />
+              groupId={activeGroupId}
+              isDndEnabled={isDndEnabled}
+            >
+              <ImportFileCard
+                file={file}
+                jobId={jobId}
+                existingSubgroups={groupSubgroups}
+                selected={activeSelection.has(file.relative_path)}
+                onToggleSelect={() => toggleFileSelection(activeGroupId, file.relative_path)}
+                onUpdate={(updates) => onUpdateFile(file.relative_path, updates)}
+                disabled={disabled}
+              />
+            </DraggableFileCardWrapper>
           ))}
         </div>
       )}
@@ -251,7 +270,11 @@ function FileGallery({
         subgroupGroups.map((svGroup) => {
           const nonExcluded = svGroup.files.filter((f) => !f.excluded).length
           return (
-            <div key={svGroup.subgroup ?? '__main__'} className="mb-2">
+            <DroppableSubgroupSection
+              key={svGroup.subgroup ?? '__main__'}
+              subVariant={svGroup.subgroup}
+              activeDrag={activeDrag ?? null}
+            >
               <SubgroupHeading
                 subgroup={svGroup.subgroup}
                 count={nonExcluded}
@@ -264,7 +287,7 @@ function FileGallery({
                 canEdit={false}
               />
               {renderCardRow(svGroup.files)}
-            </div>
+            </DroppableSubgroupSection>
           )
         })}
 
@@ -284,7 +307,7 @@ function FileGallery({
   )
 }
 
-export function ImportGroupContent({ s }: ImportGroupContentProps) {
+export function ImportGroupContent({ s, activeDrag }: ImportGroupContentProps) {
   const {
     isAllTab,
     activeGroup,
@@ -395,6 +418,7 @@ export function ImportGroupContent({ s }: ImportGroupContentProps) {
             disabled={!isAllTab && activeGroup?.status !== 'pending'}
             isAllTab={isAllTab}
             fileFilter={fileFilter}
+            activeDrag={activeDrag}
             toggleFileSelection={toggleFileSelection}
             onUpdateFile={(relativePath, updates) =>
               isAllTab

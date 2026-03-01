@@ -1,14 +1,17 @@
 import { useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { DndContext, DragOverlay } from '@dnd-kit/core'
 import { Upload, FolderOpen, Loader2, Check, X, Ban } from 'lucide-react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { useImportState } from '@/hooks/useImportState'
+import { useImportDnd } from '@/hooks/useImportDnd'
 import { removeImportState } from '@/lib/importStorage'
 import { importApi } from '@/lib/api'
 import { ImportUploadPane } from './import/ImportUploadPane'
 import { ImportGroupNav } from './import/ImportGroupNav'
 import { ImportGroupContent } from './import/ImportGroupContent'
 import { ImportDonePane } from './import/ImportDonePane'
+import { DragOverlayContent } from './import/shared/dnd'
 
 interface ImportDialogProps {
   open: boolean
@@ -26,6 +29,7 @@ export function ImportDialog({
 }: ImportDialogProps) {
   const queryClient = useQueryClient()
   const s = useImportState(onActiveChange, reconnectJobId)
+  const dnd = useImportDnd(s)
   const { state, uploading, jobId, reset } = s.workflow
   const { groups } = s.files
   const { saveNow } = s.persistence
@@ -181,25 +185,35 @@ export function ImportDialog({
 
         {/* Preview / Processing — two-column layout */}
         {(state === 'preview' || state === 'processing') && groups.length > 0 && (
-          <div className="flex min-h-0 flex-1 overflow-hidden">
-            {groups.length > 1 && (
-              <ImportGroupNav
-                groups={s.files.groups}
-                activeTab={s.files.activeTab}
-                state={state}
-                totalFiles={s.files.totalFiles}
-                pendingGroupCount={s.files.pendingGroups.length}
-                canImportAll={s.confirm.canImportAll}
-                canMergeAll={s.confirm.canMergeAll}
-                onSelectTab={s.files.setActiveTab}
-                onUpdateGroup={s.editing.updateGroup}
-                onMergeGroups={s.editing.mergeGroups}
-                onMergeAllGroups={s.editing.mergeAllGroups}
-                onConfirmAll={s.confirm.handleConfirmAll}
-              />
-            )}
-            <ImportGroupContent s={s} />
-          </div>
+          <DndContext
+            sensors={dnd.sensors}
+            onDragStart={dnd.handleDragStart}
+            onDragEnd={dnd.handleDragEnd}
+          >
+            <div className="flex min-h-0 flex-1 overflow-hidden">
+              {groups.length > 1 && (
+                <ImportGroupNav
+                  groups={s.files.groups}
+                  activeTab={s.files.activeTab}
+                  state={state}
+                  totalFiles={s.files.totalFiles}
+                  pendingGroupCount={s.files.pendingGroups.length}
+                  canImportAll={s.confirm.canImportAll}
+                  canMergeAll={s.confirm.canMergeAll}
+                  activeDrag={dnd.activeDrag}
+                  onSelectTab={s.files.setActiveTab}
+                  onUpdateGroup={s.editing.updateGroup}
+                  onMergeGroups={s.editing.mergeGroups}
+                  onMergeAllGroups={s.editing.mergeAllGroups}
+                  onConfirmAll={s.confirm.handleConfirmAll}
+                />
+              )}
+              <ImportGroupContent s={s} activeDrag={dnd.activeDrag} />
+            </div>
+            <DragOverlay dropAnimation={null}>
+              <DragOverlayContent activeDrag={dnd.activeDrag} />
+            </DragOverlay>
+          </DndContext>
         )}
 
         {/* Done */}
