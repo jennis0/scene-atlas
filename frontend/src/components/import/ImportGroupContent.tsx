@@ -475,10 +475,19 @@ export function ImportGroupContent({ s, activeDrag }: ImportGroupContentProps) {
               )}
               {activeGroup.status === 'pending' && (
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">
-                    {activeGroup.files.filter((f) => !f.excluded).length} of{' '}
-                    {activeGroup.files.length} files
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-muted-foreground">
+                      {activeGroup.files.filter((f) => !f.excluded).length} of{' '}
+                      {activeGroup.files.length} files
+                    </span>
+                    <button
+                      onClick={() => updateGroup(activeTab, { skip: true })}
+                      className="inline-flex items-center gap-1 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                    >
+                      <SkipForward className="h-3 w-3" />
+                      Skip
+                    </button>
+                  </div>
                   <button
                     onClick={() => handleConfirmGroup(activeTab)}
                     disabled={!canImportActive}

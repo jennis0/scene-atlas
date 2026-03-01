@@ -4,11 +4,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { ImportMergeGroupPicker } from './ImportMergeGroupPicker'
 import { DraggableGroupRow, DroppableGroupRow } from './shared/dnd'
 import type { ActiveDragState } from './shared/dnd'
 import { ALL_TAB } from '@/hooks/useImportState'
@@ -49,6 +49,7 @@ export function ImportGroupNav({
 }: ImportGroupNavProps) {
   const isAllTab = activeTab === ALL_TAB
   const [confirmingMergeAll, setConfirmingMergeAll] = useState(false)
+  const [mergeSourceIndex, setMergeSourceIndex] = useState<number | null>(null)
 
   // Split groups into active (pending) and submitted (non-pending), preserving original indices
   const activeGroups: { group: EditableGroupState; index: number }[] = []
@@ -97,14 +98,16 @@ export function ImportGroupNav({
         {activeGroups.map(({ group: g, index: i }) => (
           <DroppableGroupRow key={g.id} groupId={g.id} activeDrag={activeDrag ?? null}>
             <DraggableGroupRow groupId={g.id} isDndEnabled={state === 'preview' && !g.skip}>
-              <div className="flex items-center group/nav">
+              <div
+                className={`flex items-center group/nav transition-colors border-l-2 ${
+                  activeTab === i
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+                } ${g.skip ? 'opacity-40' : ''}`}
+              >
                 <button
                   onClick={() => onSelectTab(i)}
-                  className={`flex-1 flex items-center gap-2 px-3 py-2 text-left transition-colors border-l-2 min-w-0 ${
-                    activeTab === i
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-                  } ${g.skip ? 'opacity-40' : ''}`}
+                  className="flex-1 flex items-center gap-2 px-3 py-2 text-left min-w-0"
                 >
                   <span className="shrink-0 w-3 flex justify-center">
                     {!g.skip && (
@@ -121,7 +124,7 @@ export function ImportGroupNav({
                 </button>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <button className="opacity-0 group-hover/nav:opacity-100 p-1.5 text-muted-foreground/40 hover:text-muted-foreground transition-all shrink-0">
+                    <button className="opacity-0 group-hover/nav:opacity-100 focus:opacity-100 p-1.5 mr-1 text-muted-foreground/40 hover:text-muted-foreground transition-all shrink-0 rounded hover:bg-black/5 dark:hover:bg-white/5">
                       <MoreHorizontal className="h-3.5 w-3.5" />
                     </button>
                   </DropdownMenuTrigger>
@@ -133,17 +136,10 @@ export function ImportGroupNav({
                     {groups.length > 1 && (
                       <>
                         <DropdownMenuSeparator />
-                        <DropdownMenuLabel className="text-xs text-muted-foreground">
+                        <DropdownMenuItem onClick={() => setMergeSourceIndex(i)}>
+                          <Merge className="h-4 w-4 mr-2" />
                           Merge into…
-                        </DropdownMenuLabel>
-                        {groups.map((target, j) =>
-                          j !== i ? (
-                            <DropdownMenuItem key={target.id} onClick={() => onMergeGroups(i, j)}>
-                              <Merge className="h-4 w-4 mr-2" />
-                              {target.group_name}
-                            </DropdownMenuItem>
-                          ) : null,
-                        )}
+                        </DropdownMenuItem>
                       </>
                     )}
                   </DropdownMenuContent>
@@ -190,6 +186,20 @@ export function ImportGroupNav({
           </DroppableGroupRow>
         ))}
       </GroupSidebarShell>
+
+      <ImportMergeGroupPicker
+        open={mergeSourceIndex !== null}
+        onClose={() => setMergeSourceIndex(null)}
+        groups={groups}
+        sourceIndex={mergeSourceIndex ?? 0}
+        onSelect={(targetIndex) => {
+          if (mergeSourceIndex !== null) {
+            onMergeGroups(mergeSourceIndex, targetIndex)
+            setMergeSourceIndex(null)
+          }
+        }}
+        currentGroupName={mergeSourceIndex !== null ? groups[mergeSourceIndex]?.group_name : ''}
+      />
 
       <ConfirmDialog
         open={confirmingMergeAll}

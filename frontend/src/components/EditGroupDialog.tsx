@@ -413,16 +413,18 @@ export default function EditGroupDialog({
                               </div>
                             </div>
                           ) : (
-                            <div className="flex items-center">
+                            <div
+                              className={`flex items-center transition-colors border-l-2 ${
+                                selectedGroupIds.has(g.id)
+                                  ? 'border-primary/60 bg-primary/15 text-primary'
+                                  : activeTab === i
+                                    ? 'border-primary bg-primary/10 text-primary'
+                                    : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+                              }`}
+                            >
                               <button
                                 onClick={(e) => handleGroupClick(i, g.id, e)}
-                                className={`flex-1 flex items-center gap-2 pl-3 pr-1 py-2 text-left transition-colors border-l-2 min-w-0 ${
-                                  selectedGroupIds.has(g.id)
-                                    ? 'border-primary/60 bg-primary/15 text-primary'
-                                    : activeTab === i
-                                      ? 'border-primary bg-primary/10 text-primary'
-                                      : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-                                }`}
+                                className="flex-1 flex items-center gap-2 pl-3 pr-1 py-2 text-left min-w-0"
                               >
                                 <span className="flex-1 text-[12px] truncate">{g.group_name}</span>
                                 <span className="text-[11px] text-muted-foreground/40 tabular-nums shrink-0 flex items-center gap-1">
@@ -443,7 +445,7 @@ export default function EditGroupDialog({
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
                                     <button
-                                      className="opacity-0 group-hover/navrow:opacity-100 focus:opacity-100 h-7 w-6 mr-1 flex items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-all shrink-0"
+                                      className="opacity-0 group-hover/navrow:opacity-100 focus:opacity-100 h-7 w-6 mr-1 flex items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 transition-all shrink-0"
                                       onClick={(e) => e.stopPropagation()}
                                     >
                                       <MoreHorizontal className="h-3.5 w-3.5" />

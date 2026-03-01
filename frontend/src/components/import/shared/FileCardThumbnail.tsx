@@ -1,4 +1,5 @@
 import type { EditableFileState } from '@/types'
+import { ZoomIn } from 'lucide-react'
 
 interface FileCardThumbnailProps {
   file: EditableFileState
@@ -25,14 +26,9 @@ export function FileCardThumbnail({
   const filter = dimmed ? 'grayscale(0.6)' : undefined
 
   return (
-    <button
-      type="button"
-      className={`${cls} shrink-0 relative overflow-hidden rounded-l-lg bg-secondary cursor-zoom-in min-h-[80px]`}
+    <div
+      className={`${cls} shrink-0 relative overflow-hidden rounded-l-lg bg-secondary min-h-[80px]`}
       style={{ filter }}
-      onClick={() => {
-        if (previewUrl) onOpenLightbox()
-      }}
-      tabIndex={-1}
     >
       {useVideoThumb ? (
         <video
@@ -71,6 +67,20 @@ export function FileCardThumbnail({
           ✓
         </div>
       )}
-    </button>
+      {/* Magnify icon overlay — top-right, visible on hover */}
+      {previewUrl && !dimmed && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onOpenLightbox()
+          }}
+          className="absolute top-1.5 right-1.5 w-5 h-5 rounded-[3px] flex items-center justify-center bg-black/40 border-[1.5px] border-white/20 text-white/70 opacity-0 group-hover/card:opacity-100 hover:bg-black/60 hover:text-white transition-all backdrop-blur-sm cursor-zoom-in"
+          tabIndex={-1}
+        >
+          <ZoomIn className="h-3 w-3" />
+        </button>
+      )}
+    </div>
   )
 }
