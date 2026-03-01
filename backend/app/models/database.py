@@ -54,6 +54,9 @@ class Image(Base):
     import_job_id = Column(
         String, ForeignKey("import_jobs.id"), nullable=True, index=True
     )  # Import job that created this row; None for pre-existing/manually added images
+    # NOTE: If you ever add relationship("ImportJob", ...) here, do NOT use
+    # cascade="all, delete-orphan" — images may share storage_key with images
+    # from other imports, so deleting the job must not cascade-delete images.
 
     # Storage keys (resolved via ImageStore at runtime)
     thumbnail_key = Column(String)  # Key into thumbnail store (e.g., "a1b2c3d4_400x400.jpg")
@@ -167,7 +170,7 @@ class ImportJob(Base):
 
     id = Column(String, primary_key=True)  # UUID
     status = Column(String, nullable=False, default="staging")
-    # status values: uploading, staging, active, awaiting_input, completed, failed, cancelled, expired
+    # status values: uploading, staging, active, awaiting_input, completed, failed, cancelled, expired, broken
     source_label = Column(String, nullable=True)  # Display label for import tray
     pending_groups = Column(Integer, default=0)  # Groups not yet confirmed by user
     total_files = Column(Integer, default=0)

@@ -10,7 +10,12 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from backend.pipeline.maintenance import cleanup_stale_staging, rotate_backups
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from backend.app.models.database import Base, ImportGroupJob, ImportJob
+from backend.pipeline.maintenance import cleanup_stale_staging, mark_interrupted_jobs, rotate_backups
 
 # ---------------------------------------------------------------------------
 # rotate_backups
@@ -197,14 +202,6 @@ class TestCleanupStaleStaging:
 # ---------------------------------------------------------------------------
 # mark_interrupted_jobs
 # ---------------------------------------------------------------------------
-
-
-import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
-from backend.app.models.database import Base, ImportGroupJob, ImportJob
-from backend.pipeline.maintenance import mark_interrupted_jobs
 
 
 @pytest.fixture
