@@ -9,6 +9,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { DraggableGroupRow, DroppableGroupRow } from './shared/dnd'
+import type { ActiveDragState } from './shared/dnd'
 import { ALL_TAB } from '@/hooks/useImportState'
 import type { DialogState } from '@/hooks/useImportState'
 import type { EditableGroupState } from '@/types'
@@ -21,6 +23,7 @@ interface ImportGroupNavProps {
   pendingGroupCount: number
   canImportAll: boolean
   canMergeAll: boolean
+  activeDrag?: ActiveDragState | null
   onSelectTab: (tab: number) => void
   onUpdateGroup: (index: number, updates: Partial<EditableGroupState>) => void
   onMergeGroups: (sourceIndex: number, targetIndex: number) => void
@@ -36,6 +39,7 @@ export function ImportGroupNav({
   pendingGroupCount,
   canImportAll,
   canMergeAll,
+  activeDrag,
   onSelectTab,
   onUpdateGroup,
   onMergeGroups,
@@ -84,58 +88,62 @@ export function ImportGroupNav({
 
         {/* Active (pending) groups */}
         {activeGroups.map(({ group: g, index: i }) => (
-          <div key={g.id} className="flex items-center group/nav">
-            <button
-              onClick={() => onSelectTab(i)}
-              className={`flex-1 flex items-center gap-2 px-3 py-2 text-left transition-colors border-l-2 min-w-0 ${
-                activeTab === i
-                  ? 'border-primary bg-primary/10 text-primary'
-                  : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-              } ${g.skip ? 'opacity-40' : ''}`}
-            >
-              <span className="shrink-0 w-3 flex justify-center">
-                {!g.skip && (
-                  <span className="h-1.5 w-1.5 rounded-full bg-current opacity-50 inline-block" />
-                )}
-                {g.skip && <SkipForward className="h-3 w-3" />}
-              </span>
-              <span className={`flex-1 text-[12px] truncate ${g.skip ? 'line-through' : ''}`}>
-                {g.group_name}
-              </span>
-              <span className="text-[11px] text-muted-foreground/40 tabular-nums shrink-0">
-                {g.files.filter((f) => !f.excluded).length}
-              </span>
-            </button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="opacity-0 group-hover/nav:opacity-100 p-1.5 text-muted-foreground/40 hover:text-muted-foreground transition-all shrink-0">
-                  <MoreHorizontal className="h-3.5 w-3.5" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" side="right">
-                <DropdownMenuItem onClick={() => onUpdateGroup(i, { skip: !g.skip })}>
-                  <SkipForward className="h-4 w-4 mr-2" />
-                  {g.skip ? 'Unskip Group' : 'Skip Group'}
-                </DropdownMenuItem>
-                {groups.length > 1 && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuLabel className="text-xs text-muted-foreground">
-                      Merge into…
-                    </DropdownMenuLabel>
-                    {groups.map((target, j) =>
-                      j !== i ? (
-                        <DropdownMenuItem key={target.id} onClick={() => onMergeGroups(i, j)}>
-                          <Merge className="h-4 w-4 mr-2" />
-                          {target.group_name}
-                        </DropdownMenuItem>
-                      ) : null,
+          <DroppableGroupRow key={g.id} groupId={g.id} activeDrag={activeDrag ?? null}>
+            <DraggableGroupRow groupId={g.id} isDndEnabled={state === 'preview' && !g.skip}>
+              <div className="flex items-center group/nav">
+                <button
+                  onClick={() => onSelectTab(i)}
+                  className={`flex-1 flex items-center gap-2 px-3 py-2 text-left transition-colors border-l-2 min-w-0 ${
+                    activeTab === i
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+                  } ${g.skip ? 'opacity-40' : ''}`}
+                >
+                  <span className="shrink-0 w-3 flex justify-center">
+                    {!g.skip && (
+                      <span className="h-1.5 w-1.5 rounded-full bg-current opacity-50 inline-block" />
                     )}
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+                    {g.skip && <SkipForward className="h-3 w-3" />}
+                  </span>
+                  <span className={`flex-1 text-[12px] truncate ${g.skip ? 'line-through' : ''}`}>
+                    {g.group_name}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground/40 tabular-nums shrink-0">
+                    {g.files.filter((f) => !f.excluded).length}
+                  </span>
+                </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button className="opacity-0 group-hover/nav:opacity-100 p-1.5 text-muted-foreground/40 hover:text-muted-foreground transition-all shrink-0">
+                      <MoreHorizontal className="h-3.5 w-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" side="right">
+                    <DropdownMenuItem onClick={() => onUpdateGroup(i, { skip: !g.skip })}>
+                      <SkipForward className="h-4 w-4 mr-2" />
+                      {g.skip ? 'Unskip Group' : 'Skip Group'}
+                    </DropdownMenuItem>
+                    {groups.length > 1 && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuLabel className="text-xs text-muted-foreground">
+                          Merge into…
+                        </DropdownMenuLabel>
+                        {groups.map((target, j) =>
+                          j !== i ? (
+                            <DropdownMenuItem key={target.id} onClick={() => onMergeGroups(i, j)}>
+                              <Merge className="h-4 w-4 mr-2" />
+                              {target.group_name}
+                            </DropdownMenuItem>
+                          ) : null,
+                        )}
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </DraggableGroupRow>
+          </DroppableGroupRow>
         ))}
 
         {/* Divider between active and submitted */}
@@ -151,26 +159,28 @@ export function ImportGroupNav({
 
         {/* Submitted (non-pending) groups — de-emphasized */}
         {submittedGroups.map(({ group: g, index: i }) => (
-          <div key={g.id} className="flex items-center">
-            <button
-              onClick={() => onSelectTab(i)}
-              className={`flex-1 flex items-center gap-2 px-3 py-1.5 text-left transition-colors border-l-2 min-w-0 opacity-50 ${
-                activeTab === i
-                  ? 'border-primary/50 bg-primary/5 text-primary/70'
-                  : 'border-transparent text-muted-foreground/60 hover:text-muted-foreground hover:bg-secondary/20'
-              }`}
-            >
-              <span className="shrink-0 w-3 flex justify-center">
-                {g.status === 'completed' && <Check className="h-3 w-3" />}
-                {g.status === 'running' && <Loader2 className="h-3 w-3 animate-spin" />}
-                {g.status === 'failed' && <AlertCircle className="h-3 w-3 text-destructive" />}
-              </span>
-              <span className="flex-1 text-[12px] truncate">{g.group_name}</span>
-              <span className="text-[11px] text-muted-foreground/30 tabular-nums shrink-0">
-                {g.files.filter((f) => !f.excluded).length}
-              </span>
-            </button>
-          </div>
+          <DroppableGroupRow key={g.id} groupId={g.id} activeDrag={activeDrag ?? null}>
+            <div className="flex items-center">
+              <button
+                onClick={() => onSelectTab(i)}
+                className={`flex-1 flex items-center gap-2 px-3 py-1.5 text-left transition-colors border-l-2 min-w-0 opacity-50 ${
+                  activeTab === i
+                    ? 'border-primary/50 bg-primary/5 text-primary/70'
+                    : 'border-transparent text-muted-foreground/60 hover:text-muted-foreground hover:bg-secondary/20'
+                }`}
+              >
+                <span className="shrink-0 w-3 flex justify-center">
+                  {g.status === 'completed' && <Check className="h-3 w-3" />}
+                  {g.status === 'running' && <Loader2 className="h-3 w-3 animate-spin" />}
+                  {g.status === 'failed' && <AlertCircle className="h-3 w-3 text-destructive" />}
+                </span>
+                <span className="flex-1 text-[12px] truncate">{g.group_name}</span>
+                <span className="text-[11px] text-muted-foreground/30 tabular-nums shrink-0">
+                  {g.files.filter((f) => !f.excluded).length}
+                </span>
+              </button>
+            </div>
+          </DroppableGroupRow>
         ))}
       </div>
 
