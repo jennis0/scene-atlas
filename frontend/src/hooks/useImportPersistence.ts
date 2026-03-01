@@ -82,9 +82,16 @@ export function useImportPersistence({
     return () => window.removeEventListener('beforeunload', handler)
   }, [jobId, groups, saveNow])
 
-  // Reconnect to an existing job on mount (e.g. dialog reopened after page reload)
+  // Reconnect to an existing job on mount (e.g. dialog reopened after page reload).
+  // Use a ref to check if we're already connected to this job — avoids
+  // re-running reconnection when the dialog is merely re-shown after being hidden.
+  const currentJobIdRef = useRef(jobId)
+  currentJobIdRef.current = jobId
+
   useEffect(() => {
     if (!reconnectJobId) return
+    // Already connected to this job (e.g. dialog re-shown during upload) — skip
+    if (currentJobIdRef.current === reconnectJobId) return
     const persisted = loadImportState(reconnectJobId)
     if (!persisted) return
 

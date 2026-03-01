@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { DndContext, DragOverlay } from '@dnd-kit/core'
 import { Upload, FolderOpen, Loader2, Check, X, Ban } from 'lucide-react'
@@ -17,6 +17,8 @@ interface ImportDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onActiveChange?: (active: boolean) => void
+  /** Called when the dialog's internal jobId changes (e.g. after upload init). */
+  onJobIdChange?: (jobId: string | null) => void
   /** Pass a job ID to reconnect to an existing import (from the tray). */
   reconnectJobId?: string
 }
@@ -25,12 +27,21 @@ export function ImportDialog({
   open,
   onOpenChange,
   onActiveChange,
+  onJobIdChange,
   reconnectJobId,
 }: ImportDialogProps) {
   const queryClient = useQueryClient()
   const s = useImportState(onActiveChange, reconnectJobId)
   const dnd = useImportDnd(s)
   const { state, uploading, jobId, reset } = s.workflow
+
+  // Notify parent when our internal jobId changes so the dialog manager
+  // can track which job is mounted and avoid unnecessary remounts.
+  const onJobIdChangeRef = useRef(onJobIdChange)
+  onJobIdChangeRef.current = onJobIdChange
+  useEffect(() => {
+    onJobIdChangeRef.current?.(jobId)
+  }, [jobId])
   const { groups } = s.files
   const { saveNow } = s.persistence
 

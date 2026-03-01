@@ -219,6 +219,66 @@ describe('useGalleryDialogs — openImportDialog', () => {
 
     expect(result.current.importDialogKey).toBe(initialKey + 3)
   })
+
+  it('skips key increment when reopening the same mounted job', () => {
+    const { result } = renderHook(() => useGalleryDialogs([]), {
+      wrapper: createWrapper(),
+    })
+
+    // Simulate ImportDialog reporting its internal jobId
+    act(() => {
+      result.current.setMountedImportJob('job-456')
+    })
+
+    const keyBefore = result.current.importDialogKey
+
+    // Reopen the same job — should NOT increment key
+    act(() => {
+      result.current.openImportDialog('job-456')
+    })
+
+    expect(result.current.importDialogKey).toBe(keyBefore)
+    expect(result.current.importDialogJobId).toBe('job-456')
+  })
+
+  it('increments key when opening a different job than the mounted one', () => {
+    const { result } = renderHook(() => useGalleryDialogs([]), {
+      wrapper: createWrapper(),
+    })
+
+    act(() => {
+      result.current.setMountedImportJob('job-456')
+    })
+
+    const keyBefore = result.current.importDialogKey
+
+    // Open a different job — should increment key
+    act(() => {
+      result.current.openImportDialog('job-789')
+    })
+
+    expect(result.current.importDialogKey).toBe(keyBefore + 1)
+    expect(result.current.importDialogJobId).toBe('job-789')
+  })
+
+  it('always increments key for "new" imports even if a job is mounted', () => {
+    const { result } = renderHook(() => useGalleryDialogs([]), {
+      wrapper: createWrapper(),
+    })
+
+    act(() => {
+      result.current.setMountedImportJob('job-456')
+    })
+
+    const keyBefore = result.current.importDialogKey
+
+    act(() => {
+      result.current.openImportDialog() // 'new'
+    })
+
+    expect(result.current.importDialogKey).toBe(keyBefore + 1)
+    expect(result.current.importDialogJobId).toBe('new')
+  })
 })
 
 describe('useGalleryDialogs — handleGroupDeleteConfirm', () => {

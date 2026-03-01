@@ -41,6 +41,7 @@ export interface UseGalleryDialogsReturn {
   setImportDialogJobId: (id: string | null) => void
   importDialogKey: number
   openImportDialog: (jobId?: string) => void
+  setMountedImportJob: (id: string | null) => void
 
   // Tag management dialog
   showTagManagement: boolean
@@ -81,6 +82,11 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
   // Import dialog state: null = closed, 'new' = fresh import, '{jobId}' = reconnect
   const [importDialogJobId, setImportDialogJobId] = useState<string | null>(null)
   const [importDialogKey, setImportDialogKey] = useState(0)
+
+  // Tracks the job ID of the currently mounted ImportDialog instance.
+  // Persists even when dialog is hidden (importDialogJobId=null) so we can
+  // re-show without remounting and destroying in-progress uploads.
+  const mountedImportJobRef = useRef<string | null>(null)
 
   // Tag management dialog
   const [showTagManagement, setShowTagManagement] = useState(false)
@@ -128,8 +134,20 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
   }, [deleteConfirmGroup, invalidateGallery])
 
   const openImportDialog = useCallback((jobId?: string) => {
+    const target = jobId ?? 'new'
+    if (target !== 'new' && target === mountedImportJobRef.current) {
+      // Same job already mounted — just re-show without remounting.
+      // This preserves in-progress uploads and other component state.
+      setImportDialogJobId(target)
+      return
+    }
     setImportDialogKey((k) => k + 1)
-    setImportDialogJobId(jobId ?? 'new')
+    setImportDialogJobId(target)
+  }, [])
+
+  // Called by ImportDialog when its internal jobId changes (e.g. after init)
+  const setMountedImportJob = useCallback((id: string | null) => {
+    mountedImportJobRef.current = id
   }, [])
 
   return {
@@ -166,6 +184,7 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
     setImportDialogJobId,
     importDialogKey,
     openImportDialog,
+    setMountedImportJob,
 
     // Tag management dialog
     showTagManagement,

@@ -206,6 +206,7 @@ export function Gallery() {
           }
         }}
         onActiveChange={() => activeImports.refresh()}
+        onJobIdChange={dialogs.setMountedImportJob}
       />
 
       <TagManagementDialog
