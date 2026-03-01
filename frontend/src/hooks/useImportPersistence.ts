@@ -137,12 +137,17 @@ export function useImportPersistence({
 
     // Set an initial state from localStorage for immediate display,
     // then sync with backend below for the authoritative state.
-    const hasRunning = restoredGroups.some((g) => g.status === 'running')
-    const hasPending = restoredGroups.some((g) => g.status === 'pending' && !g.skip)
-    if (hasRunning) {
+    // Always use 'processing' for running/pending groups — NOT 'preview'.
+    // Using 'preview' would trigger the auto-confirm effect immediately, which
+    // would re-submit groups that are already being processed on the backend.
+    // The backend sync below sets the authoritative state: if the job is truly
+    // awaiting confirmation (awaiting_input), it will flip back to 'preview' and
+    // auto-confirm will fire correctly; if active, it stays 'processing'.
+    const hasActive = restoredGroups.some(
+      (g) => g.status === 'running' || (g.status === 'pending' && !g.skip),
+    )
+    if (hasActive) {
       setState('processing')
-    } else if (hasPending) {
-      setState('preview')
     } else {
       setState('done')
     }

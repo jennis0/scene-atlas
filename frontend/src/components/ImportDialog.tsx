@@ -110,7 +110,7 @@ export function ImportDialog({
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
-        className={`${isWide ? 'max-w-2xl' : 'max-w-lg'} overflow-hidden flex flex-col p-0 gap-0`}
+        className={`${isWide ? 'max-w-2xl' : 'max-w-lg'} max-h-[85vh] overflow-hidden flex flex-col p-0 gap-0`}
       >
         {/* Amber stripe */}
         <div className="absolute top-0 inset-x-0 h-0.5 bg-gradient-to-r from-primary/70 via-primary/30 to-transparent pointer-events-none rounded-t-xl" />
