@@ -125,43 +125,44 @@ export function useEditGroupOperations({
 
   // ── Auto-save ────────────────────────────────────────────────────────────
 
-  const autoSaveGroup = useCallback(async (group: EditableGroupState) => {
-    const gId = Number(group.id)
-    if (isNaN(gId)) return // Skip locally-created groups (UUID keys — not in DB yet)
+  const autoSaveGroup = useCallback(
+    async (group: EditableGroupState) => {
+      const gId = Number(group.id)
+      if (isNaN(gId)) return // Skip locally-created groups (UUID keys — not in DB yet)
 
-    setGroupSaving((prev) => {
-      const s = new Set(prev)
-      s.add(group.id)
-      return s
-    })
-    setSaveError(null)
-    try {
-      await groupApi.edit(gId, buildPayload(group))
-      invalidateGallery()
-      setGroupSaved((prev) => {
+      setGroupSaving((prev) => {
         const s = new Set(prev)
         s.add(group.id)
         return s
       })
-      setTimeout(() => {
+      setSaveError(null)
+      try {
+        await groupApi.edit(gId, buildPayload(group))
+        invalidateGallery()
         setGroupSaved((prev) => {
+          const s = new Set(prev)
+          s.add(group.id)
+          return s
+        })
+        setTimeout(() => {
+          setGroupSaved((prev) => {
+            const s = new Set(prev)
+            s.delete(group.id)
+            return s
+          })
+        }, SAVED_INDICATOR_DURATION_MS)
+      } catch (err) {
+        setSaveError(getApiErrorMessage(err, 'Auto-save failed'))
+      } finally {
+        setGroupSaving((prev) => {
           const s = new Set(prev)
           s.delete(group.id)
           return s
         })
-      }, SAVED_INDICATOR_DURATION_MS)
-    } catch (err) {
-      setSaveError(getApiErrorMessage(err, 'Auto-save failed'))
-    } finally {
-      setGroupSaving((prev) => {
-        const s = new Set(prev)
-        s.delete(group.id)
-        return s
-      })
-    }
-    // All deps (state setters, invalidateGallery, groupApi) are stable refs
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+      }
+    },
+    [invalidateGallery],
+  )
 
   // ── moveToNewGroup (API-backed split) ────────────────────────────────────
 
@@ -466,51 +467,49 @@ export function useEditGroupOperations({
           imageIds,
         )
 
-        // Remove moved files from source group in local state
+        // Eagerly reload target group from API so we have accurate data
+        const reloaded = await groupApi.get(Number(targetGroupId))
+
+        // Use updater form to avoid stale-closure reads of groups/activeTab
         const movedIdSet = new Set(imageIds.map(String))
-        let newGroups = groups.map((g) => {
-          if (g.id !== drag.groupId) return g
-          return {
-            ...g,
-            files: g.files.filter((f) => !movedIdSet.has(f.relative_path)),
-            total: g.files.filter((f) => !movedIdSet.has(f.relative_path)).length,
+        setGroups((prev) => {
+          let newGroups = prev.map((g) => {
+            if (g.id === drag.groupId) {
+              const remaining = g.files.filter((f) => !movedIdSet.has(f.relative_path))
+              return { ...g, files: remaining, total: remaining.length }
+            }
+            if (g.id === targetGroupId) {
+              // Preserve outOfScope flags for images that were already in scope
+              const originalSeedIds = new Set(
+                g.files.filter((f) => !f.outOfScope).map((f) => Number(f.relative_path)),
+              )
+              imageIds.forEach((id) => originalSeedIds.add(id))
+              return {
+                ...g,
+                files: reloaded.images.map((img) =>
+                  imageToEditable(img, !originalSeedIds.has(img.id)),
+                ),
+                total: reloaded.images.length,
+              }
+            }
+            return g
+          })
+
+          // If source group was auto-deleted, remove it from the array
+          if (result.source_group_deleted) {
+            const sourceIdx = newGroups.findIndex((g) => g.id === drag.groupId)
+            newGroups = newGroups.filter((g) => g.id !== drag.groupId)
+            setActiveTab((prevTab) => {
+              if (prevTab === ALL_TAB) return prevTab
+              if (sourceIdx < prevTab) return prevTab - 1
+              if (sourceIdx === prevTab) return Math.max(0, prevTab - 1)
+              return prevTab
+            })
           }
+
+          return newGroups
         })
 
-        // If source group was auto-deleted, remove it from the array
-        if (result.source_group_deleted) {
-          const sourceIdx = newGroups.findIndex((g) => g.id === drag.groupId)
-          newGroups = newGroups.filter((g) => g.id !== drag.groupId)
-          if (activeTab !== ALL_TAB) {
-            if (sourceIdx < activeTab) setActiveTab(activeTab - 1)
-            else if (sourceIdx === activeTab) setActiveTab(Math.max(0, activeTab - 1))
-          }
-        }
-
-        // Reload target group from API to get accurate data
-        const targetInGroups = newGroups.some((g) => g.id === targetGroupId)
-        if (targetInGroups) {
-          const reloaded = await groupApi.get(Number(targetGroupId))
-          newGroups = newGroups.map((g) => {
-            if (g.id !== targetGroupId) return g
-            // Preserve outOfScope flags for images that were already in scope
-            const originalSeedIds = new Set(
-              g.files.filter((f) => !f.outOfScope).map((f) => Number(f.relative_path)),
-            )
-            // Images we just moved should be in scope
-            imageIds.forEach((id) => originalSeedIds.add(id))
-            return {
-              ...g,
-              files: reloaded.images.map((img) =>
-                imageToEditable(img, !originalSeedIds.has(img.id)),
-              ),
-              total: reloaded.images.length,
-            }
-          })
-        }
-
-        setGroups(newGroups)
-        // Clear selections for the moved files
         deselectAll(drag.groupId)
         invalidateGallery()
       } catch (err) {
@@ -519,7 +518,7 @@ export function useEditGroupOperations({
         setSaving(false)
       }
     },
-    [selections, groups, activeTab, setGroups, deselectAll, invalidateGallery, setActiveTab],
+    [selections, setGroups, deselectAll, invalidateGallery, setActiveTab],
   )
 
   const handleDragMergeConfirm = async (dragMergeSource: string, dragMergeTarget: string) => {

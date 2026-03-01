@@ -143,12 +143,13 @@ export default function EditGroupDialog({
     useGroupSidebarMultiselect({ groups, onSelectTab: setActiveTab })
 
   // Reset dialog-local state (everything NOT owned by useEditGroupLoad or useFileEditing)
+  const { resetOperations } = ops
+  const { resetDnd } = dnd
   const resetDialogState = useCallback(() => {
-    ops.resetOperations()
-    dnd.resetDnd()
+    resetOperations()
+    resetDnd()
     resetMultiselect()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ops.resetOperations, dnd.resetDnd, resetMultiselect])
+  }, [resetOperations, resetDnd, resetMultiselect])
 
   // ── Data loading (single-group / mass-edit / import-review) ────────
   const { loading, loadError, isMassEdit, ungroupedCount } = useEditGroupLoad({

@@ -86,7 +86,6 @@ export interface UseEditGroupLoadReturn {
   loading: boolean
   loadError: string | null
   isMassEdit: boolean
-  isImportReview: boolean
   ungroupedCount: number
   resetLoad: () => void
 }
@@ -309,7 +308,6 @@ export function useEditGroupLoad({
     loading,
     loadError,
     isMassEdit,
-    isImportReview,
     ungroupedCount,
     resetLoad,
   }
