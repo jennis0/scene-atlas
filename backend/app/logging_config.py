@@ -7,6 +7,7 @@ PyInstaller sidecar, CLI scripts) before any other module logs.
 
 import logging
 import sys
+import warnings
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -56,3 +57,27 @@ def setup_logging(data_dir: Path, *, debug: bool = False) -> None:
     file_handler.setLevel(level)
     file_handler.setFormatter(formatter)
     root.addHandler(file_handler)
+
+    # Route Python warnings through the logging system so they appear in the
+    # log file rather than going to stderr and being silently lost.
+    logging.captureWarnings(True)
+
+    # PIL DecompressionBombWarning: large battlemaps (100M+ px) trigger this.
+    # Convert to an error so the pipeline catches it, classifies it, and logs
+    # it with full context (which file, which stage) rather than a bare stderr line.
+    try:
+        from PIL import Image
+
+        warnings.filterwarnings("error", category=Image.DecompressionBombWarning)
+    except ImportError:
+        pass  # PIL not installed yet (e.g. during fresh env setup)
+
+    # sklearn ConvergenceWarning: expected when an image has fewer distinct
+    # colours than the requested k-means clusters.  Demote to DEBUG so it
+    # doesn't clutter INFO logs on normal uploads.
+    warnings.filterwarnings(
+        "ignore",
+        message="Number of distinct clusters.*found smaller than n_clusters",
+        category=UserWarning,
+        module="sklearn",
+    )

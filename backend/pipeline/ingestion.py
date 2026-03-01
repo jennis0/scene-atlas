@@ -987,6 +987,15 @@ def _run_group(
     failed = 0
     all_file_errors: list[dict] = []
 
+    logger.info(
+        "Starting group '%s' by '%s' (%d files, batch_size=%d, concurrency=%d)",
+        group_name,
+        author,
+        len(files),
+        batch_size,
+        concurrency,
+    )
+
     # Filter to files that exist in staging or have a reuse key (duplicate not uploaded)
     valid_files = []
     for file_info in files:
@@ -1107,8 +1116,8 @@ def _run_group(
         # Count all files not yet processed as failed, mark group as failed
         remaining = len(valid_files) - processed - failed
         failed += remaining
-        logger.error(
-            "Group %s (%s) failed after %s images: %s", group_job_id, group_name, processed, e
+        logger.exception(
+            "Group %s (%s) failed after %s images processed", group_job_id, group_name, processed
         )
         update_import_group_job_progress(
             group_job_id, processed, failed, status="failed", file_errors=all_file_errors

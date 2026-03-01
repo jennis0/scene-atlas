@@ -360,6 +360,10 @@ def init_db(engine):
         alembic_cfg = AlembicConfig(str(alembic_ini))
     # Always override the URL to use this engine's actual database path
     alembic_cfg.set_main_option("sqlalchemy.url", str(engine.url))
+    # Prevent Alembic from calling logging.config.fileConfig(), which would
+    # replace the root logger's handlers and remove our rotating file handler.
+    # Logging is managed entirely by setup_logging() in logging_config.py.
+    alembic_cfg.config_file_name = None
 
     with engine.connect() as conn:
         context = MigrationContext.configure(conn)
