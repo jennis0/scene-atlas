@@ -407,6 +407,14 @@ class ImportConfirmRequest(BaseModel):
     remaining_groups: list[str] = []  # Names of groups still unconfirmed — syncs pending count
 
 
+class FileError(BaseModel):
+    """Per-file error detail within an import group."""
+
+    filename: str
+    reason: str
+    stage: str
+
+
 class ImportGroupStatus(BaseModel):
     """Status of one group within an import job."""
 
@@ -417,6 +425,7 @@ class ImportGroupStatus(BaseModel):
     failed_files: int = 0
     status: str = "pending"  # pending, running, completed, failed
     group_id: int | None = None  # Set once completed — links to the created ImageGroup
+    file_errors: list[FileError] = []  # Per-file error details when available
 
 
 class ImportJobResponse(BaseModel):

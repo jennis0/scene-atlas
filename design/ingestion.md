@@ -195,6 +195,52 @@ Periodic maintenance (backup, staging cleanup) runs through the **Scheduler** (`
 
 After processing each group, `_finalize_import_job()` calls `transition_job_status()` to update the import job's status based on the state machine. See [import-state-machine.md](import-state-machine.md) for the full state machine design.
 
+## Logging
+
+Centralised logging is configured in `backend/app/logging_config.py` via `setup_logging(data_dir, debug)`. It is called once during app startup (from `main.py` and `entry.py`).
+
+**Handlers:**
+- **StreamHandler** (stdout) — console output, matches previous `basicConfig` behaviour
+- **RotatingFileHandler** — writes to `{data_dir}/logs/scene-atlas.log`, rotated at 10 MB, 5 backups
+
+**Format:** `%(asctime)s %(levelname)-8s [%(name)s] %(message)s`
+
+Debug mode (`--debug` flag or `settings.debug`) sets both handlers to `DEBUG` level; otherwise `INFO`.
+
+All pipeline modules use standard `logging.getLogger(__name__)` — no custom wrappers.
+
+## Per-Image Error Capture
+
+When an image fails during ingest, errors are classified into user-friendly messages by `backend/pipeline/error_classifier.py`.
+
+**`classify_ingest_error(exc, stage)`** returns:
+```python
+{"reason": "Image is corrupt or not a supported format",  # user-facing
+ "stage": "thumbnails",                                    # pipeline stage
+ "detail": "cannot identify image file 'foo.png'"}         # raw exception
+```
+
+**Pipeline stages:** `parse`, `copy`, `thumbnails`, `colors`, `grid_detection`, `embedding`, `db_save`, `qdrant_save`
+
+**Classification rules** (checked in order):
+| Exception / Pattern | Reason |
+|---|---|
+| `UnidentifiedImageError` / "cannot identify image" | Image is corrupt or not a supported format |
+| `DecompressionBombError` | Image is too large to process safely |
+| "could not read image" (cv2) | Image could not be read for processing |
+| `FileNotFoundError` | File was not found |
+| `PermissionError` | File could not be accessed (permission denied) |
+| `OSError` errno ENOSPC | Not enough disk space to process image |
+| `MemoryError` | Image is too large to process (out of memory) |
+| Stage = `embedding` | Failed to generate image embedding |
+| Stage = `db_save` | Failed to save image to database |
+| Stage = `qdrant_save` | Failed to save image embedding to search index |
+| Fallback | Processing failed during {stage} |
+
+**Storage:** Per-image errors are collected during `_run_group` and stored as a JSON list on `ImportGroupJob.file_errors` (Text column). Each entry has `filename`, `reason`, and `stage` keys.
+
+**API:** The `ImportGroupStatus` schema includes a `file_errors: list[FileError]` field, populated from the DB column by the status endpoint. Phase 2 will display these in the frontend.
+
 ## Staging Cleanup
 
 Staging directories (`data/staging/{job_id}/`) are created on upload and include a `.thumbs/` subdirectory for preview thumbnails. They are cleaned up by:

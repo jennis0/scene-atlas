@@ -9,13 +9,13 @@ Scheduled by the Scheduler (started in FastAPI lifespan).  Also runnable
 from the CLI: ``uv run python -m backend.pipeline.maintenance``
 """
 
+import logging
 import shutil
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from backend.app.config import settings
-from backend.pipeline.logger import get_logger
 
 # ---------------------------------------------------------------------------
 # Backup tasks
@@ -34,7 +34,7 @@ def backup_sqlite(backup_dir: Path, db_path: Path | None = None) -> Path:
         db_path: Path to the source SQLite file. Defaults to the application
             database derived from ``settings.database_url``.
     """
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
     if db_path is None:
         db_path = settings.db_path
     backup_path = backup_dir / db_path.name
@@ -54,7 +54,7 @@ def backup_qdrant(backup_dir: Path) -> Path | None:
     Returns the backup path on success, or None if Qdrant is not initialised.
     Non-fatal: the overall backup still succeeds if only SQLite was backed up.
     """
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
     try:
         from backend.app.services.qdrant_service import get_qdrant_service
 
@@ -79,7 +79,7 @@ def rotate_backups(backups_root: Path, keep_daily: int = 7, keep_weekly: int = 4
 
     Returns the number of directories deleted.
     """
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
     if not backups_root.exists():
         return 0
 
@@ -121,7 +121,7 @@ def rotate_backups(backups_root: Path, keep_daily: int = 7, keep_weekly: int = 4
 
 def backup_database() -> dict:
     """Full backup: SQLite snapshot + Qdrant snapshot + rotation."""
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     backups_root = settings.data_dir / "backups"
     backup_dir = backups_root / timestamp
@@ -154,7 +154,7 @@ def cleanup_stale_staging(max_age_hours: int = 24) -> int:
 
     Returns the number of directories removed.
     """
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
     staging_root = settings.staging_dir
     if not staging_root.exists():
         return 0
@@ -181,7 +181,7 @@ def cleanup_staging() -> dict:
     Scheduled every 6 hours.  Catches orphaned staging dirs that were not
     cleaned up by /finalize, /cancel, or expire_stale_jobs.
     """
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
     deleted = cleanup_stale_staging()
     logger.info("Staging cleanup complete: removed %s stale director(ies)", deleted)
     return {"deleted": deleted}
@@ -201,7 +201,7 @@ def expire_stale_jobs(max_age_hours: int = 48) -> dict:
     Scheduled every 6 hours.  Solves the problem of abandoned import sessions
     that would otherwise live forever in the database.
     """
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
 
     from backend.app.models import ImportGroupJob, ImportJob, get_engine, get_session_local
 

@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 import cv2
 import numpy as np
 from sklearn.cluster import KMeans
-
-from backend.pipeline.logger import get_logger
 
 if TYPE_CHECKING:
     from backend.pipeline.pipeline_config import PipelineConfig
@@ -42,7 +41,7 @@ def extract_dominant_colors(
     Returns:
         List of dicts with color info: [{"hex": "#abc123", "percentage": 45.2, "order": 1}, ...]
     """
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
 
     if pipeline_config is not None:
         _num_colors = num_colors if num_colors is not None else pipeline_config.num_dominant_colors

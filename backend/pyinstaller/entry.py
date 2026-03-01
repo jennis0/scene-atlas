@@ -21,6 +21,14 @@ def main():
     os.environ["API_HOST"] = "127.0.0.1"
     os.environ["APP_MODE"] = "app"
 
+    # Set up logging before importing the app (which also calls setup_logging,
+    # but the guard in setup_logging prevents duplicate handlers).
+    from pathlib import Path
+
+    from backend.app.logging_config import setup_logging
+
+    setup_logging(Path(args.data_dir))
+
     # Import app object directly (not as a string) — uvicorn.run("module:app")
     # uses importlib at runtime which doesn't work in a frozen PyInstaller binary.
     # A direct import also lets PyInstaller detect and bundle the backend package.

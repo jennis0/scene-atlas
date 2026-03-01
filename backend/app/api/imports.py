@@ -679,6 +679,7 @@ async def get_import_status(
             failed_files=gj.failed_files,
             status=gj.status,
             group_id=gj.created_group_id,
+            file_errors=json.loads(gj.file_errors) if gj.file_errors else [],
         )
         for gj in group_jobs
     ]

@@ -1,9 +1,9 @@
 """Embedding generation tasks."""
 
+import logging
 from pathlib import Path
 
 from backend.app.services import get_clip_service
-from backend.pipeline.logger import get_logger
 
 
 def generate_clip_embedding(image_path: str) -> list[float]:
@@ -15,7 +15,7 @@ def generate_clip_embedding(image_path: str) -> list[float]:
     Returns:
         CLIP embedding vector (512 dimensions)
     """
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
     try:
         clip_service = get_clip_service()
         embedding = clip_service.encode_image(Path(image_path))
@@ -42,7 +42,7 @@ def batch_generate_clip_embeddings(
     Returns:
         List of embedding vectors, one per image
     """
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
     if batch_size is None:
         from backend.pipeline.pipeline_config import PipelineConfig
 
