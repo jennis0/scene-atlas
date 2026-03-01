@@ -35,6 +35,7 @@ export interface ActiveImportJob {
     | 'failed'
     | 'cancelled'
     | 'expired'
+    | 'broken'
   totalGroups: number
   completedGroups: number
   failedGroups: number
@@ -218,7 +219,7 @@ function mergeJobs(
     if (existing) {
       // Backend now provides pending_groups, so it's authoritative.
       // Only supplement from localStorage if backend has 0 and job is non-terminal.
-      const terminalStatuses = new Set(['completed', 'failed', 'cancelled', 'expired'])
+      const terminalStatuses = new Set(['completed', 'failed', 'cancelled', 'expired', 'broken'])
       if (
         existing.pendingGroups === 0 &&
         !terminalStatuses.has(existing.status) &&

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
+  AlertTriangle,
   Loader2,
   Package,
   ChevronDown,
@@ -66,7 +67,11 @@ export function ActivityDock({
   const totalActiveCount = activeImportCount + activeJobCount
   const terminalCount =
     jobs.filter(
-      (j) => j.status === 'completed' || j.status === 'failed' || j.status === 'cancelled',
+      (j) =>
+        j.status === 'completed' ||
+        j.status === 'failed' ||
+        j.status === 'cancelled' ||
+        j.status === 'broken',
     ).length +
     backgroundJobs.filter((j) => j.status === 'completed' || j.status === 'failed').length
 
@@ -241,16 +246,34 @@ function ImportJobCard({
   onDismiss: () => void
   onCancel: () => void
 }) {
+  const [confirmingCancel, setConfirmingCancel] = useState(false)
+
   const isTerminal =
     job.status === 'completed' ||
     job.status === 'failed' ||
     job.status === 'cancelled' ||
-    job.status === 'expired'
-  // Completed imports require review before they can be dismissed
-  const canDismiss = isTerminal && job.status !== 'completed'
+    job.status === 'expired' ||
+    job.status === 'broken'
+  // Completed imports require review; broken/failed require cancel for cleanup
+  const canDismiss =
+    isTerminal && job.status !== 'completed' && job.status !== 'broken' && job.status !== 'failed'
   const canCancel =
-    job.status === 'uploading' || job.status === 'staging' || job.status === 'active'
+    job.status === 'uploading' ||
+    job.status === 'staging' ||
+    job.status === 'active' ||
+    job.status === 'awaiting_input' ||
+    job.status === 'broken' ||
+    job.status === 'failed'
   const progressRatio = job.totalFiles > 0 ? job.processedFiles / job.totalFiles : 0
+
+  const handleCancelClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (job.processedFiles > 0) {
+      setConfirmingCancel(true)
+    } else {
+      onCancel()
+    }
+  }
 
   return (
     <div
@@ -277,7 +300,7 @@ function ImportJobCard({
               </span>
             )}
           </span>
-          {canDismiss && (
+          {canDismiss && !confirmingCancel && (
             <button
               onClick={(e) => {
                 e.stopPropagation()
@@ -291,12 +314,9 @@ function ImportJobCard({
               <X className="h-3 w-3" />
             </button>
           )}
-          {canCancel && (
+          {canCancel && !confirmingCancel && (
             <button
-              onClick={(e) => {
-                e.stopPropagation()
-                onCancel()
-              }}
+              onClick={handleCancelClick}
               className="opacity-0 group-hover/job:opacity-100 shrink-0
                 h-5 w-5 rounded flex items-center justify-center
                 text-muted-foreground/30 hover:text-destructive hover:bg-destructive/10 transition-all"
@@ -304,6 +324,29 @@ function ImportJobCard({
             >
               <X className="h-3 w-3" />
             </button>
+          )}
+          {confirmingCancel && (
+            <div
+              className="flex items-center gap-1 shrink-0"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <span className="text-[10px] text-destructive/80">Delete imported?</span>
+              <button
+                onClick={() => {
+                  onCancel()
+                  setConfirmingCancel(false)
+                }}
+                className="text-[10px] px-1.5 py-0.5 rounded bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
+              >
+                Yes
+              </button>
+              <button
+                onClick={() => setConfirmingCancel(false)}
+                className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground hover:bg-secondary/80 transition-colors"
+              >
+                No
+              </button>
+            </div>
           )}
         </div>
 
@@ -452,6 +495,8 @@ function ImportStatusIcon({ status }: { status: ActiveImportJob['status'] }) {
       return <AlertCircle className="h-3.5 w-3.5 text-destructive/70 shrink-0 mt-0.5" />
     case 'cancelled':
       return <Ban className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 mt-0.5" />
+    case 'broken':
+      return <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
     case 'expired':
     case 'staging':
     default:
@@ -517,6 +562,12 @@ function ImportStatusText({ job }: { job: ActiveImportJob }) {
       return <span>Cancelled</span>
     case 'expired':
       return <span>Expired</span>
+    case 'broken':
+      return (
+        <span className="text-amber-600 dark:text-amber-400">
+          Interrupted — server was restarted
+        </span>
+      )
     default:
       return null
   }
