@@ -224,7 +224,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=True,         # Strip debug symbols from binaries — safe on Linux, saves 20-40%
-    upx=False,          # UPX causes issues with torch and opencv native libs
+    upx=True,           # UPX-compress binaries (torch/opencv excluded below)
     console=True,       # Must be True: stdout is how we signal SCENE_ATLAS_READY
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -239,7 +239,18 @@ coll = COLLECT(
     a.binaries,
     a.datas,
     strip=True,         # Strip debug symbols — matches EXE setting above
-    upx=False,
-    upx_exclude=[],
+    upx=True,
+    upx_exclude=[
+        # Torch .so files break under UPX (custom dlopen / mmap patterns)
+        'libtorch_cpu.so',
+        'libtorch_python.so',
+        'libtorch.so',
+        'libc10.so',
+        'libshm.so',
+        'libtorch_global_deps.so',
+        'libgomp.so.1',
+        # OpenCV — monolithic .so with complex symbol resolution
+        'cv2.abi3.so',
+    ],
     name='scene-atlas-backend',
 )
