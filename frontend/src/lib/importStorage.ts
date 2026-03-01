@@ -46,6 +46,7 @@ export interface ImportJobsIndex {
 
 const STORAGE_PREFIX = 'import_job:'
 const INDEX_KEY = 'import_jobs_index'
+const DISMISSED_KEY = 'import_dismissed_jobs'
 const EXPIRY_MS = IMPORT_STORAGE_EXPIRY_MS
 
 // ── Save / Load ─────────────────────────────────────────────────────
@@ -127,6 +128,43 @@ export function removeImportState(jobId: string): void {
   try {
     localStorage.removeItem(STORAGE_PREFIX + jobId)
     removeFromIndex(jobId)
+  } catch {
+    // ignore
+  }
+}
+
+// ── Dismissed job persistence ────────────────────────────────────────
+// Dismissed IDs are stored across refreshes so that jobs the user has
+// dismissed don't reappear when the backend still has the record.
+
+export function saveDismissedJob(jobId: string): void {
+  try {
+    const ids = loadDismissedJobs()
+    ids.add(jobId)
+    localStorage.setItem(DISMISSED_KEY, JSON.stringify([...ids]))
+  } catch {
+    // ignore
+  }
+}
+
+export function loadDismissedJobs(): Set<string> {
+  try {
+    const raw = localStorage.getItem(DISMISSED_KEY)
+    if (!raw) return new Set()
+    return new Set(JSON.parse(raw) as string[])
+  } catch {
+    return new Set()
+  }
+}
+
+/** Remove dismissed IDs whose jobs are no longer tracked by the backend. */
+export function pruneDismissedJobs(activeBackendJobIds: Set<string>): void {
+  try {
+    const dismissed = loadDismissedJobs()
+    const pruned = [...dismissed].filter((id) => activeBackendJobIds.has(id))
+    if (pruned.length < dismissed.size) {
+      localStorage.setItem(DISMISSED_KEY, JSON.stringify(pruned))
+    }
   } catch {
     // ignore
   }

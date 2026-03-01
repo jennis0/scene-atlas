@@ -11,7 +11,14 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { importApi } from '@/lib/api'
 import { ACTIVE_POLL_INTERVAL_MS } from '@/lib/constants'
-import { loadImportJobsIndex, cleanupExpiredImports, removeImportState } from '@/lib/importStorage'
+import {
+  loadImportJobsIndex,
+  cleanupExpiredImports,
+  removeImportState,
+  saveDismissedJob,
+  loadDismissedJobs,
+  pruneDismissedJobs,
+} from '@/lib/importStorage'
 import type { ImportJobSummary } from '@/types'
 import type { ImportJobIndexEntry } from '@/lib/importStorage'
 
@@ -54,8 +61,8 @@ export function useActiveImports(): UseActiveImportsReturn {
   const [jobs, setJobs] = useState<ActiveImportJob[]>([])
   const prevJobStatusRef = useRef<Map<string, string>>(new Map())
   const completionListeners = useRef<Set<(job: ActiveImportJob) => void>>(new Set())
-  /** Job IDs the user has dismissed this session — prevents them reappearing on poll. */
-  const dismissedIdsRef = useRef<Set<string>>(new Set())
+  /** Job IDs the user has dismissed — persisted to localStorage so they survive refresh. */
+  const dismissedIdsRef = useRef<Set<string>>(loadDismissedJobs())
   /** Ref to access current jobs without adding it as a dependency to callbacks. */
   const jobsRef = useRef(jobs)
   jobsRef.current = jobs
@@ -73,6 +80,8 @@ export function useActiveImports(): UseActiveImportsReturn {
           (j) => !dismissed.has(j.jobId),
         )
         setJobs(merged)
+        // Prune dismissed IDs whose jobs are no longer tracked by the backend
+        pruneDismissedJobs(new Set(response.jobs.map((j) => j.job_id)))
       })
       .catch(() => {
         // Backend unavailable — just use localStorage
@@ -125,6 +134,7 @@ export function useActiveImports(): UseActiveImportsReturn {
 
   const dismissJob = useCallback((jobId: string) => {
     dismissedIdsRef.current.add(jobId)
+    saveDismissedJob(jobId)
     removeImportState(jobId)
     setJobs((prev) => prev.filter((j) => j.jobId !== jobId))
   }, [])
