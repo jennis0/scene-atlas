@@ -7,6 +7,7 @@ endpoints like /init and /upload).
 State machine:
     uploading → staging → active ↔ awaiting_input → completed/failed
                      ↘ cancelled        ↗              ↗
+    broken: terminal state set by mark_interrupted_jobs() at startup
 """
 
 from datetime import UTC, datetime
@@ -15,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from ..models.database import ImportGroupJob, ImportJob
 
-TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled", "expired"})
+TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled", "expired", "broken"})
 GROUP_TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
 
 

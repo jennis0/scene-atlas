@@ -259,3 +259,78 @@ def expire_stale_jobs(max_age_hours: int = 48) -> dict:
 
     logger.info("Stale job expiry complete: expired %s job(s)", expired_count)
     return {"expired": expired_count}
+
+
+# ---------------------------------------------------------------------------
+# Startup: mark interrupted jobs
+# ---------------------------------------------------------------------------
+
+
+def mark_interrupted_jobs(db=None) -> int:
+    """Mark import jobs that were interrupted by a server restart as broken.
+
+    Jobs in 'uploading' or 'active' states cannot be resumed after a restart
+    because their background processing threads are gone.  This is called at
+    server startup to transition them to 'broken' so users can see the problem
+    and cancel/clean up from the ActivityDock.
+
+    Args:
+        db: Optional SQLAlchemy session.  If None, a new session is created and
+            committed/closed by this function.  Pass a session in unit tests.
+
+    Returns:
+        Number of jobs marked as broken.
+    """
+    logger = logging.getLogger(__name__)
+    from backend.app.models import ImportGroupJob, ImportJob, get_engine, get_session_local
+
+    own_session = db is None
+    if own_session:
+        engine = get_engine(settings.database_url)
+        SessionLocal = get_session_local(engine)
+        db = SessionLocal()
+
+    try:
+        interrupted_statuses = ("uploading", "active")
+        jobs = (
+            db.query(ImportJob)
+            .filter(ImportJob.status.in_(interrupted_statuses))
+            .all()
+        )
+        if not jobs:
+            return 0
+
+        now = datetime.now(UTC).replace(tzinfo=None)
+        count = 0
+        for job in jobs:
+            logger.warning(
+                "Marking import job %s as broken (was '%s' at server restart)",
+                job.id,
+                job.status,
+            )
+            # Mark running child groups as failed
+            db.query(ImportGroupJob).filter(
+                ImportGroupJob.job_id == job.id,
+                ImportGroupJob.status == "running",
+            ).update(
+                {"status": "failed", "completed_at": now},
+                synchronize_session=False,
+            )
+            job.status = "broken"
+            job.error_message = "Server was restarted before this import could complete"
+            job.completed_at = now
+            job.updated_at = now
+            count += 1
+
+        if own_session:
+            db.commit()
+        return count
+
+    except Exception:
+        if own_session:
+            db.rollback()
+        logger.exception("Error marking interrupted import jobs")
+        return 0
+    finally:
+        if own_session:
+            db.close()

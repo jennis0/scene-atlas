@@ -192,3 +192,120 @@ class TestCleanupStaleStaging:
         result = cleanup_stale_staging(max_age_hours=24)
         assert result == 0
         assert a_file.exists()
+
+
+# ---------------------------------------------------------------------------
+# mark_interrupted_jobs
+# ---------------------------------------------------------------------------
+
+
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from backend.app.models.database import Base, ImportGroupJob, ImportJob
+from backend.pipeline.maintenance import mark_interrupted_jobs
+
+
+@pytest.fixture
+def db_session():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    yield session
+    session.close()
+
+
+def _make_import_job(db, job_id, status):
+    job = ImportJob(id=job_id, status=status, total_files=1)
+    db.add(job)
+    db.flush()
+    return job
+
+
+def _make_import_group(db, job_id, group_id, status="running"):
+    gj = ImportGroupJob(
+        id=group_id,
+        job_id=job_id,
+        group_name="G",
+        author="A",
+        total_files=1,
+        processed_files=0,
+        failed_files=0,
+        status=status,
+    )
+    db.add(gj)
+    db.flush()
+    return gj
+
+
+class TestMarkInterruptedJobs:
+    def test_active_job_becomes_broken(self, db_session):
+        _make_import_job(db_session, "j1", "active")
+        count = mark_interrupted_jobs(db_session)
+        db_session.commit()
+        job = db_session.query(ImportJob).filter_by(id="j1").first()
+        assert job.status == "broken"
+        assert count == 1
+
+    def test_uploading_job_becomes_broken(self, db_session):
+        _make_import_job(db_session, "j1", "uploading")
+        mark_interrupted_jobs(db_session)
+        db_session.commit()
+        assert db_session.query(ImportJob).filter_by(id="j1").first().status == "broken"
+
+    def test_running_groups_marked_failed(self, db_session):
+        _make_import_job(db_session, "j1", "active")
+        _make_import_group(db_session, "j1", "g1", "running")
+        _make_import_group(db_session, "j1", "g2", "completed")
+        mark_interrupted_jobs(db_session)
+        db_session.commit()
+        g1 = db_session.query(ImportGroupJob).filter_by(id="g1").first()
+        g2 = db_session.query(ImportGroupJob).filter_by(id="g2").first()
+        assert g1.status == "failed"
+        assert g2.status == "completed"  # already terminal, not changed
+
+    def test_staging_job_unchanged(self, db_session):
+        _make_import_job(db_session, "j1", "staging")
+        mark_interrupted_jobs(db_session)
+        assert db_session.query(ImportJob).filter_by(id="j1").first().status == "staging"
+
+    def test_awaiting_input_unchanged(self, db_session):
+        _make_import_job(db_session, "j1", "awaiting_input")
+        mark_interrupted_jobs(db_session)
+        assert db_session.query(ImportJob).filter_by(id="j1").first().status == "awaiting_input"
+
+    def test_completed_job_unchanged(self, db_session):
+        _make_import_job(db_session, "j1", "completed")
+        mark_interrupted_jobs(db_session)
+        assert db_session.query(ImportJob).filter_by(id="j1").first().status == "completed"
+
+    def test_error_message_set(self, db_session):
+        _make_import_job(db_session, "j1", "active")
+        mark_interrupted_jobs(db_session)
+        db_session.commit()
+        job = db_session.query(ImportJob).filter_by(id="j1").first()
+        assert "restarted" in (job.error_message or "").lower()
+
+    def test_completed_at_set(self, db_session):
+        _make_import_job(db_session, "j1", "uploading")
+        mark_interrupted_jobs(db_session)
+        db_session.commit()
+        job = db_session.query(ImportJob).filter_by(id="j1").first()
+        assert job.completed_at is not None
+
+    def test_no_interrupted_jobs_returns_zero(self, db_session):
+        _make_import_job(db_session, "j1", "completed")
+        _make_import_job(db_session, "j2", "staging")
+        count = mark_interrupted_jobs(db_session)
+        assert count == 0
+
+    def test_multiple_interrupted_jobs_all_marked(self, db_session):
+        _make_import_job(db_session, "j1", "active")
+        _make_import_job(db_session, "j2", "uploading")
+        count = mark_interrupted_jobs(db_session)
+        db_session.commit()
+        assert count == 2
+        assert db_session.query(ImportJob).filter_by(id="j1").first().status == "broken"
+        assert db_session.query(ImportJob).filter_by(id="j2").first().status == "broken"

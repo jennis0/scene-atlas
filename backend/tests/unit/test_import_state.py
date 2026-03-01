@@ -299,7 +299,7 @@ class TestEdgeCases:
 
     def test_job_terminal_constants_correct(self):
         """Sanity: job terminal statuses match expectations."""
-        assert TERMINAL_STATUSES == {"completed", "failed", "cancelled", "expired"}
+        assert TERMINAL_STATUSES == {"completed", "failed", "cancelled", "expired", "broken"}
 
     def test_many_groups_all_completed(self, db):
         """Stress test: many groups all completed."""

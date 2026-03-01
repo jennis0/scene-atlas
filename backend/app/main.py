@@ -73,9 +73,15 @@ async def lifespan(app: FastAPI):
     get_job_runner()
 
     # Clean up any stale staging dirs left over from crashes or previous sessions
-    from ..pipeline.maintenance import cleanup_stale_staging
+    from ..pipeline.maintenance import cleanup_stale_staging, mark_interrupted_jobs
 
     cleanup_stale_staging()
+
+    # Mark any import jobs left in uploading/active states as broken — these cannot
+    # be resumed because the background processing threads were killed on shutdown.
+    interrupted = mark_interrupted_jobs()
+    if interrupted:
+        logger.warning("Marked %d interrupted import job(s) as broken on startup", interrupted)
 
     # Start scheduler for periodic maintenance (backup, staging cleanup)
     from .services.scheduler import Scheduler
