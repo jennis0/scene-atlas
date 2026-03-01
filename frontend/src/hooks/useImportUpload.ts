@@ -387,7 +387,7 @@ export function splitIntoBatches(
 /**
  * Returns true for 4xx HTTP errors that should not be retried.
  */
-function isClientError(err: unknown): boolean {
+export function isClientError(err: unknown): boolean {
   if (err && typeof err === 'object' && 'response' in err) {
     const status = (err as { response?: { status?: number } }).response?.status
     return typeof status === 'number' && status >= 400 && status < 500

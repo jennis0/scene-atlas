@@ -177,7 +177,7 @@ export interface BatchUploadResponse {
 }
 
 export interface UploadProgress {
-  phase: 'hashing' | 'uploading' | 'analysing'
+  phase: 'uploading' | 'analysing'
   filesUploaded: number
   filesTotal: number
   bytesUploaded: number

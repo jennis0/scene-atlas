@@ -13,7 +13,7 @@ import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -38,6 +38,7 @@ from ..models.schemas import (
     ImportJobResponse,
     ImportJobSummary,
     ImportUploadResponse,
+    ManifestEntry,
 )
 from ..services.app_settings import get_settings as get_app_settings
 from ..services.job_runner import get_job_runner
@@ -50,6 +51,8 @@ class ImportConfirmAllRequest(BaseModel):
 
     groups: list[ImportConfirmRequest]
 
+
+VALID_IMAGE_TYPES = {"battlemap", "scene"}
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +166,11 @@ async def _save_files_to_staging(
         (saved_relative_paths, total_bytes, skipped_invalid)
     """
     saved_relative_paths: list[str] = []
-    total_upload_bytes = 0
+    # Calculate bytes already staged from previous batches so the cross-batch
+    # total size limit cannot be bypassed by splitting a large upload into many
+    # small batches.
+    existing_bytes = sum(p.stat().st_size for p in staging_dir.rglob("*") if p.is_file())
+    total_upload_bytes = existing_bytes
     skipped_invalid: list[str] = []
 
     for i, upload_file in enumerate(files):
@@ -421,7 +428,6 @@ async def analyse_staged(
     if not staging_dir.exists():
         raise HTTPException(status_code=400, detail="No staged files found for this job")
 
-    VALID_IMAGE_TYPES = {"battlemap", "scene"}
     if body.image_type not in VALID_IMAGE_TYPES:
         raise HTTPException(
             status_code=400,
@@ -448,8 +454,8 @@ async def analyse_staged(
         saved_relative_paths.append(str(path.relative_to(staging_dir)))
 
     # Merge with manifest (duplicate files the client chose not to re-upload)
-    manifest_entries: list[dict] = body.manifest
-    manifest_paths = [entry["relative_path"] for entry in manifest_entries]
+    manifest_entries: list[ManifestEntry] = body.manifest
+    manifest_paths = [entry.relative_path for entry in manifest_entries]
     all_relative_paths = saved_relative_paths + manifest_paths
 
     if not all_relative_paths:
@@ -459,9 +465,9 @@ async def analyse_staged(
         )
 
     precomputed_hashes: dict[str, dict] = {
-        entry["relative_path"]: {
-            "content_hash": entry["content_hash"],
-            "duplicate_of": entry["duplicate_of"],
+        entry.relative_path: {
+            "content_hash": entry.content_hash,
+            "duplicate_of": entry.duplicate_of,
         }
         for entry in manifest_entries
     }

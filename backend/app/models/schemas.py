@@ -387,10 +387,19 @@ class BatchUploadResponse(BaseModel):
     skipped_invalid: list[str] = []
 
 
+class ManifestEntry(BaseModel):
+    """One entry in the duplicate manifest sent with an analyse request."""
+
+    relative_path: str
+    filename: str
+    content_hash: str
+    duplicate_of: dict | None = None
+
+
 class AnalyseRequest(BaseModel):
     """Request body for POST /imports/{job_id}/analyse."""
 
-    manifest: list[dict] = []
+    manifest: list[ManifestEntry] = []
     image_type: str = "battlemap"
 
 
