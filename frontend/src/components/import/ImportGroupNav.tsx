@@ -12,6 +12,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { DraggableGroupRow, DroppableGroupRow } from './shared/dnd'
 import type { ActiveDragState } from './shared/dnd'
 import { ALL_TAB } from '@/hooks/useImportState'
+import { GroupSidebarShell } from './shared/GroupSidebarShell'
 import type { DialogState } from '@/hooks/useImportState'
 import type { EditableGroupState } from '@/types'
 
@@ -61,31 +62,37 @@ export function ImportGroupNav({
   })
 
   return (
-    <div className="w-[190px] shrink-0 border-r border-border/30 flex flex-col overflow-hidden bg-muted/20">
-      <div className="px-3 py-2.5 border-b border-border/30 shrink-0">
-        <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-semibold">
-          {groups.length} groups · {totalFiles} files
-        </span>
-      </div>
-
-      {/* Scrollable group list */}
-      <div className="flex-1 overflow-y-auto py-1">
-        {/* "All" entry */}
-        <button
-          onClick={() => onSelectTab(ALL_TAB)}
-          className={`w-full flex items-center gap-2 px-3 py-2 text-left transition-colors border-l-2 ${
-            isAllTab
-              ? 'border-primary bg-primary/10 text-primary'
-              : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-          }`}
-        >
-          <span className="font-display text-[13px] font-semibold flex-1">All</span>
-          <span className="text-[11px] text-muted-foreground/40 tabular-nums shrink-0">
-            {groups.reduce((s, g) => s + g.files.filter((f) => !f.excluded).length, 0)}
-          </span>
-        </button>
-        <div className="h-px bg-border/30 mx-3 my-0.5" />
-
+    <>
+      <GroupSidebarShell
+        headerLabel={`${groups.length} groups · ${totalFiles} files`}
+        allCount={groups.reduce((s, g) => s + g.files.filter((f) => !f.excluded).length, 0)}
+        isAllActive={isAllTab}
+        onSelectAll={() => onSelectTab(ALL_TAB)}
+        footer={
+          state === 'preview' && (canMergeAll || pendingGroupCount > 1) ? (
+            <div className="p-2.5 border-t border-border/30 shrink-0 space-y-1.5">
+              {canMergeAll && (
+                <button
+                  onClick={() => setConfirmingMergeAll(true)}
+                  className="w-full text-[12px] py-1.5 rounded border border-border/40 bg-secondary/30 text-muted-foreground hover:bg-secondary/60 hover:text-foreground transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <Merge className="h-3.5 w-3.5" />
+                  Merge All
+                </button>
+              )}
+              {pendingGroupCount > 1 && (
+                <button
+                  onClick={onConfirmAll}
+                  disabled={!canImportAll}
+                  className="w-full text-[12px] py-1.5 rounded border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Import All ({pendingGroupCount})
+                </button>
+              )}
+            </div>
+          ) : undefined
+        }
+      >
         {/* Active (pending) groups */}
         {activeGroups.map(({ group: g, index: i }) => (
           <DroppableGroupRow key={g.id} groupId={g.id} activeDrag={activeDrag ?? null}>
@@ -182,31 +189,7 @@ export function ImportGroupNav({
             </div>
           </DroppableGroupRow>
         ))}
-      </div>
-
-      {/* Bottom actions */}
-      {state === 'preview' && (canMergeAll || pendingGroupCount > 1) && (
-        <div className="p-2.5 border-t border-border/30 shrink-0 space-y-1.5">
-          {canMergeAll && (
-            <button
-              onClick={() => setConfirmingMergeAll(true)}
-              className="w-full text-[12px] py-1.5 rounded border border-border/40 bg-secondary/30 text-muted-foreground hover:bg-secondary/60 hover:text-foreground transition-colors flex items-center justify-center gap-1.5"
-            >
-              <Merge className="h-3.5 w-3.5" />
-              Merge All
-            </button>
-          )}
-          {pendingGroupCount > 1 && (
-            <button
-              onClick={onConfirmAll}
-              disabled={!canImportAll}
-              className="w-full text-[12px] py-1.5 rounded border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              Import All ({pendingGroupCount})
-            </button>
-          )}
-        </div>
-      )}
+      </GroupSidebarShell>
 
       <ConfirmDialog
         open={confirmingMergeAll}
@@ -220,6 +203,6 @@ export function ImportGroupNav({
           onMergeAllGroups()
         }}
       />
-    </div>
+    </>
   )
 }
