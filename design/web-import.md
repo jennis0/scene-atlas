@@ -2,7 +2,7 @@
 
 ## Overview
 
-The web import allows users to upload images (files, folders, or zip archives) through the browser, review detected metadata, and confirm import into the system.
+The web import allows users to upload images (files, folders, or zip archives) through the browser. After upload, groups are auto-confirmed and processing starts immediately. Images are hidden from the gallery until the user reviews them via EditGroupDialog.
 
 For state machine details, see [import-state-machine.md](import-state-machine.md).
 
@@ -13,15 +13,16 @@ Gallery → [Import button] → ImportDialog opens
   → Select files or folder (or .zip)
   → Files uploaded to staging in batches (init → upload-batch ×N → analyse)
   → Backend analyses files, groups into image groups, generates preview thumbnails
-  → Dialog shows tabbed preview (one tab per image group)
-  → User reviews/edits author, group name, image types per file
-  → User can exclude files, skip groups, merge groups, split groups
-  → User confirms one group or all groups
-  → Confirm sends full per-file metadata + remaining_groups list
-  → Async processing starts via JobRunner
-  → Progress indicator (polling with group_job_id matching)
-  → If pending groups remain → back to preview (awaiting_input)
-  → Done → gallery refreshes
+  → Empty authors defaulted to "Unknown"
+  → Auto-confirm all groups via POST /confirm-all (no user review step)
+  → Dialog shows processing state (per-group spinners)
+  → User can close dialog → ActivityDock tracks progress
+  → Processing sets needs_review = true on all created images
+  → On completion → toast notification fires ("Import complete — N groups, N images")
+  → Toast "Review" action OR ActivityDock "Review import" → EditGroupDialog (import-review mode)
+  → User reviews groups, clicks "Confirm Import"
+  → needs_review cleared → images appear in gallery
+  → ActivityDock entry dismissed automatically
 ```
 
 ## Three-Phase Upload
@@ -218,36 +219,23 @@ See [parser.md](parser.md) for the full algorithm. Summary:
 
 ## Frontend: ImportDialog
 
-The import dialog is a **group management tool** — it handles file organization into groups before import. Per-file metadata editing (tags, grid, name, subgroup) is deferred to post-import via `ImageViewer` and `EditGroupDialog` (import-review mode).
+The import dialog handles upload only. There is no pre-import review step — groups are auto-confirmed immediately after analysis.
 
-**Design philosophy:** The import dialog intentionally avoids per-file metadata editing because (a) it doesn't scale — imports can have hundreds of files, making per-file editing tedious, (b) users would be editing "blind" before ML enrichment (grid detection, CLIP embedding, color extraction) has run, and (c) post-import review via `EditGroupDialog` and `ImageViewer` shows enriched metadata, making edits more informed. The import dialog focuses on the things only the user can decide upfront: grouping, authorship, and image type.
+**Design philosophy:** The parser's group detection (ADR-006) handles the dominant use case (organized creator packs) accurately. Pre-import editing is tedious and "blind" — users would be editing unenriched metadata before ML enrichment (grid detection, CLIP embedding, color extraction) has run. Post-import review via `EditGroupDialog` shows enriched metadata, making edits more informed.
 
-Four dialog states (mapped from backend status via `backendStatusToDialogState()`):
+Three dialog states:
 
 ### Upload State (`uploading`)
 - File picker button (accepts `.jpg`, `.jpeg`, `.png`, `.webp`, `.zip`)
 - Folder picker button (via `webkitdirectory`)
-- Shows spinner during upload
+- Image type toggle (battlemap / scene) — applied to all files
+- Shows spinner and per-batch progress during upload
 - Displays error if upload fails
 
-### Preview State (`staging` or `awaiting_input`)
-- **Default Author bar** above tabs: Input + "Apply to Empty" button fills all empty author fields
-- Tab bar if multiple image groups detected (tab per group)
-  - Each tab has a DropdownMenu with "Skip Group" and "Merge into [other group]"
-  - Skipped groups show dimmed tab with strikethrough, content replaced with "Skipped" + Undo
-- Each tab shows:
-  - Editable **Author** text input (pre-filled from detection, may be empty)
-  - Editable **Group Name** text input (pre-filled)
-  - Compact file cards (`ImportFileCard`) with thumbnail, name, type toggle, duplicate indicator
-  - Simplified toolbar (`ImportFileToolbar`) with search, select, bulk actions
-  - Subgroup headings (read-only)
-- "Import This Group" button (disabled if author is empty)
-- "Import All" button if multiple pending groups
-
 ### Processing State (`active`)
-- Per-group status: spinner while running, checkmark when complete
-- Processing indicator survives dialog close (state preserved in localStorage)
-- Re-open dialog to check progress
+- Per-group status list: spinner while running, checkmark when complete
+- Dialog can be closed — ActivityDock tracks progress
+- `'preview'` is a transient internal state only (auto-confirm fires via useEffect before any render)
 
 ### Done State (`completed`, `failed`, `cancelled`, `expired`)
 - Shows final status
@@ -263,20 +251,31 @@ Four dialog states (mapped from backend status via `backendStatusToDialogState()
 | `useImportPersistence` | localStorage save/restore, reconnection with backend sync |
 | `useActiveImports` | Import tray: merges localStorage + backend data, polling |
 
+## Review-Gating Mechanism
+
+All images created by the import pipeline have `needs_review = True` set. The gallery search filters these out by default (`exclude_needs_review=True` on `GET /search` and `GET /facets`). Images become visible only after the user confirms them.
+
+**Confirm-review endpoint:** `POST /api/v1/groups/confirm-review` accepts `{ group_ids: int[] }` and clears `needs_review` on all images in those groups. Called by EditGroupDialog when user clicks "Confirm Import" in import-review mode.
+
+**`needs_review` column:** Already existed on `Image` table (`database.py`) with an index. The import pipeline now sets it to `True`; the confirm-review endpoint sets it back to `False`.
+
 ## Data Flow
 
 ```
 POST /init → job created (uploading)
-POST /upload → analyse_upload (sync) → ImportUploadResponse (staging)
-  → User manages groups (merge, split, skip, exclude, set author/type)
-  → Auto-detected tags/grid hints pass through unchanged
-  → POST /confirm sends { author, group_name, files, remaining_groups }
-  → process_import_group runs async via JobRunner
-  → transition_job_status() → active (has running groups)
-  → Group completes → transition_job_status() → awaiting_input or completed
-  → If awaiting_input: user confirms more groups → active again
-  → All groups done → completed or failed
-  → Post-import: user reviews enriched metadata via EditGroupDialog
+POST /upload-batch ×N → files staged
+POST /analyse → analyse_upload (sync) → ImportUploadResponse (staging)
+  → useImportState auto-confirm effect fires
+  → Empty authors filled as "Unknown"
+  → POST /confirm-all → all groups submitted at once
+  → process_import_job runs async via JobRunner
+  → Images saved with needs_review = True
+  → transition_job_status() → active → completed
+  → Toast notification fires
+  → User clicks "Review" → EditGroupDialog (import-review mode)
+  → User clicks "Confirm Import" → POST /groups/confirm-review
+  → needs_review cleared → images visible in gallery
+  → ActivityDock entry dismissed
 ```
 
 ## Staging Cleanup
