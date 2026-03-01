@@ -212,6 +212,7 @@ class ImportGroupJob(Base):
     status = Column(String, nullable=False, default="running")
     # status values: running, completed, failed, cancelled
     error_message = Column(Text, nullable=True)
+    file_errors = Column(Text, nullable=True)  # JSON list of per-file error dicts
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
     # Set once the group finishes so the frontend can link back to the created ImageGroup

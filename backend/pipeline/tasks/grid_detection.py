@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from backend.app.services.grid_detector import GridDetector
-from backend.pipeline.logger import get_logger
 
 if TYPE_CHECKING:
     from backend.pipeline.pipeline_config import PipelineConfig
@@ -32,7 +32,7 @@ def detect_grid_from_image(
     Returns:
         Dict with gridded, grid_type, grid_width, grid_height, confidence.
     """
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
 
     try:
         if pipeline_config is not None:

@@ -8,6 +8,7 @@ Usage:
     uv run python -m backend.pipeline.reparse_names
 """
 
+import logging
 from pathlib import Path
 
 from backend.app.config import settings
@@ -21,7 +22,6 @@ from backend.app.models.database import (
 from backend.app.services import ImageParser
 from backend.app.services.fts_service import fts_rebuild
 from backend.app.services.image_parser import build_search_text
-from backend.pipeline.logger import get_logger
 
 BATCH_SIZE = 200
 
@@ -109,7 +109,7 @@ def reparse_image_names_batch(
                 else:
                     unchanged += 1
             except Exception as e:
-                get_logger(__name__).error(f"Image {image.id}: error reparsing name: {e}")
+                logging.getLogger(__name__).error("Image %s: error reparsing name: %s", image.id, e)
                 errors += 1
 
         db.commit()

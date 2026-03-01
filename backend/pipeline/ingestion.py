@@ -9,6 +9,8 @@ Functions:
 """
 
 import hashlib
+import json
+import logging
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
@@ -31,7 +33,7 @@ from backend.app.services import ImageParser, get_image_store, get_qdrant_servic
 from backend.app.services.fts_service import fts_rebuild
 from backend.app.services.image_parser import build_search_text
 
-from .logger import get_logger
+from .error_classifier import classify_ingest_error
 from .pipeline_config import PipelineConfig, load_pipeline_config
 from .tasks.embedding_generation import (
     batch_generate_clip_embeddings,
@@ -45,7 +47,6 @@ from .tasks.embedding_generation import (
 
 def _build_parser() -> ImageParser:
     """Create an ImageParser with tag vocabulary loaded from DB."""
-    get_logger(__name__)
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)
     db = SessionLocal()
@@ -82,7 +83,6 @@ def _save_image_to_db(db: Session, image_data: dict) -> int:
 
     Returns the image ID. Does NOT commit — caller must commit.
     """
-    get_logger(__name__)
     image = Image(
         filename=image_data["filename"],
         storage_key=image_data["storage_key"],
@@ -163,7 +163,7 @@ def _save_image_to_db(db: Session, image_data: dict) -> int:
 
 def scan_directory(directory: str) -> list[str]:
     """Scan directory for supported image files."""
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
     directory_obj = Path(directory)
     logger.info("Scanning directory: %s", directory_obj)
     image_paths = []
@@ -201,10 +201,11 @@ def prepare_single_image(
     Returns:
         Dict with 'status', 'image_data', 'original_image_path', 'qdrant_metadata'
     """
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
     image_path_obj = Path(image_path)
     logger.info("Preparing image: %s", image_path_obj.name)
 
+    stage = "parse"
     try:
         # --- Parse metadata ---
         if metadata:
@@ -324,6 +325,7 @@ def prepare_single_image(
             }
 
         # --- Normal path: Copy image/video into ImageStore ---
+        stage = "copy"
         image_store = get_image_store()
         storage_key_stem = uuid.uuid4().hex[:12]
         ext = image_path_obj.suffix.lower()
@@ -339,6 +341,7 @@ def prepare_single_image(
 
         # --- Generate thumbnails + get dimensions ---
         # --- Extract colors ---
+        stage = "thumbnails"
         from backend.pipeline.tasks.color_extraction import (
             extract_dominant_colors as _extract_colors,
         )
@@ -357,12 +360,14 @@ def prepare_single_image(
 
             thumbnail_result = _gen_thumbs(str(frame_path), storage_key_stem)
             thumbnail_keys = thumbnail_result["keys"]
+            stage = "colors"
             colors = _extract_colors(str(frame_path), pipeline_config=pipeline_config)
             width, height = get_video_dimensions(image_path_obj)
             clip_image_path = str(frame_path)  # keep alive for CLIP in _process_batch
         else:
             thumbnail_result = _gen_thumbs(image_path, storage_key_stem)
             thumbnail_keys = thumbnail_result["keys"]
+            stage = "colors"
             colors = _extract_colors(image_path, pipeline_config=pipeline_config)
             width, height = thumbnail_result["dimensions"]
             clip_image_path = None
@@ -370,6 +375,7 @@ def prepare_single_image(
         thumbnail_key = thumbnail_keys.get("medium", thumbnail_keys.get("small"))
 
         # --- Image-based grid detection (optional, battlemaps only) ---
+        stage = "grid_detection"
         # grid_type is already set from metadata or filename parsing above.
         # Image-based detection can override it if it produces a result.
         grid_confidence = None
@@ -447,11 +453,13 @@ def prepare_single_image(
         }
 
     except Exception as e:
-        logger.error("Failed to prepare image %s: %s", image_path_obj, e)
+        logger.exception("Failed to prepare image %s at stage '%s'", image_path_obj, stage)
+        error_info = classify_ingest_error(e, stage=stage)
         return {
             "status": "failed",
             "original_image_path": image_path,
-            "error": str(e),
+            "error": error_info["reason"],
+            "error_info": error_info,
         }
 
 
@@ -466,7 +474,7 @@ def save_to_database(image_data: dict) -> int:
     Returns:
         Image ID
     """
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)
     db = SessionLocal()
@@ -485,7 +493,7 @@ def save_to_database(image_data: dict) -> int:
 
 def save_to_qdrant(image_id: int, embedding: list[float], metadata: dict) -> bool:
     """Save embedding to Qdrant."""
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
     try:
         success = get_qdrant_service().add_image_embedding(
             image_id=image_id,
@@ -514,7 +522,7 @@ def batch_save_to_database(image_data_list: list[dict]) -> list[int]:
     Returns:
         List of image IDs
     """
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)
     db = SessionLocal()
@@ -548,7 +556,7 @@ def batch_save_to_qdrant(items: list[dict]) -> bool:
     Returns:
         True if successful, False on error
     """
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
     try:
         success = get_qdrant_service().batch_add_embeddings(items)
         if success:
@@ -572,9 +580,9 @@ def update_import_group_job_progress(
     failed: int,
     status: str = "running",
     created_group_id: int | None = None,
+    file_errors: list[dict] | None = None,
 ) -> None:
     """Update ImportGroupJob progress counters in the database."""
-    get_logger(__name__)
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)
     db = SessionLocal()
@@ -586,6 +594,8 @@ def update_import_group_job_progress(
             group_job.status = status
             if created_group_id is not None:
                 group_job.created_group_id = created_group_id
+            if file_errors:
+                group_job.file_errors = json.dumps(file_errors)
             if status == "completed":
                 group_job.completed_at = datetime.now(UTC).replace(tzinfo=None)
             db.commit()
@@ -614,7 +624,7 @@ def _process_batch(
     Returns:
         Tuple of (all_results including failures, count of batch failures)
     """
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
     # Separate successes from failures
     successful = [r for r in prepared_results if r["status"] == "success"]
     batch_failed = len(prepared_results) - len(successful)
@@ -634,6 +644,14 @@ def _process_batch(
             embeddings = batch_generate_clip_embeddings(image_paths)
             for prep, embedding in zip(new_images, embeddings, strict=True):
                 prep["embedding"] = embedding
+        except Exception as clip_exc:
+            logger.exception("Batch CLIP embedding failed for %d images", len(new_images))
+            error_info = classify_ingest_error(clip_exc, stage="embedding")
+            for prep in new_images:
+                prep["status"] = "failed"
+                prep["error"] = error_info["reason"]
+                prep["error_info"] = error_info
+                batch_failed += 1
         finally:
             # Clean up temp video frame files whether or not CLIP succeeded
             for prep in new_images:
@@ -657,8 +675,13 @@ def _process_batch(
                 prep["embedding"] = generate_clip_embedding(str(stored_path))
             else:
                 logger.error("Stored file not found for reuse: %s", stored_path)
+                error_info = classify_ingest_error(
+                    FileNotFoundError(f"Stored file not found: {stored_path}"),
+                    stage="embedding",
+                )
                 prep["status"] = "failed"
-                prep["error"] = "Could not retrieve or generate embedding"
+                prep["error"] = error_info["reason"]
+                prep["error_info"] = error_info
                 batch_failed += 1
 
     # Re-filter to only truly successful results
@@ -701,9 +724,10 @@ def process_single_image(
     Thin wrapper around prepare_single_image + single CLIP + single DB/Qdrant save.
     Used for one-off processing; batch flows use the batched pipeline directly.
     """
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
     image_path_obj = Path(image_path)
     logger.info("Processing image: %s", image_path_obj)
+    stage = "prepare"
 
     try:
         # Prepare (thumbnails, colors, copy to store)
@@ -717,12 +741,15 @@ def process_single_image(
             }
 
         # CLIP embedding (single image)
+        stage = "embedding"
         embedding = generate_clip_embedding(image_path)
 
         # Save to database
+        stage = "db_save"
         image_id = save_to_database(prepared["image_data"])
 
         # Save to Qdrant
+        stage = "qdrant_save"
         save_to_qdrant(
             image_id=image_id,
             embedding=embedding,
@@ -737,11 +764,12 @@ def process_single_image(
         }
 
     except Exception as e:
-        logger.error("Failed to process image %s: %s", image_path_obj, e)
+        logger.exception("Failed to process image %s", image_path_obj)
+        error_info = classify_ingest_error(e, stage=stage)
         return {
             "status": "failed",
             "filepath": image_path,
-            "error": str(e),
+            "error": error_info["reason"],
         }
 
 
@@ -756,7 +784,7 @@ def bulk_image_ingestion(
     - CLIP embeddings are generated in batch (vectorized forward pass)
     - Database and Qdrant saves are batched into single transactions
     """
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
     if pipeline_config is None:
         pipeline_config = load_pipeline_config()
     batch_size = pipeline_config.ingestion_batch_size
@@ -855,7 +883,7 @@ def analyse_upload(
     ``default_image_type`` is passed to the parser so it can apply
     type-specific parsing rules (e.g. skip grid detection for scenes).
     """
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
     logger.info("Analysing %s uploaded files in %s", len(relative_paths), staging_dir)
     staging = Path(staging_dir)
     if precomputed_hashes is None:
@@ -949,7 +977,7 @@ def _run_group(
     Updates ImportGroupJob progress after every batch and marks it completed (or
     failed) when done.
     """
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
     if pipeline_config is None:
         pipeline_config = load_pipeline_config()
     batch_size = pipeline_config.ingestion_batch_size
@@ -957,6 +985,7 @@ def _run_group(
     staging = Path(staging_dir)
     processed = 0
     failed = 0
+    all_file_errors: list[dict] = []
 
     # Filter to files that exist in staging or have a reuse key (duplicate not uploaded)
     valid_files = []
@@ -971,9 +1000,18 @@ def _run_group(
         else:
             logger.warning("File not found in staging: %s", image_path)
             failed += 1
+            all_file_errors.append(
+                {
+                    "filename": image_path.name,
+                    "reason": "File was not found in staging",
+                    "stage": "copy",
+                }
+            )
 
     if failed > 0:
-        update_import_group_job_progress(group_job_id, processed, failed)
+        update_import_group_job_progress(
+            group_job_id, processed, failed, file_errors=all_file_errors
+        )
 
     try:
         for batch_start in range(0, len(valid_files), batch_size):
@@ -1020,7 +1058,22 @@ def _run_group(
             batch_success = sum(1 for r in batch_results if r["status"] == "success")
             processed += batch_success
             failed += len(batch_results) - batch_success
-            update_import_group_job_progress(group_job_id, processed, failed)
+
+            # Collect per-file errors from this batch
+            for r in batch_results:
+                if r["status"] == "failed":
+                    error_info = r.get("error_info", {})
+                    all_file_errors.append(
+                        {
+                            "filename": Path(r.get("original_image_path", "unknown")).name,
+                            "reason": error_info.get("reason", r.get("error", "Unknown error")),
+                            "stage": error_info.get("stage", "unknown"),
+                        }
+                    )
+
+            update_import_group_job_progress(
+                group_job_id, processed, failed, file_errors=all_file_errors
+            )
 
         # Look up the ImageGroup that was created/updated so we can link back to it
         _created_group_id: int | None = None
@@ -1042,7 +1095,12 @@ def _run_group(
             pass  # Non-fatal — link is a convenience, not required
 
         update_import_group_job_progress(
-            group_job_id, processed, failed, status="completed", created_group_id=_created_group_id
+            group_job_id,
+            processed,
+            failed,
+            status="completed",
+            created_group_id=_created_group_id,
+            file_errors=all_file_errors,
         )
         logger.info("Group %s (%s): %s ok, %s failed", group_job_id, group_name, processed, failed)
     except Exception as e:
@@ -1052,7 +1110,9 @@ def _run_group(
         logger.error(
             "Group %s (%s) failed after %s images: %s", group_job_id, group_name, processed, e
         )
-        update_import_group_job_progress(group_job_id, processed, failed, status="failed")
+        update_import_group_job_progress(
+            group_job_id, processed, failed, status="failed", file_errors=all_file_errors
+        )
         raise  # re-raise so process_import_job can catch it per-group
 
     return processed, failed
@@ -1064,7 +1124,7 @@ def _mark_group_job_failed(group_job_id: str, error_message: str) -> None:
     Non-fatal: any DB error is logged and swallowed so it never propagates
     to the caller (which is already handling a failure scenario).
     """
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
     try:
         engine = get_engine(settings.database_url)
         SessionLocal = get_session_local(engine)
@@ -1091,7 +1151,7 @@ def _finalize_import_job(job_id: str) -> None:
     """
     from backend.app.services.import_state import transition_job_status
 
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)
     db = SessionLocal()
@@ -1105,7 +1165,7 @@ def _finalize_import_job(job_id: str) -> None:
 
 def _rebuild_fts() -> None:
     """Rebuild the FTS index (non-fatal on error)."""
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
     try:
         engine = get_engine(settings.database_url)
         SessionLocal = get_session_local(engine)
@@ -1133,7 +1193,7 @@ def process_import_group(
     For multi-group imports prefer process_import_job, which handles all groups
     in one Python process so the CLIP model is loaded only once.
     """
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
     if pipeline_config is None:
         pipeline_config = load_pipeline_config()
     logger.info(
@@ -1182,7 +1242,7 @@ def process_import_job(
     Groups are isolated: an unhandled exception in one group is caught, the
     group is marked as failed, and processing continues with the next group.
     """
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
     if pipeline_config is None:
         pipeline_config = load_pipeline_config()
     logger.info("Starting import job %s: %s group(s) in %s", job_id, len(groups), staging_dir)

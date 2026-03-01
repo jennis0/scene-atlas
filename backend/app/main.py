@@ -11,6 +11,7 @@ from sqlalchemy import text
 from .api import export, groups, images, imports, jobs, search, system, tags
 from .api import settings as settings_api
 from .config import settings
+from .logging_config import setup_logging
 from .models import (
     get_engine,
     get_session_local,
@@ -19,11 +20,8 @@ from .models import (
     seed_tag_categories,
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO if not settings.debug else logging.DEBUG,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+# Configure logging — console + rotating file in data_dir/logs/
+setup_logging(settings.data_dir, debug=settings.debug)
 
 logger = logging.getLogger(__name__)
 
