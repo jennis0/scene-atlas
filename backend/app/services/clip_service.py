@@ -145,9 +145,7 @@ class CLIPService:
         """
         try:
             with Image.open(image_path) as img:
-                image = img.convert("RGB")
-            pixel_values = self._preprocess_image(image)
-            del image
+                pixel_values = self._preprocess_image(img.convert("RGB"))
 
             pixel_values = pixel_values[np.newaxis, ...]  # [1, 3, 224, 224]
 
@@ -202,9 +200,7 @@ class CLIPService:
             pixel_batch = []
             for path in image_paths:
                 with Image.open(path) as img:
-                    image = img.convert("RGB")
-                pixel_batch.append(self._preprocess_image(image))
-                del image
+                    pixel_batch.append(self._preprocess_image(img.convert("RGB")))
 
             pixel_values = np.stack(pixel_batch, axis=0)  # [N, 3, 224, 224]
             del pixel_batch
@@ -241,14 +237,20 @@ def _load_clip() -> None:
             _clip_service = service
         logger.info("CLIP model ready")
     except Exception as exc:
-        _clip_error = exc
+        with _clip_lock:
+            _clip_error = exc
         logger.exception("CLIP model load failed")
     finally:
         _clip_ready.set()  # Always unblock waiters, even on failure
 
 
 def start_clip_background_load() -> threading.Thread:
-    """Kick off CLIP loading in a daemon thread.  Call once from lifespan."""
+    """Kick off CLIP loading in a daemon thread.  Idempotent — safe to call twice."""
+    if _clip_ready.is_set():
+        # Already loaded (or failed) — nothing to do; return a harmless sentinel.
+        t = threading.Thread(target=lambda: None, daemon=True, name="clip-loader-noop")
+        t.start()
+        return t
     t = threading.Thread(target=_load_clip, daemon=True, name="clip-loader")
     t.start()
     return t

@@ -107,7 +107,7 @@ class _TorchCLIPReference:
         return features.cpu().numpy().flatten().tolist()
 
     def encode_text(self, text: str) -> list[float]:
-        inputs = self.processor(text=text, return_tensors="pt", padding=True)
+        inputs = self.processor(text=text, return_tensors="pt", padding="max_length", max_length=77)
         with self._torch.no_grad():
             to = self.model.text_model(**inputs)
             features = self.model.text_projection(to.pooler_output)

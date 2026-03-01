@@ -161,7 +161,12 @@ _JUNK_PREFIXES = (
     'scipy/spatial/',
 )
 
-# .dist-info directories are package metadata — not needed at runtime
+# .dist-info directories are package metadata — safe to strip at runtime.
+# IMPORTANT: Some packages use entry_points.txt in .dist-info for plugin
+# discovery (e.g. onnxruntime execution providers).  CPUExecutionProvider is
+# statically compiled into onnxruntime and requires no entry-points lookup,
+# so stripping .dist-info is safe for the current provider list.  If GPU or
+# other plugin-based providers are ever added, revisit this filter.
 _DIST_INFO_RE = _re.compile(r'\.dist-info/')
 
 def _keep_entry(entry):

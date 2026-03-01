@@ -291,7 +291,7 @@ Pipeline functions in `backend/pipeline/` are now plain Python functions — no 
 
 ---
 
-## ADR-012: Replace torch+transformers with ONNX Runtime for CLIP inference
+## ADR-014: Replace torch+transformers with ONNX Runtime for CLIP inference
 
 **Date:** 2026-03
 **Status:** Accepted

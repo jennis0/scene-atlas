@@ -4,6 +4,17 @@
 Requires dev dependencies: torch, transformers, onnxruntime, onnx.
 Outputs ONNX graphs + tokenizer files to backend/models/.
 
+Prerequisites:
+    The model weights must be downloaded to the HuggingFace cache before
+    running this script (local_files_only=True is used to avoid accidental
+    network access).  Download once with:
+
+        uv run python -c "
+        from transformers import CLIPModel, CLIPProcessor
+        CLIPModel.from_pretrained('laion/CLIP-ViT-B-32-laion2B-s34B-b79K')
+        CLIPProcessor.from_pretrained('laion/CLIP-ViT-B-32-laion2B-s34B-b79K')
+        "
+
 Usage:
     uv run python scripts/export_clip_onnx.py
 """
@@ -18,6 +29,9 @@ from transformers import CLIPModel, CLIPProcessor
 
 MODEL_NAME = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "backend" / "models"
+# CLIP's maximum token sequence length.  The text encoder is exported with
+# this as a *fixed* dimension (only the batch axis is dynamic).  The inference
+# service always pads/truncates input_ids and attention_mask to this length.
 CONTEXT_LENGTH = 77
 
 
