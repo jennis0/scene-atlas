@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useCallback, useMemo, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   DndContext,
@@ -21,17 +21,11 @@ import {
   MoreHorizontal,
   EyeOff,
 } from 'lucide-react'
-import { groupApi, tagApi, imageApi, getThumbnailUrlById, getImageUrlById } from '@/lib/api'
-import { getApiErrorMessage, isNotFoundError } from '@/lib/getErrorMessage'
+import { groupApi } from '@/lib/api'
+import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { SAVED_INDICATOR_DURATION_MS } from '@/lib/constants'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
-import type {
-  EditableFileState,
-  EditableGroupState,
-  Image,
-  GroupEditRequest,
-  GroupSearchItem,
-} from '@/types'
+import type { EditableGroupState, Image, GroupSearchItem } from '@/types'
 import { MergeGroupPicker } from './MergeGroupPicker'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import {
@@ -45,9 +39,9 @@ import { FileCard } from './import/FileCard'
 import { FileToolbar } from './import/FileToolbar'
 import { MetadataForm } from './import/MetadataForm'
 import { SubgroupHeading } from './SubgroupHeading'
-import { parseTagVocabulary } from './import/types'
-import { EMPTY_FILTER, applyFileFilter } from './import/fileFilter'
+import { applyFileFilter } from './import/fileFilter'
 import { useFileEditing, ALL_TAB } from '@/hooks/useFileEditing'
+import { useEditGroupLoad, imageToEditable, buildPayload } from '@/hooks/useEditGroupLoad'
 import {
   DraggableFileCardWrapper,
   DroppableGroupRow,
@@ -71,50 +65,6 @@ interface EditGroupDialogProps {
   onSave: () => void
 }
 
-function imageToEditable(img: Image, outOfScope = false): EditableFileState {
-  return {
-    relative_path: String(img.id),
-    filename: img.filename,
-    name: img.name || img.filename,
-    tags: img.tags.map((t) => ({
-      category: t.category,
-      value: t.value,
-      confidence: t.confidence,
-      source: t.source,
-    })),
-    gridded: img.gridded ?? null,
-    grid_width: img.grid_width ?? null,
-    grid_height: img.grid_height ?? null,
-    grid_type: img.grid_type ?? null,
-    subgroup: img.subgroup ?? null,
-    image_type: img.image_type ?? 'battlemap',
-    excluded: false,
-    outOfScope,
-    previewUrl: getThumbnailUrlById(img.id),
-    fullImageUrl: getImageUrlById(img.id),
-  }
-}
-
-function buildPayload(group: EditableGroupState): GroupEditRequest {
-  const kept = group.files.filter((f) => !f.excluded)
-  return {
-    base_name: group.group_name,
-    author: group.author || undefined,
-    images: kept.map((f) => ({
-      id: Number(f.relative_path),
-      name: f.name,
-      tags: f.tags,
-      gridded: f.gridded,
-      grid_width: f.grid_width,
-      grid_height: f.grid_height,
-      grid_type: f.grid_type,
-      subgroup: f.subgroup,
-      image_type: f.image_type,
-    })),
-    new_groups: [],
-  }
-}
-
 // ── Main component ─────────────────────────────────────────────────────────
 
 export default function EditGroupDialog({
@@ -125,8 +75,6 @@ export default function EditGroupDialog({
   onClose,
   onSave,
 }: EditGroupDialogProps) {
-  const isMassEdit = !!seedImages && seedImages.length > 0
-  const isImportReview = !!groupIds && groupIds.length > 0
   const queryClient = useQueryClient()
 
   const invalidateGallery = useCallback(() => {
@@ -134,8 +82,6 @@ export default function EditGroupDialog({
     queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
   }, [queryClient])
 
-  const [loading, setLoading] = useState(false)
-  const [loadError, setLoadError] = useState<string | null>(null)
   // `saving` = a structural operation (delete/merge/split) is in progress — disables UI
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -148,7 +94,6 @@ export default function EditGroupDialog({
   // Per-group nav actions (mass-edit mode)
   const [mergeSourceGroupId, setMergeSourceGroupId] = useState<string | null>(null)
   const [deleteConfirmGroupId, setDeleteConfirmGroupId] = useState<string | null>(null)
-  const [ungroupedCount, setUngroupedCount] = useState(0)
 
   // ── Drag & drop state ────────────────────────────────────────────────
   const [activeDrag, setActiveDrag] = useState<ActiveDragState | null>(null)
@@ -165,6 +110,26 @@ export default function EditGroupDialog({
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor),
   )
+
+  // Reset dialog-local state (everything NOT owned by useEditGroupLoad or useFileEditing)
+  const resetDialogState = useCallback(() => {
+    setSaving(false)
+    setSaveError(null)
+    setConfirmingDelete(false)
+    setShowMergePicker(false)
+    setMerging(false)
+    setGroupSaving(new Set())
+    setGroupSaved(new Set())
+    setMergeSourceGroupId(null)
+    setDeleteConfirmGroupId(null)
+    setActiveDrag(null)
+    setDragMergeSource(null)
+    setDragMergeTarget(null)
+    setSelectedGroupIds(new Set())
+    setLastClickedGroupIndex(null)
+    setConfirmingBulkMerge(false)
+    setConfirmingBulkDelete(false)
+  }, [])
 
   // ── Auto-save ────────────────────────────────────────────────────────
 
@@ -242,222 +207,22 @@ export default function EditGroupDialog({
     allSameAuthor,
   } = useFileEditing({ onGroupChange: (affected) => affected.forEach(autoSaveGroup) })
 
-  const reset = useCallback(() => {
-    setLoading(false)
-    setLoadError(null)
-    setSaving(false)
-    setSaveError(null)
-    setConfirmingDelete(false)
-    setShowMergePicker(false)
-    setMerging(false)
-    setGroupSaving(new Set())
-    setGroupSaved(new Set())
-    setMergeSourceGroupId(null)
-    setDeleteConfirmGroupId(null)
-    setUngroupedCount(0)
-    setActiveDrag(null)
-    setDragMergeSource(null)
-    setDragMergeTarget(null)
-    setSelectedGroupIds(new Set())
-    setLastClickedGroupIndex(null)
-    setConfirmingBulkMerge(false)
-    setConfirmingBulkDelete(false)
-    setGroups([])
-    setActiveTab(0)
-    setFileFilter(EMPTY_FILTER)
-    setEditingSvHeading(null)
-  }, [setGroups, setActiveTab, setFileFilter, setEditingSvHeading])
-
-  // ── Load: single-group mode ──────────────────────────────────────
-
-  useEffect(() => {
-    if (!open || isMassEdit || isImportReview) return
-    const gId = groupId ?? null
-    if (gId === null) {
-      reset()
-      return
-    }
-
-    setLoading(true)
-    setLoadError(null)
-
-    Promise.all([groupApi.get(gId), tagApi.getCategories(), imageApi.getAuthors()])
-      .then(([group, categories, authors]) => {
-        setGroups([
-          {
-            id: String(group.id),
-            author: group.author ?? '',
-            group_name: group.base_name,
-            files: group.images.map((img) => imageToEditable(img)),
-            skip: false,
-            status: 'pending',
-            processed: 0,
-            failed: 0,
-            total: group.images.length,
-          },
-        ])
-        setTagVocab(parseTagVocabulary(categories))
-        setAuthorSuggestions(authors)
-        setActiveTab(0)
-      })
-      .catch((err: unknown) => {
-        if (isNotFoundError(err)) {
-          setLoadError('This group no longer exists — it may have been merged or deleted.')
-        } else {
-          setLoadError(getApiErrorMessage(err, 'Failed to load group'))
-        }
-      })
-      .finally(() => {
-        setLoading(false)
-      })
-  }, [
+  // ── Data loading (single-group / mass-edit / import-review) ────────
+  const { loading, loadError, isMassEdit, ungroupedCount } = useEditGroupLoad({
     open,
     groupId,
-    isMassEdit,
-    isImportReview,
-    reset,
-    setGroups,
-    setTagVocab,
-    setAuthorSuggestions,
-    setActiveTab,
-  ])
-
-  // ── Load: mass-edit mode ─────────────────────────────────────────
-
-  useEffect(() => {
-    if (!open || !isMassEdit) return
-
-    setLoading(true)
-    setLoadError(null)
-
-    // Group seed images by group_id
-    const byGroup = new Map<number, Image[]>()
-    let ungrouped = 0
-    for (const img of seedImages!) {
-      if (img.group_id === null) {
-        ungrouped++
-      } else {
-        const list = byGroup.get(img.group_id) ?? []
-        list.push(img)
-        byGroup.set(img.group_id, list)
-      }
-    }
-
-    const groupIds = [...byGroup.keys()]
-    if (groupIds.length === 0) {
-      setLoadError('None of the search results belong to a variant group.')
-      setLoading(false)
-      return
-    }
-
-    setUngroupedCount(ungrouped)
-
-    Promise.all([
-      ...groupIds.map((id) => groupApi.get(id)),
-      tagApi.getCategories(),
-      imageApi.getAuthors(),
-    ])
-      .then((results) => {
-        const groupDetails = results.slice(0, groupIds.length) as Awaited<
-          ReturnType<typeof groupApi.get>
-        >[]
-        const categories = results[groupIds.length] as Awaited<
-          ReturnType<typeof tagApi.getCategories>
-        >
-        const authors = results[groupIds.length + 1] as string[]
-
-        const editableGroups: EditableGroupState[] = groupDetails.map((detail) => {
-          const seedIds = new Set((byGroup.get(detail.id) ?? []).map((img) => img.id))
-          return {
-            id: String(detail.id),
-            author: detail.author ?? '',
-            group_name: detail.base_name,
-            // ALL images in the group; non-seed ones marked outOfScope
-            files: detail.images.map((img) => imageToEditable(img, !seedIds.has(img.id))),
-            skip: false,
-            status: 'pending',
-            processed: 0,
-            failed: 0,
-            total: detail.images.length,
-          }
-        })
-
-        setGroups(editableGroups)
-        setTagVocab(parseTagVocabulary(categories))
-        setAuthorSuggestions(authors)
-        setActiveTab(editableGroups.length > 1 ? ALL_TAB : 0)
-      })
-      .catch((err: unknown) => {
-        setLoadError(getApiErrorMessage(err, 'Failed to load groups'))
-      })
-      .finally(() => {
-        setLoading(false)
-      })
-  }, [
-    open,
     seedImages,
-    isMassEdit,
-    reset,
-    setGroups,
-    setTagVocab,
-    setAuthorSuggestions,
-    setActiveTab,
-  ])
-
-  // ── Load: import-review mode (multiple groups by ID, all images in scope) ──
-
-  useEffect(() => {
-    if (!open || !isImportReview) return
-
-    setLoading(true)
-    setLoadError(null)
-
-    const ids = groupIds!
-    Promise.all([
-      ...ids.map((id) => groupApi.get(id)),
-      tagApi.getCategories(),
-      imageApi.getAuthors(),
-    ])
-      .then((results) => {
-        const groupDetails = results.slice(0, ids.length) as Awaited<
-          ReturnType<typeof groupApi.get>
-        >[]
-        const categories = results[ids.length] as Awaited<ReturnType<typeof tagApi.getCategories>>
-        const authors = results[ids.length + 1] as string[]
-
-        const editableGroups: EditableGroupState[] = groupDetails.map((detail) => ({
-          id: String(detail.id),
-          author: detail.author ?? '',
-          group_name: detail.base_name,
-          files: detail.images.map((img) => imageToEditable(img)),
-          skip: false,
-          status: 'pending',
-          processed: 0,
-          failed: 0,
-          total: detail.images.length,
-        }))
-
-        setGroups(editableGroups)
-        setTagVocab(parseTagVocabulary(categories))
-        setAuthorSuggestions(authors)
-        setActiveTab(editableGroups.length > 1 ? ALL_TAB : 0)
-      })
-      .catch((err: unknown) => {
-        setLoadError(getApiErrorMessage(err, 'Failed to load imported groups'))
-      })
-      .finally(() => {
-        setLoading(false)
-      })
-  }, [
-    open,
     groupIds,
-    isImportReview,
-    reset,
-    setGroups,
-    setTagVocab,
-    setAuthorSuggestions,
-    setActiveTab,
-  ])
+    onResetDialogState: resetDialogState,
+    fileEditing: {
+      setGroups,
+      setActiveTab,
+      setFileFilter,
+      setEditingSvHeading,
+      setTagVocab,
+      setAuthorSuggestions,
+    },
+  })
 
   // ── Close / Done ────────────────────────────────────────────────
 
