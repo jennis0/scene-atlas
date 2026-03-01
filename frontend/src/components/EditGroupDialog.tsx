@@ -176,12 +176,17 @@ export default function EditGroupDialog({
   // Called on any close action — changes have already been auto-saved
   const handleDone = useCallback(() => {
     if (isImportReview && groupIds) {
-      groupApi.confirmReview(groupIds).catch(() => {
-        // Non-fatal — images will still be importable, user just needs to retry
+      // Close dialog immediately for good UX, then wait for confirm-review
+      // before calling onSave (which triggers gallery invalidation) so that
+      // the images are actually visible when the gallery refetches.
+      onClose()
+      groupApi.confirmReview(groupIds).finally(() => {
+        onSave()
       })
+    } else {
+      onSave()
+      onClose()
     }
-    onSave()
-    onClose()
   }, [isImportReview, groupIds, onSave, onClose])
 
   // Destructure commonly-used operations for readability in JSX

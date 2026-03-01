@@ -105,22 +105,17 @@ export function useActiveImports(): UseActiveImportsReturn {
   // Detect transitions to 'completed' and fire listeners
   useEffect(() => {
     const prev = prevJobStatusRef.current
-    let anyCompleted = false
+    const justCompleted: ActiveImportJob[] = []
     for (const job of jobs) {
       const prevStatus = prev.get(job.jobId)
       if (prevStatus && prevStatus !== 'completed' && job.status === 'completed') {
-        anyCompleted = true
+        justCompleted.push(job)
       }
       prev.set(job.jobId, job.status)
     }
-    if (anyCompleted) {
-      for (const job of jobs) {
-        const prevStatus = prev.get(job.jobId)
-        if (prevStatus && prevStatus !== 'completed' && job.status === 'completed') {
-          completionListeners.current.forEach((cb) => cb(job))
-        }
-      }
-    }
+    justCompleted.forEach((job) => {
+      completionListeners.current.forEach((cb) => cb(job))
+    })
   }, [jobs])
 
   const onJobCompleted = useCallback((cb: (job: ActiveImportJob) => void) => {

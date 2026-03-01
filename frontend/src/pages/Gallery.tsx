@@ -57,6 +57,7 @@ export function Gallery() {
                 .map((g) => g.group_id)
                 .filter((id): id is number => id != null)
               if (ids.length > 0) {
+                importReviewJobIdRef.current = job.jobId
                 dialogs.setImportReviewGroupIds(ids)
               }
             })

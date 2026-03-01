@@ -411,7 +411,11 @@ async def confirm_review(
     if not payload.group_ids:
         return {"updated": 0}
 
-    images = db.query(Image).filter(Image.group_id.in_(payload.group_ids)).all()
+    images = (
+        db.query(Image)
+        .filter(Image.group_id.in_(payload.group_ids), Image.needs_review.is_(True))
+        .all()
+    )
     for image in images:
         image.needs_review = False
     db.commit()

@@ -491,7 +491,7 @@ class ActiveImportsResponse(BaseModel):
 class ConfirmReviewRequest(BaseModel):
     """Request body for POST /groups/confirm-review."""
 
-    group_ids: list[int]
+    group_ids: list[int] = Field(..., max_length=500)
 
 
 # ── App Settings ──────────────────────────────────────────────────────────────
