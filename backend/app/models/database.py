@@ -51,6 +51,9 @@ class Image(Base):
     search_text = Column(Text, nullable=True)  # Pre-tokenized text for FTS5 (CamelCase-split)
     media_type = Column(String, nullable=True, default="image")  # "image" or "video"
     image_type = Column(String, nullable=True, default="battlemap")  # "battlemap" or "scene"
+    import_job_id = Column(
+        String, ForeignKey("import_jobs.id"), nullable=True, index=True
+    )  # Import job that created this row; None for pre-existing/manually added images
 
     # Storage keys (resolved via ImageStore at runtime)
     thumbnail_key = Column(String)  # Key into thumbnail store (e.g., "a1b2c3d4_400x400.jpg")
