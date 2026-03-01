@@ -27,6 +27,7 @@ from ..models.schemas import (
     MoveImagesResponse,
 )
 from ..services import get_image_store, safe_delete_image
+from ..services.app_settings import get_settings as get_app_settings
 from .dependencies import get_db
 
 router = APIRouter()
@@ -410,6 +411,13 @@ async def confirm_review(
     """
     if not payload.group_ids:
         return {"updated": 0}
+
+    app_settings = get_app_settings(db)
+    if len(payload.group_ids) > app_settings.max_import_files:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Too many group IDs: {len(payload.group_ids)}, limit is {app_settings.max_import_files}",
+        )
 
     images = (
         db.query(Image)
