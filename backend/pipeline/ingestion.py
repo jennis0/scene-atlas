@@ -24,6 +24,7 @@ from backend.app.models import (
     Image,
     ImageGroup,
     ImportGroupJob,
+    ImportJob,
     Tag,
     TagCategory,
     get_engine,
@@ -1171,6 +1172,10 @@ def _finalize_import_job(job_id: str) -> None:
 
     Delegates to the central transition_job_status() function which is the
     single authoritative source for import job status transitions.
+
+    If the job was cancelled while a group was still running, performs a
+    best-effort cleanup sweep to delete any images added after the initial
+    cancel sweep.
     """
     from backend.app.services.import_state import transition_job_status
 
@@ -1179,6 +1184,25 @@ def _finalize_import_job(job_id: str) -> None:
     SessionLocal = get_session_local(engine)
     db = SessionLocal()
     try:
+        job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
+        if not job:
+            return
+
+        if job.status == "cancelled":
+            # Job was cancelled mid-flight — sweep for any images added after the
+            # initial cancel (race condition: best-effort cleanup)
+            from backend.app.api.imports import _cleanup_import_images
+
+            swept = _cleanup_import_images(job_id, db)
+            if swept:
+                logger.info(
+                    "Post-cancel sweep: deleted %d late-arriving image(s) for job %s",
+                    swept,
+                    job_id,
+                )
+            db.commit()
+            return
+
         new_status = transition_job_status(db, job_id)
         db.commit()
         logger.info("Import job %s transitioned to '%s'", job_id, new_status)

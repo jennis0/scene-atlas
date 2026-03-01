@@ -20,6 +20,8 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import (
+    Image,
+    ImageGroup,
     ImportGroupJob,
     ImportJob,
 )
@@ -825,7 +827,7 @@ async def cleanup_old_imports(db: Session = Depends(get_db)):
     Never deletes jobs that are currently staging (pending user review) or running.
     """
     # Only delete jobs in terminal status — status is authoritative from DB
-    terminal_statuses = {"completed", "failed", "cancelled", "expired"}
+    terminal_statuses = {"completed", "failed", "cancelled", "expired", "broken"}
 
     all_jobs = db.query(ImportJob).all()
     to_delete = []
@@ -907,46 +909,129 @@ async def finalize_import(job_id: str, db: Session = Depends(get_db)):
     return {"status": job.status, "staging_cleaned": staging_cleaned, "already_terminal": False}
 
 
+def _cleanup_import_images(job_id: str, db: Session) -> int:
+    """Delete all Image rows created by this import job.
+
+    For each image, checks if its storage_key is shared with other Image rows.
+    If not shared, deletes the physical file and thumbnail from disk.
+    Also removes embeddings from Qdrant (best-effort) and deletes now-empty
+    ImageGroups that were created by this import.
+
+    Returns the count of Image rows deleted.
+    """
+    from ..services import get_image_store, get_thumbnail_store
+    from ..services.qdrant_service import get_qdrant_service
+
+    images = db.query(Image).filter(Image.import_job_id == job_id).all()
+    if not images:
+        return 0
+
+    image_store = get_image_store()
+    thumbnail_store = get_thumbnail_store()
+    qdrant = get_qdrant_service()
+    deleted_count = 0
+    image_ids_to_delete = []
+    group_ids_to_check = set()
+
+    for image in images:
+        image_ids_to_delete.append(image.id)
+        if image.group_id:
+            group_ids_to_check.add(image.group_id)
+
+        # Only delete physical files when no other Image row shares this storage_key
+        sibling_count = (
+            db.query(Image)
+            .filter(Image.storage_key == image.storage_key, Image.id != image.id)
+            .count()
+        )
+        if sibling_count == 0:
+            if image.storage_key:
+                image_store.delete(image.storage_key)
+            if image.thumbnail_key:
+                thumbnail_store.delete(image.thumbnail_key)
+
+        db.delete(image)
+        deleted_count += 1
+
+    # Remove Qdrant embeddings (best-effort, non-fatal)
+    if image_ids_to_delete:
+        try:
+            qdrant.delete_embeddings(image_ids_to_delete)
+        except Exception:
+            logger.warning(
+                "Qdrant cleanup failed for job %s (non-fatal)", job_id, exc_info=True
+            )
+
+    db.flush()
+
+    # Delete now-empty ImageGroups that were created by this import
+    group_job_rows = (
+        db.query(ImportGroupJob.created_group_id)
+        .filter(ImportGroupJob.job_id == job_id, ImportGroupJob.created_group_id.isnot(None))
+        .all()
+    )
+    created_group_ids = {row[0] for row in group_job_rows}
+
+    for group_id in created_group_ids & group_ids_to_check:
+        remaining = db.query(Image).filter(Image.group_id == group_id).count()
+        if remaining == 0:
+            grp = db.query(ImageGroup).filter(ImageGroup.id == group_id).first()
+            if grp:
+                db.delete(grp)
+
+    return deleted_count
+
+
 @router.post("/{job_id}/cancel")
 async def cancel_import(job_id: str, db: Session = Depends(get_db)):
-    """Cancel an import job and clean up staging files.
+    """Cancel an import job and clean up all associated data.
 
-    Only cleans up staging directory if no groups are still running.
-    Marks the job as cancelled if no groups were ever confirmed.
+    Deletes:
+    - Staging directory
+    - All Image rows created by this import (files on disk if not shared with
+      other imports, thumbnails, Qdrant embeddings)
+    - Now-empty ImageGroups created by this import
+
+    Works for all non-completed states. Returns 409 for completed imports.
     """
     job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Import job not found")
 
+    if job.status == "completed":
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot cancel a completed import. Use the delete endpoint to remove images.",
+        )
+
+    # Clean up imported images (files + DB rows + Qdrant vectors)
+    deleted_images = _cleanup_import_images(job_id, db)
+    logger.info("Deleted %d image(s) for cancelled import %s", deleted_images, job_id)
+
+    # Clean up staging directory
     staging_dir = settings.staging_dir / job_id
-
-    # Check if any groups are still running — don't delete staging if so
-    running_groups = (
-        db.query(ImportGroupJob)
-        .filter(ImportGroupJob.job_id == job_id, ImportGroupJob.status == "running")
-        .count()
-    )
-
-    if running_groups == 0 and staging_dir.exists():
+    if staging_dir.exists():
         shutil.rmtree(staging_dir, ignore_errors=True)
 
-    # Update job status
-    job.pending_groups = 0  # Cancelling means no more groups to confirm
-    all_groups = db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job_id).all()
-    if not all_groups:
-        # No groups were ever confirmed — pure cancellation
-        job.status = "cancelled"
-        job.completed_at = datetime.now(UTC).replace(tzinfo=None)
-    elif all(g.status in ("completed", "failed", "cancelled") for g in all_groups):
-        # All groups terminal — use transition to compute final status
-        from ..services.import_state import transition_job_status
+    # Mark all group jobs as cancelled
+    db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job_id).update(
+        {"status": "cancelled"},
+        synchronize_session=False,
+    )
 
-        transition_job_status(db, job_id)
-    # else: some groups still running — leave status as-is, pipeline will finalize
-
+    # Mark job as cancelled
+    now = datetime.now(UTC).replace(tzinfo=None)
+    job.status = "cancelled"
+    job.completed_at = now
+    job.updated_at = now
+    job.pending_groups = 0
     db.commit()
 
-    return {"status": job.status, "staging_cleaned": running_groups == 0}
+    return {
+        "status": "cancelled",
+        "deleted_images": deleted_images,
+        "staging_cleaned": True,
+    }
 
 
 @router.post("/{job_id}/groups/{group_id}/cancel")

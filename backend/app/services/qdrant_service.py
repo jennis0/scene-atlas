@@ -11,7 +11,7 @@ import threading
 from pathlib import Path
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, PointStruct, VectorParams
+from qdrant_client.models import Distance, PointIdsList, PointStruct, VectorParams
 
 from ..config import settings
 
@@ -156,6 +156,24 @@ class QdrantService:
                 return True
             except Exception as e:
                 logger.error("Error deleting embedding for image_id=%s: %s", image_id, e)
+                return False
+
+    def delete_embeddings(self, image_ids: list[int]) -> bool:
+        """Delete embeddings for multiple image IDs from Qdrant in one operation."""
+        if not image_ids:
+            return True
+        with self._lock:
+            try:
+                self.client.delete(
+                    collection_name=self.collection_name,
+                    points_selector=PointIdsList(points=image_ids),
+                )
+                logger.info("Deleted %d embedding(s) from Qdrant", len(image_ids))
+                return True
+            except Exception as e:
+                logger.warning(
+                    "Failed to delete %d embeddings from Qdrant: %s", len(image_ids), e
+                )
                 return False
 
     def get_embedding(self, image_id: int) -> list[float] | None:
