@@ -1,6 +1,5 @@
 import { useState } from 'react'
-import { Search, X, ChevronDown, FolderPlus, SlidersHorizontal, Copy } from 'lucide-react'
-import { Checkbox } from '@/components/ui/checkbox'
+import { X, ChevronDown, FolderPlus, Copy } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,13 +10,9 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import type { EditableFileState, TagData } from '@/types'
 import { TagPicker } from './TagPicker'
 import type { ParsedTagVocab } from './types'
-import type { FileFilter, ActiveFilter } from './fileFilter'
-import { TypeToggle } from './shared/TypeToggle'
-import {
-  FilterMenuContent,
-  FilterChipList,
-  type FilterOptionGroup,
-} from '@/components/FilterMenuContent'
+import type { FileFilter } from './fileFilter'
+import type { FilterOptionGroup } from '@/components/FilterMenuContent'
+import { FileToolbarCore } from './shared/FileToolbarCore'
 
 interface FileToolbarProps {
   files: EditableFileState[]
@@ -64,25 +59,6 @@ export function FileToolbar({
 }: FileToolbarProps) {
   const [subgroupInput, setSubgroupInput] = useState('')
   const [subOpen, setSubOpen] = useState(false)
-  const [filterOpen, setFilterOpen] = useState(false)
-
-  const visibleNonExcluded = filteredFiles.filter((f) => !f.excluded && !f.outOfScope)
-  const selectedVisible = visibleNonExcluded.filter((f) => selection.has(f.relative_path))
-  const totalSelected = files.filter(
-    (f) => !f.excluded && !f.outOfScope && selection.has(f.relative_path),
-  ).length
-  const totalNonExcluded = files.filter((f) => !f.excluded && !f.outOfScope).length
-  const isAllSelected =
-    visibleNonExcluded.length > 0 && selectedVisible.length === visibleNonExcluded.length
-  const isIndeterminate = selectedVisible.length > 0 && !isAllSelected
-
-  const handleCheckboxChange = () => {
-    if (isAllSelected || isIndeterminate) {
-      onDeselectAll()
-    } else {
-      onSelectAll()
-    }
-  }
 
   const existingSubgroups = [
     ...new Set(files.filter((f) => !f.excluded && f.subgroup).map((f) => f.subgroup as string)),
@@ -181,229 +157,148 @@ export function FileToolbar({
     })
   }
 
-  const handleFiltersChange = (newFilters: ActiveFilter[]) => {
-    onFilterChange({ ...filter, active: newFilters })
-  }
+  // ── Slots ────────────────────────────────────────────────────────────────
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  const bulkActions = (
+    <>
+      {vocab.length > 0 && <TagPicker vocab={vocab} existingTags={[]} onAdd={onBulkAddTag} />}
 
-  return (
-    <div className="flex flex-col py-2 border-b border-border/30 shrink-0">
-      {/* Main toolbar row */}
-      <div className="flex items-center gap-2">
-        {/* Select-all checkbox + count */}
-        <div className="flex items-center gap-2 shrink-0">
-          <Checkbox
-            checked={isIndeterminate ? 'indeterminate' : isAllSelected}
-            onCheckedChange={handleCheckboxChange}
-            disabled={visibleNonExcluded.length === 0}
-            className="h-3.5 w-3.5 rounded-[3px]"
-          />
-          <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
-            {totalSelected > 0 ? (
-              <>
-                <span className="text-foreground font-medium">{totalSelected}</span> /{' '}
-                {totalNonExcluded}
-              </>
-            ) : (
-              <>
-                {totalNonExcluded} file{totalNonExcluded !== 1 ? 's' : ''}
-              </>
-            )}
-          </span>
-        </div>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button className="h-7 px-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors flex items-center gap-1">
+            Type <ChevronDown className="h-3 w-3" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => onBulkSetImageType('battlemap')}>
+            Battlemap
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onBulkSetImageType('scene')}>Scene</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
-        {/* Search + filter */}
-        <div className="relative flex-1 min-w-0 flex items-center gap-1">
-          <div className="relative flex-1 min-w-0">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/40 pointer-events-none" />
-            <input
-              value={filter.text}
-              onChange={(e) => onFilterChange({ ...filter, text: e.target.value })}
-              placeholder="Filter maps…"
-              className="w-full h-7 pl-8 pr-7 text-sm bg-secondary border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary/40 text-foreground placeholder:text-muted-foreground"
-            />
-            {(filter.text || filter.imageType !== 'all') && (
-              <button
-                onClick={() => onFilterChange({ ...filter, text: '', imageType: 'all' })}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button className="h-7 px-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors flex items-center gap-1">
+            Grid <ChevronDown className="h-3 w-3" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => onBulkSetGrid(true, 'square')}>Square</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onBulkSetGrid(true, 'hex')}>Hex</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onBulkSetGrid(false, null)}>Gridless</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onBulkSetGrid(null, null)}>Unknown</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
-          {(hasMixedTypes || alwaysShowTypeToggle) && (
-            <TypeToggle
-              value={filter.imageType}
-              onChange={(v) => onFilterChange({ ...filter, imageType: v })}
-            />
+      <Popover open={subOpen} onOpenChange={setSubOpen}>
+        <PopoverTrigger asChild>
+          <button className="h-7 px-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors flex items-center gap-1">
+            Sub <ChevronDown className="h-3 w-3" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="end"
+          className="w-52 p-0"
+          onOpenAutoFocus={(e: Event) => {
+            e.preventDefault()
+          }}
+        >
+          {existingSubgroups.length > 0 && (
+            <>
+              <div className="px-3 pt-2.5 pb-1 text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">
+                Existing
+              </div>
+              {existingSubgroups.map((sv) => (
+                <button
+                  key={sv}
+                  onClick={() => applySubgroup(sv)}
+                  className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-secondary capitalize transition-colors"
+                >
+                  {sv}
+                </button>
+              ))}
+              <div className="h-px bg-border/50 my-1" />
+            </>
           )}
-
-          <Popover open={filterOpen} onOpenChange={setFilterOpen}>
-            <PopoverTrigger asChild>
-              <button
-                className={`h-7 w-7 rounded flex items-center justify-center shrink-0 transition-colors ${
-                  filter.active.length > 0
-                    ? 'text-primary bg-primary/20 border border-primary/40'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-secondary border border-transparent'
-                }`}
-                title="Add filters"
-              >
-                <SlidersHorizontal className="h-3.5 w-3.5" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-[400px] p-0 h-[480px] flex flex-col">
-              <FilterMenuContent
-                groups={filterGroups}
-                activeFilters={filter.active}
-                onFiltersChange={handleFiltersChange}
-              />
-            </PopoverContent>
-          </Popover>
-        </div>
-
-        {/* Bulk actions — only shown when something is selected */}
-        {totalSelected > 0 && (
-          <div className="flex items-center gap-0.5 shrink-0">
-            {vocab.length > 0 && <TagPicker vocab={vocab} existingTags={[]} onAdd={onBulkAddTag} />}
-
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="h-7 px-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors flex items-center gap-1">
-                  Type <ChevronDown className="h-3 w-3" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => onBulkSetImageType('battlemap')}>
-                  Battlemap
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onBulkSetImageType('scene')}>
-                  Scene
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="h-7 px-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors flex items-center gap-1">
-                  Grid <ChevronDown className="h-3 w-3" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => onBulkSetGrid(true, 'square')}>
-                  Square
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onBulkSetGrid(true, 'hex')}>Hex</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onBulkSetGrid(false, null)}>
-                  Gridless
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onBulkSetGrid(null, null)}>
-                  Unknown
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <Popover open={subOpen} onOpenChange={setSubOpen}>
-              <PopoverTrigger asChild>
-                <button className="h-7 px-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors flex items-center gap-1">
-                  Sub <ChevronDown className="h-3 w-3" />
-                </button>
-              </PopoverTrigger>
-              <PopoverContent
-                align="end"
-                className="w-52 p-0"
-                onOpenAutoFocus={(e: Event) => {
-                  e.preventDefault()
-                }}
-              >
-                {existingSubgroups.length > 0 && (
-                  <>
-                    <div className="px-3 pt-2.5 pb-1 text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">
-                      Existing
-                    </div>
-                    {existingSubgroups.map((sv) => (
-                      <button
-                        key={sv}
-                        onClick={() => applySubgroup(sv)}
-                        className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-secondary capitalize transition-colors"
-                      >
-                        {sv}
-                      </button>
-                    ))}
-                    <div className="h-px bg-border/50 my-1" />
-                  </>
-                )}
-                <div className="p-2 flex gap-1.5">
-                  <input
-                    autoFocus={existingSubgroups.length === 0}
-                    value={subgroupInput}
-                    onChange={(e) => setSubgroupInput(e.target.value)}
-                    placeholder="New subgroup…"
-                    className="flex-1 min-w-0 h-7 px-2 text-sm bg-secondary border border-border rounded text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
-                    onKeyDown={(e) => {
-                      e.stopPropagation()
-                      if (e.key === 'Enter' && subgroupInput.trim())
-                        applySubgroup(subgroupInput.trim())
-                      if (e.key === 'Escape') setSubOpen(false)
-                    }}
-                  />
-                  <button
-                    className="h-7 px-2.5 text-xs shrink-0 rounded border border-border bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-                    onClick={() => {
-                      if (subgroupInput.trim()) applySubgroup(subgroupInput.trim())
-                    }}
-                  >
-                    Set
-                  </button>
-                </div>
-              </PopoverContent>
-            </Popover>
-
-            {onMoveToNewGroup && (
-              <button
-                className="h-7 px-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors flex items-center gap-1"
-                onClick={onMoveToNewGroup}
-                title="Move selected to new group"
-              >
-                <FolderPlus className="h-3.5 w-3.5" />
-                Split
-              </button>
-            )}
-
+          <div className="p-2 flex gap-1.5">
+            <input
+              autoFocus={existingSubgroups.length === 0}
+              value={subgroupInput}
+              onChange={(e) => setSubgroupInput(e.target.value)}
+              placeholder="New subgroup…"
+              className="flex-1 min-w-0 h-7 px-2 text-sm bg-secondary border border-border rounded text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
+              onKeyDown={(e) => {
+                e.stopPropagation()
+                if (e.key === 'Enter' && subgroupInput.trim()) applySubgroup(subgroupInput.trim())
+                if (e.key === 'Escape') setSubOpen(false)
+              }}
+            />
             <button
-              className="h-7 px-2 rounded text-xs text-destructive/70 hover:text-destructive hover:bg-destructive/10 transition-colors flex items-center gap-1"
-              onClick={onBulkExclude}
+              className="h-7 px-2.5 text-xs shrink-0 rounded border border-border bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => {
+                if (subgroupInput.trim()) applySubgroup(subgroupInput.trim())
+              }}
             >
-              <X className="h-3.5 w-3.5" />
-              {excludeLabel}
+              Set
             </button>
           </div>
-        )}
+        </PopoverContent>
+      </Popover>
+
+      {onMoveToNewGroup && (
+        <button
+          className="h-7 px-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors flex items-center gap-1"
+          onClick={onMoveToNewGroup}
+          title="Move selected to new group"
+        >
+          <FolderPlus className="h-3.5 w-3.5" />
+          Split
+        </button>
+      )}
+
+      <button
+        className="h-7 px-2 rounded text-xs text-destructive/70 hover:text-destructive hover:bg-destructive/10 transition-colors flex items-center gap-1"
+        onClick={onBulkExclude}
+      >
+        <X className="h-3.5 w-3.5" />
+        {excludeLabel}
+      </button>
+    </>
+  )
+
+  const duplicateControls =
+    duplicateCount > 0 && onBulkSetDuplicateAction ? (
+      <div className="flex items-center gap-2 pt-1.5">
+        <Copy className="h-3.5 w-3.5 text-amber-400/70 shrink-0" />
+        <span className="text-xs text-amber-400/80">
+          {skippedDuplicateCount}/{duplicateCount} duplicate{duplicateCount !== 1 ? 's' : ''}{' '}
+          skipped
+        </span>
+        <button
+          className="text-[11px] rounded border border-amber-500/30 px-1.5 py-0.5 text-amber-400/80 hover:bg-amber-500/10 transition-colors"
+          onClick={() => onBulkSetDuplicateAction(skippedDuplicateCount > 0 ? 'import' : 'skip')}
+        >
+          {skippedDuplicateCount > 0 ? 'Include all duplicates' : 'Skip all duplicates'}
+        </button>
       </div>
+    ) : undefined
 
-      {/* Duplicate bulk controls */}
-      {duplicateCount > 0 && onBulkSetDuplicateAction && (
-        <div className="flex items-center gap-2 pt-1.5">
-          <Copy className="h-3.5 w-3.5 text-amber-400/70 shrink-0" />
-          <span className="text-xs text-amber-400/80">
-            {skippedDuplicateCount}/{duplicateCount} duplicate{duplicateCount !== 1 ? 's' : ''}{' '}
-            skipped
-          </span>
-          <button
-            className="text-[11px] rounded border border-amber-500/30 px-1.5 py-0.5 text-amber-400/80 hover:bg-amber-500/10 transition-colors"
-            onClick={() => onBulkSetDuplicateAction(skippedDuplicateCount > 0 ? 'import' : 'skip')}
-          >
-            {skippedDuplicateCount > 0 ? 'Include all duplicates' : 'Skip all duplicates'}
-          </button>
-        </div>
-      )}
-
-      {filter.active.length > 0 && (
-        <div className="mt-1.5">
-          <FilterChipList filters={filter.active} onFiltersChange={handleFiltersChange} />
-        </div>
-      )}
-    </div>
+  return (
+    <FileToolbarCore
+      files={files}
+      filteredFiles={filteredFiles}
+      selection={selection}
+      filter={filter}
+      filterGroups={filterGroups}
+      onFilterChange={onFilterChange}
+      onSelectAll={onSelectAll}
+      onDeselectAll={onDeselectAll}
+      showTypeToggle={hasMixedTypes || alwaysShowTypeToggle}
+      alwaysShowFilterButton
+      searchPlaceholder="Filter maps…"
+      bulkActions={bulkActions}
+      duplicateControls={duplicateControls}
+    />
   )
 }
