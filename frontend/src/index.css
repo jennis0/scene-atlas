@@ -116,6 +116,14 @@
   }
 
   /* ── Scrollbars ──────────────────────────────────────────── */
+
+  /* Standard (Firefox, future browsers) */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+
+  /* Webkit (Chrome, Safari, Edge) */
   ::-webkit-scrollbar {
     width: 5px;
     height: 5px;
