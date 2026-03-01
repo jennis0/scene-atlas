@@ -17,7 +17,6 @@ import { useImportUpload } from './useImportUpload'
 import { useImportPolling } from './useImportPolling'
 import { useImportPersistence } from './useImportPersistence'
 
-// Re-export constants so existing importers (ImportGroupNav, etc.) keep working
 export { ALL_TAB, ALL_GROUP_ID }
 
 export type DialogState = 'upload' | 'preview' | 'processing' | 'done'
@@ -476,6 +475,25 @@ export function useImportState(
       toSubmit.forEach(({ i }) => updateGroup(i, { status: 'failed' }))
     }
   }
+
+  // ── Auto-confirm ──────────────────────────────────────────────────
+  // When upload analysis completes, the state transitions to 'preview' with
+  // groups populated. This effect immediately calls handleConfirmAll so the
+  // preview step is never shown to the user — it's a transient internal state.
+  const handleConfirmAllRef = useRef<() => Promise<void>>(() => Promise.resolve())
+  handleConfirmAllRef.current = handleConfirmAll
+
+  const hasAutoConfirmedRef = useRef(false)
+  useEffect(() => {
+    if (state !== 'preview') {
+      hasAutoConfirmedRef.current = false
+      return
+    }
+    if (hasAutoConfirmedRef.current || !jobId || groups.length === 0) return
+    if (!groups.some((g) => g.status === 'pending' && !g.skip)) return
+    hasAutoConfirmedRef.current = true
+    handleConfirmAllRef.current()
+  }, [state, jobId, groups])
 
   const handleFinalize = async () => {
     if (!jobId) return

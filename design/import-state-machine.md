@@ -50,8 +50,8 @@ The `ImportJob.pending_groups` column tracks how many groups the user hasn't yet
 
 ### 4. awaiting_input vs staging
 
-- `staging` = user hasn't confirmed any groups yet (initial review)
-- `awaiting_input` = user has confirmed some groups, they've finished, but unconfirmed groups remain
+- `staging` = analysis complete, auto-confirm pending (transient — auto-confirm fires immediately)
+- `awaiting_input` = not used in normal flow since auto-confirm-all; retained for backend compatibility
 
 The activity tray shows different icons: clock for staging, bell for awaiting_input, spinner for active.
 
@@ -78,12 +78,14 @@ function backendStatusToDialogState(status: string): DialogState {
   switch (status) {
     case 'uploading': return 'upload'
     case 'staging':
-    case 'awaiting_input': return 'preview'
+    case 'awaiting_input': return 'preview'  // transient: auto-confirm fires immediately
     case 'active': return 'processing'
     default: return 'done'  // completed, failed, cancelled, expired
   }
 }
 ```
+
+Note: `'preview'` is a transient internal dialog state — the auto-confirm useEffect in `useImportState` fires immediately when the state becomes `'preview'`, so users never see it.
 
 ## Activity Tray Behavior
 

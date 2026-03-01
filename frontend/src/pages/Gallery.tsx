@@ -1,5 +1,6 @@
-import { useEffect, Suspense, lazy } from 'react'
+import { useEffect, useRef, Suspense, lazy } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import { Upload, Mountain } from 'lucide-react'
 import { importApi, groupApi } from '@/lib/api'
 import { ImageGrid } from '@/components/ImageGrid'
@@ -28,14 +29,43 @@ export function Gallery() {
   const activeImports = useActiveImports()
   const backgroundJobs = useBackgroundJobs()
 
-  // Invalidate gallery queries whenever a background import finishes
+  // Tracks the jobId of the import that opened the current EditGroupDialog import-review
+  const importReviewJobIdRef = useRef<string | null>(null)
+
+  // Invalidate gallery queries and show review toast whenever a background import finishes
   useEffect(() => {
-    return activeImports.onJobCompleted(() => {
+    return activeImports.onJobCompleted((job) => {
       queryClient.invalidateQueries({ queryKey: ['images'] })
       queryClient.invalidateQueries({ queryKey: ['search'] })
       queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
+
+      const groupCount = job.totalGroups
+      const fileCount = job.totalFiles
+      const description =
+        groupCount === 1
+          ? `${fileCount} image${fileCount !== 1 ? 's' : ''} imported`
+          : `${groupCount} groups, ${fileCount} image${fileCount !== 1 ? 's' : ''} imported`
+
+      toast.success('Import complete', {
+        description,
+        duration: 8000,
+        action: {
+          label: 'Review',
+          onClick: () => {
+            importApi.status(job.jobId).then((result) => {
+              const ids = result.groups
+                .map((g) => g.group_id)
+                .filter((id): id is number => id != null)
+              if (ids.length > 0) {
+                importReviewJobIdRef.current = job.jobId
+                dialogs.setImportReviewGroupIds(ids)
+              }
+            })
+          },
+        },
+      })
     })
-  }, [activeImports, queryClient])
+  }, [activeImports, queryClient, dialogs])
 
   return (
     <div className="flex h-screen flex-col">
@@ -175,8 +205,14 @@ export function Gallery() {
           open={dialogs.importReviewGroupIds !== null}
           onClose={() => dialogs.setImportReviewGroupIds(null)}
           onSave={() => {
+            const reviewedJobId = importReviewJobIdRef.current
+            importReviewJobIdRef.current = null
             dialogs.setImportReviewGroupIds(null)
             dialogs.invalidateGallery()
+            // Dismiss the reviewed import from the ActivityDock
+            if (reviewedJobId) {
+              activeImports.dismissJob(reviewedJobId)
+            }
           }}
         />
 
@@ -228,12 +264,13 @@ export function Gallery() {
         onOpenJob={(jobId) => {
           const job = activeImports.jobs.find((j) => j.jobId === jobId)
           if (job?.status === 'completed' && job.pendingGroups === 0) {
-            // Truly completed with no pending groups -- open EditGroupDialog
+            // Truly completed with no pending groups -- open EditGroupDialog in import-review mode
             importApi.status(jobId).then((result) => {
               const ids = result.groups
                 .map((g) => g.group_id)
                 .filter((id): id is number => id != null)
               if (ids.length > 0) {
+                importReviewJobIdRef.current = jobId
                 dialogs.setImportReviewGroupIds(ids)
               }
             })

@@ -42,6 +42,7 @@ import {
   DragOverlayContent,
 } from './import/shared/dnd'
 import { GroupSidebarShell } from './import/shared/GroupSidebarShell'
+import { groupApi } from '@/lib/api'
 
 interface EditGroupDialogProps {
   // Single-group mode: pass groupId
@@ -170,11 +171,23 @@ export default function EditGroupDialog({
 
   // ── Close / Done ────────────────────────────────────────────────
 
+  const isImportReview = !!groupIds && groupIds.length > 0
+
   // Called on any close action — changes have already been auto-saved
   const handleDone = useCallback(() => {
-    onSave()
-    onClose()
-  }, [onSave, onClose])
+    if (isImportReview && groupIds) {
+      // Close dialog immediately for good UX, then wait for confirm-review
+      // before calling onSave (which triggers gallery invalidation) so that
+      // the images are actually visible when the gallery refetches.
+      onClose()
+      groupApi.confirmReview(groupIds).finally(() => {
+        onSave()
+      })
+    } else {
+      onSave()
+      onClose()
+    }
+  }, [isImportReview, groupIds, onSave, onClose])
 
   // Destructure commonly-used operations for readability in JSX
   const {
@@ -742,7 +755,11 @@ export default function EditGroupDialog({
                     <button
                       onClick={handleDone}
                       disabled={isBusy}
-                      className="px-3 py-1.5 text-sm rounded border border-primary/40 bg-primary/20 text-primary hover:bg-primary/30 transition-colors disabled:opacity-40"
+                      className={
+                        isImportReview
+                          ? 'px-4 py-1.5 text-sm rounded font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-40'
+                          : 'px-3 py-1.5 text-sm rounded border border-primary/40 bg-primary/20 text-primary hover:bg-primary/30 transition-colors disabled:opacity-40'
+                      }
                     >
                       {saving ? (
                         <>
@@ -754,6 +771,8 @@ export default function EditGroupDialog({
                           <Loader2 className="h-3.5 w-3.5 animate-spin inline mr-1" />
                           Saving…
                         </>
+                      ) : isImportReview ? (
+                        'Confirm Import'
                       ) : (
                         'Done'
                       )}

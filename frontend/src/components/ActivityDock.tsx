@@ -246,6 +246,8 @@ function ImportJobCard({
     job.status === 'failed' ||
     job.status === 'cancelled' ||
     job.status === 'expired'
+  // Completed imports require review before they can be dismissed
+  const canDismiss = isTerminal && job.status !== 'completed'
   const canCancel =
     job.status === 'uploading' || job.status === 'staging' || job.status === 'active'
   const progressRatio = job.totalFiles > 0 ? job.processedFiles / job.totalFiles : 0
@@ -275,7 +277,7 @@ function ImportJobCard({
               </span>
             )}
           </span>
-          {isTerminal && (
+          {canDismiss && (
             <button
               onClick={(e) => {
                 e.stopPropagation()
@@ -500,10 +502,8 @@ function ImportStatusText({ job }: { job: ActiveImportJob }) {
       )
     case 'completed':
       return (
-        <span>
-          {job.totalFiles > 0
-            ? `${job.processedFiles} image${job.processedFiles !== 1 ? 's' : ''} imported`
-            : `${job.completedGroups} group${job.completedGroups !== 1 ? 's' : ''} imported`}
+        <span className="text-amber-600 dark:text-amber-400 font-medium">
+          Review import ›
         </span>
       )
     case 'failed':
