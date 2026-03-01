@@ -159,17 +159,58 @@ a = Analysis(
 )
 
 # ── Post-analysis cleanup ─────────────────────────────────────────────────────
-# The torch package ships C++ unit test executables (torch/test/) and standalone
-# tools (torch/bin/) that are collected by hook-torch.py but serve no runtime
-# purpose. Remove them to save ~94 MB.
-_TORCH_JUNK = ('torch/test/', 'torch/bin/', 'torch/share/')
+# Remove directories and files that hooks collect but are never needed at runtime.
+import re as _re
 
-def _keep_binary(entry):
+# Prefixes to strip from binaries and datas.
+_JUNK_PREFIXES = (
+    # torch: C++ unit tests (~58 MB), standalone tools (~36 MB), cmake/share files
+    'torch/test/',
+    'torch/bin/',
+    'torch/share/',
+    # torch: test shared libraries that sneak into torch/lib/
+    'torch/lib/libtorchbind_test',
+    'torch/lib/libjitbackend_test',
+    'torch/lib/libaoti_custom_ops',
+    'torch/lib/libbackend_with_compiler',
+    # transformers: 370+ model directories we don't use — only CLIP is needed
+    'transformers/models/',
+    # scipy: unused submodules (only scipy.signal + scipy.fft are used)
+    'scipy/stats/',
+    'scipy/optimize/',
+    'scipy/interpolate/',
+    'scipy/sparse/',
+    'scipy/integrate/',
+    'scipy/io/',
+    'scipy/spatial/',
+)
+
+# Transformers model dirs to KEEP (everything else under transformers/models/ is removed)
+_TRANSFORMERS_KEEP = {'clip', 'auto', '__init__'}
+
+# .dist-info directories are package metadata — not needed at runtime
+_DIST_INFO_RE = _re.compile(r'\.dist-info/')
+
+def _keep_entry(entry):
     name = entry[0].replace('\\', '/')
-    return not any(name.startswith(p) or f'/{p}' in name for p in _TORCH_JUNK)
+    # Drop .dist-info metadata
+    if _DIST_INFO_RE.search(name):
+        return False
+    # Check junk prefixes
+    for prefix in _JUNK_PREFIXES:
+        if name.startswith(prefix) or f'/{prefix}' in name:
+            # Special case: allow transformers model dirs we actually need
+            if 'transformers/models/' in prefix:
+                parts = name.split('transformers/models/')
+                if len(parts) > 1:
+                    subdir = parts[1].split('/')[0]
+                    if subdir in _TRANSFORMERS_KEEP:
+                        return True
+            return False
+    return True
 
-a.binaries = TOC([e for e in a.binaries if _keep_binary(e)])
-a.datas    = TOC([e for e in a.datas    if _keep_binary(e)])
+a.binaries = TOC([e for e in a.binaries if _keep_entry(e)])
+a.datas    = TOC([e for e in a.datas    if _keep_entry(e)])
 # ─────────────────────────────────────────────────────────────────────────────
 
 pyz = PYZ(a.pure)
