@@ -1,8 +1,12 @@
-"""Integration test: upload endpoint.
+"""Integration tests: upload-batch and analyse endpoints.
 
-Tests POST /api/v1/imports/upload.
-Mocks JobRunner.run_sync — the endpoint saves files to staging,
-then calls analyse_upload via the JobRunner.
+Tests the two-step upload flow:
+  POST /api/v1/imports/                      -- create job (returns job_id)
+  POST /api/v1/imports/{job_id}/upload-batch -- stage files
+  POST /api/v1/imports/{job_id}/analyse      -- run group detection
+
+The JobRunner.run_sync is mocked so analysis returns fake groups without
+requiring real CLIP/grid-detection infrastructure.
 """
 
 import json
@@ -15,7 +19,7 @@ from PIL import Image as PILImage
 
 
 def _make_jpeg_bytes(width=20, height=20, color=(100, 150, 200)):
-    """Create minimal JPEG bytes in memory."""
+    """Create minimal valid JPEG bytes in memory."""
     img = PILImage.new("RGB", (width, height), color)
     buf = BytesIO()
     img.save(buf, format="JPEG", quality=70)
@@ -23,25 +27,19 @@ def _make_jpeg_bytes(width=20, height=20, color=(100, 150, 200)):
     return buf.read()
 
 
-@pytest.fixture
-def _setup_upload(tmp_path, tmp_db, monkeypatch):
-    """Mock JobRunner.run_sync to return fake analysis results."""
-    staging_base = tmp_path / "staging"
-    staging_base.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr("backend.app.config.settings.staging_dir", staging_base)
-
-    # Build fake analysis results (what analyse_upload returns)
-    fake_groups = [
+def _fake_groups(author="TestAuthor", group_name="TestMap", filename="map.jpg"):
+    """Return a fake analyse_upload result (list of group dicts)."""
+    return [
         {
-            "author": "TestAuthor",
-            "group_name": "TestMap",
+            "author": author,
+            "group_name": group_name,
             "files": [
                 {
-                    "relative_path": "TestAuthor/TestMap/map.jpg",
+                    "relative_path": f"{author}/{group_name}/{filename}",
                     "parsed": {
-                        "filename": "map.jpg",
-                        "author": "TestAuthor",
-                        "group_name": "TestMap",
+                        "filename": filename,
+                        "author": author,
+                        "group_name": group_name,
                         "tags": [],
                         "gridded": None,
                         "grid_width": None,
@@ -53,142 +51,289 @@ def _setup_upload(tmp_path, tmp_db, monkeypatch):
         }
     ]
 
+
+@pytest.fixture
+def upload_env(test_client, monkeypatch):
+    """Mock the JobRunner for analyse calls and expose the staging dir.
+
+    Relies on the test_client fixture to have already redirected
+    settings.staging_dir to an isolated tmp directory.  Returns
+    (staging_base, client, mock_runner).
+    """
+    from backend.app.config import settings
+
+    staging_base = settings.staging_dir  # already redirected by test_client fixture
+
     mock_runner = MagicMock()
-    mock_runner.run_sync.return_value = fake_groups
+    mock_runner.run_sync.return_value = _fake_groups()
     monkeypatch.setattr("backend.app.api.imports.get_job_runner", lambda: mock_runner)
 
-    return staging_base, mock_runner
+    return staging_base, test_client, mock_runner
 
 
-class TestUploadEndpoint:
-    """Upload files endpoint."""
+# ---------------------------------------------------------------------------
+# Helper: create a job via the init endpoint
+# ---------------------------------------------------------------------------
 
-    def test_upload_single_file(self, test_client, _setup_upload):
-        staging_base, mock_runner = _setup_upload
-        jpeg_data = _make_jpeg_bytes()
 
-        resp = test_client.post(
-            "/api/v1/imports/upload",
-            files=[("files", ("map.jpg", jpeg_data, "image/jpeg"))],
+def _init_job(client):
+    """POST /api/v1/imports/init and return the job_id."""
+    resp = client.post("/api/v1/imports/init")
+    assert resp.status_code == 200, resp.text
+    return resp.json()["job_id"]
+
+
+# ---------------------------------------------------------------------------
+# upload-batch tests
+# ---------------------------------------------------------------------------
+
+
+class TestUploadBatch:
+    """POST /api/v1/imports/{job_id}/upload-batch"""
+
+    def test_single_valid_image(self, upload_env):
+        """Single valid JPEG is saved to staging; response reports one file saved."""
+        staging_base, client, _ = upload_env
+        job_id = _init_job(client)
+        jpeg = _make_jpeg_bytes()
+
+        resp = client.post(
+            f"/api/v1/imports/{job_id}/upload-batch",
+            files=[("files", ("map.jpg", jpeg, "image/jpeg"))],
             data={"relative_paths": json.dumps(["TestAuthor/TestMap/map.jpg"])},
         )
 
-        assert resp.status_code == 200
+        assert resp.status_code == 200, resp.text
         data = resp.json()
-        assert "job_id" in data
-        assert data["total_files"] == 1
-        assert len(data["groups"]) == 1
-        assert data["groups"][0]["group_name"] == "TestMap"
+        assert data["files_saved"] == 1
+        assert data["bytes_saved"] > 0
+        assert data["skipped_invalid"] == []
 
-        # Verify file was saved to staging
-        job_id = data["job_id"]
+        # File must exist in staging
         saved = staging_base / job_id / "TestAuthor" / "TestMap" / "map.jpg"
         assert saved.exists()
 
-    def test_upload_unsupported_format_filtered(self, test_client, _setup_upload):
-        """Non-image files should be filtered out."""
-        staging_base, _ = _setup_upload
-        resp = test_client.post(
-            "/api/v1/imports/upload",
-            files=[("files", ("doc.pdf", b"fake pdf content", "application/pdf"))],
-        )
-        assert resp.status_code == 400  # No supported files
-
-    def test_upload_multiple_files(self, test_client, _setup_upload):
-        staging_base, _ = _setup_upload
+    def test_multiple_files_in_one_batch(self, upload_env):
+        """Multiple valid files upload in a single batch."""
+        _, client, _ = upload_env
+        job_id = _init_job(client)
         jpeg1 = _make_jpeg_bytes(color=(255, 0, 0))
         jpeg2 = _make_jpeg_bytes(color=(0, 255, 0))
 
-        resp = test_client.post(
-            "/api/v1/imports/upload",
+        resp = client.post(
+            f"/api/v1/imports/{job_id}/upload-batch",
             files=[
                 ("files", ("map1.jpg", jpeg1, "image/jpeg")),
                 ("files", ("map2.jpg", jpeg2, "image/jpeg")),
             ],
         )
-        assert resp.status_code == 200
 
-    def test_file_exceeds_size_limit_rejected(self, test_client, _setup_upload, monkeypatch):
-        """Files larger than max_import_file_size return 413."""
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["files_saved"] == 2
+
+    def test_invalid_file_skipped_and_reported(self, upload_env):
+        """A file with wrong magic bytes is skipped; its name appears in skipped_invalid."""
+        _, client, _ = upload_env
+        job_id = _init_job(client)
+        fake_exe = b"MZ" + b"\x00" * 200  # Windows PE magic bytes, extension is .jpg
+
+        resp = client.post(
+            f"/api/v1/imports/{job_id}/upload-batch",
+            files=[("files", ("malware.jpg", fake_exe, "image/jpeg"))],
+        )
+
+        # Endpoint does not fail — it skips the bad file and reports it
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["files_saved"] == 0
+        assert "malware.jpg" in data["skipped_invalid"]
+
+    def test_file_exceeds_size_limit_rejected(self, upload_env, monkeypatch):
+        """A file larger than max_import_file_size returns 413."""
         from backend.app.models.schemas import AppSettings
 
         monkeypatch.setattr(
             "backend.app.api.imports.get_app_settings",
             lambda db: AppSettings(max_import_file_size=100),
         )
-        jpeg = _make_jpeg_bytes()  # ~1 KB, way over 100 bytes
-        resp = test_client.post(
-            "/api/v1/imports/upload",
+        _, client, _ = upload_env
+        job_id = _init_job(client)
+        jpeg = _make_jpeg_bytes()  # ~1 KB, well over 100-byte limit
+
+        resp = client.post(
+            f"/api/v1/imports/{job_id}/upload-batch",
             files=[("files", ("big.jpg", jpeg, "image/jpeg"))],
         )
-        assert resp.status_code == 413
+
+        assert resp.status_code == 413, resp.text
         assert "size limit" in resp.json()["detail"]
 
-    def test_too_many_files_rejected(self, test_client, _setup_upload, monkeypatch):
-        """Uploading more files than max_import_files returns 413."""
-        from backend.app.models.schemas import AppSettings
-
-        monkeypatch.setattr(
-            "backend.app.api.imports.get_app_settings",
-            lambda db: AppSettings(max_import_files=2),
-        )
+    def test_nonexistent_job_returns_404(self, upload_env):
+        """upload-batch with an unknown job_id returns 404."""
+        _, client, _ = upload_env
         jpeg = _make_jpeg_bytes()
-        files = [("files", (f"map{i}.jpg", jpeg, "image/jpeg")) for i in range(3)]
-        resp = test_client.post("/api/v1/imports/upload", files=files)
-        assert resp.status_code == 413
-        assert "Too many files" in resp.json()["detail"]
 
-    def test_renamed_binary_rejected(self, test_client, _setup_upload):
-        """A renamed executable with a .jpg extension is rejected."""
-        fake_exe = b"MZ" + b"\x00" * 200  # Windows PE magic bytes
-        resp = test_client.post(
-            "/api/v1/imports/upload",
-            files=[("files", ("malware.jpg", fake_exe, "image/jpeg"))],
+        resp = client.post(
+            "/api/v1/imports/doesnotexist/upload-batch",
+            files=[("files", ("map.jpg", jpeg, "image/jpeg"))],
         )
-        # Either 400 (no valid files) or the file is skipped
-        assert resp.status_code == 400
-        assert "invalid content" in resp.json()["detail"]
 
-    def test_invalid_image_type_rejected(self, test_client, _setup_upload):
-        """Unknown image_type values must be rejected."""
-        jpeg_data = _make_jpeg_bytes()
-        resp = test_client.post(
-            "/api/v1/imports/upload",
-            files=[("files", ("test.jpg", jpeg_data, "image/jpeg"))],
-            data={"image_type": "invalid_type"},
+        assert resp.status_code == 404, resp.text
+
+    def test_wrong_status_job_returns_409(self, upload_env, tmp_db):
+        """upload-batch against a job not in 'uploading' status returns 409."""
+        from backend.app.models import ImportJob
+
+        _, client, _ = upload_env
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        db.add(ImportJob(id="staged-job", status="staging", total_files=0))
+        db.commit()
+        db.close()
+
+        jpeg = _make_jpeg_bytes()
+        resp = client.post(
+            "/api/v1/imports/staged-job/upload-batch",
+            files=[("files", ("map.jpg", jpeg, "image/jpeg"))],
         )
-        assert resp.status_code == 400
+
+        assert resp.status_code == 409, resp.text
+
+    def test_zip_file_extracted_to_staging(self, upload_env):
+        """A valid ZIP containing an image is extracted into the staging directory."""
+        staging_base, client, _ = upload_env
+        job_id = _init_job(client)
+
+        # Build a ZIP with one valid JPEG inside
+        jpeg = _make_jpeg_bytes()
+        zip_buf = BytesIO()
+        with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_STORED) as zf:
+            zf.writestr("Author/Map/scene.jpg", jpeg)
+        zip_bytes = zip_buf.getvalue()
+
+        resp = client.post(
+            f"/api/v1/imports/{job_id}/upload-batch",
+            files=[("files", ("scenes.zip", zip_bytes, "application/zip"))],
+        )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["files_saved"] == 1
+        # The extracted file should exist in staging
+        extracted = staging_base / job_id / "Author" / "Map" / "scene.jpg"
+        assert extracted.exists()
+
+
+# ---------------------------------------------------------------------------
+# analyse tests
+# ---------------------------------------------------------------------------
+
+
+class TestAnalyse:
+    """POST /api/v1/imports/{job_id}/analyse"""
+
+    def test_single_file_analyse_succeeds(self, upload_env):
+        """Upload one file then analyse; returns groups with correct shape."""
+        staging_base, client, _ = upload_env
+        job_id = _init_job(client)
+        jpeg = _make_jpeg_bytes()
+
+        # Stage the file first
+        client.post(
+            f"/api/v1/imports/{job_id}/upload-batch",
+            files=[("files", ("map.jpg", jpeg, "image/jpeg"))],
+            data={"relative_paths": json.dumps(["TestAuthor/TestMap/map.jpg"])},
+        )
+
+        resp = client.post(
+            f"/api/v1/imports/{job_id}/analyse",
+            json={"image_type": "battlemap", "manifest": []},
+        )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert "job_id" in data
+        assert data["job_id"] == job_id
+        assert data["total_files"] >= 1
+        assert len(data["groups"]) == 1
+        assert data["groups"][0]["group_name"] == "TestMap"
+
+    def test_multiple_files_analyse_succeeds(self, upload_env):
+        """Upload multiple files then analyse; runner is invoked once."""
+        _, client, mock_runner = upload_env
+        # Two-group fake result
+        mock_runner.run_sync.return_value = [
+            _fake_groups("AuthorA", "Map1", "a.jpg")[0],
+            _fake_groups("AuthorB", "Map2", "b.jpg")[0],
+        ]
+        job_id = _init_job(client)
+        jpeg1 = _make_jpeg_bytes(color=(255, 0, 0))
+        jpeg2 = _make_jpeg_bytes(color=(0, 255, 0))
+
+        client.post(
+            f"/api/v1/imports/{job_id}/upload-batch",
+            files=[
+                ("files", ("a.jpg", jpeg1, "image/jpeg")),
+                ("files", ("b.jpg", jpeg2, "image/jpeg")),
+            ],
+        )
+
+        resp = client.post(
+            f"/api/v1/imports/{job_id}/analyse",
+            json={"image_type": "battlemap", "manifest": []},
+        )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert len(data["groups"]) == 2
+
+    def test_analyse_nonexistent_job_returns_404(self, upload_env):
+        """analyse on an unknown job_id returns 404."""
+        _, client, _ = upload_env
+
+        resp = client.post(
+            "/api/v1/imports/doesnotexist/analyse",
+            json={"image_type": "battlemap", "manifest": []},
+        )
+
+        assert resp.status_code == 404, resp.text
+
+    def test_analyse_wrong_status_returns_409(self, upload_env, tmp_db):
+        """analyse on a job not in 'uploading' status returns 409."""
+        from backend.app.models import ImportJob
+
+        _, client, _ = upload_env
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        db.add(ImportJob(id="staged-job2", status="staging", total_files=0))
+        db.commit()
+        db.close()
+
+        resp = client.post(
+            "/api/v1/imports/staged-job2/analyse",
+            json={"image_type": "battlemap", "manifest": []},
+        )
+
+        assert resp.status_code == 409, resp.text
+
+    def test_invalid_image_type_rejected(self, upload_env):
+        """analyse with an invalid image_type returns 400."""
+        _, client, _ = upload_env
+        job_id = _init_job(client)
+        jpeg = _make_jpeg_bytes()
+
+        # Stage one file so staging dir exists and has content
+        client.post(
+            f"/api/v1/imports/{job_id}/upload-batch",
+            files=[("files", ("map.jpg", jpeg, "image/jpeg"))],
+            data={"relative_paths": json.dumps(["map.jpg"])},
+        )
+
+        resp = client.post(
+            f"/api/v1/imports/{job_id}/analyse",
+            json={"image_type": "invalid_type", "manifest": []},
+        )
+
+        assert resp.status_code == 400, resp.text
         assert "Invalid image_type" in resp.json()["detail"]
-
-    def test_valid_image_type_accepted(self, test_client, _setup_upload):
-        """Valid image_type values must be accepted."""
-        jpeg_data = _make_jpeg_bytes()
-        for img_type in ("battlemap", "scene"):
-            resp = test_client.post(
-                "/api/v1/imports/upload",
-                files=[("files", ("test.jpg", jpeg_data, "image/jpeg"))],
-                data={"image_type": img_type},
-            )
-            assert resp.status_code == 200, f"image_type={img_type} rejected unexpectedly"
-
-    def test_zip_bomb_rejected(self, test_client, _setup_upload, tmp_path, monkeypatch):
-        """A ZIP whose uncompressed size exceeds the limit is rejected with 413."""
-        from backend.app.models.schemas import AppSettings
-
-        monkeypatch.setattr(
-            "backend.app.api.imports.get_app_settings",
-            lambda db: AppSettings(max_import_total_size=50_000),
-        )
-        # Build a ZIP with a file that reports 100KB uncompressed
-        zip_path = tmp_path / "bomb.zip"
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
-            info = zipfile.ZipInfo("big.jpg")
-            info.file_size = 100_000
-            zf.writestr(info, b"x" * 100_000)
-
-        resp = test_client.post(
-            "/api/v1/imports/upload",
-            files=[("files", ("bomb.zip", zip_path.read_bytes(), "application/zip"))],
-        )
-        assert resp.status_code == 413
-        assert "exceeds limit" in resp.json()["detail"]

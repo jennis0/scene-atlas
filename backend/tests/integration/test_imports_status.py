@@ -624,8 +624,7 @@ class TestUploadWithJobId:
         db.close()
 
         resp = test_client.post(
-            "/api/v1/imports/upload",
-            data={"job_id": "job-staging"},
+            "/api/v1/imports/job-staging/upload-batch",
             files=[("files", ("test.jpg", b"\xff\xd8\xff\xe0" + b"\x00" * 100, "image/jpeg"))],
         )
         assert resp.status_code == 409

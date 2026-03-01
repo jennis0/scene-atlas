@@ -28,5 +28,11 @@ export const IMPORT_STORAGE_EXPIRY_MS = 24 * 60 * 60 * 1_000 // 24 hours
 export const MAX_FILE_SIZE_MB = 200
 export const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 
+// ── Batch upload ─────────────────────────────────────────────────────────────
+export const MAX_BATCH_FILES = 20
+export const MAX_BATCH_BYTES = 100 * 1024 * 1024 // 100 MB per batch
+export const BATCH_UPLOAD_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes per batch
+export const MAX_BATCH_RETRIES = 2
+
 // ── Canvas / image viewer ────────────────────────────────────────────────────
 export const CANVAS_DOT_SIZE = 24

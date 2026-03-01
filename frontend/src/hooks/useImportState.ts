@@ -9,6 +9,7 @@ import type {
   TagData,
   ImportConfirmFile,
   ParsedTagVocab,
+  UploadProgress,
 } from '@/types'
 import { removeImportState } from '@/lib/importStorage'
 import { useFileEditing, ALL_TAB, ALL_GROUP_ID } from './useFileEditing'
@@ -28,6 +29,7 @@ export interface UseImportStateReturn {
     uploading: boolean
     uploadError: string | null
     uploadPhase: string | null
+    uploadProgress: UploadProgress | null
     skippedFiles: string[]
     jobId: string | null
     reset: () => void
@@ -175,6 +177,7 @@ export function useImportState(
     uploading,
     uploadError,
     uploadPhase,
+    uploadProgress,
     skippedFiles,
     defaultImageType,
     setDefaultImageType,
@@ -558,6 +561,7 @@ export function useImportState(
       uploading,
       uploadError,
       uploadPhase,
+      uploadProgress,
       skippedFiles,
       jobId,
       reset,

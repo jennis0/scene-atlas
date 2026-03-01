@@ -10,11 +10,13 @@ import {
   Grid3X3,
   Image,
 } from 'lucide-react'
+import type { UploadProgress } from '@/types'
 
 interface ImportUploadPaneProps {
   uploading: boolean
   uploadError: string | null
   uploadPhase: string | null
+  uploadProgress: UploadProgress | null
   skippedFiles: string[]
   fileInputRef: React.RefObject<HTMLInputElement>
   folderInputRef: React.RefObject<HTMLInputElement>
@@ -28,6 +30,7 @@ export function ImportUploadPane({
   uploading,
   uploadError,
   uploadPhase,
+  uploadProgress,
   skippedFiles,
   fileInputRef,
   folderInputRef,
@@ -37,6 +40,8 @@ export function ImportUploadPane({
   onDefaultImageTypeChange,
 }: ImportUploadPaneProps) {
   const [isDragOver, setIsDragOver] = useState(false)
+
+  const isUploadingFiles = uploading && uploadProgress?.phase === 'uploading'
 
   return (
     <div className="px-6 py-5 space-y-4">
@@ -123,12 +128,16 @@ export function ImportUploadPane({
         `}
       >
         {uploading ? (
-          <>
-            <Loader2 className="h-9 w-9 animate-spin text-primary/60" />
-            <p className="text-sm font-medium text-muted-foreground">
-              {uploadPhase || 'Analysing\u2026'}
-            </p>
-          </>
+          isUploadingFiles && uploadProgress ? (
+            <UploadProgressDisplay progress={uploadProgress} />
+          ) : (
+            <>
+              <Loader2 className="h-9 w-9 animate-spin text-primary/60" />
+              <p className="text-sm font-medium text-muted-foreground">
+                {uploadPhase || 'Analysing\u2026'}
+              </p>
+            </>
+          )
         ) : (
           <>
             <UploadCloud
@@ -196,4 +205,88 @@ export function ImportUploadPane({
       )}
     </div>
   )
+}
+
+// ── Upload progress display ────────────────────────────────────────────────────
+
+function UploadProgressDisplay({ progress }: { progress: UploadProgress }) {
+  const {
+    filesUploaded,
+    filesTotal,
+    bytesUploaded,
+    bytesTotal,
+    currentBatch,
+    totalBatches,
+    startTime,
+  } = progress
+
+  const pct = bytesTotal > 0 ? Math.min(100, Math.round((bytesUploaded / bytesTotal) * 100)) : 0
+  const eta = estimateTimeRemaining(bytesUploaded, bytesTotal, startTime)
+
+  return (
+    <div className="w-full space-y-3 px-2">
+      {/* Progress bar */}
+      <div className="h-1.5 w-full rounded-full bg-secondary overflow-hidden">
+        <div
+          className="h-full bg-primary rounded-full transition-all duration-300"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+
+      {/* Stats line */}
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span>
+          {filesUploaded} / {filesTotal} file{filesTotal !== 1 ? 's' : ''}
+          {bytesTotal > 0 && (
+            <span className="text-muted-foreground/60">
+              {' · '}
+              {formatBytes(bytesUploaded)} / {formatBytes(bytesTotal)}
+            </span>
+          )}
+        </span>
+        <span className="tabular-nums">{pct}%</span>
+      </div>
+
+      {/* Batch indicator + ETA */}
+      <div className="flex items-center justify-between text-xs text-muted-foreground/60">
+        {totalBatches > 1 ? (
+          <span>
+            Batch {currentBatch} of {totalBatches}
+          </span>
+        ) : (
+          <span>Uploading…</span>
+        )}
+        {eta !== null && <span>{formatDuration(eta)} remaining</span>}
+      </div>
+    </div>
+  )
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${Math.round(seconds)}s`
+  const m = Math.floor(seconds / 60)
+  const s = Math.round(seconds % 60)
+  return `${m}m ${s}s`
+}
+
+function estimateTimeRemaining(
+  bytesUploaded: number,
+  bytesTotal: number,
+  startTime: number,
+): number | null {
+  if (bytesUploaded <= 0 || bytesTotal <= 0) return null
+  const elapsed = (Date.now() - startTime) / 1000 // seconds
+  if (elapsed < 1) return null // not enough data yet
+  const rate = bytesUploaded / elapsed // bytes/sec
+  const remaining = bytesTotal - bytesUploaded
+  return remaining / rate
 }
