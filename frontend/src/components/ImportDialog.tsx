@@ -173,6 +173,7 @@ export function ImportDialog({
             uploading={uploading}
             uploadError={s.workflow.uploadError}
             uploadPhase={s.workflow.uploadPhase}
+            uploadProgress={s.workflow.uploadProgress}
             skippedFiles={s.workflow.skippedFiles}
             fileInputRef={s.upload.fileInputRef}
             folderInputRef={s.upload.folderInputRef}

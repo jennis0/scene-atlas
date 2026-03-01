@@ -379,6 +379,21 @@ class ImportUploadResponse(BaseModel):
     groups: list[ImportGroup]
 
 
+class BatchUploadResponse(BaseModel):
+    """Response from POST /imports/{job_id}/upload-batch."""
+
+    files_saved: int
+    bytes_saved: int
+    skipped_invalid: list[str] = []
+
+
+class AnalyseRequest(BaseModel):
+    """Request body for POST /imports/{job_id}/analyse."""
+
+    manifest: list[dict] = []
+    image_type: str = "battlemap"
+
+
 class ImportConfirmFile(BaseModel):
     """Per-file metadata from the preview UI, sent at confirm time."""
 

@@ -170,6 +170,26 @@ export interface ImportUploadResponse {
   groups: ImportGroup[]
 }
 
+export interface BatchUploadResponse {
+  files_saved: number
+  bytes_saved: number
+  skipped_invalid: string[]
+}
+
+export interface UploadProgress {
+  phase: 'hashing' | 'uploading' | 'analysing'
+  filesUploaded: number
+  filesTotal: number
+  bytesUploaded: number
+  bytesTotal: number
+  currentBatch: number
+  totalBatches: number
+  /** Bytes transferred for the current in-flight batch (from Axios progress event). */
+  currentBatchLoaded: number
+  currentBatchTotal: number
+  startTime: number
+}
+
 // Pre-flight hash check types
 export interface HashCheckItem {
   relative_path: string

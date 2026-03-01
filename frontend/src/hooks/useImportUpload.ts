@@ -6,8 +6,14 @@ import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { humanizeFilename } from '@/components/import/types'
 import { collectFilesFromDataTransfer } from '@/lib/fsEntryTraversal'
 import { saveImportJobInit, importPreviewUrl } from '@/lib/importStorage'
-import { MAX_FILE_SIZE_BYTES, MAX_FILE_SIZE_MB } from '@/lib/constants'
-import type { ImportUploadResponse, EditableGroupState } from '@/types'
+import {
+  MAX_FILE_SIZE_BYTES,
+  MAX_FILE_SIZE_MB,
+  MAX_BATCH_FILES,
+  MAX_BATCH_BYTES,
+  MAX_BATCH_RETRIES,
+} from '@/lib/constants'
+import type { ImportUploadResponse, EditableGroupState, UploadProgress } from '@/types'
 import type { DialogState } from './useImportState'
 import { ALL_TAB } from './useFileEditing'
 
@@ -25,6 +31,7 @@ export interface UseImportUploadReturn {
   uploading: boolean
   uploadError: string | null
   uploadPhase: string | null
+  uploadProgress: UploadProgress | null
   skippedFiles: string[]
   defaultImageType: 'battlemap' | 'scene'
   setDefaultImageType: (type: 'battlemap' | 'scene') => void
@@ -49,6 +56,7 @@ export function useImportUpload({
   // cleanup ensures blob URLs are still freed.
   useEffect(() => {
     return () => {
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: blobUrlsRef is stable, cleanup reads current value at unmount time
       blobUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
     }
   }, [])
@@ -56,6 +64,7 @@ export function useImportUpload({
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [uploadPhase, setUploadPhase] = useState<string | null>(null)
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null)
   const [skippedFiles, setSkippedFiles] = useState<string[]>([])
   const [defaultImageType, setDefaultImageType] = useState<'battlemap' | 'scene'>('battlemap')
 
@@ -68,7 +77,12 @@ export function useImportUpload({
       setUploading(true)
       setUploadError(null)
       setUploadPhase(null)
+      setUploadProgress(null)
       setSkippedFiles([])
+
+      // Track jobId so we can cancel on failure to clean up staging immediately
+      let jobIdForCancel: string | null = null
+
       try {
         // ── Phase 0: Magic-byte validation ─────────────────────────
         const { valid: validPairs, skipped: invalidNames } = await filterByMagicBytesForPairs(pairs)
@@ -101,6 +115,7 @@ export function useImportUpload({
         // upload starts, so closing the dialog mid-upload doesn't lose it.
         setUploadPhase('Initializing\u2026')
         const { job_id: earlyJobId } = await importApi.init()
+        jobIdForCancel = earlyJobId
         setJobId(earlyJobId)
         saveImportJobInit(earlyJobId, sizeLimitedPairs[0]?.file.name ?? 'Import')
 
@@ -156,7 +171,7 @@ export function useImportUpload({
           }
         }
 
-        // ── Phase 3: Upload only new files + ZIPs ────────────────
+        // ── Phase 3: Upload only new files + ZIPs in batches ─────
         const newFiles: File[] = []
         const newRelPaths: string[] = []
         for (let i = 0; i < imageFiles.length; i++) {
@@ -176,28 +191,73 @@ export function useImportUpload({
         const uploadFiles = [...newFiles, ...zipFiles]
         const uploadRelPaths = [...newRelPaths, ...zipRelPaths]
 
-        const uploadCount = uploadFiles.length
-        const skipCount = duplicateFiles.size
-        if (uploadCount > 0) {
+        if (uploadFiles.length > 0) {
+          const batches = splitIntoBatches(uploadFiles, uploadRelPaths)
+          const totalBytesToUpload = uploadFiles.reduce((sum, f) => sum + f.size, 0)
+          const skipCount = duplicateFiles.size
+          const startTime = Date.now()
+
+          const uploadCount = uploadFiles.length
           setUploadPhase(
             skipCount > 0
               ? `Uploading ${uploadCount} new file${uploadCount !== 1 ? 's' : ''} (${skipCount} duplicate${skipCount !== 1 ? 's' : ''} skipped)\u2026`
               : `Uploading ${uploadCount} file${uploadCount !== 1 ? 's' : ''}\u2026`,
           )
-        } else {
-          setUploadPhase('Analysing\u2026')
+
+          let bytesUploadedSoFar = 0
+          let filesUploadedSoFar = 0
+
+          for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+            const batch = batches[batchIdx]
+            const batchTotalBytes = batch.files.reduce((s, f) => s + f.size, 0)
+
+            for (let attempt = 0; attempt <= MAX_BATCH_RETRIES; attempt++) {
+              try {
+                await importApi.uploadBatch(
+                  earlyJobId,
+                  batch.files,
+                  batch.relativePaths,
+                  (event) => {
+                    const loaded = event.loaded ?? 0
+                    setUploadProgress({
+                      phase: 'uploading',
+                      filesUploaded: filesUploadedSoFar,
+                      filesTotal: uploadFiles.length,
+                      bytesUploaded: bytesUploadedSoFar + loaded,
+                      bytesTotal: totalBytesToUpload,
+                      currentBatch: batchIdx + 1,
+                      totalBatches: batches.length,
+                      currentBatchLoaded: loaded,
+                      currentBatchTotal: event.total ?? batchTotalBytes,
+                      startTime,
+                    })
+                  },
+                )
+                break // success — exit retry loop
+              } catch (err) {
+                if (isClientError(err) || attempt >= MAX_BATCH_RETRIES) {
+                  throw err
+                }
+                // Exponential backoff: 1s, 2s
+                await new Promise((resolve) => setTimeout(resolve, (attempt + 1) * 1000))
+              }
+            }
+
+            bytesUploadedSoFar += batchTotalBytes
+            filesUploadedSoFar += batch.files.length
+          }
         }
 
-        const response: ImportUploadResponse = await importApi.upload(
-          uploadFiles,
-          uploadRelPaths,
+        // ── Phase 4: Analyse all staged files ─────────────────────
+        setUploadPhase('Analysing\u2026')
+        setUploadProgress(null)
+        const response: ImportUploadResponse = await importApi.analyse(
+          earlyJobId,
           manifest.length > 0 ? manifest : undefined,
           defaultImageType,
-          earlyJobId,
         )
 
-        // ── Phase 4: Map response to editable groups ──────────────
-        setUploadPhase('Analysing\u2026')
+        // ── Phase 5: Map response to editable groups ──────────────
         const editableGroups = mapAnalysisToEditable(
           response,
           earlyJobId,
@@ -209,10 +269,17 @@ export function useImportUpload({
         setActiveTab(editableGroups.length > 1 ? ALL_TAB : 0)
         setState('preview')
       } catch (err) {
+        // Cancel job to clean up staged files immediately on failure
+        if (jobIdForCancel) {
+          importApi.cancel(jobIdForCancel).catch(() => {
+            // Ignore cancel errors — staging TTL will clean up eventually
+          })
+        }
         setUploadError(getApiErrorMessage(err, 'Upload failed'))
       } finally {
         setUploading(false)
         setUploadPhase(null)
+        setUploadProgress(null)
       }
     },
     // defaultImageType intentionally included — changing it between upload sessions is valid
@@ -249,6 +316,7 @@ export function useImportUpload({
     uploading,
     uploadError,
     uploadPhase,
+    uploadProgress,
     skippedFiles,
     defaultImageType,
     setDefaultImageType,
@@ -273,6 +341,58 @@ async function filterByMagicBytesForPairs(
     valid: pairs.filter((p) => validSet.has(p.file)),
     skipped,
   }
+}
+
+/**
+ * Split files into batches bounded by MAX_BATCH_FILES and MAX_BATCH_BYTES.
+ * Uses greedy bin-packing: each batch fills up as many files as possible
+ * without exceeding either limit.
+ */
+export function splitIntoBatches(
+  files: File[],
+  relativePaths: string[],
+): Array<{ files: File[]; relativePaths: string[] }> {
+  const batches: Array<{ files: File[]; relativePaths: string[] }> = []
+  let batchFiles: File[] = []
+  let batchRelPaths: string[] = []
+  let batchBytes = 0
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i]
+    const relPath = relativePaths[i]
+
+    // Start a new batch if adding this file would exceed limits (and batch is non-empty)
+    if (
+      batchFiles.length > 0 &&
+      (batchFiles.length >= MAX_BATCH_FILES || batchBytes + file.size > MAX_BATCH_BYTES)
+    ) {
+      batches.push({ files: batchFiles, relativePaths: batchRelPaths })
+      batchFiles = []
+      batchRelPaths = []
+      batchBytes = 0
+    }
+
+    batchFiles.push(file)
+    batchRelPaths.push(relPath)
+    batchBytes += file.size
+  }
+
+  if (batchFiles.length > 0) {
+    batches.push({ files: batchFiles, relativePaths: batchRelPaths })
+  }
+
+  return batches
+}
+
+/**
+ * Returns true for 4xx HTTP errors that should not be retried.
+ */
+function isClientError(err: unknown): boolean {
+  if (err && typeof err === 'object' && 'response' in err) {
+    const status = (err as { response?: { status?: number } }).response?.status
+    return typeof status === 'number' && status >= 400 && status < 500
+  }
+  return false
 }
 
 /**

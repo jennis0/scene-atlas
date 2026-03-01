@@ -10,6 +10,7 @@ import type {
   TagValue,
   TagStats,
   ImportUploadResponse,
+  BatchUploadResponse,
   ImportConfirmRequest,
   ImportJobResponse,
   ActiveImportsResponse,
@@ -25,6 +26,10 @@ import type {
   BackgroundJob,
   AppSettings,
 } from '@/types'
+import type { AxiosProgressEvent } from 'axios'
+import {
+  BATCH_UPLOAD_TIMEOUT_MS,
+} from '@/lib/constants'
 
 const api = axios.create({
   timeout: 30000,
@@ -221,18 +226,12 @@ export const importApi = {
     return data
   },
 
-  upload: async (
+  uploadBatch: async (
+    jobId: string,
     files: File[],
     relativePaths: string[],
-    manifest?: Array<{
-      relative_path: string
-      filename: string
-      content_hash: string
-      duplicate_of: DuplicateInfo
-    }>,
-    imageType?: string,
-    jobId?: string,
-  ): Promise<ImportUploadResponse> => {
+    onUploadProgress?: (event: AxiosProgressEvent) => void,
+  ): Promise<BatchUploadResponse> => {
     const formData = new FormData()
     for (const file of files) {
       formData.append('files', file)
@@ -240,19 +239,33 @@ export const importApi = {
     if (relativePaths.length > 0) {
       formData.append('relative_paths', JSON.stringify(relativePaths))
     }
-    if (manifest && manifest.length > 0) {
-      formData.append('manifest', JSON.stringify(manifest))
-    }
-    if (imageType) {
-      formData.append('image_type', imageType)
-    }
-    if (jobId) {
-      formData.append('job_id', jobId)
-    }
-    const { data } = await api.post<ImportUploadResponse>('/imports/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 120000, // 2 min for large uploads
-    })
+    const { data } = await api.post<BatchUploadResponse>(
+      `/imports/${jobId}/upload-batch`,
+      formData,
+      {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: BATCH_UPLOAD_TIMEOUT_MS,
+        onUploadProgress,
+      },
+    )
+    return data
+  },
+
+  analyse: async (
+    jobId: string,
+    manifest?: Array<{
+      relative_path: string
+      filename: string
+      content_hash: string
+      duplicate_of: DuplicateInfo
+    }>,
+    imageType?: string,
+  ): Promise<ImportUploadResponse> => {
+    const { data } = await api.post<ImportUploadResponse>(
+      `/imports/${jobId}/analyse`,
+      { manifest: manifest ?? [], image_type: imageType ?? 'battlemap' },
+      { timeout: 120_000 },
+    )
     return data
   },
 

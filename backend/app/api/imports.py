@@ -25,6 +25,8 @@ from ..models import (
 )
 from ..models.schemas import (
     ActiveImportsResponse,
+    AnalyseRequest,
+    BatchUploadResponse,
     DuplicateInfo,
     HashCheckRequest,
     HashCheckResponse,
@@ -127,11 +129,11 @@ async def check_hashes(
 async def init_import(db: Session = Depends(get_db)):
     """Create an ImportJob immediately so the frontend can persist the job_id.
 
-    The job starts in ``"uploading"`` status.  The subsequent ``/upload``
-    call should pass the returned ``job_id`` so that the upload is attached
-    to this pre-created job.  If the user closes the dialog mid-upload the
-    HTTP request continues in the background, and the tray can track the job
-    via this record.
+    The job starts in ``"uploading"`` status.  Call ``POST /{job_id}/upload-batch``
+    one or more times to stage files, then ``POST /{job_id}/analyse`` to run
+    group detection.  If the user closes the dialog mid-upload the HTTP
+    requests continue in the background and the tray can track progress via
+    this record.
     """
     job_id = uuid.uuid4().hex[:16]
     staging_dir = settings.staging_dir / job_id
@@ -146,51 +148,214 @@ async def init_import(db: Session = Depends(get_db)):
     return {"job_id": job_id}
 
 
-@router.post("/upload", response_model=ImportUploadResponse)
-async def upload_files(
-    request: Request,
+async def _save_files_to_staging(
+    files: list[UploadFile],
+    rel_paths_list: list[str],
+    staging_dir: Path,
+    app_settings,
+) -> tuple[list[str], int, list[str]]:
+    """Save uploaded files to the staging directory.
+
+    Handles both regular image/video files and ZIP archives.
+    Validates file types, sizes, and magic bytes.
+
+    Returns:
+        (saved_relative_paths, total_bytes, skipped_invalid)
+    """
+    saved_relative_paths: list[str] = []
+    total_upload_bytes = 0
+    skipped_invalid: list[str] = []
+
+    for i, upload_file in enumerate(files):
+        filename = upload_file.filename or f"file_{i}"
+        rel_path = rel_paths_list[i] if i < len(rel_paths_list) else filename
+
+        if filename.lower().endswith(".zip"):
+            content = await upload_file.read()
+            if len(content) > app_settings.max_import_file_size:
+                limit_mb = app_settings.max_import_file_size // (1024 * 1024)
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"File '{filename}' exceeds size limit of {limit_mb} MB",
+                )
+            total_upload_bytes += len(content)
+            if total_upload_bytes > app_settings.max_import_total_size:
+                limit_mb = app_settings.max_import_total_size // (1024 * 1024)
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Total upload size exceeds limit of {limit_mb} MB",
+                )
+
+            zip_path = staging_dir / filename
+            zip_path.write_bytes(content)
+            try:
+                check_zip_safety(
+                    zip_path,
+                    max_files=app_settings.max_import_files,
+                    max_uncompressed_bytes=app_settings.max_import_total_size,
+                )
+            except ValueError as exc:
+                zip_path.unlink(missing_ok=True)
+                raise HTTPException(status_code=413, detail=str(exc)) from exc
+
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                for member in zf.infolist():
+                    if member.is_dir():
+                        continue
+                    if "__MACOSX" in member.filename or Path(member.filename).name.startswith(
+                        "._"
+                    ):
+                        continue
+                    ext = Path(member.filename).suffix.lower()
+                    if ext not in settings.all_supported_formats:
+                        continue
+                    zf.extract(member, staging_dir)
+                    saved_relative_paths.append(member.filename)
+
+            zip_path.unlink()
+        else:
+            ext = Path(filename).suffix.lower()
+            if ext not in settings.all_supported_formats:
+                continue
+
+            is_video = ext in settings.supported_video_formats
+            file_size_limit = (
+                app_settings.max_video_file_size if is_video else app_settings.max_import_file_size
+            )
+
+            content = await upload_file.read()
+            if len(content) > file_size_limit:
+                limit_mb = file_size_limit // (1024 * 1024)
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"File '{filename}' exceeds size limit of {limit_mb} MB",
+                )
+            total_upload_bytes += len(content)
+            if total_upload_bytes > app_settings.max_import_total_size:
+                limit_mb = app_settings.max_import_total_size // (1024 * 1024)
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Total upload size exceeds limit of {limit_mb} MB",
+                )
+
+            if not verify_media_mime(content, ext):
+                logger.warning("Skipping invalid file (bad magic bytes): %s", filename)
+                skipped_invalid.append(filename)
+                continue
+
+            dest = staging_dir / rel_path
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(content)
+            saved_relative_paths.append(rel_path)
+
+    return saved_relative_paths, total_upload_bytes, skipped_invalid
+
+
+def _build_analysis_response(
+    groups: list[dict],
+    job: ImportJob,
+    all_relative_paths: list[str],
+    db: Session,
+) -> ImportUploadResponse:
+    """Map analyse_upload output to ImportUploadResponse and persist job state."""
+    import_groups: list[ImportGroup] = []
+    for group in groups:
+        files_info: list[ImportFileInfo] = []
+        for f in group["files"]:
+            parsed = f["parsed"]
+            dup_data = f.get("duplicate_of")
+            dup_info = DuplicateInfo(**dup_data) if dup_data else None
+            files_info.append(
+                ImportFileInfo(
+                    relative_path=f["relative_path"],
+                    filename=parsed["filename"],
+                    name=parsed.get("name"),
+                    media_type=(
+                        "video"
+                        if Path(f["relative_path"]).suffix.lower()
+                        in settings.supported_video_formats
+                        else "image"
+                    ),
+                    detected_tags=[
+                        {
+                            "category": t["category"],
+                            "value": t["value"],
+                            "confidence": t.get("confidence", 1.0),
+                            "source": t.get("source", "auto"),
+                        }
+                        for t in parsed.get("tags", [])
+                    ],
+                    gridded=parsed.get("gridded"),
+                    grid_type=parsed.get("grid_type"),
+                    grid_width=parsed.get("grid_width"),
+                    grid_height=parsed.get("grid_height"),
+                    subgroup=parsed.get("subgroup"),
+                    image_type=parsed.get("image_type"),
+                    content_hash=f.get("content_hash"),
+                    duplicate_of=dup_info,
+                )
+            )
+        import_groups.append(
+            ImportGroup(
+                author=group.get("author"),
+                group_name=group["group_name"],
+                files=files_info,
+            )
+        )
+
+    source_label = import_groups[0].group_name if import_groups else None
+    analysis_data = {
+        "summary": [
+            {"group_name": g.group_name, "author": g.author, "file_count": len(g.files)}
+            for g in import_groups
+        ],
+        "groups": [g.model_dump() for g in import_groups],
+    }
+
+    job.status = "staging"
+    job.source_label = source_label
+    job.total_files = len(all_relative_paths)
+    job.analysis_result = json.dumps(analysis_data)
+    job.pending_groups = len(import_groups)
+    job.updated_at = datetime.now(UTC).replace(tzinfo=None)
+    db.commit()
+
+    return ImportUploadResponse(
+        job_id=job.id,
+        total_files=len(all_relative_paths),
+        groups=import_groups,
+    )
+
+
+@router.post("/{job_id}/upload-batch", response_model=BatchUploadResponse)
+async def upload_batch(
+    job_id: str,
     files: list[UploadFile] = File(default=[]),
     relative_paths: str | None = Form(None),
-    manifest: str | None = Form(None),
-    image_type: str | None = Form(None),
-    job_id: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
-    """Upload files for import, analyse and group them.
+    """Upload one batch of files to staging for an existing import job.
 
-    Accepts multiple image files and/or .zip archives.
-    Saves to staging, runs analyse_upload synchronously,
-    returns detected groups with metadata for user review.
+    Call this endpoint multiple times (one batch at a time) before calling
+    ``POST /{job_id}/analyse`` to trigger group detection.  This avoids
+    hitting timeout limits when uploading large numbers of files.
 
-    The optional ``job_id`` parameter allows attaching the upload to a
-    pre-created job (from ``POST /init``).  If omitted, a new job is
-    created inline (backward compatibility).
-
-    The optional ``manifest`` parameter is a JSON array of entries for
-    files that the client determined are duplicates and chose not to
-    upload.  Each entry has ``relative_path``, ``filename``,
-    ``content_hash``, and ``duplicate_of``.  These files are included
-    in group detection but skip server-side hashing.
+    Each batch should be bounded to a manageable size (e.g. ≤20 files or
+    ≤100 MB).  Files are appended to the staging directory; the job status
+    remains ``"uploading"`` until ``/analyse`` is called.
     """
-    # Use pre-created job or create inline
-    existing_job: ImportJob | None = None
-    if job_id:
-        existing_job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
-        if not existing_job:
-            raise HTTPException(status_code=404, detail="Import job not found")
-        if existing_job.status != "uploading":
-            raise HTTPException(
-                status_code=409,
-                detail=f"Import job is in '{existing_job.status}' state, expected 'uploading'",
-            )
-        staging_dir = settings.staging_dir / job_id
-        staging_dir.mkdir(parents=True, exist_ok=True)
-    else:
-        job_id = uuid.uuid4().hex[:16]
-        staging_dir = settings.staging_dir / job_id
-        staging_dir.mkdir(parents=True, exist_ok=True)
+    job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Import job not found")
+    if job.status != "uploading":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Import job is in '{job.status}' state, expected 'uploading'",
+        )
 
-    # Parse relative paths if provided
+    staging_dir = settings.staging_dir / job_id
+    staging_dir.mkdir(parents=True, exist_ok=True)
+
     rel_paths_list: list[str] = []
     if relative_paths:
         try:
@@ -198,271 +363,130 @@ async def upload_files(
         except (json.JSONDecodeError, TypeError):
             rel_paths_list = []
 
-    # Parse manifest of duplicate files (not uploaded, will reuse existing storage)
-    manifest_entries: list[dict] = []
-    if manifest:
-        try:
-            manifest_entries = json.loads(manifest)
-        except (json.JSONDecodeError, TypeError):
-            manifest_entries = []
-
-    # Validate image_type if provided
-    VALID_IMAGE_TYPES = {"battlemap", "scene"}
-    if image_type and image_type not in VALID_IMAGE_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid image_type '{image_type}'. Must be one of: {', '.join(sorted(VALID_IMAGE_TYPES))}",
-        )
-
-    # Read import limits from DB-backed settings
     app_settings = get_app_settings(db)
 
-    # Early count guard — catches obvious over-limit requests before reading content
     if len(files) > app_settings.max_import_files:
-        shutil.rmtree(staging_dir, ignore_errors=True)
         raise HTTPException(
             status_code=413,
-            detail=f"Too many files: {len(files)} uploaded, limit is {app_settings.max_import_files}",
+            detail=f"Too many files in batch: {len(files)}, limit is {app_settings.max_import_files}",
         )
-
-    saved_relative_paths: list[str] = []
-    total_upload_bytes = 0
-    skipped_invalid: list[str] = []
 
     try:
-        for i, upload_file in enumerate(files):
-            filename = upload_file.filename or f"file_{i}"
-
-            # Use provided relative path if available, otherwise just filename
-            rel_path = rel_paths_list[i] if i < len(rel_paths_list) else filename
-
-            if filename.lower().endswith(".zip"):
-                # Read ZIP into memory and check compressed size
-                content = await upload_file.read()
-                if len(content) > app_settings.max_import_file_size:
-                    limit_mb = app_settings.max_import_file_size // (1024 * 1024)
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"File '{filename}' exceeds size limit of {limit_mb} MB",
-                    )
-                total_upload_bytes += len(content)
-                if total_upload_bytes > app_settings.max_import_total_size:
-                    limit_mb = app_settings.max_import_total_size // (1024 * 1024)
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"Total upload size exceeds limit of {limit_mb} MB",
-                    )
-
-                # Save ZIP and check for bombs before extraction
-                zip_path = staging_dir / filename
-                zip_path.write_bytes(content)
-                try:
-                    check_zip_safety(
-                        zip_path,
-                        max_files=app_settings.max_import_files,
-                        max_uncompressed_bytes=app_settings.max_import_total_size,
-                    )
-                except ValueError as exc:
-                    zip_path.unlink(missing_ok=True)
-                    raise HTTPException(status_code=413, detail=str(exc)) from exc
-
-                with zipfile.ZipFile(zip_path, "r") as zf:
-                    for member in zf.infolist():
-                        # Skip directories, macOS resource forks, hidden files
-                        if member.is_dir():
-                            continue
-                        if "__MACOSX" in member.filename or Path(member.filename).name.startswith(
-                            "._"
-                        ):
-                            continue
-                        # Only extract supported image/video formats
-                        ext = Path(member.filename).suffix.lower()
-                        if ext not in settings.all_supported_formats:
-                            continue
-
-                        zf.extract(member, staging_dir)
-                        saved_relative_paths.append(member.filename)
-
-                # Remove the zip file after extraction
-                zip_path.unlink()
-            else:
-                # Regular image/video file — check extension first (cheap)
-                ext = Path(filename).suffix.lower()
-                if ext not in settings.all_supported_formats:
-                    continue
-
-                # Apply per-type size limit
-                is_video = ext in settings.supported_video_formats
-                file_size_limit = (
-                    app_settings.max_video_file_size
-                    if is_video
-                    else app_settings.max_import_file_size
-                )
-
-                # Read content and enforce size limits
-                content = await upload_file.read()
-                if len(content) > file_size_limit:
-                    limit_mb = file_size_limit // (1024 * 1024)
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"File '{filename}' exceeds size limit of {limit_mb} MB",
-                    )
-                total_upload_bytes += len(content)
-                if total_upload_bytes > app_settings.max_import_total_size:
-                    limit_mb = app_settings.max_import_total_size // (1024 * 1024)
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"Total upload size exceeds limit of {limit_mb} MB",
-                    )
-
-                # Validate it's actually an image/video (not a renamed binary)
-                if not verify_media_mime(content, ext):
-                    logger.warning("Skipping invalid file (bad magic bytes): %s", filename)
-                    skipped_invalid.append(filename)
-                    continue
-
-                # Save file preserving relative path structure
-                dest = staging_dir / rel_path
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                dest.write_bytes(content)
-                saved_relative_paths.append(rel_path)
-
-        # Merge uploaded + manifest paths for grouping (grouping uses relative paths only)
-        manifest_paths = [entry["relative_path"] for entry in manifest_entries]
-        all_relative_paths = saved_relative_paths + manifest_paths
-
-        if not all_relative_paths:
-            shutil.rmtree(staging_dir, ignore_errors=True)
-            detail = "No supported image or video files found in upload"
-            if skipped_invalid:
-                detail += f"; {len(skipped_invalid)} file(s) rejected (invalid content)"
-            raise HTTPException(status_code=400, detail=detail)
-
-        # Build precomputed hashes dict from manifest entries
-        precomputed_hashes: dict[str, dict] = {}
-        for entry in manifest_entries:
-            precomputed_hashes[entry["relative_path"]] = {
-                "content_hash": entry["content_hash"],
-                "duplicate_of": entry["duplicate_of"],
-            }
-
-        # Run analyse_upload synchronously (fast — no CLIP, just filename parsing)
-        logger.info(
-            "Running analyse_upload for %s files (%s uploaded, %s from manifest)",
-            len(all_relative_paths),
-            len(saved_relative_paths),
-            len(manifest_entries),
+        saved_paths, total_bytes, skipped_invalid = await _save_files_to_staging(
+            files, rel_paths_list, staging_dir, app_settings
         )
-        from ...pipeline.ingestion import analyse_upload
-
-        runner = get_job_runner()
-        try:
-            groups = runner.run_sync(
-                analyse_upload,
-                staging_dir=str(staging_dir),
-                relative_paths=all_relative_paths,
-                precomputed_hashes=precomputed_hashes if precomputed_hashes else None,
-                default_image_type=image_type or "battlemap",
-            )
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"File analysis failed: {e}",
-            ) from e
-
-        # Build response from flow result
-        import_groups: list[ImportGroup] = []
-        for group in groups:
-            files_info: list[ImportFileInfo] = []
-            for f in group["files"]:
-                parsed = f["parsed"]
-                # Build duplicate info if the analysis detected a match
-                dup_data = f.get("duplicate_of")
-                dup_info = DuplicateInfo(**dup_data) if dup_data else None
-
-                files_info.append(
-                    ImportFileInfo(
-                        relative_path=f["relative_path"],
-                        filename=parsed["filename"],
-                        name=parsed.get("name"),
-                        media_type=(
-                            "video"
-                            if Path(f["relative_path"]).suffix.lower()
-                            in settings.supported_video_formats
-                            else "image"
-                        ),
-                        detected_tags=[
-                            {
-                                "category": t["category"],
-                                "value": t["value"],
-                                "confidence": t.get("confidence", 1.0),
-                                "source": t.get("source", "auto"),
-                            }
-                            for t in parsed.get("tags", [])
-                        ],
-                        gridded=parsed.get("gridded"),
-                        grid_type=parsed.get("grid_type"),
-                        grid_width=parsed.get("grid_width"),
-                        grid_height=parsed.get("grid_height"),
-                        subgroup=parsed.get("subgroup"),
-                        image_type=parsed.get("image_type"),
-                        content_hash=f.get("content_hash"),
-                        duplicate_of=dup_info,
-                    )
-                )
-
-            import_groups.append(
-                ImportGroup(
-                    author=group.get("author"),
-                    group_name=group["group_name"],
-                    files=files_info,
-                )
-            )
-
-        # Store full analysis (summary + groups) for reconnect support
-        source_label = import_groups[0].group_name if import_groups else None
-        analysis_data = {
-            "summary": [
-                {"group_name": g.group_name, "author": g.author, "file_count": len(g.files)}
-                for g in import_groups
-            ],
-            "groups": [g.model_dump() for g in import_groups],
-        }
-
-        if existing_job:
-            # Update pre-created job from init
-            existing_job.status = "staging"
-            existing_job.source_label = source_label
-            existing_job.total_files = len(all_relative_paths)
-            existing_job.analysis_result = json.dumps(analysis_data)
-            existing_job.pending_groups = len(import_groups)
-            existing_job.updated_at = datetime.now(UTC).replace(tzinfo=None)
-        else:
-            # Create new job inline (backward compat)
-            import_job = ImportJob(
-                id=job_id,
-                status="staging",
-                source_label=source_label,
-                total_files=len(all_relative_paths),
-                analysis_result=json.dumps(analysis_data),
-                pending_groups=len(import_groups),
-            )
-            db.add(import_job)
-        db.commit()
-
-        return ImportUploadResponse(
-            job_id=job_id,
-            total_files=len(all_relative_paths),
-            groups=import_groups,
-        )
-
     except HTTPException:
         raise
     except Exception as e:
-        # Clean up on error
-        shutil.rmtree(staging_dir, ignore_errors=True)
-        logger.exception("Upload failed: %s", e)
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}") from e
+        logger.exception("Batch upload failed for job %s: %s", job_id, e)
+        raise HTTPException(status_code=500, detail=f"Batch upload failed: {e}") from e
+
+    logger.info(
+        "Batch upload for job %s: %d files saved (%d bytes), %d skipped",
+        job_id,
+        len(saved_paths),
+        total_bytes,
+        len(skipped_invalid),
+    )
+    return BatchUploadResponse(
+        files_saved=len(saved_paths),
+        bytes_saved=total_bytes,
+        skipped_invalid=skipped_invalid,
+    )
+
+
+@router.post("/{job_id}/analyse", response_model=ImportUploadResponse)
+async def analyse_staged(
+    job_id: str,
+    body: AnalyseRequest,
+    db: Session = Depends(get_db),
+):
+    """Analyse all staged files and transition job to 'staging' state.
+
+    Call this after all ``/upload-batch`` requests have completed.
+    Scans the staging directory for saved files, merges with the duplicate
+    manifest, runs group detection, and returns the same response shape as
+    the old ``/upload`` endpoint.
+    """
+    job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Import job not found")
+    if job.status != "uploading":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Import job is in '{job.status}' state, expected 'uploading'",
+        )
+
+    staging_dir = settings.staging_dir / job_id
+    if not staging_dir.exists():
+        raise HTTPException(status_code=400, detail="No staged files found for this job")
+
+    VALID_IMAGE_TYPES = {"battlemap", "scene"}
+    if body.image_type not in VALID_IMAGE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid image_type '{body.image_type}'. Must be one of: {', '.join(sorted(VALID_IMAGE_TYPES))}",
+        )
+
+    # Discover all files already saved in staging (skip thumbnail cache dir)
+    saved_relative_paths: list[str] = []
+    thumbs_dir = staging_dir / ".thumbs"
+    for path in staging_dir.rglob("*"):
+        if path.is_dir():
+            continue
+        # Skip thumbnail cache and macOS artefacts
+        try:
+            path.relative_to(thumbs_dir)
+            continue
+        except ValueError:
+            pass
+        if path.name.startswith("._") or "__MACOSX" in path.parts:
+            continue
+        ext = path.suffix.lower()
+        if ext not in settings.all_supported_formats:
+            continue
+        saved_relative_paths.append(str(path.relative_to(staging_dir)))
+
+    # Merge with manifest (duplicate files the client chose not to re-upload)
+    manifest_entries: list[dict] = body.manifest
+    manifest_paths = [entry["relative_path"] for entry in manifest_entries]
+    all_relative_paths = saved_relative_paths + manifest_paths
+
+    if not all_relative_paths:
+        raise HTTPException(
+            status_code=400,
+            detail="No supported image or video files found in staging",
+        )
+
+    precomputed_hashes: dict[str, dict] = {
+        entry["relative_path"]: {
+            "content_hash": entry["content_hash"],
+            "duplicate_of": entry["duplicate_of"],
+        }
+        for entry in manifest_entries
+    }
+
+    from ...pipeline.ingestion import analyse_upload
+
+    runner = get_job_runner()
+    logger.info(
+        "Running analyse_upload for job %s: %d staged + %d manifest files",
+        job_id,
+        len(saved_relative_paths),
+        len(manifest_entries),
+    )
+    try:
+        groups = runner.run_sync(
+            analyse_upload,
+            staging_dir=str(staging_dir),
+            relative_paths=all_relative_paths,
+            precomputed_hashes=precomputed_hashes if precomputed_hashes else None,
+            default_image_type=body.image_type,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"File analysis failed: {e}") from e
+
+    return _build_analysis_response(groups, job, all_relative_paths, db)
 
 
 @router.post("/{job_id}/confirm")
