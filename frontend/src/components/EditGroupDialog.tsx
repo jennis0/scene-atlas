@@ -1,14 +1,6 @@
-import { useState, useCallback, useMemo, useRef } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import {
-  DndContext,
-  DragOverlay,
-  PointerSensor,
-  KeyboardSensor,
-  useSensor,
-  useSensors,
-} from '@dnd-kit/core'
-import type { DragStartEvent, DragEndEvent } from '@dnd-kit/core'
+import { DndContext, DragOverlay } from '@dnd-kit/core'
 import {
   AlertCircle,
   Check,
@@ -40,15 +32,14 @@ import { applyFileFilter } from './import/fileFilter'
 import { useFileEditing, ALL_TAB } from '@/hooks/useFileEditing'
 import { useEditGroupLoad } from '@/hooks/useEditGroupLoad'
 import { useEditGroupOperations } from '@/hooks/useEditGroupOperations'
+import { useEditGroupDnd } from '@/hooks/useEditGroupDnd'
+import { useGroupSidebarMultiselect } from '@/hooks/useGroupSidebarMultiselect'
 import {
   DraggableFileCardWrapper,
   DroppableGroupRow,
   DraggableGroupRow,
   DroppableSubgroupSection,
   DragOverlayContent,
-  type DragData,
-  type DropData,
-  type ActiveDragState,
 } from './import/shared/dnd'
 
 interface EditGroupDialogProps {
@@ -79,20 +70,6 @@ export default function EditGroupDialog({
     queryClient.invalidateQueries({ queryKey: ['search'] })
     queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
   }, [queryClient])
-
-  // ── Drag & drop state ────────────────────────────────────────────────
-  const [activeDrag, setActiveDrag] = useState<ActiveDragState | null>(null)
-  const [dragMergeSource, setDragMergeSource] = useState<string | null>(null)
-  const [dragMergeTarget, setDragMergeTarget] = useState<string | null>(null)
-
-  // ── Sidebar multiselect state ────────────────────────────────────────
-  const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set())
-  const [lastClickedGroupIndex, setLastClickedGroupIndex] = useState<number | null>(null)
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(KeyboardSensor),
-  )
 
   // ── Shared file editing state and mutations ───────────────────────
 
@@ -152,16 +129,25 @@ export default function EditGroupDialog({
   })
   autoSaveRef.current = ops.autoSaveGroup
 
+  // ── Drag & drop ────────────────────────────────────────────────────
+  const dnd = useEditGroupDnd({
+    groups,
+    selections,
+    updateFilesInGroup,
+    handleMoveImagesToGroup: ops.handleMoveImagesToGroup,
+  })
+
+  // ── Sidebar multiselect ──────────────────────────────────────────────
+  const { selectedGroupIds, setSelectedGroupIds, handleGroupClick, resetMultiselect } =
+    useGroupSidebarMultiselect({ groups, onSelectTab: setActiveTab })
+
   // Reset dialog-local state (everything NOT owned by useEditGroupLoad or useFileEditing)
   const resetDialogState = useCallback(() => {
     ops.resetOperations()
-    setActiveDrag(null)
-    setDragMergeSource(null)
-    setDragMergeTarget(null)
-    setSelectedGroupIds(new Set())
-    setLastClickedGroupIndex(null)
+    dnd.resetDnd()
+    resetMultiselect()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ops.resetOperations])
+  }, [ops.resetOperations, dnd.resetDnd, resetMultiselect])
 
   // ── Data loading (single-group / mass-edit / import-review) ────────
   const { loading, loadError, isMassEdit, ungroupedCount } = useEditGroupLoad({
@@ -204,7 +190,6 @@ export default function EditGroupDialog({
     handleMergeAll,
     handleBulkMerge,
     handleBulkDelete,
-    handleMoveImagesToGroup,
     handleDragMergeConfirm,
     confirmingMergeAll,
     setConfirmingMergeAll,
@@ -222,108 +207,17 @@ export default function EditGroupDialog({
     setConfirmingBulkDelete,
   } = ops
 
-  // ── Drag & drop handlers ─────────────────────────────────────────
-
-  const handleMoveImagesToSubgroup = useCallback(
-    (drag: ActiveDragState, targetSubgroup: string | null) => {
-      const sel = selections[drag.groupId] ?? new Set<string>()
-      const paths = sel.has(drag.id) ? [...sel] : [drag.id]
-      updateFilesInGroup(drag.groupId, paths, { subgroup: targetSubgroup })
-    },
-    [selections, updateFilesInGroup],
-  )
-
-  // Refs to avoid stale closures in handleDragEnd
-  const moveToGroupRef = useRef(handleMoveImagesToGroup)
-  moveToGroupRef.current = handleMoveImagesToGroup
-  const moveToSubgroupRef = useRef(handleMoveImagesToSubgroup)
-  moveToSubgroupRef.current = handleMoveImagesToSubgroup
-
-  const handleDragStart = useCallback(
-    (event: DragStartEvent) => {
-      const data = event.active.data.current as DragData
-      if (data.type === 'card') {
-        const sel = selections[data.groupId] ?? new Set<string>()
-        const count = sel.has(data.id) ? sel.size : 1
-        const file = groups
-          .find((g) => g.id === data.groupId)
-          ?.files.find((f) => f.relative_path === data.id)
-        setActiveDrag({
-          type: 'card',
-          id: data.id,
-          groupId: data.groupId,
-          selectedCount: count,
-          previewUrl: file?.previewUrl,
-          label: file?.name || file?.filename,
-        })
-      } else {
-        const group = groups.find((g) => g.id === data.groupId)
-        setActiveDrag({
-          type: 'group',
-          id: data.id,
-          groupId: data.groupId,
-          selectedCount: 1,
-          label: group?.group_name,
-        })
-      }
-    },
-    [selections, groups],
-  )
-
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { over } = event
-      if (!over || !activeDrag) {
-        setActiveDrag(null)
-        return
-      }
-
-      const dropData = over.data.current as DropData
-      if (activeDrag.type === 'card' && dropData.type === 'group' && dropData.groupId) {
-        moveToGroupRef.current(activeDrag, dropData.groupId)
-      } else if (activeDrag.type === 'card' && dropData.type === 'subgroup') {
-        moveToSubgroupRef.current(activeDrag, dropData.subgroup ?? null)
-      } else if (activeDrag.type === 'group' && dropData.type === 'group' && dropData.groupId) {
-        if (activeDrag.groupId !== dropData.groupId) {
-          setDragMergeSource(activeDrag.groupId)
-          setDragMergeTarget(dropData.groupId)
-        }
-      }
-      setActiveDrag(null)
-    },
-    [activeDrag],
-  )
-
-  // ── Sidebar multiselect handlers ─────────────────────────────────
-
-  const handleGroupClick = useCallback(
-    (index: number, groupId: string, event: React.MouseEvent) => {
-      if (event.ctrlKey || event.metaKey) {
-        event.preventDefault()
-        setSelectedGroupIds((prev) => {
-          const next = new Set(prev)
-          if (next.has(groupId)) next.delete(groupId)
-          else next.add(groupId)
-          return next
-        })
-        setLastClickedGroupIndex(index)
-        return
-      }
-      if (event.shiftKey && lastClickedGroupIndex !== null) {
-        event.preventDefault()
-        const start = Math.min(lastClickedGroupIndex, index)
-        const end = Math.max(lastClickedGroupIndex, index)
-        const rangeIds = groups.slice(start, end + 1).map((g) => g.id)
-        setSelectedGroupIds(new Set(rangeIds))
-        return
-      }
-      // Normal click: navigate to group, clear multiselect
-      setActiveTab(index)
-      setSelectedGroupIds(new Set())
-      setLastClickedGroupIndex(index)
-    },
-    [lastClickedGroupIndex, groups, setActiveTab],
-  )
+  // Destructure DnD values for readability in JSX
+  const {
+    sensors,
+    activeDrag,
+    dragMergeSource,
+    dragMergeTarget,
+    setDragMergeSource,
+    setDragMergeTarget,
+    handleDragStart,
+    handleDragEnd,
+  } = dnd
 
   // ── Derived values ─────────────────────────────────────────────
 
