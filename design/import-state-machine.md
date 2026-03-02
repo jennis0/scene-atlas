@@ -22,7 +22,24 @@ uploading → staging → active ↔ awaiting_input → completed/failed
 | `cancelled` | User cancelled the import | `POST /cancel` |
 | `expired` | Stale job cleaned up by maintenance | `expire_stale_jobs()` |
 
-Terminal statuses: `completed`, `failed`, `cancelled`, `expired`. Once terminal, status never changes.
+Terminal statuses: `completed`, `failed`, `cancelled`, `expired`, `broken`. Once terminal, status never changes.
+
+### `broken` status (added: import pipeline robustness)
+
+`broken` is a pseudo-terminal status applied at server startup by `mark_interrupted_jobs()` in `maintenance.py`. Any job in `uploading`, `staging`, or `active` at the time the server starts was interrupted mid-flight and cannot be resumed. These are transitioned to `broken` so the ActivityDock can show them as unrecoverable and the user can dismiss them.
+
+- `broken` is NOT a normal state machine transition — it is set directly by `mark_interrupted_jobs()`, bypassing `transition_job_status()`.
+- The frontend maps `broken` to the `done` dialog state and shows an `AlertCircle` icon (same as `failed`).
+- `ImportSummaryDialog` is shown for `broken` and `failed` jobs so users can inspect what went wrong before dismissing.
+
+### `/fail` endpoint
+
+`POST /imports/{job_id}/fail` accepts `{ error_message: string }` and transitions the job from `uploading` or `staging` → `failed`, recording the error message on `ImportJob.error_message`. Guards against transitioning from `active` or already-terminal states.
+
+Used by the frontend in place of `/cancel` when an upload or analysis error occurs — semantically more accurate since the user did not request cancellation; the job failed.
+
+- If `/fail` is unavailable (e.g. network error during the call itself), the frontend falls back to `/cancel` to ensure staging cleanup still occurs.
+- `error_message` is surfaced via `ImportJobSummary.error_message` and shown in `ImportSummaryDialog`.
 
 ## Key Design Decisions
 
@@ -97,22 +114,26 @@ Note: `'preview'` is a transient internal dialog state — the auto-confirm useE
 | `active` / `running` | Loader (spinning) | Yes |
 | `completed` | Check | No |
 | `failed` | Alert circle | No |
+| `broken` | Alert circle | No |
 | `cancelled` | Ban | No |
+
+Completed jobs with `needs_review=True` images remain in the ActivityDock's `/active` list indefinitely — they are not subject to the 1-hour recency TTL. This ensures users can always find unreviewed imports via the ActivityDock. Once all images are reviewed (i.e. `needs_review` cleared), the TTL applies and the job is eventually pruned from the list.
 
 ## Related Files
 
 | File | Purpose |
 |------|---------|
 | `backend/app/services/import_state.py` | `transition_job_status()` — single authoritative transition function |
-| `backend/app/models/database.py` | `ImportJob` model with `status`, `pending_groups`, `all_confirmed` |
-| `backend/app/api/imports.py` | All import endpoints |
+| `backend/app/models/database.py` | `ImportJob` model with `status`, `pending_groups`, `all_confirmed`, `error_message` |
+| `backend/app/api/imports.py` | All import endpoints including `POST /{job_id}/fail` |
 | `backend/pipeline/ingestion.py` | `_finalize_import_job()` — calls `transition_job_status()` after group processing |
-| `backend/pipeline/maintenance.py` | `expire_stale_jobs()` — includes `awaiting_input` in stale set |
+| `backend/pipeline/maintenance.py` | `expire_stale_jobs()` — includes `awaiting_input` in stale set; `mark_interrupted_jobs()` — marks `uploading`/`staging`/`active` as `broken` at startup |
 | `frontend/src/hooks/useImportPolling.ts` | `backendStatusToDialogState()` helper, polling with group_job_id matching |
 | `frontend/src/hooks/useImportPersistence.ts` | Reconnection using backend-authoritative status |
-| `frontend/src/hooks/useImportState.ts` | `remaining_groups` in confirm requests, `group_job_id` storage |
-| `frontend/src/hooks/useActiveImports.ts` | `awaiting_input` in status type |
-| `frontend/src/components/ActivityDock.tsx` | Status icons/text for `awaiting_input` |
+| `frontend/src/hooks/useImportState.ts` | `remaining_groups` in confirm requests, `group_job_id` storage, auto-confirm retry logic |
+| `frontend/src/hooks/useActiveImports.ts` | `awaiting_input`/`broken` in status type; connection-lost tracking |
+| `frontend/src/components/ActivityDock.tsx` | Status icons/text including `broken`; WifiOff connection-lost indicator |
+| `frontend/src/components/ImportSummaryDialog.tsx` | Error summary shown for `failed`/`broken` jobs |
 
 ## Migration
 

@@ -54,7 +54,7 @@ Accepts `multipart/form-data`:
 
 The frontend splits files into batches (≤20 files, ≤100 MB each) and sends them sequentially. Each batch uses Axios `onUploadProgress` for byte-level progress feedback, which drives the progress bar in the UI. On network or 5xx errors, up to 2 retries are made with exponential backoff.
 
-**On failure:** The frontend calls `POST /{job_id}/cancel` to immediately clean up the staging directory.
+**On failure:** The frontend calls `POST /{job_id}/fail` with an `error_message` to mark the job as `failed` (semantically accurate — not a user cancellation). If `/fail` itself is unavailable, the frontend falls back to `POST /{job_id}/cancel` to ensure staging cleanup still occurs. The staging TTL handles any remaining cleanup.
 
 ### Phase 3: Analyse
 
@@ -202,11 +202,51 @@ Returns the stored analysis for reconnection — rebuilds the preview UI when a 
 
 Explicitly marks a job as complete. Sets `pending_groups = 0` and runs `transition_job_status()`. Rejects jobs with running groups.
 
+## Backend: Fail Endpoint
+
+**`POST /api/v1/imports/{job_id}/fail`**
+
+Marks a job as `failed` with a client-provided error message. Guards against transitioning from `active` or already-terminal states — only valid from `uploading` or `staging`.
+
+Accepts JSON body: `{ "error_message": "Upload failed: ..." }`
+
+Sets `ImportJob.status = "failed"`, `ImportJob.error_message = error_message`, and `ImportJob.completed_at = now()`. Cleans up the staging directory.
+
+`error_message` is surfaced in `ImportJobSummary.error_message` (via `/active` and `/status` endpoints) and shown in `ImportSummaryDialog`.
+
 ## Backend: Cancel Endpoint
 
 **`POST /api/v1/imports/{job_id}/cancel`**
 
 Cancels an import job. Cancels any running group jobs, sets `pending_groups = 0`, and runs `transition_job_status()` for terminal groups or sets `cancelled` directly.
+
+## Auto-Confirm Retry
+
+When the auto-confirm effect in `useImportState` sends `POST /confirm-all` and receives a network or server error, it retries with exponential backoff (delays: 1 s, 2 s, 4 s — up to 3 retries). If all retries fail, it calls `POST /{job_id}/fail` to mark the job as failed on the backend, then transitions the frontend dialog to the `done` (error) state.
+
+## Connection Lost Indicator
+
+`useActiveImports` tracks consecutive poll failures on the `/imports/active` endpoint using `consecutiveFailuresRef`. After 3 consecutive failures, `connectionLost` is set to `true`. The `ActivityDock` renders a `WifiOff` icon while this flag is set. `connectionLost` is reset to `false` on the first successful response.
+
+## Persistent Unreviewed Imports
+
+Completed import jobs that have images with `needs_review=True` are kept in the `/imports/active` response indefinitely (ignoring the 1-hour recency TTL). This ensures users can always find and review their imports via the ActivityDock, even if they don't review immediately after import. Once all images in a job are reviewed (needs_review cleared via `/groups/confirm-review`), the standard TTL resumes and the job is eventually pruned.
+
+## Crash Supervision / Backend Restart Robustness
+
+### Server startup: broken jobs
+
+On every startup, `mark_interrupted_jobs()` (called from the FastAPI lifespan) transitions any job in `uploading`, `staging`, or `active` to `broken`. These jobs were interrupted mid-flight and cannot be resumed. The frontend treats `broken` identically to `failed` — the `ImportSummaryDialog` is shown so the user can see what happened before dismissing.
+
+### Frontend: stale terminal job reconnect blocked
+
+`useImportPersistence` prevents reconnecting to jobs that are already in a terminal state (`completed`, `failed`, `cancelled`, `expired`, `broken`) when the page is reloaded. This avoids ghost dialogs reopening for already-resolved jobs.
+
+### Crash loop supervision
+
+`scripts/start.py` (used in the development/server deployment mode) and `backend/pyinstaller/entry.py` (used in the Electron app) both include crash supervision:
+- **`start.py`**: Spawns backend and frontend as subprocess children. If either crashes, it is restarted with exponential backoff. Gives up after 10 crashes within 5 minutes.
+- **`entry.py`**: Restarts the uvicorn server in-process on crash. Same 10-crash-in-5-minute limit. Note: in-process restart means corrupted module-level state (singletons, connection pools) persists across restarts — this is the correct tradeoff for Electron where process isolation would require re-bundling the Python runtime.
 
 ## Group Detection
 
