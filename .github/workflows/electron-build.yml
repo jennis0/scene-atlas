@@ -194,8 +194,8 @@ jobs:
       # ── Build Electron app ─────────────────────────────────────────────
       - name: Build Electron app (publish)
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') || github.event.inputs.publish == 'true'
-        run: npx electron-builder --publish always
         env:
+          TARGET_PLATFORM: ${{ matrix.platform }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # macOS code signing (optional — set these secrets to enable signing)
           CSC_LINK: ${{ secrets.MAC_CERT_P12 }}
@@ -203,10 +203,13 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: uv run python scripts/build_electron.py --skip-sidecar --skip-frontend --platform "$TARGET_PLATFORM" --publish
 
       - name: Build Electron app (no publish)
         if: "!(github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) && github.event.inputs.publish != 'true'"
-        run: npx electron-builder --publish never
+        env:
+          TARGET_PLATFORM: ${{ matrix.platform }}
+        run: uv run python scripts/build_electron.py --skip-sidecar --skip-frontend --platform "$TARGET_PLATFORM"
 
       # ── Upload artifacts ───────────────────────────────────────────────
       - name: Upload build artifacts

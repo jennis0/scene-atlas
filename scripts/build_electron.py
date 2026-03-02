@@ -9,6 +9,9 @@ Options:
     --clean           Remove previous build outputs before building
     --no-package      Stop after compiling — skip electron-builder step
     --dev             Quick dev build: unpack only, no installer (skips slow NSIS compression)
+    --platform        Target platform: windows, macos, linux, or current (default: current)
+                      Note: macOS builds require a macOS host for code signing/notarisation.
+    --publish         Pass --publish always to electron-builder (for CI releases)
 """
 
 import argparse
@@ -78,9 +81,15 @@ def main() -> None:
     parser.add_argument("--clean",         action="store_true", help="Clean previous outputs first")
     parser.add_argument("--no-package",    action="store_true", help="Skip electron-builder packaging")
     parser.add_argument("--dev",           action="store_true", help="Quick dev build: unpack only, no installer (skips slow NSIS compression)")
+    parser.add_argument("--platform",      choices=["windows", "macos", "linux", "current"],
+                        default="current",
+                        help="Target platform (default: current OS). macOS builds require a macOS host.")
+    parser.add_argument("--publish",       action="store_true",
+                        help="Publish to GitHub Releases (passes --publish always to electron-builder)")
     args = parser.parse_args()
 
-    print(f"\n{C.BOLD}Scene Atlas — Electron build{C.RESET}")
+    platform_label = args.platform if args.platform != "current" else f"current ({sys.platform})"
+    print(f"\n{C.BOLD}Scene Atlas — Electron build ({platform_label}){C.RESET}")
     print(f"Root: {ROOT}\n")
 
     # ── Prerequisites ────────────────────────────────────────────────────────
@@ -151,19 +160,36 @@ def main() -> None:
     success("Electron TS compiled")
 
     # ── Step 4: Package ──────────────────────────────────────────────────────
+    PLATFORM_FLAGS = {
+        "windows": "--win",
+        "macos":   "--mac",
+        "linux":   "--linux",
+        "current": None,   # electron-builder auto-detects
+    }
+    platform_flag = PLATFORM_FLAGS[args.platform]
+
     if args.no_package:
         warn("Skipping packaging (--no-package)")
     elif args.dev:
         step("Packaging with electron-builder (dev: dir only, no installer)")
         info("Skipping NSIS compression — run dist-electron/win-unpacked/Scene Atlas.exe to test")
-        npx("electron-builder", "--publish", "never", "--win", "dir")
+        cmd = ["electron-builder", "--publish", "never"]
+        if platform_flag:
+            cmd += [platform_flag, "dir"]
+        else:
+            cmd += ["--win", "dir"]   # dev mode defaults to win dir
+        npx(*cmd)
         exe = ROOT / "dist-electron" / "win-unpacked" / "Scene Atlas.exe"
         if exe.exists():
             print()
             success(f"Dev build ready: {exe.relative_to(ROOT)}")
     else:
-        step("Packaging with electron-builder")
-        npx("electron-builder", "--publish", "never")
+        publish_value = "always" if args.publish else "never"
+        step(f"Packaging with electron-builder (--publish {publish_value})")
+        cmd = ["electron-builder", "--publish", publish_value]
+        if platform_flag:
+            cmd.append(platform_flag)
+        npx(*cmd)
 
         out = ROOT / "dist-electron"
         if out.exists():
