@@ -477,6 +477,7 @@ export function useImportState(
       // Retry with exponential backoff before giving up
       const delays = [1000, 2000, 4000]
       let succeeded = false
+      let lastErr: unknown = err
       for (const delay of delays) {
         await new Promise((resolve) => setTimeout(resolve, delay))
         try {
@@ -493,13 +494,13 @@ export function useImportState(
           setTimeout(saveNow, 100)
           succeeded = true
           break
-        } catch {
-          // Continue to next retry
+        } catch (retryErr) {
+          lastErr = retryErr
         }
       }
       if (!succeeded) {
-        // All retries failed — mark job as failed on backend
-        const errorMessage = getApiErrorMessage(err, 'Failed to start processing')
+        // All retries failed — mark job as failed on backend using the most recent error
+        const errorMessage = getApiErrorMessage(lastErr, 'Failed to start processing')
         try {
           await importApi.fail(jobId, errorMessage)
         } catch {

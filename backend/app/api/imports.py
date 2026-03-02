@@ -801,7 +801,9 @@ async def get_active_imports(db: Session = Depends(get_db)):
     for job in all_jobs:
         groups = db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job.id).all()
 
-        # Status is authoritative from DB — no derivation needed
+        # Status is authoritative from DB — no derivation needed.
+        # Note: 'broken' is intentionally absent — broken jobs always appear in the
+        # ActivityDock until the user explicitly cancels/cleans them up.
         truly_terminal = {"completed", "failed", "cancelled", "expired"}
         if job.status in truly_terminal:
             if job.status == "completed":

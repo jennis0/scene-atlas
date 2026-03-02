@@ -47,25 +47,25 @@ def _supervise(name: str, cmd: list[str]) -> None:
 
     while True:
         log_path = LOGS_DIR / f"{name}.log"
-        log_file = open(log_path, "a")
 
         extra = {}
         if sys.platform == "win32":
             extra["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
 
-        child_proc = subprocess.Popen(
-            cmd,
-            cwd=ROOT,
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-            **extra,
-        )
-        pid_file = PIDS_DIR / f"{name}.pid"
-        pid_file.write_text(str(child_proc.pid))
-        print(f"  [{name}] PID {child_proc.pid}")
+        with open(log_path, "a") as log_file:
+            child_proc = subprocess.Popen(
+                cmd,
+                cwd=ROOT,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                **extra,
+            )
+            pid_file = PIDS_DIR / f"{name}.pid"
+            pid_file.write_text(str(child_proc.pid))
+            print(f"  [{name}] PID {child_proc.pid}")
 
-        exit_code = child_proc.wait()
-        log_file.close()
+            exit_code = child_proc.wait()
+        # log_file is flushed and closed here in all exit paths
 
         if exit_code == 0:
             print(f"  [{name}] exited cleanly")

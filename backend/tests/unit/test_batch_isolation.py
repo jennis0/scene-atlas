@@ -65,4 +65,5 @@ class TestProcessBatchDbIsolation:
 
         assert batch_failed == 0
         assert results[0]["status"] == "success"
+        assert results[0].get("image_id") == 42
         mock_qdrant_save.assert_called_once()
