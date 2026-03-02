@@ -1221,14 +1221,19 @@ def _mark_group_job_failed(group_job_id: str, error_message: str) -> None:
 def _finalize_import_job(job_id: str) -> None:
     """Update ImportJob status after a group finishes processing.
 
-    Delegates to the central transition_job_status() function which is the
-    single authoritative source for import job status transitions.
+    For the confirm-all path (all_confirmed=True), delegates to
+    transition_job_status() to auto-complete the job when all groups finish.
+
+    For the single-confirm path (all_confirmed=False), does NOT auto-complete
+    the job — it stays 'active' until the user explicitly calls /finalize.
+    Only the running→active and all-terminal→awaiting_input transitions are
+    applied in this path.
 
     If the job was cancelled while a group was still running, performs a
     best-effort cleanup sweep to delete any images added after the initial
     cancel sweep.
     """
-    from backend.app.services.import_state import transition_job_status
+    from backend.app.services.import_state import GROUP_TERMINAL_STATUSES, transition_job_status
 
     logger = logging.getLogger(__name__)
     engine = get_engine(settings.database_url)
@@ -1252,6 +1257,29 @@ def _finalize_import_job(job_id: str) -> None:
                     job_id,
                 )
             db.commit()
+            return
+
+        if not job.all_confirmed:
+            # Single-confirm path: don't auto-complete — the job stays 'active'
+            # until the user explicitly calls /finalize.  Only apply the
+            # running→active and all-terminal→awaiting_input transitions.
+            groups = db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job_id).all()
+            has_running = any(g.status == "running" for g in groups)
+            all_terminal = not groups or all(g.status in GROUP_TERMINAL_STATUSES for g in groups)
+            now = datetime.now(UTC).replace(tzinfo=None)
+            if has_running:
+                job.status = "active"
+                job.updated_at = now
+            elif all_terminal and job.pending_groups > 0:
+                job.status = "awaiting_input"
+                job.updated_at = now
+            # else: all submitted groups done, pending=0 → stay in current status
+            db.commit()
+            logger.info(
+                "Import job %s stays '%s' (single-confirm, not auto-completing)",
+                job_id,
+                job.status,
+            )
             return
 
         new_status = transition_job_status(db, job_id)

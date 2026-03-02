@@ -25,15 +25,15 @@ from .models import (
     seed_tag_categories,
 )
 
-# Configure logging — console + rotating file in data_dir/logs/
-setup_logging(settings.data_dir, debug=settings.debug)
-
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
+    # Configure logging first so all startup messages go to our handlers.
+    setup_logging(settings.data_dir, debug=settings.debug)
+
     # Startup
     logger.info("Starting %s v%s", settings.app_name, settings.app_version)
 

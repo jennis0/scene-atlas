@@ -17,12 +17,24 @@ def _clean_root_logger():
     remove handlers that *we* added (StreamHandler to stdout and
     RotatingFileHandler) and leave pytest's handlers alone.
     """
+    import sys
+
     # Reset the module-level guard so setup_logging can run again
     logging_config_mod._CONFIGURED = False
 
     root = logging.getLogger()
-    original_handlers = root.handlers[:]
     original_level = root.level
+
+    # Remove any pre-existing setup_logging handlers (e.g. added when main.py
+    # was imported by integration tests earlier in the test session).
+    for h in root.handlers[:]:
+        if isinstance(h, RotatingFileHandler):
+            h.close()
+            root.removeHandler(h)
+        elif type(h) is logging.StreamHandler and getattr(h, "stream", None) is sys.stdout:
+            root.removeHandler(h)
+
+    original_handlers = root.handlers[:]
 
     yield
 
