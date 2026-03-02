@@ -43,7 +43,7 @@ class PipelineConfig:
 
     # Ingestion performance
     ingestion_batch_size: int = 16
-    max_concurrent_prepare: int = 8
+    max_concurrent_prepare: int = 4
 
     @classmethod
     def from_app_settings(cls, s) -> PipelineConfig:

@@ -32,7 +32,7 @@ from backend.app.models import (
     get_engine,
     get_session_local,
 )
-from backend.app.services import ImageParser, get_image_store, get_qdrant_service
+from backend.app.services import ImageParser, get_image_store, get_qdrant_service, get_thumbnail_store
 from backend.app.services.fts_service import fts_rebuild
 from backend.app.services.image_parser import build_search_text
 
@@ -385,6 +385,15 @@ def prepare_single_image(
 
         thumbnail_key = thumbnail_keys.get("medium", thumbnail_keys.get("small"))
 
+        # Use the medium (or small) thumbnail as the CLIP encoding source.
+        # CLIP resizes to 224×224 internally, so opening full-res originals is wasteful.
+        # Thumbnails are ~470KB vs potentially 50-200MB for originals.
+        # clip_image_path retains its original meaning: temp video frame to clean up after CLIP.
+        if is_video:
+            clip_source_path = str(frame_path)  # same file as clip_image_path
+        else:
+            clip_source_path = str(get_thumbnail_store().get_path(thumbnail_key)) if thumbnail_key else None
+
         # --- Image-based grid detection (optional, battlemaps only) ---
         stage = "grid_detection"
         # grid_type is already set from metadata or filename parsing above.
@@ -461,7 +470,8 @@ def prepare_single_image(
             "status": "success",
             "image_data": image_data,
             "original_image_path": image_path,
-            "clip_image_path": clip_image_path,  # None for images, temp frame path for videos
+            "clip_image_path": clip_image_path,  # None for images, temp frame path for videos (cleanup only)
+            "clip_source_path": clip_source_path,  # thumbnail path for CLIP encoding (avoids full-res loads)
             "qdrant_metadata": qdrant_metadata,
         }
 
@@ -650,9 +660,10 @@ def _process_batch(
     reuse_images = [r for r in successful if "reuse_embedding_from" in r]
 
     # --- New images: batch CLIP embedding ---
-    # For videos, use the extracted first-frame JPEG (clip_image_path); for images use original
+    # Use clip_source_path (thumbnail for images, first-frame JPEG for videos).
+    # clip_image_path is now only used for cleanup of temp video frames below.
     if new_images:
-        image_paths = [r.get("clip_image_path") or r["original_image_path"] for r in new_images]
+        image_paths = [r.get("clip_source_path") or r["original_image_path"] for r in new_images]
         try:
             embeddings = batch_generate_clip_embeddings(image_paths)
             for prep, embedding in zip(new_images, embeddings, strict=True):

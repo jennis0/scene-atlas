@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Upload, Loader2, Check, X, AlertCircle } from 'lucide-react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
@@ -54,6 +54,7 @@ export function ImportDialog({
   const queryClient = useQueryClient()
   const s = useImportState(onActiveChange, reconnectJobId)
   const { state, uploading, jobId, reset } = s.workflow
+  const [confirmingCancel, setConfirmingCancel] = useState(false)
 
   // Notify parent when our internal jobId changes so the dialog manager
   // can track which job is mounted and avoid unnecessary remounts.
@@ -64,8 +65,10 @@ export function ImportDialog({
   }, [jobId])
 
   const { groups } = s.files
+  const totalProcessed = groups.reduce((sum, g) => sum + g.processed, 0)
 
   const handleCancel = useCallback(async () => {
+    setConfirmingCancel(false)
     if (jobId) {
       try {
         await importApi.cancel(jobId)
@@ -146,6 +149,36 @@ export function ImportDialog({
               >
                 Cancel
               </button>
+            )}
+            {state === 'processing' && jobId && !confirmingCancel && (
+              <button
+                onClick={() =>
+                  totalProcessed > 0 ? setConfirmingCancel(true) : handleCancel()
+                }
+                className="flex items-center gap-1.5 px-2.5 h-7 rounded text-sm text-muted-foreground hover:text-destructive hover:bg-secondary transition-colors"
+                title="Cancel and remove imported images"
+              >
+                Cancel
+              </button>
+            )}
+            {state === 'processing' && confirmingCancel && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-muted-foreground">
+                  Delete {totalProcessed} imported{totalProcessed === 1 ? ' image' : ' images'}?
+                </span>
+                <button
+                  onClick={handleCancel}
+                  className="text-xs px-2 h-6 rounded bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
+                >
+                  Yes
+                </button>
+                <button
+                  onClick={() => setConfirmingCancel(false)}
+                  className="text-xs px-2 h-6 rounded bg-secondary text-muted-foreground hover:bg-secondary/80 transition-colors"
+                >
+                  No
+                </button>
+              </div>
             )}
             <button
               onClick={handleClose}

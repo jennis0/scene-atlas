@@ -25,6 +25,11 @@ The tool has three deployment modes
 - Whenever a bug is found, if possible, write tests to prevent that class of bug from occuring again
 - After developing a feature, ensure you update the tests, add any news tests that would be useful, run all linting and formatting, and commit them with a useful commit message
 
+# How to run
+- To run backend: uv run backend.app.main:app
+- To run tests: uv run pytest
+- Always use UV for running the python code
+
 # How to Manage the Code
 - When starting a new feature, do so in a worktree then ask the user to merge it into the primary working branch once complete
 - Delete the worktree when the user confirms they're happy with the completed feature
