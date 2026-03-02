@@ -722,3 +722,102 @@ class TestGetAnalysis:
         data = resp.json()
         assert data["detected_group_count"] == 3  # pending_groups + 0 submitted
         assert data["pending_group_count"] == 3
+
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/imports/{job_id}/fail
+# ---------------------------------------------------------------------------
+
+
+class TestFailEndpoint:
+    def test_fail_uploading_job(self, test_client, tmp_db):
+        """Uploading job transitions to failed with error message."""
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        _make_job(db, "job_fail_upload", status="uploading")
+        db.commit()
+        db.close()
+
+        resp = test_client.post(
+            "/api/v1/imports/job_fail_upload/fail",
+            json={"error_message": "Network timeout during upload"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "failed"
+        assert data["error_message"] == "Network timeout during upload"
+
+    def test_fail_staging_job(self, test_client, tmp_db):
+        """Staging job transitions to failed with error message."""
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        _make_job(db, "job_fail_staging", status="staging")
+        db.commit()
+        db.close()
+
+        resp = test_client.post(
+            "/api/v1/imports/job_fail_staging/fail",
+            json={"error_message": "Analysis failed: corrupt file"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "failed"
+
+    def test_fail_active_job_rejected(self, test_client, tmp_db):
+        """Active jobs cannot use /fail — they have running groups."""
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        _make_job(db, "job_fail_active", status="active")
+        db.commit()
+        db.close()
+
+        resp = test_client.post(
+            "/api/v1/imports/job_fail_active/fail",
+            json={"error_message": "Should not work"},
+        )
+        assert resp.status_code == 409
+
+    def test_fail_completed_job_rejected(self, test_client, tmp_db):
+        """Terminal jobs cannot use /fail."""
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        _make_job(db, "job_fail_done", status="completed")
+        db.commit()
+        db.close()
+
+        resp = test_client.post(
+            "/api/v1/imports/job_fail_done/fail",
+            json={"error_message": "Nope"},
+        )
+        assert resp.status_code == 409
+
+    def test_fail_nonexistent_job(self, test_client):
+        resp = test_client.post(
+            "/api/v1/imports/nope/fail",
+            json={"error_message": "Gone"},
+        )
+        assert resp.status_code == 404
+
+    def test_fail_cleans_staging(self, test_client, tmp_db, tmp_path, monkeypatch):
+        """Failing a job removes its staging directory."""
+        from backend.app import config
+
+        staging_root = tmp_path / "staging"
+        staging_root.mkdir(exist_ok=True)
+        monkeypatch.setattr(config.settings, "staging_dir", staging_root)
+
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        _make_job(db, "job_fail_cleanup", status="uploading")
+        db.commit()
+        db.close()
+
+        # Create fake staging dir
+        (staging_root / "job_fail_cleanup").mkdir()
+        assert (staging_root / "job_fail_cleanup").exists()
+
+        resp = test_client.post(
+            "/api/v1/imports/job_fail_cleanup/fail",
+            json={"error_message": "Upload broken"},
+        )
+        assert resp.status_code == 200
+        assert not (staging_root / "job_fail_cleanup").exists()

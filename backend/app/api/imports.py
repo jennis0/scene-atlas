@@ -54,6 +54,10 @@ class ImportConfirmAllRequest(BaseModel):
     groups: list[ImportConfirmRequest]
 
 
+class FailImportRequest(BaseModel):
+    error_message: str
+
+
 VALID_IMAGE_TYPES = {"battlemap", "scene"}
 
 logger = logging.getLogger(__name__)
@@ -814,6 +818,7 @@ async def get_active_imports(db: Session = Depends(get_db)):
                 total_files=job.total_files,
                 processed_files=sum(g.processed_files for g in groups),
                 created_at=job.created_at,
+                error_message=job.error_message,
             )
         )
 
@@ -1030,6 +1035,44 @@ async def cancel_import(job_id: str, db: Session = Depends(get_db)):
     return {
         "status": "cancelled",
         "deleted_images": deleted_images,
+        "staging_cleaned": True,
+    }
+
+
+@router.post("/{job_id}/fail")
+async def fail_import(job_id: str, body: FailImportRequest, db: Session = Depends(get_db)):
+    """Mark an import job as failed (upload/analyse error, not user cancellation).
+
+    Only valid from 'uploading' or 'staging' states. For jobs with running groups,
+    the pipeline itself handles failure via transition_job_status().
+    """
+    job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Import job not found")
+
+    allowed_statuses = {"uploading", "staging"}
+    if job.status not in allowed_statuses:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot fail a job in '{job.status}' status (only uploading/staging)",
+        )
+
+    # Clean up staging directory
+    staging_dir = settings.staging_dir / job_id
+    if staging_dir.exists():
+        shutil.rmtree(staging_dir, ignore_errors=True)
+
+    now = datetime.now(UTC).replace(tzinfo=None)
+    job.status = "failed"
+    job.error_message = body.error_message[:500] if body.error_message else None
+    job.completed_at = now
+    job.updated_at = now
+    job.pending_groups = 0
+    db.commit()
+
+    return {
+        "status": "failed",
+        "error_message": job.error_message,
         "staging_cleaned": True,
     }
 

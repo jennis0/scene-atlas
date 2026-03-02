@@ -480,6 +480,7 @@ class ImportJobSummary(BaseModel):
     total_files: int = 0
     processed_files: int = 0
     created_at: datetime
+    error_message: str | None = None
 
 
 class ActiveImportsResponse(BaseModel):
