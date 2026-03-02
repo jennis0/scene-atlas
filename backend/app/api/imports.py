@@ -743,6 +743,8 @@ async def get_import_status(
         pending_group_count=job.pending_groups,
         created_at=job.created_at,
         completed_at=job.completed_at,
+        error_message=job.error_message,
+        source_label=job.source_label,
     )
 
 

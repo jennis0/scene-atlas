@@ -13,6 +13,7 @@ import { TagManagementDialog } from '@/components/TagManagementDialog'
 import { MergeGroupPicker } from '@/components/MergeGroupPicker'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { SystemInfoDialog } from '@/components/SystemInfoDialog'
+import { ImportSummaryDialog } from '@/components/ImportSummaryDialog'
 import { GalleryHeader } from '@/components/GalleryHeader'
 import { useGallerySearch } from '@/hooks/useGallerySearch'
 import { useGalleryDialogs } from '@/hooks/useGalleryDialogs'
@@ -253,6 +254,17 @@ export function Gallery() {
       <SystemInfoDialog
         open={dialogs.showSystemInfo}
         onClose={() => dialogs.setShowSystemInfo(false)}
+      />
+
+      {/* Import summary dialog -- opened by clicking a failed/broken job in the tray */}
+      <ImportSummaryDialog
+        jobId={dialogs.importSummaryJobId}
+        open={dialogs.importSummaryJobId !== null}
+        onClose={() => dialogs.setImportSummaryJobId(null)}
+        onCancel={(jobId) => {
+          activeImports.cancelJob(jobId)
+          dialogs.setImportSummaryJobId(null)
+        }}
       />
 
       {/* Activity dock -- bottom-right floating panel showing all jobs */}
