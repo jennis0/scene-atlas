@@ -147,6 +147,8 @@ Processes multiple images through CLIP in a single batch forward pass using `CLI
 
 Saves multiple images to SQLite in a single session/transaction using shared `_save_image_to_db()` helper.
 
+**Batch failure isolation:** If the batch DB transaction fails (e.g. constraint violation from a concurrent duplicate insert), the error is caught per-image rather than aborting the entire group. Each image that fails the DB save is recorded with a `db_save` stage error in `ImportGroupJob.file_errors`, and processing continues for the remaining images. This prevents a single bad image from killing an entire import group.
+
 ### `batch_save_to_qdrant`
 
 Saves multiple embeddings to Qdrant in a single `batch_add_embeddings()` call.

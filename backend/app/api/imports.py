@@ -54,6 +54,12 @@ class ImportConfirmAllRequest(BaseModel):
     groups: list[ImportConfirmRequest]
 
 
+class FailImportRequest(BaseModel):
+    """Client-reported error message when marking an upload or staging job as failed."""
+
+    error_message: str
+
+
 VALID_IMAGE_TYPES = {"battlemap", "scene"}
 
 logger = logging.getLogger(__name__)
@@ -211,9 +217,7 @@ async def _save_files_to_staging(
                 for member in zf.infolist():
                     if member.is_dir():
                         continue
-                    if "__MACOSX" in member.filename or Path(member.filename).name.startswith(
-                        "._"
-                    ):
+                    if "__MACOSX" in member.filename or Path(member.filename).name.startswith("._"):
                         continue
                     ext = Path(member.filename).suffix.lower()
                     if ext not in settings.all_supported_formats:
@@ -739,6 +743,8 @@ async def get_import_status(
         pending_group_count=job.pending_groups,
         created_at=job.created_at,
         completed_at=job.completed_at,
+        error_message=job.error_message,
+        source_label=job.source_label,
     )
 
 
@@ -795,11 +801,26 @@ async def get_active_imports(db: Session = Depends(get_db)):
     for job in all_jobs:
         groups = db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job.id).all()
 
-        # Status is authoritative from DB — no derivation needed
+        # Status is authoritative from DB — no derivation needed.
+        # Note: 'broken' is intentionally absent — broken jobs always appear in the
+        # ActivityDock until the user explicitly cancels/cleans them up.
         truly_terminal = {"completed", "failed", "cancelled", "expired"}
         if job.status in truly_terminal:
-            if job.completed_at is None or job.completed_at < cutoff:
-                continue
+            if job.status == "completed":
+                # Completed jobs with unreviewed images persist indefinitely so the
+                # user can find and review them via the ActivityDock.
+                has_unreviewed = (
+                    db.query(Image)
+                    .filter(Image.import_job_id == job.id, Image.needs_review == True)  # noqa: E712
+                    .first()
+                    is not None
+                )
+                if not has_unreviewed:
+                    if job.completed_at is None or job.completed_at < cutoff:
+                        continue
+            else:
+                if job.completed_at is None or job.completed_at < cutoff:
+                    continue
 
         summaries.append(
             ImportJobSummary(
@@ -814,6 +835,7 @@ async def get_active_imports(db: Session = Depends(get_db)):
                 total_files=job.total_files,
                 processed_files=sum(g.processed_files for g in groups),
                 created_at=job.created_at,
+                error_message=job.error_message,
             )
         )
 
@@ -958,9 +980,7 @@ def _cleanup_import_images(job_id: str, db: Session) -> int:
         try:
             qdrant.delete_embeddings(image_ids_to_delete)
         except Exception:
-            logger.warning(
-                "Qdrant cleanup failed for job %s (non-fatal)", job_id, exc_info=True
-            )
+            logger.warning("Qdrant cleanup failed for job %s (non-fatal)", job_id, exc_info=True)
 
     db.flush()
 
@@ -1031,6 +1051,46 @@ async def cancel_import(job_id: str, db: Session = Depends(get_db)):
         "status": "cancelled",
         "deleted_images": deleted_images,
         "staging_cleaned": True,
+    }
+
+
+@router.post("/{job_id}/fail")
+async def fail_import(job_id: str, body: FailImportRequest, db: Session = Depends(get_db)):
+    """Mark an import job as failed (upload/analyse error, not user cancellation).
+
+    Only valid from 'uploading' or 'staging' states. For jobs with running groups,
+    the pipeline itself handles failure via transition_job_status().
+    """
+    job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Import job not found")
+
+    allowed_statuses = {"uploading", "staging"}
+    if job.status not in allowed_statuses:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot fail a job in '{job.status}' status (only uploading/staging)",
+        )
+
+    # Clean up staging directory
+    staging_dir = settings.staging_dir / job_id
+    staging_cleaned = False
+    if staging_dir.exists():
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        staging_cleaned = True
+
+    now = datetime.now(UTC).replace(tzinfo=None)
+    job.status = "failed"
+    job.error_message = body.error_message[:500] if body.error_message else None
+    job.completed_at = now
+    job.updated_at = now
+    job.pending_groups = 0
+    db.commit()
+
+    return {
+        "status": "failed",
+        "error_message": job.error_message,
+        "staging_cleaned": staging_cleaned,
     }
 
 

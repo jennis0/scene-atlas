@@ -51,6 +51,10 @@ export interface UseGalleryDialogsReturn {
   showSystemInfo: boolean
   setShowSystemInfo: (show: boolean) => void
 
+  // Import summary dialog (failed/broken jobs)
+  importSummaryJobId: string | null
+  setImportSummaryJobId: (id: string | null) => void
+
   // Query invalidation
   invalidateGallery: () => void
 }
@@ -93,6 +97,9 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
 
   // System info dialog
   const [showSystemInfo, setShowSystemInfo] = useState(false)
+
+  // Import summary dialog (failed/broken jobs)
+  const [importSummaryJobId, setImportSummaryJobId] = useState<string | null>(null)
 
   // Keep a stable reference to displayImages for navigation handlers
   const displayImagesRef = useRef(displayImages)
@@ -193,6 +200,10 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
     // System info dialog
     showSystemInfo,
     setShowSystemInfo,
+
+    // Import summary dialog (failed/broken jobs)
+    importSummaryJobId,
+    setImportSummaryJobId,
 
     // Query invalidation
     invalidateGallery,

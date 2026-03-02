@@ -692,8 +692,11 @@ class TestProcessImportJobErrorHandling:
     ):
         """If batch_save_to_database raises for group A, group B is still processed.
 
-        process_import_job now wraps each _run_group call in try/except, so a
-        DB failure in one group marks it as failed and continues with the next.
+        _process_batch now catches DB save failures internally and marks the
+        images as individually failed rather than letting the exception propagate
+        to _run_group.  This means group A's _run_group completes normally
+        (status="completed") but with 0 processed and 1 failed.  Group B is
+        unaffected and completes with 1 processed.
         """
         from backend.pipeline.ingestion import process_import_job
 
@@ -735,12 +738,17 @@ class TestProcessImportJobErrorHandling:
             groups=groups,
         )
 
-        # Group B (second) should have processed its file successfully
+        # Group A: DB save was caught inside _process_batch, so _run_group
+        # completed normally — status is "completed" but with 0 processed and
+        # 1 failed file (the batch-level failure is reflected in failed_files).
         db = SessionLocal()
         try:
             grp_a = db.query(ImportGroupJob).filter(ImportGroupJob.id == grp_a_id).first()
-            assert grp_a.status == "failed"
+            assert grp_a.status == "completed"
+            assert grp_a.processed_files == 0
+            assert grp_a.failed_files == 1
 
+            # Group B (second) should have processed its file successfully
             grp_b = db.query(ImportGroupJob).filter(ImportGroupJob.id == grp_b_id).first()
             assert grp_b.status == "completed"
             assert grp_b.processed_files == 1

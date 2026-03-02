@@ -462,6 +462,8 @@ class ImportJobResponse(BaseModel):
     pending_group_count: int = 0
     created_at: datetime
     completed_at: datetime | None = None
+    error_message: str | None = None  # Set for failed/broken jobs
+    source_label: str | None = None  # Filename or import name
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -480,6 +482,7 @@ class ImportJobSummary(BaseModel):
     total_files: int = 0
     processed_files: int = 0
     created_at: datetime
+    error_message: str | None = None
 
 
 class ActiveImportsResponse(BaseModel):

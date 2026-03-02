@@ -13,6 +13,7 @@ import {
   Upload,
   Cog,
   Bell,
+  WifiOff,
 } from 'lucide-react'
 import { importApi } from '@/lib/api'
 import type { ActiveImportJob } from '@/hooks/useActiveImports'
@@ -21,6 +22,8 @@ import type { BackgroundJob } from '@/types'
 interface ActivityDockProps {
   jobs: ActiveImportJob[]
   hasActive: boolean
+  /** True when 3+ consecutive poll failures indicate the backend is unreachable. */
+  connectionLost: boolean
   backgroundJobs: BackgroundJob[]
   hasActiveJobs: boolean
   onOpenJob: (jobId: string) => void
@@ -32,6 +35,7 @@ interface ActivityDockProps {
 export function ActivityDock({
   jobs,
   hasActive: _hasActive,
+  connectionLost,
   backgroundJobs,
   hasActiveJobs: _hasActiveJobs,
   onOpenJob,
@@ -99,18 +103,23 @@ export function ActivityDock({
           hover:shadow-xl hover:shadow-black/50
           hover:-translate-y-px"
         title={
-          totalActiveCount > 0
-            ? `${totalActiveCount} active task${totalActiveCount !== 1 ? 's' : ''}`
-            : 'Activity'
+          connectionLost
+            ? 'Connection lost — backend unreachable'
+            : totalActiveCount > 0
+              ? `${totalActiveCount} active task${totalActiveCount !== 1 ? 's' : ''}`
+              : 'Activity'
         }
       >
-        {totalActiveCount > 0 ? (
+        {connectionLost ? (
+          <WifiOff className="h-4 w-4 text-amber-500/80" />
+        ) : totalActiveCount > 0 ? (
           <Loader2 className="h-4 w-4 text-primary animate-spin" />
         ) : (
           <Package className="h-4 w-4 text-primary" />
         )}
         <span className="text-[12px] font-medium text-muted-foreground">Activity</span>
-        {totalActiveCount > 0 && (
+        {connectionLost && <span className="text-[10px] text-amber-500/70">Offline</span>}
+        {!connectionLost && totalActiveCount > 0 && (
           <span
             className="min-w-[18px] h-[18px] flex items-center justify-center
             rounded-full bg-primary text-primary-foreground
@@ -148,6 +157,12 @@ export function ActivityDock({
                   {totalActiveCount > 0 && (
                     <span className="inline-flex items-center px-1.5 py-px rounded-full bg-primary/15 text-[10px] font-medium text-primary tabular-nums">
                       {totalActiveCount} active
+                    </span>
+                  )}
+                  {connectionLost && (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-amber-500/70">
+                      <WifiOff className="h-3 w-3" />
+                      Connection lost
                     </span>
                   )}
                 </div>
@@ -318,9 +333,9 @@ function ImportJobCard({
           {canCancel && !confirmingCancel && (
             <button
               onClick={handleCancelClick}
-              className="opacity-0 group-hover/job:opacity-100 shrink-0
-                h-5 w-5 rounded flex items-center justify-center
-                text-muted-foreground/30 hover:text-destructive hover:bg-destructive/10 transition-all"
+              className={`shrink-0 h-5 w-5 rounded flex items-center justify-center
+                text-muted-foreground/30 hover:text-destructive hover:bg-destructive/10 transition-all
+                ${job.status === 'failed' || job.status === 'broken' ? '' : 'opacity-0 group-hover/job:opacity-100'}`}
               title="Cancel"
             >
               <X className="h-3 w-3" />

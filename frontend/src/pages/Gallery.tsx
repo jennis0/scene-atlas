@@ -13,6 +13,7 @@ import { TagManagementDialog } from '@/components/TagManagementDialog'
 import { MergeGroupPicker } from '@/components/MergeGroupPicker'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { SystemInfoDialog } from '@/components/SystemInfoDialog'
+import { ImportSummaryDialog } from '@/components/ImportSummaryDialog'
 import { GalleryHeader } from '@/components/GalleryHeader'
 import { useGallerySearch } from '@/hooks/useGallerySearch'
 import { useGalleryDialogs } from '@/hooks/useGalleryDialogs'
@@ -255,10 +256,22 @@ export function Gallery() {
         onClose={() => dialogs.setShowSystemInfo(false)}
       />
 
+      {/* Import summary dialog -- opened by clicking a failed/broken job in the tray */}
+      <ImportSummaryDialog
+        jobId={dialogs.importSummaryJobId}
+        open={dialogs.importSummaryJobId !== null}
+        onClose={() => dialogs.setImportSummaryJobId(null)}
+        onCancel={(jobId) => {
+          activeImports.cancelJob(jobId)
+          dialogs.setImportSummaryJobId(null)
+        }}
+      />
+
       {/* Activity dock -- bottom-right floating panel showing all jobs */}
       <ActivityDock
         jobs={activeImports.jobs}
         hasActive={activeImports.hasActive}
+        connectionLost={activeImports.connectionLost}
         backgroundJobs={backgroundJobs.jobs}
         hasActiveJobs={backgroundJobs.hasActive}
         onOpenJob={(jobId) => {
@@ -274,6 +287,9 @@ export function Gallery() {
                 dialogs.setImportReviewGroupIds(ids)
               }
             })
+          } else if (job?.status === 'failed' || job?.status === 'broken') {
+            // Failed/broken jobs open the import summary dialog (Task 9 will render it)
+            dialogs.setImportSummaryJobId(jobId)
           } else if (
             job?.status === 'staging' ||
             job?.status === 'active' ||
@@ -282,7 +298,7 @@ export function Gallery() {
             (job?.status === 'running' && (job.pendingGroups ?? 0) > 0)
           ) {
             // Only reconnect jobs that are genuinely resumable via the ImportDialog.
-            // Terminal jobs (failed, broken, cancelled, expired) are not reopenable —
+            // Terminal jobs (cancelled, expired) are not reopenable —
             // clicking them in the ActivityDock has no meaningful action.
             dialogs.openImportDialog(jobId)
           }

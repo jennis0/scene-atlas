@@ -13,6 +13,7 @@ vi.mock('@/lib/api', () => ({
 const baseProps = {
   jobs: [] as ActiveImportJob[],
   hasActive: false,
+  connectionLost: false,
   backgroundJobs: [] as BackgroundJob[],
   hasActiveJobs: false,
   onOpenJob: vi.fn(),
@@ -116,5 +117,21 @@ describe('ActivityDock', () => {
     await user.click(screen.getByText('Activity'))
     await user.click(screen.getByText('Dark Forest Maps'))
     expect(onOpenJob).toHaveBeenCalledWith('imp-1')
+  })
+
+  it('shows Offline label on collapsed pill when connectionLost', () => {
+    renderWithProviders(
+      <ActivityDock {...baseProps} jobs={[runningImport]} hasActive connectionLost />,
+    )
+    expect(screen.getByText('Offline')).toBeInTheDocument()
+  })
+
+  it('shows Connection lost indicator in expanded header when connectionLost', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <ActivityDock {...baseProps} jobs={[runningImport]} hasActive connectionLost />,
+    )
+    await user.click(screen.getByText('Activity'))
+    expect(screen.getByText('Connection lost')).toBeInTheDocument()
   })
 })

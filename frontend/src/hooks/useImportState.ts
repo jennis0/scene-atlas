@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { tagApi, imageApi, importApi } from '@/lib/api'
+import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { parseTagVocabulary } from '@/components/import/types'
 import { EMPTY_FILTER, applyFileFilter } from '@/components/import/fileFilter'
 import type { FileFilter } from '@/components/import/fileFilter'
@@ -472,8 +473,42 @@ export function useImportState(
         }
       }
       setTimeout(saveNow, 100)
-    } catch {
-      toSubmit.forEach(({ i }) => updateGroup(i, { status: 'failed' }))
+    } catch (err) {
+      // Retry with exponential backoff before giving up
+      const delays = [1000, 2000, 4000]
+      let succeeded = false
+      let lastErr: unknown = err
+      for (const delay of delays) {
+        await new Promise((resolve) => setTimeout(resolve, delay))
+        try {
+          const response = await importApi.confirmAll(
+            jobId,
+            toSubmit.map(({ author, group_name, files }) => ({ author, group_name, files })),
+          )
+          for (const { i, group_name } of toSubmit) {
+            const matchedGroup = response.groups.find((gs) => gs.group_name === group_name)
+            if (matchedGroup?.group_job_id) {
+              updateGroup(i, { group_job_id: matchedGroup.group_job_id })
+            }
+          }
+          setTimeout(saveNow, 100)
+          succeeded = true
+          break
+        } catch (retryErr) {
+          lastErr = retryErr
+        }
+      }
+      if (!succeeded) {
+        // All retries failed — mark job as failed on backend using the most recent error
+        const errorMessage = getApiErrorMessage(lastErr, 'Failed to start processing')
+        try {
+          await importApi.fail(jobId, errorMessage)
+        } catch {
+          // Best effort
+        }
+        toSubmit.forEach(({ i }) => updateGroup(i, { status: 'failed' }))
+        setState('done')
+      }
     }
   }
 

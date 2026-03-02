@@ -269,10 +269,10 @@ def expire_stale_jobs(max_age_hours: int = 48) -> dict:
 def mark_interrupted_jobs(db=None) -> int:
     """Mark import jobs that were interrupted by a server restart as broken.
 
-    Jobs in 'uploading' or 'active' states cannot be resumed after a restart
-    because their background processing threads are gone.  This is called at
-    server startup to transition them to 'broken' so users can see the problem
-    and cancel/clean up from the ActivityDock.
+    Jobs in 'uploading', 'staging', or 'active' states cannot be resumed after
+    a restart because their background processing threads are gone.  This is
+    called at server startup to transition them to 'broken' so users can see
+    the problem and cancel/clean up from the ActivityDock.
 
     Args:
         db: Optional SQLAlchemy session.  If None, a new session is created and
@@ -291,12 +291,8 @@ def mark_interrupted_jobs(db=None) -> int:
         db = SessionLocal()
 
     try:
-        interrupted_statuses = ("uploading", "active")
-        jobs = (
-            db.query(ImportJob)
-            .filter(ImportJob.status.in_(interrupted_statuses))
-            .all()
-        )
+        interrupted_statuses = ("uploading", "staging", "active")
+        jobs = db.query(ImportJob).filter(ImportJob.status.in_(interrupted_statuses)).all()
         if not jobs:
             return 0
 
@@ -309,12 +305,16 @@ def mark_interrupted_jobs(db=None) -> int:
                 job.status,
             )
             # Mark running child groups as failed
-            affected = db.query(ImportGroupJob).filter(
-                ImportGroupJob.job_id == job.id,
-                ImportGroupJob.status == "running",
-            ).update(
-                {"status": "failed", "completed_at": now},
-                synchronize_session=False,
+            affected = (
+                db.query(ImportGroupJob)
+                .filter(
+                    ImportGroupJob.job_id == job.id,
+                    ImportGroupJob.status == "running",
+                )
+                .update(
+                    {"status": "failed", "completed_at": now},
+                    synchronize_session=False,
+                )
             )
             if affected:
                 logger.warning(

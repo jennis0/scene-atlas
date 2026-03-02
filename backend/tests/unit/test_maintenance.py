@@ -15,7 +15,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from backend.app.models.database import Base, ImportGroupJob, ImportJob
-from backend.pipeline.maintenance import cleanup_stale_staging, mark_interrupted_jobs, rotate_backups
+from backend.pipeline.maintenance import (
+    cleanup_stale_staging,
+    mark_interrupted_jobs,
+    rotate_backups,
+)
 
 # ---------------------------------------------------------------------------
 # rotate_backups
@@ -263,10 +267,11 @@ class TestMarkInterruptedJobs:
         assert g1.status == "failed"
         assert g2.status == "completed"  # already terminal, not changed
 
-    def test_staging_job_unchanged(self, db_session):
+    def test_staging_job_becomes_broken(self, db_session):
         _make_import_job(db_session, "j1", "staging")
         mark_interrupted_jobs(db_session)
-        assert db_session.query(ImportJob).filter_by(id="j1").first().status == "staging"
+        db_session.commit()
+        assert db_session.query(ImportJob).filter_by(id="j1").first().status == "broken"
 
     def test_awaiting_input_unchanged(self, db_session):
         _make_import_job(db_session, "j1", "awaiting_input")
@@ -294,7 +299,7 @@ class TestMarkInterruptedJobs:
 
     def test_no_interrupted_jobs_returns_zero(self, db_session):
         _make_import_job(db_session, "j1", "completed")
-        _make_import_job(db_session, "j2", "staging")
+        _make_import_job(db_session, "j2", "awaiting_input")
         count = mark_interrupted_jobs(db_session)
         assert count == 0
 

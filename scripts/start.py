@@ -1,7 +1,8 @@
-"""Start the Scene Atlas backend server.
+"""Start the Scene Atlas backend server with crash supervision.
 
-Launches the FastAPI server as a background process (logs → logs/api.log).
-All services (Qdrant, JobRunner, Scheduler) run in-process.
+Launches the FastAPI server as a supervised child process. If the server
+crashes, it is automatically restarted with exponential backoff. Gives up
+after 10 crashes within 5 minutes to avoid infinite crash loops.
 
 The frontend dev server must be started separately in a second terminal:
   cd frontend && npm run dev
@@ -12,68 +13,89 @@ Usage:
   uv run python scripts/start.py
 """
 
+import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
 PIDS_DIR = ROOT / ".pids"
 LOGS_DIR = ROOT / "logs"
-
-# Ensure the venv Python (same one running this script) is used for subprocesses.
 PYTHON = sys.executable
 
+MAX_RESTARTS = 10
+WINDOW_SECS = 300
+MAX_BACKOFF = 30
 
-def _spawn(name: str, cmd: list[str]) -> int:
-    """Launch a background process, redirect output to logs/{name}.log, store PID."""
+
+def _supervise(name: str, cmd: list[str]) -> None:
+    """Launch and supervise a child process with auto-restart on crash."""
     LOGS_DIR.mkdir(exist_ok=True)
     PIDS_DIR.mkdir(exist_ok=True)
 
-    log_path = LOGS_DIR / f"{name}.log"
-    log_file = open(log_path, "w")
+    restarts: list[float] = []
+    backoff = 1
+    child_proc = None
 
-    extra = {}
-    if sys.platform == "win32":
-        # Prevent Ctrl-C in this terminal from propagating to the child
-        extra["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    def _forward_signal(sig, _frame):
+        if child_proc and child_proc.poll() is None:
+            child_proc.send_signal(sig)
 
-    proc = subprocess.Popen(
-        cmd,
-        cwd=ROOT,
-        stdout=log_file,
-        stderr=subprocess.STDOUT,
-        **extra,
-    )
-    (PIDS_DIR / f"{name}.pid").write_text(str(proc.pid))
-    return proc.pid
+    signal.signal(signal.SIGTERM, _forward_signal)
+    signal.signal(signal.SIGINT, _forward_signal)
+
+    while True:
+        log_path = LOGS_DIR / f"{name}.log"
+
+        extra = {}
+        if sys.platform == "win32":
+            extra["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+
+        with open(log_path, "a") as log_file:
+            child_proc = subprocess.Popen(
+                cmd,
+                cwd=ROOT,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                **extra,
+            )
+            pid_file = PIDS_DIR / f"{name}.pid"
+            pid_file.write_text(str(child_proc.pid))
+            print(f"  [{name}] PID {child_proc.pid}")
+
+            exit_code = child_proc.wait()
+        # log_file is flushed and closed here in all exit paths
+
+        if exit_code == 0:
+            print(f"  [{name}] exited cleanly")
+            break
+
+        # Check crash window
+        now = time.time()
+        restarts = [t for t in restarts if now - t < WINDOW_SECS]
+
+        if len(restarts) >= MAX_RESTARTS:
+            print(f"  [{name}] crashed {MAX_RESTARTS} times in {WINDOW_SECS}s — giving up")
+            sys.exit(1)
+
+        restarts.append(now)
+        print(f"  [{name}] exited with code {exit_code}, restarting in {backoff}s...")
+        time.sleep(backoff)
+        backoff = min(backoff * 2, MAX_BACKOFF)
 
 
 def main() -> None:
     print("=" * 50)
-    print("  Scene Atlas — Starting")
+    print("  Scene Atlas — Starting (supervised)")
     print("=" * 50)
     print()
 
     print("Starting FastAPI server...")
-    api_pid = _spawn(
+    _supervise(
         "api",
         [PYTHON, "-m", "uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"],
     )
-    print(f"  PID {api_pid}  →  logs/api.log")
-
-    print()
-    print("=" * 50)
-    print("  Server running")
-    print("=" * 50)
-    print()
-    print("  API:      http://localhost:8000/docs")
-    print("  Health:   http://localhost:8000/health")
-    print()
-    print("Start the frontend in a separate terminal:")
-    print("  cd frontend && npm run dev  →  http://localhost:5173")
-    print()
-    print("Stop:          uv run python scripts/stop.py")
-    print("Tail logs:     tail -f logs/api.log")
 
 
 if __name__ == "__main__":

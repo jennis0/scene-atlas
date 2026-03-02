@@ -355,6 +355,7 @@ export interface ImportGroupStatus {
   failed_files: number
   status: string
   group_id?: number | null
+  file_errors?: Array<{ filename: string; reason: string; stage: string }>
 }
 
 export interface ImportJobResponse {
@@ -365,6 +366,8 @@ export interface ImportJobResponse {
   pending_group_count?: number
   created_at: string
   completed_at: string | null
+  error_message?: string | null
+  source_label?: string | null
 }
 
 // Import tray types
@@ -380,6 +383,7 @@ export interface ImportJobSummary {
   total_files: number
   processed_files: number
   created_at: string
+  error_message?: string | null
 }
 
 export interface ActiveImportsResponse {
