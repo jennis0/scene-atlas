@@ -105,11 +105,15 @@ def test_client(tmp_db, tmp_path):
 
     engine, _ = tmp_db
 
-    # Redirect all storage paths to temp directories
+    # Redirect database_url AND storage paths BEFORE entering TestClient so
+    # that the lifespan (which calls mark_interrupted_jobs, backfill, etc.)
+    # targets the test DB, not the production one.
+    orig_db_url = settings.database_url
     orig_images = settings.store_images_dir
     orig_thumbnails = settings.store_thumbnails_dir
     orig_staging = settings.staging_dir
 
+    settings.database_url = str(engine.url)
     settings.store_images_dir = tmp_path / "store" / "images"
     settings.store_thumbnails_dir = tmp_path / "store" / "thumbnails"
     settings.staging_dir = tmp_path / "staging"
@@ -123,6 +127,7 @@ def test_client(tmp_db, tmp_path):
             yield client
     finally:
         # Restore original paths
+        settings.database_url = orig_db_url
         settings.store_images_dir = orig_images
         settings.store_thumbnails_dir = orig_thumbnails
         settings.staging_dir = orig_staging
