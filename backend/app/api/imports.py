@@ -802,8 +802,22 @@ async def get_active_imports(db: Session = Depends(get_db)):
         # Status is authoritative from DB — no derivation needed
         truly_terminal = {"completed", "failed", "cancelled", "expired"}
         if job.status in truly_terminal:
-            if job.completed_at is None or job.completed_at < cutoff:
-                continue
+            if job.status == "completed":
+                # Completed jobs with unreviewed images persist indefinitely so the
+                # user can find and review them via the ActivityDock.
+                has_unreviewed = (
+                    db.query(Image)
+                    .filter(Image.import_job_id == job.id, Image.needs_review == True)  # noqa: E712
+                    .limit(1)
+                    .count()
+                    > 0
+                )
+                if not has_unreviewed:
+                    if job.completed_at is None or job.completed_at < cutoff:
+                        continue
+            else:
+                if job.completed_at is None or job.completed_at < cutoff:
+                    continue
 
         summaries.append(
             ImportJobSummary(

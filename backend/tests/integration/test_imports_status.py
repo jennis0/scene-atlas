@@ -848,3 +848,68 @@ class TestFailEndpoint:
         )
         assert resp.status_code == 200
         assert not (staging_root / "job_fail_cleanup").exists()
+
+
+# ---------------------------------------------------------------------------
+# Active imports: unreviewed images keep completed jobs visible indefinitely
+# ---------------------------------------------------------------------------
+
+
+class TestActiveImportsUnreviewed:
+    def test_old_completed_job_with_unreviewed_images_still_active(self, test_client, tmp_db):
+        """Completed jobs with needs_review images persist past the 1-hour TTL."""
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+
+        # Create a completed job from 2 hours ago
+        old_time = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=2)
+        job = _make_job(db, "job_old_unreviewed", status="completed", total_files=1)
+        job.completed_at = old_time
+        gj = _make_group_job(
+            db,
+            "job_old_unreviewed",
+            "grp_unreviewed",
+            status="completed",
+            processed=1,
+            total=1,
+            completed_at=old_time,
+        )
+
+        # Create an image with needs_review=True linked to this job
+        group = ImageGroup(base_name="UnreviewedGroup", author="Test")
+        db.add(group)
+        db.flush()
+        gj.created_group_id = group.id
+        img = Image(
+            name="test",
+            filename="test.jpg",
+            author="Test",
+            storage_key="key.jpg",
+            group_id=group.id,
+            needs_review=True,
+            import_job_id="job_old_unreviewed",
+            media_type="image",
+        )
+        db.add(img)
+        db.commit()
+        db.close()
+
+        resp = test_client.get("/api/v1/imports/active")
+        assert resp.status_code == 200
+        job_ids = [j["job_id"] for j in resp.json()["jobs"]]
+        assert "job_old_unreviewed" in job_ids
+
+    def test_old_completed_job_without_unreviewed_not_active(self, test_client, tmp_db):
+        """Completed jobs where all images are reviewed are filtered out after 1 hour."""
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+
+        old_time = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=2)
+        job = _make_job(db, "job_old_reviewed", status="completed", total_files=1)
+        job.completed_at = old_time
+        db.commit()
+        db.close()
+
+        resp = test_client.get("/api/v1/imports/active")
+        job_ids = [j["job_id"] for j in resp.json()["jobs"]]
+        assert "job_old_reviewed" not in job_ids
