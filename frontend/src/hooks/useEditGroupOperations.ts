@@ -138,7 +138,6 @@ export function useEditGroupOperations({
       setSaveError(null)
       try {
         await groupApi.edit(gId, buildPayload(group))
-        invalidateGallery()
         setGroupSaved((prev) => {
           const s = new Set(prev)
           s.add(group.id)
@@ -161,7 +160,7 @@ export function useEditGroupOperations({
         })
       }
     },
-    [invalidateGallery],
+    [],
   )
 
   // ── moveToNewGroup (API-backed split) ────────────────────────────────────

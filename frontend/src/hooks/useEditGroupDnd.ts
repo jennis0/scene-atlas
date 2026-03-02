@@ -99,7 +99,11 @@ export function useEditGroupDnd({
         return
       }
 
-      const dropData = over.data.current as DropData
+      const dropData = over.data.current as DropData | undefined
+      if (!dropData) {
+        setActiveDrag(null)
+        return
+      }
       if (activeDrag.type === 'card' && dropData.type === 'group' && dropData.groupId) {
         moveToGroupRef.current(activeDrag, dropData.groupId)
       } else if (activeDrag.type === 'card' && dropData.type === 'subgroup') {

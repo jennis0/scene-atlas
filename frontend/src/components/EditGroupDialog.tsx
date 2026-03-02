@@ -241,6 +241,13 @@ export default function EditGroupDialog({
     () => groups.flatMap((g) => g.files.filter((f) => !f.outOfScope)),
     [groups],
   )
+
+  // Map from file.relative_path → groupId, so cards on the All tab carry their real group ID
+  // in drag data (relative_path = String(img.id) in EditGroupDialog context).
+  const fileGroupIdMap = useMemo(
+    () => new Map(groups.flatMap((g) => g.files.map((f) => [f.relative_path, g.id]))),
+    [groups],
+  )
   const perGroupFiles = activeGroup?.files ?? []
   const sourceFiles = isAllTab ? allInScopeFiles : perGroupFiles
 
@@ -299,7 +306,7 @@ export default function EditGroupDialog({
     <Dialog
       open={open}
       onOpenChange={(o) => {
-        if (!o && !saving) handleDone()
+        if (!o && !saving) onClose()
       }}
     >
       <DialogContent className="max-w-5xl h-[85vh] overflow-hidden flex flex-col p-0 gap-0">
@@ -359,7 +366,7 @@ export default function EditGroupDialog({
                   isAllActive={isAllTab}
                   onSelectAll={() => setActiveTab(ALL_TAB)}
                   footer={
-                    isMassEdit && groups.length >= 2 ? (
+                    (isMassEdit || isImportReview) && groups.length >= 2 ? (
                       <div className="p-2.5 border-t border-border/30 shrink-0">
                         {selectedGroupIds.size >= 2 ? (
                           <div className="space-y-1.5">
@@ -401,7 +408,7 @@ export default function EditGroupDialog({
                 >
                   {groups.map((g, i) => (
                     <DroppableGroupRow key={g.id} groupId={g.id} activeDrag={activeDrag}>
-                      <DraggableGroupRow groupId={g.id} isDndEnabled={isMassEdit}>
+                      <DraggableGroupRow groupId={g.id} isDndEnabled={isMassEdit || isImportReview}>
                         <div className="group/navrow">
                           {deleteConfirmGroupId === g.id ? (
                             <div className="px-3 py-2 border-l-2 border-destructive/50 bg-destructive/5">
@@ -454,7 +461,7 @@ export default function EditGroupDialog({
                                   ) : null}
                                 </span>
                               </button>
-                              {isMassEdit && (
+                              {(isMassEdit || isImportReview) && (
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
                                     <button
@@ -593,7 +600,7 @@ export default function EditGroupDialog({
                               <DraggableFileCardWrapper
                                 key={file.relative_path}
                                 file={file}
-                                groupId={activeGroupId}
+                                groupId={isAllTab ? (fileGroupIdMap.get(file.relative_path) ?? '') : activeGroupId}
                                 isDndEnabled={!file.excluded && !file.outOfScope}
                               >
                                 <FileCard
@@ -626,7 +633,7 @@ export default function EditGroupDialog({
                         <DraggableFileCardWrapper
                           key={file.relative_path}
                           file={file}
-                          groupId={activeGroupId}
+                          groupId={isAllTab ? (fileGroupIdMap.get(file.relative_path) ?? '') : activeGroupId}
                           isDndEnabled={!file.excluded && !file.outOfScope}
                         >
                           <FileCard
