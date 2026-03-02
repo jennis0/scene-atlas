@@ -11,7 +11,7 @@ dependencies = [
     "sqlalchemy>=2.0.25,<3.0",
     "alembic>=1.13.0,<2.0",
     "pillow>=10.2.0,<12.0",
-    "opencv-python>=4.9.0,<5.0",
+    "opencv-python-headless>=4.9.0,<5.0",
     "onnxruntime>=1.16.0,<2.0",
     "tokenizers>=0.15.0,<1.0",
     "numpy>=1.26.0,<3.0",
@@ -36,6 +36,7 @@ dev = [
     "torch>=2.1.0,<3.0",
     "transformers>=4.36.0,<5.0",
     "onnx>=1.14.0,<2.0",   # ONNX export + quantisation tools (dev only)
+    "pyinstaller"
 ]
 
 [build-system]

@@ -2,7 +2,7 @@
   "name": "scene-atlas",
   "version": "0.1.0",
   "description": "Scene Atlas — tabletop RPG scene manager with semantic search",
-  "author": "Scene Atlas",
+  "author": "jennis0 <joe.ennis18@gmail.com>",
   "main": "electron/dist/main.js",
   "private": true,
   "scripts": {
