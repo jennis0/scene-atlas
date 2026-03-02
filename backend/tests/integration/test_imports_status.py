@@ -746,7 +746,7 @@ class TestFailEndpoint:
         data = resp.json()
         assert data["status"] == "failed"
         assert data["error_message"] == "Network timeout during upload"
-        assert data["staging_cleaned"] is True
+        assert data["staging_cleaned"] is False  # no staging dir was created for this job
 
         # Verify DB state after fail
         db = SessionLocal()
@@ -772,7 +772,7 @@ class TestFailEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "failed"
-        assert data["staging_cleaned"] is True
+        assert data["staging_cleaned"] is False  # no staging dir was created for this job
 
     def test_fail_active_job_rejected(self, test_client, tmp_db):
         """Active jobs cannot use /fail — they have running groups."""

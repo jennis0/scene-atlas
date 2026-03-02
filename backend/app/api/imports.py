@@ -55,6 +55,8 @@ class ImportConfirmAllRequest(BaseModel):
 
 
 class FailImportRequest(BaseModel):
+    """Client-reported error message when marking an upload or staging job as failed."""
+
     error_message: str
 
 
@@ -215,9 +217,7 @@ async def _save_files_to_staging(
                 for member in zf.infolist():
                     if member.is_dir():
                         continue
-                    if "__MACOSX" in member.filename or Path(member.filename).name.startswith(
-                        "._"
-                    ):
+                    if "__MACOSX" in member.filename or Path(member.filename).name.startswith("._"):
                         continue
                     ext = Path(member.filename).suffix.lower()
                     if ext not in settings.all_supported_formats:
@@ -963,9 +963,7 @@ def _cleanup_import_images(job_id: str, db: Session) -> int:
         try:
             qdrant.delete_embeddings(image_ids_to_delete)
         except Exception:
-            logger.warning(
-                "Qdrant cleanup failed for job %s (non-fatal)", job_id, exc_info=True
-            )
+            logger.warning("Qdrant cleanup failed for job %s (non-fatal)", job_id, exc_info=True)
 
     db.flush()
 
@@ -1059,8 +1057,10 @@ async def fail_import(job_id: str, body: FailImportRequest, db: Session = Depend
 
     # Clean up staging directory
     staging_dir = settings.staging_dir / job_id
+    staging_cleaned = False
     if staging_dir.exists():
         shutil.rmtree(staging_dir, ignore_errors=True)
+        staging_cleaned = True
 
     now = datetime.now(UTC).replace(tzinfo=None)
     job.status = "failed"
@@ -1073,7 +1073,7 @@ async def fail_import(job_id: str, body: FailImportRequest, db: Session = Depend
     return {
         "status": "failed",
         "error_message": job.error_message,
-        "staging_cleaned": True,
+        "staging_cleaned": staging_cleaned,
     }
 
 
