@@ -279,15 +279,18 @@ export function useImportUpload({
         setActiveTab(editableGroups.length > 1 ? ALL_TAB : 0)
         setState('preview')
       } catch (err) {
-        // Cancel job to clean up staged files immediately on failure, and remove
-        // its localStorage entry so the ActivityDock doesn't show a ghost job.
+        const errorMessage = getApiErrorMessage(err, 'Upload failed')
         if (jobIdForCancel) {
-          importApi.cancel(jobIdForCancel).catch(() => {
-            // Ignore cancel errors — staging TTL will clean up eventually
-          })
+          try {
+            await importApi.fail(jobIdForCancel, errorMessage)
+          } catch {
+            // /fail endpoint unavailable — fall back to cancel so staging is
+            // still cleaned up; staging TTL will handle any remaining cleanup.
+            importApi.cancel(jobIdForCancel).catch(() => {})
+          }
           removeImportState(jobIdForCancel)
         }
-        setUploadError(getApiErrorMessage(err, 'Upload failed'))
+        setUploadError(errorMessage)
       } finally {
         setUploading(false)
         setUploadPhase(null)

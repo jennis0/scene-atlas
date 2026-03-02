@@ -380,6 +380,7 @@ export interface ImportJobSummary {
   total_files: number
   processed_files: number
   created_at: string
+  error_message?: string | null
 }
 
 export interface ActiveImportsResponse {

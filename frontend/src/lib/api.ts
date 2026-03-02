@@ -27,9 +27,7 @@ import type {
   AppSettings,
 } from '@/types'
 import type { AxiosProgressEvent } from 'axios'
-import {
-  BATCH_UPLOAD_TIMEOUT_MS,
-} from '@/lib/constants'
+import { BATCH_UPLOAD_TIMEOUT_MS } from '@/lib/constants'
 
 const api = axios.create({
   timeout: 30000,
@@ -307,6 +305,10 @@ export const importApi = {
 
   cancel: async (jobId: string): Promise<void> => {
     await api.post(`/imports/${jobId}/cancel`)
+  },
+
+  fail: async (jobId: string, errorMessage: string): Promise<void> => {
+    await api.post(`/imports/${jobId}/fail`, { error_message: errorMessage })
   },
 
   cancelGroup: async (jobId: string, groupId: string): Promise<void> => {
