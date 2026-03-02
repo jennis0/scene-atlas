@@ -123,16 +123,30 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Install dependencies (including dev for torch/transformers)
         run: uv sync --extra dev
 
+      - name: Cache ONNX models
+        id: cache-onnx
+        uses: actions/cache@v4
+        with:
+          path: |
+            backend/models/fp16
+            backend/models/tokenizer
+          key: onnx-models-${{ hashFiles('scripts/export_clip_onnx.py', 'backend/app/config.py') }}
+
       - name: Cache HuggingFace models
+        if: steps.cache-onnx.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface/hub
           key: huggingface-clip-${{ hashFiles('backend/app/config.py') }}
           restore-keys: |
             huggingface-clip-
+
+      - name: Export ONNX models
+        if: steps.cache-onnx.outputs.cache-hit != 'true'
+        run: uv run python scripts/export_clip_onnx.py
 
       - name: Run heavy tests (real CLIP model)
         run: uv run python -m pytest -m heavy -v
@@ -259,13 +273,27 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
+      - name: Cache ONNX models
+        id: cache-onnx
+        uses: actions/cache@v4
+        with:
+          path: |
+            backend/models/fp16
+            backend/models/tokenizer
+          key: onnx-models-${{ hashFiles('scripts/export_clip_onnx.py', 'backend/app/config.py') }}
+
       - name: Cache HuggingFace models
+        if: steps.cache-onnx.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface/hub
           key: huggingface-clip-${{ hashFiles('backend/app/config.py') }}
           restore-keys: |
             huggingface-clip-
+
+      - name: Export ONNX models
+        if: steps.cache-onnx.outputs.cache-hit != 'true'
+        run: uv run python scripts/export_clip_onnx.py
 
       - name: Run E2E tests
         run: npm run test:e2e

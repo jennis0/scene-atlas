@@ -20,6 +20,13 @@ PYINSTALLER_OUT = ROOT / "backend" / "pyinstaller" / "dist" / "scene-atlas-backe
 # electron-builder copies this directory to process.resourcesPath/sidecar/
 ELECTRON_RESOURCES = ROOT / "backend" / "pyinstaller" / "dist"
 
+# ONNX model files that must exist before building
+_REQUIRED_ONNX_FILES = [
+    ROOT / "backend" / "models" / "fp16" / "clip_vision_encoder.onnx",
+    ROOT / "backend" / "models" / "fp16" / "clip_text_encoder.onnx",
+    ROOT / "backend" / "models" / "tokenizer" / "tokenizer.json",
+]
+
 
 def get_platform_info() -> tuple[str, str]:
     """Return (os_name, arch) for logging."""
@@ -29,6 +36,22 @@ def get_platform_info() -> tuple[str, str]:
     return system, arch
 
 
+def check_onnx_models() -> bool:
+    """Verify ONNX model files exist before building."""
+    missing = [f for f in _REQUIRED_ONNX_FILES if not f.exists()]
+    if missing:
+        print("ERROR: Required ONNX model files are missing:", file=sys.stderr)
+        for f in missing:
+            print(f"  - {f.relative_to(ROOT)}", file=sys.stderr)
+        print(
+            "\nRun the export script first:\n"
+            "  uv run python scripts/export_clip_onnx.py",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build Scene Atlas backend sidecar")
     parser.add_argument("--clean", action="store_true", help="Remove previous build before building")
@@ -36,6 +59,9 @@ def main() -> None:
 
     system, arch = get_platform_info()
     print(f"Building sidecar for {system} {arch}")
+
+    if not check_onnx_models():
+        sys.exit(1)
 
     if args.clean and PYINSTALLER_OUT.exists():
         print(f"Cleaning {PYINSTALLER_OUT}")
