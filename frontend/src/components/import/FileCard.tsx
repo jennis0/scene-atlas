@@ -195,7 +195,10 @@ export function FileCard({
           </div>
 
           {/* Filename */}
-          <div className="font-mono text-[9px] text-muted-foreground/40 truncate leading-relaxed mb-1">
+          <div
+            className="font-mono text-[9px] text-muted-foreground/40 truncate leading-relaxed mb-1"
+            title={file.filename}
+          >
             {file.filename}
           </div>
 

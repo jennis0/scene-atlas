@@ -289,9 +289,10 @@ function ImportJobCard({
         <div className="flex items-start gap-[7px]">
           <ImportStatusIcon status={job.status} />
           <span
-            className={`flex-1 text-[12px] font-medium truncate leading-tight ${
+            className={`flex-1 min-w-0 text-[12px] font-medium truncate leading-tight ${
               isTerminal ? 'text-muted-foreground' : 'text-foreground'
             }`}
+            title={job.label}
           >
             {job.label}
             {!isTerminal && (
@@ -326,10 +327,7 @@ function ImportJobCard({
             </button>
           )}
           {confirmingCancel && (
-            <div
-              className="flex items-center gap-1 shrink-0"
-              onClick={(e) => e.stopPropagation()}
-            >
+            <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
               <span className="text-[10px] text-destructive/80">Delete imported?</span>
               <button
                 onClick={() => {
@@ -546,11 +544,7 @@ function ImportStatusText({ job }: { job: ActiveImportJob }) {
         </span>
       )
     case 'completed':
-      return (
-        <span className="text-amber-600 dark:text-amber-400 font-medium">
-          Review import ›
-        </span>
-      )
+      return <span className="text-amber-600 dark:text-amber-400 font-medium">Review import ›</span>
     case 'failed':
       return (
         <span className="text-destructive/65">
