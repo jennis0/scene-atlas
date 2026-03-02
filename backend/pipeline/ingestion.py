@@ -8,9 +8,11 @@ Functions:
     prepare_single_image — Parse, copy, thumbnail, colors for one image
 """
 
+import gc
 import hashlib
 import json
 import logging
+import resource
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
@@ -1048,6 +1050,9 @@ def _run_group(
             )
 
             # Prepare images with bounded concurrency to control peak memory use.
+            import time as _time
+
+            _t0 = _time.monotonic()
             with ThreadPoolExecutor(max_workers=concurrency) as prep_pool:
                 futures = [
                     prep_pool.submit(
@@ -1076,9 +1081,14 @@ def _run_group(
                     for file_info, image_path in batch
                 ]
                 prepared_results = [f.result() for f in futures]
+            _t_prepare = _time.monotonic() - _t0
+            logger.info("[%s] prepare took %.1fs", group_name, _t_prepare)
 
             # Batch CLIP → batch DB → batch Qdrant
+            _t0 = _time.monotonic()
             batch_results, _ = _process_batch(prepared_results)
+            _t_process = _time.monotonic() - _t0
+            logger.info("[%s] process_batch took %.1fs", group_name, _t_process)
             batch_success = sum(1 for r in batch_results if r["status"] == "success")
             processed += batch_success
             failed += len(batch_results) - batch_success
@@ -1097,6 +1107,16 @@ def _run_group(
 
             update_import_group_job_progress(
                 group_job_id, processed, failed, file_errors=all_file_errors
+            )
+
+            # Free PIL / numpy / torch objects that survived refcount collection
+            gc.collect()
+            rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+            logger.info(
+                "[%s] batch %d complete — RSS: %.0f MB",
+                group_name,
+                batch_start // batch_size + 1,
+                rss_mb,
             )
 
         # Look up the ImageGroup that was created/updated so we can link back to it
@@ -1252,8 +1272,14 @@ def process_import_group(
         group_job_id,
     )
     processed, failed = _run_group(
-        group_job_id, staging_dir, author, group_name, files, pipeline_config=pipeline_config,
-        needs_review=True, job_id=job_id,
+        group_job_id,
+        staging_dir,
+        author,
+        group_name,
+        files,
+        pipeline_config=pipeline_config,
+        needs_review=True,
+        job_id=job_id,
     )
     _finalize_import_job(job_id)
     if processed > 0:
