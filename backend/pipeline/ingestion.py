@@ -32,7 +32,12 @@ from backend.app.models import (
     get_engine,
     get_session_local,
 )
-from backend.app.services import ImageParser, get_image_store, get_qdrant_service, get_thumbnail_store
+from backend.app.services import (
+    ImageParser,
+    get_image_store,
+    get_qdrant_service,
+    get_thumbnail_store,
+)
 from backend.app.services.fts_service import fts_rebuild
 from backend.app.services.image_parser import build_search_text
 
@@ -392,7 +397,9 @@ def prepare_single_image(
         if is_video:
             clip_source_path = str(frame_path)  # same file as clip_image_path
         else:
-            clip_source_path = str(get_thumbnail_store().get_path(thumbnail_key)) if thumbnail_key else None
+            clip_source_path = (
+                str(get_thumbnail_store().get_path(thumbnail_key)) if thumbnail_key else None
+            )
 
         # --- Image-based grid detection (optional, battlemaps only) ---
         stage = "grid_detection"
@@ -711,24 +718,37 @@ def _process_batch(
     # Re-filter to only truly successful results
     all_successful = [r for r in successful if r["status"] == "success"]
 
-    # Batch DB save
-    image_data_list = [r["image_data"] for r in all_successful]
-    image_ids = batch_save_to_database(image_data_list)
+    # Batch DB save — isolated so a failure doesn't kill subsequent batches
+    image_ids: list[int] = []
+    if all_successful:
+        image_data_list = [r["image_data"] for r in all_successful]
+        try:
+            image_ids = batch_save_to_database(image_data_list)
+        except Exception as db_exc:
+            logger.exception("Batch DB save failed for %d images", len(all_successful))
+            error_info = classify_ingest_error(db_exc, stage="db_save")
+            for prep in all_successful:
+                prep["status"] = "failed"
+                prep["error"] = error_info["reason"]
+                prep["error_info"] = error_info
+                batch_failed += 1
+            all_successful = []
 
-    # Batch Qdrant save
-    qdrant_items = [
-        {
-            "image_id": image_id,
-            "embedding": prep["embedding"],
-            "metadata": prep["qdrant_metadata"],
-        }
-        for image_id, prep in zip(image_ids, all_successful, strict=True)
-    ]
-    batch_save_to_qdrant(qdrant_items)
+    # Batch Qdrant save (only if DB save succeeded)
+    if all_successful and image_ids:
+        qdrant_items = [
+            {
+                "image_id": image_id,
+                "embedding": prep["embedding"],
+                "metadata": prep["qdrant_metadata"],
+            }
+            for image_id, prep in zip(image_ids, all_successful, strict=True)
+        ]
+        batch_save_to_qdrant(qdrant_items)
 
-    # Attach image IDs to results
-    for prep, image_id in zip(all_successful, image_ids, strict=True):
-        prep["image_id"] = image_id
+        # Attach image IDs to results
+        for prep, image_id in zip(all_successful, image_ids, strict=True):
+            prep["image_id"] = image_id
 
     return prepared_results, batch_failed
 
@@ -1158,7 +1178,7 @@ def _run_group(
             file_errors=all_file_errors,
         )
         logger.info("Group %s (%s): %s ok, %s failed", group_job_id, group_name, processed, failed)
-    except Exception as e:
+    except Exception:
         # Count all files not yet processed as failed, mark group as failed
         remaining = len(valid_files) - processed - failed
         failed += remaining
