@@ -746,6 +746,16 @@ class TestFailEndpoint:
         data = resp.json()
         assert data["status"] == "failed"
         assert data["error_message"] == "Network timeout during upload"
+        assert data["staging_cleaned"] is True
+
+        # Verify DB state after fail
+        db = SessionLocal()
+        job = db.query(ImportJob).filter(ImportJob.id == "job_fail_upload").first()
+        assert job.status == "failed"
+        assert job.error_message == "Network timeout during upload"
+        assert job.pending_groups == 0
+        assert job.completed_at is not None
+        db.close()
 
     def test_fail_staging_job(self, test_client, tmp_db):
         """Staging job transitions to failed with error message."""
@@ -760,7 +770,9 @@ class TestFailEndpoint:
             json={"error_message": "Analysis failed: corrupt file"},
         )
         assert resp.status_code == 200
-        assert resp.json()["status"] == "failed"
+        data = resp.json()
+        assert data["status"] == "failed"
+        assert data["staging_cleaned"] is True
 
     def test_fail_active_job_rejected(self, test_client, tmp_db):
         """Active jobs cannot use /fail — they have running groups."""
@@ -796,6 +808,21 @@ class TestFailEndpoint:
             json={"error_message": "Gone"},
         )
         assert resp.status_code == 404
+
+    @pytest.mark.parametrize("status", ["failed", "cancelled", "awaiting_input", "broken"])
+    def test_fail_disallowed_statuses(self, test_client, tmp_db, status):
+        """All non-uploading/non-staging statuses return 409."""
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        _make_job(db, f"job_fail_{status}", status=status)
+        db.commit()
+        db.close()
+
+        resp = test_client.post(
+            f"/api/v1/imports/job_fail_{status}/fail",
+            json={"error_message": "Nope"},
+        )
+        assert resp.status_code == 409
 
     def test_fail_cleans_staging(self, test_client, tmp_db, tmp_path, monkeypatch):
         """Failing a job removes its staging directory."""
