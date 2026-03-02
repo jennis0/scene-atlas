@@ -291,12 +291,8 @@ def mark_interrupted_jobs(db=None) -> int:
         db = SessionLocal()
 
     try:
-        interrupted_statuses = ("uploading", "active")
-        jobs = (
-            db.query(ImportJob)
-            .filter(ImportJob.status.in_(interrupted_statuses))
-            .all()
-        )
+        interrupted_statuses = ("uploading", "staging", "active")
+        jobs = db.query(ImportJob).filter(ImportJob.status.in_(interrupted_statuses)).all()
         if not jobs:
             return 0
 
@@ -309,12 +305,16 @@ def mark_interrupted_jobs(db=None) -> int:
                 job.status,
             )
             # Mark running child groups as failed
-            affected = db.query(ImportGroupJob).filter(
-                ImportGroupJob.job_id == job.id,
-                ImportGroupJob.status == "running",
-            ).update(
-                {"status": "failed", "completed_at": now},
-                synchronize_session=False,
+            affected = (
+                db.query(ImportGroupJob)
+                .filter(
+                    ImportGroupJob.job_id == job.id,
+                    ImportGroupJob.status == "running",
+                )
+                .update(
+                    {"status": "failed", "completed_at": now},
+                    synchronize_session=False,
+                )
             )
             if affected:
                 logger.warning(
