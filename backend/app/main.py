@@ -1,6 +1,11 @@
 """FastAPI application for Scene Atlas."""
 
+import asyncio
 import logging
+import signal
+import sys
+import threading
+import traceback
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -96,7 +101,47 @@ async def lifespan(app: FastAPI):
     # searches with a query will wait for CLIP; empty queries use SQL only.
     print(f"SCENE_ATLAS_READY port={settings.api_port}", flush=True)
 
+    # --- Diagnostic: event loop heartbeat ---
+    # Logs every 15s from the event loop. If these lines stop appearing in the
+    # log while the process is still alive, the event loop is blocked.
+    async def _heartbeat() -> None:
+        import resource
+
+        while True:
+            await asyncio.sleep(15)
+            rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+            active_threads = threading.active_count()
+            logger.info(
+                "[heartbeat] event loop alive — threads=%d, RSS=%.0f MB",
+                active_threads,
+                rss_mb,
+            )
+
+    heartbeat_task = asyncio.create_task(_heartbeat())
+
+    # --- Diagnostic: SIGUSR1 thread dump ---
+    # Send `kill -USR1 <pid>` to dump all thread stack traces to the log.
+    def _dump_threads(signum, frame) -> None:  # noqa: ARG001
+        lines = ["\n=== THREAD DUMP (SIGUSR1) ==="]
+        for tid, stack in sys._current_frames().items():
+            tname = "?"
+            for t in threading.enumerate():
+                if t.ident == tid:
+                    tname = t.name
+                    break
+            lines.append(f"\n--- Thread {tname} (id={tid}) ---")
+            lines.extend(traceback.format_stack(stack))
+        logger.warning("".join(lines))
+
+    if sys.platform != "win32":
+        try:
+            signal.signal(signal.SIGUSR1, _dump_threads)
+        except ValueError:
+            pass  # Not in main thread (e.g. test runner)
+
     yield
+
+    heartbeat_task.cancel()
 
     # Shutdown
     logger.info("Shutting down application")

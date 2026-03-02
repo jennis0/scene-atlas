@@ -88,10 +88,10 @@ def generate_preview_thumbnail(
 
         thumb_path = thumbs_dir / safe_name
 
-        image = Image.open(Path(image_path))
-        image = image.convert("RGB")
-        image.thumbnail((size, size), Image.Resampling.LANCZOS)
-        image.save(thumb_path, format="JPEG", quality=85, optimize=True)
+        with Image.open(Path(image_path)) as img:
+            image = img.convert("RGB")
+            image.thumbnail((size, size), Image.Resampling.LANCZOS)
+            image.save(thumb_path, format="JPEG", quality=85, optimize=True)
 
         logger.debug("Generated preview thumbnail: %s", safe_name)
         return safe_name
