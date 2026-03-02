@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { filterByMagicBytes } from '@/lib/mimeCheck'
+import { removeImportState } from '@/lib/importStorage'
 import { importApi } from '@/lib/api'
 import { resolveApiUrl } from '@/lib/apiBase'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
@@ -19,7 +20,7 @@ import { ALL_TAB } from './useFileEditing'
 
 interface UseImportUploadOptions {
   setGroups: React.Dispatch<React.SetStateAction<EditableGroupState[]>>
-  setJobId: (id: string) => void
+  setJobId: (id: string | null) => void
   setState: (state: DialogState) => void
   setActiveTab: React.Dispatch<React.SetStateAction<number>>
 }
@@ -74,6 +75,15 @@ export function useImportUpload({
   const handleFiles = useCallback(
     async (pairs: Array<{ file: File; relativePath: string }>) => {
       if (pairs.length === 0) return
+
+      // Clear any state left over from a previous upload attempt in this session.
+      // This handles the case where a user retries after an error without closing
+      // the dialog — groups and blob URLs from the prior attempt must not leak through.
+      setGroups([])
+      setJobId(null)
+      blobUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
+      blobUrlsRef.current = []
+
       setUploading(true)
       setUploadError(null)
       setUploadPhase(null)
@@ -269,11 +279,13 @@ export function useImportUpload({
         setActiveTab(editableGroups.length > 1 ? ALL_TAB : 0)
         setState('preview')
       } catch (err) {
-        // Cancel job to clean up staged files immediately on failure
+        // Cancel job to clean up staged files immediately on failure, and remove
+        // its localStorage entry so the ActivityDock doesn't show a ghost job.
         if (jobIdForCancel) {
           importApi.cancel(jobIdForCancel).catch(() => {
             // Ignore cancel errors — staging TTL will clean up eventually
           })
+          removeImportState(jobIdForCancel)
         }
         setUploadError(getApiErrorMessage(err, 'Upload failed'))
       } finally {

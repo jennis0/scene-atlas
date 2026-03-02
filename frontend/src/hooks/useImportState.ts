@@ -232,6 +232,7 @@ export function useImportState(
   }, [state])
 
   const reset = useCallback(() => {
+    hasFetchedPreviewData.current = false
     blobUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
     blobUrlsRef.current = []
     setState('upload')

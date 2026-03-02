@@ -274,8 +274,16 @@ export function Gallery() {
                 dialogs.setImportReviewGroupIds(ids)
               }
             })
-          } else {
-            // staging, active, awaiting_input, or has pending groups -- reopen ImportDialog
+          } else if (
+            job?.status === 'staging' ||
+            job?.status === 'active' ||
+            job?.status === 'awaiting_input' ||
+            job?.status === 'uploading' ||
+            (job?.status === 'running' && (job.pendingGroups ?? 0) > 0)
+          ) {
+            // Only reconnect jobs that are genuinely resumable via the ImportDialog.
+            // Terminal jobs (failed, broken, cancelled, expired) are not reopenable —
+            // clicking them in the ActivityDock has no meaningful action.
             dialogs.openImportDialog(jobId)
           }
         }}
