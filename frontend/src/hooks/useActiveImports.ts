@@ -46,6 +46,10 @@ export interface ActiveImportJob {
   createdAt: string
   /** Whether this job only exists in localStorage (not yet on backend). */
   localOnly: boolean
+  /** Backend error message for failed/broken jobs. */
+  errorMessage?: string
+  /** Per-image file errors from processing. Populated by full status fetch (Task 9). */
+  fileErrors?: Array<{ filename: string; reason: string; stage: string }>
 }
 
 export interface UseActiveImportsReturn {
@@ -199,6 +203,7 @@ function backendToActiveJob(summary: ImportJobSummary): ActiveImportJob {
     processedFiles: summary.processed_files,
     createdAt: summary.created_at,
     localOnly: false,
+    errorMessage: summary.error_message ?? undefined,
   }
 }
 
