@@ -55,6 +55,8 @@ export interface ActiveImportJob {
 export interface UseActiveImportsReturn {
   jobs: ActiveImportJob[]
   hasActive: boolean
+  /** True when 3+ consecutive poll failures have occurred — backend unreachable. */
+  connectionLost: boolean
   refresh: () => void
   dismissJob: (jobId: string) => void
   cancelJob: (jobId: string) => Promise<void>
@@ -64,6 +66,7 @@ export interface UseActiveImportsReturn {
 
 export function useActiveImports(): UseActiveImportsReturn {
   const [jobs, setJobs] = useState<ActiveImportJob[]>([])
+  const [connectionLost, setConnectionLost] = useState(false)
   const prevJobStatusRef = useRef<Map<string, string>>(new Map())
   const completionListeners = useRef<Set<(job: ActiveImportJob) => void>>(new Set())
   /** Job IDs the user has dismissed — persisted to localStorage so they survive refresh. */
@@ -71,6 +74,8 @@ export function useActiveImports(): UseActiveImportsReturn {
   /** Ref to access current jobs without adding it as a dependency to callbacks. */
   const jobsRef = useRef(jobs)
   jobsRef.current = jobs
+  /** Tracks consecutive poll failures; reset on any successful response. */
+  const consecutiveFailuresRef = useRef(0)
 
   const refresh = useCallback(() => {
     cleanupExpiredImports()
@@ -81,6 +86,8 @@ export function useActiveImports(): UseActiveImportsReturn {
     importApi
       .active()
       .then((response) => {
+        consecutiveFailuresRef.current = 0
+        setConnectionLost((prev) => (prev ? false : prev))
         const merged = mergeJobs(localIndex.jobs, response.jobs).filter(
           (j) => !dismissed.has(j.jobId),
         )
@@ -92,6 +99,10 @@ export function useActiveImports(): UseActiveImportsReturn {
       })
       .catch(() => {
         // Backend unavailable — just use localStorage
+        consecutiveFailuresRef.current += 1
+        if (consecutiveFailuresRef.current >= 3) {
+          setConnectionLost(true)
+        }
         const localJobs = localIndex.jobs
           .map(localToActiveJob)
           .filter((j) => !dismissed.has(j.jobId))
@@ -169,7 +180,7 @@ export function useActiveImports(): UseActiveImportsReturn {
       j.pendingGroups > 0,
   )
 
-  return { jobs, hasActive, refresh, dismissJob, cancelJob, onJobCompleted }
+  return { jobs, hasActive, connectionLost, refresh, dismissJob, cancelJob, onJobCompleted }
 }
 
 function localToActiveJob(entry: ImportJobIndexEntry): ActiveImportJob {

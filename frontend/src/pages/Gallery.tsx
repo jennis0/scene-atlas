@@ -271,6 +271,7 @@ export function Gallery() {
       <ActivityDock
         jobs={activeImports.jobs}
         hasActive={activeImports.hasActive}
+        connectionLost={activeImports.connectionLost}
         backgroundJobs={backgroundJobs.jobs}
         hasActiveJobs={backgroundJobs.hasActive}
         onOpenJob={(jobId) => {
