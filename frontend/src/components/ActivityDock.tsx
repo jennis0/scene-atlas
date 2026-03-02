@@ -317,19 +317,16 @@ function ImportJobCard({
           {canCancel && !confirmingCancel && (
             <button
               onClick={handleCancelClick}
-              className="opacity-0 group-hover/job:opacity-100 shrink-0
-                h-5 w-5 rounded flex items-center justify-center
-                text-muted-foreground/30 hover:text-destructive hover:bg-destructive/10 transition-all"
+              className={`shrink-0 h-5 w-5 rounded flex items-center justify-center
+                text-muted-foreground/30 hover:text-destructive hover:bg-destructive/10 transition-all
+                ${job.status === 'failed' || job.status === 'broken' ? '' : 'opacity-0 group-hover/job:opacity-100'}`}
               title="Cancel"
             >
               <X className="h-3 w-3" />
             </button>
           )}
           {confirmingCancel && (
-            <div
-              className="flex items-center gap-1 shrink-0"
-              onClick={(e) => e.stopPropagation()}
-            >
+            <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
               <span className="text-[10px] text-destructive/80">Delete imported?</span>
               <button
                 onClick={() => {
@@ -546,11 +543,7 @@ function ImportStatusText({ job }: { job: ActiveImportJob }) {
         </span>
       )
     case 'completed':
-      return (
-        <span className="text-amber-600 dark:text-amber-400 font-medium">
-          Review import ›
-        </span>
-      )
+      return <span className="text-amber-600 dark:text-amber-400 font-medium">Review import ›</span>
     case 'failed':
       return (
         <span className="text-destructive/65">

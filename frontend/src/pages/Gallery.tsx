@@ -274,6 +274,9 @@ export function Gallery() {
                 dialogs.setImportReviewGroupIds(ids)
               }
             })
+          } else if (job?.status === 'failed' || job?.status === 'broken') {
+            // Failed/broken jobs open the import summary dialog (Task 9 will render it)
+            dialogs.setImportSummaryJobId(jobId)
           } else if (
             job?.status === 'staging' ||
             job?.status === 'active' ||
@@ -282,7 +285,7 @@ export function Gallery() {
             (job?.status === 'running' && (job.pendingGroups ?? 0) > 0)
           ) {
             // Only reconnect jobs that are genuinely resumable via the ImportDialog.
-            // Terminal jobs (failed, broken, cancelled, expired) are not reopenable —
+            // Terminal jobs (cancelled, expired) are not reopenable —
             // clicking them in the ActivityDock has no meaningful action.
             dialogs.openImportDialog(jobId)
           }
