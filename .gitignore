@@ -107,3 +107,4 @@ e2e/blob-report/
 .claude/
 .worktrees/
 data/
+.worktrees/
