@@ -235,10 +235,29 @@ class ImportGroupJob(Base):
 
 # Database setup utilities
 def get_engine(database_url: str = "sqlite:///./data/battlemap.db"):
-    """Create database engine."""
-    return create_engine(
+    """Create database engine.
+
+    For SQLite databases, enables WAL journal mode and a 10-second busy timeout
+    so concurrent writers from multiple import threads don't get immediate
+    'database is locked' errors.  WAL mode allows concurrent reads during writes
+    and serialises writes safely.  synchronous=NORMAL is the SQLite recommendation
+    for WAL mode: safe against Python/OS crashes, ~3× faster than FULL.
+    """
+    engine = create_engine(
         database_url, connect_args={"check_same_thread": False} if "sqlite" in database_url else {}
     )
+    if "sqlite" in database_url:
+        from sqlalchemy import event as _sa_event
+
+        @_sa_event.listens_for(engine, "connect")
+        def _set_sqlite_pragmas(dbapi_conn, _connection_record):
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=10000")  # 10 seconds
+            cursor.execute("PRAGMA synchronous=NORMAL")  # recommended for WAL
+            cursor.close()
+
+    return engine
 
 
 def get_session_local(engine):

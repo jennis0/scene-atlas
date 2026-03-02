@@ -257,26 +257,26 @@ class TestAnalyse:
         assert data["job_id"] == job_id
         assert data["total_files"] >= 1
         assert len(data["groups"]) == 1
-        assert data["groups"][0]["group_name"] == "TestMap"
+        # ImageParser CamelCase-splits directory names: "TestMap" → "Test Map"
+        assert data["groups"][0]["group_name"] == "Test Map"
 
     def test_multiple_files_analyse_succeeds(self, upload_env):
-        """Upload multiple files then analyse; runner is invoked once."""
-        _, client, mock_runner = upload_env
-        # Two-group fake result
-        mock_runner.run_sync.return_value = [
-            _fake_groups("AuthorA", "Map1", "a.jpg")[0],
-            _fake_groups("AuthorB", "Map2", "b.jpg")[0],
-        ]
+        """Upload files in two distinct group directories; analyse detects two groups."""
+        _, client, _ = upload_env
         job_id = _init_job(client)
         jpeg1 = _make_jpeg_bytes(color=(255, 0, 0))
         jpeg2 = _make_jpeg_bytes(color=(0, 255, 0))
 
+        # Upload each file with a path that places it in a different group directory
         client.post(
             f"/api/v1/imports/{job_id}/upload-batch",
-            files=[
-                ("files", ("a.jpg", jpeg1, "image/jpeg")),
-                ("files", ("b.jpg", jpeg2, "image/jpeg")),
-            ],
+            files=[("files", ("a.jpg", jpeg1, "image/jpeg"))],
+            data={"relative_paths": json.dumps(["AuthorA/Map1/a.jpg"])},
+        )
+        client.post(
+            f"/api/v1/imports/{job_id}/upload-batch",
+            files=[("files", ("b.jpg", jpeg2, "image/jpeg"))],
+            data={"relative_paths": json.dumps(["AuthorB/Map2/b.jpg"])},
         )
 
         resp = client.post(

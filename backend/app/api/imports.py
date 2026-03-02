@@ -478,9 +478,10 @@ async def analyse_staged(
         for entry in manifest_entries
     }
 
+    import asyncio
+
     from ...pipeline.ingestion import analyse_upload
 
-    runner = get_job_runner()
     logger.info(
         "Running analyse_upload for job %s: %d staged + %d manifest files",
         job_id,
@@ -488,7 +489,7 @@ async def analyse_staged(
         len(manifest_entries),
     )
     try:
-        groups = runner.run_sync(
+        groups = await asyncio.to_thread(
             analyse_upload,
             staging_dir=str(staging_dir),
             relative_paths=all_relative_paths,
@@ -1007,12 +1008,17 @@ async def cancel_import(job_id: str, db: Session = Depends(get_db)):
     """Cancel an import job and clean up all associated data.
 
     Deletes:
-    - Staging directory
+    - Staging directory (unless groups are still running)
     - All Image rows created by this import (files on disk if not shared with
       other imports, thumbnails, Qdrant embeddings)
     - Now-empty ImageGroups created by this import
 
     Works for all non-completed states. Returns 409 for completed imports.
+
+    When groups are actively running, staging cleanup is deferred
+    (staging_cleaned=False).  When all groups are already in a terminal state
+    (completed/failed/cancelled), transition_job_status determines the final
+    status rather than hard-coding 'cancelled'.
     """
     job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
     if not job:
@@ -1024,33 +1030,53 @@ async def cancel_import(job_id: str, db: Session = Depends(get_db)):
             detail="Cannot cancel a completed import. Use the delete endpoint to remove images.",
         )
 
+    # Inspect group state to drive cleanup behaviour
+    groups = db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job_id).all()
+    has_running = any(g.status == "running" for g in groups)
+    all_groups_terminal = bool(groups) and all(
+        g.status in {"completed", "failed", "cancelled"} for g in groups
+    )
+
     # Clean up imported images (files + DB rows + Qdrant vectors)
     deleted_images = _cleanup_import_images(job_id, db)
     logger.info("Deleted %d image(s) for cancelled import %s", deleted_images, job_id)
 
-    # Clean up staging directory
+    # Only clean staging when no groups are actively running (running groups
+    # may still be writing to staging)
     staging_dir = settings.staging_dir / job_id
-    if staging_dir.exists():
+    staging_cleaned = False
+    if not has_running and staging_dir.exists():
         shutil.rmtree(staging_dir, ignore_errors=True)
+        staging_cleaned = True
 
-    # Mark all group jobs as cancelled
-    db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job_id).update(
-        {"status": "cancelled"},
-        synchronize_session=False,
-    )
-
-    # Mark job as cancelled
     now = datetime.now(UTC).replace(tzinfo=None)
-    job.status = "cancelled"
-    job.completed_at = now
-    job.updated_at = now
-    job.pending_groups = 0
-    db.commit()
+    if all_groups_terminal:
+        # All groups already done — determine the real final status via transition
+        # (e.g. 'failed' if any group failed, 'completed' if all succeeded).
+        from ..services.import_state import transition_job_status
+
+        job.pending_groups = 0
+        job.updated_at = now
+        final_status = transition_job_status(db, job_id)
+        db.commit()
+    else:
+        # Groups are running or no groups submitted — mark job and all
+        # non-terminal groups as cancelled.
+        db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job_id).update(
+            {"status": "cancelled"},
+            synchronize_session=False,
+        )
+        job.status = "cancelled"
+        job.completed_at = now
+        job.updated_at = now
+        job.pending_groups = 0
+        db.commit()
+        final_status = "cancelled"
 
     return {
-        "status": "cancelled",
+        "status": final_status,
         "deleted_images": deleted_images,
-        "staging_cleaned": True,
+        "staging_cleaned": staging_cleaned,
     }
 
 
