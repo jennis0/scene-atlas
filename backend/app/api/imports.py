@@ -808,9 +808,8 @@ async def get_active_imports(db: Session = Depends(get_db)):
                 has_unreviewed = (
                     db.query(Image)
                     .filter(Image.import_job_id == job.id, Image.needs_review == True)  # noqa: E712
-                    .limit(1)
-                    .count()
-                    > 0
+                    .first()
+                    is not None
                 )
                 if not has_unreviewed:
                     if job.completed_at is None or job.completed_at < cutoff:

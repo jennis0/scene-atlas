@@ -47,6 +47,10 @@ def main():
     restarts: list[float] = []
     backoff = 1
 
+    # Note: unlike scripts/start.py which uses subprocess restart (full isolation),
+    # this restarts uvicorn in-process. Corrupted module-level state (singletons,
+    # connection pools) will persist across restarts. This is the correct tradeoff
+    # for a PyInstaller bundle where subprocess spawning is unreliable.
     while True:
         try:
             uvicorn.run(app, host="127.0.0.1", port=args.port)
