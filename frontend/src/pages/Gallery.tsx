@@ -2,7 +2,7 @@ import { useEffect, useRef, Suspense, lazy } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Upload, Mountain } from 'lucide-react'
-import { importApi, groupApi } from '@/lib/api'
+import { groupApi } from '@/lib/api'
 import { ImageGrid } from '@/components/ImageGrid'
 import { GroupGrid } from '@/components/GroupGrid'
 import { ImageViewer } from '@/components/ImageViewer'
@@ -30,8 +30,8 @@ export function Gallery() {
   const activeImports = useActiveImports()
   const backgroundJobs = useBackgroundJobs()
 
-  // Tracks the jobId of the import that opened the current EditGroupDialog import-review
-  const importReviewJobIdRef = useRef<string | null>(null)
+  // Tracks the jobId of the import that opened the current EditGroupDialog live-review
+  const importLiveJobIdRef = useRef<string | null>(null)
 
   // Invalidate gallery queries and show review toast whenever a background import finishes
   useEffect(() => {
@@ -53,15 +53,8 @@ export function Gallery() {
         action: {
           label: 'Review',
           onClick: () => {
-            importApi.status(job.jobId).then((result) => {
-              const ids = result.groups
-                .map((g) => g.group_id)
-                .filter((id): id is number => id != null)
-              if (ids.length > 0) {
-                importReviewJobIdRef.current = job.jobId
-                dialogs.setImportReviewGroupIds(ids)
-              }
-            })
+            importLiveJobIdRef.current = job.jobId
+            dialogs.setImportLiveJobId(job.jobId)
           },
         },
       })
@@ -200,15 +193,15 @@ export function Gallery() {
           }}
         />
 
-        {/* Import-review dialog -- opened by clicking a completed job in the tray */}
+        {/* Live import-review dialog -- opened by clicking an active or completed job in the tray */}
         <EditGroupDialog
-          groupIds={dialogs.importReviewGroupIds ?? undefined}
-          open={dialogs.importReviewGroupIds !== null}
-          onClose={() => dialogs.setImportReviewGroupIds(null)}
+          importJobId={dialogs.importLiveJobId ?? undefined}
+          open={dialogs.importLiveJobId !== null}
+          onClose={() => dialogs.setImportLiveJobId(null)}
           onSave={() => {
-            const reviewedJobId = importReviewJobIdRef.current
-            importReviewJobIdRef.current = null
-            dialogs.setImportReviewGroupIds(null)
+            const reviewedJobId = importLiveJobIdRef.current
+            importLiveJobIdRef.current = null
+            dialogs.setImportLiveJobId(null)
             dialogs.invalidateGallery()
             // Dismiss the reviewed import from the ActivityDock
             if (reviewedJobId) {
@@ -276,30 +269,22 @@ export function Gallery() {
         hasActiveJobs={backgroundJobs.hasActive}
         onOpenJob={(jobId) => {
           const job = activeImports.jobs.find((j) => j.jobId === jobId)
-          if (job?.status === 'completed' && job.pendingGroups === 0) {
-            // Truly completed with no pending groups -- open EditGroupDialog in import-review mode
-            importApi.status(jobId).then((result) => {
-              const ids = result.groups
-                .map((g) => g.group_id)
-                .filter((id): id is number => id != null)
-              if (ids.length > 0) {
-                importReviewJobIdRef.current = jobId
-                dialogs.setImportReviewGroupIds(ids)
-              }
-            })
-          } else if (job?.status === 'failed' || job?.status === 'broken') {
-            // Failed/broken jobs open the import summary dialog (Task 9 will render it)
+          if (job?.status === 'failed' || job?.status === 'broken') {
+            // Failed/broken jobs open the import summary dialog
             dialogs.setImportSummaryJobId(jobId)
+          } else if (job?.status === 'completed' || job?.status === 'active') {
+            // Active or completed jobs open EditGroupDialog in live-review mode:
+            // - active: shows pending group stubs + any already-completed groups
+            // - completed: all groups load immediately, no stubs
+            importLiveJobIdRef.current = jobId
+            dialogs.setImportLiveJobId(jobId)
           } else if (
             job?.status === 'staging' ||
-            job?.status === 'active' ||
             job?.status === 'awaiting_input' ||
-            job?.status === 'uploading' ||
-            (job?.status === 'running' && (job.pendingGroups ?? 0) > 0)
+            job?.status === 'uploading'
           ) {
             // Only reconnect jobs that are genuinely resumable via the ImportDialog.
-            // Terminal jobs (cancelled, expired) are not reopenable —
-            // clicking them in the ActivityDock has no meaningful action.
+            // Terminal jobs (cancelled, expired) are not reopenable.
             dialogs.openImportDialog(jobId)
           }
         }}
