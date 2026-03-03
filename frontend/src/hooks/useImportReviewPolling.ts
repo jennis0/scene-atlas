@@ -8,6 +8,9 @@ interface UseImportReviewPollingOptions {
   importJobId: string | null | undefined
   onGroupCompleted: (groupId: number) => void
   enabled: boolean
+  /** Set to true when the caller already knows the job is finished (e.g. status === 'completed').
+   *  Prevents the brief "Processing (0 remaining…)" flash while the first poll response is in-flight. */
+  initiallyDone?: boolean
 }
 
 interface UseImportReviewPollingReturn {
@@ -21,16 +24,19 @@ export function useImportReviewPolling({
   importJobId,
   onGroupCompleted,
   enabled,
+  initiallyDone = false,
 }: UseImportReviewPollingOptions): UseImportReviewPollingReturn {
   const [pendingGroups, setPendingGroups] = useState<ImportGroupStatus[]>([])
   const [failedGroups, setFailedGroups] = useState<ImportGroupStatus[]>([])
-  const [allDone, setAllDone] = useState(false)
+  const [allDone, setAllDone] = useState(initiallyDone)
   const [pollError, setPollError] = useState(false)
 
   // Tracks which group_ids we've already notified about — prevents double-firing
   const notifiedGroupIds = useRef(new Set<number>())
   const onGroupCompletedRef = useRef(onGroupCompleted)
   onGroupCompletedRef.current = onGroupCompleted
+  const initiallyDoneRef = useRef(initiallyDone)
+  initiallyDoneRef.current = initiallyDone
 
   const poll = useCallback(async () => {
     if (!importJobId) return
@@ -61,7 +67,7 @@ export function useImportReviewPolling({
     if (!enabled || !importJobId) {
       setPendingGroups([])
       setFailedGroups([])
-      setAllDone(false)
+      setAllDone(initiallyDoneRef.current)
       setPollError(false)
       notifiedGroupIds.current = new Set()
       return

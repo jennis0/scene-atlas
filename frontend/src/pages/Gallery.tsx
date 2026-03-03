@@ -196,6 +196,9 @@ export function Gallery() {
         {/* Live import-review dialog -- opened by clicking an active or completed job in the tray */}
         <EditGroupDialog
           importJobId={dialogs.importLiveJobId ?? undefined}
+          importJobInitiallyDone={['completed', 'awaiting_input'].includes(
+            activeImports.jobs.find((j) => j.jobId === dialogs.importLiveJobId)?.status ?? '',
+          )}
           open={dialogs.importLiveJobId !== null}
           onClose={() => dialogs.setImportLiveJobId(null)}
           onSave={() => {
@@ -272,17 +275,17 @@ export function Gallery() {
           if (job?.status === 'failed' || job?.status === 'broken') {
             // Failed/broken jobs open the import summary dialog
             dialogs.setImportSummaryJobId(jobId)
-          } else if (job?.status === 'completed' || job?.status === 'active') {
-            // Active or completed jobs open EditGroupDialog in live-review mode:
+          } else if (
+            job?.status === 'completed' ||
+            job?.status === 'active' ||
+            job?.status === 'awaiting_input'
+          ) {
+            // Active, completed, and awaiting_input jobs open EditGroupDialog in live-review mode:
             // - active: shows pending group stubs + any already-completed groups
-            // - completed: all groups load immediately, no stubs
+            // - completed/awaiting_input: all groups load immediately, no stubs
             importLiveJobIdRef.current = jobId
             dialogs.setImportLiveJobId(jobId)
-          } else if (
-            job?.status === 'staging' ||
-            job?.status === 'awaiting_input' ||
-            job?.status === 'uploading'
-          ) {
+          } else if (job?.status === 'staging' || job?.status === 'uploading') {
             // Only reconnect jobs that are genuinely resumable via the ImportDialog.
             // Terminal jobs (cancelled, expired) are not reopenable.
             dialogs.openImportDialog(jobId)

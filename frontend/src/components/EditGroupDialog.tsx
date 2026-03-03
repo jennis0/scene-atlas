@@ -52,8 +52,12 @@ interface EditGroupDialogProps {
   seedImages?: Image[]
   // Import-review mode: pass groupIds to load multiple groups by ID, all images in scope
   groupIds?: number[]
-  // Live import mode: pass importJobId to enable polling and pending-group stubs
+  // Live import mode: pass importJobId to enable polling and pending-group stubs.
+  // Set importJobInitiallyDone=true when the caller knows the job has already
+  // completed — prevents a brief "Processing (0 remaining…)" flash while the
+  // first poll response is in-flight.
   importJobId?: string
+  importJobInitiallyDone?: boolean
   open: boolean
   onClose: () => void
   onSave: () => void
@@ -66,6 +70,7 @@ export default function EditGroupDialog({
   seedImages,
   groupIds,
   importJobId,
+  importJobInitiallyDone = false,
   open,
   onClose,
   onSave,
@@ -76,19 +81,24 @@ export default function EditGroupDialog({
   // Grows as groups complete processing; starts from any pre-fetched groupIds.
   const [liveGroupIds, setLiveGroupIds] = useState<number[]>(groupIds ?? [])
 
-  // Reset liveGroupIds whenever the dialog opens with a new importJobId
+  // Reset liveGroupIds whenever the dialog opens with a new importJobId.
+  // groupIds is intentionally excluded from the dependency array: in live-review
+  // mode it is always undefined, so including it would cause spurious resets
+  // if a parent ever re-creates the array reference with identical contents.
   const prevImportJobId = useRef<string | undefined>(undefined)
   useEffect(() => {
     if (importJobId !== prevImportJobId.current) {
       prevImportJobId.current = importJobId
       setLiveGroupIds(groupIds ?? [])
     }
-  }, [importJobId, groupIds])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [importJobId])
 
-  const { pendingGroups, failedGroups, allDone } = useImportReviewPolling({
+  const { pendingGroups, failedGroups, allDone, pollError } = useImportReviewPolling({
     importJobId,
     onGroupCompleted: (completedGroupId) => setLiveGroupIds((prev) => [...prev, completedGroupId]),
     enabled: open && !!importJobId,
+    initiallyDone: importJobInitiallyDone,
   })
 
   const invalidateGallery = useCallback(() => {
@@ -859,7 +869,11 @@ export default function EditGroupDialog({
                           Saving…
                         </>
                       ) : hasPendingGroups ? (
-                        `Processing (${pendingGroups.length} remaining…)`
+                        pollError ? (
+                          'Cannot reach server — retrying…'
+                        ) : (
+                          `Processing (${pendingGroups.length} remaining…)`
+                        )
                       ) : isImportReview ? (
                         'Confirm Import'
                       ) : (
