@@ -60,7 +60,10 @@ interface EditGroupDialogProps {
   importJobInitiallyDone?: boolean
   open: boolean
   onClose: () => void
-  onSave: () => void
+  /** Called after the import/edit is confirmed.
+   *  For live import review, receives the jobId that was confirmed so callers
+   *  can dismiss it without relying on external refs that may have been mutated. */
+  onSave: (reviewedImportJobId?: string) => void
 }
 
 // ── Main component ─────────────────────────────────────────────────────────
@@ -216,13 +219,17 @@ export default function EditGroupDialog({
   // Called on any close action — changes have already been auto-saved
   const handleDone = useCallback(() => {
     if (isImportReview) {
+      // Capture importJobId synchronously before onClose() clears it in the parent.
+      // This avoids a race where the user opens a second job between onClose() and
+      // the async onSave(), which previously caused the second job to be dismissed.
+      const capturedImportJobId = importJobId
+      const idsToConfirm = capturedImportJobId ? liveGroupIds : (groupIds ?? [])
       // Close dialog immediately for good UX, then wait for confirm-review
       // before calling onSave (which triggers gallery invalidation) so that
       // the images are actually visible when the gallery refetches.
-      const idsToConfirm = importJobId ? liveGroupIds : (groupIds ?? [])
       onClose()
       groupApi.confirmReview(idsToConfirm).finally(() => {
-        onSave()
+        onSave(capturedImportJobId ?? undefined)
       })
     } else {
       onSave()

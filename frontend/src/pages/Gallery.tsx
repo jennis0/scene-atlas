@@ -1,4 +1,4 @@
-import { useEffect, useRef, Suspense, lazy } from 'react'
+import { useEffect, Suspense, lazy } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Upload, Mountain } from 'lucide-react'
@@ -30,9 +30,6 @@ export function Gallery() {
   const activeImports = useActiveImports()
   const backgroundJobs = useBackgroundJobs()
 
-  // Tracks the jobId of the import that opened the current EditGroupDialog live-review
-  const importLiveJobIdRef = useRef<string | null>(null)
-
   // Invalidate gallery queries and show review toast whenever a background import finishes
   useEffect(() => {
     return activeImports.onJobCompleted((job) => {
@@ -52,10 +49,7 @@ export function Gallery() {
         duration: 8000,
         action: {
           label: 'Review',
-          onClick: () => {
-            importLiveJobIdRef.current = job.jobId
-            dialogs.setImportLiveJobId(job.jobId)
-          },
+          onClick: () => dialogs.setImportLiveJobId(job.jobId),
         },
       })
     })
@@ -201,14 +195,12 @@ export function Gallery() {
           )}
           open={dialogs.importLiveJobId !== null}
           onClose={() => dialogs.setImportLiveJobId(null)}
-          onSave={() => {
-            const reviewedJobId = importLiveJobIdRef.current
-            importLiveJobIdRef.current = null
-            dialogs.setImportLiveJobId(null)
+          onSave={(reviewedImportJobId) => {
+            // onClose() already cleared importLiveJobId — don't set it to null here.
+            // importJobId is passed directly from handleDone so we don't need a ref.
             dialogs.invalidateGallery()
-            // Dismiss the reviewed import from the ActivityDock
-            if (reviewedJobId) {
-              activeImports.dismissJob(reviewedJobId)
+            if (reviewedImportJobId) {
+              activeImports.dismissJob(reviewedImportJobId)
             }
           }}
         />
@@ -283,7 +275,6 @@ export function Gallery() {
             // Active, completed, and awaiting_input jobs open EditGroupDialog in live-review mode:
             // - active: shows pending group stubs + any already-completed groups
             // - completed/awaiting_input: all groups load immediately, no stubs
-            importLiveJobIdRef.current = jobId
             dialogs.setImportLiveJobId(jobId)
           } else if (job?.status === 'staging' || job?.status === 'uploading') {
             // Only reconnect jobs that are genuinely resumable via the ImportDialog.
