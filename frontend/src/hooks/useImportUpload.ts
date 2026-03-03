@@ -57,7 +57,6 @@ export function useImportUpload({
   // cleanup ensures blob URLs are still freed.
   useEffect(() => {
     return () => {
-      // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: blobUrlsRef is stable, cleanup reads current value at unmount time
       blobUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
     }
   }, [])
