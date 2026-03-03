@@ -301,7 +301,7 @@ function ImportJobCard({
     >
       <div className="px-2.5 py-2">
         {/* Top row */}
-        <div className="flex items-start gap-[7px]">
+        <div className="flex items-start gap-[7px] overflow-hidden">
           <ImportStatusIcon status={job.status} />
           <span
             className={`flex-1 min-w-0 text-[12px] font-medium truncate leading-tight ${
