@@ -234,8 +234,17 @@ class ImportGroupJob(Base):
 
 
 # Database setup utilities
+
+# Module-level engine cache keyed by database_url.  Previously every call to
+# get_engine() created a brand-new SQLAlchemy Engine (and connection pool).
+# During a large import the pipeline calls get_engine() 10+ times per group,
+# producing hundreds of orphaned engines whose connection pools were never
+# disposed — a steady memory leak.
+_engine_cache: dict = {}
+
+
 def get_engine(database_url: str = "sqlite:///./data/battlemap.db"):
-    """Create database engine.
+    """Return a cached database engine, creating one if needed.
 
     For SQLite databases, enables WAL journal mode and a 10-second busy timeout
     so concurrent writers from multiple import threads don't get immediate
@@ -243,6 +252,9 @@ def get_engine(database_url: str = "sqlite:///./data/battlemap.db"):
     and serialises writes safely.  synchronous=NORMAL is the SQLite recommendation
     for WAL mode: safe against Python/OS crashes, ~3× faster than FULL.
     """
+    if database_url in _engine_cache:
+        return _engine_cache[database_url]
+
     engine = create_engine(
         database_url, connect_args={"check_same_thread": False} if "sqlite" in database_url else {}
     )
@@ -257,6 +269,7 @@ def get_engine(database_url: str = "sqlite:///./data/battlemap.db"):
             cursor.execute("PRAGMA synchronous=NORMAL")  # recommended for WAL
             cursor.close()
 
+    _engine_cache[database_url] = engine
     return engine
 
 

@@ -312,9 +312,7 @@ class TestImageEncoding:
         onnx_emb = onnx_svc.encode_image(img)
 
         diff = _diff(torch_emb, onnx_emb)
-        assert diff < threshold, (
-            f"[{name}] Dot product diff {diff:.6f} for {w}x{h} image"
-        )
+        assert diff < threshold, f"[{name}] Dot product diff {diff:.6f} for {w}x{h} image"
 
 
 # ── Text Encoding Tests ─────────────────────────────────────────────────────
@@ -332,9 +330,7 @@ class TestTextEncoding:
         onnx_emb = onnx_svc.encode_text(text)
 
         diff = _diff(torch_emb, onnx_emb)
-        assert diff < threshold, (
-            f"[{name}] Dot product diff {diff:.6f} for text: '{text[:40]}...'"
-        )
+        assert diff < threshold, f"[{name}] Dot product diff {diff:.6f} for text: '{text[:40]}...'"
 
     def test_text_dimensions_and_norm(self, torch_service, onnx_variant):
         """Both services produce 512-dim L2-normalised text embeddings."""
@@ -356,9 +352,7 @@ class TestTextEncoding:
 class TestBatchEncoding:
     """Compare batch image encoding between torch and ONNX variants."""
 
-    def test_batch_dot_products(
-        self, torch_service, onnx_variant, make_test_image, tmp_path
-    ):
+    def test_batch_dot_products(self, torch_service, onnx_variant, make_test_image, tmp_path):
         """Batch encoding: every image within threshold."""
         name, onnx_svc, threshold = onnx_variant
         paths = []
@@ -391,9 +385,7 @@ class TestBatchEncoding:
         batch_threshold = 0.001 if name == "fp16" else 0.0001
         for i, (batch, single) in enumerate(zip(batch_embs, single_embs, strict=True)):
             diff = _diff(batch, single)
-            assert diff < batch_threshold, (
-                f"[{name}] Batch vs single diff {diff:.6f} for image {i}"
-            )
+            assert diff < batch_threshold, f"[{name}] Batch vs single diff {diff:.6f} for image {i}"
 
     def test_batch_real_images(self, torch_service, onnx_variant, real_images):
         """Batch encode real images and compare."""
@@ -416,9 +408,7 @@ class TestBatchEncoding:
 class TestCrossModalConsistency:
     """Verify that text-image similarity rankings are preserved."""
 
-    def test_search_ranking_preserved(
-        self, torch_service, onnx_variant, make_test_image, tmp_path
-    ):
+    def test_search_ranking_preserved(self, torch_service, onnx_variant, make_test_image, tmp_path):
         """Same query should rank images in the same order across implementations."""
         name, onnx_svc, _ = onnx_variant
         colors = {

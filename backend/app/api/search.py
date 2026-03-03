@@ -52,9 +52,15 @@ async def get_search_facets(db: Session = Depends(get_db)):
         tags_by_category.setdefault(cat, []).append({"value": val, "count": count})
 
     # Grid state counts
-    gridded_count = db.query(func.count(Image.id)).filter(reviewed, Image.gridded.is_(True)).scalar() or 0
-    gridless_count = db.query(func.count(Image.id)).filter(reviewed, Image.gridded.is_(False)).scalar() or 0
-    unknown_count = db.query(func.count(Image.id)).filter(reviewed, Image.gridded.is_(None)).scalar() or 0
+    gridded_count = (
+        db.query(func.count(Image.id)).filter(reviewed, Image.gridded.is_(True)).scalar() or 0
+    )
+    gridless_count = (
+        db.query(func.count(Image.id)).filter(reviewed, Image.gridded.is_(False)).scalar() or 0
+    )
+    unknown_count = (
+        db.query(func.count(Image.id)).filter(reviewed, Image.gridded.is_(None)).scalar() or 0
+    )
     square_count = (
         db.query(func.count(Image.id))
         .filter(reviewed, Image.gridded.is_(True), Image.grid_type == "square")
@@ -83,12 +89,18 @@ async def get_search_facets(db: Session = Depends(get_db)):
 
     # Image type counts
     image_type_rows = (
-        db.query(Image.image_type, func.count(Image.id)).filter(reviewed).group_by(Image.image_type).all()
+        db.query(Image.image_type, func.count(Image.id))
+        .filter(reviewed)
+        .group_by(Image.image_type)
+        .all()
     )
 
     # Media type counts (image vs video)
     media_type_rows = (
-        db.query(Image.media_type, func.count(Image.id)).filter(reviewed).group_by(Image.media_type).all()
+        db.query(Image.media_type, func.count(Image.id))
+        .filter(reviewed)
+        .group_by(Image.media_type)
+        .all()
     )
 
     return {

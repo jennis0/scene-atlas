@@ -171,9 +171,7 @@ class QdrantService:
                 logger.info("Deleted %d embedding(s) from Qdrant", len(image_ids))
                 return True
             except Exception as e:
-                logger.warning(
-                    "Failed to delete %d embeddings from Qdrant: %s", len(image_ids), e
-                )
+                logger.warning("Failed to delete %d embeddings from Qdrant: %s", len(image_ids), e)
                 return False
 
     def get_embedding(self, image_id: int) -> list[float] | None:

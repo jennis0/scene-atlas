@@ -161,6 +161,35 @@ async def init_import(db: Session = Depends(get_db)):
     return {"job_id": job_id}
 
 
+_STREAM_CHUNK_SIZE = 256 * 1024  # 256 KB
+
+
+async def _stream_upload_to_disk(upload_file: UploadFile, dest: Path, max_bytes: int) -> int:
+    """Stream an UploadFile to *dest* in chunks, enforcing a size limit.
+
+    Returns the number of bytes written.  Deletes the partially-written file
+    and returns -1 if *max_bytes* is exceeded (caller must raise).
+    """
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    bytes_written = 0
+    try:
+        with open(dest, "wb") as f:
+            while chunk := await upload_file.read(_STREAM_CHUNK_SIZE):
+                bytes_written += len(chunk)
+                if bytes_written > max_bytes:
+                    break
+                f.write(chunk)
+            else:
+                # Loop completed without exceeding limit
+                return bytes_written
+    except Exception:
+        dest.unlink(missing_ok=True)
+        raise
+    # Exceeded limit — clean up
+    dest.unlink(missing_ok=True)
+    return -1
+
+
 async def _save_files_to_staging(
     files: list[UploadFile],
     rel_paths_list: list[str],
@@ -169,7 +198,8 @@ async def _save_files_to_staging(
 ) -> tuple[list[str], int, list[str]]:
     """Save uploaded files to the staging directory.
 
-    Handles both regular image/video files and ZIP archives.
+    Streams files directly to disk instead of buffering entire contents in
+    memory.  Handles both regular image/video files and ZIP archives.
     Validates file types, sizes, and magic bytes.
 
     Returns:
@@ -188,23 +218,25 @@ async def _save_files_to_staging(
         rel_path = rel_paths_list[i] if i < len(rel_paths_list) else filename
 
         if filename.lower().endswith(".zip"):
-            content = await upload_file.read()
-            if len(content) > app_settings.max_import_file_size:
+            zip_path = staging_dir / filename
+            file_bytes = await _stream_upload_to_disk(
+                upload_file, zip_path, app_settings.max_import_file_size
+            )
+            if file_bytes < 0:
                 limit_mb = app_settings.max_import_file_size // (1024 * 1024)
                 raise HTTPException(
                     status_code=413,
                     detail=f"File '{filename}' exceeds size limit of {limit_mb} MB",
                 )
-            total_upload_bytes += len(content)
+            total_upload_bytes += file_bytes
             if total_upload_bytes > app_settings.max_import_total_size:
+                zip_path.unlink(missing_ok=True)
                 limit_mb = app_settings.max_import_total_size // (1024 * 1024)
                 raise HTTPException(
                     status_code=413,
                     detail=f"Total upload size exceeds limit of {limit_mb} MB",
                 )
 
-            zip_path = staging_dir / filename
-            zip_path.write_bytes(content)
             try:
                 check_zip_safety(
                     zip_path,
@@ -238,29 +270,29 @@ async def _save_files_to_staging(
                 app_settings.max_video_file_size if is_video else app_settings.max_import_file_size
             )
 
-            content = await upload_file.read()
-            if len(content) > file_size_limit:
+            dest = staging_dir / rel_path
+            file_bytes = await _stream_upload_to_disk(upload_file, dest, file_size_limit)
+            if file_bytes < 0:
                 limit_mb = file_size_limit // (1024 * 1024)
                 raise HTTPException(
                     status_code=413,
                     detail=f"File '{filename}' exceeds size limit of {limit_mb} MB",
                 )
-            total_upload_bytes += len(content)
+            total_upload_bytes += file_bytes
             if total_upload_bytes > app_settings.max_import_total_size:
+                dest.unlink(missing_ok=True)
                 limit_mb = app_settings.max_import_total_size // (1024 * 1024)
                 raise HTTPException(
                     status_code=413,
                     detail=f"Total upload size exceeds limit of {limit_mb} MB",
                 )
 
-            if not verify_media_mime(content, ext):
+            if not verify_media_mime(dest, ext):
                 logger.warning("Skipping invalid file (bad magic bytes): %s", filename)
+                dest.unlink(missing_ok=True)
                 skipped_invalid.append(filename)
                 continue
 
-            dest = staging_dir / rel_path
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(content)
             saved_relative_paths.append(rel_path)
 
     return saved_relative_paths, total_upload_bytes, skipped_invalid

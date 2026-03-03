@@ -68,8 +68,11 @@ def check_zip_safety(zip_path: Path, max_files: int, max_uncompressed_bytes: int
         raise ValueError(f"ZIP uncompressed size ({actual_mb} MB) exceeds limit of {limit_mb} MB")
 
 
-def verify_media_mime(data: bytes, ext: str) -> bool:
+def verify_media_mime(source: "bytes | Path", ext: str) -> bool:
     """Verify file content matches its claimed extension.
+
+    *source* may be raw bytes (legacy callers) or a Path to a file on disk
+    (preferred — avoids holding the full file in memory).
 
     Routes to video or image verification based on extension.
     """
@@ -78,12 +81,19 @@ def verify_media_mime(data: bytes, ext: str) -> bool:
     if ext.lower() in settings.supported_video_formats:
         from backend.app.services.video_utils import verify_video_mime
 
-        return verify_video_mime(data)
-    return verify_image_mime(data)
+        if isinstance(source, Path):
+            # Video check only needs the first 8 bytes.
+            with open(source, "rb") as f:
+                header = f.read(8)
+            return verify_video_mime(header)
+        return verify_video_mime(source)
+    return verify_image_mime(source)
 
 
-def verify_image_mime(data: bytes) -> bool:
-    """Return True if *data* is a valid image file, False otherwise.
+def verify_image_mime(source: "bytes | Path") -> bool:
+    """Return True if *source* is a valid image file, False otherwise.
+
+    *source* may be raw bytes or a Path to a file on disk.
 
     Uses PIL to inspect the file header without fully decoding pixel data.
     This catches renamed executables, text files, and other non-images
@@ -92,8 +102,6 @@ def verify_image_mime(data: bytes) -> bool:
     Returns False rather than raising so callers can skip invalid files
     with a warning rather than aborting the whole upload.
     """
-    from io import BytesIO
-
     from PIL import Image, UnidentifiedImageError
 
     try:
@@ -106,7 +114,12 @@ def verify_image_mime(data: bytes) -> bool:
         # a misleading "bad magic bytes" log entry.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", Image.DecompressionBombWarning)
-            img = Image.open(BytesIO(data))
+            if isinstance(source, Path):
+                img = Image.open(source)
+            else:
+                from io import BytesIO
+
+                img = Image.open(BytesIO(source))
             img.verify()
         return True
     except (UnidentifiedImageError, Exception):

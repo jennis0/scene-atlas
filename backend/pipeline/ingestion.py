@@ -1142,6 +1142,15 @@ def _run_group(
 
             # Free PIL / numpy / torch objects that survived refcount collection
             gc.collect()
+            # Force glibc to return freed pages to the OS.  Without this,
+            # Python's pymalloc + glibc malloc retain large arenas even after
+            # the Python objects are freed, causing RSS to stay inflated.
+            try:
+                import ctypes
+
+                ctypes.CDLL("libc.so.6").malloc_trim(0)
+            except Exception:
+                pass  # non-Linux or libc unavailable — no-op
             rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
             logger.info(
                 "[%s] batch %d complete — RSS: %.0f MB",

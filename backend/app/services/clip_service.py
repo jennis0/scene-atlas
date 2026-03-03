@@ -149,9 +149,7 @@ class CLIPService:
 
             pixel_values = pixel_values[np.newaxis, ...]  # [1, 3, 224, 224]
 
-            (embeddings,) = self._vision_session.run(
-                ["embeddings"], {"pixel_values": pixel_values}
-            )
+            (embeddings,) = self._vision_session.run(["embeddings"], {"pixel_values": pixel_values})
             embedding = embeddings[0].tolist()
             logger.debug("Generated embedding for %s, size: %s", image_path, len(embedding))
             return embedding
@@ -205,9 +203,7 @@ class CLIPService:
             pixel_values = np.stack(pixel_batch, axis=0)  # [N, 3, 224, 224]
             del pixel_batch
 
-            (embeddings,) = self._vision_session.run(
-                ["embeddings"], {"pixel_values": pixel_values}
-            )
+            (embeddings,) = self._vision_session.run(["embeddings"], {"pixel_values": pixel_values})
             result = embeddings.tolist()
             logger.debug("Generated batch embeddings for %s images", len(image_paths))
             return result
