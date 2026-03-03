@@ -46,8 +46,26 @@ from ..models.schemas import (
 from ..services.app_settings import get_settings as get_app_settings
 from ..services.import_state import GROUP_TERMINAL_STATUSES
 from ..services.job_runner import get_job_runner
-from ..services.validation import check_zip_safety, is_path_within, verify_media_mime
+from ..services.validation import check_zip_safety, verify_media_mime
 from .dependencies import get_db
+
+_FILE_MAP_NAME = ".file_map.json"
+
+
+def _load_file_map(staging_dir: Path) -> dict[str, str]:
+    """Load the relative_path → staging_key mapping from the staging dir."""
+    map_path = staging_dir / _FILE_MAP_NAME
+    if map_path.exists():
+        with open(map_path) as f:
+            return json.load(f)
+    return {}
+
+
+def _save_file_map(staging_dir: Path, file_map: dict[str, str]) -> None:
+    """Persist the relative_path → staging_key mapping."""
+    map_path = staging_dir / _FILE_MAP_NAME
+    with open(map_path, "w") as f:
+        json.dump(file_map, f)
 
 
 class ImportConfirmAllRequest(BaseModel):
@@ -196,7 +214,11 @@ async def _save_files_to_staging(
     staging_dir: Path,
     app_settings,
 ) -> tuple[list[str], int, list[str]]:
-    """Save uploaded files to the staging directory.
+    """Save uploaded files to the staging directory using UUID filenames.
+
+    Files are stored as flat UUID-named files (e.g. ``a1b2c3d4.jpg``) to
+    eliminate path-traversal risks and Windows MAX_PATH issues.  A
+    ``.file_map.json`` sidecar maps original relative paths to staging keys.
 
     Streams files directly to disk instead of buffering entire contents in
     memory.  Handles both regular image/video files and ZIP archives.
@@ -206,10 +228,13 @@ async def _save_files_to_staging(
         (saved_relative_paths, total_bytes, skipped_invalid)
     """
     saved_relative_paths: list[str] = []
+    file_map = _load_file_map(staging_dir)
     # Calculate bytes already staged from previous batches so the cross-batch
     # total size limit cannot be bypassed by splitting a large upload into many
     # small batches.
-    existing_bytes = sum(p.stat().st_size for p in staging_dir.rglob("*") if p.is_file())
+    existing_bytes = sum(
+        p.stat().st_size for p in staging_dir.iterdir() if p.is_file() and p.name != _FILE_MAP_NAME
+    )
     total_upload_bytes = existing_bytes
     skipped_invalid: list[str] = []
 
@@ -218,7 +243,8 @@ async def _save_files_to_staging(
         rel_path = rel_paths_list[i] if i < len(rel_paths_list) else filename
 
         if filename.lower().endswith(".zip"):
-            zip_path = staging_dir / filename
+            zip_staging_key = uuid.uuid4().hex + ".zip"
+            zip_path = staging_dir / zip_staging_key
             file_bytes = await _stream_upload_to_disk(
                 upload_file, zip_path, app_settings.max_import_file_size
             )
@@ -256,7 +282,12 @@ async def _save_files_to_staging(
                     ext = Path(member.filename).suffix.lower()
                     if ext not in settings.all_supported_formats:
                         continue
-                    zf.extract(member, staging_dir)
+                    # Extract to UUID-named file instead of member path
+                    staging_key = uuid.uuid4().hex + ext
+                    dest = staging_dir / staging_key
+                    with zf.open(member) as src, open(dest, "wb") as dst:
+                        shutil.copyfileobj(src, dst)
+                    file_map[member.filename] = staging_key
                     saved_relative_paths.append(member.filename)
 
             zip_path.unlink()
@@ -270,7 +301,8 @@ async def _save_files_to_staging(
                 app_settings.max_video_file_size if is_video else app_settings.max_import_file_size
             )
 
-            dest = staging_dir / rel_path
+            staging_key = uuid.uuid4().hex + ext
+            dest = staging_dir / staging_key
             file_bytes = await _stream_upload_to_disk(upload_file, dest, file_size_limit)
             if file_bytes < 0:
                 limit_mb = file_size_limit // (1024 * 1024)
@@ -293,8 +325,10 @@ async def _save_files_to_staging(
                 skipped_invalid.append(filename)
                 continue
 
+            file_map[rel_path] = staging_key
             saved_relative_paths.append(rel_path)
 
+    _save_file_map(staging_dir, file_map)
     return saved_relative_paths, total_upload_bytes, skipped_invalid
 
 
@@ -484,24 +518,9 @@ async def analyse_staged(
             detail=f"Invalid image_type '{body.image_type}'. Must be one of: {', '.join(sorted(VALID_IMAGE_TYPES))}",
         )
 
-    # Discover all files already saved in staging (skip thumbnail cache dir)
-    saved_relative_paths: list[str] = []
-    thumbs_dir = staging_dir / ".thumbs"
-    for path in staging_dir.rglob("*"):
-        if path.is_dir():
-            continue
-        # Skip thumbnail cache and macOS artefacts
-        try:
-            path.relative_to(thumbs_dir)
-            continue
-        except ValueError:
-            pass
-        if path.name.startswith("._") or "__MACOSX" in path.parts:
-            continue
-        ext = path.suffix.lower()
-        if ext not in settings.all_supported_formats:
-            continue
-        saved_relative_paths.append(str(path.relative_to(staging_dir)))
+    # Read file map to discover staged files (relative_path → staging_key)
+    file_map = _load_file_map(staging_dir)
+    saved_relative_paths: list[str] = list(file_map.keys())
 
     # Merge with manifest (duplicate files the client chose not to re-upload)
     manifest_entries: list[ManifestEntry] = body.manifest
@@ -537,6 +556,7 @@ async def analyse_staged(
             relative_paths=all_relative_paths,
             precomputed_hashes=precomputed_hashes if precomputed_hashes else None,
             default_image_type=body.image_type,
+            file_map=file_map,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"File analysis failed: {e}") from e
@@ -563,10 +583,14 @@ async def confirm_import(
     if not staging_dir.exists():
         raise HTTPException(status_code=404, detail="Staging directory not found")
 
+    file_map = _load_file_map(staging_dir)
+
     # Validate files: must exist in staging OR have a reuse key (duplicate not uploaded)
     valid_files: list[dict] = []
     for file_info in body.files:
-        if (staging_dir / file_info.relative_path).exists() or file_info.reuse_storage_key:
+        staging_key = file_map.get(file_info.relative_path)
+        has_staged_file = staging_key and (staging_dir / staging_key).exists()
+        if has_staged_file or file_info.reuse_storage_key:
             valid_files.append(file_info.model_dump())
         else:
             logger.warning(
@@ -662,6 +686,8 @@ async def confirm_all_groups(
     if not staging_dir.exists():
         raise HTTPException(status_code=404, detail="Staging directory not found")
 
+    file_map = _load_file_map(staging_dir)
+
     # Build ImportGroupJob rows and the groups payload for the flow.
     groups_payload: list[dict] = []
     group_statuses: list[ImportGroupStatus] = []
@@ -669,7 +695,10 @@ async def confirm_all_groups(
         valid_files = [
             f.model_dump()
             for f in group_req.files
-            if (staging_dir / f.relative_path).exists() or f.reuse_storage_key
+            if (
+                file_map.get(f.relative_path) and (staging_dir / file_map[f.relative_path]).exists()
+            )
+            or f.reuse_storage_key
         ]
         if not valid_files:
             logger.warning("No valid files for group '%s', skipping", group_req.group_name)
@@ -1229,29 +1258,29 @@ async def get_preview_thumbnail(
 ):
     """Serve a preview thumbnail for a staged file.
 
-    Thumbnails are pre-generated during the analyse_upload flow and stored
-    in data/staging/{job_id}/.thumbs/. Falls back to the original staged
-    file if no thumbnail exists.
+    Thumbnails are stored in data/staging/{job_id}/.thumbs/ keyed by the
+    staging key.  Falls back to the original staged file if no thumbnail
+    exists.  All disk filenames are UUID-based so no path traversal is
+    possible.
     """
     staging_dir = settings.staging_dir / job_id
     if not staging_dir.exists():
         raise HTTPException(status_code=404, detail="Staging directory not found")
 
-    # Convert relative_path to safe thumbnail filename
-    safe_name = relative_path.replace("/", "__").replace("\\", "__")
-    safe_name = Path(safe_name).stem + ".jpg"
-    thumb_path = staging_dir / ".thumbs" / safe_name
+    file_map = _load_file_map(staging_dir)
+    staging_key = file_map.get(relative_path)
+    if not staging_key:
+        raise HTTPException(status_code=404, detail="Preview not found")
 
+    # Check for pre-generated thumbnail keyed by staging_key stem
+    thumb_name = Path(staging_key).stem + ".jpg"
+    thumb_path = staging_dir / ".thumbs" / thumb_name
     if thumb_path.exists():
-        if not is_path_within(staging_dir, thumb_path):
-            raise HTTPException(status_code=403, detail="Access denied")
         return FileResponse(thumb_path, media_type="image/jpeg")
 
-    # Fall back to original file
-    original_path = staging_dir / relative_path
+    # Fall back to the original staged file
+    original_path = staging_dir / staging_key
     if original_path.exists():
-        if not is_path_within(staging_dir, original_path):
-            raise HTTPException(status_code=403, detail="Access denied")
         suffix = original_path.suffix.lower()
         media_types = {
             ".jpg": "image/jpeg",

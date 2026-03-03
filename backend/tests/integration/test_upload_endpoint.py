@@ -109,9 +109,14 @@ class TestUploadBatch:
         assert data["bytes_saved"] > 0
         assert data["skipped_invalid"] == []
 
-        # File must exist in staging
-        saved = staging_base / job_id / "TestAuthor" / "TestMap" / "map.jpg"
-        assert saved.exists()
+        # File must exist in staging as a flat UUID-named file
+        staging_dir = staging_base / job_id
+        map_path = staging_dir / ".file_map.json"
+        assert map_path.exists()
+        file_map = json.loads(map_path.read_text())
+        assert "TestAuthor/TestMap/map.jpg" in file_map
+        staging_key = file_map["TestAuthor/TestMap/map.jpg"]
+        assert (staging_dir / staging_key).exists()
 
     def test_multiple_files_in_one_batch(self, upload_env):
         """Multiple valid files upload in a single batch."""
@@ -220,9 +225,11 @@ class TestUploadBatch:
         assert resp.status_code == 200, resp.text
         data = resp.json()
         assert data["files_saved"] == 1
-        # The extracted file should exist in staging
-        extracted = staging_base / job_id / "Author" / "Map" / "scene.jpg"
-        assert extracted.exists()
+        # The extracted file should exist in staging as a flat UUID file
+        staging_dir = staging_base / job_id
+        file_map = json.loads((staging_dir / ".file_map.json").read_text())
+        assert "Author/Map/scene.jpg" in file_map
+        assert (staging_dir / file_map["Author/Map/scene.jpg"]).exists()
 
 
 # ---------------------------------------------------------------------------

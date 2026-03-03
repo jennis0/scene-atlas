@@ -5,6 +5,7 @@ Mocks JobRunner.submit — we only check that the endpoint validates
 input, submits the job with correct params, and updates the DB.
 """
 
+import json
 from unittest.mock import MagicMock
 
 import pytest
@@ -23,8 +24,14 @@ def confirm_env(tmp_path, tmp_db, make_test_image, monkeypatch):
     staging_base = tmp_path / "staging"
     staging_dir = staging_base / job_id
 
-    make_test_image(staging_dir / "author" / "map.jpg")
-    make_test_image(staging_dir / "author" / "map2.jpg")
+    # Create flat UUID-named files with a .file_map.json mapping
+    img1 = make_test_image(staging_dir / "aaaa0001.jpg")
+    img2 = make_test_image(staging_dir / "aaaa0002.jpg")
+    file_map = {
+        "author/map.jpg": img1.name,
+        "author/map2.jpg": img2.name,
+    }
+    (staging_dir / ".file_map.json").write_text(json.dumps(file_map))
 
     monkeypatch.setattr("backend.app.config.settings.staging_dir", staging_base)
 

@@ -74,16 +74,42 @@ def make_test_image():
 
 @pytest.fixture
 def tmp_staging(tmp_path, make_test_image):
-    """Staging directory with programmatically generated test images."""
+    """Staging directory with flat UUID-named files and .file_map.json.
+
+    Mirrors the production layout where uploaded files are stored as UUID
+    filenames and a sidecar JSON maps relative_path → staging_key.
+    """
+    import json as _json
+
     staging = tmp_path / "staging" / "test-job-id"
-    make_test_image(
-        staging / "TestAuthor" / "TestMap" / "TestMap_Night_Grid.jpg", color=(30, 30, 80)
-    )
-    make_test_image(
-        staging / "TestAuthor" / "TestMap" / "TestMap_Summer.jpg", color=(100, 200, 100)
-    )
-    make_test_image(staging / "FlatFile.jpg", color=(200, 100, 100))
+    staging.mkdir(parents=True, exist_ok=True)
+
+    file_map = {}
+    entries = [
+        ("TestAuthor/TestMap/TestMap_Night_Grid.jpg", "aaa00001.jpg", (30, 30, 80)),
+        ("TestAuthor/TestMap/TestMap_Summer.jpg", "aaa00002.jpg", (100, 200, 100)),
+        ("FlatFile.jpg", "aaa00003.jpg", (200, 100, 100)),
+    ]
+    for rel_path, staging_key, color in entries:
+        make_test_image(staging / staging_key, color=color)
+        file_map[rel_path] = staging_key
+
+    (staging / ".file_map.json").write_text(_json.dumps(file_map))
     return staging
+
+
+@pytest.fixture
+def staging_resolve(tmp_staging):
+    """Return a helper that resolves a relative_path to its actual staging path."""
+    import json as _json
+
+    file_map = _json.loads((tmp_staging / ".file_map.json").read_text())
+
+    def _resolve(relative_path: str) -> Path:
+        staging_key = file_map[relative_path]
+        return tmp_staging / staging_key
+
+    return _resolve
 
 
 @pytest.fixture

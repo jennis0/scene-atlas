@@ -38,6 +38,7 @@ class TestMetadataRoundTrip:
     def test_custom_tag_survives(
         self,
         tmp_staging,
+        staging_resolve,
         mock_heavy_services,
         _patch_db_for_flows,
         _patch_image_store,
@@ -46,7 +47,7 @@ class TestMetadataRoundTrip:
         from backend.pipeline.ingestion import process_single_image
 
         engine, SessionLocal = _patch_db_for_flows
-        image_path = tmp_staging / "TestAuthor" / "TestMap" / "TestMap_Night_Grid.jpg"
+        image_path = staging_resolve("TestAuthor/TestMap/TestMap_Night_Grid.jpg")
 
         result = process_single_image(
             image_path=str(image_path),
@@ -99,6 +100,7 @@ class TestMetadataRoundTrip:
     def test_gridded_override_persists(
         self,
         tmp_staging,
+        staging_resolve,
         mock_heavy_services,
         _patch_db_for_flows,
         _patch_image_store,
@@ -108,7 +110,7 @@ class TestMetadataRoundTrip:
 
         engine, SessionLocal = _patch_db_for_flows
         # This file has no grid indicator in its name
-        image_path = tmp_staging / "TestAuthor" / "TestMap" / "TestMap_Summer.jpg"
+        image_path = staging_resolve("TestAuthor/TestMap/TestMap_Summer.jpg")
 
         result = process_single_image(
             image_path=str(image_path),

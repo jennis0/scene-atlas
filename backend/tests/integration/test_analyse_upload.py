@@ -4,6 +4,8 @@ Tests that the analyse flow correctly groups files, computes content hashes,
 and detects duplicates. Uses a real DB (for tag categories) and real filesystem.
 """
 
+import json
+
 import pytest
 
 
@@ -16,12 +18,21 @@ def _patch_db_for_parser(monkeypatch, tmp_db):
     return engine, SessionLocal
 
 
+def _load_test_file_map(staging_dir):
+    """Load .file_map.json from a staging directory."""
+    map_path = staging_dir / ".file_map.json"
+    if map_path.exists():
+        return json.loads(map_path.read_text())
+    return {}
+
+
 class TestAnalyseUpload:
     """analyse_upload flow: grouping, hash computation, and duplicate detection."""
 
     def test_groups_detected(self, tmp_staging, _patch_db_for_parser):
         from backend.pipeline.ingestion import analyse_upload
 
+        file_map = _load_test_file_map(tmp_staging)
         relative_paths = [
             "TestAuthor/TestMap/TestMap_Night_Grid.jpg",
             "TestAuthor/TestMap/TestMap_Summer.jpg",
@@ -31,6 +42,7 @@ class TestAnalyseUpload:
         groups = analyse_upload(
             staging_dir=str(tmp_staging),
             relative_paths=relative_paths,
+            file_map=file_map,
         )
 
         assert isinstance(groups, list)
@@ -55,6 +67,7 @@ class TestAnalyseUpload:
         """analyse_upload computes a SHA-256 content_hash for each staged file."""
         from backend.pipeline.ingestion import analyse_upload
 
+        file_map = _load_test_file_map(tmp_staging)
         relative_paths = [
             "TestAuthor/TestMap/TestMap_Night_Grid.jpg",
         ]
@@ -62,6 +75,7 @@ class TestAnalyseUpload:
         groups = analyse_upload(
             staging_dir=str(tmp_staging),
             relative_paths=relative_paths,
+            file_map=file_map,
         )
 
         file_entry = groups[0]["files"][0]
@@ -73,6 +87,7 @@ class TestAnalyseUpload:
     def test_parsed_metadata_present(self, tmp_staging, _patch_db_for_parser):
         from backend.pipeline.ingestion import analyse_upload
 
+        file_map = _load_test_file_map(tmp_staging)
         relative_paths = [
             "TestAuthor/TestMap/TestMap_Night_Grid.jpg",
         ]
@@ -80,6 +95,7 @@ class TestAnalyseUpload:
         groups = analyse_upload(
             staging_dir=str(tmp_staging),
             relative_paths=relative_paths,
+            file_map=file_map,
         )
 
         parsed = groups[0]["files"][0]["parsed"]

@@ -62,17 +62,21 @@ def generate_preview_thumbnail(
     staging_dir: str,
     relative_path: str,
     size: int = 120,
+    staging_key: str | None = None,
 ) -> str | None:
     """Generate a small preview thumbnail for the import preview UI.
 
     Saves the thumbnail into a .thumbs/ subdirectory of the staging dir.
-    The filename is derived from the relative path with slashes replaced.
+    When ``staging_key`` is provided (UUID-based flat filename), the
+    thumbnail is named after its stem.  Otherwise falls back to mangling
+    the relative_path for backwards compatibility with tests.
 
     Args:
         image_path: Absolute path to the source image
         staging_dir: Path to the staging directory (data/staging/{job_id})
-        relative_path: Relative path of the file within staging
+        relative_path: Relative path of the file (used for logging/fallback)
         size: Thumbnail size (square, default 120px)
+        staging_key: UUID-based staging filename (preferred for naming)
 
     Returns:
         The safe filename of the generated thumbnail, or None on failure
@@ -82,9 +86,12 @@ def generate_preview_thumbnail(
         thumbs_dir = Path(staging_dir) / ".thumbs"
         thumbs_dir.mkdir(parents=True, exist_ok=True)
 
-        # Convert relative path to safe filename: replace slashes and backslashes
-        safe_name = relative_path.replace("/", "__").replace("\\", "__")
-        safe_name = Path(safe_name).stem + ".jpg"
+        if staging_key:
+            safe_name = Path(staging_key).stem + ".jpg"
+        else:
+            # Legacy fallback: mangle relative_path
+            safe_name = relative_path.replace("/", "__").replace("\\", "__")
+            safe_name = Path(safe_name).stem + ".jpg"
 
         thumb_path = thumbs_dir / safe_name
 

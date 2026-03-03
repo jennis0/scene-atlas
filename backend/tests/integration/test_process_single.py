@@ -35,6 +35,7 @@ class TestProcessSingleImageWithMetadata:
     def test_success_with_metadata(
         self,
         tmp_staging,
+        staging_resolve,
         mock_heavy_services,
         _patch_db_for_flows,
         _patch_image_store,
@@ -42,7 +43,7 @@ class TestProcessSingleImageWithMetadata:
         from backend.pipeline.ingestion import process_single_image
 
         engine, SessionLocal = _patch_db_for_flows
-        image_path = tmp_staging / "TestAuthor" / "TestMap" / "TestMap_Summer.jpg"
+        image_path = staging_resolve("TestAuthor/TestMap/TestMap_Summer.jpg")
 
         result = process_single_image(
             image_path=str(image_path),
@@ -76,7 +77,8 @@ class TestProcessSingleImageWithSourceDir:
 
     def test_success_with_source_dir(
         self,
-        tmp_staging,
+        tmp_path,
+        make_test_image,
         mock_heavy_services,
         _patch_db_for_flows,
         _patch_image_store,
@@ -84,11 +86,17 @@ class TestProcessSingleImageWithSourceDir:
         from backend.pipeline.ingestion import process_single_image
 
         engine, SessionLocal = _patch_db_for_flows
-        image_path = tmp_staging / "TestAuthor" / "TestMap" / "TestMap_Night_Grid.jpg"
+
+        # CLI mode uses real nested directory structure (not staging)
+        source_dir = tmp_path / "cli_source"
+        image_path = make_test_image(
+            source_dir / "TestAuthor" / "TestMap" / "TestMap_Night_Grid.jpg",
+            color=(30, 30, 80),
+        )
 
         result = process_single_image(
             image_path=str(image_path),
-            source_dir=str(tmp_staging),
+            source_dir=str(source_dir),
         )
 
         assert result["status"] == "success"
@@ -108,6 +116,7 @@ class TestProcessSingleImageStoresFile:
     def test_file_stored(
         self,
         tmp_staging,
+        staging_resolve,
         mock_heavy_services,
         _patch_db_for_flows,
         _patch_image_store,
@@ -115,7 +124,7 @@ class TestProcessSingleImageStoresFile:
         from backend.pipeline.ingestion import process_single_image
 
         store = _patch_image_store
-        image_path = tmp_staging / "FlatFile.jpg"
+        image_path = staging_resolve("FlatFile.jpg")
 
         result = process_single_image(
             image_path=str(image_path),

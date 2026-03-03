@@ -48,6 +48,18 @@ from .tasks.embedding_generation import (
     generate_clip_embedding,
 )
 
+_FILE_MAP_NAME = ".file_map.json"
+
+
+def _load_file_map(staging_dir: Path) -> dict[str, str]:
+    """Load the relative_path → staging_key mapping from a staging dir."""
+    map_path = staging_dir / _FILE_MAP_NAME
+    if map_path.exists():
+        with open(map_path) as f:
+            return json.load(f)
+    return {}
+
+
 # ---------------------------------------------------------------------------
 # Helper: Build parser with tag vocabulary
 # ---------------------------------------------------------------------------
@@ -914,6 +926,7 @@ def analyse_upload(
     relative_paths: list[str],
     precomputed_hashes: dict[str, dict] | None = None,
     default_image_type: str = "battlemap",
+    file_map: dict[str, str] | None = None,
 ) -> list[dict]:
     """Parse and group uploaded files for the preview UI.
 
@@ -926,12 +939,16 @@ def analyse_upload(
 
     ``default_image_type`` is passed to the parser so it can apply
     type-specific parsing rules (e.g. skip grid detection for scenes).
+
+    ``file_map`` maps relative_path → staging_key (UUID filename on disk).
     """
     logger = logging.getLogger(__name__)
     logger.info("Analysing %s uploaded files in %s", len(relative_paths), staging_dir)
     staging = Path(staging_dir)
     if precomputed_hashes is None:
         precomputed_hashes = {}
+    if file_map is None:
+        file_map = {}
 
     parser = _build_parser()
     groups = parser.group_files(relative_paths, image_type=default_image_type)
@@ -957,7 +974,8 @@ def analyse_upload(
                     continue
 
                 # Compute hash for files actually in staging
-                file_path = staging / rel_path
+                staging_key = file_map.get(rel_path, rel_path)
+                file_path = staging / staging_key
                 if not file_path.exists():
                     continue
 
@@ -1017,15 +1035,20 @@ def _run_group(
     pipeline_config: PipelineConfig | None = None,
     needs_review: bool = False,
     job_id: str | None = None,
+    file_map: dict[str, str] | None = None,
 ) -> tuple[int, int]:
     """Process one group end-to-end and return (processed, failed) counts.
 
     Updates ImportGroupJob progress after every batch and marks it completed (or
     failed) when done.
+
+    ``file_map`` maps relative_path → staging_key (UUID filename on disk).
     """
     logger = logging.getLogger(__name__)
     if pipeline_config is None:
         pipeline_config = load_pipeline_config()
+    if file_map is None:
+        file_map = {}
     batch_size = pipeline_config.ingestion_batch_size
     concurrency = pipeline_config.max_concurrent_prepare
     staging = Path(staging_dir)
@@ -1045,7 +1068,8 @@ def _run_group(
     # Filter to files that exist in staging or have a reuse key (duplicate not uploaded)
     valid_files = []
     for file_info in files:
-        image_path = staging / file_info["relative_path"]
+        staging_key = file_map.get(file_info["relative_path"], file_info["relative_path"])
+        image_path = staging / staging_key
         if image_path.exists():
             valid_files.append((file_info, str(image_path)))
         elif file_info.get("reuse_storage_key"):
@@ -1053,11 +1077,11 @@ def _run_group(
             # image_path_obj.name for the filename in the reuse path
             valid_files.append((file_info, str(image_path)))
         else:
-            logger.warning("File not found in staging: %s", image_path)
+            logger.warning("File not found in staging: %s", file_info["relative_path"])
             failed += 1
             all_file_errors.append(
                 {
-                    "filename": image_path.name,
+                    "filename": Path(file_info["relative_path"]).name,
                     "reason": "File was not found in staging",
                     "stage": "copy",
                 }
@@ -1366,6 +1390,7 @@ def process_import_group(
         job_id,
         group_job_id,
     )
+    file_map = _load_file_map(Path(staging_dir))
     processed, failed = _run_group(
         group_job_id,
         staging_dir,
@@ -1375,6 +1400,7 @@ def process_import_group(
         pipeline_config=pipeline_config,
         needs_review=True,
         job_id=job_id,
+        file_map=file_map,
     )
     _finalize_import_job(job_id)
     if processed > 0:
@@ -1415,6 +1441,7 @@ def process_import_job(
     if pipeline_config is None:
         pipeline_config = load_pipeline_config()
     logger.info("Starting import job %s: %s group(s) in %s", job_id, len(groups), staging_dir)
+    file_map = _load_file_map(Path(staging_dir))
     total_processed = 0
     total_failed = 0
 
@@ -1435,6 +1462,7 @@ def process_import_job(
                     pipeline_config=pipeline_config,
                     needs_review=True,
                     job_id=job_id,
+                    file_map=file_map,
                 )
                 total_processed += processed
                 total_failed += failed

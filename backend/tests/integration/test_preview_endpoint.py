@@ -4,23 +4,31 @@ Tests the GET /api/v1/imports/{job_id}/preview/{relative_path} endpoint.
 Uses real filesystem (no DB needed for this endpoint).
 """
 
+import json
+
 import pytest
 
 
 @pytest.fixture
 def staged_with_thumbs(tmp_path, make_test_image, monkeypatch):
-    """Create a staging dir with images and pre-generated thumbnails."""
+    """Create a staging dir with flat UUID files, thumbnails, and file_map."""
     job_id = "preview-test-job"
     staging_base = tmp_path / "staging"
     staging_dir = staging_base / job_id
+    staging_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create original image
-    make_test_image(staging_dir / "author" / "map.jpg", color=(50, 100, 150))
+    # Create original image as flat UUID-named file
+    staging_key = "bbbb0001.jpg"
+    make_test_image(staging_dir / staging_key, color=(50, 100, 150))
 
-    # Create thumbnail
+    # Create thumbnail keyed by staging_key stem
     thumbs_dir = staging_dir / ".thumbs"
     thumbs_dir.mkdir(parents=True)
-    make_test_image(thumbs_dir / "author__map.jpg", width=120, height=120, color=(50, 100, 150))
+    make_test_image(thumbs_dir / "bbbb0001.jpg", width=120, height=120, color=(50, 100, 150))
+
+    # Write file map
+    file_map = {"author/map.jpg": staging_key}
+    (staging_dir / ".file_map.json").write_text(json.dumps(file_map))
 
     # Point settings.staging_dir at our tmp_path
     monkeypatch.setattr("backend.app.config.settings.staging_dir", staging_base)
@@ -41,7 +49,12 @@ class TestPreviewEndpoint:
         """When no thumbnail exists, serve the original file."""
         job_id, staging_dir = staged_with_thumbs
         # Create an image without a corresponding thumbnail
-        make_test_image(staging_dir / "other" / "file.png", color=(200, 50, 50))
+        staging_key = "bbbb0002.png"
+        make_test_image(staging_dir / staging_key, color=(200, 50, 50))
+        # Update file map
+        file_map = json.loads((staging_dir / ".file_map.json").read_text())
+        file_map["other/file.png"] = staging_key
+        (staging_dir / ".file_map.json").write_text(json.dumps(file_map))
 
         resp = test_client.get(f"/api/v1/imports/{job_id}/preview/other/file.png")
         assert resp.status_code == 200
@@ -57,7 +70,7 @@ class TestPreviewEndpoint:
         assert resp.status_code == 404
 
     def test_path_traversal_blocked(self, test_client, staged_with_thumbs):
-        """Relative paths with ../ must be rejected."""
+        """Relative paths with ../ must be rejected (not in file_map → 404)."""
         job_id, _ = staged_with_thumbs
         resp = test_client.get(f"/api/v1/imports/{job_id}/preview/../../../etc/passwd")
         assert resp.status_code in (403, 404)
