@@ -18,9 +18,9 @@ export interface UseGalleryDialogsReturn {
   editGroupId: number | null
   setEditGroupId: (id: number | null) => void
 
-  // Import review dialog
-  importReviewGroupIds: number[] | null
-  setImportReviewGroupIds: (ids: number[] | null) => void
+  // Live import review dialog (active or completed job)
+  importLiveJobId: string | null
+  setImportLiveJobId: (id: string | null) => void
 
   // Mass edit dialog
   showMassEdit: boolean
@@ -72,8 +72,8 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
   // Edit group dialog
   const [editGroupId, setEditGroupId] = useState<number | null>(null)
 
-  // Import review dialog
-  const [importReviewGroupIds, setImportReviewGroupIds] = useState<number[] | null>(null)
+  // Live import review dialog (active or completed job)
+  const [importLiveJobId, setImportLiveJobId] = useState<string | null>(null)
 
   // Mass edit dialog
   const [showMassEdit, setShowMassEdit] = useState(false)
@@ -168,9 +168,9 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
     editGroupId,
     setEditGroupId,
 
-    // Import review dialog
-    importReviewGroupIds,
-    setImportReviewGroupIds,
+    // Live import review dialog
+    importLiveJobId,
+    setImportLiveJobId,
 
     // Mass edit dialog
     showMassEdit,
