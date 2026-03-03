@@ -272,25 +272,31 @@ export function useEditGroupLoad({
     const newIds = allIds.filter((id) => !loadedGroupIdsRef.current.has(id))
     if (newIds.length === 0) return
 
+    // isFirstLoad is captured synchronously before any async work; safe to use in .then/.finally
     const isFirstLoad = loadedGroupIdsRef.current.size === 0
     if (isFirstLoad) {
       setLoading(true)
       setLoadError(null)
     }
 
-    Promise.all([
-      ...newIds.map((id) => groupApi.get(id)),
-      tagApi.getCategories(),
-      imageApi.getAuthors(),
-    ])
+    // Cancellation flag — prevents stale responses from mutating state if the dialog
+    // closes and reopens (resetting loadedGroupIdsRef) before this fetch resolves.
+    let cancelled = false
+
+    // On first load fetch vocab/authors alongside groups; on incremental batches skip
+    // them to avoid re-fetching unchanged global data and overwriting any user edits.
+    const promises: Promise<unknown>[] = newIds.map((id) => groupApi.get(id))
+    if (isFirstLoad) {
+      promises.push(tagApi.getCategories(), imageApi.getAuthors())
+    }
+
+    Promise.all(promises)
       .then((results) => {
+        if (cancelled) return
+
         const groupDetails = results.slice(0, newIds.length) as Awaited<
           ReturnType<typeof groupApi.get>
         >[]
-        const categories = results[newIds.length] as Awaited<
-          ReturnType<typeof tagApi.getCategories>
-        >
-        const authors = results[newIds.length + 1] as string[]
 
         const newEditableGroups: EditableGroupState[] = groupDetails.map((detail) => ({
           id: String(detail.id),
@@ -305,22 +311,28 @@ export function useEditGroupLoad({
         }))
 
         newIds.forEach((id) => loadedGroupIdsRef.current.add(id))
-
         setGroups((prev) => [...prev, ...newEditableGroups])
-        setTagVocab(parseTagVocabulary(categories))
-        setAuthorSuggestions(authors)
 
-        // Only set the active tab on first load
         if (isFirstLoad) {
+          const categories = results[newIds.length] as Awaited<
+            ReturnType<typeof tagApi.getCategories>
+          >
+          const authors = results[newIds.length + 1] as string[]
+          setTagVocab(parseTagVocabulary(categories))
+          setAuthorSuggestions(authors)
           setActiveTab(allIds.length > 1 ? ALL_TAB : 0)
         }
       })
       .catch((err: unknown) => {
-        setLoadError(getApiErrorMessage(err, 'Failed to load imported groups'))
+        if (!cancelled) setLoadError(getApiErrorMessage(err, 'Failed to load imported groups'))
       })
       .finally(() => {
-        if (isFirstLoad) setLoading(false)
+        if (!cancelled && isFirstLoad) setLoading(false)
       })
+
+    return () => {
+      cancelled = true
+    }
   }, [open, groupIds, isImportReview, setGroups, setTagVocab, setAuthorSuggestions, setActiveTab])
 
   return {
