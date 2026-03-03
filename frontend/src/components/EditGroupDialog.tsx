@@ -403,6 +403,13 @@ export default function EditGroupDialog({
           </div>
         )}
 
+        {/* ── Loading initial groups for completed import (poll hasn't returned yet) ── */}
+        {!loading && !loadError && groups.length === 0 && !!importJobId && allDone && (
+          <div className="flex items-center justify-center flex-1">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        )}
+
         {/* ── Load error ── */}
         {!loading && loadError && (
           <div className="mx-6 mt-4 flex items-center gap-2 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2">

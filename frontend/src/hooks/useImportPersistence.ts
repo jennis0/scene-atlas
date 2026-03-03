@@ -31,6 +31,47 @@ export interface UseImportPersistenceReturn {
   saveNow: () => void
 }
 
+/** Fetch job status from the backend and restore dialog state accordingly.
+ *  Used when localStorage has no groups (or no entry at all) for the job. */
+function fetchAndRestoreFromBackend(
+  reconnectJobId: string,
+  setters: {
+    setJobId: (id: string) => void
+    setState: (state: DialogState) => void
+    setGroups: React.Dispatch<React.SetStateAction<EditableGroupState[]>>
+    setActiveTab: React.Dispatch<React.SetStateAction<number>>
+  },
+) {
+  const { setJobId, setState, setGroups, setActiveTab } = setters
+  setJobId(reconnectJobId)
+  importApi
+    .status(reconnectJobId)
+    .then((status) => {
+      const dialogState = backendStatusToDialogState(status.status)
+      if (dialogState === 'upload') {
+        setState('upload')
+      } else if (dialogState === 'preview' || dialogState === 'processing') {
+        // Upload finished — fetch full analysis to rebuild groups
+        importApi
+          .getAnalysis(reconnectJobId)
+          .then((analysis) => {
+            const groups = mapAnalysisToEditable(analysis, reconnectJobId)
+            setGroups(groups)
+            setActiveTab(groups.length > 1 ? ALL_TAB : 0)
+            setState('preview')
+          })
+          .catch(() => {
+            setState('done')
+          })
+      } else {
+        setState('done')
+      }
+    })
+    .catch(() => {
+      removeImportState(reconnectJobId)
+    })
+}
+
 export function useImportPersistence({
   jobId,
   groups,
@@ -93,39 +134,11 @@ export function useImportPersistence({
     // Already connected to this job (e.g. dialog re-shown during upload) — skip
     if (currentJobIdRef.current === reconnectJobId) return
     const persisted = loadImportState(reconnectJobId)
-    if (!persisted) return
 
-    setJobId(reconnectJobId)
-
-    // If localStorage has no groups, the dialog was closed during upload.
-    // Check backend status and fetch analysis if available.
-    if (persisted.groups.length === 0) {
-      importApi
-        .status(reconnectJobId)
-        .then((status) => {
-          const dialogState = backendStatusToDialogState(status.status)
-          if (dialogState === 'upload') {
-            setState('upload')
-          } else if (dialogState === 'preview' || dialogState === 'processing') {
-            // Upload finished — fetch full analysis to rebuild groups
-            importApi
-              .getAnalysis(reconnectJobId)
-              .then((analysis) => {
-                const groups = mapAnalysisToEditable(analysis, reconnectJobId)
-                setGroups(groups)
-                setActiveTab(groups.length > 1 ? ALL_TAB : 0)
-                setState('preview')
-              })
-              .catch(() => {
-                setState('done')
-              })
-          } else {
-            setState('done')
-          }
-        })
-        .catch(() => {
-          removeImportState(reconnectJobId)
-        })
+    // No localStorage entry, or entry exists but has no groups (dialog was
+    // closed during upload). Fall through to backend to determine state.
+    if (!persisted || persisted.groups.length === 0) {
+      fetchAndRestoreFromBackend(reconnectJobId, { setJobId, setState, setGroups, setActiveTab })
       return
     }
 

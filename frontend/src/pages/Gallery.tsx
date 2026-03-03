@@ -270,6 +270,7 @@ export function Gallery() {
           } else if (
             job?.status === 'completed' ||
             job?.status === 'active' ||
+            job?.status === 'running' ||
             job?.status === 'awaiting_input'
           ) {
             // Active, completed, and awaiting_input jobs open EditGroupDialog in live-review mode:
