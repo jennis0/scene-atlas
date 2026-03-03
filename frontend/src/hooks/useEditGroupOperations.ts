@@ -125,43 +125,40 @@ export function useEditGroupOperations({
 
   // ── Auto-save ────────────────────────────────────────────────────────────
 
-  const autoSaveGroup = useCallback(
-    async (group: EditableGroupState) => {
-      const gId = Number(group.id)
-      if (isNaN(gId)) return // Skip locally-created groups (UUID keys — not in DB yet)
+  const autoSaveGroup = useCallback(async (group: EditableGroupState) => {
+    const gId = Number(group.id)
+    if (isNaN(gId)) return // Skip locally-created groups (UUID keys — not in DB yet)
 
-      setGroupSaving((prev) => {
+    setGroupSaving((prev) => {
+      const s = new Set(prev)
+      s.add(group.id)
+      return s
+    })
+    setSaveError(null)
+    try {
+      await groupApi.edit(gId, buildPayload(group))
+      setGroupSaved((prev) => {
         const s = new Set(prev)
         s.add(group.id)
         return s
       })
-      setSaveError(null)
-      try {
-        await groupApi.edit(gId, buildPayload(group))
+      setTimeout(() => {
         setGroupSaved((prev) => {
-          const s = new Set(prev)
-          s.add(group.id)
-          return s
-        })
-        setTimeout(() => {
-          setGroupSaved((prev) => {
-            const s = new Set(prev)
-            s.delete(group.id)
-            return s
-          })
-        }, SAVED_INDICATOR_DURATION_MS)
-      } catch (err) {
-        setSaveError(getApiErrorMessage(err, 'Auto-save failed'))
-      } finally {
-        setGroupSaving((prev) => {
           const s = new Set(prev)
           s.delete(group.id)
           return s
         })
-      }
-    },
-    [],
-  )
+      }, SAVED_INDICATOR_DURATION_MS)
+    } catch (err) {
+      setSaveError(getApiErrorMessage(err, 'Auto-save failed'))
+    } finally {
+      setGroupSaving((prev) => {
+        const s = new Set(prev)
+        s.delete(group.id)
+        return s
+      })
+    }
+  }, [])
 
   // ── moveToNewGroup (API-backed split) ────────────────────────────────────
 

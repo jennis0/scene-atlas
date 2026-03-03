@@ -44,9 +44,7 @@ describe('EditGroupDialog — import-review mode', () => {
     const onClose = vi.fn()
     const onSave = vi.fn()
 
-    renderWithProviders(
-      <EditGroupDialog groupIds={[1]} open onClose={onClose} onSave={onSave} />,
-    )
+    renderWithProviders(<EditGroupDialog groupIds={[1]} open onClose={onClose} onSave={onSave} />)
 
     // Wait for data load to complete (groupApi.get is called on mount)
     await waitFor(() => {

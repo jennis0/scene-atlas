@@ -152,9 +152,7 @@ export function ImportDialog({
             )}
             {state === 'processing' && jobId && !confirmingCancel && (
               <button
-                onClick={() =>
-                  totalProcessed > 0 ? setConfirmingCancel(true) : handleCancel()
-                }
+                onClick={() => (totalProcessed > 0 ? setConfirmingCancel(true) : handleCancel())}
                 className="flex items-center gap-1.5 px-2.5 h-7 rounded text-sm text-muted-foreground hover:text-destructive hover:bg-secondary transition-colors"
                 title="Cancel and remove imported images"
               >

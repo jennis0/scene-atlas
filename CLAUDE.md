@@ -35,3 +35,4 @@ The tool has three deployment modes
 - Delete the worktree when the user confirms they're happy with the completed feature
 - If working on small bugfixes, do so in your current worktree if one is available, otehrwise ask the user whether they want you to work on the main branch
 - At the end of each feature or bugfix, commit it with a useful but short message
+- Make sure you are running ruff format/check over all python code and ESLint/Prettier over all JS code prior to commit
