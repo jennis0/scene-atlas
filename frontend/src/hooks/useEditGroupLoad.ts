@@ -116,6 +116,10 @@ export function useEditGroupLoad({
   const [loadError, setLoadError] = useState<string | null>(null)
   const [ungroupedCount, setUngroupedCount] = useState(0)
 
+  // Tracks which group IDs have already been fetched in import-review mode;
+  // reset when the dialog closes/reopens so incremental loads start fresh.
+  const loadedGroupIdsRef = useRef(new Set<number>())
+
   // Ref to avoid stale closure in effects — always points to latest callback
   const onResetDialogStateRef = useRef(onResetDialogState)
   onResetDialogStateRef.current = onResetDialogState
@@ -128,6 +132,7 @@ export function useEditGroupLoad({
     setActiveTab(0)
     setFileFilter(EMPTY_FILTER)
     setEditingSvHeading(null)
+    loadedGroupIdsRef.current = new Set()
   }, [setGroups, setActiveTab, setFileFilter, setEditingSvHeading])
 
   // ── Load: single-group mode ──────────────────────────────────────
@@ -258,28 +263,36 @@ export function useEditGroupLoad({
       })
   }, [open, seedImages, isMassEdit, setGroups, setTagVocab, setAuthorSuggestions, setActiveTab])
 
-  // ── Load: import-review mode (multiple groups by ID, all images in scope) ──
+  // ── Load: import-review mode (incremental — only fetch newly-added IDs) ──
 
   useEffect(() => {
     if (!open || !isImportReview) return
 
-    setLoading(true)
-    setLoadError(null)
+    const allIds = groupIds ?? []
+    const newIds = allIds.filter((id) => !loadedGroupIdsRef.current.has(id))
+    if (newIds.length === 0) return
 
-    const ids = groupIds!
+    const isFirstLoad = loadedGroupIdsRef.current.size === 0
+    if (isFirstLoad) {
+      setLoading(true)
+      setLoadError(null)
+    }
+
     Promise.all([
-      ...ids.map((id) => groupApi.get(id)),
+      ...newIds.map((id) => groupApi.get(id)),
       tagApi.getCategories(),
       imageApi.getAuthors(),
     ])
       .then((results) => {
-        const groupDetails = results.slice(0, ids.length) as Awaited<
+        const groupDetails = results.slice(0, newIds.length) as Awaited<
           ReturnType<typeof groupApi.get>
         >[]
-        const categories = results[ids.length] as Awaited<ReturnType<typeof tagApi.getCategories>>
-        const authors = results[ids.length + 1] as string[]
+        const categories = results[newIds.length] as Awaited<
+          ReturnType<typeof tagApi.getCategories>
+        >
+        const authors = results[newIds.length + 1] as string[]
 
-        const editableGroups: EditableGroupState[] = groupDetails.map((detail) => ({
+        const newEditableGroups: EditableGroupState[] = groupDetails.map((detail) => ({
           id: String(detail.id),
           author: detail.author ?? '',
           group_name: detail.base_name,
@@ -291,16 +304,22 @@ export function useEditGroupLoad({
           total: detail.images.length,
         }))
 
-        setGroups(editableGroups)
+        newIds.forEach((id) => loadedGroupIdsRef.current.add(id))
+
+        setGroups((prev) => [...prev, ...newEditableGroups])
         setTagVocab(parseTagVocabulary(categories))
         setAuthorSuggestions(authors)
-        setActiveTab(editableGroups.length > 1 ? ALL_TAB : 0)
+
+        // Only set the active tab on first load
+        if (isFirstLoad) {
+          setActiveTab(allIds.length > 1 ? ALL_TAB : 0)
+        }
       })
       .catch((err: unknown) => {
         setLoadError(getApiErrorMessage(err, 'Failed to load imported groups'))
       })
       .finally(() => {
-        setLoading(false)
+        if (isFirstLoad) setLoading(false)
       })
   }, [open, groupIds, isImportReview, setGroups, setTagVocab, setAuthorSuggestions, setActiveTab])
 
