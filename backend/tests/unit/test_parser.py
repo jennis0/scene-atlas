@@ -374,6 +374,31 @@ class TestGroupFilesMergeSubgroups:
         assert groups[0]["author"] is None
 
 
+class TestGroupFilesNoneAuthor:
+    """Regression: multiple groups with None author must not crash _merge_subgroup_folders."""
+
+    def test_multiple_none_author_groups_no_crash(self):
+        """When several groups have author=None (all-generic folder structure),
+        _merge_subgroup_folders must not pass None to re.sub().
+        GH: 'expected string or bytes-like object, got NoneType'
+        """
+        p = make_parser()
+        # Two separate groups where every intermediate folder is generic,
+        # so parse() sets author=None.  Each has only generic folders
+        # between the top-level folder and the file, triggering the
+        # all-generic branch (line 679 in image_parser.py).
+        paths = [
+            "gridless/file_a.jpg",
+            "gridless/file_b.jpg",
+            "variants/file_c.jpg",
+            "variants/file_d.jpg",
+        ]
+        # Should not raise TypeError
+        groups = p.group_files(paths)
+        assert len(groups) >= 1
+        assert sum(len(g["files"]) for g in groups) == 4
+
+
 class TestGroupFilesSingleFile:
     """Edge case: single file."""
 

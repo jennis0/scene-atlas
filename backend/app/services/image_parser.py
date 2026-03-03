@@ -787,7 +787,7 @@ class ImageParser:
 
         merged: list[dict] = []
         for author, author_groups in by_author.items():
-            if len(author_groups) <= 1:
+            if len(author_groups) <= 1 or author is None:
                 merged.extend(author_groups)
                 continue
 
