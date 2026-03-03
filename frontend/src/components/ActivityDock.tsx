@@ -301,10 +301,10 @@ function ImportJobCard({
     >
       <div className="px-2.5 py-2">
         {/* Top row */}
-        <div className="flex items-start gap-[7px] overflow-hidden">
+        <div className="flex items-start gap-[7px]">
           <ImportStatusIcon status={job.status} />
           <span
-            className={`flex-1 min-w-0 text-[12px] font-medium truncate leading-tight ${
+            className={`w-0 flex-grow min-w-0 text-[12px] font-medium truncate leading-tight ${
               isTerminal ? 'text-muted-foreground' : 'text-foreground'
             }`}
             title={job.label}
