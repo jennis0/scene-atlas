@@ -6,6 +6,7 @@ Provides two utilities:
 """
 
 import logging
+import warnings
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 
@@ -96,8 +97,17 @@ def verify_image_mime(data: bytes) -> bool:
     from PIL import Image, UnidentifiedImageError
 
     try:
-        img = Image.open(BytesIO(data))
-        img.verify()
+        # Suppress DecompressionBombWarning here: this function only checks
+        # whether the file *is* a valid image, not whether it is safe to
+        # process at full resolution.  Oversized images are valid uploads;
+        # the pipeline enforces size limits later with proper per-file context.
+        # Without this, the global "warning → error" filter in logging_config
+        # causes valid large battlemaps (100M+ px) to be silently rejected with
+        # a misleading "bad magic bytes" log entry.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", Image.DecompressionBombWarning)
+            img = Image.open(BytesIO(data))
+            img.verify()
         return True
     except (UnidentifiedImageError, Exception):
         return False

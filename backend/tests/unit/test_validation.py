@@ -187,6 +187,33 @@ class TestVerifyImageMime:
         assert verify_image_mime(_make_jpeg_bytes()) is True
         assert verify_image_mime(_make_png_bytes()) is True
 
+    def test_oversized_jpeg_accepted(self):
+        """Large images that trigger DecompressionBombWarning must still be accepted.
+
+        The backend promotes DecompressionBombWarning to an error (logging_config.py)
+        so that the pipeline can log size failures with per-file context.  This must
+        NOT cause verify_image_mime to reject the file — format validation is separate
+        from size enforcement.  Regression test for GL_AncientStepwell_ArcaneChannel.jpg
+        (7980x13300 = 106M px > PIL's 89M-px default limit).
+
+        Simulation: lower MAX_IMAGE_PIXELS to 300 so the 20×20 test image (400 px)
+        falls in the warning band (> MAX but < 2×MAX = 600), matching the real scenario
+        where the global filter promotes that Warning to an error.
+        """
+        import warnings
+
+        original_limit = PILImage.MAX_IMAGE_PIXELS
+        try:
+            # Set limit so 20x20 = 400px > 300 (warning) but < 600 (error).
+            # This replicates 106M px vs 89M-px threshold without a huge test image.
+            PILImage.MAX_IMAGE_PIXELS = 300
+            with warnings.catch_warnings():
+                # Simulate the global filter set by logging_config.py at startup.
+                warnings.filterwarnings("error", category=PILImage.DecompressionBombWarning)
+                assert verify_image_mime(_make_jpeg_bytes()) is True
+        finally:
+            PILImage.MAX_IMAGE_PIXELS = original_limit
+
 
 class TestVerifyVideoMime:
     """Tests for verify_video_mime — magic bytes only, no full decode."""
