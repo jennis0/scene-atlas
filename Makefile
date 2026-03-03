@@ -1,5 +1,5 @@
-.PHONY: test test-unit test-integration test-frontend test-all test-heavy test-cov \
-       test-e2e test-e2e-ui lint lint-fix format-check check
+.PHONY: test test-unit test-integration test-frontend test-all test-heavy evaluate-onnx \
+       test-cov test-e2e test-e2e-ui lint lint-fix format-check check
 
 # ── Quick check (what pre-commit does) ─────────────────────────────────────
 check: lint format-check
@@ -35,6 +35,9 @@ test-frontend:
 
 test-heavy:
 	uv run python -m pytest -m heavy -v
+
+evaluate-onnx:
+	uv run python scripts/evaluate_onnx.py -v
 
 test-e2e:
 	cd e2e && npx playwright test --project=chromium

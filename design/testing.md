@@ -77,15 +77,33 @@ npm run test:e2e:headed          # headed Chromium (see the browser)
 
 ## Heavy Tests (CLIP)
 
-Tests marked with `@pytest.mark.heavy` load the real CLIP model (~600 MB) and run real inference. They are **excluded by default** via `addopts = "-m 'not heavy'"` in pyproject.toml.
+Tests marked with `@pytest.mark.heavy` load the real CLIP model (~600 MB) and run real inference. They are **excluded by default** via `addopts = "-m 'not heavy'"` in pyproject.toml. Currently only `test_clip_heavy.py` uses this marker — it verifies the bundled ONNX model works correctly.
 
 **Model caching:**
-- HuggingFace Transformers caches models at `~/.cache/huggingface/hub/`
-- Locally, the model is downloaded once and reused across runs
-- On GitHub Actions, the cache is persisted between runs via `actions/cache@v4` keyed on `backend/app/config.py` (which contains the model name)
-- First CI run downloads the model (~600 MB); subsequent runs restore from cache
+- ONNX models are cached in CI via `actions/cache@v4` keyed on `scripts/export_clip_onnx.py` and `backend/app/config.py`
+- Models are only re-exported when the export script or config changes
 
 **Test fixture:** The `clip_service` fixture is `session`-scoped and also primes the module-level singleton, so both direct `CLIPService` usage and `get_clip_service()` code paths work.
+
+## ONNX Model Assessment
+
+The `scripts/evaluate_onnx.py` script compares ONNX model outputs against the torch CLIP reference. This is a data-science assessment (not a software test) and runs only when models are freshly generated.
+
+**When it runs:**
+- In CI: automatically after `scripts/export_clip_onnx.py` on ONNX cache miss
+- Locally: `make evaluate-onnx` or `uv run python scripts/evaluate_onnx.py -v`
+
+**What it checks:**
+- Embedding dot product deviation < threshold for all variants (fp32/fp16/int8)
+- Synthetic images, real images (if available), varied aspect ratios
+- Text encoding across 13 diverse queries
+- Batch encoding consistency (torch vs ONNX, batch vs single)
+- Cross-modal ranking preservation
+- Quantisation accuracy/size report
+
+**Thresholds:** fp32=0.001, fp16=0.001, int8=0.01
+
+**Exit code:** 0 on all checks passing, 1 if any threshold is exceeded.
 
 ## E2E Tests (Playwright)
 

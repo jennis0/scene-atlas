@@ -308,7 +308,7 @@ Pipeline functions in `backend/pipeline/` are now plain Python functions — no 
 **Key changes:**
 - `backend/app/services/clip_service.py` — Rewritten to use ONNX Runtime; same public interface (`CLIPService`, `get_clip_service()`)
 - `scripts/export_clip_onnx.py` — Exports fp32/fp16/int8 ONNX models + tokenizer from the torch model
-- `backend/tests/integration/test_onnx_comparison.py` — Validates ONNX output vs torch across 50+ real images and 13 text queries
+- `scripts/evaluate_onnx.py` — Standalone assessment script comparing ONNX output vs torch (runs after export, not in pytest suite)
 - `backend/pyinstaller/scene_atlas_backend.spec` — Removed torch/transformers, bundles fp16 ONNX models
 - Image preprocessing done with PIL + numpy (no `CLIPImageProcessor` dependency)
 - Text tokenization via `tokenizers.Tokenizer` from exported `tokenizer.json`

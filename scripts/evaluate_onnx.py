@@ -1,0 +1,594 @@
+#!/usr/bin/env python3
+"""Check ONNX CLIP models against the torch reference.
+
+Runs after scripts/export_clip_onnx.py to verify that exported ONNX
+models (fp32, fp16, int8) produce embeddings numerically equivalent
+to the original torch CLIP model.
+
+This is a data-science assessment, NOT a software test.  It lives outside
+the pytest suite and runs only when models are freshly generated.
+
+Prerequisites:
+    1. Dev deps: torch, transformers (for the reference implementation)
+    2. ONNX models exported to backend/models/ (run scripts/export_clip_onnx.py)
+    3. (Optional) Real images in data/store/images/ for extended checks
+
+Usage:
+    uv run python scripts/evaluate_onnx.py
+    uv run python scripts/evaluate_onnx.py --models-dir backend/models -v
+    uv run python scripts/evaluate_onnx.py --variants fp16 int8
+"""
+
+import argparse
+import logging
+import sys
+import tempfile
+from pathlib import Path
+
+import numpy as np
+from PIL import Image as PILImage
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+MODELS_DIR_DEFAULT = PROJECT_ROOT / "backend" / "models"
+IMAGES_DIR_DEFAULT = PROJECT_ROOT / "data" / "store" / "images"
+
+MODEL_NAME = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
+
+# Thresholds: abs(1.0 - dot(torch_emb, onnx_emb))
+THRESHOLD_FP32 = 0.001
+THRESHOLD_FP16 = 0.001
+THRESHOLD_INT8 = 0.01
+
+VARIANTS = ["fp32", "fp16", "int8"]
+VARIANT_THRESHOLDS = {
+    "fp32": THRESHOLD_FP32,
+    "fp16": THRESHOLD_FP16,
+    "int8": THRESHOLD_INT8,
+}
+
+TEXT_QUERIES = [
+    "a dark forest with a river",
+    "bright sunny beach with palm trees",
+    "underground dungeon with torches",
+    "medieval castle on a hill",
+    "dark cave entrance",
+    "snowy mountain pass",
+    "underwater coral reef",
+    "city streets at night",
+    "ancient temple ruins",
+    "peaceful meadow with flowers",
+    # Edge cases
+    "a",  # single word
+    "the quick brown fox jumps over the lazy dog " * 5,  # long text (truncation)
+    "UPPERCASE TEXT WITH NUMBERS 123",  # mixed case + numbers
+]
+
+ASPECT_RATIO_SIZES = [
+    (50, 50),  # smaller than 224
+    (224, 224),  # exactly 224
+    (300, 200),  # landscape
+    (200, 300),  # portrait
+    (1000, 1000),  # large square
+    (1920, 1080),  # 1080p
+    (100, 800),  # extreme aspect ratio
+]
+
+logger = logging.getLogger(__name__)
+
+# Type alias for check results: (check_name, passed, detail)
+CheckResult = tuple[str, bool, str]
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+
+def _dot(a: list[float], b: list[float]) -> float:
+    """Dot product of two vectors."""
+    return float(np.dot(np.array(a), np.array(b)))
+
+
+def _diff(a: list[float], b: list[float]) -> float:
+    """abs(1.0 - dot(a, b)) -- measures deviation for L2-normalised vectors."""
+    return abs(1.0 - _dot(a, b))
+
+
+def _collect_real_images(images_dir: Path, max_count: int = 50) -> list[Path]:
+    """Collect real images from the image store."""
+    if not images_dir.exists():
+        return []
+    images: list[Path] = []
+    for ext in ("*.jpg", "*.jpeg", "*.png", "*.webp"):
+        images.extend(images_dir.rglob(ext))
+        if len(images) >= max_count * 2:
+            break
+    return sorted(images)[:max_count]
+
+
+def _create_test_image(
+    path: Path,
+    width: int = 20,
+    height: int = 20,
+    color: tuple = (100, 150, 200),
+) -> Path:
+    """Create a minimal test JPEG file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    img = PILImage.new("RGB", (width, height), color)
+    img.save(path, format="JPEG", quality=70)
+    return path
+
+
+# ── Torch reference implementation ───────────────────────────────────────────
+
+
+class _TorchCLIPReference:
+    """Torch-based CLIP reference for comparison."""
+
+    def __init__(self):
+        import torch
+        from transformers import CLIPModel, CLIPProcessor
+
+        self._torch = torch
+        self.model = CLIPModel.from_pretrained(MODEL_NAME, local_files_only=True)
+        self.model.eval()
+        self.processor = CLIPProcessor.from_pretrained(MODEL_NAME, local_files_only=True)
+
+    def encode_image(self, image_path) -> list[float]:
+        with PILImage.open(image_path) as img:
+            image = img.convert("RGB")
+        inputs = self.processor(images=image, return_tensors="pt")
+        del image
+        with self._torch.no_grad():
+            vo = self.model.vision_model(**inputs)
+            features = self.model.visual_projection(vo.pooler_output)
+            features = self._torch.nn.functional.normalize(features, p=2, dim=-1)
+        return features.cpu().numpy().flatten().tolist()
+
+    def encode_text(self, text: str) -> list[float]:
+        inputs = self.processor(text=text, return_tensors="pt", padding="max_length", max_length=77)
+        with self._torch.no_grad():
+            to = self.model.text_model(**inputs)
+            features = self.model.text_projection(to.pooler_output)
+            features = self._torch.nn.functional.normalize(features, p=2, dim=-1)
+        return features.cpu().numpy().flatten().tolist()
+
+    def batch_encode_images(self, image_paths) -> list[list[float]]:
+        images = []
+        for p in image_paths:
+            with PILImage.open(p) as img:
+                images.append(img.convert("RGB"))
+        inputs = self.processor(images=images, return_tensors="pt", padding=True)
+        del images
+        with self._torch.no_grad():
+            vo = self.model.vision_model(**inputs)
+            features = self.model.visual_projection(vo.pooler_output)
+            features = self._torch.nn.functional.normalize(features, p=2, dim=-1)
+        return features.cpu().numpy().tolist()
+
+
+# ── Assessment suites ────────────────────────────────────────────────────────
+
+
+def check_image_encoding(
+    torch_ref: _TorchCLIPReference,
+    onnx_services: dict,
+    tmp_dir: Path,
+    real_images: list[Path],
+) -> list[CheckResult]:
+    """Compare single image encoding between torch and ONNX variants."""
+    results: list[CheckResult] = []
+
+    for variant, svc in onnx_services.items():
+        threshold = VARIANT_THRESHOLDS[variant]
+
+        # Synthetic image
+        img = _create_test_image(tmp_dir / f"synth_{variant}.jpg", 300, 200, (100, 150, 200))
+        torch_emb = torch_ref.encode_image(img)
+        onnx_emb = svc.encode_image(img)
+        diff = _diff(torch_emb, onnx_emb)
+        results.append(
+            (
+                f"[{variant}] synthetic_image",
+                diff < threshold,
+                f"diff={diff:.6f} threshold={threshold}",
+            )
+        )
+
+        # Dimensions and norm
+        img = _create_test_image(tmp_dir / f"dim_{variant}.jpg", 100, 100)
+        torch_emb = torch_ref.encode_image(img)
+        onnx_emb = svc.encode_image(img)
+        torch_norm = abs(float(np.linalg.norm(torch_emb)) - 1.0)
+        onnx_norm = abs(float(np.linalg.norm(onnx_emb)) - 1.0)
+        results.append(
+            (
+                f"[{variant}] image_dimensions_and_norm",
+                len(torch_emb) == 512
+                and len(onnx_emb) == 512
+                and torch_norm < 0.001
+                and onnx_norm < 0.001,
+                f"torch_dim={len(torch_emb)} onnx_dim={len(onnx_emb)} "
+                f"torch_norm_dev={torch_norm:.6f} onnx_norm_dev={onnx_norm:.6f}",
+            )
+        )
+
+        # Varied aspect ratios
+        for w, h in ASPECT_RATIO_SIZES:
+            img = _create_test_image(
+                tmp_dir / f"aspect_{variant}_{w}x{h}.jpg", w, h, (80, 120, 160)
+            )
+            torch_emb = torch_ref.encode_image(img)
+            onnx_emb = svc.encode_image(img)
+            diff = _diff(torch_emb, onnx_emb)
+            results.append(
+                (
+                    f"[{variant}] aspect_{w}x{h}",
+                    diff < threshold,
+                    f"diff={diff:.6f} threshold={threshold}",
+                )
+            )
+
+        # Real images (if available)
+        for i, img in enumerate(real_images[:20]):
+            torch_emb = torch_ref.encode_image(img)
+            onnx_emb = svc.encode_image(img)
+            diff = _diff(torch_emb, onnx_emb)
+            results.append(
+                (
+                    f"[{variant}] real_image_{i} ({img.name})",
+                    diff < threshold,
+                    f"diff={diff:.6f} threshold={threshold}",
+                )
+            )
+
+        # Worst case across all real images
+        if real_images:
+            max_diff = 0.0
+            worst_image = None
+            for img in real_images:
+                torch_emb = torch_ref.encode_image(img)
+                onnx_emb = svc.encode_image(img)
+                diff = _diff(torch_emb, onnx_emb)
+                if diff > max_diff:
+                    max_diff = diff
+                    worst_image = img.name
+            results.append(
+                (
+                    f"[{variant}] worst_case_{len(real_images)}_images",
+                    max_diff < threshold,
+                    f"max_diff={max_diff:.6f} threshold={threshold} worst={worst_image}",
+                )
+            )
+
+    return results
+
+
+def check_text_encoding(
+    torch_ref: _TorchCLIPReference,
+    onnx_services: dict,
+) -> list[CheckResult]:
+    """Compare text encoding between torch and ONNX variants."""
+    results: list[CheckResult] = []
+
+    for variant, svc in onnx_services.items():
+        threshold = VARIANT_THRESHOLDS[variant]
+
+        # Text queries
+        for text in TEXT_QUERIES:
+            torch_emb = torch_ref.encode_text(text)
+            onnx_emb = svc.encode_text(text)
+            diff = _diff(torch_emb, onnx_emb)
+            results.append(
+                (
+                    f"[{variant}] text '{text[:30]}'",
+                    diff < threshold,
+                    f"diff={diff:.6f} threshold={threshold}",
+                )
+            )
+
+        # Dimensions and norm
+        text = "forest cave with water"
+        torch_emb = torch_ref.encode_text(text)
+        onnx_emb = svc.encode_text(text)
+        torch_norm = abs(float(np.linalg.norm(torch_emb)) - 1.0)
+        onnx_norm = abs(float(np.linalg.norm(onnx_emb)) - 1.0)
+        results.append(
+            (
+                f"[{variant}] text_dimensions_and_norm",
+                len(torch_emb) == 512
+                and len(onnx_emb) == 512
+                and torch_norm < 0.001
+                and onnx_norm < 0.001,
+                f"torch_dim={len(torch_emb)} onnx_dim={len(onnx_emb)} "
+                f"torch_norm_dev={torch_norm:.6f} onnx_norm_dev={onnx_norm:.6f}",
+            )
+        )
+
+    return results
+
+
+def check_batch_encoding(
+    torch_ref: _TorchCLIPReference,
+    onnx_services: dict,
+    tmp_dir: Path,
+    real_images: list[Path],
+) -> list[CheckResult]:
+    """Compare batch image encoding between torch and ONNX variants."""
+    results: list[CheckResult] = []
+
+    for variant, svc in onnx_services.items():
+        threshold = VARIANT_THRESHOLDS[variant]
+
+        # Batch dot products (synthetic)
+        paths = []
+        for i in range(8):
+            p = _create_test_image(
+                tmp_dir / f"batch_{variant}_{i}.jpg", 150, 150, (30 * i, 100, 200 - 20 * i)
+            )
+            paths.append(p)
+
+        torch_embs = torch_ref.batch_encode_images(paths)
+        onnx_embs = svc.batch_encode_images(paths)
+
+        for i, (t, o) in enumerate(zip(torch_embs, onnx_embs, strict=True)):
+            diff = _diff(t, o)
+            results.append(
+                (
+                    f"[{variant}] batch_image_{i}",
+                    diff < threshold,
+                    f"diff={diff:.6f} threshold={threshold}",
+                )
+            )
+
+        # Batch vs single consistency (ONNX only, no torch needed)
+        consist_paths = []
+        for i in range(4):
+            p = _create_test_image(
+                tmp_dir / f"consist_{variant}_{i}.jpg", 100, 100, (50 * i, 80, 160)
+            )
+            consist_paths.append(p)
+
+        batch_embs = svc.batch_encode_images(consist_paths)
+        single_embs = [svc.encode_image(p) for p in consist_paths]
+
+        batch_threshold = 0.001 if variant == "fp16" else 0.0001
+        for i, (batch, single) in enumerate(zip(batch_embs, single_embs, strict=True)):
+            diff = _diff(batch, single)
+            results.append(
+                (
+                    f"[{variant}] batch_vs_single_{i}",
+                    diff < batch_threshold,
+                    f"diff={diff:.6f} threshold={batch_threshold}",
+                )
+            )
+
+        # Batch real images
+        if len(real_images) >= 8:
+            batch = real_images[:8]
+            torch_embs = torch_ref.batch_encode_images(batch)
+            onnx_embs = svc.batch_encode_images(batch)
+            for i, (t, o) in enumerate(zip(torch_embs, onnx_embs, strict=True)):
+                diff = _diff(t, o)
+                results.append(
+                    (
+                        f"[{variant}] batch_real_{i} ({batch[i].name})",
+                        diff < threshold,
+                        f"diff={diff:.6f} threshold={threshold}",
+                    )
+                )
+
+    return results
+
+
+def check_cross_modal(
+    torch_ref: _TorchCLIPReference,
+    onnx_services: dict,
+    tmp_dir: Path,
+) -> list[CheckResult]:
+    """Verify that text-image similarity rankings are preserved."""
+    results: list[CheckResult] = []
+
+    colors = {
+        "green": (20, 150, 30),
+        "blue": (30, 30, 200),
+        "red": (220, 20, 20),
+        "yellow": (220, 220, 30),
+    }
+
+    for variant, svc in onnx_services.items():
+        paths = {}
+        for cname, color in colors.items():
+            p = _create_test_image(tmp_dir / f"rank_{variant}_{cname}.jpg", 100, 100, color)
+            paths[cname] = p
+
+        query = "lush green forest"
+        torch_text = np.array(torch_ref.encode_text(query))
+        onnx_text = np.array(svc.encode_text(query))
+
+        torch_scores = {}
+        onnx_scores = {}
+        for cname, path in paths.items():
+            t_img = np.array(torch_ref.encode_image(path))
+            o_img = np.array(svc.encode_image(path))
+            torch_scores[cname] = float(np.dot(torch_text, t_img))
+            onnx_scores[cname] = float(np.dot(onnx_text, o_img))
+
+        torch_ranking = sorted(torch_scores, key=torch_scores.get, reverse=True)
+        onnx_ranking = sorted(onnx_scores, key=onnx_scores.get, reverse=True)
+
+        results.append(
+            (
+                f"[{variant}] cross_modal_ranking",
+                torch_ranking == onnx_ranking,
+                f"torch={torch_ranking} onnx={onnx_ranking}",
+            )
+        )
+
+    return results
+
+
+def print_quantisation_report(
+    torch_ref: _TorchCLIPReference,
+    onnx_services: dict,
+    models_dir: Path,
+    real_images: list[Path],
+) -> None:
+    """Print aggregate quantisation accuracy and size report."""
+    variants = list(onnx_services.keys())
+
+    if not real_images:
+        print("\n  (Skipping quantisation report — no real images available)")
+        return
+
+    # Collect image diffs
+    image_diffs: dict[str, list[float]] = {v: [] for v in variants}
+    for img in real_images[:50]:
+        torch_emb = torch_ref.encode_image(img)
+        for variant, svc in onnx_services.items():
+            onnx_emb = svc.encode_image(img)
+            image_diffs[variant].append(_diff(torch_emb, onnx_emb))
+
+    # Collect text diffs
+    text_diffs: dict[str, list[float]] = {v: [] for v in variants}
+    for text in TEXT_QUERIES:
+        torch_emb = torch_ref.encode_text(text)
+        for variant, svc in onnx_services.items():
+            onnx_emb = svc.encode_text(text)
+            text_diffs[variant].append(_diff(torch_emb, onnx_emb))
+
+    # Model sizes
+    sizes: dict[str, float] = {}
+    for variant in variants:
+        vdir = models_dir / variant
+        if vdir.exists():
+            total = sum(f.stat().st_size for f in vdir.rglob("*") if f.is_file())
+            sizes[variant] = total / (1024 * 1024)
+        else:
+            sizes[variant] = 0.0
+
+    # Print report
+    n_images = min(len(real_images), 50)
+    print(
+        f"\n{'=' * 90}\n"
+        f"Quantisation Report ({n_images} images, {len(TEXT_QUERIES)} text queries)\n"
+        f"{'=' * 90}\n"
+        f"{'Variant':<8} | {'Img Max':>10} | {'Img Mean':>10} | {'Img P99':>10} "
+        f"| {'Txt Max':>10} | {'Txt Mean':>10} | {'Size':>10}\n"
+        f"{'-' * 90}"
+    )
+
+    for variant in variants:
+        i_arr = np.array(image_diffs[variant])
+        t_arr = np.array(text_diffs[variant])
+        print(
+            f"{variant:<8} | {i_arr.max():>10.6f} | {i_arr.mean():>10.6f} "
+            f"| {np.percentile(i_arr, 99):>10.6f} "
+            f"| {t_arr.max():>10.6f} | {t_arr.mean():>10.6f} "
+            f"| {sizes[variant]:>8.1f} MB"
+        )
+
+    print("=" * 90)
+
+
+# ── Main ─────────────────────────────────────────────────────────────────────
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Check ONNX CLIP models against the torch reference"
+    )
+    parser.add_argument(
+        "--models-dir",
+        type=Path,
+        default=MODELS_DIR_DEFAULT,
+        help="Directory containing fp32/fp16/int8 ONNX model subdirectories",
+    )
+    parser.add_argument(
+        "--images-dir",
+        type=Path,
+        default=IMAGES_DIR_DEFAULT,
+        help="Directory containing real images for extended checks",
+    )
+    parser.add_argument(
+        "--variants",
+        nargs="+",
+        default=VARIANTS,
+        choices=VARIANTS,
+        help="ONNX variants to check (default: all)",
+    )
+    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(levelname)s %(message)s",
+    )
+
+    # Load torch reference
+    print(f"Loading torch reference: {MODEL_NAME}")
+    torch_ref = _TorchCLIPReference()
+
+    # Load ONNX services (skip missing variants)
+    from backend.app.services.clip_service import CLIPService
+
+    onnx_services: dict[str, CLIPService] = {}
+    for variant in args.variants:
+        vdir = args.models_dir / variant
+        if not vdir.exists():
+            print(f"  SKIP {variant}: {vdir} not found")
+            continue
+        onnx_services[variant] = CLIPService(models_dir=vdir)
+        print(f"  Loaded {variant}")
+
+    if not onnx_services:
+        print("ERROR: No ONNX variants found. Run scripts/export_clip_onnx.py first.")
+        return 1
+
+    real_images = _collect_real_images(args.images_dir)
+    print(f"  Found {len(real_images)} real images for checks\n")
+
+    # Run checks
+    with tempfile.TemporaryDirectory(prefix="onnx_check_") as tmp_dir:
+        tmp = Path(tmp_dir)
+
+        all_results: list[CheckResult] = []
+
+        print("Checking image encoding...")
+        all_results.extend(check_image_encoding(torch_ref, onnx_services, tmp, real_images))
+
+        print("Checking text encoding...")
+        all_results.extend(check_text_encoding(torch_ref, onnx_services))
+
+        print("Checking batch encoding...")
+        all_results.extend(check_batch_encoding(torch_ref, onnx_services, tmp, real_images))
+
+        print("Checking cross-modal consistency...")
+        all_results.extend(check_cross_modal(torch_ref, onnx_services, tmp))
+
+    # Print results summary
+    passed = sum(1 for _, ok, _ in all_results if ok)
+    failed = sum(1 for _, ok, _ in all_results if not ok)
+
+    if args.verbose:
+        print(f"\n{'─' * 70}")
+        for name, ok, msg in all_results:
+            status = "PASS" if ok else "FAIL"
+            print(f"  {status}  {name}: {msg}")
+
+    print(f"\n{'=' * 70}")
+    print(f"Results: {passed} passed, {failed} failed, {len(all_results)} total")
+
+    if failed > 0:
+        print("\nFAILED checks:")
+        for name, ok, msg in all_results:
+            if not ok:
+                print(f"  FAIL  {name}: {msg}")
+
+    # Quantisation report (informational, requires real images)
+    print_quantisation_report(torch_ref, onnx_services, args.models_dir, real_images)
+
+    print(f"{'=' * 70}")
+    return 1 if failed > 0 else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
