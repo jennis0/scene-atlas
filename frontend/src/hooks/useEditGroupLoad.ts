@@ -116,6 +116,10 @@ export function useEditGroupLoad({
   const [loadError, setLoadError] = useState<string | null>(null)
   const [ungroupedCount, setUngroupedCount] = useState(0)
 
+  // Tracks which group IDs have already been fetched in import-review mode;
+  // reset when the dialog closes/reopens so incremental loads start fresh.
+  const loadedGroupIdsRef = useRef(new Set<number>())
+
   // Ref to avoid stale closure in effects — always points to latest callback
   const onResetDialogStateRef = useRef(onResetDialogState)
   onResetDialogStateRef.current = onResetDialogState
@@ -128,6 +132,7 @@ export function useEditGroupLoad({
     setActiveTab(0)
     setFileFilter(EMPTY_FILTER)
     setEditingSvHeading(null)
+    loadedGroupIdsRef.current = new Set()
   }, [setGroups, setActiveTab, setFileFilter, setEditingSvHeading])
 
   // ── Load: single-group mode ──────────────────────────────────────
@@ -258,28 +263,42 @@ export function useEditGroupLoad({
       })
   }, [open, seedImages, isMassEdit, setGroups, setTagVocab, setAuthorSuggestions, setActiveTab])
 
-  // ── Load: import-review mode (multiple groups by ID, all images in scope) ──
+  // ── Load: import-review mode (incremental — only fetch newly-added IDs) ──
 
   useEffect(() => {
     if (!open || !isImportReview) return
 
-    setLoading(true)
-    setLoadError(null)
+    const allIds = groupIds ?? []
+    const newIds = allIds.filter((id) => !loadedGroupIdsRef.current.has(id))
+    if (newIds.length === 0) return
 
-    const ids = groupIds!
-    Promise.all([
-      ...ids.map((id) => groupApi.get(id)),
-      tagApi.getCategories(),
-      imageApi.getAuthors(),
-    ])
+    // isFirstLoad is captured synchronously before any async work; safe to use in .then/.finally
+    const isFirstLoad = loadedGroupIdsRef.current.size === 0
+    if (isFirstLoad) {
+      setLoading(true)
+      setLoadError(null)
+    }
+
+    // Cancellation flag — prevents stale responses from mutating state if the dialog
+    // closes and reopens (resetting loadedGroupIdsRef) before this fetch resolves.
+    let cancelled = false
+
+    // On first load fetch vocab/authors alongside groups; on incremental batches skip
+    // them to avoid re-fetching unchanged global data and overwriting any user edits.
+    const promises: Promise<unknown>[] = newIds.map((id) => groupApi.get(id))
+    if (isFirstLoad) {
+      promises.push(tagApi.getCategories(), imageApi.getAuthors())
+    }
+
+    Promise.all(promises)
       .then((results) => {
-        const groupDetails = results.slice(0, ids.length) as Awaited<
+        if (cancelled) return
+
+        const groupDetails = results.slice(0, newIds.length) as Awaited<
           ReturnType<typeof groupApi.get>
         >[]
-        const categories = results[ids.length] as Awaited<ReturnType<typeof tagApi.getCategories>>
-        const authors = results[ids.length + 1] as string[]
 
-        const editableGroups: EditableGroupState[] = groupDetails.map((detail) => ({
+        const newEditableGroups: EditableGroupState[] = groupDetails.map((detail) => ({
           id: String(detail.id),
           author: detail.author ?? '',
           group_name: detail.base_name,
@@ -291,17 +310,29 @@ export function useEditGroupLoad({
           total: detail.images.length,
         }))
 
-        setGroups(editableGroups)
-        setTagVocab(parseTagVocabulary(categories))
-        setAuthorSuggestions(authors)
-        setActiveTab(editableGroups.length > 1 ? ALL_TAB : 0)
+        newIds.forEach((id) => loadedGroupIdsRef.current.add(id))
+        setGroups((prev) => [...prev, ...newEditableGroups])
+
+        if (isFirstLoad) {
+          const categories = results[newIds.length] as Awaited<
+            ReturnType<typeof tagApi.getCategories>
+          >
+          const authors = results[newIds.length + 1] as string[]
+          setTagVocab(parseTagVocabulary(categories))
+          setAuthorSuggestions(authors)
+          setActiveTab(allIds.length > 1 ? ALL_TAB : 0)
+        }
       })
       .catch((err: unknown) => {
-        setLoadError(getApiErrorMessage(err, 'Failed to load imported groups'))
+        if (!cancelled) setLoadError(getApiErrorMessage(err, 'Failed to load imported groups'))
       })
       .finally(() => {
-        setLoading(false)
+        if (!cancelled && isFirstLoad) setLoading(false)
       })
+
+    return () => {
+      cancelled = true
+    }
   }, [open, groupIds, isImportReview, setGroups, setTagVocab, setAuthorSuggestions, setActiveTab])
 
   return {
