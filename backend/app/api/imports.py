@@ -395,6 +395,11 @@ async def upload_batch(
     if not job:
         raise HTTPException(status_code=404, detail="Import job not found")
     if job.status != "uploading":
+        logger.warning(
+            "upload-batch rejected for job %s: status is '%s', expected 'uploading'",
+            job_id,
+            job.status,
+        )
         raise HTTPException(
             status_code=409,
             detail=f"Import job is in '{job.status}' state, expected 'uploading'",
@@ -459,6 +464,11 @@ async def analyse_staged(
     if not job:
         raise HTTPException(status_code=404, detail="Import job not found")
     if job.status != "uploading":
+        logger.warning(
+            "analyse rejected for job %s: status is '%s', expected 'uploading'",
+            job_id,
+            job.status,
+        )
         raise HTTPException(
             status_code=409,
             detail=f"Import job is in '{job.status}' state, expected 'uploading'",
@@ -934,6 +944,11 @@ async def finalize_import(job_id: str, db: Session = Depends(get_db)):
         .count()
     )
     if running > 0:
+        logger.warning(
+            "finalize rejected for job %s: %d group(s) still running",
+            job_id,
+            running,
+        )
         raise HTTPException(
             status_code=409, detail="Cannot finalize while groups are still processing"
         )
@@ -950,13 +965,18 @@ async def finalize_import(job_id: str, db: Session = Depends(get_db)):
         if job.status == "failed":
             # Failed imports must not leave images in the DB — they would
             # cause false duplicate-hash matches when the user re-uploads.
-            cleaned = _cleanup_import_images(job_id, db)
-            if cleaned:
-                logger.info(
-                    "Cleaned up %d image(s) from failed import %s (finalize)",
-                    cleaned,
-                    job_id,
-                )
+            # Wrapped in try/except so a cleanup failure never blocks the
+            # status transition commit.
+            try:
+                cleaned = _cleanup_import_images(job_id, db)
+                if cleaned:
+                    logger.info(
+                        "Cleaned up %d image(s) from failed import %s (finalize)",
+                        cleaned,
+                        job_id,
+                    )
+            except Exception:
+                logger.warning("Image cleanup failed for job %s (non-fatal)", job_id, exc_info=True)
     else:
         # No groups were ever confirmed — just mark completed
         job.status = "completed"
@@ -1068,6 +1088,10 @@ async def cancel_import(job_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Import job not found")
 
     if job.status == "completed":
+        logger.warning(
+            "cancel rejected for job %s: status is 'completed'",
+            job_id,
+        )
         raise HTTPException(
             status_code=409,
             detail="Cannot cancel a completed import. Use the delete endpoint to remove images.",
@@ -1136,6 +1160,11 @@ async def fail_import(job_id: str, body: FailImportRequest, db: Session = Depend
 
     allowed_statuses = {"uploading", "staging"}
     if job.status not in allowed_statuses:
+        logger.warning(
+            "fail rejected for job %s: status is '%s', expected uploading/staging",
+            job_id,
+            job.status,
+        )
         raise HTTPException(
             status_code=409,
             detail=f"Cannot fail a job in '{job.status}' status (only uploading/staging)",

@@ -1296,15 +1296,28 @@ def _finalize_import_job(job_id: str) -> None:
         if new_status == "failed":
             # Failed imports must not leave images in the DB — they would
             # cause false duplicate-hash matches when the user re-uploads.
-            from backend.app.api.imports import _cleanup_import_images
+            # Wrapped in try/except so a cleanup failure never blocks the
+            # status transition commit.
+            try:
+                from backend.app.api.imports import _cleanup_import_images
 
-            cleaned = _cleanup_import_images(job_id, db)
-            if cleaned:
-                logger.info(
-                    "Cleaned up %d image(s) from failed import %s",
-                    cleaned,
-                    job_id,
-                )
+                cleaned = _cleanup_import_images(job_id, db)
+                if cleaned:
+                    logger.info(
+                        "Cleaned up %d image(s) from failed import %s",
+                        cleaned,
+                        job_id,
+                    )
+            except Exception:
+                logger.warning("Image cleanup failed for job %s (non-fatal)", job_id, exc_info=True)
+
+            # Also clean staging — no more groups will run for a failed job.
+            staging_dir = settings.staging_dir / job_id
+            if staging_dir.exists():
+                import shutil
+
+                shutil.rmtree(staging_dir, ignore_errors=True)
+                logger.info("Cleaned staging for failed import %s", job_id)
 
         db.commit()
         logger.info("Import job %s transitioned to '%s'", job_id, new_status)

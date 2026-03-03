@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from backend.app.models.database import ImportGroupJob, ImportJob
+from backend.app.models.database import Image, ImageGroup, ImportGroupJob, ImportJob
 
 
 @pytest.fixture
@@ -97,6 +97,61 @@ class TestExpireStaleJobs:
         job = db.query(ImportJob).filter(ImportJob.id == "old-active-job").first()
         assert job.status == "expired"
         db.close()
+
+    def test_expire_cleans_up_images(self, _patch_db_for_expiry):
+        """Images from expired imports are deleted to prevent false duplicate matches."""
+        from backend.pipeline.maintenance import expire_stale_jobs
+
+        engine, SessionLocal, staging_root = _patch_db_for_expiry
+
+        db = SessionLocal()
+        old_time = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=72)
+        job = ImportJob(
+            id="old-job-imgs",
+            status="active",
+            total_files=1,
+            created_at=old_time,
+            updated_at=old_time,
+        )
+        db.add(job)
+        db.flush()
+        group = ImageGroup(base_name="ExpiredMap", author="Author")
+        db.add(group)
+        db.flush()
+        gj = ImportGroupJob(
+            id="grp-old-imgs",
+            job_id="old-job-imgs",
+            group_name="ExpiredMap",
+            author="Author",
+            total_files=1,
+            processed_files=1,
+            status="completed",
+        )
+        gj.created_group_id = group.id
+        db.add(gj)
+        img = Image(
+            name="ExpiredMap",
+            filename="expired.jpg",
+            author="Author",
+            storage_key="expiredkey.jpg",
+            content_hash="b" * 64,
+            group_id=group.id,
+            import_job_id="old-job-imgs",
+            media_type="image",
+        )
+        db.add(img)
+        db.commit()
+
+        assert db.query(Image).filter_by(import_job_id="old-job-imgs").count() == 1
+        db.close()
+
+        result = expire_stale_jobs(max_age_hours=48)
+        assert result["expired"] == 1
+
+        db = SessionLocal()
+        remaining = db.query(Image).filter_by(import_job_id="old-job-imgs").count()
+        db.close()
+        assert remaining == 0, f"Expected 0 images after expiry, found {remaining}"
 
     def test_preserves_recent_job(self, _patch_db_for_expiry):
         """A job with recent activity is not expired."""

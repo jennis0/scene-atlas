@@ -244,6 +244,25 @@ def expire_stale_jobs(max_age_hours: int = 48) -> dict:
             job.status = "expired"
             job.completed_at = datetime.now(UTC).replace(tzinfo=None)
 
+            # Clean up images from this abandoned import so they don't
+            # cause false duplicate-hash matches on re-upload.
+            try:
+                from backend.app.api.imports import _cleanup_import_images
+
+                cleaned = _cleanup_import_images(job.id, db)
+                if cleaned:
+                    logger.info(
+                        "  Cleaned up %d image(s) from expired import %s",
+                        cleaned,
+                        job.id,
+                    )
+            except Exception:
+                logger.warning(
+                    "  Image cleanup failed for expired job %s (non-fatal)",
+                    job.id,
+                    exc_info=True,
+                )
+
             # Clean up staging directory
             staging_dir = settings.staging_dir / job.id
             if staging_dir.exists():
