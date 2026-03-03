@@ -5,6 +5,7 @@ and group files. Confirm endpoint submits processing to the background
 JobRunner. Status endpoint reads progress from the ImportJob table.
 """
 
+import asyncio
 import json
 import logging
 import shutil
@@ -43,6 +44,7 @@ from ..models.schemas import (
     ManifestEntry,
 )
 from ..services.app_settings import get_settings as get_app_settings
+from ..services.import_state import GROUP_TERMINAL_STATUSES
 from ..services.job_runner import get_job_runner
 from ..services.validation import check_zip_safety, is_path_within, verify_media_mime
 from .dependencies import get_db
@@ -477,8 +479,6 @@ async def analyse_staged(
         }
         for entry in manifest_entries
     }
-
-    import asyncio
 
     from ...pipeline.ingestion import analyse_upload
 
@@ -1060,12 +1060,12 @@ async def cancel_import(job_id: str, db: Session = Depends(get_db)):
         final_status = transition_job_status(db, job_id)
         db.commit()
     else:
-        # Groups are running or no groups submitted — mark job and all
-        # non-terminal groups as cancelled.
-        db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job_id).update(
-            {"status": "cancelled"},
-            synchronize_session=False,
-        )
+        # Groups are running or no groups submitted — cancel only non-terminal
+        # groups; completed/failed rows keep their truthful status.
+        db.query(ImportGroupJob).filter(
+            ImportGroupJob.job_id == job_id,
+            ImportGroupJob.status.notin_(GROUP_TERMINAL_STATUSES),
+        ).update({"status": "cancelled"}, synchronize_session=False)
         job.status = "cancelled"
         job.completed_at = now
         job.updated_at = now

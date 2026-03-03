@@ -25,11 +25,8 @@ def test_busy_timeout_set(tmp_path):
 
 def test_pragmas_not_set_for_non_sqlite():
     """Non-SQLite URLs skip the pragma event listener without errors."""
-    # Just verify get_engine() doesn't crash for a postgres-style URL
-    # (we don't actually connect, so no real DB is needed)
     try:
         engine = get_engine("postgresql://user:pass@localhost/db")
-        # No event listener should be attached — this is a structural check
         assert "sqlite" not in str(engine.url)
-    except Exception:
-        pass  # connection errors are expected; we only care it doesn't crash on setup
+    except (ImportError, ModuleNotFoundError):
+        pass  # postgres driver not installed in test env — acceptable
