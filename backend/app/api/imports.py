@@ -946,6 +946,17 @@ async def finalize_import(job_id: str, db: Session = Depends(get_db)):
         from ..services.import_state import transition_job_status
 
         transition_job_status(db, job_id)
+
+        if job.status == "failed":
+            # Failed imports must not leave images in the DB — they would
+            # cause false duplicate-hash matches when the user re-uploads.
+            cleaned = _cleanup_import_images(job_id, db)
+            if cleaned:
+                logger.info(
+                    "Cleaned up %d image(s) from failed import %s (finalize)",
+                    cleaned,
+                    job_id,
+                )
     else:
         # No groups were ever confirmed — just mark completed
         job.status = "completed"

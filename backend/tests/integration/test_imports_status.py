@@ -501,6 +501,65 @@ class TestFinalizeImport:
         assert resp.status_code == 200
         assert resp.json()["status"] == "failed"
 
+    def test_finalize_failed_cleans_up_images(self, test_client, tmp_db):
+        """Finalize with failures must delete images so re-upload doesn't
+        hit false duplicate-hash matches."""
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        _make_job(db, "jobfclean", status="active", total_files=3)
+        grp_ok = _make_group_job(
+            db, "jobfclean", "grp_fclean_ok", status="completed", processed=2, total=2
+        )
+        group = ImageGroup(base_name="CleanMap", author="Author")
+        db.add(group)
+        db.flush()
+        grp_ok.created_group_id = group.id
+        img = Image(
+            name="CleanMap",
+            filename="clean.jpg",
+            author="Author",
+            storage_key="cleankey.jpg",
+            content_hash="a" * 64,
+            group_id=group.id,
+            import_job_id="jobfclean",
+            media_type="image",
+        )
+        db.add(img)
+        _make_group_job(
+            db, "jobfclean", "grp_fclean_fail", group_name="FailGrp", status="failed", total=1
+        )
+        db.commit()
+
+        # Verify image exists before finalize
+        assert db.query(Image).filter_by(import_job_id="jobfclean").count() == 1
+        db.close()
+
+        resp = test_client.post("/api/v1/imports/jobfclean/finalize")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "failed"
+
+        # Image must be gone after finalize
+        db2 = SessionLocal()
+        remaining = db2.query(Image).filter_by(import_job_id="jobfclean").count()
+        db2.close()
+        assert remaining == 0, f"Expected 0 images after failed finalize, found {remaining}"
+
+        # Duplicate check must no longer match the old hash
+        hash_resp = test_client.post(
+            "/api/v1/imports/check-hashes",
+            json={
+                "files": [
+                    {
+                        "relative_path": "clean.jpg",
+                        "filename": "clean.jpg",
+                        "content_hash": "a" * 64,
+                    }
+                ]
+            },
+        )
+        assert hash_resp.status_code == 200
+        assert hash_resp.json()["duplicates_found"] == 0
+
     def test_finalize_rejects_running_groups(self, seeded_running_job):
         """Cannot finalize while groups are still running → 409."""
         client, job_id, _ = seeded_running_job

@@ -326,6 +326,25 @@ def mark_interrupted_jobs(db=None) -> int:
             job.updated_at = now
             count += 1
 
+            # Clean up images from this interrupted import so they don't
+            # cause false duplicate-hash matches on re-upload.
+            try:
+                from backend.app.api.imports import _cleanup_import_images
+
+                cleaned = _cleanup_import_images(job.id, db)
+                if cleaned:
+                    logger.warning(
+                        "  Cleaned up %d image(s) from broken import %s",
+                        cleaned,
+                        job.id,
+                    )
+            except Exception:
+                logger.warning(
+                    "  Image cleanup failed for broken job %s (non-fatal)",
+                    job.id,
+                    exc_info=True,
+                )
+
         if own_session:
             db.commit()
         return count

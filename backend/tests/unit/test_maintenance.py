@@ -14,7 +14,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from backend.app.models.database import Base, ImportGroupJob, ImportJob
+from backend.app.models.database import Base, Image, ImageGroup, ImportGroupJob, ImportJob
 from backend.pipeline.maintenance import (
     cleanup_stale_staging,
     mark_interrupted_jobs,
@@ -311,3 +311,50 @@ class TestMarkInterruptedJobs:
         assert count == 2
         assert db_session.query(ImportJob).filter_by(id="j1").first().status == "broken"
         assert db_session.query(ImportJob).filter_by(id="j2").first().status == "broken"
+
+    def test_broken_job_images_cleaned_up(self, db_session, monkeypatch):
+        """Images from interrupted imports are deleted so they don't cause
+        false duplicate-hash matches on re-upload."""
+        from unittest.mock import MagicMock
+
+        # Set up an active job with an image (as if a group partially completed)
+        _make_import_job(db_session, "j_img", "active")
+        group = ImageGroup(base_name="TestMap", author="Author")
+        db_session.add(group)
+        db_session.flush()
+        gj = _make_import_group(db_session, "j_img", "g_img", "running")
+        gj.created_group_id = group.id
+        img = Image(
+            name="TestMap",
+            filename="test.jpg",
+            author="Author",
+            storage_key="abc123.jpg",
+            content_hash="f" * 64,
+            group_id=group.id,
+            import_job_id="j_img",
+            media_type="image",
+        )
+        db_session.add(img)
+        db_session.flush()
+
+        # Mock the stores that _cleanup_import_images uses (lazy imports
+        # from backend.app.services and backend.app.services.qdrant_service)
+        mock_store = MagicMock()
+        mock_store.delete.return_value = True
+        monkeypatch.setattr("backend.app.services.get_image_store", lambda: mock_store)
+        monkeypatch.setattr("backend.app.services.get_thumbnail_store", lambda: mock_store)
+        mock_qdrant = MagicMock()
+        monkeypatch.setattr(
+            "backend.app.services.qdrant_service.get_qdrant_service", lambda: mock_qdrant
+        )
+
+        mark_interrupted_jobs(db_session)
+        db_session.commit()
+
+        # Job is broken
+        job = db_session.query(ImportJob).filter_by(id="j_img").first()
+        assert job.status == "broken"
+
+        # Image was deleted
+        remaining = db_session.query(Image).filter_by(import_job_id="j_img").count()
+        assert remaining == 0, f"Expected 0 images, found {remaining}"

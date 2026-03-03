@@ -1292,6 +1292,20 @@ def _finalize_import_job(job_id: str) -> None:
             return
 
         new_status = transition_job_status(db, job_id)
+
+        if new_status == "failed":
+            # Failed imports must not leave images in the DB — they would
+            # cause false duplicate-hash matches when the user re-uploads.
+            from backend.app.api.imports import _cleanup_import_images
+
+            cleaned = _cleanup_import_images(job_id, db)
+            if cleaned:
+                logger.info(
+                    "Cleaned up %d image(s) from failed import %s",
+                    cleaned,
+                    job_id,
+                )
+
         db.commit()
         logger.info("Import job %s transitioned to '%s'", job_id, new_status)
     finally:
