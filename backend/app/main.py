@@ -110,6 +110,13 @@ async def lifespan(app: FastAPI):
     logger.info("Server ready on %s:%s", settings.api_host, settings.api_port)
     if settings.auth_token:
         logger.info("Bearer token authentication is enabled")
+    # Warn if running in server mode with default CORS origins (likely misconfigured)
+    _default_cors = {"http://localhost:3000", "http://localhost:5173", "http://localhost:8000"}
+    if settings.app_mode == "server" and set(settings.cors_origins) == _default_cors:
+        logger.warning(
+            "CORS origins are still set to localhost defaults but APP_MODE=server. "
+            "Set CORS_ORIGINS in your .env to your actual frontend origin."
+        )
     # Signal to desktop shell (Electron) that the backend is ready.
     # CLIP is still loading in the background — the app is usable immediately;
     # searches with a query will wait for CLIP; empty queries use SQL only.
