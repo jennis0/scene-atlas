@@ -18,6 +18,7 @@ import { SceneTile } from '@/components/SceneTile'
 import { SubgroupDropdown } from '@/components/SubgroupDropdown'
 import { imageApi, tagApi, getImageUrl, getGroupDownloadUrl } from '@/lib/api'
 import { MAX_NAME_LENGTH } from '@/lib/constants'
+import { QUERY_KEYS } from '@/lib/queryKeys'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { useGetTagColor } from '@/contexts/TagColorContext'
 import { TagPicker } from '@/components/import/TagPicker'
@@ -63,19 +64,19 @@ export function ImageViewer({
 
   // Fresh data for the displayed image; initialData avoids flash on navigation
   const { data: displayImage } = useQuery({
-    queryKey: ['image', image.id],
+    queryKey: QUERY_KEYS.image(image.id),
     queryFn: () => imageApi.get(image.id),
     initialData: image,
   })
 
   const { data: scenes } = useQuery({
-    queryKey: ['scenes', image.id],
+    queryKey: QUERY_KEYS.scenes(image.id),
     queryFn: () => imageApi.getScenes(image.id),
     placeholderData: keepPreviousData,
   })
 
   const { data: tagCategories } = useQuery({
-    queryKey: ['tagCategories'],
+    queryKey: QUERY_KEYS.tagCategories,
     queryFn: () => tagApi.getCategories(),
     staleTime: 5 * 60_000,
   })
@@ -152,14 +153,14 @@ export function ImageViewer({
 
   // ── Mutations ─────────────────────────────────────────────────────────────
   const invalidateImage = () => {
-    queryClient.invalidateQueries({ queryKey: ['image', image.id] })
-    queryClient.invalidateQueries({ queryKey: ['scenes', image.id] })
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.image(image.id) })
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scenes(image.id) })
   }
 
   const renameMutation = useMutation({
     mutationFn: (name: string) => imageApi.patch(image.id, { name }),
     onSuccess: (updated) => {
-      queryClient.setQueryData(['image', image.id], updated)
+      queryClient.setQueryData(QUERY_KEYS.image(image.id), updated)
       onImageChange?.(updated)
       setEditingName(false)
     },
@@ -169,9 +170,9 @@ export function ImageViewer({
     mutationFn: (payload: Parameters<typeof imageApi.patch>[1]) =>
       imageApi.patch(image.id, payload),
     onSuccess: (updated) => {
-      queryClient.setQueryData(['image', image.id], updated)
-      queryClient.invalidateQueries({ queryKey: ['scenes'] })
-      queryClient.invalidateQueries({ queryKey: ['search'] })
+      queryClient.setQueryData(QUERY_KEYS.image(image.id), updated)
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scenes() })
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.search })
       onImageChange?.(updated)
     },
   })
@@ -190,8 +191,8 @@ export function ImageViewer({
   const deleteMutation = useMutation({
     mutationFn: () => imageApi.delete(image.id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['search'] })
-      queryClient.invalidateQueries({ queryKey: ['scenes'] })
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.search })
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scenes() })
       setConfirmingDelete(false)
       onDelete?.(image.id)
     },

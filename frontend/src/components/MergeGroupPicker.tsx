@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Loader2, ImageIcon, Layers } from 'lucide-react'
 import { GroupPickerShell } from '@/components/GroupPickerShell'
 import { groupApi, getThumbnailUrlById } from '@/lib/api'
+import { QUERY_KEYS } from '@/lib/queryKeys'
 import type { GroupSearchItem } from '@/types'
 
 interface MergeGroupPickerProps {
@@ -42,7 +43,7 @@ export function MergeGroupPicker({
   }, [open])
 
   const { data, isLoading } = useQuery({
-    queryKey: ['groupSearch', debouncedQuery, excludeGroupId, currentGroupName],
+    queryKey: QUERY_KEYS.groupSearch(debouncedQuery, excludeGroupId, currentGroupName),
     queryFn: () =>
       groupApi.search(
         debouncedQuery,

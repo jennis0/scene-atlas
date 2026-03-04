@@ -43,6 +43,7 @@ import {
 } from './import/shared/dnd'
 import { GroupSidebarShell } from './import/shared/GroupSidebarShell'
 import { groupApi } from '@/lib/api'
+import { QUERY_KEYS } from '@/lib/queryKeys'
 import { useImportReviewPolling } from '@/hooks/useImportReviewPolling'
 
 interface EditGroupDialogProps {
@@ -105,8 +106,8 @@ export default function EditGroupDialog({
   })
 
   const invalidateGallery = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ['search'] })
-    queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.search })
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.searchFacets })
   }, [queryClient])
 
   // ── Shared file editing state and mutations ───────────────────────

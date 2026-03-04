@@ -14,6 +14,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { systemApi, getLibraryExportUrl, settingsApi } from '@/lib/api'
+import { QUERY_KEYS, invalidateTagQueries } from '@/lib/queryKeys'
 import { useJobPolling } from '@/hooks/useJobPolling'
 import type { AppSettings } from '@/types'
 
@@ -150,7 +151,7 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
     isLoading,
     isError,
   } = useQuery({
-    queryKey: ['system-info'],
+    queryKey: QUERY_KEYS.systemInfo,
     queryFn: () => systemApi.getInfo<SystemInfo>(),
     staleTime: 30_000,
     enabled: open,
@@ -168,14 +169,13 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
     mutationFn: systemApi.resetTags,
     onSuccess: () => {
       setConfirmingResetTags(false)
-      queryClient.invalidateQueries({ queryKey: ['tagCategories'] })
-      queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
-      queryClient.invalidateQueries({ queryKey: ['system-info'] })
+      invalidateTagQueries(queryClient)
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.systemInfo })
     },
   })
 
   const { data: appSettings } = useQuery({
-    queryKey: ['app-settings'],
+    queryKey: QUERY_KEYS.appSettings,
     queryFn: settingsApi.get,
     enabled: open,
   })
@@ -183,7 +183,7 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
   const patchSettingsMut = useMutation({
     mutationFn: (patch: Partial<AppSettings>) => settingsApi.patch(patch),
     onSuccess: (updated) => {
-      queryClient.setQueryData(['app-settings'], updated)
+      queryClient.setQueryData(QUERY_KEYS.appSettings, updated)
     },
   })
 

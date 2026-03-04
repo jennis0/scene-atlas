@@ -5,6 +5,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { tagApi, searchApi } from '@/lib/api'
+import { QUERY_KEYS, invalidateTagQueries } from '@/lib/queryKeys'
 import { useJobPolling } from '@/hooks/useJobPolling'
 import {
   PALETTE_KEYS,
@@ -72,22 +73,21 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
   })
 
   const { data: categories = [], isLoading } = useQuery({
-    queryKey: ['tagCategories'],
+    queryKey: QUERY_KEYS.tagCategories,
     queryFn: tagApi.getCategories,
     staleTime: 30_000,
     enabled: open,
   })
 
   const { data: facets } = useQuery({
-    queryKey: ['searchFacets'],
+    queryKey: QUERY_KEYS.searchFacets,
     queryFn: searchApi.facets,
     staleTime: 60_000,
     enabled: open,
   })
 
   const invalidate = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ['tagCategories'] })
-    queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
+    invalidateTagQueries(queryClient)
   }, [queryClient])
 
   useEffect(() => {

@@ -1,6 +1,7 @@
 import { createContext, useContext, useMemo, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { tagApi } from '@/lib/api'
+import { QUERY_KEYS } from '@/lib/queryKeys'
 import { useTheme } from '@/contexts/ThemeContext'
 import { getTagColor } from '@/components/import/tagColors'
 import type { TagColor } from '@/components/import/tagColors'
@@ -13,7 +14,7 @@ const TagColorContext = createContext<CategoryColorMap>(new Map())
 
 export function TagColorProvider({ children }: { children: React.ReactNode }) {
   const { data: categories } = useQuery({
-    queryKey: ['tagCategories'],
+    queryKey: QUERY_KEYS.tagCategories,
     queryFn: tagApi.getCategories,
     staleTime: 5 * 60 * 1000,
   })
