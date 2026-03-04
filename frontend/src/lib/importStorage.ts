@@ -36,6 +36,11 @@ export interface ImportJobIndexEntry {
   completedGroups: number
   failedGroups: number
   hasRunningGroups: boolean
+  /** Upload progress — only present while files are being uploaded. */
+  uploadFilesTotal?: number
+  uploadFilesUploaded?: number
+  uploadBytesTotal?: number
+  uploadBytesUploaded?: number
 }
 
 export interface ImportJobsIndex {
@@ -225,6 +230,50 @@ function updateIndex(jobId: string, entry: PersistedImportJob): void {
   }
 
   try {
+    localStorage.setItem(INDEX_KEY, JSON.stringify(index))
+  } catch {
+    // ignore
+  }
+}
+
+/** Update upload progress fields in the index entry (lightweight — no full save). */
+export function updateUploadProgress(
+  jobId: string,
+  progress: {
+    filesUploaded: number
+    filesTotal: number
+    bytesUploaded: number
+    bytesTotal: number
+  },
+): void {
+  try {
+    const raw = localStorage.getItem(INDEX_KEY)
+    if (!raw) return
+    const index: ImportJobsIndex = JSON.parse(raw)
+    const entry = index.jobs.find((j) => j.jobId === jobId)
+    if (!entry) return
+    entry.uploadFilesTotal = progress.filesTotal
+    entry.uploadFilesUploaded = progress.filesUploaded
+    entry.uploadBytesTotal = progress.bytesTotal
+    entry.uploadBytesUploaded = progress.bytesUploaded
+    localStorage.setItem(INDEX_KEY, JSON.stringify(index))
+  } catch {
+    // ignore
+  }
+}
+
+/** Clear upload progress fields from the index entry. */
+export function clearUploadProgress(jobId: string): void {
+  try {
+    const raw = localStorage.getItem(INDEX_KEY)
+    if (!raw) return
+    const index: ImportJobsIndex = JSON.parse(raw)
+    const entry = index.jobs.find((j) => j.jobId === jobId)
+    if (!entry) return
+    delete entry.uploadFilesTotal
+    delete entry.uploadFilesUploaded
+    delete entry.uploadBytesTotal
+    delete entry.uploadBytesUploaded
     localStorage.setItem(INDEX_KEY, JSON.stringify(index))
   } catch {
     // ignore

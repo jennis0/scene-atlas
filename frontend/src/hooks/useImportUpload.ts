@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { filterByMagicBytes } from '@/lib/mimeCheck'
-import { removeImportState } from '@/lib/importStorage'
+import { removeImportState, updateUploadProgress, clearUploadProgress } from '@/lib/importStorage'
 import { importApi } from '@/lib/api'
 import { resolveApiUrl } from '@/lib/apiBase'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
@@ -215,6 +215,7 @@ export function useImportUpload({
 
           let bytesUploadedSoFar = 0
           let filesUploadedSoFar = 0
+          let lastProgressSave = 0
 
           for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
             const batch = batches[batchIdx]
@@ -228,11 +229,12 @@ export function useImportUpload({
                   batch.relativePaths,
                   (event) => {
                     const loaded = event.loaded ?? 0
+                    const bytesUploaded = bytesUploadedSoFar + loaded
                     setUploadProgress({
                       phase: 'uploading',
                       filesUploaded: filesUploadedSoFar,
                       filesTotal: uploadFiles.length,
-                      bytesUploaded: bytesUploadedSoFar + loaded,
+                      bytesUploaded,
                       bytesTotal: totalBytesToUpload,
                       currentBatch: batchIdx + 1,
                       totalBatches: batches.length,
@@ -240,6 +242,17 @@ export function useImportUpload({
                       currentBatchTotal: event.total ?? batchTotalBytes,
                       startTime,
                     })
+                    // Throttle localStorage updates to ~2s to avoid thrashing
+                    const now = Date.now()
+                    if (now - lastProgressSave > 2000) {
+                      lastProgressSave = now
+                      updateUploadProgress(earlyJobId, {
+                        filesUploaded: filesUploadedSoFar,
+                        filesTotal: uploadFiles.length,
+                        bytesUploaded,
+                        bytesTotal: totalBytesToUpload,
+                      })
+                    }
                   },
                 )
                 break // success — exit retry loop
@@ -258,6 +271,7 @@ export function useImportUpload({
         }
 
         // ── Phase 4: Analyse all staged files ─────────────────────
+        clearUploadProgress(earlyJobId)
         setUploadPhase('Analysing\u2026')
         setUploadProgress(null)
         const response: ImportUploadResponse = await importApi.analyse(

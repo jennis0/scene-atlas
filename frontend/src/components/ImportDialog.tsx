@@ -64,6 +64,16 @@ export function ImportDialog({
     onJobIdChangeRef.current?.(jobId)
   }, [jobId])
 
+  // Auto-close when processing starts — ActivityDock tracks progress from here.
+  const onOpenChangeRef = useRef(onOpenChange)
+  onOpenChangeRef.current = onOpenChange
+  useEffect(() => {
+    if (state === 'processing') {
+      s.persistence.saveNow()
+      onOpenChangeRef.current(false)
+    }
+  }, [state, s.persistence])
+
   const { groups } = s.files
   const totalProcessed = groups.reduce((sum, g) => sum + g.processed, 0)
 

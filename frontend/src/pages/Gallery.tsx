@@ -277,11 +277,12 @@ export function Gallery() {
             // - active: shows pending group stubs + any already-completed groups
             // - completed/awaiting_input: all groups load immediately, no stubs
             dialogs.setImportLiveJobId(jobId)
-          } else if (job?.status === 'staging' || job?.status === 'uploading') {
-            // Only reconnect jobs that are genuinely resumable via the ImportDialog.
-            // Terminal jobs (cancelled, expired) are not reopenable.
+          } else if (job?.status === 'staging') {
             dialogs.openImportDialog(jobId)
           }
+          // 'uploading' jobs are not clickable — upload progress is shown
+          // directly in the ActivityDock card. The upload state (XHR handles,
+          // file data) is ephemeral and can't be restored in a new dialog.
         }}
         onDismissJob={activeImports.dismissJob}
         onCancelJob={activeImports.cancelJob}

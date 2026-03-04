@@ -193,8 +193,8 @@ function localToActiveJob(entry: ImportJobIndexEntry): ActiveImportJob {
     failedGroups: entry.failedGroups,
     runningGroups: entry.hasRunningGroups ? 1 : 0,
     pendingGroups: entry.pendingGroups,
-    totalFiles: 0,
-    processedFiles: 0,
+    totalFiles: entry.uploadFilesTotal ?? 0,
+    processedFiles: entry.uploadFilesUploaded ?? 0,
     createdAt: entry.createdAt,
     localOnly: true,
   }
@@ -247,6 +247,11 @@ function mergeJobs(
       // If localStorage has more groups (e.g. from analysis), update total
       if (entry.totalGroups > existing.totalGroups) {
         existing.totalGroups = entry.totalGroups
+      }
+      // Supplement upload progress from localStorage (backend doesn't track upload progress)
+      if (existing.status === 'uploading' && entry.uploadFilesTotal) {
+        existing.totalFiles = entry.uploadFilesTotal
+        existing.processedFiles = entry.uploadFilesUploaded ?? 0
       }
     } else {
       // Only in localStorage (not yet confirmed to backend)

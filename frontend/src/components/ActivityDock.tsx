@@ -534,7 +534,13 @@ function JobStatusIcon({ status }: { status: BackgroundJob['status'] }) {
 function ImportStatusText({ job }: { job: ActiveImportJob }) {
   switch (job.status) {
     case 'uploading':
-      return <span>Uploading…</span>
+      return (
+        <span>
+          {job.totalFiles > 0
+            ? `Uploading ${job.processedFiles} of ${job.totalFiles} file${job.totalFiles !== 1 ? 's' : ''}`
+            : 'Uploading…'}
+        </span>
+      )
     case 'staging':
       return (
         <span>

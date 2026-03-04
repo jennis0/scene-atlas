@@ -40,7 +40,7 @@ export interface UseGalleryDialogsReturn {
   importDialogJobId: string | null
   setImportDialogJobId: (id: string | null) => void
   importDialogKey: number
-  openImportDialog: (jobId?: string) => void
+  openImportDialog: (jobId?: string, options?: { noRemount?: boolean }) => void
   setMountedImportJob: (id: string | null) => void
 
   // Tag management dialog
@@ -140,7 +140,7 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
     }
   }, [deleteConfirmGroup, invalidateGallery])
 
-  const openImportDialog = useCallback((jobId?: string) => {
+  const openImportDialog = useCallback((jobId?: string, options?: { noRemount?: boolean }) => {
     const target = jobId ?? 'new'
     if (target !== 'new' && target === mountedImportJobRef.current) {
       // Same job already mounted — just re-show without remounting.
@@ -148,6 +148,9 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
       setImportDialogJobId(target)
       return
     }
+    // Caller can opt out of remounting (e.g. for uploading jobs where
+    // upload state can't be restored from scratch).
+    if (options?.noRemount) return
     setImportDialogKey((k) => k + 1)
     setImportDialogJobId(target)
   }, [])
