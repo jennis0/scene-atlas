@@ -8,7 +8,7 @@ import threading
 import traceback
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
@@ -16,6 +16,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from .api import export, groups, images, imports, jobs, search, system, tags
 from .api import settings as settings_api
+from .api.dependencies import verify_auth
 from .config import settings
 from .logging_config import setup_logging
 from .models import (
@@ -103,6 +104,8 @@ async def lifespan(app: FastAPI):
         logger.info("Scheduler started")
 
     logger.info("Server ready on %s:%s", settings.api_host, settings.api_port)
+    if settings.auth_token:
+        logger.info("Bearer token authentication is enabled")
     # Signal to desktop shell (Electron) that the backend is ready.
     # CLIP is still loading in the background — the app is usable immediately;
     # searches with a query will wait for CLIP; empty queries use SQL only.
@@ -191,16 +194,40 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(SecurityHeadersMiddleware)
 
-# Include API routers
-app.include_router(images.router, prefix=f"{settings.api_prefix}/images", tags=["images"])
-app.include_router(search.router, prefix=f"{settings.api_prefix}/search", tags=["search"])
-app.include_router(tags.router, prefix=f"{settings.api_prefix}/tags", tags=["tags"])
-app.include_router(imports.router, prefix=f"{settings.api_prefix}/imports", tags=["imports"])
-app.include_router(groups.router, prefix=f"{settings.api_prefix}/groups", tags=["groups"])
-app.include_router(jobs.router, prefix=f"{settings.api_prefix}/jobs", tags=["jobs"])
-app.include_router(export.router, prefix=f"{settings.api_prefix}/export", tags=["export"])
-app.include_router(system.router, prefix=f"{settings.api_prefix}/system", tags=["system"])
-app.include_router(settings_api.router, prefix=f"{settings.api_prefix}/settings", tags=["settings"])
+# Include API routers — all protected by bearer-token auth when AUTH_TOKEN is set.
+# /health and / root are NOT in routers and stay unauthenticated (monitoring probes).
+_auth = [Depends(verify_auth)]
+
+app.include_router(
+    images.router, prefix=f"{settings.api_prefix}/images", tags=["images"], dependencies=_auth
+)
+app.include_router(
+    search.router, prefix=f"{settings.api_prefix}/search", tags=["search"], dependencies=_auth
+)
+app.include_router(
+    tags.router, prefix=f"{settings.api_prefix}/tags", tags=["tags"], dependencies=_auth
+)
+app.include_router(
+    imports.router, prefix=f"{settings.api_prefix}/imports", tags=["imports"], dependencies=_auth
+)
+app.include_router(
+    groups.router, prefix=f"{settings.api_prefix}/groups", tags=["groups"], dependencies=_auth
+)
+app.include_router(
+    jobs.router, prefix=f"{settings.api_prefix}/jobs", tags=["jobs"], dependencies=_auth
+)
+app.include_router(
+    export.router, prefix=f"{settings.api_prefix}/export", tags=["export"], dependencies=_auth
+)
+app.include_router(
+    system.router, prefix=f"{settings.api_prefix}/system", tags=["system"], dependencies=_auth
+)
+app.include_router(
+    settings_api.router,
+    prefix=f"{settings.api_prefix}/settings",
+    tags=["settings"],
+    dependencies=_auth,
+)
 
 
 @app.get("/")
