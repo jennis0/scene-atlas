@@ -43,21 +43,11 @@ def _load_alias_vocab(db: Session) -> tuple[dict[str, str], dict[str, set[str]]]
             logger.warning("Invalid common_values JSON for category '%s'", cat.name)
             continue
 
-        for entry in values:
-            if isinstance(entry, str):
-                canonical = entry.lower()
-                vocab[canonical] = canonical
-                reverse.setdefault(canonical, set()).add(canonical)
-            elif isinstance(entry, dict):
-                canonical = entry.get("value", "").lower()
-                if not canonical:
-                    continue
-                vocab[canonical] = canonical
-                reverse.setdefault(canonical, set()).add(canonical)
-                for alias in entry.get("aliases", []):
-                    al = alias.lower()
-                    vocab[al] = canonical
-                    reverse.setdefault(canonical, set()).add(al)
+        from .image_parser import parse_tag_vocab_entries
+
+        for alias, canonical in parse_tag_vocab_entries(values).items():
+            vocab[alias] = canonical
+            reverse.setdefault(canonical, set()).add(alias)
 
     return vocab, reverse
 

@@ -51,28 +51,29 @@ async def get_search_facets(db: Session = Depends(get_db)):
     for cat, val, count in tag_rows:
         tags_by_category.setdefault(cat, []).append({"value": val, "count": count})
 
-    # Grid state counts
-    gridded_count = (
-        db.query(func.count(Image.id)).filter(reviewed, Image.gridded.is_(True)).scalar() or 0
+    # Grid state counts — one GROUP BY query instead of five COUNT queries
+    grid_rows = (
+        db.query(Image.gridded, Image.grid_type, func.count(Image.id))
+        .filter(reviewed)
+        .group_by(Image.gridded, Image.grid_type)
+        .all()
     )
-    gridless_count = (
-        db.query(func.count(Image.id)).filter(reviewed, Image.gridded.is_(False)).scalar() or 0
-    )
-    unknown_count = (
-        db.query(func.count(Image.id)).filter(reviewed, Image.gridded.is_(None)).scalar() or 0
-    )
-    square_count = (
-        db.query(func.count(Image.id))
-        .filter(reviewed, Image.gridded.is_(True), Image.grid_type == "square")
-        .scalar()
-        or 0
-    )
-    hex_count = (
-        db.query(func.count(Image.id))
-        .filter(reviewed, Image.gridded.is_(True), Image.grid_type == "hex")
-        .scalar()
-        or 0
-    )
+    gridded_count = 0
+    gridless_count = 0
+    unknown_count = 0
+    square_count = 0
+    hex_count = 0
+    for gridded_val, grid_type_val, cnt in grid_rows:
+        if gridded_val is True:
+            gridded_count += cnt
+            if grid_type_val == "square":
+                square_count += cnt
+            elif grid_type_val == "hex":
+                hex_count += cnt
+        elif gridded_val is False:
+            gridless_count += cnt
+        else:
+            unknown_count += cnt
 
     # Top 50 colors by distinct image count
     colors = (

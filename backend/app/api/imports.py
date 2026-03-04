@@ -22,7 +22,6 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..models import (
     Image,
-    ImageGroup,
     ImportGroupJob,
     ImportJob,
 )
@@ -44,28 +43,20 @@ from ..models.schemas import (
     ManifestEntry,
 )
 from ..services.app_settings import get_settings as get_app_settings
+from ..services.deletion_service import cleanup_import_images as _cleanup_import_images
 from ..services.import_state import GROUP_TERMINAL_STATUSES
 from ..services.job_runner import get_job_runner
+from ..services.staging import (
+    FILE_MAP_NAME as _FILE_MAP_NAME,
+)
+from ..services.staging import (
+    load_file_map as _load_file_map,
+)
+from ..services.staging import (
+    save_file_map as _save_file_map,
+)
 from ..services.validation import check_zip_safety, verify_media_mime
 from .dependencies import get_db
-
-_FILE_MAP_NAME = ".file_map.json"
-
-
-def _load_file_map(staging_dir: Path) -> dict[str, str]:
-    """Load the relative_path → staging_key mapping from the staging dir."""
-    map_path = staging_dir / _FILE_MAP_NAME
-    if map_path.exists():
-        with open(map_path) as f:
-            return json.load(f)
-    return {}
-
-
-def _save_file_map(staging_dir: Path, file_map: dict[str, str]) -> None:
-    """Persist the relative_path → staging_key mapping."""
-    map_path = staging_dir / _FILE_MAP_NAME
-    with open(map_path, "w") as f:
-        json.dump(file_map, f)
 
 
 class ImportConfirmAllRequest(BaseModel):
@@ -860,6 +851,7 @@ async def get_active_imports(db: Session = Depends(get_db)):
     Returns staging/active/awaiting_input jobs and recently-completed ones
     (within 1 hour). Status is authoritative from the ImportJob table.
     """
+    from collections import defaultdict
     from datetime import timedelta
 
     cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=1)
@@ -872,26 +864,40 @@ async def get_active_imports(db: Session = Depends(get_db)):
         .order_by(ImportJob.created_at.desc())
         .all()
     )
+    if not all_jobs:
+        return ActiveImportsResponse(jobs=[])
+
+    all_job_ids = [j.id for j in all_jobs]
+
+    # Batch query: all group jobs for all relevant jobs (avoids N per-job queries)
+    groups_by_job: dict[str, list] = defaultdict(list)
+    for grp in db.query(ImportGroupJob).filter(ImportGroupJob.job_id.in_(all_job_ids)).all():
+        groups_by_job[grp.job_id].append(grp)
+
+    # Batch query: which completed jobs still have unreviewed images
+    jobs_with_unreviewed = {
+        row[0]
+        for row in db.query(Image.import_job_id)
+        .filter(
+            Image.import_job_id.in_(all_job_ids),
+            Image.needs_review.is_(True),
+        )
+        .distinct()
+        .all()
+    }
 
     summaries = []
+    # Status is authoritative from DB — no derivation needed.
+    # Note: 'broken' is intentionally absent — broken jobs always appear in the
+    # ActivityDock until the user explicitly cancels/cleans them up.
+    truly_terminal = {"completed", "failed", "cancelled", "expired"}
     for job in all_jobs:
-        groups = db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job.id).all()
-
-        # Status is authoritative from DB — no derivation needed.
-        # Note: 'broken' is intentionally absent — broken jobs always appear in the
-        # ActivityDock until the user explicitly cancels/cleans them up.
-        truly_terminal = {"completed", "failed", "cancelled", "expired"}
+        groups = groups_by_job[job.id]
         if job.status in truly_terminal:
             if job.status == "completed":
                 # Completed jobs with unreviewed images persist indefinitely so the
                 # user can find and review them via the ActivityDock.
-                has_unreviewed = (
-                    db.query(Image)
-                    .filter(Image.import_job_id == job.id, Image.needs_review == True)  # noqa: E712
-                    .first()
-                    is not None
-                )
-                if not has_unreviewed:
+                if job.id not in jobs_with_unreviewed:
                     if job.completed_at is None or job.completed_at < cutoff:
                         continue
             else:
@@ -1026,77 +1032,6 @@ async def finalize_import(job_id: str, db: Session = Depends(get_db)):
         "Import job %s finalized as '%s' (staging_cleaned=%s)", job_id, job.status, staging_cleaned
     )
     return {"status": job.status, "staging_cleaned": staging_cleaned, "already_terminal": False}
-
-
-def _cleanup_import_images(job_id: str, db: Session) -> int:
-    """Delete all Image rows created by this import job.
-
-    For each image, checks if its storage_key is shared with other Image rows.
-    If not shared, deletes the physical file and thumbnail from disk.
-    Also removes embeddings from Qdrant (best-effort) and deletes now-empty
-    ImageGroups that were created by this import.
-
-    Returns the count of Image rows deleted.
-    """
-    from ..services import get_image_store, get_thumbnail_store
-    from ..services.qdrant_service import get_qdrant_service
-
-    images = db.query(Image).filter(Image.import_job_id == job_id).all()
-    if not images:
-        return 0
-
-    image_store = get_image_store()
-    thumbnail_store = get_thumbnail_store()
-    qdrant = get_qdrant_service()
-    deleted_count = 0
-    image_ids_to_delete = []
-    group_ids_to_check = set()
-
-    for image in images:
-        image_ids_to_delete.append(image.id)
-        if image.group_id:
-            group_ids_to_check.add(image.group_id)
-
-        # Only delete physical files when no other Image row shares this storage_key
-        sibling_count = (
-            db.query(Image)
-            .filter(Image.storage_key == image.storage_key, Image.id != image.id)
-            .count()
-        )
-        if sibling_count == 0:
-            if image.storage_key:
-                image_store.delete(image.storage_key)
-            if image.thumbnail_key:
-                thumbnail_store.delete(image.thumbnail_key)
-
-        db.delete(image)
-        deleted_count += 1
-
-    # Remove Qdrant embeddings (best-effort, non-fatal)
-    if image_ids_to_delete:
-        try:
-            qdrant.delete_embeddings(image_ids_to_delete)
-        except Exception:
-            logger.warning("Qdrant cleanup failed for job %s (non-fatal)", job_id, exc_info=True)
-
-    db.flush()
-
-    # Delete now-empty ImageGroups that were created by this import
-    group_job_rows = (
-        db.query(ImportGroupJob.created_group_id)
-        .filter(ImportGroupJob.job_id == job_id, ImportGroupJob.created_group_id.isnot(None))
-        .all()
-    )
-    created_group_ids = {row[0] for row in group_job_rows}
-
-    for group_id in created_group_ids & group_ids_to_check:
-        remaining = db.query(Image).filter(Image.group_id == group_id).count()
-        if remaining == 0:
-            grp = db.query(ImageGroup).filter(ImageGroup.id == group_id).first()
-            if grp:
-                db.delete(grp)
-
-    return deleted_count
 
 
 @router.post("/{job_id}/cancel")

@@ -22,6 +22,23 @@ from .dependencies import get_db
 router = APIRouter()
 
 
+def _cascade_tag_change(db: Session, affected_image_ids: list[int]) -> None:
+    """Reload affected images and rebuild their FTS search text + invalidate alias cache."""
+    from ..services.fts_service import invalidate_alias_cache, rebuild_search_text
+
+    if affected_image_ids:
+        db.expire_all()
+        affected_imgs = (
+            db.query(Image)
+            .options(subqueryload(Image.tags))
+            .filter(Image.id.in_(affected_image_ids))
+            .all()
+        )
+        for img in affected_imgs:
+            rebuild_search_text(img, db)
+    invalidate_alias_cache()
+
+
 # ── Tag Categories ────────────────────────────────────────────────────────────
 
 
@@ -119,25 +136,11 @@ async def delete_tag_category(category_name: str, db: Session = Depends(get_db))
         for row in db.query(Tag.image_id).filter(Tag.category == category_name).distinct().all()
     ]
 
-    from ..services.fts_service import invalidate_alias_cache, rebuild_search_text
-
     deleted_tags = (
         db.query(Tag).filter(Tag.category == category_name).delete(synchronize_session=False)
     )
     db.delete(category)
-
-    if affected_image_ids:
-        db.expire_all()  # clear stale tag objects left by synchronize_session=False
-        affected_imgs = (
-            db.query(Image)
-            .options(subqueryload(Image.tags))
-            .filter(Image.id.in_(affected_image_ids))
-            .all()
-        )
-        for img in affected_imgs:
-            rebuild_search_text(img, db)
-
-    invalidate_alias_cache()
+    _cascade_tag_change(db, affected_image_ids)
     db.commit()
 
     return {
@@ -236,24 +239,10 @@ async def rename_tag_value(
         .all()
     ]
 
-    from ..services.fts_service import invalidate_alias_cache, rebuild_search_text
-
     db.query(Tag).filter(Tag.category == category_name, Tag.value == tag_name).update(
         {Tag.value: new_value}, synchronize_session=False
     )
-
-    if affected_image_ids:
-        db.expire_all()  # clear stale tag objects left by synchronize_session=False
-        affected_imgs = (
-            db.query(Image)
-            .options(subqueryload(Image.tags))
-            .filter(Image.id.in_(affected_image_ids))
-            .all()
-        )
-        for img in affected_imgs:
-            rebuild_search_text(img, db)
-
-    invalidate_alias_cache()
+    _cascade_tag_change(db, affected_image_ids)
     db.commit()
     db.refresh(category)
     return {
@@ -289,26 +278,12 @@ async def delete_tag_value(category_name: str, tag_name: str, db: Session = Depe
         .all()
     ]
 
-    from ..services.fts_service import invalidate_alias_cache, rebuild_search_text
-
     deleted_tags = (
         db.query(Tag)
         .filter(Tag.category == category_name, Tag.value == tag_name)
         .delete(synchronize_session=False)
     )
-
-    if affected_image_ids:
-        db.expire_all()  # clear stale tag objects left by synchronize_session=False
-        affected_imgs = (
-            db.query(Image)
-            .options(subqueryload(Image.tags))
-            .filter(Image.id.in_(affected_image_ids))
-            .all()
-        )
-        for img in affected_imgs:
-            rebuild_search_text(img, db)
-
-    invalidate_alias_cache()
+    _cascade_tag_change(db, affected_image_ids)
     db.commit()
     return {
         "message": f"Tag '{tag_name}' deleted from '{category_name}'",

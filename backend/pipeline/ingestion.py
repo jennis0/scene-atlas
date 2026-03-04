@@ -40,6 +40,9 @@ from backend.app.services import (
 )
 from backend.app.services.fts_service import fts_rebuild
 from backend.app.services.image_parser import build_search_text
+from backend.app.services.staging import (
+    load_file_map as _load_file_map,
+)
 
 from .error_classifier import classify_ingest_error
 from .pipeline_config import PipelineConfig, load_pipeline_config
@@ -47,18 +50,6 @@ from .tasks.embedding_generation import (
     batch_generate_clip_embeddings,
     generate_clip_embedding,
 )
-
-_FILE_MAP_NAME = ".file_map.json"
-
-
-def _load_file_map(staging_dir: Path) -> dict[str, str]:
-    """Load the relative_path → staging_key mapping from a staging dir."""
-    map_path = staging_dir / _FILE_MAP_NAME
-    if map_path.exists():
-        with open(map_path) as f:
-            return json.load(f)
-    return {}
-
 
 # ---------------------------------------------------------------------------
 # Helper: Build parser with tag vocabulary
@@ -92,11 +83,14 @@ def _compute_file_hash(file_path: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _save_image_to_db(db: Session, image_data: dict) -> int:
+def _save_image_to_db(db: Session, image_data: dict, group: ImageGroup | None = None) -> int:
     """Save one image and its tags/colors to the database within an existing session.
 
     Always creates a new record (never updates an existing one by storage_key,
     since multiple records can now share the same storage_key for dedup).
+
+    If `group` is provided it is used directly, skipping the ImageGroup SELECT.
+    Pass a pre-resolved group from batch_save_to_database to avoid N+1 queries.
 
     Returns the image ID. Does NOT commit — caller must commit.
     """
@@ -131,18 +125,20 @@ def _save_image_to_db(db: Session, image_data: dict) -> int:
     db.add(image)
     db.flush()
 
-    # Handle group
+    # Handle group — use pre-resolved group if caller provided one (avoids N+1)
     group_name = image_data.get("group_name")
     author = image_data.get("author")
     if group_name:
-        grp = (
-            db.query(ImageGroup)
-            .filter(
-                ImageGroup.base_name == group_name,
-                ImageGroup.author == author,
+        grp = group
+        if grp is None:
+            grp = (
+                db.query(ImageGroup)
+                .filter(
+                    ImageGroup.base_name == group_name,
+                    ImageGroup.author == author,
+                )
+                .first()
             )
-            .first()
-        )
         if not grp:
             grp = ImageGroup(base_name=group_name, author=author)
             db.add(grp)
@@ -560,8 +556,30 @@ def batch_save_to_database(image_data_list: list[dict]) -> list[int]:
     try:
         with SessionLocal() as db, db.begin():
             image_ids = []
+            # Resolve the group once for the whole batch (all images share the same group)
+            resolved_group: ImageGroup | None = None
+            if image_data_list:
+                first = image_data_list[0]
+                group_name = first.get("group_name")
+                author = first.get("author")
+                if group_name:
+                    resolved_group = (
+                        db.query(ImageGroup)
+                        .filter(
+                            ImageGroup.base_name == group_name,
+                            ImageGroup.author == author,
+                        )
+                        .first()
+                    )
             for image_data in image_data_list:
-                image_id = _save_image_to_db(db, image_data)
+                image_id = _save_image_to_db(db, image_data, group=resolved_group)
+                # If the group was just created by the first image, cache it for the rest
+                if resolved_group is None and image_id:
+                    saved = db.query(Image).filter(Image.id == image_id).first()
+                    if saved and saved.group_id:
+                        resolved_group = (
+                            db.query(ImageGroup).filter(ImageGroup.id == saved.group_id).first()
+                        )
                 image_ids.append(image_id)
         logger.info("Batch saved %s images to database", len(image_ids))
         return image_ids
@@ -684,31 +702,34 @@ def _process_batch(
                 if prep.get("clip_image_path"):
                     Path(prep["clip_image_path"]).unlink(missing_ok=True)
 
-    # --- Reuse images: retrieve existing embeddings from Qdrant ---
-    for prep in reuse_images:
-        source_id = prep["reuse_embedding_from"]
-        embedding = get_qdrant_service().get_embedding(source_id)
-        if embedding:
-            prep["embedding"] = embedding
-        else:
-            # Fallback: generate from the stored file
-            logger.warning(
-                "Could not retrieve embedding for source image %s, generating from stored file",
-                source_id,
-            )
-            stored_path = get_image_store().get_path(prep["image_data"]["storage_key"])
-            if stored_path.exists():
-                prep["embedding"] = generate_clip_embedding(str(stored_path))
+    # --- Reuse images: retrieve existing embeddings from Qdrant in one batch call ---
+    if reuse_images:
+        source_ids = [prep["reuse_embedding_from"] for prep in reuse_images]
+        embeddings_by_id = get_qdrant_service().get_embeddings(source_ids)
+        for prep in reuse_images:
+            source_id = prep["reuse_embedding_from"]
+            embedding = embeddings_by_id.get(source_id)
+            if embedding:
+                prep["embedding"] = embedding
             else:
-                logger.error("Stored file not found for reuse: %s", stored_path)
-                error_info = classify_ingest_error(
-                    FileNotFoundError(f"Stored file not found: {stored_path}"),
-                    stage="embedding",
+                # Fallback: generate from the stored file
+                logger.warning(
+                    "Could not retrieve embedding for source image %s, generating from stored file",
+                    source_id,
                 )
-                prep["status"] = "failed"
-                prep["error"] = error_info["reason"]
-                prep["error_info"] = error_info
-                batch_failed += 1
+                stored_path = get_image_store().get_path(prep["image_data"]["storage_key"])
+                if stored_path.exists():
+                    prep["embedding"] = generate_clip_embedding(str(stored_path))
+                else:
+                    logger.error("Stored file not found for reuse: %s", stored_path)
+                    error_info = classify_ingest_error(
+                        FileNotFoundError(f"Stored file not found: {stored_path}"),
+                        stage="embedding",
+                    )
+                    prep["status"] = "failed"
+                    prep["error"] = error_info["reason"]
+                    prep["error_info"] = error_info
+                    batch_failed += 1
 
     # Re-filter to only truly successful results
     all_successful = [r for r in successful if r["status"] == "success"]
@@ -1277,7 +1298,9 @@ def _finalize_import_job(job_id: str) -> None:
         if job.status == "cancelled":
             # Job was cancelled mid-flight — sweep for any images added after the
             # initial cancel (race condition: best-effort cleanup)
-            from backend.app.api.imports import _cleanup_import_images
+            from backend.app.services.deletion_service import (
+                cleanup_import_images as _cleanup_import_images,
+            )
 
             swept = _cleanup_import_images(job_id, db)
             if swept:
@@ -1311,7 +1334,9 @@ def _finalize_import_job(job_id: str) -> None:
             # than waiting for the user to call /finalize or the 48h expiry.
             if all_terminal and job.pending_groups == 0 and has_failures:
                 try:
-                    from backend.app.api.imports import _cleanup_import_images
+                    from backend.app.services.deletion_service import (
+                        cleanup_import_images as _cleanup_import_images,
+                    )
 
                     cleaned = _cleanup_import_images(job_id, db)
                     if cleaned:
@@ -1343,7 +1368,9 @@ def _finalize_import_job(job_id: str) -> None:
             # Wrapped in try/except so a cleanup failure never blocks the
             # status transition commit.
             try:
-                from backend.app.api.imports import _cleanup_import_images
+                from backend.app.services.deletion_service import (
+                    cleanup_import_images as _cleanup_import_images,
+                )
 
                 cleaned = _cleanup_import_images(job_id, db)
                 if cleaned:
