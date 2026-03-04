@@ -21,7 +21,7 @@
     ],
     "frontend/src/**/*.{ts,tsx}": [
       "npx --prefix frontend eslint --fix",
-      "npx --prefix frontend prettier --write"
+      "cd frontend && npx prettier --write ."
     ]
   },
   "devDependencies": {
