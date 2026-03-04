@@ -30,7 +30,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useTheme } from '@/contexts/ThemeContext'
 import { isApp } from '@/lib/appMode'
-import { RELEVANCE_MIN, RELEVANCE_MAX, RELEVANCE_STEP, relevanceToPercent } from '@/lib/constants'
+import { RELEVANCE_MIN, RELEVANCE_MAX, RELEVANCE_STEP, relevanceToPercent, MAX_SEARCH_LENGTH } from '@/lib/constants'
 import { SORT_OPTIONS } from '@/hooks/useGallerySearch'
 import type { UseGallerySearchReturn } from '@/hooks/useGallerySearch'
 import type { ImageTypeFilter } from '@/components/import/fileFilter'
@@ -231,6 +231,7 @@ export function GalleryHeader({
                 placeholder={`Search ${imageType === 'all' ? 'scenes' : imageType === 'battlemap' ? 'maps' : 'scenes'}\u2026  prefix ~ for visual, = for keyword`}
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
+                maxLength={MAX_SEARCH_LENGTH}
                 className="h-10 w-full pl-9 pr-8 rounded-r-none border-r-0 focus-visible:z-10"
               />
               {searchInput && (

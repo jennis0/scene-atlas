@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Upload, Mountain } from 'lucide-react'
 import { groupApi } from '@/lib/api'
+import { QUERY_KEYS, invalidateGalleryQueries } from '@/lib/queryKeys'
 import { ImageGrid } from '@/components/ImageGrid'
 import { GroupGrid } from '@/components/GroupGrid'
 import { ImageViewer } from '@/components/ImageViewer'
@@ -33,9 +34,7 @@ export function Gallery() {
   // Invalidate gallery queries and show review toast whenever a background import finishes
   useEffect(() => {
     return activeImports.onJobCompleted((job) => {
-      queryClient.invalidateQueries({ queryKey: ['images'] })
-      queryClient.invalidateQueries({ queryKey: ['search'] })
-      queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
+      invalidateGalleryQueries(queryClient)
 
       const groupCount = job.totalGroups
       const fileCount = job.totalFiles
@@ -317,8 +316,8 @@ export function Gallery() {
             await groupApi.merge(dialogs.mergeSourceGroup.groupId, targetGroup.id)
             // Await search refetch so stale group cards are removed before
             // the picker closes and the user can interact with the gallery.
-            await queryClient.refetchQueries({ queryKey: ['search'] })
-            queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
+            await queryClient.refetchQueries({ queryKey: QUERY_KEYS.search })
+            queryClient.invalidateQueries({ queryKey: QUERY_KEYS.searchFacets })
             dialogs.setMergeSourceGroup(null)
           } catch (err) {
             console.error('Failed to merge groups:', err)

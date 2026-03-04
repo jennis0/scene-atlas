@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { MAX_NAME_LENGTH } from '@/lib/constants'
 
 interface SubgroupDropdownProps {
   /** Whether the dropdown is visible */
@@ -83,6 +84,7 @@ export function SubgroupDropdown({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="Rename…"
+            maxLength={MAX_NAME_LENGTH}
             autoFocus
             className="flex-1 min-w-0 h-6 px-2 text-[12px] bg-secondary border border-border rounded text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
             onKeyDown={(e) => {

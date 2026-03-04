@@ -5,6 +5,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { useImportState } from '@/hooks/useImportState'
 import { removeImportState } from '@/lib/importStorage'
 import { importApi } from '@/lib/api'
+import { invalidateGalleryQueries } from '@/lib/queryKeys'
 import { ImportUploadPane } from './import/ImportUploadPane'
 import { ImportDonePane } from './import/ImportDonePane'
 import type { EditableGroupState } from '@/types'
@@ -106,9 +107,7 @@ export function ImportDialog({
     // If done, clean up localStorage entry and invalidate queries
     if (state === 'done') {
       if (jobId) removeImportState(jobId)
-      queryClient.invalidateQueries({ queryKey: ['images'] })
-      queryClient.invalidateQueries({ queryKey: ['search'] })
-      queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
+      invalidateGalleryQueries(queryClient)
       reset()
       onOpenChange(false)
       return

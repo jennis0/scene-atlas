@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { searchApi } from '@/lib/api'
+import { QUERY_KEYS } from '@/lib/queryKeys'
 import { useImageGrouping } from '@/hooks/useImageGrouping'
 import type { Image, ImageGroup, SearchParams, SortBy, SortDir, ViewMode, FacetData } from '@/types'
 import type { ActiveFilter, ImageTypeFilter } from '@/components/import/fileFilter'
@@ -172,7 +173,7 @@ export function useGallerySearch(): UseGallerySearchReturn {
 
   // Facets -- lightweight cached fetch
   const { data: facets } = useQuery({
-    queryKey: ['searchFacets'],
+    queryKey: QUERY_KEYS.searchFacets,
     queryFn: () => searchApi.facets(),
     staleTime: 60_000,
   })
@@ -247,7 +248,7 @@ export function useGallerySearch(): UseGallerySearchReturn {
 
   // Search query -- always enabled, returns full library when no params
   const { data: searchResults, isLoading: isSearching } = useQuery({
-    queryKey: ['search', searchParams],
+    queryKey: [...QUERY_KEYS.search, searchParams],
     queryFn: () => searchApi.search(searchParams),
   })
 

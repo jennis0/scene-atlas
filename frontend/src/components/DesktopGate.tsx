@@ -28,7 +28,11 @@ export function DesktopGate({ children }: DesktopGateProps) {
     // Main process signals the backend is ready with its port
     window.electronAPI!.onBackendReady((port: number) => {
       if (cancelled) return
-      window.__SCENE_ATLAS_PORT__ = port
+      Object.defineProperty(window, '__SCENE_ATLAS_PORT__', {
+        value: port,
+        writable: false,
+        configurable: true,
+      })
       startRef.current = Date.now()
       setState({ phase: 'polling', port, elapsed: 0 })
 

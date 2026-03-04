@@ -8,6 +8,7 @@ import type { ActiveFilter } from '@/components/import/fileFilter'
 import type { FacetData } from '@/types'
 import { COLOR_FILTER_PALETTE } from '@/lib/colorPalette'
 import { tagApi } from '@/lib/api'
+import { QUERY_KEYS } from '@/lib/queryKeys'
 import { parseTagVocabulary } from '@/components/import/types'
 
 interface GalleryFilterPanelProps {
@@ -21,7 +22,7 @@ export function GalleryFilterPanel({ filters, facets, onFiltersChange }: Gallery
 
   // Re-uses the cached tagCategories query — no extra network request
   const { data: tagCategories } = useQuery({
-    queryKey: ['tagCategories'],
+    queryKey: QUERY_KEYS.tagCategories,
     queryFn: tagApi.getCategories,
     staleTime: 30_000,
   })

@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { groupApi } from '@/lib/api'
+import { QUERY_KEYS } from '@/lib/queryKeys'
 import type { Image, ImageGroup } from '@/types'
 
 // ---------------------------------------------------------------------------
@@ -106,8 +107,8 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
   displayImagesRef.current = displayImages
 
   const invalidateGallery = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ['search'] })
-    queryClient.invalidateQueries({ queryKey: ['searchFacets'] })
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.search })
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.searchFacets })
   }, [queryClient])
 
   const handleNext = useCallback(() => {
