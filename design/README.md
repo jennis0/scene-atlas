@@ -18,6 +18,7 @@ Architecture and design documentation for the Scene Atlas project. These documen
 | [import-state-machine.md](import-state-machine.md) | Import state machine — 8 statuses, transitions, frontend mapping |
 | [group-view.md](group-view.md) | Group view — hero+mosaic card layout for browsing by image group |
 | [visual-language.md](visual-language.md) | Visual design system — tokens, typography, components, patterns |
+| [code-quality-backlog.md](code-quality-backlog.md) | Deferred code quality items from the 2026-03-04 simplify pass |
 
 ## System Overview
 

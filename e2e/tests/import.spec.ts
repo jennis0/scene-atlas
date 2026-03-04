@@ -58,10 +58,9 @@ test.describe('Import flow', () => {
     const fileChooser = await fileChooserPromise
     await fileChooser.setFiles(testFile)
 
-    // Wait for upload and analysis to complete — should transition to preview
-    // The preview shows group names, file cards, and a confirm button
+    // Wait for upload and analysis to complete — auto-confirms and transitions to processing/done
     await expect(
-      page.getByText(/Confirm|Review|Import \d+/i),
+      page.getByText(/Processing\u2026|Import Complete/i),
     ).toBeVisible({ timeout: 30_000 })
   })
 })

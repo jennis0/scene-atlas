@@ -692,14 +692,18 @@ async def confirm_all_groups(
     groups_payload: list[dict] = []
     group_statuses: list[ImportGroupStatus] = []
     for group_req in body.groups:
-        valid_files = [
-            f.model_dump()
-            for f in group_req.files
-            if (
-                file_map.get(f.relative_path) and (staging_dir / file_map[f.relative_path]).exists()
-            )
-            or f.reuse_storage_key
-        ]
+        valid_files = []
+        for f in group_req.files:
+            staging_key = file_map.get(f.relative_path)
+            has_staged_file = staging_key and (staging_dir / staging_key).exists()
+            if has_staged_file or f.reuse_storage_key:
+                valid_files.append(f.model_dump())
+            else:
+                logger.warning(
+                    "File not found in staging and no reuse key: %s (group '%s')",
+                    f.relative_path,
+                    group_req.group_name,
+                )
         if not valid_files:
             logger.warning("No valid files for group '%s', skipping", group_req.group_name)
             continue
@@ -962,7 +966,7 @@ async def finalize_import(job_id: str, db: Session = Depends(get_db)):
     if not job:
         raise HTTPException(status_code=404, detail="Import job not found")
 
-    terminal = {"completed", "failed", "cancelled", "expired"}
+    terminal = {"completed", "failed", "cancelled", "expired", "broken"}
     if job.status in terminal:
         return {"status": job.status, "staging_cleaned": False, "already_terminal": True}
 

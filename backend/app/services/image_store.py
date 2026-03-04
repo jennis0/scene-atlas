@@ -73,10 +73,11 @@ class ImageStore:
             True if the file was deleted, False if it didn't exist
         """
         path = self._key_to_path(key)
-        if path.exists():
+        try:
             path.unlink()
             return True
-        return False
+        except FileNotFoundError:
+            return False
 
     @staticmethod
     def generate_key(original_filename: str) -> str:

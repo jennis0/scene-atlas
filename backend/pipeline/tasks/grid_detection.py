@@ -4,12 +4,9 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from backend.app.services.grid_detector import GridDetector
-
-if TYPE_CHECKING:
-    from backend.pipeline.pipeline_config import PipelineConfig
+from backend.pipeline.pipeline_config import PipelineConfig
 
 
 def detect_grid_from_image(
@@ -35,30 +32,16 @@ def detect_grid_from_image(
     logger = logging.getLogger(__name__)
 
     try:
-        if pipeline_config is not None:
-            detector = GridDetector(
-                min_cell_px=pipeline_config.grid_min_cell_px,
-                max_cell_px=pipeline_config.grid_max_cell_px,
-                max_dim=pipeline_config.grid_detection_max_dim,
-                presence_threshold=pipeline_config.grid_presence_threshold,
-                size_threshold=pipeline_config.grid_size_threshold,
-                period_ratio_threshold=pipeline_config.grid_period_ratio_threshold,
-                hex_rot_conf=pipeline_config.grid_hex_rot_conf,
-            )
-        else:
-            # Fallback: use PipelineConfig dataclass defaults
-            from backend.pipeline.pipeline_config import PipelineConfig
-
-            _defaults = PipelineConfig()
-            detector = GridDetector(
-                min_cell_px=_defaults.grid_min_cell_px,
-                max_cell_px=_defaults.grid_max_cell_px,
-                max_dim=_defaults.grid_detection_max_dim,
-                presence_threshold=_defaults.grid_presence_threshold,
-                size_threshold=_defaults.grid_size_threshold,
-                period_ratio_threshold=_defaults.grid_period_ratio_threshold,
-                hex_rot_conf=_defaults.grid_hex_rot_conf,
-            )
+        cfg = pipeline_config or PipelineConfig()
+        detector = GridDetector(
+            min_cell_px=cfg.grid_min_cell_px,
+            max_cell_px=cfg.grid_max_cell_px,
+            max_dim=cfg.grid_detection_max_dim,
+            presence_threshold=cfg.grid_presence_threshold,
+            size_threshold=cfg.grid_size_threshold,
+            period_ratio_threshold=cfg.grid_period_ratio_threshold,
+            hex_rot_conf=cfg.grid_hex_rot_conf,
+        )
 
         path = Path(image_path)
 

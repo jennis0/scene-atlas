@@ -243,6 +243,7 @@ async def edit_group(
         group.primary_image_id = remaining[0].id if remaining else None
 
     # 5. Create split-off groups
+    moving_image_map = {img.id: img for img in all_images if img.id in moving_ids}
     new_group_ids: list[int] = []
     for new_group_payload in payload.new_groups:
         new_group = ImageGroup(
@@ -252,7 +253,7 @@ async def edit_group(
         db.add(new_group)
         db.flush()  # get new_group.id
         for img_id in new_group_payload.image_ids:
-            image = db.query(Image).filter(Image.id == img_id).first()
+            image = moving_image_map.get(img_id)
             if image:
                 image.group_id = new_group.id
                 image.author = new_group_payload.author
@@ -424,12 +425,10 @@ async def confirm_review(
             detail=f"Too many group IDs: {len(payload.group_ids)}, limit is {app_settings.max_import_files}",
         )
 
-    images = (
+    updated = (
         db.query(Image)
         .filter(Image.group_id.in_(payload.group_ids), Image.needs_review.is_(True))
-        .all()
+        .update({"needs_review": False}, synchronize_session=False)
     )
-    for image in images:
-        image.needs_review = False
     db.commit()
-    return {"updated": len(images)}
+    return {"updated": updated}

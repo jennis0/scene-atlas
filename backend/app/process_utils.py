@@ -9,5 +9,5 @@ def get_rss_mb() -> float | None:
         import psutil
 
         return psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
-    except Exception:
+    except OSError:
         return None

@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 
 import cv2
 import numpy as np
 from sklearn.cluster import KMeans
 
-if TYPE_CHECKING:
-    from backend.pipeline.pipeline_config import PipelineConfig
+from backend.pipeline.pipeline_config import PipelineConfig
 
 
 def rgb_to_hex(rgb: tuple) -> str:
@@ -43,18 +41,10 @@ def extract_dominant_colors(
     """
     logger = logging.getLogger(__name__)
 
-    if pipeline_config is not None:
-        _num_colors = num_colors if num_colors is not None else pipeline_config.num_dominant_colors
-        _clustering_samples = pipeline_config.color_clustering_samples
-        _n_init = pipeline_config.color_kmeans_n_init
-    else:
-        # Fallback: use PipelineConfig dataclass defaults
-        from backend.pipeline.pipeline_config import PipelineConfig
-
-        _defaults = PipelineConfig()
-        _num_colors = num_colors if num_colors is not None else _defaults.num_dominant_colors
-        _clustering_samples = _defaults.color_clustering_samples
-        _n_init = _defaults.color_kmeans_n_init
+    cfg = pipeline_config or PipelineConfig()
+    _num_colors = num_colors if num_colors is not None else cfg.num_dominant_colors
+    _clustering_samples = cfg.color_clustering_samples
+    _n_init = cfg.color_kmeans_n_init
 
     try:
         # Read image

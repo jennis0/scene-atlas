@@ -1,5 +1,7 @@
 """Images API endpoints."""
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -11,6 +13,8 @@ from ..models import (
 )
 from ..services import get_image_store, get_thumbnail_store, safe_delete_image
 from .dependencies import get_db
+
+logger = logging.getLogger(__name__)
 
 
 class ImagePatch(BaseModel):
@@ -120,7 +124,12 @@ async def get_image_thumbnail(image_id: int, db: Session = Depends(get_db)):
         if thumbnail_path.exists():
             return FileResponse(thumbnail_path)
 
-    # Fallback to original image
+    # Fallback to original image — thumbnail missing or not yet generated
+    logger.warning(
+        "Thumbnail not found for image %d (key=%s), falling back to full-resolution",
+        image_id,
+        image.thumbnail_key,
+    )
     image_store = get_image_store()
     file_path = image_store.get_path(image.storage_key)
     if not file_path.exists():

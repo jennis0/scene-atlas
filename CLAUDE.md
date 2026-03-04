@@ -12,6 +12,8 @@ The tool has three deployment modes
 2. Running as a web server behind a reverse proxy. This is targeted at power users who want access to their maps, wherever they are, and potentially to sharing them with a small number of users
 3. Developers - who need to be able to run a fully local version with hot reload of both backend and frontend code.
 
+IMPORTANT: It must be possible to build on both windows and linux and run on Windows, Linux, and MacOS
+
 # Working Principles
 - Ignore anything in ./ignore
 - Store all architectural decisions, as well as detailed design notes, and any notes that should be left for future workers in markdown files in ./design. Keep these updated as you work
@@ -24,6 +26,7 @@ The tool has three deployment modes
 - When a feature request is particularly large, create a separate branch to work on it
 - Whenever a bug is found, if possible, write tests to prevent that class of bug from occuring again
 - After developing a feature, ensure you update the tests, add any news tests that would be useful, run all linting and formatting, and commit them with a useful commit message
+- When you write 75% usage, write a handover document with detailed information of what you've done and what still needs to be done that can be passed over to the next agent then stop
 
 # How to run
 - To run backend: uv run backend.app.main:app
