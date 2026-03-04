@@ -74,6 +74,10 @@ class Settings(BaseSettings):
         "http://localhost:5173",
         "http://localhost:8000",
     ]
+    # Auth — optional bearer token for server mode.
+    # Leave unset (default) for Electron/dev backwards compatibility.
+    # Generate with: uv run python -m backend.scripts.generate_token
+    auth_token: str | None = None
 
     # Import staging directory
     staging_dir: Path = data_dir / "staging"
