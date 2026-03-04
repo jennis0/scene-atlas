@@ -147,6 +147,7 @@ export async function seedTestData(imageDir: string): Promise<void> {
         processed_files?: number;
         failed_files?: number;
         groups?: {
+          group_id: number | null;
           group_name: string;
           status: string;
           processed_files: number;
@@ -181,6 +182,7 @@ export async function seedTestData(imageDir: string): Promise<void> {
   const groups =
     (finalStatusData.groups as
       | {
+          group_id: number | null;
           group_name: string;
           status: string;
           processed_files: number;
@@ -191,6 +193,31 @@ export async function seedTestData(imageDir: string): Promise<void> {
     console.log(
       `[seed]   Group "${g.group_name}": status=${g.status}, processed=${g.processed_files}, failed=${g.failed_files}`,
     );
+  }
+
+  // 6b. Confirm review — imported images have needs_review=True by default,
+  //     which hides them from search/facets. Clear the flag so they're visible.
+  const groupIds = groups
+    .map((g) => g.group_id)
+    .filter((id): id is number => id != null);
+  if (groupIds.length > 0) {
+    console.log(`[seed] Step 6b: Confirming review for group_ids: ${groupIds.join(", ")}...`);
+    const reviewRes = await fetch(
+      `${BACKEND_URL}/api/v1/groups/confirm-review`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ group_ids: groupIds }),
+      },
+    );
+    if (!reviewRes.ok) {
+      const body = await reviewRes.text();
+      throw new Error(`Confirm review failed: ${reviewRes.status} ${body}`);
+    }
+    const reviewBody = await reviewRes.json().catch(() => null);
+    console.log(`[seed] Confirm review response: ${JSON.stringify(reviewBody)}`);
+  } else {
+    console.log("[seed] Step 6b: No group_ids found — skipping confirm-review.");
   }
 
   // 7. Finalize the import
