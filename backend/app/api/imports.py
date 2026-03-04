@@ -46,26 +46,17 @@ from ..models.schemas import (
 from ..services.app_settings import get_settings as get_app_settings
 from ..services.import_state import GROUP_TERMINAL_STATUSES
 from ..services.job_runner import get_job_runner
+from ..services.staging import (
+    FILE_MAP_NAME as _FILE_MAP_NAME,
+)
+from ..services.staging import (
+    load_file_map as _load_file_map,
+)
+from ..services.staging import (
+    save_file_map as _save_file_map,
+)
 from ..services.validation import check_zip_safety, verify_media_mime
 from .dependencies import get_db
-
-_FILE_MAP_NAME = ".file_map.json"
-
-
-def _load_file_map(staging_dir: Path) -> dict[str, str]:
-    """Load the relative_path → staging_key mapping from the staging dir."""
-    map_path = staging_dir / _FILE_MAP_NAME
-    if map_path.exists():
-        with open(map_path) as f:
-            return json.load(f)
-    return {}
-
-
-def _save_file_map(staging_dir: Path, file_map: dict[str, str]) -> None:
-    """Persist the relative_path → staging_key mapping."""
-    map_path = staging_dir / _FILE_MAP_NAME
-    with open(map_path, "w") as f:
-        json.dump(file_map, f)
 
 
 class ImportConfirmAllRequest(BaseModel):

@@ -40,6 +40,9 @@ from backend.app.services import (
 )
 from backend.app.services.fts_service import fts_rebuild
 from backend.app.services.image_parser import build_search_text
+from backend.app.services.staging import (
+    load_file_map as _load_file_map,
+)
 
 from .error_classifier import classify_ingest_error
 from .pipeline_config import PipelineConfig, load_pipeline_config
@@ -47,18 +50,6 @@ from .tasks.embedding_generation import (
     batch_generate_clip_embeddings,
     generate_clip_embedding,
 )
-
-_FILE_MAP_NAME = ".file_map.json"
-
-
-def _load_file_map(staging_dir: Path) -> dict[str, str]:
-    """Load the relative_path → staging_key mapping from a staging dir."""
-    map_path = staging_dir / _FILE_MAP_NAME
-    if map_path.exists():
-        with open(map_path) as f:
-            return json.load(f)
-    return {}
-
 
 # ---------------------------------------------------------------------------
 # Helper: Build parser with tag vocabulary
