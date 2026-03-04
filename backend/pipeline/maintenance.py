@@ -203,12 +203,10 @@ def expire_stale_jobs(max_age_hours: int = 48) -> dict:
     """
     logger = logging.getLogger(__name__)
 
-    from backend.app.models import ImportGroupJob, ImportJob, get_engine, get_session_local
+    from backend.app.models import ImportGroupJob, ImportJob
+    from backend.pipeline.db import pipeline_db
 
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
-
-    with SessionLocal() as db:
+    with pipeline_db() as db:
         cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=max_age_hours)
         stale_statuses = {"staging", "active", "uploading", "awaiting_input"}
 
@@ -300,13 +298,12 @@ def mark_interrupted_jobs(db=None) -> int:
         Number of jobs marked as broken.
     """
     logger = logging.getLogger(__name__)
-    from backend.app.models import ImportGroupJob, ImportJob, get_engine, get_session_local
+    from backend.app.models import ImportGroupJob, ImportJob
+    from backend.pipeline.db import pipeline_db
 
-    own_session = db is None
-    if own_session:
-        engine = get_engine(settings.database_url)
-        SessionLocal = get_session_local(engine)
-        db = SessionLocal()
+    if db is None:
+        with pipeline_db() as own_db:
+            return mark_interrupted_jobs(own_db)
 
     try:
         interrupted_statuses = ("uploading", "staging", "active")
@@ -365,18 +362,11 @@ def mark_interrupted_jobs(db=None) -> int:
                     exc_info=True,
                 )
 
-        if own_session:
-            db.commit()
         return count
 
     except Exception:
-        if own_session:
-            db.rollback()
         logger.exception("Error marking interrupted import jobs")
         return 0
-    finally:
-        if own_session:
-            db.close()
 
 
 # ---------------------------------------------------------------------------
@@ -399,15 +389,14 @@ def sweep_orphaned_store_files() -> dict:
     """
     logger = logging.getLogger(__name__)
 
-    from backend.app.models import Image, get_engine, get_session_local
+    from backend.app.models import Image
     from backend.app.services import get_image_store, get_thumbnail_store
+    from backend.pipeline.db import pipeline_db
 
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
     orphaned_images = 0
     orphaned_thumbnails = 0
 
-    with SessionLocal() as db:
+    with pipeline_db() as db:
         # Load all known storage and thumbnail keys from the DB in one query each
         image_keys: set[str] = {
             row[0]
@@ -478,12 +467,11 @@ def check_qdrant_sync() -> dict:
     """
     logger = logging.getLogger(__name__)
 
-    from backend.app.models import Image, get_engine, get_session_local
+    from backend.app.models import Image
     from backend.app.services.qdrant_service import get_qdrant_service
+    from backend.pipeline.db import pipeline_db
 
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
-    with SessionLocal() as db:
+    with pipeline_db() as db:
         db_count: int = db.query(Image).count()
 
     try:
