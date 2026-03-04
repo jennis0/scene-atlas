@@ -30,7 +30,13 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useTheme } from '@/contexts/ThemeContext'
 import { isApp } from '@/lib/appMode'
-import { RELEVANCE_MIN, RELEVANCE_MAX, RELEVANCE_STEP, relevanceToPercent, MAX_SEARCH_LENGTH } from '@/lib/constants'
+import {
+  RELEVANCE_MIN,
+  RELEVANCE_MAX,
+  RELEVANCE_STEP,
+  relevanceToPercent,
+  MAX_SEARCH_LENGTH,
+} from '@/lib/constants'
 import { SORT_OPTIONS } from '@/hooks/useGallerySearch'
 import type { UseGallerySearchReturn } from '@/hooks/useGallerySearch'
 import type { ImageTypeFilter } from '@/components/import/fileFilter'
