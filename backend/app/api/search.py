@@ -5,7 +5,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, func, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, subqueryload
 
 from ..models import (
     Color,
@@ -14,7 +14,7 @@ from ..models import (
     Tag,
 )
 from ..services import get_clip_service, get_qdrant_service
-from ..services.fts_service import fts_search
+from ..services.fts_service import fts_search, get_alias_expansions
 from .dependencies import get_db
 
 router = APIRouter()
@@ -168,7 +168,14 @@ async def search_images(
         semantic_only = False
 
     # --- Build base SQL filter query ---
-    sql_query = db.query(Image)
+    # Use subqueryload (not joinedload) to avoid inflating rows when combined
+    # with .distinct() — joinedload uses LEFT OUTER JOIN which creates duplicate
+    # rows that break DISTINCT and pagination.
+    sql_query = db.query(Image).options(
+        subqueryload(Image.tags),
+        subqueryload(Image.colors),
+        joinedload(Image.group),
+    )
 
     if exclude_needs_review:
         sql_query = sql_query.filter(Image.needs_review.is_(False))
@@ -244,21 +251,24 @@ async def search_images(
         )
         return ImageSearchResponse(total=total, limit=limit, offset=offset, images=results)
 
-    # --- Hybrid search: run FTS5 and semantic in parallel ---
-    TEXT_BOOST = 0.15
+    # --- Hybrid search: FTS5, alias expansion, and CLIP semantic ---
     SEMANTIC_THRESHOLD = 0.15
     SEMANTIC_ONLY_THRESHOLD = 0.15
+    RRF_K = 60  # standard dampening constant for Reciprocal Rank Fusion
 
     # FTS5 text search (skip if semantic_only)
     text_scores: dict[int, float] = {}
     if not semantic_only:
-        fts_results = fts_search(db, effective_query, limit=limit * 3)
-        if fts_results:
-            # Normalize BM25 scores (negative) to 0-1: best (most negative) → 1.0
-            min_bm25 = min(score for _, score in fts_results)  # most negative = best
-            for image_id, bm25 in fts_results:
-                # Normalize: 1.0 for best match, approaching 0 for poor matches
-                text_scores[image_id] = bm25 / min_bm25 if min_bm25 != 0 else 0.0
+        fts_results = fts_search(db, effective_query, limit=limit * 10)
+        text_scores = dict(fts_results)
+
+    # Alias expansion: separate FTS5 pass so alias matches don't dilute BM25 scores
+    alias_scores: dict[int, float] = {}
+    if not semantic_only and text_scores:
+        alias_terms = get_alias_expansions(effective_query, db)
+        if alias_terms:
+            alias_results = fts_search(db, " OR ".join(alias_terms), limit=limit * 3)
+            alias_scores = dict(alias_results)
 
     # CLIP semantic search (skipped in text_only mode)
     semantic_scores: dict[int, float] = {}
@@ -276,24 +286,35 @@ async def search_images(
         except Exception:
             logger.exception("Semantic search error")
 
-    # Merge scores
-    all_candidate_ids = set(text_scores.keys()) | set(semantic_scores.keys())
+    # Reciprocal Rank Fusion across three ranked lists
+    all_candidate_ids = (
+        set(text_scores.keys()) | set(alias_scores.keys()) | set(semantic_scores.keys())
+    )
 
     if not all_candidate_ids:
         return ImageSearchResponse(total=0, limit=limit, offset=offset, images=[])
 
+    # Build rank maps (rank 0 = best)
+    sem_ranked = sorted(semantic_scores, key=semantic_scores.get, reverse=True)  # type: ignore[arg-type]
+    txt_ranked = sorted(
+        text_scores, key=text_scores.get
+    )  # BM25 scores are negative; lower = better
+    alias_ranked = sorted(alias_scores, key=alias_scores.get)  # same
+
+    sem_rank = {img_id: rank for rank, img_id in enumerate(sem_ranked)}
+    txt_rank = {img_id: rank for rank, img_id in enumerate(txt_ranked)}
+    alias_rank = {img_id: rank for rank, img_id in enumerate(alias_ranked)}
+
     merged_scores: dict[int, float] = {}
     for image_id in all_candidate_ids:
-        sem = semantic_scores.get(image_id, 0.0)
-        txt = text_scores.get(image_id, 0.0)
-
-        # Drop pure-semantic results below threshold (text matches always included)
-        if image_id not in text_scores and sem < (
-            SEMANTIC_ONLY_THRESHOLD if semantic_only else SEMANTIC_THRESHOLD
-        ):
-            continue
-
-        merged_scores[image_id] = sem + (TEXT_BOOST * txt if txt > 0 else 0.0)
+        score = 0.0
+        if image_id in sem_rank:
+            score += 1.0 / (RRF_K + sem_rank[image_id])
+        if image_id in txt_rank:
+            score += 1.0 / (RRF_K + txt_rank[image_id])
+        if image_id in alias_rank:
+            score += 1.0 / (RRF_K + alias_rank[image_id])
+        merged_scores[image_id] = score
 
     if not merged_scores:
         return ImageSearchResponse(total=0, limit=limit, offset=offset, images=[])

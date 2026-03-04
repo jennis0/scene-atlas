@@ -231,6 +231,11 @@ async def edit_group(
                     source=tag_data.source,
                 )
             )
+        db.flush()  # persist new tags so image.tags reflects them
+        db.expire(image)  # clear stale .tags cache before rebuilding search_text
+        from ..services.fts_service import rebuild_search_text
+
+        rebuild_search_text(image, db)
 
     # 4. Fix primary_image_id if deleted
     if group.primary_image_id and group.primary_image_id not in kept_ids:
