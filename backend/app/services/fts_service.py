@@ -186,6 +186,20 @@ def fts_search(db: Session, query: str, limit: int = 500) -> list[tuple[int, flo
     return and_results
 
 
+def fts_search_terms(db: Session, terms: list[str], limit: int = 500) -> list[tuple[int, float]]:
+    """Search images via FTS5 for any of the given terms (OR semantics).
+
+    Unlike fts_search(), terms are joined with OR directly — bypassing
+    _sanitize_fts_query which strips OR operators.  Each term is individually
+    sanitized.  Intended for alias expansion where each term is a single token.
+    """
+    sanitized = [_sanitize_fts_query(t) for t in terms]
+    sanitized = [t for t in sanitized if t]
+    if not sanitized:
+        return []
+    return _run_fts(db, " OR ".join(sanitized), limit)
+
+
 def fts_rebuild(db: Session) -> None:
     """Rebuild the entire FTS5 index from the images table.
 

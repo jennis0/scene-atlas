@@ -14,7 +14,7 @@ from ..models import (
     Tag,
 )
 from ..services import get_clip_service, get_qdrant_service
-from ..services.fts_service import fts_search, get_alias_expansions
+from ..services.fts_service import fts_search, fts_search_terms, get_alias_expansions
 from .dependencies import get_db
 
 router = APIRouter()
@@ -267,7 +267,9 @@ async def search_images(
     if not semantic_only and text_scores:
         alias_terms = get_alias_expansions(effective_query, db)
         if alias_terms:
-            alias_results = fts_search(db, " OR ".join(alias_terms), limit=limit * 3)
+            # Use fts_search_terms (not fts_search) to preserve OR semantics —
+            # _sanitize_fts_query inside fts_search strips OR operators.
+            alias_results = fts_search_terms(db, alias_terms, limit=limit * 3)
             alias_scores = dict(alias_results)
 
     # CLIP semantic search (skipped in text_only mode)
@@ -325,7 +327,7 @@ async def search_images(
     filtered_images = sql_query.distinct().all()
 
     # Sort by requested field
-    if sort_by == "relevance" or (sort_by == "relevance" and not merged_scores):
+    if sort_by == "relevance":
         filtered_images.sort(key=lambda img: (merged_scores.get(img.id, 0.0), img.id), reverse=True)
     elif sort_by == "created_at":
         filtered_images.sort(

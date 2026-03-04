@@ -119,14 +119,15 @@ async def delete_tag_category(category_name: str, db: Session = Depends(get_db))
         for row in db.query(Tag.image_id).filter(Tag.category == category_name).distinct().all()
     ]
 
+    from ..services.fts_service import invalidate_alias_cache, rebuild_search_text
+
     deleted_tags = (
         db.query(Tag).filter(Tag.category == category_name).delete(synchronize_session=False)
     )
     db.delete(category)
 
     if affected_image_ids:
-        from ..services.fts_service import rebuild_search_text
-
+        db.expire_all()  # clear stale tag objects left by synchronize_session=False
         affected_imgs = (
             db.query(Image)
             .options(subqueryload(Image.tags))
@@ -136,6 +137,7 @@ async def delete_tag_category(category_name: str, db: Session = Depends(get_db))
         for img in affected_imgs:
             rebuild_search_text(img, db)
 
+    invalidate_alias_cache()
     db.commit()
 
     return {
@@ -184,6 +186,10 @@ async def upsert_tag_value(
     category.common_values = json.dumps(normalized)
     db.commit()
     db.refresh(category)
+
+    from ..services.fts_service import invalidate_alias_cache
+
+    invalidate_alias_cache()
     return category
 
 
@@ -230,13 +236,14 @@ async def rename_tag_value(
         .all()
     ]
 
+    from ..services.fts_service import invalidate_alias_cache, rebuild_search_text
+
     db.query(Tag).filter(Tag.category == category_name, Tag.value == tag_name).update(
         {Tag.value: new_value}, synchronize_session=False
     )
 
     if affected_image_ids:
-        from ..services.fts_service import rebuild_search_text
-
+        db.expire_all()  # clear stale tag objects left by synchronize_session=False
         affected_imgs = (
             db.query(Image)
             .options(subqueryload(Image.tags))
@@ -246,6 +253,7 @@ async def rename_tag_value(
         for img in affected_imgs:
             rebuild_search_text(img, db)
 
+    invalidate_alias_cache()
     db.commit()
     db.refresh(category)
     return {
@@ -281,6 +289,8 @@ async def delete_tag_value(category_name: str, tag_name: str, db: Session = Depe
         .all()
     ]
 
+    from ..services.fts_service import invalidate_alias_cache, rebuild_search_text
+
     deleted_tags = (
         db.query(Tag)
         .filter(Tag.category == category_name, Tag.value == tag_name)
@@ -288,8 +298,7 @@ async def delete_tag_value(category_name: str, tag_name: str, db: Session = Depe
     )
 
     if affected_image_ids:
-        from ..services.fts_service import rebuild_search_text
-
+        db.expire_all()  # clear stale tag objects left by synchronize_session=False
         affected_imgs = (
             db.query(Image)
             .options(subqueryload(Image.tags))
@@ -299,6 +308,7 @@ async def delete_tag_value(category_name: str, tag_name: str, db: Session = Depe
         for img in affected_imgs:
             rebuild_search_text(img, db)
 
+    invalidate_alias_cache()
     db.commit()
     return {
         "message": f"Tag '{tag_name}' deleted from '{category_name}'",
