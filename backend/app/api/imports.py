@@ -14,7 +14,7 @@ import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -48,6 +48,7 @@ from ..services.import_state import GROUP_TERMINAL_STATUSES
 from ..services.job_runner import get_job_runner
 from ..services.validation import check_zip_safety, verify_media_mime
 from .dependencies import get_db
+from .rate_limits import limiter
 
 _FILE_MAP_NAME = ".file_map.json"
 
@@ -409,7 +410,9 @@ def _build_analysis_response(
 
 
 @router.post("/{job_id}/upload-batch", response_model=BatchUploadResponse)
+@limiter.limit(lambda: settings.rate_limit_upload)
 async def upload_batch(
+    request: Request,
     job_id: str,
     files: list[UploadFile] = File(default=[]),
     relative_paths: str | None = Form(None),

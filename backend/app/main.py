@@ -11,12 +11,16 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .api import export, groups, images, imports, jobs, search, system, tags
 from .api import settings as settings_api
 from .api.dependencies import verify_auth
+from .api.rate_limits import limiter
 from .config import settings
 from .logging_config import setup_logging
 from .models import (
@@ -169,6 +173,11 @@ app = FastAPI(
     version=settings.app_version,
     lifespan=lifespan,
 )
+
+# Rate limiting
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 # CORS middleware
 app.add_middleware(

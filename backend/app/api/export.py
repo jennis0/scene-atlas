@@ -26,14 +26,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import zipstream
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
 from ...pipeline.naming import export_path
+from ..config import settings
 from ..models import Image
 from ..services import get_image_store
 from .dependencies import get_db
+from .rate_limits import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +136,8 @@ def _build_zip(entries: list[tuple[str, Path]], metadata_bytes: bytes) -> zipstr
 
 
 @router.get("/library")
-async def export_library(db: Session = Depends(get_db)):
+@limiter.limit(lambda: settings.rate_limit_expensive)
+async def export_library(request: Request, db: Session = Depends(get_db)):
     """Stream the entire image library as a ZIP archive.
 
     Memory usage is constant — images are read from disk one at a time.

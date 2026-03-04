@@ -79,6 +79,13 @@ class Settings(BaseSettings):
     # Generate with: uv run python -m backend.scripts.generate_token
     auth_token: str | None = None
 
+    # Rate limiting — set rate_limit_enabled=False to disable in dev/local mode
+    rate_limit_default: str = "60/minute"
+    rate_limit_upload: str = "20/minute"
+    rate_limit_expensive: str = "2/minute"  # rebuild-embeddings, export
+    rate_limit_destructive: str = "1/minute"  # library purge
+    rate_limit_enabled: bool = True
+
     # Import staging directory
     staging_dir: Path = data_dir / "staging"
 

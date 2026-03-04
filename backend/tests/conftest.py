@@ -126,6 +126,7 @@ def test_client(tmp_db, tmp_path):
     """
     from fastapi.testclient import TestClient
 
+    from backend.app.api.rate_limits import limiter
     from backend.app.config import settings
     from backend.app.main import app
 
@@ -147,16 +148,21 @@ def test_client(tmp_db, tmp_path):
     settings.store_thumbnails_dir.mkdir(parents=True, exist_ok=True)
     settings.staging_dir.mkdir(parents=True, exist_ok=True)
 
+    # Disable rate limiting in tests to prevent inter-test interference
+    orig_rate_limit_enabled = limiter.enabled
+    limiter.enabled = False
+
     try:
         with TestClient(app) as client:
             app.state.db_engine = engine
             yield client
     finally:
-        # Restore original paths
+        # Restore original paths and rate limit state
         settings.database_url = orig_db_url
         settings.store_images_dir = orig_images
         settings.store_thumbnails_dir = orig_thumbnails
         settings.staging_dir = orig_staging
+        limiter.enabled = orig_rate_limit_enabled
 
 
 @pytest.fixture

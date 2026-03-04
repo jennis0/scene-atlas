@@ -3,10 +3,11 @@
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..models import (
     Color,
     Image,
@@ -16,6 +17,7 @@ from ..models import (
 from ..services import get_clip_service, get_qdrant_service
 from ..services.fts_service import fts_search
 from .dependencies import get_db
+from .rate_limits import limiter
 
 router = APIRouter()
 
@@ -336,7 +338,8 @@ async def search_images(
 
 
 @router.post("/rebuild-embeddings")
-async def trigger_rebuild_embeddings():
+@limiter.limit(lambda: settings.rate_limit_expensive)
+async def trigger_rebuild_embeddings(request: Request):
     """Rebuild all CLIP embeddings (fire-and-forget background job).
 
     Deletes and recreates the Qdrant collection, then re-encodes every image.
