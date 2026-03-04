@@ -1,8 +1,9 @@
 """Qdrant vector database service (embedded local mode).
 
 Uses QdrantClient(path=...) so Qdrant runs in-process — no Docker container
-needed.  A threading.RLock serialises all access since the local-mode backend
-has no internal concurrency control.
+needed.  A threading.RLock serialises write operations (upsert, delete,
+collection management).  Read operations (search, retrieve) run lock-free
+since Qdrant's embedded Rust backend is thread-safe for concurrent reads.
 """
 
 import logging
@@ -122,27 +123,26 @@ class QdrantService:
         limit: int = 100,
         score_threshold: float | None = None,
     ) -> list[dict]:
-        """Search for similar images by embedding."""
-        with self._lock:
-            try:
-                results = self.client.query_points(
-                    collection_name=self.collection_name,
-                    query=query_embedding,
-                    limit=limit,
-                    score_threshold=score_threshold,
-                )
+        """Search for similar images by embedding (lock-free, read-only)."""
+        try:
+            results = self.client.query_points(
+                collection_name=self.collection_name,
+                query=query_embedding,
+                limit=limit,
+                score_threshold=score_threshold,
+            )
 
-                return [
-                    {
-                        "image_id": point.id,
-                        "score": point.score,
-                        "metadata": point.payload,
-                    }
-                    for point in results.points
-                ]
-            except Exception as e:
-                logger.error("Error searching similar images: %s", e)
-                return []
+            return [
+                {
+                    "image_id": point.id,
+                    "score": point.score,
+                    "metadata": point.payload,
+                }
+                for point in results.points
+            ]
+        except Exception as e:
+            logger.error("Error searching similar images: %s", e)
+            return []
 
     def delete_image_embedding(self, image_id: int) -> bool:
         """Delete an image embedding from Qdrant."""
@@ -175,35 +175,33 @@ class QdrantService:
                 return False
 
     def get_embedding(self, image_id: int) -> list[float] | None:
-        """Retrieve a stored embedding vector for an image."""
-        with self._lock:
-            try:
-                results = self.client.retrieve(
-                    collection_name=self.collection_name,
-                    ids=[image_id],
-                    with_vectors=True,
-                )
-                if results and results[0].vector:
-                    return results[0].vector
-                return None
-            except Exception as e:
-                logger.warning("Error retrieving embedding for image_id=%s: %s", image_id, e)
-                return None
+        """Retrieve a stored embedding vector for an image (lock-free, read-only)."""
+        try:
+            results = self.client.retrieve(
+                collection_name=self.collection_name,
+                ids=[image_id],
+                with_vectors=True,
+            )
+            if results and results[0].vector:
+                return results[0].vector
+            return None
+        except Exception as e:
+            logger.warning("Error retrieving embedding for image_id=%s: %s", image_id, e)
+            return None
 
     def get_collection_info(self) -> dict:
-        """Get information about the collection."""
-        with self._lock:
-            try:
-                info = self.client.get_collection(collection_name=self.collection_name)
-                return {
-                    "name": self.collection_name,
-                    "vectors_count": info.vectors_count,
-                    "points_count": info.points_count,
-                    "status": info.status,
-                }
-            except Exception as e:
-                logger.error("Error getting collection info: %s", e)
-                return {}
+        """Get information about the collection (lock-free, read-only)."""
+        try:
+            info = self.client.get_collection(collection_name=self.collection_name)
+            return {
+                "name": self.collection_name,
+                "vectors_count": info.vectors_count,
+                "points_count": info.points_count,
+                "status": info.status,
+            }
+        except Exception as e:
+            logger.error("Error getting collection info: %s", e)
+            return {}
 
     def backup_storage(self, target_dir: Path) -> Path:
         """Copy the Qdrant storage directory for backup."""

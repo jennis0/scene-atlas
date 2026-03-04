@@ -33,6 +33,12 @@ def _default_models_dir() -> Path:
     return Path(__file__).parent.parent.parent / "models" / "fp16"
 
 
+# Module-level LRU cache for text embeddings (avoids lru_cache-on-method leak).
+# Keys are query strings; values are tuple[float, ...].
+_TEXT_CACHE_MAX = 256
+_text_embedding_cache: dict[str, tuple[float, ...]] = {}
+
+
 class CLIPService:
     """Service for generating CLIP embeddings via ONNX Runtime.
 
@@ -166,7 +172,14 @@ class CLIPService:
 
         Returns:
             Embedding vector as list of floats (512-d, L2-normalised).
+
+        Results are cached in a module-level LRU dict keyed on the query
+        string to avoid repeated ONNX inference for common queries.
         """
+        cached = _text_embedding_cache.get(text)
+        if cached is not None:
+            return list(cached)
+
         try:
             encoding = self._tokenizer.encode(text)
 
@@ -179,6 +192,12 @@ class CLIPService:
             )
             embedding = embeddings[0].tolist()
             logger.debug("Generated text embedding for '%s', size: %s", text, len(embedding))
+
+            # Store as tuple to save memory; evict oldest if full
+            if len(_text_embedding_cache) >= _TEXT_CACHE_MAX:
+                _text_embedding_cache.pop(next(iter(_text_embedding_cache)))
+            _text_embedding_cache[text] = tuple(embedding)
+
             return embedding
 
         except Exception as e:

@@ -77,7 +77,7 @@ class Image(Base):
 
     @property
     def group_image_count(self) -> int | None:
-        return len(self.group.images) if self.group else None
+        return self.group.image_count if self.group else None
 
     def __repr__(self):
         return f"<Image(id={self.id}, name='{self.name}', filename='{self.filename}')>"
@@ -92,6 +92,7 @@ class ImageGroup(Base):
     base_name = Column(String, nullable=False, index=True)
     author = Column(String, index=True)
     primary_image_id = Column(Integer, ForeignKey("images.id"), nullable=True)
+    image_count = Column(Integer, nullable=False, default=0)  # Maintained by DB triggers
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
