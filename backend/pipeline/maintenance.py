@@ -246,7 +246,9 @@ def expire_stale_jobs(max_age_hours: int = 48) -> dict:
             # Clean up images from this abandoned import so they don't
             # cause false duplicate-hash matches on re-upload.
             try:
-                from backend.app.api.imports import _cleanup_import_images
+                from backend.app.services.deletion_service import (
+                    cleanup_import_images as _cleanup_import_images,
+                )
 
                 cleaned = _cleanup_import_images(job.id, db)
                 if cleaned:
@@ -345,7 +347,9 @@ def mark_interrupted_jobs(db=None) -> int:
             # Clean up images from this interrupted import so they don't
             # cause false duplicate-hash matches on re-upload.
             try:
-                from backend.app.api.imports import _cleanup_import_images
+                from backend.app.services.deletion_service import (
+                    cleanup_import_images as _cleanup_import_images,
+                )
 
                 cleaned = _cleanup_import_images(job.id, db)
                 if cleaned:

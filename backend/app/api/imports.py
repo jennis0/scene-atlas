@@ -22,7 +22,6 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..models import (
     Image,
-    ImageGroup,
     ImportGroupJob,
     ImportJob,
 )
@@ -44,6 +43,7 @@ from ..models.schemas import (
     ManifestEntry,
 )
 from ..services.app_settings import get_settings as get_app_settings
+from ..services.deletion_service import cleanup_import_images as _cleanup_import_images
 from ..services.import_state import GROUP_TERMINAL_STATUSES
 from ..services.job_runner import get_job_runner
 from ..services.staging import (
@@ -1013,77 +1013,6 @@ async def finalize_import(job_id: str, db: Session = Depends(get_db)):
         "Import job %s finalized as '%s' (staging_cleaned=%s)", job_id, job.status, staging_cleaned
     )
     return {"status": job.status, "staging_cleaned": staging_cleaned, "already_terminal": False}
-
-
-def _cleanup_import_images(job_id: str, db: Session) -> int:
-    """Delete all Image rows created by this import job.
-
-    For each image, checks if its storage_key is shared with other Image rows.
-    If not shared, deletes the physical file and thumbnail from disk.
-    Also removes embeddings from Qdrant (best-effort) and deletes now-empty
-    ImageGroups that were created by this import.
-
-    Returns the count of Image rows deleted.
-    """
-    from ..services import get_image_store, get_thumbnail_store
-    from ..services.qdrant_service import get_qdrant_service
-
-    images = db.query(Image).filter(Image.import_job_id == job_id).all()
-    if not images:
-        return 0
-
-    image_store = get_image_store()
-    thumbnail_store = get_thumbnail_store()
-    qdrant = get_qdrant_service()
-    deleted_count = 0
-    image_ids_to_delete = []
-    group_ids_to_check = set()
-
-    for image in images:
-        image_ids_to_delete.append(image.id)
-        if image.group_id:
-            group_ids_to_check.add(image.group_id)
-
-        # Only delete physical files when no other Image row shares this storage_key
-        sibling_count = (
-            db.query(Image)
-            .filter(Image.storage_key == image.storage_key, Image.id != image.id)
-            .count()
-        )
-        if sibling_count == 0:
-            if image.storage_key:
-                image_store.delete(image.storage_key)
-            if image.thumbnail_key:
-                thumbnail_store.delete(image.thumbnail_key)
-
-        db.delete(image)
-        deleted_count += 1
-
-    # Remove Qdrant embeddings (best-effort, non-fatal)
-    if image_ids_to_delete:
-        try:
-            qdrant.delete_embeddings(image_ids_to_delete)
-        except Exception:
-            logger.warning("Qdrant cleanup failed for job %s (non-fatal)", job_id, exc_info=True)
-
-    db.flush()
-
-    # Delete now-empty ImageGroups that were created by this import
-    group_job_rows = (
-        db.query(ImportGroupJob.created_group_id)
-        .filter(ImportGroupJob.job_id == job_id, ImportGroupJob.created_group_id.isnot(None))
-        .all()
-    )
-    created_group_ids = {row[0] for row in group_job_rows}
-
-    for group_id in created_group_ids & group_ids_to_check:
-        remaining = db.query(Image).filter(Image.group_id == group_id).count()
-        if remaining == 0:
-            grp = db.query(ImageGroup).filter(ImageGroup.id == group_id).first()
-            if grp:
-                db.delete(grp)
-
-    return deleted_count
 
 
 @router.post("/{job_id}/cancel")

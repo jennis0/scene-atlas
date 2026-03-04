@@ -1268,7 +1268,9 @@ def _finalize_import_job(job_id: str) -> None:
         if job.status == "cancelled":
             # Job was cancelled mid-flight — sweep for any images added after the
             # initial cancel (race condition: best-effort cleanup)
-            from backend.app.api.imports import _cleanup_import_images
+            from backend.app.services.deletion_service import (
+                cleanup_import_images as _cleanup_import_images,
+            )
 
             swept = _cleanup_import_images(job_id, db)
             if swept:
@@ -1302,7 +1304,9 @@ def _finalize_import_job(job_id: str) -> None:
             # than waiting for the user to call /finalize or the 48h expiry.
             if all_terminal and job.pending_groups == 0 and has_failures:
                 try:
-                    from backend.app.api.imports import _cleanup_import_images
+                    from backend.app.services.deletion_service import (
+                        cleanup_import_images as _cleanup_import_images,
+                    )
 
                     cleaned = _cleanup_import_images(job_id, db)
                     if cleaned:
@@ -1334,7 +1338,9 @@ def _finalize_import_job(job_id: str) -> None:
             # Wrapped in try/except so a cleanup failure never blocks the
             # status transition commit.
             try:
-                from backend.app.api.imports import _cleanup_import_images
+                from backend.app.services.deletion_service import (
+                    cleanup_import_images as _cleanup_import_images,
+                )
 
                 cleaned = _cleanup_import_images(job_id, db)
                 if cleaned:

@@ -5,7 +5,7 @@ import re
 
 from sqlalchemy.orm import Session
 
-from ..models.database import Image
+from ..models.database import Image, ImageGroup, ImportGroupJob
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,74 @@ def safe_delete_image(db: Session, image: Image) -> None:
             storage_key,
             ref_count,
         )
+
+
+def cleanup_import_images(job_id: str, db: Session) -> int:
+    """Delete all Image rows (and their files/embeddings) attached to an import job.
+
+    Implements ref-counted physical file deletion: only removes files when no
+    other Image rows share the same storage_key. Also cleans up now-empty
+    ImageGroups that were created by this import.
+
+    Does NOT commit — caller is responsible.
+    Returns the count of Image rows deleted.
+    """
+    from . import get_image_store, get_thumbnail_store
+    from .qdrant_service import get_qdrant_service
+
+    images = db.query(Image).filter(Image.import_job_id == job_id).all()
+    if not images:
+        return 0
+
+    image_store = get_image_store()
+    thumbnail_store = get_thumbnail_store()
+    qdrant = get_qdrant_service()
+    deleted_count = 0
+    image_ids_to_delete = []
+    group_ids_to_check: set[int] = set()
+
+    for image in images:
+        image_ids_to_delete.append(image.id)
+        if image.group_id:
+            group_ids_to_check.add(image.group_id)
+
+        sibling_count = (
+            db.query(Image)
+            .filter(Image.storage_key == image.storage_key, Image.id != image.id)
+            .count()
+        )
+        if sibling_count == 0:
+            if image.storage_key:
+                image_store.delete(image.storage_key)
+            if image.thumbnail_key:
+                thumbnail_store.delete(image.thumbnail_key)
+
+        db.delete(image)
+        deleted_count += 1
+
+    if image_ids_to_delete:
+        try:
+            qdrant.delete_embeddings(image_ids_to_delete)
+        except Exception:
+            logger.warning("Qdrant cleanup failed for job %s (non-fatal)", job_id, exc_info=True)
+
+    db.flush()
+
+    # Clean up now-empty ImageGroups that were created by this import
+    group_job_rows = (
+        db.query(ImportGroupJob.created_group_id)
+        .filter(ImportGroupJob.job_id == job_id, ImportGroupJob.created_group_id.isnot(None))
+        .all()
+    )
+    created_group_ids = {row[0] for row in group_job_rows}
+    for group_id in created_group_ids & group_ids_to_check:
+        remaining = db.query(Image).filter(Image.group_id == group_id).count()
+        if remaining == 0:
+            grp = db.query(ImageGroup).filter(ImageGroup.id == group_id).first()
+            if grp:
+                db.delete(grp)
+
+    return deleted_count
 
 
 def _delete_all_thumbnails(thumbnail_store, thumbnail_key: str) -> None:

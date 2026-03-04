@@ -1,11 +1,15 @@
-"""Unit tests for safe_delete_image() ref-counted physical file cleanup."""
+"""Unit tests for safe_delete_image() and cleanup_import_images()."""
 
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from backend.app.models.database import Color, Image, Tag
-from backend.app.services.deletion_service import _delete_all_thumbnails, safe_delete_image
+from backend.app.models.database import Color, Image, ImportJob, Tag
+from backend.app.services.deletion_service import (
+    _delete_all_thumbnails,
+    cleanup_import_images,
+    safe_delete_image,
+)
 from backend.app.services.image_store import ImageStore
 
 
@@ -386,3 +390,92 @@ class TestSafeDeleteImageStoreError:
 
         # Image record is still removed from DB
         assert db_session.get(Image, img.id) is None
+
+
+class TestCleanupImportImages:
+    """cleanup_import_images() deletes all images for an import job."""
+
+    def test_removes_all_images_for_job(self, db_session, stores, monkeypatch):
+        """All Image rows for a job are deleted; count matches."""
+        image_store, thumbnail_store = stores
+        _patch_stores(monkeypatch, image_store, thumbnail_store)
+        mock_qdrant_svc = MagicMock()
+        mock_qdrant_svc.delete_embeddings = MagicMock()
+        with patch(
+            "backend.app.services.qdrant_service.get_qdrant_service",
+            return_value=mock_qdrant_svc,
+        ):
+            job = ImportJob(id="test-job-1", status="failed", source_label="test")
+            img_a = _make_image("key-a.jpg", filename="a.jpg", name="A")
+            img_b = _make_image("key-b.jpg", filename="b.jpg", name="B")
+            img_a.import_job_id = "test-job-1"
+            img_b.import_job_id = "test-job-1"
+            db_session.add_all([job, img_a, img_b])
+            db_session.commit()
+
+            count = cleanup_import_images("test-job-1", db_session)
+            db_session.commit()
+
+        assert count == 2
+        remaining = db_session.query(Image).filter(Image.import_job_id == "test-job-1").all()
+        assert remaining == []
+
+    def test_returns_zero_for_empty_job(self, db_session, stores, monkeypatch):
+        """Returns 0 and does nothing when no images exist for the job."""
+        image_store, thumbnail_store = stores
+        _patch_stores(monkeypatch, image_store, thumbnail_store)
+        mock_qdrant_svc = MagicMock()
+        with patch(
+            "backend.app.services.qdrant_service.get_qdrant_service",
+            return_value=mock_qdrant_svc,
+        ):
+            job = ImportJob(id="empty-job", status="failed", source_label="empty")
+            db_session.add(job)
+            db_session.commit()
+
+            count = cleanup_import_images("empty-job", db_session)
+
+        assert count == 0
+
+    def test_deletes_physical_files_when_unique_key(self, db_session, stores, monkeypatch):
+        """Physical files are removed when no other image shares the storage key."""
+        image_store, thumbnail_store = stores
+        _patch_stores(monkeypatch, image_store, thumbnail_store)
+        mock_qdrant_svc = MagicMock()
+        with patch(
+            "backend.app.services.qdrant_service.get_qdrant_service",
+            return_value=mock_qdrant_svc,
+        ):
+            _seed_store(image_store, "unique-key.jpg")
+            job = ImportJob(id="file-job", status="failed", source_label="test")
+            img = _make_image("unique-key.jpg", filename="u.jpg", name="U")
+            img.import_job_id = "file-job"
+            db_session.add_all([job, img])
+            db_session.commit()
+
+            cleanup_import_images("file-job", db_session)
+            db_session.commit()
+
+        assert not image_store.exists("unique-key.jpg")
+
+    def test_qdrant_failure_does_not_raise(self, db_session, stores, monkeypatch):
+        """Qdrant errors during batch cleanup are swallowed."""
+        image_store, thumbnail_store = stores
+        _patch_stores(monkeypatch, image_store, thumbnail_store)
+        mock_qdrant_svc = MagicMock()
+        mock_qdrant_svc.delete_embeddings.side_effect = RuntimeError("qdrant down")
+        with patch(
+            "backend.app.services.qdrant_service.get_qdrant_service",
+            return_value=mock_qdrant_svc,
+        ):
+            job = ImportJob(id="qdrant-fail-job", status="failed", source_label="test")
+            img = _make_image("qfail.jpg", filename="qf.jpg", name="QF")
+            img.import_job_id = "qdrant-fail-job"
+            db_session.add_all([job, img])
+            db_session.commit()
+
+            # Must not raise
+            count = cleanup_import_images("qdrant-fail-job", db_session)
+            db_session.commit()
+
+        assert count == 1
