@@ -3,10 +3,10 @@ import { test, expect } from '../fixtures/base'
 test.describe('Image Viewer', () => {
   test('clicking an image opens the viewer modal', async ({ page }) => {
     await page.goto('/')
-    await expect(page.getByText(/\d+ scenes/)).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText(/[1-9]\d* scenes/)).toBeVisible({ timeout: 15_000 })
 
-    // Click the first image thumbnail (SceneTile has cursor-pointer and contains an img)
-    const firstTile = page.locator('img[loading="lazy"]').first()
+    // Click the first image thumbnail
+    const firstTile = page.getByTestId('scene-tile').first()
     await firstTile.click()
 
     // The ImageViewer overlay should appear
@@ -16,10 +16,10 @@ test.describe('Image Viewer', () => {
 
   test('escape key closes the viewer', async ({ page }) => {
     await page.goto('/')
-    await expect(page.getByText(/\d+ scenes/)).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText(/[1-9]\d* scenes/)).toBeVisible({ timeout: 15_000 })
 
     // Open the viewer
-    const firstTile = page.locator('img[loading="lazy"]').first()
+    const firstTile = page.getByTestId('scene-tile').first()
     await firstTile.click()
 
     const viewer = page.getByTestId('image-viewer')
@@ -34,10 +34,10 @@ test.describe('Image Viewer', () => {
 
   test('arrow keys navigate between images', async ({ page }) => {
     await page.goto('/')
-    await expect(page.getByText(/\d+ scenes/)).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText(/[1-9]\d* scenes/)).toBeVisible({ timeout: 15_000 })
 
     // Open the viewer on the first image
-    const firstTile = page.locator('img[loading="lazy"]').first()
+    const firstTile = page.getByTestId('scene-tile').first()
     await firstTile.click()
 
     const viewer = page.getByTestId('image-viewer')

@@ -3,13 +3,13 @@ import { test, expect } from '../fixtures/base'
 test.describe('Gallery', () => {
   test('displays seeded images with count', async ({ page }) => {
     await page.goto('/')
-    // Wait for the gallery to load — count shows "N scenes"
-    await expect(page.getByText(/\d+ scenes/)).toBeVisible({ timeout: 15_000 })
+    // Wait for the gallery to load — count shows "N scenes" (N > 0 means seeded)
+    await expect(page.getByText(/[1-9]\d* scenes/)).toBeVisible({ timeout: 15_000 })
   })
 
   test('type tabs filter by image type', async ({ page }) => {
     await page.goto('/')
-    await expect(page.getByText(/\d+ scenes/)).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText(/[1-9]\d* scenes/)).toBeVisible({ timeout: 30_000 })
 
     // Click "Maps" tab
     await page.getByRole('button', { name: /Maps/ }).click()
@@ -23,12 +23,12 @@ test.describe('Gallery', () => {
     // Click "All" tab to reset — URL should no longer contain image_type
     await page.getByRole('button', { name: /All/ }).click()
     await expect(page).not.toHaveURL(/image_type=/)
-    await expect(page.getByText(/\d+ scenes/)).toBeVisible({ timeout: 5_000 })
+    await expect(page.getByText(/[1-9]\d* scenes/)).toBeVisible({ timeout: 5_000 })
   })
 
   test('view mode toggle switches between individual and grouped', async ({ page }) => {
     await page.goto('/')
-    await expect(page.getByText(/\d+ scenes/)).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText(/[1-9]\d* scenes/)).toBeVisible({ timeout: 15_000 })
 
     // Switch to grouped view
     await page.getByTitle('Groups').click()
@@ -39,7 +39,7 @@ test.describe('Gallery', () => {
 
   test('sort dropdown changes ordering', async ({ page }) => {
     await page.goto('/')
-    await expect(page.getByText(/\d+ scenes/)).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText(/[1-9]\d* scenes/)).toBeVisible({ timeout: 15_000 })
 
     // Open sort dropdown — find the sort trigger button
     const sortButton = page.getByRole('button', { name: /Newest|Oldest|Name/ })

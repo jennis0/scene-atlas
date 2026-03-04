@@ -6,6 +6,7 @@ import { seedTestData } from '../helpers/seed'
 
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..')
 const IMAGE_DIR = path.resolve(__dirname, '..', '.tmp-images')
+const BACKEND_URL = 'http://localhost:8000'
 
 /**
  * Extended test fixture that automatically seeds test data once per worker.
@@ -17,6 +18,12 @@ const IMAGE_DIR = path.resolve(__dirname, '..', '.tmp-images')
 export const test = base.extend<object, { seedData: void }>({
   seedData: [
     async ({}, use) => {
+      // Ensure CLIP ONNX models are present (idempotent, downloads if missing)
+      execSync('uv run python scripts/setup_models.py', {
+        cwd: PROJECT_ROOT,
+        stdio: 'inherit',
+      })
+
       // Generate test images if they don't already exist
       if (!fs.existsSync(IMAGE_DIR) || fs.readdirSync(IMAGE_DIR).length === 0) {
         fs.mkdirSync(IMAGE_DIR, { recursive: true })
@@ -27,17 +34,27 @@ export const test = base.extend<object, { seedData: void }>({
       }
 
       // Check if data is already seeded (images exist in the backend)
-      const checkRes = await fetch('http://localhost:8000/api/v1/search/facets')
+      const checkRes = await fetch(`${BACKEND_URL}/api/v1/search/facets`)
       const facets = await checkRes.json()
 
       if (facets.total_images === 0) {
         // Seed test data via the import API
         await seedTestData(IMAGE_DIR)
+
+        // Verify seeding succeeded — pipeline must have run with CLIP models
+        const verifyRes = await fetch(`${BACKEND_URL}/api/v1/search/facets`)
+        const verifyFacets = await verifyRes.json()
+        if (verifyFacets.total_images === 0) {
+          throw new Error(
+            'Seeding failed: no images found in DB after import completed. ' +
+              'Check that CLIP ONNX models are present in backend/models/fp16/',
+          )
+        }
       }
 
       await use()
     },
-    { scope: 'worker', auto: true, timeout: 180_000 },
+    { scope: 'worker', auto: true, timeout: 600_000 },
   ],
 })
 
