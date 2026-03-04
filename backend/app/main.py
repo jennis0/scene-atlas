@@ -94,11 +94,19 @@ async def lifespan(app: FastAPI):
 
     scheduler = Scheduler()
     if app_config.scheduler_enabled:
-        from ..pipeline.maintenance import backup_database, cleanup_staging, expire_stale_jobs
+        from ..pipeline.maintenance import (
+            backup_database,
+            check_qdrant_sync,
+            cleanup_staging,
+            expire_stale_jobs,
+            sweep_orphaned_store_files,
+        )
 
         scheduler.register(backup_database, hours=24, name="backup_database")
         scheduler.register(cleanup_staging, hours=6, name="cleanup_staging")
         scheduler.register(expire_stale_jobs, hours=6, name="expire_stale_jobs")
+        scheduler.register(sweep_orphaned_store_files, hours=24, name="sweep_orphaned_store_files")
+        scheduler.register(check_qdrant_sync, hours=24, name="check_qdrant_sync")
         await scheduler.start()
         logger.info("Scheduler started")
 
