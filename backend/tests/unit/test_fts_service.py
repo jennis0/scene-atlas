@@ -229,3 +229,50 @@ class TestBackfillSearchText:
         # build_search_text splits CamelCase: 'TestMap' -> 'Test Map'
         assert "Test" in search_text
         assert "Map" in search_text
+
+
+# ---------------------------------------------------------------------------
+# parse_tag_vocab_entries
+# ---------------------------------------------------------------------------
+
+
+class TestParseTagVocabEntries:
+    def test_string_entry(self):
+        from backend.app.services.image_parser import parse_tag_vocab_entries
+
+        result = parse_tag_vocab_entries(["rain", "snow"])
+        assert result == {"rain": "rain", "snow": "snow"}
+
+    def test_dict_entry_with_aliases(self):
+        from backend.app.services.image_parser import parse_tag_vocab_entries
+
+        result = parse_tag_vocab_entries([{"value": "rain", "aliases": ["rainy", "raining"]}])
+        assert result["rain"] == "rain"
+        assert result["rainy"] == "rain"
+        assert result["raining"] == "rain"
+
+    def test_dict_entry_missing_value_skipped(self):
+        from backend.app.services.image_parser import parse_tag_vocab_entries
+
+        result = parse_tag_vocab_entries([{"value": "", "aliases": ["x"]}])
+        assert result == {}
+
+    def test_skips_malformed_entries(self):
+        from backend.app.services.image_parser import parse_tag_vocab_entries
+
+        result = parse_tag_vocab_entries([42, None, "valid"])
+        assert "valid" in result
+        assert len(result) == 1
+
+    def test_lowercases_all_keys(self):
+        from backend.app.services.image_parser import parse_tag_vocab_entries
+
+        result = parse_tag_vocab_entries(["RAIN", {"value": "SNOW", "aliases": ["SNOWY"]}])
+        assert "rain" in result
+        assert "snow" in result
+        assert "snowy" in result
+
+    def test_empty_list_returns_empty(self):
+        from backend.app.services.image_parser import parse_tag_vocab_entries
+
+        assert parse_tag_vocab_entries([]) == {}

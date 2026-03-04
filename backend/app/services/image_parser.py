@@ -20,6 +20,30 @@ logger = logging.getLogger(__name__)
 _CAMEL_RE = re.compile(r"([a-z])([A-Z])|([a-zA-Z])([0-9])|([0-9])([a-zA-Z])")
 
 
+def parse_tag_vocab_entries(values: list) -> dict[str, str]:
+    """Parse a tag category's common_values list into alias→canonical mapping.
+
+    Supports both string entries and dict entries with aliases:
+        ["rain"]  →  {"rain": "rain"}
+        [{"value": "rain", "aliases": ["rainy"]}]  →  {"rain": "rain", "rainy": "rain"}
+
+    Returns: dict mapping each alias (or canonical) → canonical value (lowercase).
+    """
+    mapping: dict[str, str] = {}
+    for entry in values:
+        if isinstance(entry, str):
+            canonical = entry.lower()
+            mapping[canonical] = canonical
+        elif isinstance(entry, dict):
+            canonical = entry.get("value", "").lower()
+            if not canonical:
+                continue
+            mapping[canonical] = canonical
+            for alias in entry.get("aliases", []):
+                mapping[alias.lower()] = canonical
+    return mapping
+
+
 def _split_camel_static(text: str) -> str:
     """Split CamelCase boundaries into spaces (module-level helper)."""
     return _CAMEL_RE.sub(
@@ -260,17 +284,8 @@ class ImageParser:
                 logger.warning("Invalid common_values JSON for category '%s'", category_name)
                 continue
 
-            for entry in values:
-                if isinstance(entry, str):
-                    # Simple string: word is both the lookup key and the canonical value
-                    self._vocabulary[entry.lower()] = (category_name, entry.lower())
-                elif isinstance(entry, dict):
-                    # Object with aliases: {"value": "rain", "aliases": ["rainy", "raining"]}
-                    canonical = entry.get("value", "").lower()
-                    if canonical:
-                        self._vocabulary[canonical] = (category_name, canonical)
-                        for alias in entry.get("aliases", []):
-                            self._vocabulary[alias.lower()] = (category_name, canonical)
+            for alias, canonical in parse_tag_vocab_entries(values).items():
+                self._vocabulary[alias] = (category_name, canonical)
 
     def _is_generic_folder(self, name: str) -> bool:
         """Check if a folder name is generic/utility (not a real group name).
