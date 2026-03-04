@@ -702,31 +702,34 @@ def _process_batch(
                 if prep.get("clip_image_path"):
                     Path(prep["clip_image_path"]).unlink(missing_ok=True)
 
-    # --- Reuse images: retrieve existing embeddings from Qdrant ---
-    for prep in reuse_images:
-        source_id = prep["reuse_embedding_from"]
-        embedding = get_qdrant_service().get_embedding(source_id)
-        if embedding:
-            prep["embedding"] = embedding
-        else:
-            # Fallback: generate from the stored file
-            logger.warning(
-                "Could not retrieve embedding for source image %s, generating from stored file",
-                source_id,
-            )
-            stored_path = get_image_store().get_path(prep["image_data"]["storage_key"])
-            if stored_path.exists():
-                prep["embedding"] = generate_clip_embedding(str(stored_path))
+    # --- Reuse images: retrieve existing embeddings from Qdrant in one batch call ---
+    if reuse_images:
+        source_ids = [prep["reuse_embedding_from"] for prep in reuse_images]
+        embeddings_by_id = get_qdrant_service().get_embeddings(source_ids)
+        for prep in reuse_images:
+            source_id = prep["reuse_embedding_from"]
+            embedding = embeddings_by_id.get(source_id)
+            if embedding:
+                prep["embedding"] = embedding
             else:
-                logger.error("Stored file not found for reuse: %s", stored_path)
-                error_info = classify_ingest_error(
-                    FileNotFoundError(f"Stored file not found: {stored_path}"),
-                    stage="embedding",
+                # Fallback: generate from the stored file
+                logger.warning(
+                    "Could not retrieve embedding for source image %s, generating from stored file",
+                    source_id,
                 )
-                prep["status"] = "failed"
-                prep["error"] = error_info["reason"]
-                prep["error_info"] = error_info
-                batch_failed += 1
+                stored_path = get_image_store().get_path(prep["image_data"]["storage_key"])
+                if stored_path.exists():
+                    prep["embedding"] = generate_clip_embedding(str(stored_path))
+                else:
+                    logger.error("Stored file not found for reuse: %s", stored_path)
+                    error_info = classify_ingest_error(
+                        FileNotFoundError(f"Stored file not found: {stored_path}"),
+                        stage="embedding",
+                    )
+                    prep["status"] = "failed"
+                    prep["error"] = error_info["reason"]
+                    prep["error_info"] = error_info
+                    batch_failed += 1
 
     # Re-filter to only truly successful results
     all_successful = [r for r in successful if r["status"] == "success"]

@@ -331,3 +331,83 @@ class TestBatchGenerateClipEmbeddings:
             result = batch_generate_clip_embeddings([], batch_size=10)
 
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# QdrantService.get_embeddings (batch retrieval)
+# ---------------------------------------------------------------------------
+
+
+class TestGetEmbeddingsBatch:
+    def test_returns_dict_of_vectors(self):
+        """get_embeddings issues one retrieve call and returns id→vector mapping."""
+        from unittest.mock import MagicMock
+
+        from backend.app.services.qdrant_service import QdrantService
+
+        svc = QdrantService.__new__(QdrantService)
+        import threading
+
+        svc._lock = threading.Lock()
+        mock_client = MagicMock()
+        svc.client = mock_client
+        svc.collection_name = "images"
+
+        point1 = MagicMock()
+        point1.id = 1
+        point1.vector = [0.1, 0.2]
+        point2 = MagicMock()
+        point2.id = 2
+        point2.vector = [0.3, 0.4]
+        mock_client.retrieve.return_value = [point1, point2]
+
+        result = svc.get_embeddings([1, 2])
+
+        mock_client.retrieve.assert_called_once()
+        assert result == {1: [0.1, 0.2], 2: [0.3, 0.4]}
+
+    def test_empty_input_returns_empty_dict(self):
+        """get_embeddings([]) returns {} without calling Qdrant."""
+        from unittest.mock import MagicMock
+
+        from backend.app.services.qdrant_service import QdrantService
+
+        svc = QdrantService.__new__(QdrantService)
+        import threading
+
+        svc._lock = threading.Lock()
+        mock_client = MagicMock()
+        svc.client = mock_client
+        svc.collection_name = "images"
+
+        result = svc.get_embeddings([])
+
+        mock_client.retrieve.assert_not_called()
+        assert result == {}
+
+    def test_missing_vector_excluded(self):
+        """Points with vector=None are excluded from the result."""
+        from unittest.mock import MagicMock
+
+        from backend.app.services.qdrant_service import QdrantService
+
+        svc = QdrantService.__new__(QdrantService)
+        import threading
+
+        svc._lock = threading.Lock()
+        mock_client = MagicMock()
+        svc.client = mock_client
+        svc.collection_name = "images"
+
+        point1 = MagicMock()
+        point1.id = 1
+        point1.vector = [0.1, 0.2]
+        point2 = MagicMock()
+        point2.id = 2
+        point2.vector = None
+        mock_client.retrieve.return_value = [point1, point2]
+
+        result = svc.get_embeddings([1, 2])
+
+        assert 1 in result
+        assert 2 not in result

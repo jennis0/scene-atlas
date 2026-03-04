@@ -189,6 +189,24 @@ class QdrantService:
             logger.warning("Error retrieving embedding for image_id=%s: %s", image_id, e)
             return None
 
+    def get_embeddings(self, image_ids: list[int]) -> dict[int, list[float]]:
+        """Retrieve embeddings for multiple images in a single RPC call.
+
+        Returns: dict mapping image_id → embedding vector (missing IDs are absent).
+        """
+        if not image_ids:
+            return {}
+        try:
+            points = self.client.retrieve(
+                collection_name=self.collection_name,
+                ids=image_ids,
+                with_vectors=True,
+            )
+            return {p.id: p.vector for p in points if p.vector is not None}
+        except Exception as e:
+            logger.warning("Error retrieving embeddings for %d ids: %s", len(image_ids), e)
+            return {}
+
     def get_collection_info(self) -> dict:
         """Get information about the collection (lock-free, read-only)."""
         try:
