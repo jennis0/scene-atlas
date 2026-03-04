@@ -4,9 +4,10 @@ import json
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, subqueryload
 
 from ..models import (
+    Image,
     Tag,
     TagCategory,
     TagCategoryCreate,
@@ -113,22 +114,36 @@ async def delete_tag_category(category_name: str, db: Session = Depends(get_db))
     if not category:
         raise HTTPException(status_code=404, detail="Tag category not found")
 
-    affected_images = (
-        db.query(func.count(func.distinct(Tag.image_id)))
-        .filter(Tag.category == category_name)
-        .scalar()
-    ) or 0
+    affected_image_ids = [
+        row[0]
+        for row in db.query(Tag.image_id).filter(Tag.category == category_name).distinct().all()
+    ]
+
+    from ..services.fts_service import invalidate_alias_cache, rebuild_search_text
 
     deleted_tags = (
         db.query(Tag).filter(Tag.category == category_name).delete(synchronize_session=False)
     )
     db.delete(category)
+
+    if affected_image_ids:
+        db.expire_all()  # clear stale tag objects left by synchronize_session=False
+        affected_imgs = (
+            db.query(Image)
+            .options(subqueryload(Image.tags))
+            .filter(Image.id.in_(affected_image_ids))
+            .all()
+        )
+        for img in affected_imgs:
+            rebuild_search_text(img, db)
+
+    invalidate_alias_cache()
     db.commit()
 
     return {
         "message": f"Category '{category_name}' deleted",
         "deleted_tags": deleted_tags,
-        "affected_images": affected_images,
+        "affected_images": len(affected_image_ids),
     }
 
 
@@ -171,6 +186,10 @@ async def upsert_tag_value(
     category.common_values = json.dumps(normalized)
     db.commit()
     db.refresh(category)
+
+    from ..services.fts_service import invalidate_alias_cache
+
+    invalidate_alias_cache()
     return category
 
 
@@ -209,23 +228,39 @@ async def rename_tag_value(
     category.common_values = json.dumps(values)
 
     # Cascade to Tag table
-    affected_images = (
-        db.query(func.count(func.distinct(Tag.image_id)))
+    affected_image_ids = [
+        row[0]
+        for row in db.query(Tag.image_id)
         .filter(Tag.category == category_name, Tag.value == tag_name)
-        .scalar()
-    ) or 0
+        .distinct()
+        .all()
+    ]
+
+    from ..services.fts_service import invalidate_alias_cache, rebuild_search_text
 
     db.query(Tag).filter(Tag.category == category_name, Tag.value == tag_name).update(
         {Tag.value: new_value}, synchronize_session=False
     )
 
+    if affected_image_ids:
+        db.expire_all()  # clear stale tag objects left by synchronize_session=False
+        affected_imgs = (
+            db.query(Image)
+            .options(subqueryload(Image.tags))
+            .filter(Image.id.in_(affected_image_ids))
+            .all()
+        )
+        for img in affected_imgs:
+            rebuild_search_text(img, db)
+
+    invalidate_alias_cache()
     db.commit()
     db.refresh(category)
     return {
         "category": TagCategoryResponse.model_validate(category),
         "old_value": tag_name,
         "new_value": new_value,
-        "affected_images": affected_images,
+        "affected_images": len(affected_image_ids),
     }
 
 
@@ -246,11 +281,15 @@ async def delete_tag_value(category_name: str, tag_name: str, db: Session = Depe
     category.common_values = json.dumps(values)
 
     # Cascade: delete from images
-    affected_images = (
-        db.query(func.count(func.distinct(Tag.image_id)))
+    affected_image_ids = [
+        row[0]
+        for row in db.query(Tag.image_id)
         .filter(Tag.category == category_name, Tag.value == tag_name)
-        .scalar()
-    ) or 0
+        .distinct()
+        .all()
+    ]
+
+    from ..services.fts_service import invalidate_alias_cache, rebuild_search_text
 
     deleted_tags = (
         db.query(Tag)
@@ -258,11 +297,23 @@ async def delete_tag_value(category_name: str, tag_name: str, db: Session = Depe
         .delete(synchronize_session=False)
     )
 
+    if affected_image_ids:
+        db.expire_all()  # clear stale tag objects left by synchronize_session=False
+        affected_imgs = (
+            db.query(Image)
+            .options(subqueryload(Image.tags))
+            .filter(Image.id.in_(affected_image_ids))
+            .all()
+        )
+        for img in affected_imgs:
+            rebuild_search_text(img, db)
+
+    invalidate_alias_cache()
     db.commit()
     return {
         "message": f"Tag '{tag_name}' deleted from '{category_name}'",
         "deleted_tags": deleted_tags,
-        "affected_images": affected_images,
+        "affected_images": len(affected_image_ids),
     }
 
 
@@ -287,6 +338,8 @@ async def get_image_tags(image_id: int, db: Session = Depends(get_db)):
 @router.post("/image/{image_id}", response_model=TagResponse)
 async def add_tag_to_image(image_id: int, tag: TagCreate, db: Session = Depends(get_db)):
     """Add a tag to an image."""
+    from ..services.fts_service import rebuild_search_text
+
     new_tag = Tag(
         image_id=image_id,
         category=tag.category,
@@ -295,6 +348,12 @@ async def add_tag_to_image(image_id: int, tag: TagCreate, db: Session = Depends(
         source=tag.source,
     )
     db.add(new_tag)
+    db.flush()  # persist tag so image.tags includes it
+
+    image = db.query(Image).options(subqueryload(Image.tags)).filter(Image.id == image_id).first()
+    if image:
+        rebuild_search_text(image, db)
+
     db.commit()
     db.refresh(new_tag)
     return new_tag
@@ -303,11 +362,20 @@ async def add_tag_to_image(image_id: int, tag: TagCreate, db: Session = Depends(
 @router.delete("/{tag_id}")
 async def delete_tag(tag_id: int, db: Session = Depends(get_db)):
     """Delete a tag from an image."""
+    from ..services.fts_service import rebuild_search_text
+
     tag = db.query(Tag).filter(Tag.id == tag_id).first()
     if not tag:
         raise HTTPException(status_code=404, detail="Tag not found")
 
+    image_id = tag.image_id
     db.delete(tag)
+    db.flush()  # remove tag so image.tags no longer includes it
+
+    image = db.query(Image).options(subqueryload(Image.tags)).filter(Image.id == image_id).first()
+    if image:
+        rebuild_search_text(image, db)
+
     db.commit()
     return {"message": "Tag deleted successfully"}
 
