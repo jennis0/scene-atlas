@@ -321,6 +321,13 @@ async def search_images(
     if not merged_scores:
         return ImageSearchResponse(total=0, limit=limit, offset=offset, images=[])
 
+    # Normalize RRF scores to [0, 1] so the frontend relevance threshold works.
+    # Raw RRF scores are tiny (~0.01–0.05); without normalization the threshold
+    # slider (default 0.2) would filter out every result.
+    max_rrf = max(merged_scores.values())
+    if max_rrf > 0:
+        merged_scores = {img_id: s / max_rrf for img_id, s in merged_scores.items()}
+
     # Apply SQL filters to the candidate set
     candidate_ids = list(merged_scores.keys())
     sql_query = sql_query.filter(Image.id.in_(candidate_ids))
