@@ -16,8 +16,8 @@
   },
   "lint-staged": {
     "backend/**/*.py": [
-      "uv run ruff check --fix",
-      "uv run ruff format"
+      "uv run --extra dev ruff check --fix",
+      "uv run --extra dev ruff format"
     ],
     "frontend/src/**/*.{ts,tsx}": [
       "npx --prefix frontend eslint --fix",
