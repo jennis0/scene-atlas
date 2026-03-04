@@ -38,12 +38,31 @@ const api = axios.create({
 
 // Resolve base URL at request time (not import time) so the port injected
 // by Electron's preload script is picked up after backend becomes ready.
+// Also inject bearer token from VITE_AUTH_TOKEN if configured (server mode).
 api.interceptors.request.use((config) => {
   if (!config.baseURL) {
     config.baseURL = getApiBaseUrl()
   }
+  const token = import.meta.env.VITE_AUTH_TOKEN
+  if (token) {
+    config.headers.set('Authorization', `Bearer ${token}`)
+  }
   return config
 })
+
+// Surface auth errors clearly rather than letting them fail silently.
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      console.error(
+        '[Scene Atlas] API returned 401 Unauthorized. ' +
+          'Ensure VITE_AUTH_TOKEN matches the backend AUTH_TOKEN setting.',
+      )
+    }
+    return Promise.reject(error)
+  },
+)
 
 export const imageApi = {
   list: async (limit = 100, offset = 0): Promise<Image[]> => {
