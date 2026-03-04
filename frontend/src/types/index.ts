@@ -277,13 +277,7 @@ export interface EditableGroupState {
   /** Backend group job ID, set after confirm response. Used for robust status matching. */
   group_job_id?: string
   /** Per-file error/warning details from the pipeline */
-  file_errors?: Array<{
-    filename: string
-    relative_path?: string | null
-    reason: string
-    stage: string
-    severity?: 'error' | 'warning'
-  }>
+  file_errors?: ImportFileError[]
 }
 
 // Group search/merge types
@@ -354,6 +348,15 @@ export interface GroupEditResponse {
   deleted_image_ids: number[]
 }
 
+/** Per-file error or warning detail from the ingest pipeline or upload phase. */
+export interface ImportFileError {
+  filename: string
+  relative_path?: string | null
+  reason: string
+  stage: string
+  severity?: 'error' | 'warning'
+}
+
 // Import types — status response
 export interface ImportGroupStatus {
   group_job_id: string
@@ -363,13 +366,7 @@ export interface ImportGroupStatus {
   failed_files: number
   status: string
   group_id?: number | null
-  file_errors?: Array<{
-    filename: string
-    relative_path?: string | null
-    reason: string
-    stage: string
-    severity?: 'error' | 'warning'
-  }>
+  file_errors?: ImportFileError[]
 }
 
 export interface ImportJobResponse {
@@ -382,13 +379,7 @@ export interface ImportJobResponse {
   completed_at: string | null
   error_message?: string | null
   source_label?: string | null
-  job_warnings?: Array<{
-    filename: string
-    relative_path?: string | null
-    reason: string
-    stage: string
-    severity?: 'error' | 'warning'
-  }>
+  job_warnings?: ImportFileError[]
   total_file_size?: number
 }
 

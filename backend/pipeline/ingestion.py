@@ -999,27 +999,26 @@ def analyse_upload(
         for group in groups:
             for file_entry in group["files"]:
                 rel_path = file_entry["relative_path"]
-
-                # Use precomputed data if available (from client-side check)
-                precomputed = precomputed_hashes.get(rel_path)
-                if precomputed:
-                    file_entry["content_hash"] = precomputed["content_hash"]
-                    if precomputed.get("duplicate_of"):
-                        file_entry["duplicate_of"] = precomputed["duplicate_of"]
-                    continue
-
-                # Compute hash for files actually in staging
-                staging_key = file_map.get(rel_path, rel_path)
-                file_path = staging / staging_key
-                if not file_path.exists():
-                    continue
-
                 try:
+                    # Use precomputed data if available (from client-side check)
+                    precomputed = precomputed_hashes.get(rel_path)
+                    if precomputed:
+                        file_entry["content_hash"] = precomputed["content_hash"]
+                        if precomputed.get("duplicate_of"):
+                            file_entry["duplicate_of"] = precomputed["duplicate_of"]
+                        continue
+
+                    # Compute hash for files actually in staging
+                    staging_key = file_map.get(rel_path, rel_path)
+                    file_path = staging / staging_key
+                    if not file_path.exists():
+                        continue
+
                     content_hash = _compute_file_hash(file_path)
+                    file_entry["content_hash"] = content_hash
+                    hashes_to_check.setdefault(content_hash, []).append(file_entry)
                 except Exception as e:
-                    raise ValueError(f"Failed to read file '{rel_path}': {e}") from e
-                file_entry["content_hash"] = content_hash
-                hashes_to_check.setdefault(content_hash, []).append(file_entry)
+                    raise ValueError(f"Failed to analyse '{rel_path}': {e}") from e
 
         # Batch-query DB for any server-computed hashes
         if hashes_to_check:

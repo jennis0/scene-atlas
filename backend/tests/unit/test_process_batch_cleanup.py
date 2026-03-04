@@ -194,6 +194,94 @@ class TestProcessBatchDbFailureCleanup:
         assert results[0]["status"] == "success"
 
 
+class TestProcessBatchQdrantWarnings:
+    """_process_batch generates warnings when batch_save_to_qdrant returns False."""
+
+    def test_qdrant_failure_generates_warnings(self):
+        """Each successfully-saved image gets a warning when Qdrant save fails."""
+        from backend.pipeline.ingestion import _process_batch
+
+        mock_image_store = MagicMock()
+        mock_thumbnail_store = MagicMock()
+        dummy_embedding = [0.1] * 512
+
+        prepared = [
+            _make_prepared_result("img1.jpg", "thumb1.jpg"),
+            _make_prepared_result("img2.jpg", "thumb2.jpg"),
+        ]
+
+        mock_qdrant = MagicMock()
+        mock_qdrant.get_embedding.return_value = None
+
+        with (
+            patch(
+                "backend.pipeline.ingestion.batch_generate_clip_embeddings",
+                return_value=[dummy_embedding, dummy_embedding],
+            ),
+            patch(
+                "backend.pipeline.ingestion.batch_save_to_database",
+                return_value=[1, 2],
+            ),
+            patch(
+                "backend.pipeline.ingestion.batch_save_to_qdrant",
+                return_value=False,  # Qdrant save fails
+            ),
+            patch("backend.pipeline.ingestion.get_image_store", return_value=mock_image_store),
+            patch(
+                "backend.pipeline.ingestion.get_thumbnail_store",
+                return_value=mock_thumbnail_store,
+            ),
+            patch("backend.pipeline.ingestion.get_qdrant_service", return_value=mock_qdrant),
+        ):
+            results, failed, warnings = _process_batch(prepared)
+
+        # Both images succeed in DB but generate Qdrant warnings
+        assert failed == 0
+        assert all(r["status"] == "success" for r in results)
+        assert len(warnings) == 2
+        assert all(w["severity"] == "warning" for w in warnings)
+        assert all(w["stage"] == "qdrant_save" for w in warnings)
+        assert all("semantic search" in w["reason"] for w in warnings)
+
+    def test_qdrant_success_generates_no_warnings(self):
+        """No warnings are generated when Qdrant save succeeds."""
+        from backend.pipeline.ingestion import _process_batch
+
+        mock_image_store = MagicMock()
+        mock_thumbnail_store = MagicMock()
+        dummy_embedding = [0.1] * 512
+
+        prepared = [_make_prepared_result("img1.jpg", "thumb1.jpg")]
+
+        mock_qdrant = MagicMock()
+        mock_qdrant.get_embedding.return_value = None
+
+        with (
+            patch(
+                "backend.pipeline.ingestion.batch_generate_clip_embeddings",
+                return_value=[dummy_embedding],
+            ),
+            patch(
+                "backend.pipeline.ingestion.batch_save_to_database",
+                return_value=[1],
+            ),
+            patch(
+                "backend.pipeline.ingestion.batch_save_to_qdrant",
+                return_value=True,  # Qdrant save succeeds
+            ),
+            patch("backend.pipeline.ingestion.get_image_store", return_value=mock_image_store),
+            patch(
+                "backend.pipeline.ingestion.get_thumbnail_store",
+                return_value=mock_thumbnail_store,
+            ),
+            patch("backend.pipeline.ingestion.get_qdrant_service", return_value=mock_qdrant),
+        ):
+            results, failed, warnings = _process_batch(prepared)
+
+        assert failed == 0
+        assert len(warnings) == 0
+
+
 class TestProcessBatchReusePathGuard:
     """The reuse (dedup) path must NOT delete files when DB save fails.
 
