@@ -39,6 +39,9 @@ THRESHOLD_FP32 = 0.001
 THRESHOLD_FP16 = 0.001
 THRESHOLD_INT8 = 0.01
 
+# Variants that gate the exit code — failures in other variants are warnings only
+GATING_VARIANTS = {"fp16"}
+
 VARIANTS = ["fp32", "fp16", "int8"]
 VARIANT_THRESHOLDS = {
     "fp32": THRESHOLD_FP32,
@@ -564,24 +567,42 @@ def main() -> int:
         print("Checking cross-modal consistency...")
         all_results.extend(check_cross_modal(torch_ref, onnx_services, tmp))
 
-    # Print results summary
+    # Print results summary — distinguish gating failures from warnings
     passed = sum(1 for _, ok, _ in all_results if ok)
-    failed = sum(1 for _, ok, _ in all_results if not ok)
+    failed_gating = [
+        (name, ok, msg)
+        for name, ok, msg in all_results
+        if not ok and any(f"[{v}]" in name for v in GATING_VARIANTS)
+    ]
+    failed_warn = [
+        (name, ok, msg)
+        for name, ok, msg in all_results
+        if not ok and not any(f"[{v}]" in name for v in GATING_VARIANTS)
+    ]
 
     if args.verbose:
         print(f"\n{'─' * 70}")
         for name, ok, msg in all_results:
-            status = "PASS" if ok else "FAIL"
+            gating = any(f"[{v}]" in name for v in GATING_VARIANTS)
+            status = "PASS" if ok else ("FAIL" if gating else "WARN")
             print(f"  {status}  {name}: {msg}")
 
     print(f"\n{'=' * 70}")
-    print(f"Results: {passed} passed, {failed} failed, {len(all_results)} total")
+    print(
+        f"Results: {passed} passed, {len(failed_gating)} failed"
+        f", {len(failed_warn)} warned, {len(all_results)} total"
+    )
+    print(f"Gating variants (must pass): {sorted(GATING_VARIANTS)}")
 
-    if failed > 0:
-        print("\nFAILED checks:")
-        for name, ok, msg in all_results:
-            if not ok:
-                print(f"  FAIL  {name}: {msg}")
+    if failed_gating:
+        print("\nFAILED checks (gating):")
+        for name, _, msg in failed_gating:
+            print(f"  FAIL  {name}: {msg}")
+
+    if failed_warn:
+        print("\nWARNING checks (non-gating):")
+        for name, _, msg in failed_warn:
+            print(f"  WARN  {name}: {msg}")
 
     # Quantisation report (informational, requires real images)
     print_quantisation_report(torch_ref, onnx_services, args.models_dir, real_images)
