@@ -33,6 +33,7 @@ export function SceneTile({
 
   return (
     <div
+      data-testid="scene-tile"
       className={`group relative cursor-pointer overflow-hidden rounded-lg bg-card transition-[transform,box-shadow] duration-200 ${
         isActive
           ? 'border border-primary/60 ring-2 ring-primary/70 shadow-lg shadow-primary/15'
@@ -48,7 +49,9 @@ export function SceneTile({
         }
       >
         {/* Shimmer skeleton shown until image loads */}
-        {!loaded && !errored && <div className="absolute inset-0 animate-pulse bg-muted/60" />}
+        {!loaded && !errored && (
+          <div className="absolute inset-0 animate-pulse bg-muted/60 pointer-events-none" />
+        )}
         <img
           src={getThumbnailUrl(image)}
           alt={primaryText}
