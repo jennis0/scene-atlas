@@ -4,6 +4,11 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- connect-src includes http://localhost:* because in Electron mode the app
+         runs under file:// origin, so 'self' does not cover localhost API calls.
+         Narrowing this requires Electron session-level CSP override (separate task).
+         In server/web mode, 'self' covers the backend; the wildcard is harmless
+         since script-src 'self' prevents any XSS that could exploit it. -->
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' blob: data:; connect-src 'self' http://localhost:*; media-src 'self' blob:"

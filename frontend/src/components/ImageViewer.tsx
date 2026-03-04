@@ -17,6 +17,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { SceneTile } from '@/components/SceneTile'
 import { SubgroupDropdown } from '@/components/SubgroupDropdown'
 import { imageApi, tagApi, getImageUrl, getGroupDownloadUrl } from '@/lib/api'
+import { MAX_NAME_LENGTH } from '@/lib/constants'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { useGetTagColor } from '@/contexts/TagColorContext'
 import { TagPicker } from '@/components/import/TagPicker'
@@ -527,6 +528,7 @@ export function ImageViewer({
                   onChange={(e) => setNameDraft(e.target.value)}
                   onBlur={saveName}
                   onKeyDown={handleNameKeyDown}
+                  maxLength={MAX_NAME_LENGTH}
                   className="font-display text-2xl font-semibold bg-transparent border-b border-primary/70 focus:outline-none text-foreground flex-1 min-w-0 pb-px"
                 />
               ) : (

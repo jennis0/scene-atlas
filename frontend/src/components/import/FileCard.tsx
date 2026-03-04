@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { X, Pencil, Plus, Copy } from 'lucide-react'
 import type { EditableFileState, TagData } from '@/types'
 import { resolveApiUrl } from '@/lib/apiBase'
+import { MAX_NAME_LENGTH } from '@/lib/constants'
 import { importPreviewUrl } from '@/lib/importStorage'
 import { TagPicker } from './TagPicker'
 import { GridToggle } from './GridToggle'
@@ -159,6 +160,7 @@ export function FileCard({
                   }
                   if (e.key === 'Escape') setIsEditingName(false)
                 }}
+                maxLength={MAX_NAME_LENGTH}
                 className="font-display text-[12px] font-semibold text-foreground bg-transparent border-b border-primary/70 focus:outline-none flex-1 min-w-0 pb-px leading-snug"
                 autoFocus
                 title={file.relative_path}

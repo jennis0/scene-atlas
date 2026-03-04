@@ -1,3 +1,5 @@
+import { MAX_AUTHOR_LENGTH, MAX_NAME_LENGTH } from '@/lib/constants'
+
 interface MetadataFormProps {
   author: string
   groupName: string
@@ -60,6 +62,7 @@ export function MetadataForm({
           onChange={(e) => onAuthorChange(e.target.value)}
           onBlur={onBlur}
           placeholder={authorPlaceholder}
+          maxLength={MAX_AUTHOR_LENGTH}
           list={suggestionsListId}
           disabled={authorDisabled}
           className={`${inputClass} disabled:opacity-40 disabled:cursor-not-allowed ${
@@ -77,6 +80,7 @@ export function MetadataForm({
           onChange={(e) => onGroupNameChange(e.target.value)}
           onBlur={onBlur}
           placeholder={groupNamePlaceholder}
+          maxLength={MAX_NAME_LENGTH}
           disabled={groupNameDisabled}
           className={`${inputClass} border-border disabled:opacity-40 disabled:cursor-not-allowed`}
         />

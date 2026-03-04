@@ -34,5 +34,9 @@ export const MAX_BATCH_BYTES = 100 * 1024 * 1024 // 100 MB per batch
 export const BATCH_UPLOAD_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes per batch
 export const MAX_BATCH_RETRIES = 2
 
+// ── Input length limits ──────────────────────────────────────────────────────
+export const MAX_AUTHOR_LENGTH = 256
+export const MAX_NAME_LENGTH = 512
+
 // ── Canvas / image viewer ────────────────────────────────────────────────────
 export const CANVAS_DOT_SIZE = 24
