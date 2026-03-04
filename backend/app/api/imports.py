@@ -953,7 +953,7 @@ async def finalize_import(job_id: str, db: Session = Depends(get_db)):
     if not job:
         raise HTTPException(status_code=404, detail="Import job not found")
 
-    terminal = {"completed", "failed", "cancelled", "expired"}
+    terminal = {"completed", "failed", "cancelled", "expired", "broken"}
     if job.status in terminal:
         return {"status": job.status, "staging_cleaned": False, "already_terminal": True}
 

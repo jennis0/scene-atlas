@@ -100,9 +100,12 @@ def cleanup_import_images(job_id: str, db: Session) -> int:
         )
         if sibling_count == 0:
             if image.storage_key:
-                image_store.delete(image.storage_key)
+                try:
+                    image_store.delete(image.storage_key)
+                except Exception as e:
+                    logger.warning("Failed to delete image file %s: %s", image.storage_key, e)
             if image.thumbnail_key:
-                thumbnail_store.delete(image.thumbnail_key)
+                _delete_all_thumbnails(thumbnail_store, image.thumbnail_key)
 
         db.delete(image)
         deleted_count += 1

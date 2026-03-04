@@ -458,6 +458,33 @@ class TestCleanupImportImages:
 
         assert not image_store.exists("unique-key.jpg")
 
+    def test_deletes_all_thumbnail_sizes(self, db_session, stores, monkeypatch):
+        """cleanup_import_images removes all three thumbnail size variants, not just one."""
+        image_store, thumbnail_store = stores
+        _patch_stores(monkeypatch, image_store, thumbnail_store)
+        mock_qdrant_svc = MagicMock()
+        with patch(
+            "backend.app.services.qdrant_service.get_qdrant_service",
+            return_value=mock_qdrant_svc,
+        ):
+            stem = "tkey"
+            thumb_key = f"{stem}_400x400.jpg"
+            _seed_store(image_store, "tk.jpg")
+            for size in ["150x150", "400x400", "800x800"]:
+                _seed_store(thumbnail_store, f"{stem}_{size}.jpg")
+
+            job = ImportJob(id="thumb-job", status="failed", source_label="test")
+            img = _make_image("tk.jpg", thumbnail_key=thumb_key, filename="tk.jpg", name="TK")
+            img.import_job_id = "thumb-job"
+            db_session.add_all([job, img])
+            db_session.commit()
+
+            cleanup_import_images("thumb-job", db_session)
+            db_session.commit()
+
+        for size in ["150x150", "400x400", "800x800"]:
+            assert not thumbnail_store.exists(f"{stem}_{size}.jpg"), f"{size} thumbnail not deleted"
+
     def test_qdrant_failure_does_not_raise(self, db_session, stores, monkeypatch):
         """Qdrant errors during batch cleanup are swallowed."""
         image_store, thumbnail_store = stores
