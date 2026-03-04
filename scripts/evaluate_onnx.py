@@ -608,7 +608,7 @@ def main() -> int:
     print_quantisation_report(torch_ref, onnx_services, args.models_dir, real_images)
 
     print(f"{'=' * 70}")
-    return 1 if failed > 0 else 0
+    return 1 if failed_gating else 0
 
 
 if __name__ == "__main__":
