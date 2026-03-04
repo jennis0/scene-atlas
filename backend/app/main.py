@@ -13,7 +13,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request as StarletteRequest
 
 from .api import export, groups, images, imports, jobs, search, system, tags
 from .api import settings as settings_api
@@ -181,7 +180,7 @@ app.add_middleware(
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Add static security headers to every response."""
 
-    async def dispatch(self, request: StarletteRequest, call_next):
+    async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"

@@ -1,5 +1,7 @@
 """Shared FastAPI dependencies for API route handlers."""
 
+import hmac
+
 from fastapi import Header, HTTPException, Request
 
 from ..config import settings
@@ -26,9 +28,15 @@ async def verify_auth(authorization: str | None = Header(None)) -> None:
     if not settings.auth_token:
         return
 
+    _www_auth = {"WWW-Authenticate": 'Bearer realm="scene-atlas"'}
+
     if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+        raise HTTPException(
+            status_code=401,
+            detail="Missing or invalid Authorization header",
+            headers=_www_auth,
+        )
 
     token = authorization[len("Bearer ") :]
-    if token != settings.auth_token:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    if not hmac.compare_digest(token, settings.auth_token):
+        raise HTTPException(status_code=401, detail="Invalid token", headers=_www_auth)
