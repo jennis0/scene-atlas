@@ -255,6 +255,9 @@ async def search_images(
     SEMANTIC_THRESHOLD = 0.15
     SEMANTIC_ONLY_THRESHOLD = 0.15
     RRF_K = 60  # standard dampening constant for Reciprocal Rank Fusion
+    RRF_TEXT_WEIGHT = (
+        2.0  # text ranks count double — boosts exact name/tag matches over pure-semantic
+    )
 
     # FTS5 text search (skip if semantic_only)
     text_scores: dict[int, float] = {}
@@ -313,7 +316,7 @@ async def search_images(
         if image_id in sem_rank:
             score += 1.0 / (RRF_K + sem_rank[image_id])
         if image_id in txt_rank:
-            score += 1.0 / (RRF_K + txt_rank[image_id])
+            score += RRF_TEXT_WEIGHT / (RRF_K + txt_rank[image_id])
         if image_id in alias_rank:
             score += 1.0 / (RRF_K + alias_rank[image_id])
         merged_scores[image_id] = score
