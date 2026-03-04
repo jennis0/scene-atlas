@@ -1206,6 +1206,21 @@ async def fail_import(job_id: str, body: FailImportRequest, db: Session = Depend
         shutil.rmtree(staging_dir, ignore_errors=True)
         staging_cleaned = True
 
+    # Best-effort image cleanup — typically a no-op at uploading/staging phase
+    # since no Image rows are committed yet, but ensures consistency if the
+    # allowed states ever expand to include post-confirm stages.
+    try:
+        deleted_images = _cleanup_import_images(job_id, db)
+        if deleted_images:
+            logger.info(
+                "Cleaned up %d image(s) from failed import %s (/fail)", deleted_images, job_id
+            )
+    except Exception:
+        logger.warning(
+            "Image cleanup failed for job %s in /fail (non-fatal)", job_id, exc_info=True
+        )
+        deleted_images = 0
+
     now = datetime.now(UTC).replace(tzinfo=None)
     job.status = "failed"
     job.error_message = body.error_message[:500] if body.error_message else None

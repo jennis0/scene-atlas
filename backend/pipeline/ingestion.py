@@ -69,13 +69,10 @@ def _build_parser() -> ImageParser:
     """Create an ImageParser with tag vocabulary loaded from DB."""
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)
-    db = SessionLocal()
-    try:
+    with SessionLocal() as db:
         categories = db.query(TagCategory).all()
         cat_dicts = [{"name": c.name, "common_values": c.common_values} for c in categories]
         return ImageParser(tag_categories=cat_dicts)
-    finally:
-        db.close()
 
 
 def _compute_file_hash(file_path: Path) -> str:
@@ -286,8 +283,7 @@ def prepare_single_image(
             # Look up existing image to copy dimensions, file_size, colors
             engine = get_engine(settings.database_url)
             SessionLocal = get_session_local(engine)
-            db = SessionLocal()
-            try:
+            with SessionLocal() as db:
                 source_image = (
                     db.query(Image).filter(Image.storage_key == reuse_storage_key).first()
                 )
@@ -308,8 +304,6 @@ def prepare_single_image(
                     # Source record gone — fall back to computing from file
                     logger.warning("No DB record for storage_key=%s", reuse_storage_key)
                     reuse_storage_key = None
-            finally:
-                db.close()
 
         if reuse_storage_key:
             reuse_ext = image_path_obj.suffix.lower()
@@ -519,18 +513,14 @@ def save_to_database(image_data: dict) -> int:
     logger = logging.getLogger(__name__)
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)
-    db = SessionLocal()
     try:
-        image_id = _save_image_to_db(db, image_data)
-        db.commit()
+        with SessionLocal() as db, db.begin():
+            image_id = _save_image_to_db(db, image_data)
         logger.info("Saved image to database: %s (ID: %s)", image_data["filename"], image_id)
         return image_id
     except Exception as e:
-        db.rollback()
         logger.error("Error saving to database: %s", e)
         raise
-    finally:
-        db.close()
 
 
 def save_to_qdrant(image_id: int, embedding: list[float], metadata: dict) -> bool:
@@ -567,21 +557,17 @@ def batch_save_to_database(image_data_list: list[dict]) -> list[int]:
     logger = logging.getLogger(__name__)
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)
-    db = SessionLocal()
     try:
-        image_ids = []
-        for image_data in image_data_list:
-            image_id = _save_image_to_db(db, image_data)
-            image_ids.append(image_id)
-        db.commit()
+        with SessionLocal() as db, db.begin():
+            image_ids = []
+            for image_data in image_data_list:
+                image_id = _save_image_to_db(db, image_data)
+                image_ids.append(image_id)
         logger.info("Batch saved %s images to database", len(image_ids))
         return image_ids
     except Exception as e:
-        db.rollback()
         logger.error("Error batch saving to database: %s", e)
         raise
-    finally:
-        db.close()
 
 
 def batch_save_to_qdrant(items: list[dict]) -> bool:
@@ -627,8 +613,7 @@ def update_import_group_job_progress(
     """Update ImportGroupJob progress counters in the database."""
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)
-    db = SessionLocal()
-    try:
+    with SessionLocal() as db:
         group_job = db.query(ImportGroupJob).filter(ImportGroupJob.id == group_job_id).first()
         if group_job:
             group_job.processed_files = processed
@@ -641,8 +626,6 @@ def update_import_group_job_progress(
             if status == "completed":
                 group_job.completed_at = datetime.now(UTC).replace(tzinfo=None)
             db.commit()
-    finally:
-        db.close()
 
 
 # ---------------------------------------------------------------------------
@@ -739,6 +722,20 @@ def _process_batch(
         except Exception as db_exc:
             logger.exception("Batch DB save failed for %d images", len(all_successful))
             error_info = classify_ingest_error(db_exc, stage="db_save")
+            # Clean up files that were already copied to ImageStore — they have no
+            # DB row to anchor them and will become permanently orphaned otherwise.
+            # Skip reuse images: their storage_key belongs to an existing Image row.
+            image_store = get_image_store()
+            thumbnail_store = get_thumbnail_store()
+            for prep in all_successful:
+                img_data = prep.get("image_data", {})
+                if not img_data.get("reuse_storage_key"):
+                    storage_key = img_data.get("storage_key")
+                    if storage_key:
+                        image_store.delete(storage_key)
+                    thumbnail_key = img_data.get("thumbnail_key")
+                    if thumbnail_key:
+                        thumbnail_store.delete(thumbnail_key)
             for prep in all_successful:
                 prep["status"] = "failed"
                 prep["error"] = error_info["reason"]
@@ -956,8 +953,7 @@ def analyse_upload(
     # Compute content hashes and detect duplicates
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)
-    db = SessionLocal()
-    try:
+    with SessionLocal() as db:
         # Collect hashes that still need DB lookup (non-precomputed files)
         hashes_to_check: dict[str, list[dict]] = {}  # hash -> [file_entry, ...]
 
@@ -979,7 +975,10 @@ def analyse_upload(
                 if not file_path.exists():
                     continue
 
-                content_hash = _compute_file_hash(file_path)
+                try:
+                    content_hash = _compute_file_hash(file_path)
+                except Exception as e:
+                    raise ValueError(f"Failed to read file '{rel_path}': {e}") from e
                 file_entry["content_hash"] = content_hash
                 hashes_to_check.setdefault(content_hash, []).append(file_entry)
 
@@ -1011,8 +1010,6 @@ def analyse_upload(
                         existing.id,
                         existing.name,
                     )
-    finally:
-        db.close()
 
     logger.info("Detected %s group(s)", len(groups))
     for g in groups:
@@ -1272,8 +1269,7 @@ def _finalize_import_job(job_id: str) -> None:
     logger = logging.getLogger(__name__)
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)
-    db = SessionLocal()
-    try:
+    with SessionLocal() as db:
         job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
         if not job:
             return
@@ -1300,6 +1296,7 @@ def _finalize_import_job(job_id: str) -> None:
             groups = db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job_id).all()
             has_running = any(g.status == "running" for g in groups)
             all_terminal = not groups or all(g.status in GROUP_TERMINAL_STATUSES for g in groups)
+            has_failures = any(g.status == "failed" for g in groups)
             now = datetime.now(UTC).replace(tzinfo=None)
             if has_running:
                 job.status = "active"
@@ -1307,7 +1304,29 @@ def _finalize_import_job(job_id: str) -> None:
             elif all_terminal and job.pending_groups > 0:
                 job.status = "awaiting_input"
                 job.updated_at = now
-            # else: all submitted groups done, pending=0 → stay in current status
+
+            # When all submitted groups are done and no unconfirmed groups remain,
+            # eagerly clean up images from failed groups.  This prevents false
+            # duplicate-hash matches if the user re-uploads immediately, rather
+            # than waiting for the user to call /finalize or the 48h expiry.
+            if all_terminal and job.pending_groups == 0 and has_failures:
+                try:
+                    from backend.app.api.imports import _cleanup_import_images
+
+                    cleaned = _cleanup_import_images(job_id, db)
+                    if cleaned:
+                        logger.info(
+                            "Cleaned up %d image(s) from failed single-confirm import %s",
+                            cleaned,
+                            job_id,
+                        )
+                except Exception:
+                    logger.warning(
+                        "Image cleanup failed for single-confirm job %s (non-fatal)",
+                        job_id,
+                        exc_info=True,
+                    )
+
             db.commit()
             logger.info(
                 "Import job %s stays '%s' (single-confirm, not auto-completing)",
@@ -1346,8 +1365,6 @@ def _finalize_import_job(job_id: str) -> None:
 
         db.commit()
         logger.info("Import job %s transitioned to '%s'", job_id, new_status)
-    finally:
-        db.close()
 
 
 def _rebuild_fts() -> None:
@@ -1356,12 +1373,9 @@ def _rebuild_fts() -> None:
     try:
         engine = get_engine(settings.database_url)
         SessionLocal = get_session_local(engine)
-        db = SessionLocal()
-        try:
+        with SessionLocal() as db:
             fts_rebuild(db)
-            logger.info("FTS index rebuilt successfully")
-        finally:
-            db.close()
+        logger.info("FTS index rebuilt successfully")
     except Exception as e:
         logger.warning("FTS rebuild failed (non-fatal): %s", e)
 

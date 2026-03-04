@@ -207,9 +207,8 @@ def expire_stale_jobs(max_age_hours: int = 48) -> dict:
 
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)
-    db = SessionLocal()
 
-    try:
+    with SessionLocal() as db:
         cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=max_age_hours)
         stale_statuses = {"staging", "active", "uploading", "awaiting_input"}
 
@@ -273,8 +272,6 @@ def expire_stale_jobs(max_age_hours: int = 48) -> dict:
             logger.info("Expired stale import job %s (last activity: %s)", job.id, last_activity)
 
         db.commit()
-    finally:
-        db.close()
 
     logger.info("Stale job expiry complete: expired %s job(s)", expired_count)
     return {"expired": expired_count}
@@ -376,3 +373,139 @@ def mark_interrupted_jobs(db=None) -> int:
     finally:
         if own_session:
             db.close()
+
+
+# ---------------------------------------------------------------------------
+# Orphan file sweep (Option A)
+# ---------------------------------------------------------------------------
+
+
+def sweep_orphaned_store_files() -> dict:
+    """Scan ImageStore and ThumbnailStore for files with no DB Image row.
+
+    Files can become orphaned when batch DB saves fail after files have already
+    been copied to the store — the copy has no Image row anchoring it, so the
+    normal _cleanup_import_images() path can never reach it.
+
+    This function logs orphaned files as warnings. It does NOT delete them
+    automatically; deletion can be added in a future phase once confidence in
+    the sweep logic is established.
+
+    Scheduled daily alongside backup_database().
+    """
+    logger = logging.getLogger(__name__)
+
+    from backend.app.models import Image, get_engine, get_session_local
+    from backend.app.services import get_image_store, get_thumbnail_store
+
+    engine = get_engine(settings.database_url)
+    SessionLocal = get_session_local(engine)
+    orphaned_images = 0
+    orphaned_thumbnails = 0
+
+    with SessionLocal() as db:
+        # Load all known storage and thumbnail keys from the DB in one query each
+        image_keys: set[str] = {
+            row[0]
+            for row in db.query(Image.storage_key).filter(Image.storage_key.isnot(None)).all()
+        }
+        thumbnail_keys: set[str] = {
+            row[0]
+            for row in db.query(Image.thumbnail_key).filter(Image.thumbnail_key.isnot(None)).all()
+        }
+
+    # Walk ImageStore looking for files with no DB row
+    image_store = get_image_store()
+    if image_store.base_dir.exists():
+        for file_path in image_store.base_dir.rglob("*"):
+            if not file_path.is_file():
+                continue
+            key = file_path.name
+            if key not in image_keys:
+                logger.warning(
+                    "Orphaned ImageStore file (no DB row): %s",
+                    file_path.relative_to(image_store.base_dir),
+                )
+                orphaned_images += 1
+
+    # Walk ThumbnailStore looking for thumbnails with no DB row
+    thumbnail_store = get_thumbnail_store()
+    if thumbnail_store.base_dir.exists():
+        for file_path in thumbnail_store.base_dir.rglob("*"):
+            if not file_path.is_file():
+                continue
+            key = file_path.name
+            if key not in thumbnail_keys:
+                logger.warning(
+                    "Orphaned ThumbnailStore file (no DB row): %s",
+                    file_path.relative_to(thumbnail_store.base_dir),
+                )
+                orphaned_thumbnails += 1
+
+    if orphaned_images or orphaned_thumbnails:
+        logger.warning(
+            "Orphan sweep found %d orphaned image file(s) and %d orphaned thumbnail file(s). "
+            "Run fix_orphaned_images script if needed.",
+            orphaned_images,
+            orphaned_thumbnails,
+        )
+    else:
+        logger.info("Orphan sweep: no orphaned files found")
+
+    return {"orphaned_images": orphaned_images, "orphaned_thumbnails": orphaned_thumbnails}
+
+
+# ---------------------------------------------------------------------------
+# Qdrant / DB desync detection (Option B)
+# ---------------------------------------------------------------------------
+
+
+def check_qdrant_sync() -> dict:
+    """Compare DB image count against Qdrant point count and log any delta.
+
+    Images that exist in the DB but have no Qdrant embedding are silently
+    absent from semantic search results.  This check surfaces that problem
+    without triggering expensive CLIP re-computation.
+
+    If the delta exceeds 10, a warning is logged.  Run the backfill script
+    (write_new_embeddings) to repair any desync.
+
+    Scheduled daily alongside backup_database().
+    """
+    logger = logging.getLogger(__name__)
+
+    from backend.app.models import Image, get_engine, get_session_local
+    from backend.app.services.qdrant_service import get_qdrant_service
+
+    engine = get_engine(settings.database_url)
+    SessionLocal = get_session_local(engine)
+    with SessionLocal() as db:
+        db_count: int = db.query(Image).count()
+
+    try:
+        qdrant_info = get_qdrant_service().get_collection_info()
+        qdrant_count: int = qdrant_info.get("points_count") or 0
+    except Exception as e:
+        logger.warning("Qdrant sync check failed (Qdrant unavailable?): %s", e)
+        return {"db_count": db_count, "qdrant_count": None, "delta": None}
+
+    delta = db_count - qdrant_count
+    if delta > 10:
+        logger.warning(
+            "Qdrant/DB desync: %d image(s) in DB but only %d point(s) in Qdrant "
+            "(delta=%d). Run 'write_new_embeddings' to repair.",
+            db_count,
+            qdrant_count,
+            delta,
+        )
+    elif delta != 0:
+        logger.info(
+            "Qdrant/DB minor delta: %d image(s) in DB, %d point(s) in Qdrant (delta=%d)",
+            db_count,
+            qdrant_count,
+            delta,
+        )
+    else:
+        logger.info("Qdrant/DB in sync: %d image(s)", db_count)
+
+    return {"db_count": db_count, "qdrant_count": qdrant_count, "delta": delta}
