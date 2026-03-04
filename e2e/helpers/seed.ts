@@ -135,6 +135,7 @@ export async function seedTestData(imageDir: string): Promise<void> {
   // 6. Poll until processing completes
   console.log("[seed] Step 6: Polling for job completion...");
   let lastStatus = "";
+  let finalStatusData: Record<string, unknown> = {};
   await pollUntil(
     async () => {
       const res = await fetch(`${BACKEND_URL}/api/v1/imports/${jobId}/status`);
@@ -142,12 +143,23 @@ export async function seedTestData(imageDir: string): Promise<void> {
         status: string;
         completed_groups?: number;
         total_groups?: number;
+        failed_groups?: number;
+        processed_files?: number;
+        failed_files?: number;
+        groups?: {
+          group_name: string;
+          status: string;
+          processed_files: number;
+          failed_files: number;
+        }[];
       };
+      finalStatusData = data as Record<string, unknown>;
       if (data.status !== lastStatus) {
         console.log(
           `[seed]   Job status: ${data.status}` +
             (data.total_groups != null
-              ? ` (${data.completed_groups ?? 0}/${data.total_groups} groups)`
+              ? ` (${data.completed_groups ?? 0}/${data.total_groups} groups, ` +
+                `${data.processed_files ?? 0} processed, ${data.failed_files ?? 0} failed)`
               : ""),
         );
         lastStatus = data.status;
@@ -162,7 +174,24 @@ export async function seedTestData(imageDir: string): Promise<void> {
     120_000,
     1000,
   );
-  console.log("[seed] Job completed.");
+  console.log(
+    `[seed] Job completed. Final status: ${JSON.stringify(finalStatusData)}`,
+  );
+  // Log per-group breakdown for debugging
+  const groups =
+    (finalStatusData.groups as
+      | {
+          group_name: string;
+          status: string;
+          processed_files: number;
+          failed_files: number;
+        }[]
+      | undefined) ?? [];
+  for (const g of groups) {
+    console.log(
+      `[seed]   Group "${g.group_name}": status=${g.status}, processed=${g.processed_files}, failed=${g.failed_files}`,
+    );
+  }
 
   // 7. Finalize the import
   console.log("[seed] Step 7: Finalising...");
