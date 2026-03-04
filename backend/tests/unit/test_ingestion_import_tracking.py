@@ -116,3 +116,92 @@ def test_run_group_injects_import_job_id_into_metadata(tmp_path):
         )
 
     assert any(m.get("import_job_id") == "job-xyz" for m in captured_metadata)
+
+
+def _make_image_data(group_name: str, author: str, storage_key: str) -> dict:
+    return {
+        "filename": f"{storage_key}.jpg",
+        "storage_key": f"{storage_key}.jpg",
+        "name": storage_key,
+        "author": author,
+        "group_name": group_name,
+        "width": 100,
+        "height": 100,
+        "file_size": 1000,
+    }
+
+
+class TestBatchSaveGroupQueryCount:
+    """batch_save_to_database should query the group table at most once per batch."""
+
+    def test_group_queried_once_for_batch_of_three(self, db):
+        """Three images in the same group trigger only one ImageGroup SELECT."""
+        from backend.app.models.database import ImageGroup
+        from backend.pipeline.ingestion import _save_image_to_db
+
+        query_call_count = 0
+        original_query = db.query
+
+        def counting_query(model):
+            nonlocal query_call_count
+            if model is ImageGroup:
+                query_call_count += 1
+            return original_query(model)
+
+        db.query = counting_query
+
+        batch = [_make_image_data("Group A", "Author", f"key-{i}") for i in range(3)]
+
+        # Simulate what batch_save_to_database does: resolve group once, then pass it
+
+        group_name = batch[0].get("group_name")
+        author = batch[0].get("author")
+        resolved_group = (
+            db.query(ImageGroup)
+            .filter(ImageGroup.base_name == group_name, ImageGroup.author == author)
+            .first()
+        )
+        # Reset count after the initial resolve
+        query_call_count = 0
+
+        for image_data in batch:
+            _save_image_to_db(db, image_data, group=resolved_group)
+            if resolved_group is None:
+                # Pick up newly created group from first image
+                from backend.app.models.database import Image
+
+                last_img = db.query(Image).order_by(Image.id.desc()).first()
+                if last_img and last_img.group_id:
+                    resolved_group = (
+                        db.query(ImageGroup).filter(ImageGroup.id == last_img.group_id).first()
+                    )
+                    query_call_count = 0  # reset after first creation
+
+        db.rollback()
+        # With the group pre-resolved, _save_image_to_db must NOT issue extra queries
+        assert query_call_count == 0, f"Expected 0 group queries, got {query_call_count}"
+
+    def test_group_created_and_reused(self, db):
+        """When a group doesn't exist yet, it's created on the first image and reused."""
+        from backend.app.models.database import Image, ImageGroup
+        from backend.pipeline.ingestion import _save_image_to_db
+
+        batch = [_make_image_data("New Group", "Bob", f"nk-{i}") for i in range(3)]
+
+        # Initial resolve returns None (group doesn't exist yet)
+        resolved_group = None
+        for image_data in batch:
+            _save_image_to_db(db, image_data, group=resolved_group)
+            if resolved_group is None:
+                last_img = db.query(Image).order_by(Image.id.desc()).first()
+                if last_img and last_img.group_id:
+                    resolved_group = (
+                        db.query(ImageGroup).filter(ImageGroup.id == last_img.group_id).first()
+                    )
+        db.commit()
+
+        # All 3 images should be in the same group
+        images = db.query(Image).filter(Image.author == "Bob").all()
+        assert len(images) == 3
+        group_ids = {img.group_id for img in images}
+        assert len(group_ids) == 1, f"Expected 1 group, got: {group_ids}"

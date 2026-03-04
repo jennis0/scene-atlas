@@ -83,11 +83,14 @@ def _compute_file_hash(file_path: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _save_image_to_db(db: Session, image_data: dict) -> int:
+def _save_image_to_db(db: Session, image_data: dict, group: ImageGroup | None = None) -> int:
     """Save one image and its tags/colors to the database within an existing session.
 
     Always creates a new record (never updates an existing one by storage_key,
     since multiple records can now share the same storage_key for dedup).
+
+    If `group` is provided it is used directly, skipping the ImageGroup SELECT.
+    Pass a pre-resolved group from batch_save_to_database to avoid N+1 queries.
 
     Returns the image ID. Does NOT commit — caller must commit.
     """
@@ -122,18 +125,20 @@ def _save_image_to_db(db: Session, image_data: dict) -> int:
     db.add(image)
     db.flush()
 
-    # Handle group
+    # Handle group — use pre-resolved group if caller provided one (avoids N+1)
     group_name = image_data.get("group_name")
     author = image_data.get("author")
     if group_name:
-        grp = (
-            db.query(ImageGroup)
-            .filter(
-                ImageGroup.base_name == group_name,
-                ImageGroup.author == author,
+        grp = group
+        if grp is None:
+            grp = (
+                db.query(ImageGroup)
+                .filter(
+                    ImageGroup.base_name == group_name,
+                    ImageGroup.author == author,
+                )
+                .first()
             )
-            .first()
-        )
         if not grp:
             grp = ImageGroup(base_name=group_name, author=author)
             db.add(grp)
@@ -551,8 +556,30 @@ def batch_save_to_database(image_data_list: list[dict]) -> list[int]:
     try:
         with SessionLocal() as db, db.begin():
             image_ids = []
+            # Resolve the group once for the whole batch (all images share the same group)
+            resolved_group: ImageGroup | None = None
+            if image_data_list:
+                first = image_data_list[0]
+                group_name = first.get("group_name")
+                author = first.get("author")
+                if group_name:
+                    resolved_group = (
+                        db.query(ImageGroup)
+                        .filter(
+                            ImageGroup.base_name == group_name,
+                            ImageGroup.author == author,
+                        )
+                        .first()
+                    )
             for image_data in image_data_list:
-                image_id = _save_image_to_db(db, image_data)
+                image_id = _save_image_to_db(db, image_data, group=resolved_group)
+                # If the group was just created by the first image, cache it for the rest
+                if resolved_group is None and image_id:
+                    saved = db.query(Image).filter(Image.id == image_id).first()
+                    if saved and saved.group_id:
+                        resolved_group = (
+                            db.query(ImageGroup).filter(ImageGroup.id == saved.group_id).first()
+                        )
                 image_ids.append(image_id)
         logger.info("Batch saved %s images to database", len(image_ids))
         return image_ids
