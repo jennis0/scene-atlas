@@ -24,6 +24,7 @@ from .models import (
     seed_default_settings,
     seed_tag_categories,
 )
+from .process_utils import get_rss_mb
 
 logger = logging.getLogger(__name__)
 
@@ -111,16 +112,15 @@ async def lifespan(app: FastAPI):
     # Logs every 15s from the event loop. If these lines stop appearing in the
     # log while the process is still alive, the event loop is blocked.
     async def _heartbeat() -> None:
-        import resource
-
         while True:
             await asyncio.sleep(15)
-            rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+            rss_mb = get_rss_mb()
+            rss_info = f", RSS={rss_mb:.0f} MB" if rss_mb is not None else ""
             active_threads = threading.active_count()
             logger.info(
-                "[heartbeat] event loop alive — threads=%d, RSS=%.0f MB",
+                "[heartbeat] event loop alive — threads=%d%s",
                 active_threads,
-                rss_mb,
+                rss_info,
             )
 
     heartbeat_task = asyncio.create_task(_heartbeat())

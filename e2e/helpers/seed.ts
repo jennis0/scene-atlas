@@ -20,7 +20,7 @@ interface ImportGroup {
   files: ImportFileInfo[]
 }
 
-interface UploadResponse {
+interface AnalyseResponse {
   job_id: string
   total_files: number
   groups: ImportGroup[]
@@ -28,7 +28,7 @@ interface UploadResponse {
 
 /**
  * Seed the backend with test images via the import API.
- * Uploads images, confirms all groups, and waits for processing to complete.
+ * Uploads images, analyses, confirms all groups, and waits for processing to complete.
  */
 export async function seedTestData(imageDir: string): Promise<void> {
   // 1. Init an import job
@@ -44,10 +44,8 @@ export async function seedTestData(imageDir: string): Promise<void> {
   const files = collectFiles(imageDir)
   if (files.length === 0) throw new Error(`No images found in ${imageDir}`)
 
-  // 3. Upload files via multipart form
+  // 3. Upload files via upload-batch
   const form = new FormData()
-  form.append('job_id', jobId)
-
   const relativePaths: string[] = []
   for (const filePath of files) {
     const relativePath = path.relative(imageDir, filePath).replace(/\\/g, '/')
@@ -58,7 +56,7 @@ export async function seedTestData(imageDir: string): Promise<void> {
   }
   form.append('relative_paths', JSON.stringify(relativePaths))
 
-  const uploadRes = await fetch(`${BACKEND_URL}/api/v1/imports/upload`, {
+  const uploadRes = await fetch(`${BACKEND_URL}/api/v1/imports/${jobId}/upload-batch`, {
     method: 'POST',
     body: form,
   })
@@ -66,10 +64,21 @@ export async function seedTestData(imageDir: string): Promise<void> {
     const body = await uploadRes.text()
     throw new Error(`Upload failed: ${uploadRes.status} ${body}`)
   }
-  const uploadData = (await uploadRes.json()) as UploadResponse
 
-  // 4. Build confirm-all payload from the upload analysis
-  const confirmGroups = uploadData.groups.map((group) => ({
+  // 4. Analyse staged files
+  const analyseRes = await fetch(`${BACKEND_URL}/api/v1/imports/${jobId}/analyse`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ manifest: [], image_type: 'battlemap' }),
+  })
+  if (!analyseRes.ok) {
+    const body = await analyseRes.text()
+    throw new Error(`Analyse failed: ${analyseRes.status} ${body}`)
+  }
+  const analyseData = (await analyseRes.json()) as AnalyseResponse
+
+  // 5. Build confirm-all payload from the analysis
+  const confirmGroups = analyseData.groups.map((group) => ({
     author: group.author || 'TestArtist',
     group_name: group.group_name,
     files: group.files.map((f) => ({
@@ -84,31 +93,29 @@ export async function seedTestData(imageDir: string): Promise<void> {
     remaining_groups: [],
   }))
 
-  const confirmRes = await fetch(
-    `${BACKEND_URL}/api/v1/imports/${jobId}/confirm-all`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ groups: confirmGroups }),
-    },
-  )
+  const confirmRes = await fetch(`${BACKEND_URL}/api/v1/imports/${jobId}/confirm-all`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ groups: confirmGroups }),
+  })
   if (!confirmRes.ok) {
     const body = await confirmRes.text()
     throw new Error(`Confirm failed: ${confirmRes.status} ${body}`)
   }
 
-  // 5. Poll until processing completes
+  // 6. Poll until processing completes
   await pollUntil(
     async () => {
       const res = await fetch(`${BACKEND_URL}/api/v1/imports/${jobId}/status`)
-      const data = (await res.json()) as { state: string }
-      return data.state === 'done'
+      const data = (await res.json()) as { status: string }
+      if (data.status === 'failed') throw new Error('Import job failed')
+      return data.status === 'completed'
     },
     120_000,
     1000,
   )
 
-  // 6. Finalize the import
+  // 7. Finalize the import
   const finalizeRes = await fetch(`${BACKEND_URL}/api/v1/imports/${jobId}/finalize`, {
     method: 'POST',
   })
@@ -142,8 +149,8 @@ async function pollUntil(
   while (Date.now() < deadline) {
     try {
       if (await condition()) return
-    } catch {
-      // Ignore errors during polling, keep trying
+    } catch (err) {
+      throw err // Propagate hard failures (e.g. job failed state)
     }
     await new Promise((r) => setTimeout(r, intervalMs))
   }

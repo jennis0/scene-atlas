@@ -12,7 +12,6 @@ import gc
 import hashlib
 import json
 import logging
-import resource
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
@@ -32,6 +31,7 @@ from backend.app.models import (
     get_engine,
     get_session_local,
 )
+from backend.app.process_utils import get_rss_mb
 from backend.app.services import (
     ImageParser,
     get_image_store,
@@ -1175,12 +1175,13 @@ def _run_group(
                 ctypes.CDLL("libc.so.6").malloc_trim(0)
             except Exception:
                 pass  # non-Linux or libc unavailable — no-op
-            rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+            rss_mb = get_rss_mb()
+            rss_info = f" — RSS: {rss_mb:.0f} MB" if rss_mb is not None else ""
             logger.info(
-                "[%s] batch %d complete — RSS: %.0f MB",
+                "[%s] batch %d complete%s",
                 group_name,
                 batch_start // batch_size + 1,
-                rss_mb,
+                rss_info,
             )
 
         # Look up the ImageGroup that was created/updated so we can link back to it
