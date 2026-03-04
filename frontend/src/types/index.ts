@@ -276,6 +276,14 @@ export interface EditableGroupState {
   error?: string
   /** Backend group job ID, set after confirm response. Used for robust status matching. */
   group_job_id?: string
+  /** Per-file error/warning details from the pipeline */
+  file_errors?: Array<{
+    filename: string
+    relative_path?: string | null
+    reason: string
+    stage: string
+    severity?: 'error' | 'warning'
+  }>
 }
 
 // Group search/merge types
@@ -355,7 +363,13 @@ export interface ImportGroupStatus {
   failed_files: number
   status: string
   group_id?: number | null
-  file_errors?: Array<{ filename: string; reason: string; stage: string }>
+  file_errors?: Array<{
+    filename: string
+    relative_path?: string | null
+    reason: string
+    stage: string
+    severity?: 'error' | 'warning'
+  }>
 }
 
 export interface ImportJobResponse {
@@ -368,6 +382,14 @@ export interface ImportJobResponse {
   completed_at: string | null
   error_message?: string | null
   source_label?: string | null
+  job_warnings?: Array<{
+    filename: string
+    relative_path?: string | null
+    reason: string
+    stage: string
+    severity?: 'error' | 'warning'
+  }>
+  total_file_size?: number
 }
 
 // Import tray types
@@ -384,6 +406,8 @@ export interface ImportJobSummary {
   processed_files: number
   created_at: string
   error_message?: string | null
+  failed_files?: number
+  warning_count?: number
 }
 
 export interface ActiveImportsResponse {

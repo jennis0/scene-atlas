@@ -221,6 +221,7 @@ def prepare_single_image(
     logger.info("Preparing image: %s", image_path_obj.name)
 
     stage = "parse"
+    relative_path = None
     try:
         # --- Parse metadata ---
         if metadata:
@@ -237,6 +238,7 @@ def prepare_single_image(
             content_hash = metadata.get("content_hash")
             reuse_storage_key = metadata.get("reuse_storage_key")
             reuse_thumbnail_key = metadata.get("reuse_thumbnail_key")
+            relative_path = metadata.get("relative_path")
             needs_review = metadata.get("needs_review", False)
             import_job_id = metadata.get("import_job_id")
         else:
@@ -261,6 +263,7 @@ def prepare_single_image(
             content_hash = None
             reuse_storage_key = None
             reuse_thumbnail_key = None
+            relative_path = str(relative)
             needs_review = False
             import_job_id = None
 
@@ -479,6 +482,7 @@ def prepare_single_image(
             "status": "success",
             "image_data": image_data,
             "original_image_path": image_path,
+            "relative_path": relative_path,
             "clip_image_path": clip_image_path,  # None for images, temp frame path for videos (cleanup only)
             "clip_source_path": clip_source_path,  # thumbnail path for CLIP encoding (avoids full-res loads)
             "qdrant_metadata": qdrant_metadata,
@@ -490,6 +494,7 @@ def prepare_single_image(
         return {
             "status": "failed",
             "original_image_path": image_path,
+            "relative_path": relative_path,
             "error": error_info["reason"],
             "error_info": error_info,
         }
@@ -653,7 +658,7 @@ def update_import_group_job_progress(
 
 def _process_batch(
     prepared_results: list[dict],
-) -> tuple[list[dict], int]:
+) -> tuple[list[dict], int, list[dict]]:
     """Process a batch of prepared images: CLIP embed, DB save, Qdrant save.
 
     Handles two kinds of successful results:
@@ -665,7 +670,8 @@ def _process_batch(
         prepared_results: List of results from prepare_single_image
 
     Returns:
-        Tuple of (all_results including failures, count of batch failures)
+        Tuple of (all_results including failures, count of batch failures,
+        list of warning dicts for non-fatal issues like Qdrant save failures)
     """
     logger = logging.getLogger(__name__)
     # Separate successes from failures
@@ -673,7 +679,7 @@ def _process_batch(
     batch_failed = len(prepared_results) - len(successful)
 
     if not successful:
-        return prepared_results, batch_failed
+        return prepared_results, batch_failed, []
 
     # Split into new images vs reuse images
     new_images = [r for r in successful if "reuse_embedding_from" not in r]
@@ -765,6 +771,7 @@ def _process_batch(
             all_successful = []
 
     # Batch Qdrant save (only if DB save succeeded)
+    warnings: list[dict] = []
     if all_successful and image_ids:
         qdrant_items = [
             {
@@ -774,13 +781,24 @@ def _process_batch(
             }
             for image_id, prep in zip(image_ids, all_successful, strict=True)
         ]
-        batch_save_to_qdrant(qdrant_items)
+        qdrant_ok = batch_save_to_qdrant(qdrant_items)
+        if not qdrant_ok:
+            for prep in all_successful:
+                warnings.append(
+                    {
+                        "filename": Path(prep.get("original_image_path", "unknown")).name,
+                        "relative_path": prep.get("relative_path"),
+                        "reason": "Saved but may not appear in semantic search until index is rebuilt",
+                        "stage": "qdrant_save",
+                        "severity": "warning",
+                    }
+                )
 
         # Attach image IDs to results
         for prep, image_id in zip(all_successful, image_ids, strict=True):
             prep["image_id"] = image_id
 
-    return prepared_results, batch_failed
+    return prepared_results, batch_failed, warnings
 
 
 # ---------------------------------------------------------------------------
@@ -910,7 +928,7 @@ def bulk_image_ingestion(
                 prepared_results = [f.result() for f in futures]
 
             # Step 2-4: Batch CLIP → batch DB save → batch Qdrant save
-            batch_results, _ = _process_batch(prepared_results)
+            batch_results, _, _warnings = _process_batch(prepared_results)
             successful += sum(1 for r in batch_results if r["status"] == "success")
             failed += sum(1 for r in batch_results if r["status"] != "success")
 
@@ -1100,8 +1118,10 @@ def _run_group(
             all_file_errors.append(
                 {
                     "filename": Path(file_info["relative_path"]).name,
+                    "relative_path": file_info["relative_path"],
                     "reason": "File was not found in staging",
                     "stage": "copy",
+                    "severity": "error",
                 }
             )
 
@@ -1135,6 +1155,7 @@ def _run_group(
                             "author": author,
                             "group_name": group_name,
                             "name": file_info.get("name") or group_name,
+                            "relative_path": file_info.get("relative_path"),
                             "tags": file_info.get("tags", []),
                             "gridded": file_info.get("gridded"),
                             "grid_width": file_info.get("grid_width"),
@@ -1159,7 +1180,8 @@ def _run_group(
 
             # Batch CLIP → batch DB → batch Qdrant
             _t0 = _time.monotonic()
-            batch_results, _ = _process_batch(prepared_results)
+            batch_results, _, batch_warnings = _process_batch(prepared_results)
+            all_file_errors.extend(batch_warnings)
             _t_process = _time.monotonic() - _t0
             logger.info("[%s] process_batch took %.1fs", group_name, _t_process)
             batch_success = sum(1 for r in batch_results if r["status"] == "success")
@@ -1170,11 +1192,16 @@ def _run_group(
             for r in batch_results:
                 if r["status"] == "failed":
                     error_info = r.get("error_info", {})
+                    rel_path = r.get("relative_path")
                     all_file_errors.append(
                         {
-                            "filename": Path(r.get("original_image_path", "unknown")).name,
+                            "filename": Path(
+                                rel_path or r.get("original_image_path", "unknown")
+                            ).name,
+                            "relative_path": rel_path,
                             "reason": error_info.get("reason", r.get("error", "Unknown error")),
                             "stage": error_info.get("stage", "unknown"),
+                            "severity": "error",
                         }
                     )
 
@@ -1229,7 +1256,17 @@ def _run_group(
             created_group_id=_created_group_id,
             file_errors=all_file_errors,
         )
-        logger.info("Group %s (%s): %s ok, %s failed", group_job_id, group_name, processed, failed)
+        warning_count = sum(1 for e in all_file_errors if e.get("severity") == "warning")
+        error_count = len(all_file_errors) - warning_count
+        logger.info(
+            "Group %s (%s): %s ok, %s failed, %s errors, %s warnings",
+            group_job_id,
+            group_name,
+            processed,
+            failed,
+            error_count,
+            warning_count,
+        )
     except Exception:
         # Count all files not yet processed as failed, mark group as failed
         remaining = len(valid_files) - processed - failed

@@ -432,11 +432,13 @@ class ImportConfirmRequest(BaseModel):
 
 
 class FileError(BaseModel):
-    """Per-file error detail within an import group."""
+    """Per-file error or warning detail within an import group."""
 
     filename: str
+    relative_path: str | None = None  # Full path for user context in nested folders
     reason: str
     stage: str
+    severity: str = "error"  # "error" | "warning"
 
 
 class ImportGroupStatus(BaseModel):
@@ -464,6 +466,8 @@ class ImportJobResponse(BaseModel):
     completed_at: datetime | None = None
     error_message: str | None = None  # Set for failed/broken jobs
     source_label: str | None = None  # Filename or import name
+    job_warnings: list[FileError] = []  # Upload-phase and pipeline-level warnings
+    total_file_size: int = 0  # Total bytes across all uploaded files
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -483,6 +487,21 @@ class ImportJobSummary(BaseModel):
     processed_files: int = 0
     created_at: datetime
     error_message: str | None = None
+    failed_files: int = 0  # Total failed files across all groups
+    warning_count: int = 0  # Number of job-level warnings (upload skips, etc.)
+
+
+class ReportSkippedFile(BaseModel):
+    """Single skipped file reported by the frontend."""
+
+    filename: str
+    reason: str
+
+
+class ReportSkippedRequest(BaseModel):
+    """Request body for POST /imports/{job_id}/report-skipped."""
+
+    files: list[ReportSkippedFile]
 
 
 class ActiveImportsResponse(BaseModel):

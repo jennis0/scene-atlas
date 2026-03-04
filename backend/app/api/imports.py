@@ -41,6 +41,7 @@ from ..models.schemas import (
     ImportJobSummary,
     ImportUploadResponse,
     ManifestEntry,
+    ReportSkippedRequest,
 )
 from ..services.app_settings import get_settings as get_app_settings
 from ..services.deletion_service import cleanup_import_images as _cleanup_import_images
@@ -458,6 +459,24 @@ async def upload_batch(
         logger.exception("Batch upload failed for job %s: %s", job_id, e)
         raise HTTPException(status_code=500, detail=f"Batch upload failed: {e}") from e
 
+    # Persist backend-detected skipped files as job warnings
+    if skipped_invalid:
+        existing = json.loads(job.job_warnings or "[]")
+        new_warnings = [
+            {
+                "filename": name,
+                "reason": "Not a supported image format (invalid file header)",
+                "stage": "upload",
+                "severity": "warning",
+            }
+            for name in skipped_invalid
+        ]
+        job.job_warnings = json.dumps(existing + new_warnings)
+
+    # Accumulate total file size across batches
+    job.total_file_size = (job.total_file_size or 0) + total_bytes
+    db.commit()
+
     logger.info(
         "Batch upload for job %s: %d files saved (%d bytes), %d skipped",
         job_id,
@@ -470,6 +489,41 @@ async def upload_batch(
         bytes_saved=total_bytes,
         skipped_invalid=skipped_invalid,
     )
+
+
+@router.post("/{job_id}/report-skipped")
+async def report_skipped_files(
+    job_id: str,
+    body: ReportSkippedRequest,
+    db: Session = Depends(get_db),
+):
+    """Record client-side skipped files (magic byte / size rejects) as job warnings.
+
+    Called by the frontend after all upload batches complete, before triggering analyse.
+    """
+    job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Import job not found")
+    if job.status not in ("uploading", "staging"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot report skipped files for job in '{job.status}' state",
+        )
+
+    existing = json.loads(job.job_warnings or "[]")
+    new_warnings = [
+        {
+            "filename": f.filename,
+            "reason": f.reason,
+            "stage": "upload",
+            "severity": "warning",
+        }
+        for f in body.files
+    ]
+    job.job_warnings = json.dumps(existing + new_warnings)
+    db.commit()
+
+    return {"ok": True, "warning_count": len(existing) + len(new_warnings)}
 
 
 @router.post("/{job_id}/analyse", response_model=ImportUploadResponse)
@@ -549,6 +603,8 @@ async def analyse_staged(
             default_image_type=body.image_type,
             file_map=file_map,
         )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"File analysis failed: {e}") from e
 
@@ -812,6 +868,8 @@ async def get_import_status(
         completed_at=job.completed_at,
         error_message=job.error_message,
         source_label=job.source_label,
+        job_warnings=_parse_file_errors(job.job_warnings),
+        total_file_size=job.total_file_size or 0,
     )
 
 
@@ -918,6 +976,8 @@ async def get_active_imports(db: Session = Depends(get_db)):
                 processed_files=sum(g.processed_files for g in groups),
                 created_at=job.created_at,
                 error_message=job.error_message,
+                failed_files=sum(g.failed_files for g in groups),
+                warning_count=len(json.loads(job.job_warnings or "[]")),
             )
         )
 

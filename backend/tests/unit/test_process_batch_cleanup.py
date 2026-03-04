@@ -85,7 +85,7 @@ class TestProcessBatchDbFailureCleanup:
                 return_value=mock_thumbnail_store,
             ),
         ):
-            results, failed = _process_batch(prepared)
+            results, failed, _warnings = _process_batch(prepared)
 
         mock_image_store.delete.assert_called_once_with("abc.jpg")
         assert failed == 1
@@ -149,7 +149,7 @@ class TestProcessBatchDbFailureCleanup:
                 return_value=mock_thumbnail_store,
             ),
         ):
-            results, failed = _process_batch(prepared)
+            results, failed, _warnings = _process_batch(prepared)
 
         assert mock_image_store.delete.call_count == 3
         assert mock_thumbnail_store.delete.call_count == 3
@@ -186,7 +186,7 @@ class TestProcessBatchDbFailureCleanup:
             ),
             patch("backend.pipeline.ingestion.get_qdrant_service", return_value=mock_qdrant),
         ):
-            results, failed = _process_batch(prepared)
+            results, failed, _warnings = _process_batch(prepared)
 
         mock_image_store.delete.assert_not_called()
         mock_thumbnail_store.delete.assert_not_called()
@@ -231,7 +231,7 @@ class TestProcessBatchReusePathGuard:
                 side_effect=Exception("DB write failed"),
             ),
         ):
-            results, failed = _process_batch(prepared)
+            results, failed, _warnings = _process_batch(prepared)
 
         # File must NOT be deleted — it belongs to the existing image
         mock_image_store.delete.assert_not_called()
@@ -274,7 +274,7 @@ class TestProcessBatchReusePathGuard:
                 side_effect=Exception("DB write failed"),
             ),
         ):
-            results, failed = _process_batch(prepared)
+            results, failed, _warnings = _process_batch(prepared)
 
         # Only the two new images should have their files deleted
         deleted_storage_keys = {call.args[0] for call in mock_image_store.delete.call_args_list}

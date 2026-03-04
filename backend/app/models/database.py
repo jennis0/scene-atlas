@@ -183,6 +183,10 @@ class ImportJob(Base):
     analysis_result = Column(Text, nullable=True)
     # True when confirm-all was used — allows auto-completion when all groups finish
     all_confirmed = Column(Boolean, default=False)
+    job_warnings = Column(
+        Text, nullable=True
+    )  # JSON list of warning dicts (upload skips, pipeline warnings)
+    total_file_size = Column(Integer, default=0)  # Accumulated bytes across all upload batches
 
     # Relationships
     groups = relationship("ImportGroupJob", back_populates="job", cascade="all, delete-orphan")
