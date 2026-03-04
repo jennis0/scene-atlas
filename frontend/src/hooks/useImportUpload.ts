@@ -23,6 +23,8 @@ interface UseImportUploadOptions {
   setJobId: (id: string | null) => void
   setState: (state: DialogState) => void
   setActiveTab: React.Dispatch<React.SetStateAction<number>>
+  /** Called right after the backend job is created and saved to localStorage. */
+  onUploadStarted?: () => void
 }
 
 export interface UseImportUploadReturn {
@@ -46,10 +48,13 @@ export function useImportUpload({
   setJobId,
   setState,
   setActiveTab,
+  onUploadStarted,
 }: UseImportUploadOptions): UseImportUploadReturn {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
   const blobUrlsRef = useRef<string[]>([])
+  const onUploadStartedRef = useRef(onUploadStarted)
+  onUploadStartedRef.current = onUploadStarted
 
   // Revoke all blob URLs on unmount to prevent memory leaks.
   // Normally reset() handles this, but if the component is unmounted without
@@ -127,6 +132,7 @@ export function useImportUpload({
         jobIdForCancel = earlyJobId
         setJobId(earlyJobId)
         saveImportJobInit(earlyJobId, sizeLimitedPairs[0]?.file.name ?? 'Import')
+        onUploadStartedRef.current?.()
 
         // Build relative paths, blob URLs, and separate ZIPs from image files
         const imageFiles: File[] = []

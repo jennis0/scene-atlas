@@ -169,6 +169,11 @@ export function useImportState(
     allSameAuthor,
   } = useFileEditing()
 
+  // Use a ref so callbacks only see the latest onActiveChange identity,
+  // avoiding infinite render loops from inline arrow functions in Gallery.
+  const onActiveChangeRef = useRef(onActiveChange)
+  onActiveChangeRef.current = onActiveChange
+
   // ── Upload pipeline ─────────────────────────────────────────────
   const {
     fileInputRef,
@@ -183,7 +188,13 @@ export function useImportState(
     setDefaultImageType,
     handleFileSelect,
     handleDrop,
-  } = useImportUpload({ setGroups, setJobId: (id) => setJobId(id), setState, setActiveTab })
+  } = useImportUpload({
+    setGroups,
+    setJobId: (id) => setJobId(id),
+    setState,
+    setActiveTab,
+    onUploadStarted: () => onActiveChangeRef.current?.(true),
+  })
 
   // ── Polling ─────────────────────────────────────────────────────
   useImportPolling({ state, jobId, setGroups, setState })
@@ -203,11 +214,6 @@ export function useImportState(
     setState,
   })
 
-  // Use a ref so the effect only re-runs when `state` changes, not when the
-  // callback prop identity changes (inline arrow functions in Gallery would
-  // otherwise create an infinite render loop via setJobs → re-render → new fn).
-  const onActiveChangeRef = useRef(onActiveChange)
-  onActiveChangeRef.current = onActiveChange
   useEffect(() => {
     onActiveChangeRef.current?.(state === 'processing')
   }, [state])
