@@ -210,3 +210,29 @@ class TestColorIndex:
 
         # Two DB queries: one at t=0, one after TTL expiry at t=61.
         assert mock_db.query.return_value.all.call_count == 2
+
+
+class TestColorIndexConcurrency:
+    def test_concurrent_refresh_no_errors(self, tmp_db):
+        """Concurrent calls to _ensure_loaded don't crash or deadlock."""
+        import threading
+
+        _, SessionLocal = tmp_db
+        index = ColorIndex()
+        errors = []
+
+        def reader():
+            with SessionLocal() as db:
+                for _ in range(20):
+                    try:
+                        index._loaded_at = 0.0  # Force TTL expiry
+                        index._ensure_loaded(db)
+                    except Exception as e:  # noqa: BLE001
+                        errors.append(e)
+
+        threads = [threading.Thread(target=reader) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert not errors, f"Concurrent refresh raised: {errors}"

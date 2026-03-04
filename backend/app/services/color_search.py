@@ -2,6 +2,7 @@
 
 import colorsys
 import math
+import threading
 import time
 
 from sqlalchemy.orm import Session
@@ -47,15 +48,20 @@ class ColorIndex:
     def __init__(self):
         self._cache: list[tuple[int, tuple[float, float, float]]] = []
         self._loaded_at: float = 0.0
+        self._lock = threading.Lock()
 
     def _refresh(self, db: Session) -> None:
         """Reload color data from the database."""
         rows = db.query(Color.image_id, Color.color_hex).all()
-        self._cache = [(image_id, hex_to_hsl_cylinder(hex_val)) for image_id, hex_val in rows]
-        self._loaded_at = time.monotonic()
+        new_cache = [(image_id, hex_to_hsl_cylinder(hex_val)) for image_id, hex_val in rows]
+        with self._lock:
+            self._cache = new_cache
+            self._loaded_at = time.monotonic()
 
     def _ensure_loaded(self, db: Session) -> None:
-        if not self._cache or (time.monotonic() - self._loaded_at) > _CACHE_TTL:
+        with self._lock:
+            loaded_at = self._loaded_at
+        if not self._cache or (time.monotonic() - loaded_at) > _CACHE_TTL:
             self._refresh(db)
 
     def find_images_by_color(
