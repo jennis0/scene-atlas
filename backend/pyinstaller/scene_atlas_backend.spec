@@ -97,7 +97,7 @@ a = Analysis(
         'sklearn.utils._cython_blas',
         'sklearn.neighbors._partition_nodes',
         'sklearn.tree._utils',
-        # scipy
+        # scipy (full package collected — sklearn has transitive deps throughout)
         'scipy',
         'scipy.special._ufuncs_cxx',
         'scipy.linalg.cython_blas',
@@ -154,14 +154,9 @@ a = Analysis(
 import re as _re
 
 _JUNK_PREFIXES = (
-    # scipy: unused submodules (only scipy.signal + scipy.fft are used)
-    'scipy/stats/',
-    'scipy/optimize/',
-    'scipy/interpolate/',
-    'scipy/sparse/',
-    'scipy/integrate/',
-    'scipy/io/',
-    'scipy/spatial/',
+    # scipy submodules intentionally NOT excluded — sklearn has transitive deps
+    # throughout scipy (sparse, spatial, stats, optimize, etc.) so we let
+    # PyInstaller collect the full scipy package.
 )
 
 # .dist-info directories are package metadata — safe to strip at runtime.

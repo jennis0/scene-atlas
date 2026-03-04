@@ -58,9 +58,12 @@ test.describe('Import flow', () => {
     const fileChooser = await fileChooserPromise
     await fileChooser.setFiles(testFile)
 
-    // Wait for upload and analysis to complete — auto-confirms and transitions to processing/done
+    // After upload, the dialog auto-confirms all groups and closes itself when
+    // processing starts (ImportDialog closes on state='processing'). Wait for
+    // the 'Import Scenes' heading to disappear — that's the reliable signal
+    // that upload + analysis + auto-confirm all completed successfully.
     await expect(
-      page.getByText(/Processing\u2026|Import Complete/i),
-    ).toBeVisible({ timeout: 30_000 })
+      page.getByRole('heading', { name: 'Import Scenes' }),
+    ).toBeHidden({ timeout: 30_000 })
   })
 })
