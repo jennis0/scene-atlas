@@ -847,6 +847,7 @@ async def get_active_imports(db: Session = Depends(get_db)):
     Returns staging/active/awaiting_input jobs and recently-completed ones
     (within 1 hour). Status is authoritative from the ImportJob table.
     """
+    from collections import defaultdict
     from datetime import timedelta
 
     cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=1)
@@ -859,26 +860,40 @@ async def get_active_imports(db: Session = Depends(get_db)):
         .order_by(ImportJob.created_at.desc())
         .all()
     )
+    if not all_jobs:
+        return ActiveImportsResponse(jobs=[])
+
+    all_job_ids = [j.id for j in all_jobs]
+
+    # Batch query: all group jobs for all relevant jobs (avoids N per-job queries)
+    groups_by_job: dict[str, list] = defaultdict(list)
+    for grp in db.query(ImportGroupJob).filter(ImportGroupJob.job_id.in_(all_job_ids)).all():
+        groups_by_job[grp.job_id].append(grp)
+
+    # Batch query: which completed jobs still have unreviewed images
+    jobs_with_unreviewed = {
+        row[0]
+        for row in db.query(Image.import_job_id)
+        .filter(
+            Image.import_job_id.in_(all_job_ids),
+            Image.needs_review.is_(True),
+        )
+        .distinct()
+        .all()
+    }
 
     summaries = []
+    # Status is authoritative from DB — no derivation needed.
+    # Note: 'broken' is intentionally absent — broken jobs always appear in the
+    # ActivityDock until the user explicitly cancels/cleans them up.
+    truly_terminal = {"completed", "failed", "cancelled", "expired"}
     for job in all_jobs:
-        groups = db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job.id).all()
-
-        # Status is authoritative from DB — no derivation needed.
-        # Note: 'broken' is intentionally absent — broken jobs always appear in the
-        # ActivityDock until the user explicitly cancels/cleans them up.
-        truly_terminal = {"completed", "failed", "cancelled", "expired"}
+        groups = groups_by_job[job.id]
         if job.status in truly_terminal:
             if job.status == "completed":
                 # Completed jobs with unreviewed images persist indefinitely so the
                 # user can find and review them via the ActivityDock.
-                has_unreviewed = (
-                    db.query(Image)
-                    .filter(Image.import_job_id == job.id, Image.needs_review == True)  # noqa: E712
-                    .first()
-                    is not None
-                )
-                if not has_unreviewed:
+                if job.id not in jobs_with_unreviewed:
                     if job.completed_at is None or job.completed_at < cutoff:
                         continue
             else:
