@@ -1,5 +1,14 @@
 import type { QueryClient } from '@tanstack/react-query'
 
+/**
+ * Centralized query key constants for React Query.
+ *
+ * Static keys (e.g. `search`, `images`) double as **prefix keys** for
+ * invalidation — React Query's `invalidateQueries` uses prefix matching,
+ * so `{ queryKey: QUERY_KEYS.search }` invalidates both `['search']` and
+ * `['search', { q: '...' }]`.  Factory functions (`scenes`, `image`,
+ * `groupSearch`) produce parameterised keys for individual queries.
+ */
 export const QUERY_KEYS = {
   search: ['search'] as const,
   searchFacets: ['searchFacets'] as const,

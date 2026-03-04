@@ -37,6 +37,7 @@ export const MAX_BATCH_RETRIES = 2
 // ── Input length limits ──────────────────────────────────────────────────────
 export const MAX_AUTHOR_LENGTH = 256
 export const MAX_NAME_LENGTH = 512
+export const MAX_SEARCH_LENGTH = 2048
 
 // ── Canvas / image viewer ────────────────────────────────────────────────────
 export const CANVAS_DOT_SIZE = 24

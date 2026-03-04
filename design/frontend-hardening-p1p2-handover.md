@@ -2,7 +2,7 @@
 
 **Branch:** `worktree-frontend-hardening-p1p2`
 **Date:** 2026-03-04
-**Commits:** 4
+**Commits:** 6
 
 ## What Was Done
 
@@ -17,17 +17,19 @@
 - Added HTML comment in `index.html` above the CSP meta tag explaining why `http://localhost:*` is in `connect-src` (needed for Electron file:// origin)
 
 **1c. Input length limits**
-- Added `MAX_AUTHOR_LENGTH` (256) and `MAX_NAME_LENGTH` (512) constants to `constants.ts`
-- Applied `maxLength` to all 5 user-facing text inputs:
+- Added `MAX_AUTHOR_LENGTH` (256), `MAX_NAME_LENGTH` (512), and `MAX_SEARCH_LENGTH` (2048) constants to `constants.ts`
+- Applied `maxLength` to all 6 user-facing text inputs:
   - `MetadataForm.tsx` — author, groupName
   - `ImageViewer.tsx` — nameDraft
   - `FileCard.tsx` — nameDraft
   - `SubgroupDropdown.tsx` — draft
+  - `GalleryHeader.tsx` — search bar
 
 ### Phase 2a: Query Key Centralization (Priority 2)
 
 - Created `frontend/src/lib/queryKeys.ts` with:
   - `QUERY_KEYS` object — typed constants/factory functions for all 9 query key patterns
+  - JSDoc explaining the prefix-matching invalidation strategy
   - `invalidateGalleryQueries()` — invalidates search + searchFacets + images
   - `invalidateTagQueries()` — invalidates tagCategories + searchFacets
 - Migrated all 12 files that had inline query key literals
@@ -80,6 +82,7 @@ frontend/src/components/SystemInfoDialog.tsx      (query keys)
 frontend/src/components/TagManagementDialog.tsx   (query keys)
 frontend/src/components/GalleryFilterPanel.tsx    (query keys)
 frontend/src/components/MergeGroupPicker.tsx      (query keys)
+frontend/src/components/GalleryHeader.tsx          (search bar maxLength)
 frontend/src/components/SubgroupDropdown.tsx      (maxLength)
 frontend/src/components/import/MetadataForm.tsx   (maxLength)
 frontend/src/components/import/FileCard.tsx       (maxLength)
