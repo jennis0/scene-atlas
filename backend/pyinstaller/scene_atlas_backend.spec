@@ -83,10 +83,13 @@ a = Analysis(
         'aiofiles',
         'aiofiles.os',
         'aiofiles.threadpool',
-        # Qdrant client (embedded mode)
+        # Qdrant client (embedded mode) — grpc is imported unconditionally at module load
         'qdrant_client',
         'qdrant_client.local',
         'qdrant_client.local.local_collection',
+        'grpc',
+        'grpc._cython',
+        'grpc._cython.cygrpc',
         # OpenCV (headless)
         'cv2',
         # scikit-learn
@@ -133,9 +136,9 @@ a = Analysis(
         'triton',         # GPU JIT compiler
         # Unused database drivers (project uses SQLite, not PostgreSQL)
         'asyncpg',
-        # Qdrant remote mode — project uses local embedded mode only
-        'grpc',
-        'grpcio',
+        # Note: grpc/grpcio intentionally NOT excluded — qdrant_client imports grpc
+        # unconditionally at module load (via async_qdrant_client → qdrant_client.grpc),
+        # even when using local embedded mode only.
         # HuggingFace download accelerator — not needed in frozen sidecar
         'hf_xet',
         # Prefect (removed — exclude in case of transitive dependency)

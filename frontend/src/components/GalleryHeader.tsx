@@ -151,18 +151,18 @@ export function GalleryHeader({
 
   return (
     <header
-      className={`border-b border-border/70 backdrop-blur-md ${needsOverlayPadding ? 'pt-8' : ''}`}
+      className="border-b border-border/70 backdrop-blur-md"
       style={{
         background:
           'linear-gradient(180deg, hsl(var(--primary) / 0.08) 0%, hsl(var(--card) / 0.97) 65%)',
       }}
     >
-      <div
-        className={`container mx-auto px-4 ${needsOverlayPadding ? 'pr-[150px]' : ''} ${isMac ? 'pl-20' : ''}`}
-      >
+      {/* Windows/Linux: draggable titlebar strip matching the OS overlay zone */}
+      {needsOverlayPadding && <div className="h-8 drag-region" />}
+      <div className={`container mx-auto px-4 ${isMac ? 'pl-20' : ''}`}>
         {/* Title row */}
         <div
-          className={`pt-4 pb-3 flex items-start justify-between border-b border-border/70 ${isApp ? 'drag-region' : ''}`}
+          className={`${needsOverlayPadding ? 'pt-2 pb-2' : 'pt-4 pb-3'} flex ${needsOverlayPadding ? 'items-center' : 'items-start'} justify-between border-b border-border/70 ${isApp ? 'drag-region' : ''}`}
         >
           <div>
             <h1 className="font-display text-2xl font-medium tracking-wide text-foreground">
@@ -171,7 +171,9 @@ export function GalleryHeader({
             <div className="mt-0.5 h-[1.5px] w-16 bg-gradient-to-r from-primary/70 to-transparent" />
           </div>
           {/* Admin cluster: utility actions (ghost) + gap + primary Import CTA */}
-          <div className={`flex items-center gap-1 mt-2 ${isApp ? 'no-drag-region' : ''}`}>
+          <div
+            className={`flex items-center gap-1 ${needsOverlayPadding ? '' : 'mt-2'} ${isApp ? 'no-drag-region' : ''}`}
+          >
             <Button
               variant="ghost"
               size="sm"
