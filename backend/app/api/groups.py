@@ -15,7 +15,6 @@ from ..models import (
     Tag,
 )
 from ..models.schemas import (
-    ConfirmReviewRequest,
     GroupDetailResponse,
     GroupEditRequest,
     GroupEditResponse,
@@ -27,7 +26,6 @@ from ..models.schemas import (
     MoveImagesResponse,
 )
 from ..services import get_image_store, safe_delete_image
-from ..services.app_settings import get_settings as get_app_settings
 from .dependencies import get_db
 
 router = APIRouter()
@@ -405,30 +403,3 @@ async def merge_group(
     )
 
 
-@router.post("/confirm-review")
-async def confirm_review(
-    payload: ConfirmReviewRequest,
-    db: Session = Depends(get_db),
-):
-    """Clear needs_review on all images in the specified groups.
-
-    Called after the user reviews and confirms an import via EditGroupDialog.
-    Once cleared, images become visible in gallery search results.
-    """
-    if not payload.group_ids:
-        return {"updated": 0}
-
-    app_settings = get_app_settings(db)
-    if len(payload.group_ids) > app_settings.max_import_files:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Too many group IDs: {len(payload.group_ids)}, limit is {app_settings.max_import_files}",
-        )
-
-    updated = (
-        db.query(Image)
-        .filter(Image.group_id.in_(payload.group_ids), Image.needs_review.is_(True))
-        .update({"needs_review": False}, synchronize_session=False)
-    )
-    db.commit()
-    return {"updated": updated}
