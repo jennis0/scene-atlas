@@ -48,8 +48,18 @@ export interface ActiveImportJob {
   localOnly: boolean
   /** Backend error message for failed/broken jobs. */
   errorMessage?: string
-  /** Per-image file errors from processing. Populated by full status fetch (Task 9). */
-  fileErrors?: Array<{ filename: string; reason: string; stage: string }>
+  /** Per-image file errors from processing. Populated by full status fetch. */
+  fileErrors?: Array<{
+    filename: string
+    relative_path?: string | null
+    reason: string
+    stage: string
+    severity?: 'error' | 'warning'
+  }>
+  /** Total failed files across all groups. */
+  failedFiles: number
+  /** Number of job-level warnings (upload skips, Qdrant failures, etc.). */
+  warningCount: number
 }
 
 export interface UseActiveImportsReturn {
@@ -197,6 +207,8 @@ function localToActiveJob(entry: ImportJobIndexEntry): ActiveImportJob {
     processedFiles: entry.uploadFilesUploaded ?? 0,
     createdAt: entry.createdAt,
     localOnly: true,
+    failedFiles: 0,
+    warningCount: 0,
   }
 }
 
@@ -215,6 +227,8 @@ function backendToActiveJob(summary: ImportJobSummary): ActiveImportJob {
     createdAt: summary.created_at,
     localOnly: false,
     errorMessage: summary.error_message ?? undefined,
+    failedFiles: summary.failed_files ?? 0,
+    warningCount: summary.warning_count ?? 0,
   }
 }
 

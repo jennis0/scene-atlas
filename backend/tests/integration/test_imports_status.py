@@ -972,3 +972,208 @@ class TestActiveImportsUnreviewed:
         resp = test_client.get("/api/v1/imports/active")
         job_ids = [j["job_id"] for j in resp.json()["jobs"]]
         assert "job_old_reviewed" not in job_ids
+
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/imports/{job_id}/report-skipped
+# ---------------------------------------------------------------------------
+
+
+class TestReportSkipped:
+    def test_report_skipped_persists_warnings(self, test_client, tmp_db):
+        """Reported skipped files are stored as job_warnings JSON."""
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        _make_job(db, "job_skip1", status="uploading")
+        db.commit()
+        db.close()
+
+        resp = test_client.post(
+            "/api/v1/imports/job_skip1/report-skipped",
+            json={
+                "files": [
+                    {"filename": "bad.txt", "reason": "Not a supported image format"},
+                    {"filename": "huge.png", "reason": "File too large"},
+                ]
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["warning_count"] == 2
+
+        # Verify via /status
+        status_resp = test_client.get("/api/v1/imports/job_skip1/status")
+        assert status_resp.status_code == 200
+        warnings = status_resp.json()["job_warnings"]
+        assert len(warnings) == 2
+        assert warnings[0]["filename"] == "bad.txt"
+        assert warnings[0]["severity"] == "warning"
+        assert warnings[0]["stage"] == "upload"
+        assert warnings[1]["filename"] == "huge.png"
+
+    def test_report_skipped_rejects_wrong_state(self, test_client, tmp_db):
+        """Cannot report skipped files for a job that's already active."""
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        _make_job(db, "job_skip2", status="active")
+        db.commit()
+        db.close()
+
+        resp = test_client.post(
+            "/api/v1/imports/job_skip2/report-skipped",
+            json={"files": [{"filename": "x.txt", "reason": "bad"}]},
+        )
+        assert resp.status_code == 409
+
+    def test_report_skipped_appends_to_existing(self, test_client, tmp_db):
+        """Multiple calls to report-skipped accumulate warnings."""
+        import json
+
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        job = _make_job(db, "job_skip3", status="uploading")
+        job.job_warnings = json.dumps(
+            [
+                {
+                    "filename": "earlier.txt",
+                    "reason": "prev",
+                    "stage": "upload",
+                    "severity": "warning",
+                }
+            ]
+        )
+        db.commit()
+        db.close()
+
+        resp = test_client.post(
+            "/api/v1/imports/job_skip3/report-skipped",
+            json={"files": [{"filename": "new.txt", "reason": "new skip"}]},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["warning_count"] == 2
+
+    def test_report_skipped_404_for_missing_job(self, test_client):
+        """Returns 404 for non-existent job."""
+        resp = test_client.post(
+            "/api/v1/imports/nonexistent/report-skipped",
+            json={"files": [{"filename": "x.txt", "reason": "bad"}]},
+        )
+        assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Enriched /status and /active responses
+# ---------------------------------------------------------------------------
+
+
+class TestEnrichedResponses:
+    def test_status_returns_enriched_file_errors(self, test_client, tmp_db):
+        """file_errors include relative_path and severity."""
+        import json
+
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        _make_job(db, "job_enriched1", status="active")
+        gj = _make_group_job(
+            db, "job_enriched1", "grp_e1", status="completed", processed=1, failed=1
+        )
+        gj.file_errors = json.dumps(
+            [
+                {
+                    "filename": "bad.png",
+                    "relative_path": "maps/forest/bad.png",
+                    "reason": "Corrupt image",
+                    "stage": "parse",
+                    "severity": "error",
+                }
+            ]
+        )
+        db.commit()
+        db.close()
+
+        resp = test_client.get("/api/v1/imports/job_enriched1/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        file_errors = data["groups"][0]["file_errors"]
+        assert len(file_errors) == 1
+        assert file_errors[0]["relative_path"] == "maps/forest/bad.png"
+        assert file_errors[0]["severity"] == "error"
+
+    def test_status_returns_job_warnings_and_total_file_size(self, test_client, tmp_db):
+        """Job-level warnings and total_file_size are included in /status response."""
+        import json
+
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        job = _make_job(db, "job_enriched2", status="completed")
+        job.completed_at = datetime.now(UTC).replace(tzinfo=None)
+        job.job_warnings = json.dumps(
+            [
+                {
+                    "filename": "skip.txt",
+                    "reason": "Not an image",
+                    "stage": "upload",
+                    "severity": "warning",
+                }
+            ]
+        )
+        job.total_file_size = 1024000
+        db.commit()
+        db.close()
+
+        resp = test_client.get("/api/v1/imports/job_enriched2/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["job_warnings"]) == 1
+        assert data["job_warnings"][0]["severity"] == "warning"
+        assert data["total_file_size"] == 1024000
+
+    def test_status_backward_compat_old_file_errors(self, test_client, tmp_db):
+        """Old file_errors without relative_path/severity still parse correctly."""
+        import json
+
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        _make_job(db, "job_enriched3", status="active")
+        gj = _make_group_job(
+            db, "job_enriched3", "grp_e3", status="completed", processed=1, failed=1
+        )
+        gj.file_errors = json.dumps([{"filename": "old.png", "reason": "Failed", "stage": "copy"}])
+        db.commit()
+        db.close()
+
+        resp = test_client.get("/api/v1/imports/job_enriched3/status")
+        assert resp.status_code == 200
+        # Should still parse without errors — missing fields get Pydantic defaults
+        errors = resp.json()["groups"][0]["file_errors"]
+        assert len(errors) == 1
+        assert errors[0]["filename"] == "old.png"
+
+    def test_active_includes_failed_files_and_warning_count(self, test_client, tmp_db):
+        """/active response includes failed_files and warning_count."""
+        import json
+
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        now = datetime.now(UTC).replace(tzinfo=None)
+        job = _make_job(db, "job_enriched4", status="completed")
+        job.completed_at = now
+        job.job_warnings = json.dumps(
+            [
+                {"filename": "a.txt", "reason": "skip", "stage": "upload", "severity": "warning"},
+                {"filename": "b.txt", "reason": "skip", "stage": "upload", "severity": "warning"},
+            ]
+        )
+        _make_group_job(
+            db, "job_enriched4", "grp_e4", status="completed", processed=3, failed=2, total=5
+        )
+        db.commit()
+        db.close()
+
+        resp = test_client.get("/api/v1/imports/active")
+        assert resp.status_code == 200
+        jobs = resp.json()["jobs"]
+        job_data = next((j for j in jobs if j["job_id"] == "job_enriched4"), None)
+        assert job_data is not None
+        assert job_data["failed_files"] == 2
+        assert job_data["warning_count"] == 2

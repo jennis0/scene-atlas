@@ -114,6 +114,13 @@ export const importApi = {
     await api.post(`/imports/${jobId}/groups/${groupId}/cancel`)
   },
 
+  reportSkipped: async (
+    jobId: string,
+    files: Array<{ filename: string; reason: string }>,
+  ): Promise<void> => {
+    await api.post(`/imports/${jobId}/report-skipped`, { files })
+  },
+
   cleanup: async (): Promise<{ deleted: number }> => {
     const { data } = await api.delete<{ deleted: number }>('/imports/cleanup')
     return data

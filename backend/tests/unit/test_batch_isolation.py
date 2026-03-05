@@ -43,7 +43,7 @@ class TestProcessBatchDbIsolation:
         mock_db_save.side_effect = Exception("disk full")
 
         # Should NOT raise
-        results, batch_failed = _process_batch(prepared)
+        results, batch_failed, _warnings = _process_batch(prepared)
 
         assert batch_failed == 2
         assert all(r["status"] == "failed" for r in results)
@@ -61,7 +61,7 @@ class TestProcessBatchDbIsolation:
         mock_clip.return_value = [[0.1] * 512]
         mock_db_save.return_value = [42]  # image IDs
 
-        results, batch_failed = _process_batch(prepared)
+        results, batch_failed, _warnings = _process_batch(prepared)
 
         assert batch_failed == 0
         assert results[0]["status"] == "success"

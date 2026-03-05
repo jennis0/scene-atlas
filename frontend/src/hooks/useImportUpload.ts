@@ -229,7 +229,7 @@ export function useImportUpload({
 
             for (let attempt = 0; attempt <= MAX_BATCH_RETRIES; attempt++) {
               try {
-                await importApi.uploadBatch(
+                const batchResponse = await importApi.uploadBatch(
                   earlyJobId,
                   batch.files,
                   batch.relativePaths,
@@ -261,6 +261,10 @@ export function useImportUpload({
                     }
                   },
                 )
+                // Capture backend-detected skipped files from this batch
+                if (batchResponse.skipped_invalid?.length) {
+                  setSkippedFiles((prev) => [...prev, ...batchResponse.skipped_invalid])
+                }
                 break // success — exit retry loop
               } catch (err) {
                 if (isClientError(err) || attempt >= MAX_BATCH_RETRIES) {
@@ -273,6 +277,27 @@ export function useImportUpload({
 
             bytesUploadedSoFar += batchTotalBytes
             filesUploadedSoFar += batch.files.length
+          }
+        }
+
+        // ── Phase 3.5: Report client-side skipped files to backend ──
+        // invalidNames = magic-byte rejects (plain filenames)
+        // oversized = annotated strings like "huge.png (too large, >200MB)"
+        const allClientSkips = [
+          ...invalidNames.map((name) => ({
+            filename: name,
+            reason: 'Not a supported image format',
+          })),
+          ...oversized.map((p) => ({
+            filename: p.file.name,
+            reason: `File too large (exceeds ${MAX_FILE_SIZE_MB}MB limit)`,
+          })),
+        ]
+        if (allClientSkips.length > 0) {
+          try {
+            await importApi.reportSkipped(earlyJobId, allClientSkips)
+          } catch {
+            /* best-effort — warnings are non-critical */
           }
         }
 

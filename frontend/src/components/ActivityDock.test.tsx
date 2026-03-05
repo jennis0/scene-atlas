@@ -35,6 +35,8 @@ const runningImport: ActiveImportJob = {
   processedFiles: 9,
   createdAt: new Date().toISOString(),
   localOnly: false,
+  failedFiles: 0,
+  warningCount: 0,
 }
 
 const completedImport: ActiveImportJob = {
