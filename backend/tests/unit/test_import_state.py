@@ -1,8 +1,4 @@
-"""Unit tests for the import job state machine (transition_job_status).
-
-Tests every transition path, terminal idempotency, completed_at timestamping,
-and the pending_groups / all_confirmed interaction.
-"""
+"""Unit tests for the import job state machine (transition_job_status)."""
 
 from datetime import UTC, datetime, timedelta
 
@@ -29,14 +25,12 @@ def db():
     session.close()
 
 
-def _make_job(db, job_id, status="staging", pending_groups=0, all_confirmed=False):
+def _make_job(db, job_id, status="staging"):
     job = ImportJob(
         id=job_id,
         status=status,
         total_files=1,
         source_label="test",
-        pending_groups=pending_groups,
-        all_confirmed=all_confirmed,
     )
     db.add(job)
     db.flush()
@@ -134,11 +128,11 @@ class TestRunningGroups:
 
 
 # ---------------------------------------------------------------------------
-# All terminal groups, no pending → completed or failed
+# All terminal groups → completed or failed
 # ---------------------------------------------------------------------------
 
 
-class TestAllTerminalNoPending:
+class TestAllTerminal:
     def test_all_completed_sets_completed(self, db):
         _make_job(db, "j1", status="active")
         _make_group(db, "j1", "g1", status="completed")
@@ -186,71 +180,6 @@ class TestAllTerminalNoPending:
         _make_job(db, "j6", status="active")
         _make_group(db, "j6", "g1", status="completed")
         _make_group(db, "j6", "g2", status="cancelled")
-
-        result = transition_job_status(db, "j6")
-        assert result == "completed"
-
-    def test_all_confirmed_flag_irrelevant_without_pending(self, db):
-        """When pending_groups=0, all_confirmed doesn't matter."""
-        _make_job(db, "j7", status="active", all_confirmed=False)
-        _make_group(db, "j7", "g1", status="completed")
-
-        result = transition_job_status(db, "j7")
-        assert result == "completed"
-
-
-# ---------------------------------------------------------------------------
-# All terminal groups + pending → awaiting_input
-# ---------------------------------------------------------------------------
-
-
-class TestAwaitingInput:
-    def test_pending_groups_triggers_awaiting_input(self, db):
-        _make_job(db, "j1", status="active", pending_groups=2)
-        _make_group(db, "j1", "g1", status="completed")
-
-        result = transition_job_status(db, "j1")
-        assert result == "awaiting_input"
-
-    def test_awaiting_input_does_not_set_completed_at(self, db):
-        """awaiting_input is non-terminal — completed_at stays None."""
-        job = _make_job(db, "j2", status="active", pending_groups=1)
-        _make_group(db, "j2", "g1", status="completed")
-
-        transition_job_status(db, "j2")
-        assert job.completed_at is None
-
-    def test_all_confirmed_overrides_pending(self, db):
-        """If all_confirmed=True, pending_groups is ignored → completes."""
-        _make_job(db, "j3", status="active", pending_groups=2, all_confirmed=True)
-        _make_group(db, "j3", "g1", status="completed")
-
-        result = transition_job_status(db, "j3")
-        assert result == "completed"
-
-    def test_pending_with_failures_awaits_input(self, db):
-        """Even with failures, if there are pending groups, await user input."""
-        _make_job(db, "j4", status="active", pending_groups=1)
-        _make_group(db, "j4", "g1", status="failed")
-
-        result = transition_job_status(db, "j4")
-        assert result == "awaiting_input"
-
-    def test_awaiting_input_to_active_on_new_running(self, db):
-        """If user confirms another group and it starts running,
-        awaiting_input → active."""
-        _make_job(db, "j5", status="awaiting_input", pending_groups=1)
-        _make_group(db, "j5", "g1", status="completed")
-        _make_group(db, "j5", "g2", status="running")
-
-        result = transition_job_status(db, "j5")
-        assert result == "active"
-
-    def test_awaiting_input_to_completed_when_pending_zeroed(self, db):
-        """Once pending_groups is zeroed and all groups terminal → completed."""
-        _make_job(db, "j6", status="awaiting_input", pending_groups=0)
-        _make_group(db, "j6", "g1", status="completed")
-        _make_group(db, "j6", "g2", status="completed")
 
         result = transition_job_status(db, "j6")
         assert result == "completed"
@@ -311,8 +240,8 @@ class TestEdgeCases:
         assert result == "completed"
 
     def test_status_from_staging_to_active_with_running_group(self, db):
-        """First confirm starts a group → staging → active."""
-        _make_job(db, "j1", status="staging", pending_groups=2)
+        """First group starts running → staging → active."""
+        _make_job(db, "j1", status="staging")
         _make_group(db, "j1", "g1", status="running")
 
         result = transition_job_status(db, "j1")

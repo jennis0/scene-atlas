@@ -5,8 +5,8 @@ Nothing else should mutate ImportJob.status directly (except initial creation
 endpoints like /init and /upload).
 
 State machine:
-    uploading → staging → active ↔ awaiting_input → completed/failed
-                     ↘ cancelled        ↗              ↗
+    uploading → staging → active → completed/failed
+                     ↘ cancelled        ↗
     broken: terminal state set by mark_interrupted_jobs() at startup
 """
 
@@ -25,7 +25,6 @@ def transition_job_status(db: Session, job_id: str) -> str:
 
     Called after:
     - A group finishes processing (from _finalize_import_job in pipeline)
-    - A group is confirmed (from /confirm, /confirm-all endpoints)
     - User calls /finalize
 
     The caller is responsible for calling db.commit() after this function.
@@ -50,15 +49,10 @@ def transition_job_status(db: Session, job_id: str) -> str:
     if has_running:
         new_status = "active"
     elif all_terminal:
-        if job.pending_groups > 0 and not job.all_confirmed:
-            new_status = "awaiting_input"
-        elif has_failures:
-            new_status = "failed"
-        else:
-            new_status = "completed"
+        new_status = "failed" if has_failures else "completed"
     else:
         # Shouldn't normally happen (queued groups?) — keep current status
-        new_status = job.status
+        return job.status
 
     if new_status in TERMINAL_STATUSES:
         job.completed_at = datetime.now(UTC).replace(tzinfo=None)
