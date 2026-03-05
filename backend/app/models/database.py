@@ -62,7 +62,6 @@ class Image(Base):
     thumbnail_key = Column(String)  # Key into thumbnail store (e.g., "a1b2c3d4_400x400.jpg")
 
     # Metadata
-    needs_review = Column(Boolean, default=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -171,18 +170,15 @@ class ImportJob(Base):
 
     id = Column(String, primary_key=True)  # UUID
     status = Column(String, nullable=False, default="staging")
-    # status values: uploading, staging, active, awaiting_input, completed, failed, cancelled, expired, broken
+    # status values: uploading, staging, active, completed, failed, cancelled, expired, broken
     source_label = Column(String, nullable=True)  # Display label for import tray
-    pending_groups = Column(Integer, default=0)  # Groups not yet confirmed by user
     total_files = Column(Integer, default=0)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
-    # JSON: full analysis output — used for reconnection (rebuilding preview UI), NOT for pending count
+    # JSON: full analysis output — used for reconnection (rebuilding preview UI)
     analysis_result = Column(Text, nullable=True)
-    # True when confirm-all was used — allows auto-completion when all groups finish
-    all_confirmed = Column(Boolean, default=False)
     job_warnings = Column(
         Text, nullable=True
     )  # JSON list of warning dicts (upload skips, pipeline warnings)
@@ -326,7 +322,6 @@ def _migrate_images_content_hash(engine):
                 sub_variant VARCHAR,
                 content_hash VARCHAR(64),
                 thumbnail_key VARCHAR,
-                needs_review BOOLEAN DEFAULT 0,
                 created_at DATETIME,
                 updated_at DATETIME
             )
@@ -338,12 +333,12 @@ def _migrate_images_content_hash(engine):
             INSERT INTO images_new (
                 id, filename, storage_key, name, author, variant_group_id,
                 width, height, file_size, gridded, grid_width, grid_height,
-                sub_variant, thumbnail_key, needs_review, created_at, updated_at
+                sub_variant, thumbnail_key, created_at, updated_at
             )
             SELECT
                 id, filename, storage_key, name, author, variant_group_id,
                 width, height, file_size, gridded, grid_width, grid_height,
-                sub_variant, thumbnail_key, needs_review, created_at, updated_at
+                sub_variant, thumbnail_key, created_at, updated_at
             FROM images
         """)
         )
@@ -357,7 +352,6 @@ def _migrate_images_content_hash(engine):
         conn.execute(text("CREATE INDEX ix_images_storage_key ON images (storage_key)"))
         conn.execute(text("CREATE INDEX ix_images_name ON images (name)"))
         conn.execute(text("CREATE INDEX ix_images_author ON images (author)"))
-        conn.execute(text("CREATE INDEX ix_images_needs_review ON images (needs_review)"))
         conn.execute(text("CREATE INDEX ix_images_content_hash ON images (content_hash)"))
 
         conn.commit()
