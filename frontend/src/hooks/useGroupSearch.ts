@@ -38,8 +38,12 @@ function toImageGroup(result: GroupSearchResult): ImageGroup {
  *
  * Fetches groups with limit=50 per page, starting from offset=0.
  * Returns flattened groups array (from all pages) and metadata for infinite scroll.
+ * Filters groups by minScore, showing groups with null bestScore (browse mode) or scores >= threshold.
  */
-export function useGroupSearch(params: Omit<SearchParams, 'limit' | 'offset'>) {
+export function useGroupSearch(
+  params: Omit<SearchParams, 'limit' | 'offset'>,
+  minScore: number = 0,
+) {
   const query = useInfiniteQuery<GroupSearchResponse>({
     queryKey: [QUERY_KEYS.groups, params],
     queryFn: ({ pageParam = 0 }) =>
@@ -53,8 +57,12 @@ export function useGroupSearch(params: Omit<SearchParams, 'limit' | 'offset'>) {
 
   // Flatten all pages into a single groups array
   const groups = useMemo(
-    () => query.data?.pages.flatMap((p) => p.groups).map(toImageGroup) ?? [],
-    [query.data?.pages],
+    () =>
+      query.data?.pages
+        .flatMap((p) => p.groups)
+        .map(toImageGroup)
+        .filter((g) => g.bestScore === null || g.bestScore >= minScore) ?? [],
+    [query.data?.pages, minScore],
   )
 
   // Total groups across all fetches (from first page)
