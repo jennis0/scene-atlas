@@ -401,5 +401,3 @@ async def merge_group(
         images_moved=images_moved,
         source_group_deleted=True,
     )
-
-

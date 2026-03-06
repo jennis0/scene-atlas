@@ -425,8 +425,6 @@ class TestCancelImportGroup:
         assert resp.status_code == 400
 
 
-
-
 # ---------------------------------------------------------------------------
 # Init endpoint tests
 # ---------------------------------------------------------------------------
@@ -699,8 +697,6 @@ class TestFailEndpoint:
         )
         assert resp.status_code == 200
         assert not (staging_root / "job_fail_cleanup").exists()
-
-
 
 
 # ---------------------------------------------------------------------------

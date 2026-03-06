@@ -84,16 +84,12 @@ async def get_search_facets(db: Session = Depends(get_db)):
 
     # Image type counts
     image_type_rows = (
-        db.query(Image.image_type, func.count(Image.id))
-        .group_by(Image.image_type)
-        .all()
+        db.query(Image.image_type, func.count(Image.id)).group_by(Image.image_type).all()
     )
 
     # Media type counts (image vs video)
     media_type_rows = (
-        db.query(Image.media_type, func.count(Image.id))
-        .group_by(Image.media_type)
-        .all()
+        db.query(Image.media_type, func.count(Image.id)).group_by(Image.media_type).all()
     )
 
     return {

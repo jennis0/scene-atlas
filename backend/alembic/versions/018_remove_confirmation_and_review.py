@@ -4,8 +4,8 @@ Revision ID: 018
 Revises: 017
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "018"
 down_revision = "017"
@@ -22,8 +22,7 @@ def upgrade():
     for (job_id,) in awaiting_jobs:
         has_failure = conn.execute(
             sa.text(
-                "SELECT 1 FROM import_group_jobs "
-                "WHERE job_id = :jid AND status = 'failed' LIMIT 1"
+                "SELECT 1 FROM import_group_jobs WHERE job_id = :jid AND status = 'failed' LIMIT 1"
             ),
             {"jid": job_id},
         ).fetchone()

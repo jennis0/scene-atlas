@@ -864,5 +864,3 @@ class TestStagingPreservation:
         assert tmp_staging.exists()
         # Files inside staging should still be present
         assert any(tmp_staging.rglob("*.jpg"))
-
-
