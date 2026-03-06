@@ -18,7 +18,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
 
   // Helper to get current value (draft takes precedence over server settings)
   const val = useCallback(
-    (key: keyof AppSettings): string | number | boolean | undefined => {
+    (key: keyof AppSettings): any => {
       return key in draft ? draft[key] : settings?.[key]
     },
     [draft, settings],
@@ -115,22 +115,25 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
               description="Automatically detect grids on imported battlemaps"
             >
               <button
-                onClick={() =>
-                  setField('enable_image_grid_detection', !val('enable_image_grid_detection'))
-                }
+                onClick={() => {
+                  const current = val('enable_image_grid_detection') as boolean
+                  setField('enable_image_grid_detection', !current)
+                }}
                 className={cn(
                   'h-6 w-11 rounded-full transition-colors flex items-center px-1',
-                  val('enable_image_grid_detection')
+                  (val('enable_image_grid_detection') as boolean)
                     ? 'bg-primary'
                     : 'bg-secondary border border-border/50',
                 )}
-                aria-pressed={val('enable_image_grid_detection')}
+                aria-pressed={val('enable_image_grid_detection') as boolean}
                 disabled={!open}
               >
                 <div
                   className={cn(
                     'h-4 w-4 rounded-full bg-white shadow-sm transition-transform',
-                    val('enable_image_grid_detection') ? 'translate-x-5' : 'translate-x-0',
+                    (val('enable_image_grid_detection') as boolean)
+                      ? 'translate-x-5'
+                      : 'translate-x-0',
                   )}
                 />
               </button>
@@ -151,7 +154,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                   type="number"
                   min="1"
                   max="1000"
-                  value={formatSizeInput(val('max_import_file_size'))}
+                  value={formatSizeInput(val('max_import_file_size') as number | undefined)}
                   onChange={(e) => setField('max_import_file_size', parseSizeInput(e.target.value))}
                   className="w-20 px-2 py-1 rounded bg-secondary border border-border text-sm font-mono text-right"
                   disabled={!open}
@@ -166,7 +169,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                   type="number"
                   min="1"
                   max="5000"
-                  value={formatSizeInput(val('max_video_file_size'))}
+                  value={formatSizeInput(val('max_video_file_size') as number | undefined)}
                   onChange={(e) => setField('max_video_file_size', parseSizeInput(e.target.value))}
                   className="w-20 px-2 py-1 rounded bg-secondary border border-border text-sm font-mono text-right"
                   disabled={!open}
@@ -183,7 +186,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                 type="number"
                 min="1"
                 max="10000"
-                value={val('max_import_files') ?? ''}
+                value={(val('max_import_files') as number) ?? ''}
                 onChange={(e) => setField('max_import_files', parseInt(e.target.value) || 0)}
                 className="w-20 px-2 py-1 rounded bg-secondary border border-border text-sm font-mono text-right"
                 disabled={!open}
@@ -199,7 +202,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                   type="number"
                   min="1"
                   max="50000"
-                  value={formatSizeInput(val('max_import_total_size'))}
+                  value={formatSizeInput(val('max_import_total_size') as number | undefined)}
                   onChange={(e) =>
                     setField('max_import_total_size', parseSizeInput(e.target.value))
                   }
@@ -228,7 +231,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                 type="number"
                 min="1"
                 max="16"
-                value={val('max_concurrent_prepare') ?? ''}
+                value={(val('max_concurrent_prepare') as number) ?? ''}
                 onChange={(e) => setField('max_concurrent_prepare', parseInt(e.target.value) || 1)}
                 className="w-16 px-2 py-1 rounded bg-secondary border border-border text-sm font-mono text-right"
                 disabled={!open}

@@ -14,6 +14,7 @@ import { TagManagementDialog } from '@/components/TagManagementDialog'
 import { MergeGroupPicker } from '@/components/MergeGroupPicker'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { LibraryInfoDialog } from '@/components/LibraryInfoDialog'
+import { SettingsPanel } from '@/components/SettingsPanel'
 import { ImportSummaryDialog } from '@/components/ImportSummaryDialog'
 import { GalleryHeader } from '@/components/GalleryHeader'
 import { useGallerySearch } from '@/hooks/useGallerySearch'
@@ -240,6 +241,8 @@ export function Gallery() {
         open={dialogs.showSystemInfo}
         onClose={() => dialogs.setShowSystemInfo(false)}
       />
+
+      <SettingsPanel open={dialogs.settingsOpen} onClose={() => dialogs.setSettingsOpen(false)} />
 
       {/* Import summary dialog -- opened by clicking a failed/broken job in the tray */}
       <ImportSummaryDialog
