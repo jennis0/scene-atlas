@@ -13,7 +13,6 @@ import hashlib
 import json
 import logging
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -40,6 +39,7 @@ from backend.app.services import (
 )
 from backend.app.services.fts_service import fts_rebuild
 from backend.app.services.image_parser import build_search_text
+from backend.app.services.prepare_pool import get_prepare_pool
 from backend.app.services.staging import (
     load_file_map as _load_file_map,
 )
@@ -882,7 +882,6 @@ def bulk_image_ingestion(
     successful = 0
     failed = 0
     total_images = 0
-    concurrency = pipeline_config.max_concurrent_prepare
 
     # Build parser once for all images (avoids per-image DB query)
     parser = _build_parser()
@@ -908,19 +907,25 @@ def bulk_image_ingestion(
             )
 
             # Step 1: Prepare images with bounded concurrency to control memory usage.
-            prepared_results = []
-            with ThreadPoolExecutor(max_workers=concurrency) as prep_pool:
-                futures = [
-                    prep_pool.submit(
-                        prepare_single_image,
-                        image_path=img_path,
-                        source_dir=dir_path,
-                        parser=parser,
-                        pipeline_config=pipeline_config,
-                    )
-                    for img_path in batch
-                ]
+            prep_pool = get_prepare_pool()
+            futures = [
+                prep_pool.submit(
+                    prepare_single_image,
+                    image_path=img_path,
+                    source_dir=dir_path,
+                    parser=parser,
+                    pipeline_config=pipeline_config,
+                )
+                for img_path in batch
+            ]
+            # Must collect ALL futures even on error — abandoning futures leaks work into the shared pool.
+            # Cancel remaining futures before re-raising so the pool stays clean:
+            try:
                 prepared_results = [f.result() for f in futures]
+            except Exception:
+                for f in futures:
+                    f.cancel()
+                raise
 
             # Step 2-4: Batch CLIP → batch DB save → batch Qdrant save
             batch_results, _, _warnings = _process_batch(prepared_results)
@@ -1139,34 +1144,41 @@ def _run_group(
             import time as _time
 
             _t0 = _time.monotonic()
-            with ThreadPoolExecutor(max_workers=concurrency) as prep_pool:
-                futures = [
-                    prep_pool.submit(
-                        prepare_single_image,
-                        image_path=image_path,
-                        metadata={
-                            "author": author,
-                            "group_name": group_name,
-                            "name": file_info.get("name") or group_name,
-                            "relative_path": file_info.get("relative_path"),
-                            "tags": file_info.get("tags", []),
-                            "gridded": file_info.get("gridded"),
-                            "grid_width": file_info.get("grid_width"),
-                            "grid_height": file_info.get("grid_height"),
-                            "grid_type": file_info.get("grid_type"),
-                            "subgroup": file_info.get("subgroup"),
-                            "image_type": file_info.get("image_type", "battlemap"),
-                            "content_hash": file_info.get("content_hash"),
-                            "media_type": file_info.get("media_type"),
-                            "reuse_storage_key": file_info.get("reuse_storage_key"),
-                            "reuse_thumbnail_key": file_info.get("reuse_thumbnail_key"),
-                            "import_job_id": job_id,
-                        },
-                        pipeline_config=pipeline_config,
-                    )
-                    for file_info, image_path in batch
-                ]
+            prep_pool = get_prepare_pool()
+            futures = [
+                prep_pool.submit(
+                    prepare_single_image,
+                    image_path=image_path,
+                    metadata={
+                        "author": author,
+                        "group_name": group_name,
+                        "name": file_info.get("name") or group_name,
+                        "relative_path": file_info.get("relative_path"),
+                        "tags": file_info.get("tags", []),
+                        "gridded": file_info.get("gridded"),
+                        "grid_width": file_info.get("grid_width"),
+                        "grid_height": file_info.get("grid_height"),
+                        "grid_type": file_info.get("grid_type"),
+                        "subgroup": file_info.get("subgroup"),
+                        "image_type": file_info.get("image_type", "battlemap"),
+                        "content_hash": file_info.get("content_hash"),
+                        "media_type": file_info.get("media_type"),
+                        "reuse_storage_key": file_info.get("reuse_storage_key"),
+                        "reuse_thumbnail_key": file_info.get("reuse_thumbnail_key"),
+                        "import_job_id": job_id,
+                    },
+                    pipeline_config=pipeline_config,
+                )
+                for file_info, image_path in batch
+            ]
+            # Must collect ALL futures even on error — abandoning futures leaks work into the shared pool.
+            # Cancel remaining futures before re-raising so the pool stays clean:
+            try:
                 prepared_results = [f.result() for f in futures]
+            except Exception:
+                for f in futures:
+                    f.cancel()
+                raise
             _t_prepare = _time.monotonic() - _t0
             logger.info("[%s] prepare took %.1fs", group_name, _t_prepare)
 
