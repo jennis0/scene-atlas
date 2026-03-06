@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     clip_model_name: str = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
     clip_device: str = "cpu"  # or "cuda" if GPU available
 
+    # ── Service constants (env-backed, not in AppSettings DB) ─────────────────
+    # Change via env var + restart. Suitable for operator/developer tuning.
+    clip_text_cache_max: int = 256  # LRU cache size for text embeddings
+    color_cache_ttl_seconds: float = 60.0  # Color index TTL in seconds
+    job_retention_seconds: int = 3600  # How long to keep completed job records
+
     # Image Processing
     thumbnail_sizes: list[tuple[int, int]] = [
         (150, 150),  # Small thumbnail
