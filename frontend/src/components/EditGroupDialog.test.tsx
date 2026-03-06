@@ -18,7 +18,6 @@ vi.mock('@/lib/api', () => ({
     delete: vi.fn().mockResolvedValue(undefined),
     merge: vi.fn().mockResolvedValue(undefined),
     moveImages: vi.fn().mockResolvedValue({ source_group_deleted: false }),
-    confirmReview: vi.fn().mockResolvedValue({ updated: 1 }),
   },
   tagApi: {
     getCategories: vi.fn().mockResolvedValue([]),
@@ -39,7 +38,7 @@ describe('EditGroupDialog — import-review mode', () => {
     vi.clearAllMocks()
   })
 
-  it('does NOT call confirmReview when dialog is dismissed via Escape', async () => {
+  it('calls onClose when dialog is dismissed via Escape', async () => {
     const user = userEvent.setup()
     const onClose = vi.fn()
     const onSave = vi.fn()
@@ -54,10 +53,8 @@ describe('EditGroupDialog — import-review mode', () => {
     // Dismiss via Escape key (triggers onOpenChange(false))
     await user.keyboard('{Escape}')
 
-    // Escape should close the dialog (call onClose) but must NOT confirm the import
+    // Escape should close the dialog (call onClose) but not save
     expect(onClose).toHaveBeenCalled()
-    expect(groupApi.confirmReview).not.toHaveBeenCalled()
-    // onSave also must not be called — the import remains unreviewed
     expect(onSave).not.toHaveBeenCalled()
   })
 })
