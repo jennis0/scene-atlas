@@ -48,7 +48,6 @@ export function Gallery() {
 
     observer.observe(sentinelRef.current)
     return () => observer.disconnect()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search])
 
   // Invalidate gallery queries and show review toast whenever a background import finishes

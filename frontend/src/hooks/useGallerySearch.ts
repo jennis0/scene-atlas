@@ -284,30 +284,52 @@ export function useGallerySearch(): UseGallerySearchReturn {
   const groupQuery = useGroupSearch(groupSearchParams, minScore)
   const isSearchingGroups = groupQuery.isLoading
 
-  // Refs for debouncing minScore changes in grouped view
+  // Stable reference to refetch function for use in debounce effect
+  const refetchGroups = useCallback(() => {
+    groupQuery.refetch()
+  }, [groupQuery])
+
+  // Track previous minScore for debounce direction detection
   const prevScoreRef = useRef(minScore)
-  const debounceTimerRef = useRef<NodeJS.Timeout>()
+  const debounceTimerRef = useRef<NodeJS.Timeout | undefined>()
 
-  // Debounce minScore changes in grouped view: raising threshold is instant (filter),
-  // lowering threshold refetches from page 0 to ensure we have results
+  // Debounce minScore changes in grouped view:
+  // Optimization: raising threshold is instant (filters already-loaded results in useGroupSearch's memo),
+  // while lowering threshold requires refetching because we may not have enough results loaded
   useEffect(() => {
-    if (viewMode !== 'grouped' || !submittedQuery) return
+    if (viewMode !== 'grouped' || !submittedQuery) {
+      // Clean up any pending timers when leaving grouped view or losing query
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current)
+      }
+      return
+    }
 
-    // If we're lowering the threshold (more lenient), debounce and refetch
-    if (minScore < (prevScoreRef.current ?? minScore)) {
+    const isLoweringThreshold = minScore < (prevScoreRef.current ?? minScore)
+
+    if (isLoweringThreshold) {
+      // Clear any existing timer to avoid race conditions
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current)
+      }
+
+      // Set new debounce timer for refetch
       debounceTimerRef.current = setTimeout(() => {
-        groupQuery.refetch() // Refetch from page 0 to get more results
-        prevScoreRef.current = minScore
+        refetchGroups()
+        debounceTimerRef.current = undefined
       }, 400)
-    } else {
-      // Raising threshold (stricter): instant filter via the groups memo in useGroupSearch
-      prevScoreRef.current = minScore
     }
 
+    // Always update the ref after processing (both instant and debounce cases)
+    prevScoreRef.current = minScore
+
+    // Cleanup: cancel pending timer if effect unmounts
     return () => {
-      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current)
+      }
     }
-  }, [minScore, viewMode, submittedQuery, groupQuery])
+  }, [minScore, viewMode, submittedQuery, refetchGroups])
 
   const isSearching = viewMode === 'individual' ? isSearchingImages : isSearchingGroups
 
