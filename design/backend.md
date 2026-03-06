@@ -112,11 +112,9 @@ All endpoints are prefixed with `/api/v1`.
 | POST | `/check-hashes` | Pre-flight duplicate check via content hash |
 | POST | `/init` | Initialise a new import job |
 | POST | `/upload` | Upload files for import analysis |
-| POST | `/{job_id}/confirm` | Confirm a group for processing |
 | POST | `/{job_id}/confirm-all` | Confirm all groups at once |
 | GET | `/{job_id}/status` | Check import job progress |
 | GET | `/{job_id}/analysis` | Get or reconnect to analysis results |
-| POST | `/{job_id}/finalize` | Mark job as done |
 | POST | `/{job_id}/cancel` | Cancel an import job |
 | POST | `/{job_id}/groups/{gid}/cancel` | Cancel a single group |
 | GET | `/{job_id}/preview/{path}` | Serve preview thumbnail |
@@ -173,7 +171,7 @@ SQLite FTS5 full-text search. Manages the `image_fts` virtual table with Porter 
 Color-based image search using CIE LAB distance. Finds images with dominant colors near a given hex color within a configurable threshold.
 
 ### ImportStateService
-State machine for import job lifecycle. Validates transitions between the 8 import statuses (uploading → staging → active ↔ awaiting_input → completed/failed/cancelled/expired). See [import-state-machine.md](import-state-machine.md).
+State machine for import job lifecycle. Validates transitions between the 7 import statuses (uploading → staging → active → completed/failed/cancelled/expired). See [import-state-machine.md](import-state-machine.md).
 
 ### DeletionService
 Cascade deletion of images — removes DB records, ImageStore files, thumbnails, and Qdrant embeddings in a single transaction.

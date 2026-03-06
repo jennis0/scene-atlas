@@ -7,18 +7,17 @@ Import jobs track the lifecycle of a multi-group image import from upload throug
 ## State Machine
 
 ```
-uploading → staging → active ↔ awaiting_input → completed/failed
-                 ↘ cancelled        ↗              ↗
+uploading → staging → active → completed/failed
+                 ↘ cancelled        ↗
 ```
 
 | Status | Meaning | Set by |
 |--------|---------|--------|
 | `uploading` | Files being uploaded to staging | `POST /init` |
-| `staging` | Analysis complete, user reviewing before first confirm | `POST /upload` |
+| `staging` | Analysis complete, groups being auto-confirmed | `POST /upload` |
 | `active` | At least one group currently processing | `transition_job_status()` |
-| `awaiting_input` | All submitted groups terminal, unconfirmed groups remain | `transition_job_status()` |
-| `completed` | All groups done successfully, no unconfirmed groups | `transition_job_status()` or `/finalize` |
-| `failed` | All groups done, at least one failure, no unconfirmed groups | `transition_job_status()` or `/finalize` |
+| `completed` | All groups done successfully | `transition_job_status()` |
+| `failed` | All groups done, at least one failure | `transition_job_status()` |
 | `cancelled` | User cancelled the import | `POST /cancel` |
 | `expired` | Stale job cleaned up by maintenance | `expire_stale_jobs()` |
 
@@ -53,24 +52,13 @@ Now:
 - The frontend reads status from the backend and maps it to dialog state — it never derives status locally
 - Endpoints like `GET /status` and `GET /active` read the DB column directly
 
-### 2. Explicit pending_groups counter
-
-The `ImportJob.pending_groups` column tracks how many groups the user hasn't yet confirmed. This replaces the fragile approach of comparing `analysis_result` group count against submitted `ImportGroupJob` rows, which broke when users merged, split, or restructured groups in the preview UI.
-
-- Set to `len(groups)` when `POST /upload` completes analysis
-- Synced on each `POST /confirm`: the frontend includes `remaining_groups: string[]` (names of still-unconfirmed groups), and the backend sets `pending_groups = len(remaining_groups)`
-- Set to 0 on `POST /confirm-all` and `POST /finalize`
-
-### 3. group_job_id for robust matching
+### 2. group_job_id for robust matching
 
 `ImportGroupStatus` responses include `group_job_id` — the stable backend ID for each group job. The frontend uses this for matching status updates instead of matching by `group_name`, which was brittle when groups were renamed.
 
-### 4. awaiting_input vs staging
+### 3. staging as transient state
 
-- `staging` = analysis complete, auto-confirm pending (transient — auto-confirm fires immediately)
-- `awaiting_input` = not used in normal flow since auto-confirm-all; retained for backend compatibility
-
-The activity tray shows different icons: clock for staging, bell for awaiting_input, spinner for active.
+`staging` = analysis complete, auto-confirm pending. The auto-confirm fires immediately after the analyse response returns, so `staging` is only ever seen transiently. The activity tray shows a clock icon for staging and a spinner for active.
 
 ## Transition Function
 
@@ -79,14 +67,11 @@ The activity tray shows different icons: clock for staging, bell for awaiting_in
 1. If job is already terminal → no-op (return current status)
 2. If no group jobs exist → stay in current status (staging/uploading)
 3. If any group is `running` → `active`
-4. If all groups are terminal:
-   - If `pending_groups > 0` and not `all_confirmed` → `awaiting_input`
-   - If any group failed → `failed`
-   - Otherwise → `completed`
+4. If all groups are terminal: any failed → `failed`, else → `completed`
 5. Sets `completed_at` for terminal transitions
 6. Always sets `updated_at`
 
-Called after: group finishes processing, user confirms a group, user finalizes, user cancels.
+Called after: group finishes processing, user confirms a group, user cancels.
 
 ## Frontend Status Mapping
 
@@ -94,8 +79,7 @@ Called after: group finishes processing, user confirms a group, user finalizes, 
 function backendStatusToDialogState(status: string): DialogState {
   switch (status) {
     case 'uploading': return 'upload'
-    case 'staging':
-    case 'awaiting_input': return 'preview'  // transient: auto-confirm fires immediately
+    case 'staging': return 'preview'  // transient: auto-confirm fires immediately
     case 'active': return 'processing'
     default: return 'done'  // completed, failed, cancelled, expired
   }
@@ -110,31 +94,28 @@ Note: `'preview'` is a transient internal dialog state — the auto-confirm useE
 |--------|------|-------------------------------------|
 | `uploading` | Upload (pulsing) | Yes |
 | `staging` | Clock | No |
-| `awaiting_input` | Bell (amber) | No |
 | `active` / `running` | Loader (spinning) | Yes |
 | `completed` | Check | No |
 | `failed` | Alert circle | No |
 | `broken` | Alert circle | No |
 | `cancelled` | Ban | No |
 
-Completed jobs with `needs_review=True` images remain in the ActivityDock's `/active` list indefinitely — they are not subject to the 1-hour recency TTL. This ensures users can always find unreviewed imports via the ActivityDock. Once all images are reviewed (i.e. `needs_review` cleared), the TTL applies and the job is eventually pruned from the list.
-
 ## Related Files
 
 | File | Purpose |
 |------|---------|
 | `backend/app/services/import_state.py` | `transition_job_status()` — single authoritative transition function |
-| `backend/app/models/database.py` | `ImportJob` model with `status`, `pending_groups`, `all_confirmed`, `error_message` |
+| `backend/app/models/database.py` | `ImportJob` model with `status`, `error_message` |
 | `backend/app/api/imports.py` | All import endpoints including `POST /{job_id}/fail` |
 | `backend/pipeline/ingestion.py` | `_finalize_import_job()` — calls `transition_job_status()` after group processing |
-| `backend/pipeline/maintenance.py` | `expire_stale_jobs()` — includes `awaiting_input` in stale set; `mark_interrupted_jobs()` — marks `uploading`/`staging`/`active` as `broken` at startup |
+| `backend/pipeline/maintenance.py` | `expire_stale_jobs()` — marks stale jobs; `mark_interrupted_jobs()` — marks `uploading`/`staging`/`active` as `broken` at startup |
 | `frontend/src/hooks/useImportPolling.ts` | `backendStatusToDialogState()` helper, polling with group_job_id matching |
 | `frontend/src/hooks/useImportPersistence.ts` | Reconnection using backend-authoritative status |
-| `frontend/src/hooks/useImportState.ts` | `remaining_groups` in confirm requests, `group_job_id` storage, auto-confirm retry logic |
-| `frontend/src/hooks/useActiveImports.ts` | `awaiting_input`/`broken` in status type; connection-lost tracking |
+| `frontend/src/hooks/useImportState.ts` | `group_job_id` storage, auto-confirm retry logic |
+| `frontend/src/hooks/useActiveImports.ts` | `broken` in status type; connection-lost tracking |
 | `frontend/src/components/ActivityDock.tsx` | Status icons/text including `broken`; WifiOff connection-lost indicator |
 | `frontend/src/components/ImportSummaryDialog.tsx` | Error summary shown for `failed`/`broken` jobs |
 
 ## Migration
 
-Migration `011_import_state_machine.py` adds `pending_groups` column with default 0. Backfills non-terminal jobs from `analysis_result` JSON data (subtracting already-submitted groups).
+Migration `011_import_state_machine.py` added `pending_groups` and `all_confirmed` columns (now removed in a subsequent migration that simplified the state machine).
