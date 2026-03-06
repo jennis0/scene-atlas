@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback } from 'react'
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { searchApi } from '@/lib/api'
@@ -281,8 +281,33 @@ export function useGallerySearch(): UseGallerySearchReturn {
   })
 
   // Group search (grouped view)
-  const groupQuery = useGroupSearch(groupSearchParams)
+  const groupQuery = useGroupSearch(groupSearchParams, minScore)
   const isSearchingGroups = groupQuery.isLoading
+
+  // Refs for debouncing minScore changes in grouped view
+  const prevScoreRef = useRef(minScore)
+  const debounceTimerRef = useRef<NodeJS.Timeout>()
+
+  // Debounce minScore changes in grouped view: raising threshold is instant (filter),
+  // lowering threshold refetches from page 0 to ensure we have results
+  useEffect(() => {
+    if (viewMode !== 'grouped' || !submittedQuery) return
+
+    // If we're lowering the threshold (more lenient), debounce and refetch
+    if (minScore < (prevScoreRef.current ?? minScore)) {
+      debounceTimerRef.current = setTimeout(() => {
+        groupQuery.refetch() // Refetch from page 0 to get more results
+        prevScoreRef.current = minScore
+      }, 400)
+    } else {
+      // Raising threshold (stricter): instant filter via the groups memo in useGroupSearch
+      prevScoreRef.current = minScore
+    }
+
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+    }
+  }, [minScore, viewMode, submittedQuery, groupQuery])
 
   const isSearching = viewMode === 'individual' ? isSearchingImages : isSearchingGroups
 
