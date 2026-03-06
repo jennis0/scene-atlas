@@ -220,18 +220,12 @@ export function useImportState(
     if (state !== 'preview') return
     if (hasFetchedPreviewData.current) return
     hasFetchedPreviewData.current = true
-    tagApi
-      .getCategories()
-      .then((cats) => setTagVocab(parseTagVocabulary(cats)))
-      .catch(() => {
-        /* non-fatal: tag picker will be empty but import can still proceed */
-      })
-    imageApi
-      .getAuthors()
-      .then(setAuthorSuggestions)
-      .catch(() => {
-        /* non-fatal: author suggestions will be empty */
-      })
+    Promise.allSettled([tagApi.getCategories(), imageApi.getAuthors()]).then(
+      ([catResult, authorResult]) => {
+        if (catResult.status === 'fulfilled') setTagVocab(parseTagVocabulary(catResult.value))
+        if (authorResult.status === 'fulfilled') setAuthorSuggestions(authorResult.value)
+      },
+    )
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: fetch-once guard via ref; setters are stable
   }, [state])
 
@@ -433,12 +427,11 @@ export function useImportState(
     })
     if (toSubmit.length === 0) return
     toSubmit.forEach(({ i }) => updateGroup(i, { status: 'running' }))
-    try {
+    const doConfirm = async () => {
       const response = await importApi.confirmAll(
         jobId,
         toSubmit.map(({ author, group_name, files }) => ({ author, group_name, files })),
       )
-      // Store group_job_ids from response for robust status matching
       for (const { i, group_name } of toSubmit) {
         const matchedGroup = response.groups.find((gs) => gs.group_name === group_name)
         if (matchedGroup?.group_job_id) {
@@ -446,6 +439,10 @@ export function useImportState(
         }
       }
       setTimeout(saveNow, 100)
+    }
+
+    try {
+      await doConfirm()
     } catch (err) {
       // Retry with exponential backoff before giving up
       const delays = [1000, 2000, 4000]
@@ -454,17 +451,7 @@ export function useImportState(
       for (const delay of delays) {
         await new Promise((resolve) => setTimeout(resolve, delay))
         try {
-          const response = await importApi.confirmAll(
-            jobId,
-            toSubmit.map(({ author, group_name, files }) => ({ author, group_name, files })),
-          )
-          for (const { i, group_name } of toSubmit) {
-            const matchedGroup = response.groups.find((gs) => gs.group_name === group_name)
-            if (matchedGroup?.group_job_id) {
-              updateGroup(i, { group_job_id: matchedGroup.group_job_id })
-            }
-          }
-          setTimeout(saveNow, 100)
+          await doConfirm()
           succeeded = true
           break
         } catch (retryErr) {
@@ -472,7 +459,6 @@ export function useImportState(
         }
       }
       if (!succeeded) {
-        // All retries failed — mark job as failed on backend using the most recent error
         const errorMessage = getApiErrorMessage(lastErr, 'Failed to start processing')
         try {
           await importApi.fail(jobId, errorMessage)

@@ -4,7 +4,7 @@ import type { ImportGroupStatus } from '@/types'
 
 const POLL_INTERVAL_MS = 3000
 
-interface UseImportReviewPollingOptions {
+interface UseImportProgressPollingOptions {
   importJobId: string | null | undefined
   onGroupCompleted: (groupId: number) => void
   enabled: boolean
@@ -13,20 +13,20 @@ interface UseImportReviewPollingOptions {
   initiallyDone?: boolean
 }
 
-interface UseImportReviewPollingReturn {
-  pendingGroups: ImportGroupStatus[]
+interface UseImportProgressPollingReturn {
+  runningGroups: ImportGroupStatus[]
   failedGroups: ImportGroupStatus[]
   allDone: boolean
   pollError: boolean
 }
 
-export function useImportReviewPolling({
+export function useImportProgressPolling({
   importJobId,
   onGroupCompleted,
   enabled,
   initiallyDone = false,
-}: UseImportReviewPollingOptions): UseImportReviewPollingReturn {
-  const [pendingGroups, setPendingGroups] = useState<ImportGroupStatus[]>([])
+}: UseImportProgressPollingOptions): UseImportProgressPollingReturn {
+  const [runningGroups, setRunningGroups] = useState<ImportGroupStatus[]>([])
   const [failedGroups, setFailedGroups] = useState<ImportGroupStatus[]>([])
   const [allDone, setAllDone] = useState(initiallyDone)
   const [pollError, setPollError] = useState(false)
@@ -44,7 +44,7 @@ export function useImportReviewPolling({
       const status = await importApi.status(importJobId)
       setPollError(false)
 
-      const pending = status.groups.filter((g) => g.status === 'running')
+      const running = status.groups.filter((g) => g.status === 'running')
       const failed = status.groups.filter((g) => g.status === 'failed' || g.status === 'cancelled')
 
       // Fire onGroupCompleted for any newly-completed groups
@@ -55,9 +55,9 @@ export function useImportReviewPolling({
         }
       }
 
-      setPendingGroups(pending)
+      setRunningGroups(running)
       setFailedGroups(failed)
-      setAllDone(pending.length === 0)
+      setAllDone(running.length === 0)
     } catch {
       setPollError(true)
     }
@@ -65,7 +65,7 @@ export function useImportReviewPolling({
 
   useEffect(() => {
     if (!enabled || !importJobId) {
-      setPendingGroups([])
+      setRunningGroups([])
       setFailedGroups([])
       setAllDone(initiallyDoneRef.current)
       setPollError(false)
@@ -79,5 +79,5 @@ export function useImportReviewPolling({
     return () => clearInterval(id)
   }, [enabled, importJobId, poll])
 
-  return { pendingGroups, failedGroups, allDone, pollError }
+  return { runningGroups, failedGroups, allDone, pollError }
 }

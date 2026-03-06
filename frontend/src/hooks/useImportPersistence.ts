@@ -7,6 +7,7 @@ import {
   removeImportState,
 } from '@/lib/importStorage'
 import { importApi } from '@/lib/api'
+import { findGroupStatus } from '@/lib/mergeGroupStatus'
 import { mapAnalysisToEditable } from './useImportUpload'
 import { backendStatusToDialogState } from './useImportPolling'
 import { ALL_TAB } from './useFileEditing'
@@ -167,12 +168,9 @@ export function useImportPersistence({
     importApi
       .status(reconnectJobId)
       .then((status) => {
-        setGroups((prev) => {
-          return prev.map((g) => {
-            // Match by group_job_id (robust) or fall back to group_name
-            const gs =
-              (g.group_job_id && status.groups.find((s) => s.group_job_id === g.group_job_id)) ||
-              status.groups.find((s) => s.group_name === g.group_name)
+        setGroups((prev) =>
+          prev.map((g) => {
+            const gs = findGroupStatus(g, status.groups)
             if (!gs) return g
             return {
               ...g,
@@ -182,8 +180,8 @@ export function useImportPersistence({
               failed: gs.failed_files,
               total: gs.total_files || g.total,
             }
-          })
-        })
+          }),
+        )
         // Trust backend status for dialog state
         setState(backendStatusToDialogState(status.status))
       })

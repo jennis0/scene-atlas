@@ -28,7 +28,6 @@ function makeImage(overrides: Partial<Image> = {}): Image {
     subgroup: null,
     image_type: 'battlemap',
     thumbnail_key: null,
-    needs_review: false,
     media_type: 'image',
     tags: [],
     colors: [],

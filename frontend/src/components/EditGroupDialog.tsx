@@ -43,7 +43,7 @@ import {
 } from './import/shared/dnd'
 import { GroupSidebarShell } from './import/shared/GroupSidebarShell'
 import { QUERY_KEYS } from '@/lib/queryKeys'
-import { useImportReviewPolling } from '@/hooks/useImportReviewPolling'
+import { useImportProgressPolling } from '@/hooks/useImportProgressPolling'
 
 interface EditGroupDialogProps {
   // Single-group mode: pass groupId
@@ -92,7 +92,7 @@ export default function EditGroupDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [importJobId])
 
-  const { pendingGroups, failedGroups, allDone } = useImportReviewPolling({
+  const { runningGroups, failedGroups, allDone } = useImportProgressPolling({
     importJobId,
     onGroupCompleted: (completedGroupId) => setLiveGroupIds((prev) => [...prev, completedGroupId]),
     enabled: open && !!importJobId,
@@ -407,9 +407,9 @@ export default function EditGroupDialog({
           <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
             <div className="flex min-h-0 flex-1 overflow-hidden">
               {/* ── Left: groups nav (only when >1 group, or when stubs are present) ── */}
-              {(groups.length > 1 || pendingGroups.length > 0 || failedGroups.length > 0) && (
+              {(groups.length > 1 || runningGroups.length > 0 || failedGroups.length > 0) && (
                 <GroupSidebarShell
-                  headerLabel={`${groups.length + pendingGroups.length + failedGroups.length} groups`}
+                  headerLabel={`${groups.length + runningGroups.length + failedGroups.length} groups`}
                   allCount={totalInScope}
                   isAllActive={isAllTab}
                   onSelectAll={() => setActiveTab(ALL_TAB)}
@@ -547,7 +547,7 @@ export default function EditGroupDialog({
                   ))}
 
                   {/* ── Pending group stubs (still processing) ── */}
-                  {pendingGroups.map((stub) => (
+                  {runningGroups.map((stub) => (
                     <div
                       key={stub.group_job_id}
                       className="flex items-center gap-2 pl-3 pr-3 py-2 opacity-60 cursor-not-allowed select-none border-l-2 border-transparent"
