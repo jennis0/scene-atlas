@@ -284,11 +284,6 @@ export function useGallerySearch(): UseGallerySearchReturn {
   const groupQuery = useGroupSearch(groupSearchParams, minScore)
   const isSearchingGroups = groupQuery.isLoading
 
-  // Stable reference to refetch function for use in debounce effect
-  const refetchGroups = useCallback(() => {
-    groupQuery.refetch()
-  }, [groupQuery])
-
   // Track previous minScore for debounce direction detection
   const prevScoreRef = useRef(minScore)
   const debounceTimerRef = useRef<NodeJS.Timeout | undefined>()
@@ -313,9 +308,9 @@ export function useGallerySearch(): UseGallerySearchReturn {
         clearTimeout(debounceTimerRef.current)
       }
 
-      // Set new debounce timer for refetch
+      // Set new debounce timer to reset pagination and refetch
       debounceTimerRef.current = setTimeout(() => {
-        refetchGroups()
+        groupQuery.reset()
         debounceTimerRef.current = undefined
       }, 400)
     }
@@ -329,7 +324,7 @@ export function useGallerySearch(): UseGallerySearchReturn {
         clearTimeout(debounceTimerRef.current)
       }
     }
-  }, [minScore, viewMode, submittedQuery, refetchGroups])
+  }, [minScore, viewMode, submittedQuery, groupQuery])
 
   const isSearching = viewMode === 'individual' ? isSearchingImages : isSearchingGroups
 

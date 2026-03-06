@@ -1,5 +1,5 @@
-import { useMemo } from 'react'
-import { useInfiniteQuery } from '@tanstack/react-query'
+import { useMemo, useCallback } from 'react'
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { searchApi } from '@/lib/api'
 import { QUERY_KEYS } from '@/lib/queryKeys'
 import type { GroupSearchResult, GroupSearchResponse, ImageGroup, SearchParams } from '@/types'
@@ -44,6 +44,8 @@ export function useGroupSearch(
   params: Omit<SearchParams, 'limit' | 'offset'>,
   minScore: number = 0,
 ) {
+  const queryClient = useQueryClient()
+
   const query = useInfiniteQuery<GroupSearchResponse>({
     queryKey: [QUERY_KEYS.groups, params],
     queryFn: ({ pageParam = 0 }) =>
@@ -68,9 +70,17 @@ export function useGroupSearch(
   // Total groups across all fetches (from first page)
   const totalGroups = query.data?.pages[0]?.total_groups ?? 0
 
+  // Reset function that clears cached data and resets to initialPageParam (0)
+  const reset = useCallback(() => {
+    queryClient.removeQueries({
+      queryKey: [QUERY_KEYS.groups, params],
+    })
+  }, [queryClient, params])
+
   return {
     ...query,
     groups,
     totalGroups,
+    reset,
   }
 }
