@@ -29,7 +29,6 @@ export interface ActiveImportJob {
     | 'uploading'
     | 'staging'
     | 'active'
-    | 'awaiting_input'
     | 'running'
     | 'completed'
     | 'failed'
@@ -40,7 +39,6 @@ export interface ActiveImportJob {
   completedGroups: number
   failedGroups: number
   runningGroups: number
-  pendingGroups: number
   totalFiles: number
   processedFiles: number
   createdAt: string
@@ -185,9 +183,7 @@ export function useActiveImports(): UseActiveImportsReturn {
       j.status === 'uploading' ||
       j.status === 'staging' ||
       j.status === 'active' ||
-      j.status === 'awaiting_input' ||
-      j.status === 'running' ||
-      j.pendingGroups > 0,
+      j.status === 'running',
   )
 
   return { jobs, hasActive, connectionLost, refresh, dismissJob, cancelJob, onJobCompleted }
@@ -202,7 +198,6 @@ function localToActiveJob(entry: ImportJobIndexEntry): ActiveImportJob {
     completedGroups: entry.completedGroups,
     failedGroups: entry.failedGroups,
     runningGroups: entry.hasRunningGroups ? 1 : 0,
-    pendingGroups: entry.pendingGroups,
     totalFiles: entry.uploadFilesTotal ?? 0,
     processedFiles: entry.uploadFilesUploaded ?? 0,
     createdAt: entry.createdAt,
@@ -221,7 +216,6 @@ function backendToActiveJob(summary: ImportJobSummary): ActiveImportJob {
     completedGroups: summary.completed_groups,
     failedGroups: summary.failed_groups,
     runningGroups: summary.running_groups,
-    pendingGroups: summary.pending_groups, // Now from backend
     totalFiles: summary.total_files,
     processedFiles: summary.processed_files,
     createdAt: summary.created_at,
@@ -243,20 +237,10 @@ function mergeJobs(
     result.set(summary.job_id, backendToActiveJob(summary))
   }
 
-  // Merge in localStorage data (may have pending group counts)
+  // Merge in localStorage data (labels, group counts, upload progress)
   for (const entry of localEntries) {
     const existing = result.get(entry.jobId)
     if (existing) {
-      // Backend now provides pending_groups, so it's authoritative.
-      // Only supplement from localStorage if backend has 0 and job is non-terminal.
-      const terminalStatuses = new Set(['completed', 'failed', 'cancelled', 'expired', 'broken'])
-      if (
-        existing.pendingGroups === 0 &&
-        !terminalStatuses.has(existing.status) &&
-        entry.pendingGroups > 0
-      ) {
-        existing.pendingGroups = entry.pendingGroups
-      }
       existing.label = entry.label || existing.label
       // If localStorage has more groups (e.g. from analysis), update total
       if (entry.totalGroups > existing.totalGroups) {
