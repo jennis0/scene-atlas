@@ -575,13 +575,15 @@ class TestGroupsEndpointBrowse:
         group_names = [g["base_name"] for g in data["groups"]]
         assert group_names == sorted(group_names)
 
-    def test_groups_browse_mosaic_images_empty(self, grouped_library):
-        """In browse mode, mosaic_images should be empty."""
+    def test_groups_browse_mosaic_images_populated(self, grouped_library):
+        """In browse mode, mosaic_images should be populated (up to 4 additional images)."""
         client, ids = grouped_library
         resp = client.get("/api/v1/search/groups")
         data = resp.json()
         for group in data["groups"]:
-            assert group["mosaic_images"] == []
+            # Mosaic should have up to 4 images (group has at least 3 total, so 4 other than hero)
+            assert isinstance(group["mosaic_images"], list)
+            assert len(group["mosaic_images"]) <= 4
 
     def test_groups_browse_pagination_offset(self, grouped_library):
         """offset=1 should skip the first group."""
@@ -747,10 +749,12 @@ class TestGroupsEndpointSearch:
             assert "total_scenes" in group
 
     def test_groups_search_empty_query_returns_browse_mode(self, grouped_library):
-        """Empty or whitespace query should behave like browse mode (no scores)."""
+        """Empty or whitespace query should behave like browse mode (no scores, but mosaic populated)."""
         client, ids = grouped_library
         resp = client.get("/api/v1/search/groups", params={"query": "   "})
         data = resp.json()
         for group in data["groups"]:
             assert group["best_score"] is None
-            assert group["mosaic_images"] == []
+            # Mosaic should still be populated in browse mode
+            assert isinstance(group["mosaic_images"], list)
+            assert len(group["mosaic_images"]) <= 4

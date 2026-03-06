@@ -470,13 +470,23 @@ def search_groups(
                 )
 
             if hero_image:
+                # Load mosaic images: next 3-4 images from the group
+                mosaic_images = (
+                    db.query(Image)
+                    .options(subqueryload(Image.tags), subqueryload(Image.colors))
+                    .filter(and_(Image.group_id == group.id, Image.id != hero_image.id))
+                    .order_by(Image.id)
+                    .limit(4)
+                    .all()
+                )
+
                 results.append(
                     GroupSearchResult(
                         group_id=group.id,
                         base_name=group.base_name,
                         author=group.author,
                         hero_image=hero_image,
-                        mosaic_images=[],
+                        mosaic_images=mosaic_images,
                         total_scenes=group.image_count,
                         matching_scenes=group.image_count,
                         best_score=None,
