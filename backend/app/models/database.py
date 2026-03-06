@@ -617,12 +617,17 @@ def seed_default_settings(session):
     Only runs when the app_settings table is completely empty.
     Once any setting row exists, this is a no-op so user-edited values are preserved.
 
-    Defaults match the values previously in config.py so that existing
-    deployments behave identically after migration.
+    Concurrency settings use resource_detector to compute host-appropriate defaults
+    based on CPU count and available RAM. Import limits and algorithm params use
+    sensible fixed defaults.
     """
+    from backend.app.resource_detector import compute_resource_defaults
+
     existing_count = session.query(AppSetting).count()
     if existing_count > 0:
         return
+
+    resource_defaults = compute_resource_defaults()
 
     defaults = {
         # Grid detection (image analysis)
@@ -639,16 +644,17 @@ def seed_default_settings(session):
         "color_distance_threshold": 0.35,
         "color_clustering_samples": 5000,
         "color_kmeans_n_init": 3,
-        # Ingestion performance
+        # Ingestion performance — resource-aware defaults
         "ingestion_batch_size": 16,
-        "max_concurrent_prepare": 8,
-        # Import limits
-        "max_import_file_size": 2000 * 1024 * 1024,
-        "max_video_file_size": 2000 * 1024 * 1024,
+        "max_concurrent_prepare": resource_defaults["max_concurrent_prepare"],
+        "max_concurrent_heavy_requests": resource_defaults["max_concurrent_heavy_requests"],
+        # Import limits — sensible hardcoded defaults (change via admin API)
+        "max_import_file_size": 2 * 1024 * 1024 * 1024,  # 2 GB
+        "max_video_file_size": 2 * 1024 * 1024 * 1024,  # 2 GB
         "max_import_files": 1000,
-        "max_import_total_size": 2048 * 1024 * 1024,
-        # Job runner
-        "max_job_workers": 2,
+        "max_import_total_size": 2 * 1024 * 1024 * 1024,  # 2 GB
+        # Job runner — resource-aware default
+        "max_job_workers": resource_defaults["max_job_workers"],
         "scheduler_enabled": True,
     }
 
