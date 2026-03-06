@@ -1,0 +1,64 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e2]:
+  - generic [ref=e4]:
+    - banner [ref=e5]:
+      - generic [ref=e6]:
+        - generic [ref=e7]:
+          - heading "Scene Atlas" [level=1] [ref=e9]
+          - generic [ref=e11]:
+            - button "Manage Tags" [ref=e12] [cursor=pointer]:
+              - img [ref=e13]
+              - text: Manage Tags
+            - button "System settings" [ref=e15] [cursor=pointer]:
+              - img [ref=e16]
+            - button "Switch to light mode" [ref=e19] [cursor=pointer]:
+              - img [ref=e20]
+            - button "Import" [ref=e26] [cursor=pointer]:
+              - img [ref=e27]
+              - text: Import
+        - generic [ref=e30]:
+          - button "All" [ref=e31] [cursor=pointer]:
+            - img [ref=e32]
+            - text: All
+          - button "Maps" [ref=e35] [cursor=pointer]:
+            - img [ref=e36]
+            - text: Maps
+          - button "Scenes" [ref=e38] [cursor=pointer]:
+            - img [ref=e39]
+            - text: Scenes
+        - generic [ref=e41]:
+          - generic [ref=e42]:
+            - generic [ref=e43]:
+              - img
+              - textbox "Search scenes… prefix ~ for visual, = for keyword" [ref=e44]:
+                - /placeholder: Search scenes…  prefix ~ for visual, = for keyword
+            - button "Search" [ref=e45] [cursor=pointer]
+          - button "Filters" [ref=e46] [cursor=pointer]:
+            - img [ref=e47]
+            - text: Filters
+          - generic [ref=e49]:
+            - button "Individual images" [ref=e50] [cursor=pointer]:
+              - img [ref=e51]
+            - button "Groups" [ref=e56] [cursor=pointer]:
+              - img [ref=e57]
+        - generic [ref=e62]:
+          - generic [ref=e63]: 0 scenes
+          - generic [ref=e64]: ·
+          - button "Newest first" [ref=e65] [cursor=pointer]:
+            - text: Newest first
+            - img [ref=e66]
+    - main [ref=e69]:
+      - generic [ref=e71]:
+        - img [ref=e72]
+        - paragraph [ref=e74]: Your library is empty
+        - paragraph [ref=e75]: Import some battlemaps and scenes to get started.
+        - button "Import" [ref=e76] [cursor=pointer]:
+          - img [ref=e77]
+          - text: Import
+    - button "Activity" [ref=e80] [cursor=pointer]:
+      - img [ref=e81]
+      - generic [ref=e85]: Activity
+  - region "Notifications alt+T"
+```

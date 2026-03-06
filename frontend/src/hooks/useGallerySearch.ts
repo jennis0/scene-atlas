@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { searchApi } from '@/lib/api'
 import { QUERY_KEYS } from '@/lib/queryKeys'
 import { useImageGrouping } from '@/hooks/useImageGrouping'
+import { useGroupSearch } from '@/hooks/useGroupSearch'
 import type { Image, ImageGroup, SearchParams, SortBy, SortDir, ViewMode, FacetData } from '@/types'
 import type { ActiveFilter, ImageTypeFilter } from '@/components/import/fileFilter'
 
@@ -119,6 +120,12 @@ export interface UseGallerySearchReturn {
   displayImages: Image[]
   imageGroups: ImageGroup[]
   isSearching: boolean
+
+  // Infinite scroll for grouped view
+  totalGroups: number
+  isFetchingNextPage: boolean
+  hasNextPage: boolean
+  fetchNextPage: () => void
 
   // Handlers
   handleSubmit: (e: React.FormEvent) => void
@@ -246,18 +253,46 @@ export function useGallerySearch(): UseGallerySearchReturn {
     (searchParams.tags?.length ?? 0) > 0 ||
     (searchParams.authors?.length ?? 0) > 0
 
-  // Search query -- always enabled, returns full library when no params
-  const { data: searchResults, isLoading: isSearching } = useQuery({
+  // Build search params for grouped view (without limit/offset -- handled by useGroupSearch)
+  const groupSearchParams: Omit<SearchParams, 'limit' | 'offset'> = useMemo(() => {
+    const params: Omit<SearchParams, 'limit' | 'offset'> = {}
+    if (searchParams.query) params.query = searchParams.query
+    if (searchParams.semantic_only) params.semantic_only = searchParams.semantic_only
+    if (searchParams.text_only) params.text_only = searchParams.text_only
+    if (searchParams.tags) params.tags = searchParams.tags
+    if (searchParams.exclude_tags) params.exclude_tags = searchParams.exclude_tags
+    if (searchParams.authors) params.authors = searchParams.authors
+    if (searchParams.exclude_authors) params.exclude_authors = searchParams.exclude_authors
+    if (searchParams.colors) params.colors = searchParams.colors
+    if (searchParams.image_types) params.image_types = searchParams.image_types
+    if (searchParams.media_types) params.media_types = searchParams.media_types
+    if (searchParams.gridded !== undefined) params.gridded = searchParams.gridded
+    if (searchParams.grid_type) params.grid_type = searchParams.grid_type
+    params.sort_by = searchParams.sort_by
+    params.sort_dir = searchParams.sort_dir
+    return params
+  }, [searchParams])
+
+  // Image search (individual view)
+  const { data: searchResults, isLoading: isSearchingImages } = useQuery({
     queryKey: [...QUERY_KEYS.search, searchParams],
     queryFn: () => searchApi.search(searchParams),
+    enabled: viewMode === 'individual',
   })
+
+  // Group search (grouped view)
+  const groupQuery = useGroupSearch(groupSearchParams)
+  const isSearchingGroups = groupQuery.isLoading
+
+  const isSearching = viewMode === 'individual' ? isSearchingImages : isSearchingGroups
 
   // Apply client-side relevance threshold when scores are available (not for text-only)
   const displayImages = useMemo(() => {
+    if (viewMode !== 'individual') return []
     const images = searchResults?.images ?? []
     if (!searchResults?.scores || isTextOnly) return images
     return images.filter((img) => (searchResults.scores![img.id] ?? 0) >= minScore)
-  }, [searchResults, minScore, isTextOnly])
+  }, [searchResults, minScore, isTextOnly, viewMode])
 
   // Show slider only when there's a scored query (not text-only, which returns no scores)
   const showRelevanceSlider = !!submittedQuery && !isTextOnly
@@ -265,13 +300,21 @@ export function useGallerySearch(): UseGallerySearchReturn {
   const totalBeforeFilter = searchResults?.images?.length ?? 0
   const filteredCount = displayImages.length
 
-  // Group images for the grouped view
-  const imageGroups = useImageGrouping({
+  // Group images for the grouped view (client-side grouping when using image search)
+  // This is used as a fallback when viewing old grouped results
+  const clientGroupedImages = useImageGrouping({
     images: displayImages,
     scores: searchResults?.scores,
     sortBy,
     sortDir,
   })
+
+  // In grouped mode, use server-side grouped results; otherwise use client-side grouping
+  const imageGroups = viewMode === 'grouped' ? groupQuery.groups : clientGroupedImages
+  const totalGroups = viewMode === 'grouped' ? groupQuery.totalGroups : clientGroupedImages.length
+  const isFetchingNextPage = viewMode === 'grouped' ? groupQuery.isFetchingNextPage : false
+  const hasNextPage = viewMode === 'grouped' ? groupQuery.hasNextPage : false
+  const fetchNextPage = viewMode === 'grouped' ? groupQuery.fetchNextPage : () => {}
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -362,6 +405,12 @@ export function useGallerySearch(): UseGallerySearchReturn {
     displayImages,
     imageGroups,
     isSearching,
+
+    // Infinite scroll for grouped view
+    totalGroups,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
 
     // Handlers
     handleSubmit,

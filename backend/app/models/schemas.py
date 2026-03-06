@@ -148,8 +148,8 @@ class GroupDetailResponse(GroupBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-class GroupSearchItem(BaseModel):
-    """Lightweight group for search/picker results."""
+class GroupPickerItem(BaseModel):
+    """Lightweight group for group picker/merge results."""
 
     id: int
     base_name: str
@@ -160,11 +160,35 @@ class GroupSearchItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class GroupSearchResponse(BaseModel):
-    """Response for group search."""
+class GroupPickerResponse(BaseModel):
+    """Response for group picker search."""
 
-    groups: list["GroupSearchItem"]
+    groups: list["GroupPickerItem"]
     total: int
+
+
+class GroupSearchResult(BaseModel):
+    """Single group result for group search endpoint."""
+
+    group_id: int
+    base_name: str
+    author: str | None = None
+    hero_image: "ImageResponse"
+    mosaic_images: list["ImageResponse"]
+    total_scenes: int
+    matching_scenes: int
+    best_score: float | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GroupSearchResponse(BaseModel):
+    """Response for group search endpoint (paginated)."""
+
+    total_groups: int
+    limit: int
+    offset: int
+    groups: list["GroupSearchResult"]
 
 
 class GroupMergeRequest(BaseModel):

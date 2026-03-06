@@ -3,7 +3,7 @@ import type {
   GroupDetail,
   GroupEditRequest,
   GroupEditResponse,
-  GroupSearchResponse,
+  GroupPickerResponse,
   GroupMergeResponse,
   MoveImagesResponse,
 } from '@/types'
@@ -28,8 +28,8 @@ export const groupApi = {
     excludeId?: number,
     limit = 20,
     referenceName?: string,
-  ): Promise<GroupSearchResponse> => {
-    const { data } = await api.get<GroupSearchResponse>('/groups/search', {
+  ): Promise<GroupPickerResponse> => {
+    const { data } = await api.get<GroupPickerResponse>('/groups/search', {
       params: {
         q,
         exclude_id: excludeId,

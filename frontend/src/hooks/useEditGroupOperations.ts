@@ -4,7 +4,7 @@ import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { SAVED_INDICATOR_DURATION_MS } from '@/lib/constants'
 import { ALL_TAB } from '@/hooks/useFileEditing'
 import { imageToEditable, buildPayload } from '@/hooks/useEditGroupLoad'
-import type { EditableGroupState, GroupSearchItem } from '@/types'
+import type { EditableGroupState, GroupPickerItem } from '@/types'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -40,7 +40,7 @@ export interface UseEditGroupOperationsReturn {
 
   // Mass-edit per-group operations
   handleDeleteGroup: (gId: string) => Promise<void>
-  handleMergeGroup: (sourceId: string, targetGroup: GroupSearchItem) => Promise<void>
+  handleMergeGroup: (sourceId: string, targetGroup: GroupPickerItem) => Promise<void>
   removeGroupFromView: (gId: string) => void
 
   // Merge all
@@ -290,7 +290,7 @@ export function useEditGroupOperations({
     }
   }
 
-  const handleMergeGroup = async (sourceId: string, targetGroup: GroupSearchItem) => {
+  const handleMergeGroup = async (sourceId: string, targetGroup: GroupPickerItem) => {
     const idx = groups.findIndex((g) => g.id === sourceId)
     setMerging(true)
     setSaveError(null)

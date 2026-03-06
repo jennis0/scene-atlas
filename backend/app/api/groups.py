@@ -20,8 +20,8 @@ from ..models.schemas import (
     GroupEditResponse,
     GroupMergeRequest,
     GroupMergeResponse,
-    GroupSearchItem,
-    GroupSearchResponse,
+    GroupPickerItem,
+    GroupPickerResponse,
     MoveImagesRequest,
     MoveImagesResponse,
 )
@@ -53,7 +53,7 @@ def _zip_path(img: Image, group_name: str) -> str:
     return f"{folder}/{download_filename(img, group_name)}"
 
 
-@router.get("/search", response_model=GroupSearchResponse)
+@router.get("/search", response_model=GroupPickerResponse)
 def search_groups(
     q: str = "",
     exclude_id: int | None = None,
@@ -103,7 +103,7 @@ def search_groups(
         counts = dict(rows)
 
     result = [
-        GroupSearchItem(
+        GroupPickerItem(
             id=g.id,
             base_name=g.base_name,
             author=g.author,
@@ -113,7 +113,7 @@ def search_groups(
         for g in groups
     ]
 
-    return GroupSearchResponse(groups=result, total=total)
+    return GroupPickerResponse(groups=result, total=total)
 
 
 @router.get("/{group_id}", response_model=GroupDetailResponse)

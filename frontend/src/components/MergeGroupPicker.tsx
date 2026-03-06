@@ -4,13 +4,13 @@ import { Loader2, ImageIcon, Layers } from 'lucide-react'
 import { GroupPickerShell } from '@/components/GroupPickerShell'
 import { groupApi, getThumbnailUrlById } from '@/lib/api'
 import { QUERY_KEYS } from '@/lib/queryKeys'
-import type { GroupSearchItem } from '@/types'
+import type { GroupPickerItem } from '@/types'
 
 interface MergeGroupPickerProps {
   open: boolean
   onClose: () => void
   excludeGroupId?: number | null
-  onSelect: (targetGroup: GroupSearchItem) => void
+  onSelect: (targetGroup: GroupPickerItem) => void
   title?: string
   currentGroupName?: string
 }
@@ -25,7 +25,7 @@ export function MergeGroupPicker({
 }: MergeGroupPickerProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
-  const [selected, setSelected] = useState<GroupSearchItem | null>(null)
+  const [selected, setSelected] = useState<GroupPickerItem | null>(null)
 
   // Debounce search input
   useEffect(() => {

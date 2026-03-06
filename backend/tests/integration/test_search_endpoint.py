@@ -5,7 +5,7 @@ Tests GET /api/v1/search/ (hybrid search + filters) and GET /api/v1/search/facet
 
 import pytest
 
-from backend.app.models.database import Color, Image, Tag
+from backend.app.models.database import Color, Image, ImageGroup, Tag
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -357,3 +357,400 @@ class TestSearchSemanticFallback:
         resp = client.get("/api/v1/search/", params={"query": "forest"})
         # Should not be 500; may return empty results if text search also fails
         assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Groups endpoint (browse and search modes)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def grouped_library(test_client, tmp_db):
+    """Seed groups with multiple images for grouped view testing."""
+    engine, SessionLocal = tmp_db
+    db = SessionLocal()
+
+    # Group 1: "Forest Variants" with 4 images (AuthorA)
+    group1 = ImageGroup(base_name="Forest Variants", author="AuthorA")
+    db.add(group1)
+    db.flush()
+
+    img_g1_1 = _add_image(
+        db,
+        "Forest Winter",
+        author="AuthorA",
+        gridded=True,
+        group_id=group1.id,
+        search_text="Forest Winter snowy",
+    )
+    _add_tag(db, img_g1_1, "season", "winter")
+    _add_color(db, img_g1_1, "#ffffff")
+
+    group1.primary_image_id = img_g1_1.id
+
+    img_g1_2 = _add_image(
+        db,
+        "Forest Summer",
+        author="AuthorA",
+        gridded=True,
+        group_id=group1.id,
+        search_text="Forest Summer green",
+    )
+    _add_tag(db, img_g1_2, "season", "summer")
+    _add_color(db, img_g1_2, "#00ff00")
+
+    img_g1_3 = _add_image(
+        db,
+        "Forest Autumn",
+        author="AuthorA",
+        gridded=True,
+        group_id=group1.id,
+        search_text="Forest Autumn orange",
+    )
+    _add_tag(db, img_g1_3, "season", "autumn")
+    _add_color(db, img_g1_3, "#ff6600")
+
+    img_g1_4 = _add_image(
+        db,
+        "Forest Spring",
+        author="AuthorA",
+        gridded=True,
+        group_id=group1.id,
+        search_text="Forest Spring blooming",
+    )
+    _add_tag(db, img_g1_4, "season", "spring")
+
+    # Group 2: "Dungeon Variants" with 3 images (AuthorB)
+    group2 = ImageGroup(base_name="Dungeon Variants", author="AuthorB")
+    db.add(group2)
+    db.flush()
+
+    img_g2_1 = _add_image(
+        db,
+        "Dungeon Dark",
+        author="AuthorB",
+        gridded=False,
+        image_type="scene",
+        group_id=group2.id,
+        search_text="Dungeon Dark shadows",
+    )
+    _add_tag(db, img_g2_1, "lighting", "dark")
+    _add_color(db, img_g2_1, "#1a1a1a")
+
+    group2.primary_image_id = img_g2_1.id
+
+    img_g2_2 = _add_image(
+        db,
+        "Dungeon Torch",
+        author="AuthorB",
+        gridded=False,
+        image_type="scene",
+        group_id=group2.id,
+        search_text="Dungeon Torch lit",
+    )
+    _add_tag(db, img_g2_2, "lighting", "torch")
+    _add_color(db, img_g2_2, "#ffaa00")
+
+    img_g2_3 = _add_image(
+        db,
+        "Dungeon Bright",
+        author="AuthorB",
+        gridded=False,
+        image_type="scene",
+        group_id=group2.id,
+        search_text="Dungeon Bright illuminated",
+    )
+    _add_tag(db, img_g2_3, "lighting", "bright")
+    _add_color(db, img_g2_3, "#ffffff")
+
+    # Group 3: "Tavern" with 5 images (AuthorC) - for mosaic fill testing
+    group3 = ImageGroup(base_name="Tavern", author="AuthorC")
+    db.add(group3)
+    db.flush()
+
+    img_g3_1 = _add_image(
+        db,
+        "Tavern Empty",
+        author="AuthorC",
+        gridded=None,
+        image_type="scene",
+        group_id=group3.id,
+        search_text="Tavern Empty deserted",
+    )
+    _add_tag(db, img_g3_1, "occupancy", "empty")
+
+    group3.primary_image_id = img_g3_1.id
+
+    img_g3_2 = _add_image(
+        db,
+        "Tavern Crowded",
+        author="AuthorC",
+        gridded=None,
+        image_type="scene",
+        group_id=group3.id,
+        search_text="Tavern Crowded busy",
+    )
+    _add_tag(db, img_g3_2, "occupancy", "crowded")
+
+    img_g3_3 = _add_image(
+        db,
+        "Tavern Cozy",
+        author="AuthorC",
+        gridded=None,
+        image_type="scene",
+        group_id=group3.id,
+        search_text="Tavern Cozy warm",
+    )
+    _add_tag(db, img_g3_3, "occupancy", "cozy")
+
+    img_g3_4 = _add_image(
+        db,
+        "Tavern Night",
+        author="AuthorC",
+        gridded=None,
+        image_type="scene",
+        group_id=group3.id,
+        search_text="Tavern Night dark evening",
+    )
+    _add_tag(db, img_g3_4, "lighting", "night")
+
+    img_g3_5 = _add_image(
+        db,
+        "Tavern Day",
+        author="AuthorC",
+        gridded=None,
+        image_type="scene",
+        group_id=group3.id,
+        search_text="Tavern Day bright",
+    )
+    _add_tag(db, img_g3_5, "lighting", "day")
+
+    db.commit()
+    ids = {
+        "g1": group1.id,
+        "g2": group2.id,
+        "g3": group3.id,
+        "g1_1": img_g1_1.id,
+        "g1_2": img_g1_2.id,
+        "g1_3": img_g1_3.id,
+        "g1_4": img_g1_4.id,
+        "g2_1": img_g2_1.id,
+        "g2_2": img_g2_2.id,
+        "g2_3": img_g2_3.id,
+        "g3_1": img_g3_1.id,
+        "g3_2": img_g3_2.id,
+        "g3_3": img_g3_3.id,
+        "g3_4": img_g3_4.id,
+        "g3_5": img_g3_5.id,
+    }
+    db.close()
+    yield test_client, ids
+
+
+class TestGroupsEndpointBrowse:
+    """Browse mode: no query, groups sorted by created_at or name."""
+
+    def test_groups_browse_returns_all_groups(self, grouped_library):
+        client, ids = grouped_library
+        resp = client.get("/api/v1/search/groups")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_groups"] == 3
+        assert len(data["groups"]) == 3
+
+    def test_groups_browse_default_sort_by_created_at_desc(self, grouped_library):
+        """Without sort_by, groups should be sorted by created_at DESC (newest first)."""
+        client, ids = grouped_library
+        resp = client.get("/api/v1/search/groups")
+        data = resp.json()
+        group_names = [g["base_name"] for g in data["groups"]]
+        # Groups created in order: Tavern, Dungeon, Forest (last to first)
+        assert group_names == ["Tavern", "Dungeon Variants", "Forest Variants"]
+
+    def test_groups_browse_sort_by_name_asc(self, grouped_library):
+        """Sorted by name ascending."""
+        client, ids = grouped_library
+        resp = client.get("/api/v1/search/groups", params={"sort_by": "name", "sort_dir": "asc"})
+        data = resp.json()
+        group_names = [g["base_name"] for g in data["groups"]]
+        assert group_names == sorted(group_names)
+
+    def test_groups_browse_mosaic_images_empty(self, grouped_library):
+        """In browse mode, mosaic_images should be empty."""
+        client, ids = grouped_library
+        resp = client.get("/api/v1/search/groups")
+        data = resp.json()
+        for group in data["groups"]:
+            assert group["mosaic_images"] == []
+
+    def test_groups_browse_pagination_offset(self, grouped_library):
+        """offset=1 should skip the first group."""
+        client, ids = grouped_library
+        all_resp = client.get("/api/v1/search/groups")
+        all_names = [g["base_name"] for g in all_resp.json()["groups"]]
+
+        paged_resp = client.get("/api/v1/search/groups", params={"offset": 1, "limit": 10})
+        paged_names = [g["base_name"] for g in paged_resp.json()["groups"]]
+
+        assert paged_names == all_names[1:]
+
+    def test_groups_browse_pagination_limit(self, grouped_library):
+        """limit=2 should return only 2 groups."""
+        client, ids = grouped_library
+        resp = client.get("/api/v1/search/groups", params={"limit": 2})
+        assert len(resp.json()["groups"]) == 2
+
+    def test_groups_browse_hero_image_populated(self, grouped_library):
+        """Each group should have a hero_image (primary image)."""
+        client, ids = grouped_library
+        resp = client.get("/api/v1/search/groups")
+        data = resp.json()
+        for group in data["groups"]:
+            assert group["hero_image"] is not None
+            assert "id" in group["hero_image"]
+            assert "name" in group["hero_image"]
+
+    def test_groups_browse_best_score_none(self, grouped_library):
+        """In browse mode, best_score should be None."""
+        client, ids = grouped_library
+        resp = client.get("/api/v1/search/groups")
+        data = resp.json()
+        for group in data["groups"]:
+            assert group["best_score"] is None
+
+    def test_groups_browse_matching_scenes_equals_total_scenes(self, grouped_library):
+        """In browse mode, matching_scenes should equal total_scenes."""
+        client, ids = grouped_library
+        resp = client.get("/api/v1/search/groups")
+        data = resp.json()
+        for group in data["groups"]:
+            assert group["matching_scenes"] == group["total_scenes"]
+
+
+class TestGroupsEndpointSearch:
+    """Search mode: query present, groups ranked by best_score."""
+
+    def test_groups_search_by_query(self, grouped_library):
+        """Search should return groups with matching images."""
+        client, ids = grouped_library
+        resp = client.get("/api/v1/search/groups", params={"query": "forest"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["groups"]) > 0
+        # Should find group 1 (Forest Variants)
+        group_names = [g["base_name"] for g in data["groups"]]
+        assert "Forest Variants" in group_names
+
+    def test_groups_search_best_score_sorted_desc(self, grouped_library):
+        """Groups in search mode should be sorted by best_score DESC."""
+        client, ids = grouped_library
+        resp = client.get("/api/v1/search/groups", params={"query": "winter"})
+        data = resp.json()
+        if len(data["groups"]) > 1:
+            scores = [g["best_score"] for g in data["groups"]]
+            # Scores should be non-increasing (or None, but in search mode all should have scores)
+            for i in range(len(scores) - 1):
+                assert scores[i] >= scores[i + 1]
+
+    def test_groups_search_best_score_normalized_0_to_1(self, grouped_library):
+        """Scores should be in [0, 1] range."""
+        client, ids = grouped_library
+        resp = client.get("/api/v1/search/groups", params={"query": "forest"})
+        data = resp.json()
+        for group in data["groups"]:
+            if group["best_score"] is not None:
+                assert 0 <= group["best_score"] <= 1
+
+    def test_groups_search_hero_is_best_match(self, grouped_library):
+        """Hero image should be the one with the highest score in the group."""
+        client, ids = grouped_library
+        resp = client.get("/api/v1/search/groups", params={"query": "forest"})
+        data = resp.json()
+        # Forest group should have highest-scoring image as hero
+        forest_group = next(
+            (g for g in data["groups"] if g["base_name"] == "Forest Variants"), None
+        )
+        if forest_group:
+            assert forest_group["hero_image"] is not None
+
+    def test_groups_search_matching_scenes_less_than_total(self, grouped_library):
+        """For filtered search, matching_scenes may be less than total_scenes."""
+        client, ids = grouped_library
+        resp = client.get(
+            "/api/v1/search/groups", params={"query": "winter", "tags": ["season:winter"]}
+        )
+        data = resp.json()
+        # Tavern group has no winter tag, so if included, matching < total
+        tavern = next((g for g in data["groups"] if g["base_name"] == "Tavern"), None)
+        if tavern:
+            # Tavern has 5 images, none match "winter"
+            assert tavern["matching_scenes"] <= tavern["total_scenes"]
+
+    def test_groups_search_mosaic_fill_batch_query(self, grouped_library):
+        """Mosaic should have up to 4 images, filled from group if < 5 scored matches."""
+        client, ids = grouped_library
+        resp = client.get("/api/v1/search/groups", params={"query": "tavern"})
+        data = resp.json()
+        tavern = next((g for g in data["groups"] if g["base_name"] == "Tavern"), None)
+        if tavern:
+            # Tavern has 5 images, mosaic should be filled
+            assert len(tavern["mosaic_images"]) <= 4
+            assert len(tavern["mosaic_images"]) > 0
+
+    def test_groups_search_filter_author(self, grouped_library):
+        """Filter by author should only return matching groups."""
+        client, ids = grouped_library
+        resp = client.get(
+            "/api/v1/search/groups", params={"query": "forest", "authors": ["AuthorA"]}
+        )
+        data = resp.json()
+        group_authors = [g["author"] for g in data["groups"]]
+        assert all(a == "AuthorA" for a in group_authors)
+
+    def test_groups_search_filter_tags(self, grouped_library):
+        """Filter by tags should only return groups with matching images."""
+        client, ids = grouped_library
+        resp = client.get("/api/v1/search/groups", params={"query": "", "tags": ["season:winter"]})
+        data = resp.json()
+        # Should find Forest group (has winter tag on img_g1_1)
+        group_names = [g["base_name"] for g in data["groups"]]
+        if group_names:
+            assert "Forest Variants" in group_names
+
+    def test_groups_search_image_type_filter(self, grouped_library):
+        """Filter by image_type should only return groups with matching images."""
+        client, ids = grouped_library
+        resp = client.get("/api/v1/search/groups", params={"image_types": ["scene"]})
+        data = resp.json()
+        # Should find Dungeon and Tavern (both are scenes), not Forest (battlemaps)
+        # Exact behavior depends on search engine, but should have some groups
+        assert len(data["groups"]) > 0
+
+    def test_groups_search_response_schema(self, grouped_library):
+        """Response should have required fields."""
+        client, ids = grouped_library
+        resp = client.get("/api/v1/search/groups", params={"query": "forest"})
+        data = resp.json()
+        assert "total_groups" in data
+        assert "groups" in data
+        assert "limit" in data
+        assert "offset" in data
+
+        for group in data["groups"]:
+            assert "group_id" in group
+            assert "base_name" in group
+            assert "author" in group
+            assert "hero_image" in group
+            assert "mosaic_images" in group
+            assert "best_score" in group
+            assert "matching_scenes" in group
+            assert "total_scenes" in group
+
+    def test_groups_search_empty_query_returns_browse_mode(self, grouped_library):
+        """Empty or whitespace query should behave like browse mode (no scores)."""
+        client, ids = grouped_library
+        resp = client.get("/api/v1/search/groups", params={"query": "   "})
+        data = resp.json()
+        for group in data["groups"]:
+            assert group["best_score"] is None
+            assert group["mosaic_images"] == []

@@ -1,7 +1,7 @@
-import { useEffect, Suspense, lazy } from 'react'
+import { useEffect, useRef, Suspense, lazy } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Upload, Mountain } from 'lucide-react'
+import { Upload, Mountain, Loader2 } from 'lucide-react'
 import { groupApi } from '@/lib/api'
 import { QUERY_KEYS, invalidateGalleryQueries } from '@/lib/queryKeys'
 import { ImageGrid } from '@/components/ImageGrid'
@@ -30,6 +30,26 @@ export function Gallery() {
   const dialogs = useGalleryDialogs(search.displayImages)
   const activeImports = useActiveImports()
   const backgroundJobs = useBackgroundJobs()
+  const sentinelRef = useRef<HTMLDivElement>(null)
+
+  // Infinite scroll sentinel for grouped view
+  useEffect(() => {
+    if (search.viewMode !== 'grouped') return
+    if (!sentinelRef.current) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && search.hasNextPage && !search.isFetchingNextPage) {
+          search.fetchNextPage()
+        }
+      },
+      { rootMargin: '200px' },
+    )
+
+    observer.observe(sentinelRef.current)
+    return () => observer.disconnect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search])
 
   // Invalidate gallery queries and show review toast whenever a background import finishes
   useEffect(() => {
@@ -128,16 +148,29 @@ export function Gallery() {
             />
           </div>
         ) : (
-          <div className="h-full max-w-[1400px] mx-auto">
-            <GroupGrid
-              groups={search.imageGroups}
-              onGroupClick={(group) =>
-                dialogs.setSelectedImage({ image: group.heroImage, index: 0 })
-              }
-              onEditGroup={(g) => g.groupId !== null && dialogs.setEditGroupId(g.groupId)}
-              onDeleteGroup={(g) => dialogs.setDeleteConfirmGroup(g)}
-              onMergeGroup={(g) => dialogs.setMergeSourceGroup(g)}
-            />
+          <div className="h-full overflow-y-auto">
+            <div className="max-w-[1400px] mx-auto">
+              <GroupGrid
+                groups={search.imageGroups}
+                onGroupClick={(group) =>
+                  dialogs.setSelectedImage({ image: group.heroImage, index: 0 })
+                }
+                onEditGroup={(g) => g.groupId !== null && dialogs.setEditGroupId(g.groupId)}
+                onDeleteGroup={(g) => dialogs.setDeleteConfirmGroup(g)}
+                onMergeGroup={(g) => dialogs.setMergeSourceGroup(g)}
+              />
+            </div>
+
+            {/* Sentinel for infinite scroll */}
+            <div ref={sentinelRef} className="flex justify-center py-8">
+              {search.isFetchingNextPage ? (
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              ) : !search.hasNextPage ? (
+                <p className="text-sm text-muted-foreground">
+                  All {search.totalGroups} groups loaded
+                </p>
+              ) : null}
+            </div>
           </div>
         )}
       </main>

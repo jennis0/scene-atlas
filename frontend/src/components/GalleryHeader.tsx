@@ -92,6 +92,7 @@ export function GalleryHeader({
     showRelevanceSlider,
     totalBeforeFilter,
     filteredCount,
+    totalGroups,
     facets,
     isSearching,
     handleSubmit,
@@ -312,11 +313,13 @@ export function GalleryHeader({
             {/* Count */}
             {!isSearching && (
               <span className="tabular-nums">
-                {hasActiveSearch
-                  ? showRelevanceSlider
-                    ? `${filteredCount} / ${totalBeforeFilter} result${totalBeforeFilter !== 1 ? 's' : ''}${searchModeSuffix}`
-                    : `${filteredCount} result${filteredCount !== 1 ? 's' : ''}${searchModeSuffix}`
-                  : `${facets?.total_images ?? 0} scenes`}
+                {viewMode === 'grouped'
+                  ? `${totalGroups} group${totalGroups !== 1 ? 's' : ''}`
+                  : hasActiveSearch
+                    ? showRelevanceSlider
+                      ? `${filteredCount} / ${totalBeforeFilter} result${totalBeforeFilter !== 1 ? 's' : ''}${searchModeSuffix}`
+                      : `${filteredCount} result${filteredCount !== 1 ? 's' : ''}${searchModeSuffix}`
+                    : `${facets?.total_images ?? 0} scenes`}
               </span>
             )}
 
@@ -348,19 +351,43 @@ export function GalleryHeader({
             </DropdownMenu>
 
             {/* Edit all -- contextual */}
-            {displayImageCount > 0 && (
-              <>
-                <span className="text-border/60 px-1.5">&middot;</span>
-                <button
-                  onClick={onOpenMassEdit}
-                  title="Bulk-edit all scenes in current results"
-                  className="flex items-center gap-1.5 hover:text-foreground transition-colors"
-                >
-                  <Pencil className="h-3 w-3" />
-                  Edit all ({displayImageCount})
-                </button>
-              </>
-            )}
+            {viewMode === 'grouped'
+              ? totalGroups > 0 && (
+                  <>
+                    <span className="text-border/60 px-1.5">&middot;</span>
+                    {totalGroups > 100 ? (
+                      <div
+                        title={`Too many groups (${totalGroups}) — apply filters to narrow below 100`}
+                        className="flex items-center gap-1.5 cursor-not-allowed opacity-50"
+                      >
+                        <Pencil className="h-3 w-3" />
+                        Edit all ({totalGroups})
+                      </div>
+                    ) : (
+                      <button
+                        onClick={onOpenMassEdit}
+                        title="Bulk-edit all groups in current results"
+                        className="flex items-center gap-1.5 hover:text-foreground transition-colors"
+                      >
+                        <Pencil className="h-3 w-3" />
+                        Edit all ({totalGroups})
+                      </button>
+                    )}
+                  </>
+                )
+              : displayImageCount > 0 && (
+                  <>
+                    <span className="text-border/60 px-1.5">&middot;</span>
+                    <button
+                      onClick={onOpenMassEdit}
+                      title="Bulk-edit all scenes in current results"
+                      className="flex items-center gap-1.5 hover:text-foreground transition-colors"
+                    >
+                      <Pencil className="h-3 w-3" />
+                      Edit all ({displayImageCount})
+                    </button>
+                  </>
+                )}
 
             {/* Relevance slider -- contextual */}
             {showRelevanceSlider && (

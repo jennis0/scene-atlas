@@ -10,9 +10,11 @@ from sqlalchemy.orm import Session, joinedload, subqueryload
 from ..models import (
     Color,
     Image,
+    ImageGroup,
     ImageSearchResponse,
     Tag,
 )
+from ..models.schemas import GroupSearchResponse, GroupSearchResult
 from ..services import get_clip_service, get_qdrant_service
 from ..services.fts_service import fts_search, fts_search_terms, get_alias_expansions
 from .dependencies import get_db
@@ -109,56 +111,25 @@ def get_search_facets(db: Session = Depends(get_db)):
     }
 
 
-@router.get("/", response_model=ImageSearchResponse)
-def search_images(
-    query: str | None = None,
-    semantic_only: bool = False,
-    text_only: bool = False,
-    tags: list[str] = Query([]),
-    exclude_tags: list[str] = Query([]),
-    authors: list[str] = Query([]),
-    exclude_authors: list[str] = Query([]),
-    colors: list[str] = Query([]),
-    image_types: list[str] = Query([]),
-    media_types: list[str] = Query([]),
+def _build_image_filter_query(
+    db: Session,
+    image_types: list[str] | None = None,
+    media_types: list[str] | None = None,
     gridded: bool | None = None,
-    gridded_unknown: bool = False,
+    gridded_unknown: bool | None = None,
     grid_type: str | None = None,
-    limit: int = Query(500, ge=1, le=1000),
-    offset: int = Query(0, ge=0),
-    sort_by: str = Query("created_at", pattern="^(created_at|name|relevance)$"),
-    sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
-    # Deprecated aliases kept for backward compat
-    text: str | None = None,
-    semantic: str | None = None,
-    db: Session = Depends(get_db),
-):
+    authors: list[str] | None = None,
+    exclude_authors: list[str] | None = None,
+    tags: list[str] | None = None,
+    exclude_tags: list[str] | None = None,
+    colors: list[str] | None = None,
+) -> Query:
+    """Build a filtered image query with all filter conditions applied.
+
+    Use subqueryload (not joinedload) to avoid inflating rows when combined
+    with .distinct() — joinedload uses LEFT OUTER JOIN which creates duplicate
+    rows that break DISTINCT and pagination.
     """
-    Hybrid image search combining FTS5 (BM25) text ranking and CLIP semantic search.
-
-    Every query runs both text and semantic search. Results are merged by score:
-      final_score = semantic_score + TEXT_BOOST * normalized_text_score
-
-    Prefix query with '~' on the frontend to set semantic_only=True (skips FTS5).
-    Prefix query with '=' on the frontend to set text_only=True (skips CLIP).
-
-    Filter logic:
-    - Tags: OR within same category, AND across categories
-    - Authors / exclude_authors: OR within, applied as AND
-    - Colors: OR
-    """
-    # Handle deprecated aliases
-    effective_query = query or text or semantic
-    if semantic and not query:
-        semantic_only = True
-    # text_only and semantic_only are mutually exclusive; text_only wins
-    if text_only:
-        semantic_only = False
-
-    # --- Build base SQL filter query ---
-    # Use subqueryload (not joinedload) to avoid inflating rows when combined
-    # with .distinct() — joinedload uses LEFT OUTER JOIN which creates duplicate
-    # rows that break DISTINCT and pagination.
     sql_query = db.query(Image).options(
         subqueryload(Image.tags),
         subqueryload(Image.colors),
@@ -220,6 +191,70 @@ def search_images(
             sql_query = sql_query.filter(Image.id.in_(matching_ids))
         else:
             sql_query = sql_query.filter(Image.id == -1)  # No matches
+
+    return sql_query
+
+
+@router.get("/", response_model=ImageSearchResponse)
+def search_images(
+    query: str | None = None,
+    semantic_only: bool = False,
+    text_only: bool = False,
+    tags: list[str] = Query([]),
+    exclude_tags: list[str] = Query([]),
+    authors: list[str] = Query([]),
+    exclude_authors: list[str] = Query([]),
+    colors: list[str] = Query([]),
+    image_types: list[str] = Query([]),
+    media_types: list[str] = Query([]),
+    gridded: bool | None = None,
+    gridded_unknown: bool = False,
+    grid_type: str | None = None,
+    limit: int = Query(500, ge=1, le=2000),
+    offset: int = Query(0, ge=0),
+    sort_by: str = Query("created_at", pattern="^(created_at|name|relevance)$"),
+    sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
+    # Deprecated aliases kept for backward compat
+    text: str | None = None,
+    semantic: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Hybrid image search combining FTS5 (BM25) text ranking and CLIP semantic search.
+
+    Every query runs both text and semantic search. Results are merged by score:
+      final_score = semantic_score + TEXT_BOOST * normalized_text_score
+
+    Prefix query with '~' on the frontend to set semantic_only=True (skips FTS5).
+    Prefix query with '=' on the frontend to set text_only=True (skips CLIP).
+
+    Filter logic:
+    - Tags: OR within same category, AND across categories
+    - Authors / exclude_authors: OR within, applied as AND
+    - Colors: OR
+    """
+    # Handle deprecated aliases
+    effective_query = query or text or semantic
+    if semantic and not query:
+        semantic_only = True
+    # text_only and semantic_only are mutually exclusive; text_only wins
+    if text_only:
+        semantic_only = False
+
+    # --- Build base SQL filter query ---
+    sql_query = _build_image_filter_query(
+        db,
+        image_types=image_types or None,
+        media_types=media_types or None,
+        gridded=gridded,
+        gridded_unknown=gridded_unknown if gridded_unknown else None,
+        grid_type=grid_type,
+        authors=authors or None,
+        exclude_authors=exclude_authors or None,
+        tags=tags or None,
+        exclude_tags=exclude_tags or None,
+        colors=colors or None,
+    )
 
     # --- No search query: return filtered results with requested sort ---
     if not effective_query:
@@ -346,6 +381,239 @@ def search_images(
         offset=offset,
         images=results,
         scores=returned_scores,
+    )
+
+
+@router.get("/groups", response_model=GroupSearchResponse)
+def search_groups(
+    query: str | None = None,
+    semantic_only: bool = False,
+    text_only: bool = False,
+    tags: list[str] = Query([]),
+    exclude_tags: list[str] = Query([]),
+    authors: list[str] = Query([]),
+    exclude_authors: list[str] = Query([]),
+    colors: list[str] = Query([]),
+    image_types: list[str] = Query([]),
+    media_types: list[str] = Query([]),
+    gridded: bool | None = None,
+    gridded_unknown: bool = False,
+    grid_type: str | None = None,
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    sort_by: str = Query("created_at", pattern="^(created_at|name|relevance)$"),
+    sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
+    db: Session = Depends(get_db),
+):
+    """
+    Group-level search returning variant groups with hero and mosaic images.
+
+    In browse mode (no query):
+      - Returns all groups sorted by sort_by/sort_dir
+      - total_groups = count of all groups
+      - No matching_scenes distinction (all images in a group match by default)
+
+    In search mode (query present):
+      - Runs hybrid search (FTS5 + CLIP) with candidate pool of limit*20
+      - Collapses results by group_id
+      - Sort groups by best_score DESC
+      - total_groups reflects groups found in search results (may be lower bound on very large diverse libraries)
+    """
+    from sqlalchemy import and_, or_
+
+    # --- Browse mode (no query) ---
+    if not query:
+        # Count total groups matching filter at group level
+        group_query = db.query(ImageGroup)
+
+        # Authors filter applies directly to group
+        if authors:
+            group_query = group_query.filter(or_(*[ImageGroup.author == a for a in authors]))
+        if exclude_authors:
+            group_query = group_query.filter(~ImageGroup.author.in_(exclude_authors))
+
+        total_groups = group_query.count()
+
+        # Apply sort
+        if sort_by == "name":
+            sort_col = (
+                ImageGroup.base_name.asc() if sort_dir == "asc" else ImageGroup.base_name.desc()
+            )
+        else:  # default to created_at
+            sort_col = (
+                ImageGroup.created_at.asc() if sort_dir == "asc" else ImageGroup.created_at.desc()
+            )
+
+        groups = group_query.order_by(sort_col).limit(limit).offset(offset).all()
+
+        # Load primary images (hero) for each group and build response
+        results = []
+        for group in groups:
+            hero_image = None
+            if group.primary_image_id:
+                hero_image = (
+                    db.query(Image)
+                    .options(subqueryload(Image.tags), subqueryload(Image.colors))
+                    .filter(Image.id == group.primary_image_id)
+                    .first()
+                )
+
+            if hero_image:
+                results.append(
+                    GroupSearchResult(
+                        group_id=group.id,
+                        base_name=group.base_name,
+                        author=group.author,
+                        hero_image=hero_image,
+                        mosaic_images=[],
+                        total_scenes=group.image_count,
+                        matching_scenes=group.image_count,
+                        best_score=None,
+                    )
+                )
+
+        return GroupSearchResponse(
+            total_groups=total_groups,
+            limit=limit,
+            offset=offset,
+            groups=results,
+        )
+
+    # --- Search mode (query present) ---
+    if text_only:
+        semantic_only = False
+
+    sql_query = _build_image_filter_query(
+        db,
+        image_types=image_types or None,
+        media_types=media_types or None,
+        gridded=gridded,
+        gridded_unknown=gridded_unknown if gridded_unknown else None,
+        grid_type=grid_type,
+        authors=authors or None,
+        exclude_authors=exclude_authors or None,
+        tags=tags or None,
+        exclude_tags=exclude_tags or None,
+        colors=colors or None,
+    )
+
+    # Hybrid search
+    SEMANTIC_THRESHOLD, SEMANTIC_ONLY_THRESHOLD, RRF_K = 0.15, 0.15, 60
+    RRF_TEXT_WEIGHT, RRF_ALIAS_WEIGHT = 1.1, 0.5
+    candidate_pool = max(limit * 20, 1000)
+
+    text_scores = dict(fts_search(db, query, limit=candidate_pool)) if not semantic_only else {}
+    alias_scores = {}
+    if not semantic_only and text_scores:
+        alias_terms = get_alias_expansions(query, db)
+        if alias_terms:
+            alias_scores = dict(fts_search_terms(db, alias_terms, limit=candidate_pool))
+
+    semantic_scores = {}
+    if not text_only:
+        try:
+            embedding = get_clip_service().encode_text(query)
+            threshold = SEMANTIC_ONLY_THRESHOLD if semantic_only else SEMANTIC_THRESHOLD
+            qdrant_results = get_qdrant_service().search_similar(
+                embedding, limit=candidate_pool, score_threshold=threshold
+            )
+            semantic_scores = {r["image_id"]: r["score"] for r in qdrant_results}
+        except Exception:
+            logger.exception("Semantic search error")
+
+    candidate_ids = set(text_scores.keys()) | set(alias_scores.keys()) | set(semantic_scores.keys())
+    if not candidate_ids:
+        return GroupSearchResponse(total_groups=0, limit=limit, offset=offset, groups=[])
+
+    # RRF rank maps
+    sem_ranked = sorted(semantic_scores, key=semantic_scores.get, reverse=True)  # type: ignore[arg-type]
+    txt_ranked = sorted(text_scores, key=text_scores.get)  # type: ignore[arg-type]
+    alias_ranked = sorted(alias_scores, key=alias_scores.get)  # type: ignore[arg-type]
+
+    sem_rank = {img_id: rank for rank, img_id in enumerate(sem_ranked)}
+    txt_rank = {img_id: rank for rank, img_id in enumerate(txt_ranked)}
+    alias_rank = {img_id: rank for rank, img_id in enumerate(alias_ranked)}
+
+    merged_scores = {}
+    for image_id in candidate_ids:
+        score = 0.0
+        if image_id in sem_rank:
+            score += 1.0 / (RRF_K + sem_rank[image_id])
+        if image_id in txt_rank:
+            score += RRF_TEXT_WEIGHT / (RRF_K + txt_rank[image_id])
+        if image_id in alias_rank:
+            score += RRF_ALIAS_WEIGHT / (RRF_K + alias_rank[image_id])
+        merged_scores[image_id] = score
+
+    if not merged_scores:
+        return GroupSearchResponse(total_groups=0, limit=limit, offset=offset, groups=[])
+
+    max_rrf = max(merged_scores.values())
+    if max_rrf > 0:
+        merged_scores = {img_id: s / max_rrf for img_id, s in merged_scores.items()}
+
+    # Filter & collapse by group
+    sql_query = sql_query.filter(Image.id.in_(list(merged_scores.keys())))
+    filtered_images = sql_query.distinct().all()
+
+    groups_dict: dict[int, list[tuple[Image, float]]] = {}
+    for img in filtered_images:
+        if img.group_id not in groups_dict:
+            groups_dict[img.group_id] = []
+        groups_dict[img.group_id].append((img, merged_scores.get(img.id, 0.0)))
+
+    for gid in groups_dict:
+        groups_dict[gid].sort(key=lambda x: x[1], reverse=True)
+
+    sorted_gids = sorted(groups_dict.keys(), key=lambda g: groups_dict[g][0][1], reverse=True)
+    total_groups = len(sorted_gids)
+    paginated_gids = sorted_gids[offset : offset + limit]
+
+    group_map = {
+        g.id: g
+        for g in (
+            db.query(ImageGroup).filter(ImageGroup.id.in_(paginated_gids)).all()
+            if paginated_gids
+            else []
+        )
+    }
+
+    results = []
+    for gid in paginated_gids:
+        group = group_map.get(gid)
+        if not group:
+            continue
+        images_in_group = groups_dict[gid]
+        hero_image, hero_score = images_in_group[0]
+        mosaic_images = [img for img, _ in images_in_group[1:5]]
+
+        if len(mosaic_images) < 4:
+            already_used = {hero_image.id} | {img.id for img in mosaic_images}
+            fill_images = (
+                db.query(Image)
+                .options(subqueryload(Image.tags), subqueryload(Image.colors))
+                .filter(and_(Image.group_id == gid, ~Image.id.in_(already_used)))
+                .order_by(Image.created_at.desc())
+                .limit(4 - len(mosaic_images))
+                .all()
+            )
+            mosaic_images.extend(fill_images)
+
+        results.append(
+            GroupSearchResult(
+                group_id=gid,
+                base_name=group.base_name,
+                author=group.author,
+                hero_image=hero_image,
+                mosaic_images=mosaic_images,
+                total_scenes=group.image_count,
+                matching_scenes=len(images_in_group),
+                best_score=hero_score,
+            )
+        )
+
+    return GroupSearchResponse(
+        total_groups=total_groups, limit=limit, offset=offset, groups=results
     )
 
 

@@ -278,8 +278,8 @@ export interface EditableGroupState {
   file_errors?: ImportFileError[]
 }
 
-// Group search/merge types
-export interface GroupSearchItem {
+// Group picker/merge types
+export interface GroupPickerItem {
   id: number
   base_name: string
   author: string | null
@@ -287,9 +287,28 @@ export interface GroupSearchItem {
   image_count: number
 }
 
-export interface GroupSearchResponse {
-  groups: GroupSearchItem[]
+export interface GroupPickerResponse {
+  groups: GroupPickerItem[]
   total: number
+}
+
+// Group search types (for grouped view)
+export interface GroupSearchResult {
+  group_id: number
+  base_name: string
+  author: string | null
+  hero_image: Image
+  mosaic_images: Image[]
+  total_scenes: number
+  matching_scenes: number
+  best_score: number | null
+}
+
+export interface GroupSearchResponse {
+  total_groups: number
+  limit: number
+  offset: number
+  groups: GroupSearchResult[]
 }
 
 export interface GroupMergeResponse {
