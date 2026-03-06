@@ -13,7 +13,7 @@ const EditGroupDialog = lazy(() => import('@/components/EditGroupDialog'))
 import { TagManagementDialog } from '@/components/TagManagementDialog'
 import { MergeGroupPicker } from '@/components/MergeGroupPicker'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { SystemInfoDialog } from '@/components/SystemInfoDialog'
+import { LibraryInfoDialog } from '@/components/LibraryInfoDialog'
 import { ImportSummaryDialog } from '@/components/ImportSummaryDialog'
 import { GalleryHeader } from '@/components/GalleryHeader'
 import { useGallerySearch } from '@/hooks/useGallerySearch'
@@ -235,7 +235,7 @@ export function Gallery() {
         onClose={() => dialogs.setShowTagManagement(false)}
       />
 
-      <SystemInfoDialog
+      <LibraryInfoDialog
         open={dialogs.showSystemInfo}
         onClose={() => dialogs.setShowSystemInfo(false)}
       />

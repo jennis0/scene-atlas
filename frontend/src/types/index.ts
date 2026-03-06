@@ -445,6 +445,7 @@ export interface AppSettings {
   // Ingestion performance
   ingestion_batch_size: number
   max_concurrent_prepare: number
+  max_concurrent_heavy_requests: number
 
   // Import limits
   max_import_file_size: number

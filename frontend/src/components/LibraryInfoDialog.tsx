@@ -13,10 +13,9 @@ import {
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { systemApi, getLibraryExportUrl, settingsApi } from '@/lib/api'
+import { systemApi, getLibraryExportUrl } from '@/lib/api'
 import { QUERY_KEYS, invalidateTagQueries } from '@/lib/queryKeys'
 import { useJobPolling } from '@/hooks/useJobPolling'
-import type { AppSettings } from '@/types'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -35,7 +34,7 @@ interface SystemInfo {
   }
 }
 
-export interface SystemInfoDialogProps {
+export interface LibraryInfoDialogProps {
   open: boolean
   onClose: () => void
 }
@@ -120,7 +119,7 @@ function StorageBar({ storage }: { storage: SystemInfo['storage'] }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
+export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
   const isElectron = !!window.electronAPI
   const queryClient = useQueryClient()
   const [locationPhase, setLocationPhase] = useState<LocationPhase>('idle')
@@ -171,19 +170,6 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
       setConfirmingResetTags(false)
       invalidateTagQueries(queryClient)
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.systemInfo })
-    },
-  })
-
-  const { data: appSettings } = useQuery({
-    queryKey: QUERY_KEYS.appSettings,
-    queryFn: settingsApi.get,
-    enabled: open,
-  })
-
-  const patchSettingsMut = useMutation({
-    mutationFn: (patch: Partial<AppSettings>) => settingsApi.patch(patch),
-    onSuccess: (updated) => {
-      queryClient.setQueryData(QUERY_KEYS.appSettings, updated)
     },
   })
 
@@ -252,7 +238,7 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
           <div className="flex items-center justify-between">
             <div className="flex flex-col">
               <span className="font-display text-[13px] font-medium tracking-[0.06em] text-foreground leading-none">
-                System
+                Library
               </span>
               <div className="mt-[3px] h-px w-7 bg-gradient-to-r from-primary to-transparent" />
             </div>
@@ -271,7 +257,7 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
           {/* ── Stats row ─────────────────────────────────────── */}
           {isError ? (
             <p className="text-sm text-muted-foreground italic py-2">
-              Could not load system information.
+              Could not load library information.
             </p>
           ) : (
             <div className="flex gap-2">
@@ -395,43 +381,6 @@ export function SystemInfoDialog({ open, onClose }: SystemInfoDialogProps) {
               )}
             </section>
           )}
-
-          {/* ── Settings ──────────────────────────────────────── */}
-          <section>
-            <p className="section-label mb-2.5">Settings</p>
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-sm text-foreground/90">Image grid detection</p>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Analyse battlemap images to detect grid type and cell size
-                </p>
-              </div>
-              <button
-                role="switch"
-                aria-checked={appSettings?.enable_image_grid_detection ?? false}
-                onClick={() =>
-                  appSettings &&
-                  patchSettingsMut.mutate({
-                    enable_image_grid_detection: !appSettings.enable_image_grid_detection,
-                  })
-                }
-                disabled={patchSettingsMut.isPending || !appSettings}
-                className={[
-                  'shrink-0 relative inline-flex h-5 w-9 cursor-pointer rounded-full border-2 border-transparent',
-                  'transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40',
-                  'disabled:cursor-not-allowed disabled:opacity-50',
-                  appSettings?.enable_image_grid_detection ? 'bg-primary' : 'bg-input',
-                ].join(' ')}
-              >
-                <span
-                  className={[
-                    'pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform',
-                    appSettings?.enable_image_grid_detection ? 'translate-x-4' : 'translate-x-0',
-                  ].join(' ')}
-                />
-              </button>
-            </div>
-          </section>
 
           {/* ── Divider ───────────────────────────────────────── */}
           <div className="border-t border-border/50" />
