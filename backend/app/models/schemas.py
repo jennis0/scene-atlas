@@ -535,6 +535,7 @@ class AppSettings(BaseModel):
     # Ingestion performance
     ingestion_batch_size: int = 16
     max_concurrent_prepare: int = 8
+    max_concurrent_heavy_requests: int = 4
 
     # Import limits
     max_import_file_size: int = 2000 * 1024 * 1024
@@ -564,6 +565,7 @@ class AppSettingsPatch(BaseModel):
     color_kmeans_n_init: int | None = None
     ingestion_batch_size: int | None = None
     max_concurrent_prepare: int | None = None
+    max_concurrent_heavy_requests: int | None = None
     max_import_file_size: int | None = None
     max_video_file_size: int | None = None
     max_import_files: int | None = None

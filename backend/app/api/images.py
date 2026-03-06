@@ -31,7 +31,7 @@ router = APIRouter()
 
 
 @router.get("/authors", response_model=list[str])
-async def list_authors(db: Session = Depends(get_db)):
+def list_authors(db: Session = Depends(get_db)):
     """List all distinct non-empty author values."""
     rows = (
         db.query(Image.author).filter(Image.author.isnot(None), Image.author != "").distinct().all()
@@ -40,14 +40,14 @@ async def list_authors(db: Session = Depends(get_db)):
 
 
 @router.get("/", response_model=list[ImageResponse])
-async def list_images(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+def list_images(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     """List all images with pagination."""
     images = db.query(Image).offset(skip).limit(limit).all()
     return images
 
 
 @router.get("/{image_id}", response_model=ImageResponse)
-async def get_image(image_id: int, db: Session = Depends(get_db)):
+def get_image(image_id: int, db: Session = Depends(get_db)):
     """Get a specific image by ID."""
     image = db.query(Image).filter(Image.id == image_id).first()
     if not image:
@@ -56,7 +56,7 @@ async def get_image(image_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/{image_id}", response_model=ImageResponse)
-async def patch_image(image_id: int, patch: ImagePatch, db: Session = Depends(get_db)):
+def patch_image(image_id: int, patch: ImagePatch, db: Session = Depends(get_db)):
     """Update image metadata (name, subgroup, gridded, grid dimensions)."""
     image = db.query(Image).filter(Image.id == image_id).first()
     if not image:
@@ -69,7 +69,7 @@ async def patch_image(image_id: int, patch: ImagePatch, db: Session = Depends(ge
 
 
 @router.delete("/{image_id}")
-async def delete_image(image_id: int, db: Session = Depends(get_db)):
+def delete_image(image_id: int, db: Session = Depends(get_db)):
     """Delete an image and its files from stores (ref-counted)."""
     image = db.query(Image).filter(Image.id == image_id).first()
     if not image:
@@ -81,7 +81,7 @@ async def delete_image(image_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{image_id}/scenes", response_model=list[ImageResponse])
-async def get_image_scenes(image_id: int, db: Session = Depends(get_db)):
+def get_image_scenes(image_id: int, db: Session = Depends(get_db)):
     """Get all scenes in the same group as this image."""
     image = db.query(Image).filter(Image.id == image_id).first()
     if not image:
@@ -96,7 +96,7 @@ async def get_image_scenes(image_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{image_id}/file")
-async def get_image_file(image_id: int, db: Session = Depends(get_db)):
+def get_image_file(image_id: int, db: Session = Depends(get_db)):
     """Serve the original image file via ImageStore."""
     image = db.query(Image).filter(Image.id == image_id).first()
     if not image:
@@ -111,7 +111,7 @@ async def get_image_file(image_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{image_id}/thumbnail")
-async def get_image_thumbnail(image_id: int, db: Session = Depends(get_db)):
+def get_image_thumbnail(image_id: int, db: Session = Depends(get_db)):
     """Serve the image thumbnail via ImageStore."""
     image = db.query(Image).filter(Image.id == image_id).first()
     if not image:
@@ -142,7 +142,7 @@ async def get_image_thumbnail(image_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/backfill-grids")
-async def trigger_backfill_grids(force: bool = False):
+def trigger_backfill_grids(force: bool = False):
     """Run grid detection on battlemaps missing grid info (background job).
 
     Pass ?force=true to re-detect ALL battlemaps.

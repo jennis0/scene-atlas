@@ -140,7 +140,7 @@ def _purge_library(
 
 
 @router.delete("/library")
-async def delete_library(request: Request):
+def delete_library(request: Request):
     """Purge the entire library (images, metadata, vectors, files).
 
     Submits a background job and returns immediately with a job ID.
@@ -162,7 +162,7 @@ async def delete_library(request: Request):
 
 
 @router.post("/tags/reset")
-async def reset_tags(db: Session = Depends(get_db)):
+def reset_tags(db: Session = Depends(get_db)):
     """Delete all per-image tags and tag categories, then re-seed defaults.
 
     This is a fast DB-only operation (no files or vectors affected).

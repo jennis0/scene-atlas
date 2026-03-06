@@ -66,6 +66,12 @@ async def lifespan(app: FastAPI):
     # Store engine in app state
     app.state.db_engine = engine
 
+    # Admission control: limit concurrent heavy operations (analyse, confirm-all)
+    # to prevent GIL thrashing from unbounded asyncio.to_thread() calls.
+    # Created here (not at module level) because asyncio.Semaphore() requires
+    # a running event loop on Python 3.12+ / Windows.
+    app.state.heavy_op_semaphore = asyncio.Semaphore(app_config.max_concurrent_heavy_requests)
+
     # Start CLIP loading in background — does not block server startup.
     # get_clip_service() will wait for it; empty-query searches skip CLIP entirely.
     from .services.clip_service import start_clip_background_load

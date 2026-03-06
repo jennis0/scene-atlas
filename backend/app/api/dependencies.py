@@ -13,3 +13,16 @@ def get_db(request: Request):
         yield db
     finally:
         db.close()
+
+
+async def acquire_heavy_op(request: Request):
+    """Admission control — limits concurrent heavy operations (analyse, confirm-all).
+
+    Prevents GIL thrashing from too many concurrent asyncio.to_thread() calls.
+    """
+    semaphore = request.app.state.heavy_op_semaphore
+    await semaphore.acquire()
+    try:
+        yield
+    finally:
+        semaphore.release()

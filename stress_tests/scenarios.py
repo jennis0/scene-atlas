@@ -132,6 +132,7 @@ class ImportFlow:
             "POST",
             f"{IMPORTS_BASE}/{job_id}/analyse",
             json={"manifest": [], "image_type": image_type},
+            timeout=300.0,
         )
         r.raise_for_status()
         return r.json()
@@ -166,6 +167,7 @@ class ImportFlow:
             "POST",
             f"{IMPORTS_BASE}/{job_id}/confirm-all",
             json={"groups": confirm_groups},
+            timeout=300.0,
         )
         r.raise_for_status()
         return r.json()
@@ -181,7 +183,7 @@ class ImportFlow:
         r.raise_for_status()
         return r.json()
 
-    async def wait_for_terminal(self, job_id: str, timeout: float = 180.0) -> dict:
+    async def wait_for_terminal(self, job_id: str, timeout: float = 300.0) -> dict:
         """Poll status until a terminal state is reached.
 
         Raises RuntimeError on timeout.  Returns the final status response.
@@ -304,7 +306,7 @@ async def concurrent_imports(
                     return False, f"Job {job_idx} stuck in '{status}'"
                 return True, status
             except Exception as exc:
-                return False, f"Job {job_idx} raised: {exc}"
+                return False, f"Job {job_idx} raised {type(exc).__name__}: {exc}"
 
     t0 = time.monotonic()
     outcomes = await atqdm.gather(
@@ -807,7 +809,7 @@ async def large_uploads(
                 if r.status_code >= 500:
                     failures.append(f"Sequential {path.name}: got {r.status_code}")
             except Exception as exc:
-                failures.append(f"Sequential {path.name}: {exc}")
+                failures.append(f"Sequential {path.name} {type(exc).__name__}: {exc}")
             finally:
                 await flow.cancel(job_id)
 
@@ -835,7 +837,7 @@ async def large_uploads(
                         return False, f"Concurrent upload {idx}: {r.status_code}"
                     return True, "ok"
                 except Exception as exc:
-                    return False, f"Concurrent upload {idx}: {exc}"
+                    return False, f"Concurrent upload {idx} {type(exc).__name__}: {exc}"
                 finally:
                     await flow.cancel(jid)
 
@@ -1058,7 +1060,7 @@ async def duplicate_hash_race(
                     await flow.cancel(job_id)
                 return True, "ok"
             except Exception as exc:
-                return False, f"Job {idx}: {exc}"
+                return False, f"Job {idx} {type(exc).__name__}: {exc}"
 
     outcomes = await atqdm.gather(
         *(run_dedup_job(i) for i in range(job_count)),
@@ -1165,7 +1167,7 @@ async def server_restart_recovery(
                 )
 
     except Exception as exc:
-        failures.append(f"Unexpected error: {exc}")
+        failures.append(f"Unexpected error {type(exc).__name__}: {exc}")
     finally:
         # Both servers must be stopped regardless of which step failed
         server.stop(force=True)
@@ -1230,7 +1232,7 @@ async def large_batch_imports(
                     return False, f"Job {job_idx} stuck in '{status}'"
                 return True, status
             except Exception as exc:
-                return False, f"Job {job_idx}: {exc}"
+                return False, f"Job {job_idx} {type(exc).__name__}: {exc}"
 
     outcomes = await atqdm.gather(
         *(run_batch_job(i) for i in range(jobs_count)),
@@ -1298,7 +1300,7 @@ async def scheduler_interference(
                     return False, f"Job {job_idx} stuck in '{status}'"
                 return True, status
             except Exception as exc:
-                return False, f"Job {job_idx}: {exc}"
+                return False, f"Job {job_idx} {type(exc).__name__}: {exc}"
 
     outcomes = await atqdm.gather(
         *(run_one(i) for i in range(jobs_count)),

@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 @router.get("/facets")
-async def get_search_facets(db: Session = Depends(get_db)):
+def get_search_facets(db: Session = Depends(get_db)):
     """Return available filter options with image counts for the filter panel."""
 
     # Authors sorted by image count descending
@@ -110,7 +110,7 @@ async def get_search_facets(db: Session = Depends(get_db)):
 
 
 @router.get("/", response_model=ImageSearchResponse)
-async def search_images(
+def search_images(
     query: str | None = None,
     semantic_only: bool = False,
     text_only: bool = False,
@@ -353,7 +353,7 @@ async def search_images(
 
 
 @router.post("/rebuild-embeddings")
-async def trigger_rebuild_embeddings():
+def trigger_rebuild_embeddings():
     """Rebuild all CLIP embeddings (fire-and-forget background job).
 
     Deletes and recreates the Qdrant collection, then re-encodes every image.

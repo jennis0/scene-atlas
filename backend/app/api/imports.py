@@ -56,7 +56,7 @@ from ..services.staging import (
     save_file_map as _save_file_map,
 )
 from ..services.validation import check_zip_safety, verify_media_mime
-from .dependencies import get_db
+from .dependencies import acquire_heavy_op, get_db
 
 
 class ImportConfirmAllRequest(BaseModel):
@@ -93,7 +93,7 @@ router = APIRouter()
 
 
 @router.post("/check-hashes", response_model=HashCheckResponse)
-async def check_hashes(
+def check_hashes(
     body: HashCheckRequest,
     db: Session = Depends(get_db),
 ):
@@ -148,7 +148,7 @@ async def check_hashes(
 
 
 @router.post("/init")
-async def init_import(db: Session = Depends(get_db)):
+def init_import(db: Session = Depends(get_db)):
     """Create an ImportJob immediately so the frontend can persist the job_id.
 
     The job starts in ``"uploading"`` status.  Call ``POST /{job_id}/upload-batch``
@@ -490,7 +490,7 @@ async def upload_batch(
 
 
 @router.post("/{job_id}/report-skipped")
-async def report_skipped_files(
+def report_skipped_files(
     job_id: str,
     body: ReportSkippedRequest,
     db: Session = Depends(get_db),
@@ -529,6 +529,7 @@ async def analyse_staged(
     job_id: str,
     body: AnalyseRequest,
     db: Session = Depends(get_db),
+    _admission: None = Depends(acquire_heavy_op),
 ):
     """Analyse all staged files and transition job to 'staging' state.
 
@@ -614,6 +615,7 @@ async def confirm_all_groups(
     job_id: str,
     body: ImportConfirmAllRequest,
     db: Session = Depends(get_db),
+    _admission: None = Depends(acquire_heavy_op),
 ):
     """Confirm all groups for processing in a single flow run.
 
@@ -626,6 +628,11 @@ async def confirm_all_groups(
     job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Import job not found")
+    if job.status != "staging":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job is already {job.status}, cannot confirm again",
+        )
 
     staging_dir = settings.staging_dir / job_id
     if not staging_dir.exists():
@@ -719,7 +726,7 @@ async def confirm_all_groups(
 
 
 @router.get("/{job_id}/status", response_model=ImportJobResponse)
-async def get_import_status(
+def get_import_status(
     job_id: str,
     db: Session = Depends(get_db),
 ):
@@ -769,7 +776,7 @@ async def get_import_status(
 
 
 @router.get("/{job_id}/analysis", response_model=ImportUploadResponse)
-async def get_import_analysis(job_id: str, db: Session = Depends(get_db)):
+def get_import_analysis(job_id: str, db: Session = Depends(get_db)):
     """Return the stored analysis for an import job.
 
     Used by the frontend to rebuild the preview UI when reconnecting to a job
@@ -798,7 +805,7 @@ async def get_import_analysis(job_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/active", response_model=ActiveImportsResponse)
-async def get_active_imports(db: Session = Depends(get_db)):
+def get_active_imports(db: Session = Depends(get_db)):
     """List non-terminal import jobs for the import tray.
 
     Returns staging/active jobs and recently-completed ones
@@ -860,7 +867,7 @@ async def get_active_imports(db: Session = Depends(get_db)):
 
 
 @router.delete("/cleanup")
-async def cleanup_old_imports(db: Session = Depends(get_db)):
+def cleanup_old_imports(db: Session = Depends(get_db)):
     """Delete completed, failed, cancelled, and abandoned staging import jobs.
 
     Never deletes jobs that are currently staging (pending user review) or running.
@@ -893,7 +900,7 @@ async def cleanup_old_imports(db: Session = Depends(get_db)):
 
 
 @router.post("/{job_id}/cancel")
-async def cancel_import(job_id: str, db: Session = Depends(get_db)):
+def cancel_import(job_id: str, db: Session = Depends(get_db)):
     """Cancel an import job and clean up all associated data.
 
     Deletes:
@@ -972,7 +979,7 @@ async def cancel_import(job_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{job_id}/fail")
-async def fail_import(job_id: str, body: FailImportRequest, db: Session = Depends(get_db)):
+def fail_import(job_id: str, body: FailImportRequest, db: Session = Depends(get_db)):
     """Mark an import job as failed (upload/analyse error, not user cancellation).
 
     Only valid from 'uploading' or 'staging' states. For jobs with running groups,
@@ -1031,7 +1038,7 @@ async def fail_import(job_id: str, body: FailImportRequest, db: Session = Depend
 
 
 @router.post("/{job_id}/groups/{group_id}/cancel")
-async def cancel_import_group(
+def cancel_import_group(
     job_id: str,
     group_id: str,
     db: Session = Depends(get_db),
@@ -1061,7 +1068,7 @@ async def cancel_import_group(
 
 
 @router.get("/{job_id}/preview/{relative_path:path}")
-async def get_preview_thumbnail(
+def get_preview_thumbnail(
     job_id: str,
     relative_path: str,
 ):

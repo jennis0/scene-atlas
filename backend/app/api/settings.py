@@ -11,13 +11,13 @@ router = APIRouter()
 
 
 @router.get("/", response_model=AppSettings)
-async def get_app_settings(db: Session = Depends(get_db)) -> AppSettings:
+def get_app_settings(db: Session = Depends(get_db)) -> AppSettings:
     """Return the current application settings."""
     return get_settings(db)
 
 
 @router.patch("/", response_model=AppSettings)
-async def patch_app_settings(
+def patch_app_settings(
     patch: AppSettingsPatch,
     db: Session = Depends(get_db),
 ) -> AppSettings:

@@ -8,14 +8,14 @@ router = APIRouter()
 
 
 @router.get("/")
-async def list_jobs():
+def list_jobs():
     """List all tracked background jobs (running + recently completed)."""
     runner = get_job_runner()
     return [job.to_dict() for job in runner.list_jobs()]
 
 
 @router.get("/{job_id}")
-async def get_job(job_id: str):
+def get_job(job_id: str):
     """Get status of a specific background job."""
     runner = get_job_runner()
     record = runner.get_job(job_id)

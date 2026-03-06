@@ -134,7 +134,7 @@ def _build_zip(entries: list[tuple[str, Path]], metadata_bytes: bytes) -> zipstr
 
 
 @router.get("/library")
-async def export_library(db: Session = Depends(get_db)):
+def export_library(db: Session = Depends(get_db)):
     """Stream the entire image library as a ZIP archive.
 
     Memory usage is constant — images are read from disk one at a time.

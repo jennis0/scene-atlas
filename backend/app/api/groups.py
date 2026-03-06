@@ -54,7 +54,7 @@ def _zip_path(img: Image, group_name: str) -> str:
 
 
 @router.get("/search", response_model=GroupSearchResponse)
-async def search_groups(
+def search_groups(
     q: str = "",
     exclude_id: int | None = None,
     limit: int = Query(20, ge=1, le=100),
@@ -117,7 +117,7 @@ async def search_groups(
 
 
 @router.get("/{group_id}", response_model=GroupDetailResponse)
-async def get_group(
+def get_group(
     group_id: int,
     db: Session = Depends(get_db),
 ):
@@ -137,7 +137,7 @@ async def get_group(
 
 
 @router.get("/{group_id}/download")
-async def download_group(
+def download_group(
     group_id: int,
     db: Session = Depends(get_db),
 ):
@@ -174,7 +174,7 @@ async def download_group(
 
 
 @router.put("/{group_id}", response_model=GroupEditResponse)
-async def edit_group(
+def edit_group(
     group_id: int,
     payload: GroupEditRequest,
     db: Session = Depends(get_db),
@@ -269,7 +269,7 @@ async def edit_group(
 
 
 @router.delete("/{group_id}")
-async def delete_group(
+def delete_group(
     group_id: int,
     db: Session = Depends(get_db),
 ):
@@ -288,7 +288,7 @@ async def delete_group(
 
 
 @router.post("/{group_id}/move-images", response_model=MoveImagesResponse)
-async def move_images(
+def move_images(
     group_id: int,
     payload: MoveImagesRequest,
     db: Session = Depends(get_db),
@@ -356,7 +356,7 @@ async def move_images(
 
 
 @router.post("/{group_id}/merge", response_model=GroupMergeResponse)
-async def merge_group(
+def merge_group(
     group_id: int,
     payload: GroupMergeRequest,
     db: Session = Depends(get_db),

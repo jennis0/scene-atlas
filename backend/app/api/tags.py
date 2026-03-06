@@ -43,14 +43,14 @@ def _cascade_tag_change(db: Session, affected_image_ids: list[int]) -> None:
 
 
 @router.get("/categories", response_model=list[TagCategoryResponse])
-async def list_tag_categories(db: Session = Depends(get_db)):
+def list_tag_categories(db: Session = Depends(get_db)):
     """List all tag categories, ordered by display_order."""
     categories = db.query(TagCategory).order_by(TagCategory.display_order, TagCategory.name).all()
     return categories
 
 
 @router.post("/categories", response_model=TagCategoryResponse, status_code=201)
-async def create_tag_category(payload: TagCategoryCreate, db: Session = Depends(get_db)):
+def create_tag_category(payload: TagCategoryCreate, db: Session = Depends(get_db)):
     """Create a new tag category."""
     existing = db.query(TagCategory).filter(TagCategory.name == payload.name).first()
     if existing:
@@ -70,7 +70,7 @@ async def create_tag_category(payload: TagCategoryCreate, db: Session = Depends(
 
 
 @router.get("/categories/{category_name}", response_model=TagCategoryResponse)
-async def get_tag_category(category_name: str, db: Session = Depends(get_db)):
+def get_tag_category(category_name: str, db: Session = Depends(get_db)):
     """Get a specific tag category by name."""
     category = db.query(TagCategory).filter(TagCategory.name == category_name).first()
     if not category:
@@ -79,7 +79,7 @@ async def get_tag_category(category_name: str, db: Session = Depends(get_db)):
 
 
 @router.patch("/categories/{category_name}")
-async def update_tag_category(
+def update_tag_category(
     category_name: str, payload: TagCategoryUpdate, db: Session = Depends(get_db)
 ):
     """Update a tag category. If name changes, cascades to all Tag rows."""
@@ -125,7 +125,7 @@ async def update_tag_category(
 
 
 @router.delete("/categories/{category_name}")
-async def delete_tag_category(category_name: str, db: Session = Depends(get_db)):
+def delete_tag_category(category_name: str, db: Session = Depends(get_db)):
     """Delete a tag category and all tags on images in that category."""
     category = db.query(TagCategory).filter(TagCategory.name == category_name).first()
     if not category:
@@ -154,7 +154,7 @@ async def delete_tag_category(category_name: str, db: Session = Depends(get_db))
 
 
 @router.put("/categories/{category_name}/tags/{tag_name}", response_model=TagCategoryResponse)
-async def upsert_tag_value(
+def upsert_tag_value(
     category_name: str,
     tag_name: str,
     aliases: list[str] | None = Body(None),
@@ -197,7 +197,7 @@ async def upsert_tag_value(
 
 
 @router.patch("/categories/{category_name}/tags/{tag_name}")
-async def rename_tag_value(
+def rename_tag_value(
     category_name: str,
     tag_name: str,
     payload: TagValueUpdate,
@@ -254,7 +254,7 @@ async def rename_tag_value(
 
 
 @router.delete("/categories/{category_name}/tags/{tag_name}")
-async def delete_tag_value(category_name: str, tag_name: str, db: Session = Depends(get_db)):
+def delete_tag_value(category_name: str, tag_name: str, db: Session = Depends(get_db)):
     """Delete a tag value from a category's vocabulary AND from all images."""
     category = db.query(TagCategory).filter(TagCategory.name == category_name).first()
     if not category:
@@ -296,7 +296,7 @@ async def delete_tag_value(category_name: str, tag_name: str, db: Session = Depe
 
 
 @router.get("/values/{category_name}")
-async def get_tag_values_for_category(category_name: str, db: Session = Depends(get_db)):
+def get_tag_values_for_category(category_name: str, db: Session = Depends(get_db)):
     """Get all unique tag values used for a specific category."""
     tags = db.query(Tag).filter(Tag.category == category_name).all()
     values = list({tag.value for tag in tags})
@@ -304,14 +304,14 @@ async def get_tag_values_for_category(category_name: str, db: Session = Depends(
 
 
 @router.get("/image/{image_id}", response_model=list[TagResponse])
-async def get_image_tags(image_id: int, db: Session = Depends(get_db)):
+def get_image_tags(image_id: int, db: Session = Depends(get_db)):
     """Get all tags for a specific image."""
     tags = db.query(Tag).filter(Tag.image_id == image_id).all()
     return tags
 
 
 @router.post("/image/{image_id}", response_model=TagResponse)
-async def add_tag_to_image(image_id: int, tag: TagCreate, db: Session = Depends(get_db)):
+def add_tag_to_image(image_id: int, tag: TagCreate, db: Session = Depends(get_db)):
     """Add a tag to an image."""
     from ..services.fts_service import rebuild_search_text
 
@@ -335,7 +335,7 @@ async def add_tag_to_image(image_id: int, tag: TagCreate, db: Session = Depends(
 
 
 @router.delete("/{tag_id}")
-async def delete_tag(tag_id: int, db: Session = Depends(get_db)):
+def delete_tag(tag_id: int, db: Session = Depends(get_db)):
     """Delete a tag from an image."""
     from ..services.fts_service import rebuild_search_text
 
@@ -359,7 +359,7 @@ async def delete_tag(tag_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/stats")
-async def get_tag_statistics(db: Session = Depends(get_db)):
+def get_tag_statistics(db: Session = Depends(get_db)):
     """Get statistics about tag usage."""
     category_counts = (
         db.query(Tag.category, func.count(Tag.id).label("count")).group_by(Tag.category).all()
@@ -384,7 +384,7 @@ async def get_tag_statistics(db: Session = Depends(get_db)):
 
 
 @router.post("/retag-all")
-async def trigger_retag_all():
+def trigger_retag_all():
     """Trigger the retag_all_images job (fire-and-forget)."""
     from ...pipeline.retag_all_images import retag_all_images
     from ..services.job_runner import get_job_runner
