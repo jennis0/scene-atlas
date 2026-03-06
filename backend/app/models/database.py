@@ -256,9 +256,16 @@ def get_engine(database_url: str = "sqlite:///./data/battlemap.db"):
     if database_url in _engine_cache:
         return _engine_cache[database_url]
 
-    engine = create_engine(
-        database_url, connect_args={"check_same_thread": False} if "sqlite" in database_url else {}
-    )
+    if "sqlite" in database_url:
+        from sqlalchemy.pool import NullPool
+
+        engine = create_engine(
+            database_url,
+            connect_args={"check_same_thread": False},
+            poolclass=NullPool,
+        )
+    else:
+        engine = create_engine(database_url)
     if "sqlite" in database_url:
         from sqlalchemy import event as _sa_event
 
