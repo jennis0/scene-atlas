@@ -13,6 +13,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from backend.app.config import settings as _settings
+
 logger = logging.getLogger(__name__)
 
 # CLIP image preprocessing constants (from preprocessor_config.json)
@@ -35,7 +37,8 @@ def _default_models_dir() -> Path:
 
 # Module-level LRU cache for text embeddings (avoids lru_cache-on-method leak).
 # Keys are query strings; values are tuple[float, ...].
-_TEXT_CACHE_MAX = 256
+# lru_cache maxsize is baked at decoration time — restart required to change.
+_TEXT_CACHE_MAX = _settings.clip_text_cache_max
 _text_embedding_cache: dict[str, tuple[float, ...]] = {}
 
 

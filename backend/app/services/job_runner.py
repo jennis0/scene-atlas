@@ -26,13 +26,12 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from backend.app.config import settings as _settings
+
 logger = logging.getLogger(__name__)
 
 _job_runner: "JobRunner | None" = None
 _lock = threading.Lock()
-
-# Completed/failed jobs are kept in memory for this long before being cleaned up.
-_JOB_RETENTION_SECS = 3600  # 1 hour
 
 
 @dataclass
@@ -224,12 +223,12 @@ class JobRunner:
             del self._futures[jid]
 
     def _cleanup_old_jobs(self) -> None:
-        """Remove job records that finished more than _JOB_RETENTION_SECS ago."""
+        """Remove job records that finished more than job_retention_seconds ago."""
         now = time.time()
         expired = [
             jid
             for jid, rec in self._jobs.items()
-            if rec.finished_at and (now - rec.finished_at) > _JOB_RETENTION_SECS
+            if rec.finished_at and (now - rec.finished_at) > _settings.job_retention_seconds
         ]
         for jid in expired:
             del self._jobs[jid]
