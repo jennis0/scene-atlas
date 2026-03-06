@@ -29,13 +29,14 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from tqdm import tqdm
+from tqdm.asyncio import tqdm as atqdm
 
 try:
     from PIL import Image as PILImage
 except ImportError:  # pragma: no cover
     PILImage = None  # type: ignore[assignment]
 
-from stress_tests.fixtures import FixturePaths
 from stress_tests.run import RequestStats, ScenarioResult, StressTestServer
 
 # ---------------------------------------------------------------------------
@@ -306,7 +307,11 @@ async def concurrent_imports(
                 return False, f"Job {job_idx} raised: {exc}"
 
     t0 = time.monotonic()
-    outcomes = await asyncio.gather(*(run_one_job(i) for i in range(jobs_count)))
+    outcomes = await atqdm.gather(
+        *(run_one_job(i) for i in range(jobs_count)),
+        desc="  jobs",
+        unit="job",
+    )
     elapsed = time.monotonic() - t0
 
     failures = [(ok, msg) for ok, msg in outcomes if not ok]
@@ -360,122 +365,138 @@ async def endpoint_spam(
     stats = RequestStats()
     failures: list[str] = []
 
-    async with httpx.AsyncClient(base_url=base_url, timeout=60) as client:
-        flow = ImportFlow(client, base_url, stats)
+    with tqdm(total=4, desc="  sub-tests", unit="sub-test", leave=True) as pbar:
+        async with httpx.AsyncClient(base_url=base_url, timeout=60) as client:
+            flow = ImportFlow(client, base_url, stats)
 
-        # --- Sub-test 1: concurrent cancels ---
-        job_id = await flow.init_job()
-        # Upload a file first so there's something to cancel
-        images = generate_unique_images(1, base_seed=900000)
-        files = [(rel.split("/")[-1], data, "image/jpeg") for rel, data in images]
-        await flow.upload_batch(job_id, files, [rel for rel, _ in images])
+            # --- Sub-test 1: concurrent cancels ---
+            pbar.set_postfix_str("concurrent-cancels")
+            job_id = await flow.init_job()
+            # Upload a file first so there's something to cancel
+            images = generate_unique_images(1, base_seed=900000)
+            files = [(rel.split("/")[-1], data, "image/jpeg") for rel, data in images]
+            await flow.upload_batch(job_id, files, [rel for rel, _ in images])
 
-        async def do_cancel(idx: int) -> int:
-            r = await client.post(f"{IMPORTS_BASE}/{job_id}/cancel", timeout=30)
-            return r.status_code
+            async def do_cancel(idx: int) -> int:
+                r = await client.post(f"{IMPORTS_BASE}/{job_id}/cancel", timeout=30)
+                return r.status_code
 
-        cancel_codes = await asyncio.gather(*(do_cancel(i) for i in range(concurrency)))
-        ok_cancels = sum(1 for c in cancel_codes if c == 200)
-        bad_codes = [c for c in cancel_codes if c not in (200, 409, 404)]
-        if ok_cancels == 0:
-            failures.append(f"Sub-test 1: no cancel succeeded (codes: {set(cancel_codes)})")
-        if bad_codes:
-            failures.append(f"Sub-test 1: unexpected cancel status codes: {set(bad_codes)}")
+            cancel_codes = await asyncio.gather(*(do_cancel(i) for i in range(concurrency)))
+            ok_cancels = sum(1 for c in cancel_codes if c == 200)
+            bad_codes = [c for c in cancel_codes if c not in (200, 409, 404)]
+            if ok_cancels == 0:
+                failures.append(f"Sub-test 1: no cancel succeeded (codes: {set(cancel_codes)})")
+            if bad_codes:
+                failures.append(f"Sub-test 1: unexpected cancel status codes: {set(bad_codes)}")
+            pbar.update(1)
 
-        # --- Sub-test 2: concurrent status polls ---
-        # Create a job in uploading state
-        job_id2 = await flow.init_job()
+            # --- Sub-test 2: concurrent status polls ---
+            pbar.set_postfix_str("concurrent-status-polls")
+            # Create a job in uploading state
+            job_id2 = await flow.init_job()
 
-        async def do_status(idx: int) -> tuple[int, str]:
-            r = await client.get(f"{IMPORTS_BASE}/{job_id2}/status", timeout=30)
-            return r.status_code, r.json().get("status", "") if r.status_code == 200 else ""
+            async def do_status(idx: int) -> tuple[int, str]:
+                r = await client.get(f"{IMPORTS_BASE}/{job_id2}/status", timeout=30)
+                return r.status_code, r.json().get("status", "") if r.status_code == 200 else ""
 
-        poll_results = await asyncio.gather(*(do_status(i) for i in range(concurrency)))
-        poll_errors = [c for c, _ in poll_results if c >= 500]
-        statuses = {s for _, s in poll_results if s}
-        if poll_errors:
-            failures.append(f"Sub-test 2: {len(poll_errors)} 5xx errors in status polls")
-        if len(statuses) > 1:
-            failures.append(f"Sub-test 2: inconsistent status values: {statuses}")
-        # Clean up job2
-        await flow.cancel(job_id2)
+            poll_results = await asyncio.gather(*(do_status(i) for i in range(concurrency)))
+            poll_errors = [c for c, _ in poll_results if c >= 500]
+            ok_polls = sum(1 for c, _ in poll_results if c == 200)
+            statuses = {s for _, s in poll_results if s}
+            if poll_errors:
+                failures.append(f"Sub-test 2: {len(poll_errors)} 5xx errors in status polls")
+            if ok_polls == 0:
+                failures.append(
+                    f"Sub-test 2: no poll succeeded (codes: { {c for c, _ in poll_results} })"
+                )
+            if len(statuses) > 1:
+                failures.append(f"Sub-test 2: inconsistent status values: {statuses}")
+            # Clean up job2
+            await flow.cancel(job_id2)
+            pbar.update(1)
 
-        # --- Sub-test 3: uploads to completed/cancelled job ---
-        # job_id is now cancelled; uploading to it should give 409
-        async def do_upload_cancelled(idx: int) -> int:
-            images2 = generate_unique_images(1, base_seed=800000 + idx)
-            files2 = [(rel.split("/")[-1], data, "image/jpeg") for rel, data in images2]
-            r = await client.post(
-                f"{IMPORTS_BASE}/{job_id}/upload-batch",
-                files=[("files", (name, data, mime)) for name, data, mime in files2],
-                data={"relative_paths": json.dumps([rel for rel, _ in images2])},
-                timeout=30,
+            # --- Sub-test 3: uploads to completed/cancelled job ---
+            pbar.set_postfix_str("upload-to-cancelled")
+
+            # job_id is now cancelled; uploading to it should give 409
+            async def do_upload_cancelled(idx: int) -> int:
+                images2 = generate_unique_images(1, base_seed=800000 + idx)
+                files2 = [(rel.split("/")[-1], data, "image/jpeg") for rel, data in images2]
+                r = await client.post(
+                    f"{IMPORTS_BASE}/{job_id}/upload-batch",
+                    files=[("files", (name, data, mime)) for name, data, mime in files2],
+                    data={"relative_paths": json.dumps([rel for rel, _ in images2])},
+                    timeout=30,
+                )
+                return r.status_code
+
+            upload_codes = await asyncio.gather(
+                *(do_upload_cancelled(i) for i in range(concurrency))
             )
-            return r.status_code
+            unexpected_upload = [c for c in upload_codes if c not in (409, 404, 422, 400)]
+            if unexpected_upload:
+                failures.append(
+                    f"Sub-test 3: unexpected codes for upload to cancelled job: {set(unexpected_upload)}"
+                )
+            pbar.update(1)
 
-        upload_codes = await asyncio.gather(*(do_upload_cancelled(i) for i in range(concurrency)))
-        unexpected_upload = [c for c in upload_codes if c not in (409, 404, 422, 400)]
-        if unexpected_upload:
-            failures.append(
-                f"Sub-test 3: unexpected codes for upload to cancelled job: {set(unexpected_upload)}"
-            )
+            # --- Sub-test 4: concurrent confirm-all to staging job ---
+            pbar.set_postfix_str("concurrent-confirm-all")
+            # Set up a job in staging state
+            job_id3 = await flow.init_job()
+            images3 = generate_unique_images(2, base_seed=700000)
+            files3 = [(rel.split("/")[-1], data, "image/jpeg") for rel, data in images3]
+            await flow.upload_batch(job_id3, files3, [rel for rel, _ in images3])
+            analysis3 = await flow.analyse(job_id3)
+            groups3 = analysis3.get("groups", [])
 
-        # --- Sub-test 4: concurrent confirm-all to staging job ---
-        # Set up a job in staging state
-        job_id3 = await flow.init_job()
-        images3 = generate_unique_images(2, base_seed=700000)
-        files3 = [(rel.split("/")[-1], data, "image/jpeg") for rel, data in images3]
-        await flow.upload_batch(job_id3, files3, [rel for rel, _ in images3])
-        analysis3 = await flow.analyse(job_id3)
-        groups3 = analysis3.get("groups", [])
+            confirm_body = {
+                "groups": [
+                    {
+                        "author": g.get("author") or "StressAuthor",
+                        "group_name": g["group_name"],
+                        "files": [
+                            {
+                                "relative_path": f["relative_path"],
+                                "name": f.get("filename") or f["relative_path"].split("/")[-1],
+                                "media_type": "image/jpeg",
+                                "image_type": "battlemap",
+                                "tags": [],
+                            }
+                            for f in g["files"]
+                        ],
+                    }
+                    for g in groups3
+                ]
+            }
 
-        confirm_body = {
-            "groups": [
-                {
-                    "author": g.get("author") or "StressAuthor",
-                    "group_name": g["group_name"],
-                    "files": [
-                        {
-                            "relative_path": f["relative_path"],
-                            "name": f.get("filename") or f["relative_path"].split("/")[-1],
-                            "media_type": "image/jpeg",
-                            "image_type": "battlemap",
-                            "tags": [],
-                        }
-                        for f in g["files"]
-                    ],
-                }
-                for g in groups3
-            ]
-        }
+            async def do_confirm_all(idx: int) -> int:
+                r = await client.post(
+                    f"{IMPORTS_BASE}/{job_id3}/confirm-all",
+                    json=confirm_body,
+                    timeout=30,
+                )
+                return r.status_code
 
-        async def do_confirm_all(idx: int) -> int:
-            r = await client.post(
-                f"{IMPORTS_BASE}/{job_id3}/confirm-all",
-                json=confirm_body,
-                timeout=30,
-            )
-            return r.status_code
-
-        confirm_codes = await asyncio.gather(*(do_confirm_all(i) for i in range(concurrency)))
-        ok_confirms = sum(1 for c in confirm_codes if c == 200)
-        bad_confirms = [c for c in confirm_codes if c not in (200, 409, 404, 422)]
-        if ok_confirms > 1:
-            # More than one confirm succeeded — potential duplicate processing
-            failures.append(
-                f"Sub-test 4: {ok_confirms} concurrent confirms succeeded (expected ≤1)"
-            )
-        if bad_confirms:
-            failures.append(f"Sub-test 4: unexpected confirm-all codes: {set(bad_confirms)}")
-        # Let the job finish (or cancel it)
-        if ok_confirms >= 1:
-            try:
-                await flow.wait_for_terminal(job_id3, timeout=120)
-            except RuntimeError:
+            confirm_codes = await asyncio.gather(*(do_confirm_all(i) for i in range(concurrency)))
+            ok_confirms = sum(1 for c in confirm_codes if c == 200)
+            bad_confirms = [c for c in confirm_codes if c not in (200, 409, 404, 422)]
+            if ok_confirms > 1:
+                # More than one confirm succeeded — potential duplicate processing
+                failures.append(
+                    f"Sub-test 4: {ok_confirms} concurrent confirms succeeded (expected ≤1)"
+                )
+            if bad_confirms:
+                failures.append(f"Sub-test 4: unexpected confirm-all codes: {set(bad_confirms)}")
+            # Let the job finish (or cancel it)
+            if ok_confirms >= 1:
+                try:
+                    await flow.wait_for_terminal(job_id3, timeout=120)
+                except RuntimeError:
+                    await flow.cancel(job_id3)
+            else:
                 await flow.cancel(job_id3)
-        else:
-            await flow.cancel(job_id3)
-
+            pbar.update(1)
     passed = len(failures) == 0
     return ScenarioResult(
         name="endpoint_spam",
@@ -518,69 +539,86 @@ async def cancellation_chaos(
     stats = RequestStats()
     failures: list[str] = []
 
+    stages = [
+        "(a) cancel-during-upload",
+        "(b) cancel-in-staging",
+        "(c) cancel-active",
+        "(d) cancel-after-complete",
+    ]
     async with httpx.AsyncClient(base_url=base_url, timeout=120) as client:
         flow = ImportFlow(client, base_url, stats)
 
-        # --- (a) Cancel during upload ---
-        job_a = await flow.init_job()
-        images_a = generate_unique_images(2, base_seed=500000)
-        files_a = [(rel.split("/")[-1], data, "image/jpeg") for rel, data in images_a]
-        await flow.upload_batch(job_a, files_a, [rel for rel, _ in images_a])
-        r = await client.post(f"{IMPORTS_BASE}/{job_a}/cancel", timeout=30)
-        if r.status_code not in (200,):
-            failures.append(f"(a) Expected 200 for cancel-during-upload, got {r.status_code}")
-        # Verify terminal
-        status_a = await flow.get_status(job_a)
-        if status_a["status"] not in TERMINAL_STATES:
-            failures.append(f"(a) Job stuck in '{status_a['status']}' after cancel")
+        with tqdm(total=len(stages), desc="  stages", unit="stage") as pbar:
+            # --- (a) Cancel during upload ---
+            pbar.set_postfix_str(stages[0])
+            job_a = await flow.init_job()
+            images_a = generate_unique_images(2, base_seed=500000)
+            files_a = [(rel.split("/")[-1], data, "image/jpeg") for rel, data in images_a]
+            await flow.upload_batch(job_a, files_a, [rel for rel, _ in images_a])
+            r = await client.post(f"{IMPORTS_BASE}/{job_a}/cancel", timeout=30)
+            if r.status_code not in (200,):
+                failures.append(f"(a) Expected 200 for cancel-during-upload, got {r.status_code}")
+            # Verify terminal
+            status_a = await flow.get_status(job_a)
+            if status_a["status"] not in TERMINAL_STATES:
+                failures.append(f"(a) Job stuck in '{status_a['status']}' after cancel")
+            pbar.update(1)
 
-        # --- (b) Cancel in staging state (after analyse) ---
-        job_b = await flow.init_job()
-        images_b = generate_unique_images(2, base_seed=510000)
-        files_b = [(rel.split("/")[-1], data, "image/jpeg") for rel, data in images_b]
-        await flow.upload_batch(job_b, files_b, [rel for rel, _ in images_b])
-        await flow.analyse(job_b)
-        r = await client.post(f"{IMPORTS_BASE}/{job_b}/cancel", timeout=30)
-        if r.status_code not in (200,):
-            failures.append(f"(b) Expected 200 for cancel-in-staging, got {r.status_code}")
-        status_b = await flow.get_status(job_b)
-        if status_b["status"] not in TERMINAL_STATES:
-            failures.append(f"(b) Job stuck in '{status_b['status']}' after cancel")
+            # --- (b) Cancel in staging state (after analyse) ---
+            pbar.set_postfix_str(stages[1])
+            job_b = await flow.init_job()
+            images_b = generate_unique_images(2, base_seed=510000)
+            files_b = [(rel.split("/")[-1], data, "image/jpeg") for rel, data in images_b]
+            await flow.upload_batch(job_b, files_b, [rel for rel, _ in images_b])
+            await flow.analyse(job_b)
+            r = await client.post(f"{IMPORTS_BASE}/{job_b}/cancel", timeout=30)
+            if r.status_code not in (200,):
+                failures.append(f"(b) Expected 200 for cancel-in-staging, got {r.status_code}")
+            status_b = await flow.get_status(job_b)
+            if status_b["status"] not in TERMINAL_STATES:
+                failures.append(f"(b) Job stuck in '{status_b['status']}' after cancel")
+            pbar.update(1)
 
-        # --- (c) Cancel in active state (immediately after confirm-all) ---
-        job_c = await flow.init_job()
-        images_c = generate_unique_images(3, base_seed=520000)
-        files_c = [(rel.split("/")[-1], data, "image/jpeg") for rel, data in images_c]
-        await flow.upload_batch(job_c, files_c, [rel for rel, _ in images_c])
-        analysis_c = await flow.analyse(job_c)
-        groups_c = analysis_c.get("groups", [])
-        if groups_c:
-            await flow.confirm_all(job_c, groups_c)
-        # Immediately cancel (job may still be processing)
-        r = await client.post(f"{IMPORTS_BASE}/{job_c}/cancel", timeout=30)
-        if r.status_code not in (200, 409):
-            failures.append(f"(c) Unexpected cancel code: {r.status_code}")
-        # Wait for terminal regardless
-        try:
-            status_c = await flow.wait_for_terminal(job_c, timeout=120)
-            if status_c["status"] not in TERMINAL_STATES:
-                failures.append(f"(c) Job not terminal after cancel: {status_c['status']}")
-        except RuntimeError as exc:
-            failures.append(f"(c) Timeout waiting for terminal: {exc}")
+            # --- (c) Cancel in active state (immediately after confirm-all) ---
+            pbar.set_postfix_str(stages[2])
+            job_c = await flow.init_job()
+            images_c = generate_unique_images(3, base_seed=520000)
+            files_c = [(rel.split("/")[-1], data, "image/jpeg") for rel, data in images_c]
+            await flow.upload_batch(job_c, files_c, [rel for rel, _ in images_c])
+            analysis_c = await flow.analyse(job_c)
+            groups_c = analysis_c.get("groups", [])
+            if groups_c:
+                await flow.confirm_all(job_c, groups_c)
+            # Immediately cancel (job may still be processing)
+            r = await client.post(f"{IMPORTS_BASE}/{job_c}/cancel", timeout=30)
+            if r.status_code not in (200, 409):
+                failures.append(f"(c) Unexpected cancel code: {r.status_code}")
+            # Wait for terminal regardless
+            try:
+                status_c = await flow.wait_for_terminal(job_c, timeout=120)
+                if status_c["status"] not in TERMINAL_STATES:
+                    failures.append(f"(c) Job not terminal after cancel: {status_c['status']}")
+            except RuntimeError as exc:
+                failures.append(f"(c) Timeout waiting for terminal: {exc}")
+            pbar.update(1)
 
-        # --- (d) Cancel after completion (should be 409) ---
-        job_d = await flow.init_job()
-        images_d = generate_unique_images(1, base_seed=530000)
-        files_d = [(rel.split("/")[-1], data, "image/jpeg") for rel, data in images_d]
-        await flow.upload_batch(job_d, files_d, [rel for rel, _ in images_d])
-        analysis_d = await flow.analyse(job_d)
-        groups_d = analysis_d.get("groups", [])
-        if groups_d:
-            await flow.confirm_all(job_d, groups_d)
-            await flow.wait_for_terminal(job_d, timeout=120)
-        r = await client.post(f"{IMPORTS_BASE}/{job_d}/cancel", timeout=30)
-        if r.status_code not in (409,):
-            failures.append(f"(d) Expected 409 for cancel-after-completion, got {r.status_code}")
+            # --- (d) Cancel after completion (should be 409) ---
+            pbar.set_postfix_str(stages[3])
+            job_d = await flow.init_job()
+            images_d = generate_unique_images(1, base_seed=530000)
+            files_d = [(rel.split("/")[-1], data, "image/jpeg") for rel, data in images_d]
+            await flow.upload_batch(job_d, files_d, [rel for rel, _ in images_d])
+            analysis_d = await flow.analyse(job_d)
+            groups_d = analysis_d.get("groups", [])
+            if groups_d:
+                await flow.confirm_all(job_d, groups_d)
+                await flow.wait_for_terminal(job_d, timeout=120)
+            r = await client.post(f"{IMPORTS_BASE}/{job_d}/cancel", timeout=30)
+            if r.status_code not in (409,):
+                failures.append(
+                    f"(d) Expected 409 for cancel-after-completion, got {r.status_code}"
+                )
+            pbar.update(1)
 
     passed = len(failures) == 0
     return ScenarioResult(
@@ -619,33 +657,15 @@ async def malformed_input(
     Pass: no 5xx responses, no hangs (30s timeout per request).
     """
     malformed_mb = 500 if large_mode else 5
-    fixtures = FixturePaths(
-        jpeg_small=Path(),
-        png_small=Path(),
-        webp_small=Path(),
-        zip_small=Path(),
-        zip_large=Path(),
-        zip_near_bomb=fixtures_dir / "near_bomb.zip",
-        malformed_jpeg=fixtures_dir / f"malformed_{malformed_mb}mb.jpg",
-        malformed_png=fixtures_dir / f"malformed_{malformed_mb}mb.png",
-        malformed_webp=fixtures_dir / f"malformed_{malformed_mb}mb.webp",
-        malformed_mp4=fixtures_dir / f"malformed_{malformed_mb}mb.mp4",
-        malformed_webm=fixtures_dir / f"malformed_{malformed_mb}mb.webm",
-        malformed_zip=fixtures_dir / f"malformed_{malformed_mb}mb.zip",
-        video_mp4=None,
-        video_webm=None,
-        large_mode=large_mode,
-        has_ffmpeg=False,
-    )
-
+    _p = fixtures_dir / f"malformed_{malformed_mb}mb"
     test_files = [
-        ("malformed_jpeg", fixtures.malformed_jpeg, "image/jpeg"),
-        ("malformed_png", fixtures.malformed_png, "image/png"),
-        ("malformed_webp", fixtures.malformed_webp, "image/webp"),
-        ("malformed_mp4", fixtures.malformed_mp4, "video/mp4"),
-        ("malformed_webm", fixtures.malformed_webm, "video/webm"),
-        ("malformed_zip", fixtures.malformed_zip, "application/zip"),
-        ("near_zip_bomb", fixtures.zip_near_bomb, "application/zip"),
+        ("malformed_jpeg", Path(f"{_p}.jpg"), "image/jpeg"),
+        ("malformed_png", Path(f"{_p}.png"), "image/png"),
+        ("malformed_webp", Path(f"{_p}.webp"), "image/webp"),
+        ("malformed_mp4", Path(f"{_p}.mp4"), "video/mp4"),
+        ("malformed_webm", Path(f"{_p}.webm"), "video/webm"),
+        ("malformed_zip", Path(f"{_p}.zip"), "application/zip"),
+        ("near_zip_bomb", fixtures_dir / "near_bomb.zip", "application/zip"),
     ]
 
     stats = RequestStats()
@@ -771,10 +791,11 @@ async def large_uploads(
     async with httpx.AsyncClient(base_url=base_url, timeout=600) as client:
         flow = ImportFlow(client, base_url, stats)
 
-        # Sequential uploads
+        # Sequential uploads — cache bytes so the concurrent section can reuse them
+        file_data_cache: dict = {}
         for path in available:
             tested.append(path.name)
-            file_data = path.read_bytes()
+            file_data = file_data_cache.setdefault(path, path.read_bytes())
             job_id = await flow.init_job()
             try:
                 r = await client.post(
@@ -790,10 +811,11 @@ async def large_uploads(
             finally:
                 await flow.cancel(job_id)
 
-        # Concurrent uploads (up to 5 at once using first available file)
+        # Concurrent uploads (up to 5 at once using first available file).
+        # Reuse already-loaded bytes to avoid a second O(500 MB) read in --large mode.
         if available:
             big_file_path = available[0]
-            big_file_data = big_file_path.read_bytes()
+            big_file_data = file_data_cache.get(big_file_path) or big_file_path.read_bytes()
 
             async def concurrent_upload(idx: int) -> tuple[bool, str]:
                 jid = await flow.init_job()
@@ -943,9 +965,13 @@ async def concurrent_move_groups(
         ok_moves = sum(1 for c in move_codes if c == 200)
         bad_codes = [c for c in move_codes if c not in (200, 400, 404, 409)]
 
-        if ok_moves != 1:
+        if ok_moves == 0:
             failures.append(
-                f"Expected exactly 1 successful move, got {ok_moves} (codes: {sorted(move_codes)})"
+                f"No move request succeeded — expected exactly 1 (codes: {sorted(move_codes)})"
+            )
+        elif ok_moves > 1:
+            failures.append(
+                f"Expected exactly 1 successful move, got {ok_moves} — possible duplicate processing (codes: {sorted(move_codes)})"
             )
         if bad_codes:
             failures.append(f"Unexpected move status codes: {set(bad_codes)}")
@@ -1034,7 +1060,11 @@ async def duplicate_hash_race(
             except Exception as exc:
                 return False, f"Job {idx}: {exc}"
 
-    outcomes = await asyncio.gather(*(run_dedup_job(i) for i in range(job_count)))
+    outcomes = await atqdm.gather(
+        *(run_dedup_job(i) for i in range(job_count)),
+        desc="  dedup-jobs",
+        unit="job",
+    )
     failures = [msg for ok, msg in outcomes if not ok]
     http_errors = stats.errors
 
@@ -1084,6 +1114,7 @@ async def server_restart_recovery(
 
     work_dir = Path(tempfile.mkdtemp(prefix="stress_restart_"))
     server = StressTestServer(work_dir)
+    server2: StressTestServer | None = None
 
     try:
         restart_base_url = server.start(timeout=90)
@@ -1110,8 +1141,9 @@ async def server_restart_recovery(
         # Force-kill the server
         server.stop(force=True)
 
-        # Start a fresh server instance on a new port
-        server2 = StressTestServer(work_dir)
+        # Start a fresh server on a new port, sharing server1's data dir so it sees
+        # the same DB state.  Use a separate work_dir subdirectory to avoid log collision.
+        server2 = StressTestServer(work_dir / "restart", data_dir=work_dir / "data")
         restart_base_url2 = server2.start(timeout=90)
 
         async with httpx.AsyncClient(base_url=restart_base_url2, timeout=60) as client:
@@ -1132,12 +1164,13 @@ async def server_restart_recovery(
                     + "\n".join(non_terminal)
                 )
 
-        server2.stop()
-
     except Exception as exc:
         failures.append(f"Unexpected error: {exc}")
-        server.stop(force=True)
     finally:
+        # Both servers must be stopped regardless of which step failed
+        server.stop(force=True)
+        if server2 is not None:
+            server2.stop(force=True)
         import shutil
 
         shutil.rmtree(work_dir, ignore_errors=True)
@@ -1199,7 +1232,11 @@ async def large_batch_imports(
             except Exception as exc:
                 return False, f"Job {job_idx}: {exc}"
 
-    outcomes = await asyncio.gather(*(run_batch_job(i) for i in range(jobs_count)))
+    outcomes = await atqdm.gather(
+        *(run_batch_job(i) for i in range(jobs_count)),
+        desc="  batch-jobs",
+        unit="job",
+    )
     failures = [msg for ok, msg in outcomes if not ok]
     http_errors = stats.errors
 
@@ -1263,7 +1300,11 @@ async def scheduler_interference(
             except Exception as exc:
                 return False, f"Job {job_idx}: {exc}"
 
-    outcomes = await asyncio.gather(*(run_one(i) for i in range(jobs_count)))
+    outcomes = await atqdm.gather(
+        *(run_one(i) for i in range(jobs_count)),
+        desc="  scheduler-jobs",
+        unit="job",
+    )
     failures = [msg for ok, msg in outcomes if not ok]
 
     passed = len(failures) == 0

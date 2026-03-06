@@ -273,38 +273,42 @@ def ensure_fixtures(fixtures_dir: Path, large_mode: bool, has_ffmpeg: bool) -> F
     malformed_mb = 500 if large_mode else 5
     malformed_size = malformed_mb * 1024 * 1024
 
+    def _needs_regen(p: Path, min_bytes: int = 1) -> bool:
+        """Return True if the fixture file is missing or suspiciously small (partial write)."""
+        return not p.exists() or p.stat().st_size < min_bytes
+
     # --- Single sample images -----------------------------------------------
     jpeg_small = fixtures_dir / "sample.jpg"
-    if not jpeg_small.exists():
+    if _needs_regen(jpeg_small):
         print(f"    Generating {jpeg_small.name}...")
         generate_random_noise_jpeg(jpeg_small, seed=0)
 
     png_small = fixtures_dir / "sample.png"
-    if not png_small.exists():
+    if _needs_regen(png_small):
         print(f"    Generating {png_small.name}...")
         generate_random_noise_png(png_small, seed=1)
 
     webp_small = fixtures_dir / "sample.webp"
-    if not webp_small.exists():
+    if _needs_regen(webp_small):
         print(f"    Generating {webp_small.name}...")
         generate_random_noise_webp(webp_small, seed=2)
 
     # --- ZIP archives --------------------------------------------------------
     zip_small = fixtures_dir / "small.zip"
-    if not zip_small.exists():
+    if _needs_regen(zip_small):
         print(f"    Generating {zip_small.name} (10 images)...")
         imgs = _make_zip_images(fixtures_dir, 10, seed_base=100)
         generate_zip(imgs, zip_small)
 
     large_count = 1000 if large_mode else 100
     zip_large = fixtures_dir / f"large_{large_count}.zip"
-    if not zip_large.exists():
+    if _needs_regen(zip_large):
         print(f"    Generating {zip_large.name} ({large_count} images)...")
         imgs = _make_zip_images(fixtures_dir, large_count, seed_base=200)
         generate_zip(imgs, zip_large)
 
     zip_near_bomb = fixtures_dir / "near_bomb.zip"
-    if not zip_near_bomb.exists():
+    if _needs_regen(zip_near_bomb):
         print(f"    Generating {zip_near_bomb.name} (near-zip-bomb, ~1.6 MB compressed)...")
         generate_near_zip_bomb(zip_near_bomb)
 
@@ -318,7 +322,8 @@ def ensure_fixtures(fixtures_dir: Path, large_mode: bool, has_ffmpeg: bool) -> F
         ("zip", generate_malformed_zip),
     ]:
         path = fixtures_dir / f"malformed_{malformed_mb}mb.{fmt}"
-        if not path.exists():
+        # Regenerate if missing or truncated (e.g. interrupted write)
+        if not path.exists() or path.stat().st_size < malformed_size * 0.9:
             print(f"    Generating {path.name} ({malformed_mb} MB)...")
             gen_fn(path, malformed_size)  # type: ignore[call-arg]
 

@@ -37,7 +37,8 @@ dev = [
     "torch>=2.1.0,<3.0",
     "transformers>=4.36.0,<5.0",
     "onnx>=1.14.0,<2.0",   # ONNX export + quantisation tools (dev only)
-    "pyinstaller"
+    "pyinstaller",
+    "tqdm>=4.60.0",
 ]
 
 [build-system]

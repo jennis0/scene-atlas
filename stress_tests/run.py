@@ -21,6 +21,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -41,10 +42,8 @@ RESULTS_DIR = STRESS_DIR / "results"
 # ANSI colours (disabled on Windows without ANSI support, or in non-TTY)
 # ---------------------------------------------------------------------------
 
-_USE_COLOUR = (
-    sys.stdout.isatty()
-    and sys.platform != "win32"
-    or (sys.platform == "win32" and os.environ.get("TERM") == "xterm")
+_USE_COLOUR = (sys.stdout.isatty() and sys.platform != "win32") or (
+    sys.platform == "win32" and os.environ.get("TERM") == "xterm"
 )
 
 
@@ -127,20 +126,30 @@ class ScenarioResult:
 class StressTestServer:
     """Manages a uvicorn subprocess with an isolated temp data directory."""
 
-    def __init__(self, work_dir: Path) -> None:
+    def __init__(self, work_dir: Path, *, data_dir: Path | None = None) -> None:
         self.work_dir = work_dir
         self.log_path = work_dir / "server.log"
+        # Allow callers to share a data directory across restarts (server_restart_recovery)
+        self._data_dir = data_dir
         self.port: int | None = None
         self.base_url: str | None = None
         self._proc: subprocess.Popen | None = None
         self._log_fh: IO | None = None
+        self._port_sock: socket.socket | None = None  # held until uvicorn binds
 
-    @staticmethod
-    def _find_free_port() -> int:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("127.0.0.1", 0))
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            return s.getsockname()[1]
+    def _reserve_port(self) -> int:
+        """Bind to port 0, record the assigned port, and hold the socket open.
+
+        The socket is kept in self._port_sock to prevent OS port reuse until
+        uvicorn has actually bound the port.  Both sockets use SO_REUSEADDR so
+        uvicorn can bind the same address without conflict.
+        """
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        self._port_sock = s
+        return port
 
     def start(self, timeout: float = 90) -> str:
         """Start the server and wait for it to signal readiness.
@@ -151,9 +160,9 @@ class StressTestServer:
 
         Returns the base URL, e.g. ``http://127.0.0.1:18423``.
         """
-        self.port = self._find_free_port()
+        self.port = self._reserve_port()
         self.work_dir.mkdir(parents=True, exist_ok=True)
-        data_dir = self.work_dir / "data"
+        data_dir = self._data_dir if self._data_dir is not None else (self.work_dir / "data")
         data_dir.mkdir(parents=True, exist_ok=True)
 
         env = os.environ.copy()
@@ -215,6 +224,10 @@ class StressTestServer:
                 time.sleep(0.05)
                 continue
             if "SCENE_ATLAS_READY" in line:
+                # Uvicorn has bound the port — release our reservation socket
+                if self._port_sock:
+                    self._port_sock.close()
+                    self._port_sock = None
                 ready = True
                 break
 
@@ -226,13 +239,16 @@ class StressTestServer:
 
         self.base_url = f"http://127.0.0.1:{self.port}"
 
-        # Drain remaining stdout to log in background (server also logs to stderr/log_fh)
-        def _drain() -> None:
-            assert self._proc is not None
-            assert self._log_fh is not None
-            for line in self._proc.stdout:
-                self._log_fh.write(f"[stdout] {line}")
-                self._log_fh.flush()
+        # Drain remaining stdout to log in background (server also logs to stderr/log_fh).
+        # Capture local refs so stop() setting self._log_fh=None doesn't cause AttributeError,
+        # and guard against ValueError if stop() closes the file while we're still draining.
+        def _drain(proc_stdout=self._proc.stdout, log_fh=self._log_fh) -> None:
+            for line in proc_stdout:
+                try:
+                    log_fh.write(f"[stdout] {line}")
+                    log_fh.flush()
+                except ValueError:
+                    break  # File closed by stop() — nothing more to do
 
         threading.Thread(target=_drain, daemon=True, name="stdout-drain").start()
 
@@ -266,6 +282,9 @@ class StressTestServer:
             return
         if self._proc.poll() is not None:
             # Already dead
+            if self._port_sock:
+                self._port_sock.close()
+                self._port_sock = None
             if self._log_fh:
                 self._log_fh.close()
                 self._log_fh = None
@@ -300,6 +319,9 @@ class StressTestServer:
                     self._proc.send_signal(signal.SIGKILL)
                     self._proc.wait()
 
+        if self._port_sock:
+            self._port_sock.close()
+            self._port_sock = None
         if self._log_fh:
             self._log_fh.flush()
             self._log_fh.close()
@@ -456,9 +478,9 @@ def _run_scenario(
         result = ScenarioResult(
             name=scenario_name,
             passed=False,
-            message=f"Scenario raised unexpected exception: {exc}",
+            message=f"Scenario raised unexpected exception: {type(exc).__name__}: {exc}",
             elapsed=elapsed,
-            failure_details=str(exc),
+            failure_details=traceback.format_exc(),
         )
     finally:
         server.stop()
@@ -563,7 +585,7 @@ def _cmd_run(args: argparse.Namespace) -> None:
     for name, fn, _dt, _qt in selected:
         # Scenarios that test CLIP (most of them) need CLIP loaded.
         # malformed_input and endpoint_spam don't process images so we skip CLIP wait
-        needs_clip = name not in {"endpoint_spam", "malformed_input", "near_zip_bomb_test"}
+        needs_clip = name not in {"endpoint_spam", "malformed_input"}
 
         result = _run_scenario(
             scenario_name=name,
