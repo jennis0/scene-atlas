@@ -62,6 +62,7 @@ export function Gallery() {
         onOpenImport={() => dialogs.openImportDialog()}
         onOpenTagManagement={() => dialogs.setShowTagManagement(true)}
         onOpenSystemInfo={() => dialogs.setShowSystemInfo(true)}
+        onOpenSettings={() => dialogs.setSettingsOpen(true)}
         onOpenMassEdit={() => dialogs.setShowMassEdit(true)}
         displayImageCount={search.displayImages.length}
       />

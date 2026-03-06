@@ -10,6 +10,7 @@ import {
   AlignLeft,
   Tag,
   Settings,
+  SlidersHorizontal,
   ArrowUpDown,
   Compass,
   Map,
@@ -57,6 +58,7 @@ export interface GalleryHeaderProps {
   onOpenImport: () => void
   onOpenTagManagement: () => void
   onOpenSystemInfo: () => void
+  onOpenSettings: () => void
   onOpenMassEdit: () => void
   displayImageCount: number
 }
@@ -70,6 +72,7 @@ export function GalleryHeader({
   onOpenImport,
   onOpenTagManagement,
   onOpenSystemInfo,
+  onOpenSettings,
   onOpenMassEdit,
   displayImageCount,
 }: GalleryHeaderProps) {
@@ -194,10 +197,19 @@ export function GalleryHeader({
               variant="ghost"
               size="icon"
               onClick={onOpenSystemInfo}
-              title="System settings"
+              title="Library information"
               className="h-8 w-8 text-muted-foreground hover:text-foreground"
             >
               <Settings className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onOpenSettings}
+              title="Configuration"
+              className="h-8 w-8 text-muted-foreground hover:text-foreground"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
             </Button>
             <Button
               variant="ghost"
