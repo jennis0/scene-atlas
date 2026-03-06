@@ -272,14 +272,14 @@ class TestProcessImportGroupProgress:
         finally:
             db.close()
 
-    def test_import_job_stays_active_after_single_confirm(
+    def test_import_job_completes_after_all_groups_done(
         self,
         tmp_staging,
         mock_heavy_services,
         seeded_import_job,
         _patch_image_store,
     ):
-        """ImportJob.status stays 'active' after single-confirm (all_confirmed=False)."""
+        """ImportJob.status transitions to 'completed' when all groups finish."""
         from backend.pipeline.ingestion import process_import_group
 
         engine, SessionLocal, job_id, group_job_id = seeded_import_job
@@ -298,9 +298,9 @@ class TestProcessImportGroupProgress:
         db = SessionLocal()
         try:
             job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
-            # Single-confirm path: all_confirmed defaults to False → stays active
-            assert job.status == "active"
-            assert job.completed_at is None
+            # All groups terminal → job auto-completes
+            assert job.status == "completed"
+            assert job.completed_at is not None
         finally:
             db.close()
 
@@ -479,7 +479,7 @@ class TestProcessImportJob:
 
         db = SessionLocal()
         try:
-            db.add(ImportJob(id=job_id, status="active", total_files=3, all_confirmed=True))
+            db.add(ImportJob(id=job_id, status="active", total_files=3))
             db.flush()
             db.add(
                 ImportGroupJob(
@@ -564,7 +564,7 @@ class TestProcessImportJob:
         two_group_job,
         _patch_image_store,
     ):
-        """Staging directory is preserved after process_import_job (cleaned by /finalize)."""
+        """Staging directory is preserved after process_import_job (cleaned by cancel or expire_stale_jobs)."""
         from backend.pipeline.ingestion import process_import_job
 
         engine, SessionLocal, job_id, grp_a_id, grp_b_id = two_group_job
@@ -596,14 +596,14 @@ class TestProcessImportJob:
         # /finalize, /cancel, or expire_stale_jobs
         assert tmp_staging.exists()
 
-    def test_import_job_completed_after_all_groups_with_all_confirmed(
+    def test_import_job_completed_after_all_groups_finish(
         self,
         tmp_staging,
         mock_heavy_services,
         two_group_job,
         _patch_image_store,
     ):
-        """ImportJob.status becomes 'completed' when all_confirmed=True and all groups finish."""
+        """ImportJob.status becomes 'completed' when all groups finish."""
         from backend.pipeline.ingestion import process_import_job
 
         engine, SessionLocal, job_id, grp_a_id, grp_b_id = two_group_job
@@ -654,7 +654,7 @@ class TestProcessImportJobErrorHandling:
 
         db = SessionLocal()
         try:
-            db.add(ImportJob(id=job_id, status="active", total_files=2, all_confirmed=True))
+            db.add(ImportJob(id=job_id, status="active", total_files=2))
             db.flush()
             db.add(
                 ImportGroupJob(
@@ -794,14 +794,14 @@ class TestProcessImportGroupTimestamps:
         finally:
             db.close()
 
-    def test_completed_at_not_set_on_single_confirm(
+    def test_completed_at_set_on_job_completion(
         self,
         tmp_staging,
         mock_heavy_services,
         seeded_import_job,
         _patch_image_store,
     ):
-        """ImportJob.completed_at stays None after single-confirm (job stays active)."""
+        """ImportJob.completed_at is set when all groups finish and job auto-completes."""
         from backend.pipeline.ingestion import process_import_group
 
         engine, SessionLocal, job_id, group_job_id = seeded_import_job
@@ -820,9 +820,9 @@ class TestProcessImportGroupTimestamps:
         db = SessionLocal()
         try:
             job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
-            # Single-confirm: job stays active, completed_at is NOT set
-            assert job.status == "active"
-            assert job.completed_at is None
+            # All groups done → job auto-completes, completed_at is set
+            assert job.status == "completed"
+            assert job.completed_at is not None
         finally:
             db.close()
 
@@ -864,94 +864,3 @@ class TestStagingPreservation:
         assert tmp_staging.exists()
         # Files inside staging should still be present
         assert any(tmp_staging.rglob("*.jpg"))
-
-
-# ---------------------------------------------------------------------------
-# TestAllConfirmedAutoComplete
-# ---------------------------------------------------------------------------
-
-
-class TestAllConfirmedAutoComplete:
-    """Verify that all_confirmed=True causes auto-complete after all groups finish."""
-
-    def test_job_auto_completes_when_all_confirmed(
-        self,
-        tmp_staging,
-        mock_heavy_services,
-        _patch_db_for_flows,
-        _patch_image_store,
-    ):
-        """With all_confirmed=True, processing the last group auto-completes the job."""
-        import uuid
-
-        from backend.pipeline.ingestion import process_import_group
-
-        engine, SessionLocal = _patch_db_for_flows
-        job_id = f"job-{uuid.uuid4().hex[:8]}"
-        grp_id = f"grp-{uuid.uuid4().hex[:8]}"
-
-        db = SessionLocal()
-        try:
-            db.add(ImportJob(id=job_id, status="active", total_files=1, all_confirmed=True))
-            db.flush()
-            db.add(
-                ImportGroupJob(
-                    id=grp_id,
-                    job_id=job_id,
-                    group_name="Test Map",
-                    author="TestAuthor",
-                    total_files=1,
-                    status="running",
-                )
-            )
-            db.commit()
-        finally:
-            db.close()
-
-        files = [_file_dict("TestAuthor/TestMap/TestMap_Summer.jpg")]
-        process_import_group(
-            job_id=job_id,
-            group_job_id=grp_id,
-            staging_dir=str(tmp_staging),
-            author="TestAuthor",
-            group_name="Test Map",
-            files=files,
-        )
-
-        db = SessionLocal()
-        try:
-            job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
-            assert job.status == "completed"
-            assert job.completed_at is not None
-        finally:
-            db.close()
-
-    def test_job_stays_active_without_all_confirmed(
-        self,
-        tmp_staging,
-        mock_heavy_services,
-        seeded_import_job,
-        _patch_image_store,
-    ):
-        """Without all_confirmed, processing the only group leaves job as 'active'."""
-        from backend.pipeline.ingestion import process_import_group
-
-        engine, SessionLocal, job_id, group_job_id = seeded_import_job
-
-        files = [_file_dict("TestAuthor/TestMap/TestMap_Summer.jpg")]
-        process_import_group(
-            job_id=job_id,
-            group_job_id=group_job_id,
-            staging_dir=str(tmp_staging),
-            author="TestAuthor",
-            group_name="Test Map",
-            files=files,
-        )
-
-        db = SessionLocal()
-        try:
-            job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
-            assert job.status == "active"
-            assert job.completed_at is None
-        finally:
-            db.close()

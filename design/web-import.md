@@ -2,7 +2,7 @@
 
 ## Overview
 
-The web import allows users to upload images (files, folders, or zip archives) through the browser. After upload, groups are auto-confirmed and processing starts immediately. Images are hidden from the gallery until the user reviews them via EditGroupDialog.
+The web import allows users to upload images (files, folders, or zip archives) through the browser. After upload, groups are auto-confirmed and processing starts immediately. Images are immediately visible in search and the gallery after import.
 
 For state machine details, see [import-state-machine.md](import-state-machine.md).
 
@@ -17,11 +17,8 @@ Gallery → [Import button] → ImportDialog opens
   → Auto-confirm all groups via POST /confirm-all (no user review step)
   → Dialog shows processing state (per-group spinners)
   → User can close dialog → ActivityDock tracks progress
-  → Processing sets needs_review = true on all created images
   → On completion → toast notification fires ("Import complete — N groups, N images")
-  → Toast "Review" action OR ActivityDock "Review import" → EditGroupDialog (import-review mode)
-  → User reviews groups, clicks "Confirm Import"
-  → needs_review cleared → images appear in gallery
+  → Images immediately visible in gallery
   → ActivityDock entry dismissed automatically
 ```
 
@@ -71,7 +68,7 @@ Accepts JSON body:
 4. Run `analyse_upload` synchronously via `JobRunner.run_sync()`
    - Runs `ImageParser.group_files()` on all paths
    - Generates preview thumbnails (120x120 JPEG) into `data/staging/{job_id}/.thumbs/`
-5. Update `ImportJob` row: status → `staging`, store `analysis_result`, set `pending_groups`
+5. Update `ImportJob` row: status → `staging`, store `analysis_result`
 6. Return `ImportUploadResponse` with job_id and groups
 
 **Client-side deduplication:** Before uploading, the frontend computes SHA-256 hashes of all image files and calls `POST /imports/check-hashes` to identify duplicates. Duplicate files are not uploaded; they're passed in the `manifest` so the backend can still include them in the analysis result (with `duplicate_of` set).
@@ -113,39 +110,6 @@ Serves pre-generated thumbnails for the import preview UI.
 - Falls back to serving the original staged file if thumbnail is missing
 - Returns `FileResponse` with `image/jpeg` content type
 
-## Backend: Confirm Endpoint
-
-**`POST /api/v1/imports/{job_id}/confirm`**
-
-Accepts JSON body with **full per-file metadata** — the backend does not re-parse filenames:
-```json
-{
-  "author": "czepeku",
-  "group_name": "Island Fort",
-  "remaining_groups": ["Coastal Cliffs", "Desert Oasis"],
-  "files": [
-    {
-      "relative_path": "czepeku/Island Fort/IslandFort_Night.jpg",
-      "tags": [{"category": "lighting", "value": "night", "confidence": 0.9, "source": "parser"}],
-      "gridded": null,
-      "grid_width": null,
-      "grid_height": null,
-      "subgroup": null,
-      "image_type": "battlemap"
-    }
-  ]
-}
-```
-
-**Processing:**
-1. Validate each `file.relative_path` exists in staging
-2. Set `job.pending_groups = len(remaining_groups)` (synced from frontend)
-3. Create `ImportGroupJob` row (status: `running`)
-4. Submit `process_import_group` via `JobRunner.submit()` (async)
-5. Return `ImportJobResponse` with `group_job_id` for each group
-
-The `remaining_groups` field tells the backend how many unconfirmed groups remain, accounting for any merges/splits the user did in the preview UI.
-
 ## Backend: Confirm All Endpoint
 
 **`POST /api/v1/imports/{job_id}/confirm-all`**
@@ -160,7 +124,7 @@ Confirms all pending groups in one request:
 }
 ```
 
-Sets `pending_groups = 0` and `all_confirmed = True`.
+Submits all groups for processing immediately.
 
 ## Backend: Status Endpoint
 
@@ -173,7 +137,7 @@ Response includes `group_job_id` for each group, enabling robust frontend matchi
 ```json
 {
   "job_id": "a1b2c3d4e5f67890",
-  "status": "awaiting_input",
+  "status": "active",
   "groups": [
     {
       "group_job_id": "abc123",
@@ -185,8 +149,7 @@ Response includes `group_job_id` for each group, enabling robust frontend matchi
       "group_id": 42
     }
   ],
-  "detected_group_count": 3,
-  "pending_group_count": 2
+  "detected_group_count": 3
 }
 ```
 
@@ -194,13 +157,7 @@ Response includes `group_job_id` for each group, enabling robust frontend matchi
 
 **`GET /api/v1/imports/{job_id}/analysis`**
 
-Returns the stored analysis for reconnection — rebuilds the preview UI when a dialog is reopened after the page was closed during/after upload. Only available for staging/active/awaiting_input jobs that have `analysis_result` data with the full `groups` key.
-
-## Backend: Finalize Endpoint
-
-**`POST /api/v1/imports/{job_id}/finalize`**
-
-Explicitly marks a job as complete. Sets `pending_groups = 0` and runs `transition_job_status()`. Rejects jobs with running groups.
+Returns the stored analysis for reconnection — rebuilds the preview UI when a dialog is reopened after the page was closed during/after upload. Only available for staging/active jobs that have `analysis_result` data with the full `groups` key.
 
 ## Backend: Fail Endpoint
 
@@ -218,7 +175,7 @@ Sets `ImportJob.status = "failed"`, `ImportJob.error_message = error_message`, a
 
 **`POST /api/v1/imports/{job_id}/cancel`**
 
-Cancels an import job. Cancels any running group jobs, sets `pending_groups = 0`, and runs `transition_job_status()` for terminal groups or sets `cancelled` directly.
+Cancels an import job. Cancels any running group jobs and runs `transition_job_status()` for terminal groups or sets `cancelled` directly.
 
 ## Auto-Confirm Retry
 
@@ -227,10 +184,6 @@ When the auto-confirm effect in `useImportState` sends `POST /confirm-all` and r
 ## Connection Lost Indicator
 
 `useActiveImports` tracks consecutive poll failures on the `/imports/active` endpoint using `consecutiveFailuresRef`. After 3 consecutive failures, `connectionLost` is set to `true`. The `ActivityDock` renders a `WifiOff` icon while this flag is set. `connectionLost` is reset to `false` on the first successful response.
-
-## Persistent Unreviewed Imports
-
-Completed import jobs that have images with `needs_review=True` are kept in the `/imports/active` response indefinitely (ignoring the 1-hour recency TTL). This ensures users can always find and review their imports via the ActivityDock, even if they don't review immediately after import. Once all images in a job are reviewed (needs_review cleared via `/groups/confirm-review`), the standard TTL resumes and the job is eventually pruned.
 
 ## Crash Supervision / Backend Restart Robustness
 
@@ -291,14 +244,6 @@ Three dialog states:
 | `useImportPersistence` | localStorage save/restore, reconnection with backend sync |
 | `useActiveImports` | Import tray: merges localStorage + backend data, polling |
 
-## Review-Gating Mechanism
-
-All images created by the import pipeline have `needs_review = True` set. The gallery search filters these out by default (`exclude_needs_review=True` on `GET /search` and `GET /facets`). Images become visible only after the user confirms them.
-
-**Confirm-review endpoint:** `POST /api/v1/groups/confirm-review` accepts `{ group_ids: int[] }` and clears `needs_review` on all images in those groups. Called by EditGroupDialog when user clicks "Confirm Import" in import-review mode.
-
-**`needs_review` column:** Already existed on `Image` table (`database.py`) with an index. The import pipeline now sets it to `True`; the confirm-review endpoint sets it back to `False`.
-
 ## Data Flow
 
 ```
@@ -309,12 +254,9 @@ POST /analyse → analyse_upload (sync) → ImportUploadResponse (staging)
   → Empty authors filled as "Unknown"
   → POST /confirm-all → all groups submitted at once
   → process_import_job runs async via JobRunner
-  → Images saved with needs_review = True
   → transition_job_status() → active → completed
   → Toast notification fires
-  → User clicks "Review" → EditGroupDialog (import-review mode)
-  → User clicks "Confirm Import" → POST /groups/confirm-review
-  → needs_review cleared → images visible in gallery
+  → Images immediately visible in gallery
   → ActivityDock entry dismissed
 ```
 
@@ -324,4 +266,3 @@ Staging directories (`data/staging/{job_id}/`) are created on upload and include
 - The periodic `cleanup_staging` scheduler task (every 6h, removes dirs older than 24h)
 - The `expire_stale_jobs` scheduler task (every 6h, cleans staging for expired jobs)
 - `POST /cancel` endpoint (removes staging dir)
-- `POST /finalize` endpoint (removes staging dir)

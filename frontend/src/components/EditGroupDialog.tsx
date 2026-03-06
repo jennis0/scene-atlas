@@ -42,7 +42,6 @@ import {
   DragOverlayContent,
 } from './import/shared/dnd'
 import { GroupSidebarShell } from './import/shared/GroupSidebarShell'
-import { groupApi } from '@/lib/api'
 import { QUERY_KEYS } from '@/lib/queryKeys'
 import { useImportReviewPolling } from '@/hooks/useImportReviewPolling'
 
@@ -54,11 +53,7 @@ interface EditGroupDialogProps {
   // Import-review mode: pass groupIds to load multiple groups by ID, all images in scope
   groupIds?: number[]
   // Live import mode: pass importJobId to enable polling and pending-group stubs.
-  // Set importJobInitiallyDone=true when the caller knows the job has already
-  // completed — prevents a brief "Processing (0 remaining…)" flash while the
-  // first poll response is in-flight.
   importJobId?: string
-  importJobInitiallyDone?: boolean
   open: boolean
   onClose: () => void
   /** Called after the import/edit is confirmed.
@@ -74,7 +69,6 @@ export default function EditGroupDialog({
   seedImages,
   groupIds,
   importJobId,
-  importJobInitiallyDone = false,
   open,
   onClose,
   onSave,
@@ -98,11 +92,10 @@ export default function EditGroupDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [importJobId])
 
-  const { pendingGroups, failedGroups, allDone, pollError } = useImportReviewPolling({
+  const { pendingGroups, failedGroups, allDone } = useImportReviewPolling({
     importJobId,
     onGroupCompleted: (completedGroupId) => setLiveGroupIds((prev) => [...prev, completedGroupId]),
     enabled: open && !!importJobId,
-    initiallyDone: importJobInitiallyDone,
   })
 
   const invalidateGallery = useCallback(() => {
@@ -220,23 +213,14 @@ export default function EditGroupDialog({
   // Called on any close action — changes have already been auto-saved
   const handleDone = useCallback(() => {
     if (isImportReview) {
-      // Capture importJobId synchronously before onClose() clears it in the parent.
-      // This avoids a race where the user opens a second job between onClose() and
-      // the async onSave(), which previously caused the second job to be dismissed.
       const capturedImportJobId = importJobId
-      const idsToConfirm = capturedImportJobId ? liveGroupIds : (groupIds ?? [])
-      // Close dialog immediately for good UX, then wait for confirm-review
-      // before calling onSave (which triggers gallery invalidation) so that
-      // the images are actually visible when the gallery refetches.
+      onSave(capturedImportJobId ?? undefined)
       onClose()
-      groupApi.confirmReview(idsToConfirm).finally(() => {
-        onSave(capturedImportJobId ?? undefined)
-      })
     } else {
       onSave()
       onClose()
     }
-  }, [isImportReview, importJobId, liveGroupIds, groupIds, onSave, onClose])
+  }, [isImportReview, importJobId, onSave, onClose])
 
   // Destructure commonly-used operations for readability in JSX
   const {
@@ -348,7 +332,6 @@ export default function EditGroupDialog({
   )
 
   const isBusy = saving || groupSaving.size > 0
-  const hasPendingGroups = !!importJobId && !allDone
 
   // ── Render ─────────────────────────────────────────────────────
 
@@ -866,7 +849,7 @@ export default function EditGroupDialog({
                     )}
                     <button
                       onClick={handleDone}
-                      disabled={isBusy || hasPendingGroups}
+                      disabled={isBusy}
                       className={
                         isImportReview
                           ? 'px-4 py-1.5 text-sm rounded font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-40'
@@ -883,12 +866,6 @@ export default function EditGroupDialog({
                           <Loader2 className="h-3.5 w-3.5 animate-spin inline mr-1" />
                           Saving…
                         </>
-                      ) : hasPendingGroups ? (
-                        pollError ? (
-                          'Cannot reach server — retrying…'
-                        ) : (
-                          `Processing (${pendingGroups.length} remaining…)`
-                        )
                       ) : isImportReview ? (
                         'Confirm Import'
                       ) : (

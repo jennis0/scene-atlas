@@ -21,7 +21,6 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import (
-    Image,
     ImportGroupJob,
     ImportJob,
 )
@@ -389,7 +388,6 @@ def _build_analysis_response(
     job.source_label = source_label
     job.total_files = len(all_relative_paths)
     job.analysis_result = json.dumps(analysis_data)
-    job.pending_groups = len(import_groups)
     job.updated_at = datetime.now(UTC).replace(tzinfo=None)
     db.commit()
 
@@ -611,106 +609,6 @@ async def analyse_staged(
     return _build_analysis_response(groups, job, all_relative_paths, db)
 
 
-@router.post("/{job_id}/confirm")
-async def confirm_import(
-    job_id: str,
-    body: ImportConfirmRequest,
-    db: Session = Depends(get_db),
-):
-    """Confirm a group for processing.
-
-    Submits process_import_group to the background JobRunner and returns immediately.
-    The flow updates ImportJob progress as it processes each image.
-    """
-    job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Import job not found")
-
-    staging_dir = settings.staging_dir / job_id
-    if not staging_dir.exists():
-        raise HTTPException(status_code=404, detail="Staging directory not found")
-
-    file_map = _load_file_map(staging_dir)
-
-    # Validate files: must exist in staging OR have a reuse key (duplicate not uploaded)
-    valid_files: list[dict] = []
-    for file_info in body.files:
-        staging_key = file_map.get(file_info.relative_path)
-        has_staged_file = staging_key and (staging_dir / staging_key).exists()
-        if has_staged_file or file_info.reuse_storage_key:
-            valid_files.append(file_info.model_dump())
-        else:
-            logger.warning(
-                "File not found in staging and no reuse key: %s", file_info.relative_path
-            )
-
-    if not valid_files:
-        raise HTTPException(status_code=400, detail="No valid files to process")
-
-    # Create an ImportGroupJob row to track this group's progress independently
-    group_job_id = uuid.uuid4().hex[:16]
-    group_job = ImportGroupJob(
-        id=group_job_id,
-        job_id=job_id,
-        group_name=body.group_name,
-        author=body.author,
-        total_files=len(valid_files),
-        processed_files=0,
-        failed_files=0,
-        status="running",
-    )
-    db.add(group_job)
-
-    # Submit process_import_group to background JobRunner (fire-and-forget)
-    logger.info(
-        "Submitting process_import_group for job %s, group_job %s: %s files, group '%s'",
-        job_id,
-        group_job_id,
-        len(valid_files),
-        body.group_name,
-    )
-    from ...pipeline.ingestion import process_import_group
-    from ...pipeline.pipeline_config import PipelineConfig
-
-    _pipeline_config = PipelineConfig.from_app_settings(get_app_settings(db))
-
-    runner = get_job_runner()
-    runner.submit(
-        process_import_group,
-        job_id=job_id,
-        group_job_id=group_job_id,
-        staging_dir=str(staging_dir),
-        author=body.author,
-        group_name=body.group_name,
-        files=valid_files,
-        pipeline_config=_pipeline_config,
-        name=f"Import: {body.group_name}",
-    )
-
-    # Sync pending groups from frontend (handles merge/split correctly)
-    job.pending_groups = len(body.remaining_groups)
-    job.status = "active"
-    job.updated_at = datetime.now(UTC).replace(tzinfo=None)
-    db.commit()
-
-    return ImportJobResponse(
-        job_id=job.id,
-        status="active",
-        groups=[
-            ImportGroupStatus(
-                group_job_id=group_job_id,
-                group_name=body.group_name,
-                total_files=len(valid_files),
-                processed_files=0,
-                failed_files=0,
-                status="running",
-            )
-        ],
-        created_at=job.created_at,
-        completed_at=None,
-    )
-
-
 @router.post("/{job_id}/confirm-all")
 async def confirm_all_groups(
     job_id: str,
@@ -806,8 +704,6 @@ async def confirm_all_groups(
     )
 
     job.status = "active"
-    job.all_confirmed = True
-    job.pending_groups = 0
     job.updated_at = datetime.now(UTC).replace(tzinfo=None)
     db.commit()
 
@@ -862,8 +758,7 @@ async def get_import_status(
         job_id=job.id,
         status=job.status,
         groups=groups,
-        detected_group_count=job.pending_groups + len(group_jobs),
-        pending_group_count=job.pending_groups,
+        detected_group_count=len(group_jobs),
         created_at=job.created_at,
         completed_at=job.completed_at,
         error_message=job.error_message,
@@ -906,7 +801,7 @@ async def get_import_analysis(job_id: str, db: Session = Depends(get_db)):
 async def get_active_imports(db: Session = Depends(get_db)):
     """List non-terminal import jobs for the import tray.
 
-    Returns staging/active/awaiting_input jobs and recently-completed ones
+    Returns staging/active jobs and recently-completed ones
     (within 1 hour). Status is authoritative from the ImportJob table.
     """
     from collections import defaultdict
@@ -932,18 +827,6 @@ async def get_active_imports(db: Session = Depends(get_db)):
     for grp in db.query(ImportGroupJob).filter(ImportGroupJob.job_id.in_(all_job_ids)).all():
         groups_by_job[grp.job_id].append(grp)
 
-    # Batch query: which completed jobs still have unreviewed images
-    jobs_with_unreviewed = {
-        row[0]
-        for row in db.query(Image.import_job_id)
-        .filter(
-            Image.import_job_id.in_(all_job_ids),
-            Image.needs_review.is_(True),
-        )
-        .distinct()
-        .all()
-    }
-
     summaries = []
     # Status is authoritative from DB — no derivation needed.
     # Note: 'broken' is intentionally absent — broken jobs always appear in the
@@ -952,26 +835,18 @@ async def get_active_imports(db: Session = Depends(get_db)):
     for job in all_jobs:
         groups = groups_by_job[job.id]
         if job.status in truly_terminal:
-            if job.status == "completed":
-                # Completed jobs with unreviewed images persist indefinitely so the
-                # user can find and review them via the ActivityDock.
-                if job.id not in jobs_with_unreviewed:
-                    if job.completed_at is None or job.completed_at < cutoff:
-                        continue
-            else:
-                if job.completed_at is None or job.completed_at < cutoff:
-                    continue
+            if job.completed_at is None or job.completed_at < cutoff:
+                continue
 
         summaries.append(
             ImportJobSummary(
                 job_id=job.id,
                 source_label=job.source_label,
                 status=job.status,
-                total_groups=job.pending_groups + len(groups),
+                total_groups=len(groups),
                 completed_groups=sum(1 for g in groups if g.status == "completed"),
                 failed_groups=sum(1 for g in groups if g.status == "failed"),
                 running_groups=sum(1 for g in groups if g.status == "running"),
-                pending_groups=job.pending_groups,
                 total_files=job.total_files,
                 processed_files=sum(g.processed_files for g in groups),
                 created_at=job.created_at,
@@ -1015,83 +890,6 @@ async def cleanup_old_imports(db: Session = Depends(get_db)):
     db.commit()
 
     return {"deleted": count}
-
-
-@router.post("/{job_id}/finalize")
-async def finalize_import(job_id: str, db: Session = Depends(get_db)):
-    """Explicitly mark an import job as completed and clean up staging.
-
-    Called by the frontend when the user is done submitting groups (single-
-    confirm path).  For confirm-all, the job auto-completes — this endpoint
-    is not needed.
-
-    Returns 409 if groups are still running.  Idempotent for already-
-    terminal jobs.
-    """
-    job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Import job not found")
-
-    terminal = {"completed", "failed", "cancelled", "expired", "broken"}
-    if job.status in terminal:
-        return {"status": job.status, "staging_cleaned": False, "already_terminal": True}
-
-    # Don't finalize while groups are still running
-    running = (
-        db.query(ImportGroupJob)
-        .filter(ImportGroupJob.job_id == job_id, ImportGroupJob.status == "running")
-        .count()
-    )
-    if running > 0:
-        logger.warning(
-            "finalize rejected for job %s: %d group(s) still running",
-            job_id,
-            running,
-        )
-        raise HTTPException(
-            status_code=409, detail="Cannot finalize while groups are still processing"
-        )
-
-    # User is declaring they're done — clear pending groups and compute final status
-    job.pending_groups = 0
-
-    groups = db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job_id).all()
-    if groups:
-        from ..services.import_state import transition_job_status
-
-        transition_job_status(db, job_id)
-
-        if job.status == "failed":
-            # Failed imports must not leave images in the DB — they would
-            # cause false duplicate-hash matches when the user re-uploads.
-            # Wrapped in try/except so a cleanup failure never blocks the
-            # status transition commit.
-            try:
-                cleaned = _cleanup_import_images(job_id, db)
-                if cleaned:
-                    logger.info(
-                        "Cleaned up %d image(s) from failed import %s (finalize)",
-                        cleaned,
-                        job_id,
-                    )
-            except Exception:
-                logger.warning("Image cleanup failed for job %s (non-fatal)", job_id, exc_info=True)
-    else:
-        # No groups were ever confirmed — just mark completed
-        job.status = "completed"
-        job.completed_at = datetime.now(UTC).replace(tzinfo=None)
-
-    staging_dir = settings.staging_dir / job_id
-    staging_cleaned = False
-    if staging_dir.exists():
-        shutil.rmtree(staging_dir, ignore_errors=True)
-        staging_cleaned = True
-
-    db.commit()
-    logger.info(
-        "Import job %s finalized as '%s' (staging_cleaned=%s)", job_id, job.status, staging_cleaned
-    )
-    return {"status": job.status, "staging_cleaned": staging_cleaned, "already_terminal": False}
 
 
 @router.post("/{job_id}/cancel")
@@ -1150,7 +948,6 @@ async def cancel_import(job_id: str, db: Session = Depends(get_db)):
         # (e.g. 'failed' if any group failed, 'completed' if all succeeded).
         from ..services.import_state import transition_job_status
 
-        job.pending_groups = 0
         job.updated_at = now
         final_status = transition_job_status(db, job_id)
         db.commit()
@@ -1164,7 +961,6 @@ async def cancel_import(job_id: str, db: Session = Depends(get_db)):
         job.status = "cancelled"
         job.completed_at = now
         job.updated_at = now
-        job.pending_groups = 0
         db.commit()
         final_status = "cancelled"
 
@@ -1225,7 +1021,6 @@ async def fail_import(job_id: str, body: FailImportRequest, db: Session = Depend
     job.error_message = body.error_message[:500] if body.error_message else None
     job.completed_at = now
     job.updated_at = now
-    job.pending_groups = 0
     db.commit()
 
     return {

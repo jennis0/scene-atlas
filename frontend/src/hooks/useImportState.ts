@@ -12,7 +12,6 @@ import type {
   ParsedTagVocab,
   UploadProgress,
 } from '@/types'
-import { removeImportState } from '@/lib/importStorage'
 import { useFileEditing, ALL_TAB, ALL_GROUP_ID } from './useFileEditing'
 import { useImportUpload } from './useImportUpload'
 import { useImportPolling } from './useImportPolling'
@@ -110,9 +109,7 @@ export interface UseImportStateReturn {
     handleDrop: (e: React.DragEvent) => Promise<void>
   }
   confirm: {
-    handleConfirmGroup: (index: number) => Promise<void>
     handleConfirmAll: () => Promise<void>
-    handleFinalize: () => Promise<void>
     buildConfirmFiles: (group: EditableGroupState) => ImportConfirmFile[]
     canImportActive: boolean
     canImportAll: boolean
@@ -416,36 +413,6 @@ export function useImportState(
         return base
       })
 
-  const handleConfirmGroup = async (index: number) => {
-    if (!jobId) return
-    const group = groups[index]
-    if (group.skip) return
-    const confirmFiles = buildConfirmFiles(group)
-    if (confirmFiles.length === 0) return
-    updateGroup(index, { status: 'running' })
-    setState('processing')
-    try {
-      // Tell backend which groups remain unconfirmed
-      const remaining = groups
-        .filter((g, i) => i !== index && g.status === 'pending' && !g.skip)
-        .map((g) => g.group_name)
-      const response = await importApi.confirm(jobId, {
-        author: group.author,
-        group_name: group.group_name,
-        files: confirmFiles,
-        remaining_groups: remaining,
-      })
-      // Store group_job_id from response for robust status matching
-      const matchedGroup = response.groups.find((gs) => gs.group_name === group.group_name)
-      if (matchedGroup?.group_job_id) {
-        updateGroup(index, { group_job_id: matchedGroup.group_job_id })
-      }
-      setTimeout(saveNow, 100)
-    } catch {
-      updateGroup(index, { status: 'failed' })
-    }
-  }
-
   const handleConfirmAll = async () => {
     if (!jobId) return
     setState('processing')
@@ -536,17 +503,6 @@ export function useImportState(
     hasAutoConfirmedRef.current = true
     handleConfirmAllRef.current()
   }, [state, jobId, groups])
-
-  const handleFinalize = async () => {
-    if (!jobId) return
-    try {
-      await importApi.finalize(jobId)
-      removeImportState(jobId)
-      setState('done')
-    } catch (err) {
-      console.error('Finalize failed:', err)
-    }
-  }
 
   // ── Derived values ────────────────────────────────────────────────
 
@@ -694,9 +650,7 @@ export function useImportState(
       handleDrop,
     },
     confirm: {
-      handleConfirmGroup,
       handleConfirmAll,
-      handleFinalize,
       buildConfirmFiles,
       canImportActive,
       canImportAll,

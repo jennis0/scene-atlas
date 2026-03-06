@@ -32,7 +32,6 @@ export interface ImportJobIndexEntry {
   createdAt: string
   expiresAt: string
   totalGroups: number
-  pendingGroups: number
   completedGroups: number
   failedGroups: number
   hasRunningGroups: boolean
@@ -216,7 +215,6 @@ function updateIndex(jobId: string, entry: PersistedImportJob): void {
     createdAt: entry.createdAt,
     expiresAt: entry.expiresAt,
     totalGroups: groups.length,
-    pendingGroups: groups.filter((g) => g.status === 'pending' && !g.skip).length,
     completedGroups: groups.filter((g) => g.status === 'completed').length,
     failedGroups: groups.filter((g) => g.status === 'failed').length,
     hasRunningGroups: groups.some((g) => g.status === 'running'),

@@ -208,7 +208,7 @@ def expire_stale_jobs(max_age_hours: int = 48) -> dict:
 
     with pipeline_db() as db:
         cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=max_age_hours)
-        stale_statuses = {"staging", "active", "uploading", "awaiting_input"}
+        stale_statuses = {"staging", "active", "uploading"}
 
         # Find stale jobs: non-terminal and no recent activity
         stale_jobs = (

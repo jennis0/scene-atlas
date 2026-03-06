@@ -26,13 +26,10 @@ logger = logging.getLogger(__name__)
 async def get_search_facets(db: Session = Depends(get_db)):
     """Return available filter options with image counts for the filter panel."""
 
-    # Base filter: exclude images pending review
-    reviewed = Image.needs_review.is_(False)
-
     # Authors sorted by image count descending
     authors = (
         db.query(Image.author, func.count(Image.id))
-        .filter(reviewed, Image.author.isnot(None), Image.author != "")
+        .filter(Image.author.isnot(None), Image.author != "")
         .group_by(Image.author)
         .order_by(func.count(Image.id).desc())
         .all()
@@ -42,7 +39,6 @@ async def get_search_facets(db: Session = Depends(get_db)):
     tag_rows = (
         db.query(Tag.category, Tag.value, func.count(func.distinct(Tag.image_id)))
         .join(Image, Image.id == Tag.image_id)
-        .filter(reviewed)
         .group_by(Tag.category, Tag.value)
         .order_by(Tag.category, func.count(func.distinct(Tag.image_id)).desc())
         .all()
@@ -54,7 +50,6 @@ async def get_search_facets(db: Session = Depends(get_db)):
     # Grid state counts — one GROUP BY query instead of five COUNT queries
     grid_rows = (
         db.query(Image.gridded, Image.grid_type, func.count(Image.id))
-        .filter(reviewed)
         .group_by(Image.gridded, Image.grid_type)
         .all()
     )
@@ -79,29 +74,22 @@ async def get_search_facets(db: Session = Depends(get_db)):
     colors = (
         db.query(Color.color_hex, func.count(func.distinct(Color.image_id)))
         .join(Image, Image.id == Color.image_id)
-        .filter(reviewed)
         .group_by(Color.color_hex)
         .order_by(func.count(func.distinct(Color.image_id)).desc())
         .limit(50)
         .all()
     )
 
-    total_images = db.query(func.count(Image.id)).filter(reviewed).scalar() or 0
+    total_images = db.query(func.count(Image.id)).scalar() or 0
 
     # Image type counts
     image_type_rows = (
-        db.query(Image.image_type, func.count(Image.id))
-        .filter(reviewed)
-        .group_by(Image.image_type)
-        .all()
+        db.query(Image.image_type, func.count(Image.id)).group_by(Image.image_type).all()
     )
 
     # Media type counts (image vs video)
     media_type_rows = (
-        db.query(Image.media_type, func.count(Image.id))
-        .filter(reviewed)
-        .group_by(Image.media_type)
-        .all()
+        db.query(Image.media_type, func.count(Image.id)).group_by(Image.media_type).all()
     )
 
     return {
@@ -140,7 +128,6 @@ async def search_images(
     offset: int = Query(0, ge=0),
     sort_by: str = Query("created_at", pattern="^(created_at|name|relevance)$"),
     sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
-    exclude_needs_review: bool = True,
     # Deprecated aliases kept for backward compat
     text: str | None = None,
     semantic: str | None = None,
@@ -177,9 +164,6 @@ async def search_images(
         subqueryload(Image.colors),
         joinedload(Image.group),
     )
-
-    if exclude_needs_review:
-        sql_query = sql_query.filter(Image.needs_review.is_(False))
 
     if image_types:
         sql_query = sql_query.filter(Image.image_type.in_(image_types))

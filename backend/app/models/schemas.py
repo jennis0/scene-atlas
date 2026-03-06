@@ -70,7 +70,6 @@ class ImageBase(BaseModel):
     grid_confidence: float | None = None
     subgroup: str | None = None
     content_hash: str | None = None
-    needs_review: bool = False
     media_type: str | None = "image"
     image_type: str | None = "battlemap"
 
@@ -428,7 +427,6 @@ class ImportConfirmRequest(BaseModel):
     author: str
     group_name: str
     files: list[ImportConfirmFile]
-    remaining_groups: list[str] = []  # Names of groups still unconfirmed — syncs pending count
 
 
 class FileError(BaseModel):
@@ -458,10 +456,9 @@ class ImportJobResponse(BaseModel):
     """Import job status response."""
 
     job_id: str
-    status: str  # uploading, staging, active, awaiting_input, completed, failed, cancelled, expired
+    status: str  # uploading, staging, active, completed, failed, cancelled, expired
     groups: list[ImportGroupStatus] = []
     detected_group_count: int = 0
-    pending_group_count: int = 0
     created_at: datetime
     completed_at: datetime | None = None
     error_message: str | None = None  # Set for failed/broken jobs
@@ -482,7 +479,6 @@ class ImportJobSummary(BaseModel):
     completed_groups: int = 0
     failed_groups: int = 0
     running_groups: int = 0
-    pending_groups: int = 0
     total_files: int = 0
     processed_files: int = 0
     created_at: datetime
@@ -508,12 +504,6 @@ class ActiveImportsResponse(BaseModel):
     """Response for GET /imports/active."""
 
     jobs: list[ImportJobSummary]
-
-
-class ConfirmReviewRequest(BaseModel):
-    """Request body for POST /groups/confirm-review."""
-
-    group_ids: list[int]
 
 
 # ── App Settings ──────────────────────────────────────────────────────────────

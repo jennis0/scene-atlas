@@ -37,7 +37,6 @@ images
   content_hash    TEXT(64)            -- SHA-256 hex digest for deduplication
   search_text     TEXT                -- Pre-tokenized text for FTS5 (CamelCase-split)
   thumbnail_key   TEXT                -- Key into thumbnail store
-  needs_review    BOOLEAN DEFAULT FALSE
   created_at      DATETIME
   updated_at      DATETIME
 
@@ -76,14 +75,12 @@ colors
 
 import_jobs
   id              TEXT PK              -- UUID hex string
-  status          TEXT NOT NULL        -- uploading | staging | active | awaiting_input |
+  status          TEXT NOT NULL        -- uploading | staging | active |
                                        -- completed | failed | cancelled | expired
   source_label    TEXT                 -- Display label for activity dock
-  pending_groups  INTEGER DEFAULT 0   -- Groups not yet confirmed by user
   total_files     INTEGER DEFAULT 0
   error_message   TEXT
   analysis_result TEXT                 -- JSON: full analysis output for preview reconnection
-  all_confirmed   BOOLEAN DEFAULT FALSE -- True when confirm-all was used
   created_at      DATETIME
   updated_at      DATETIME
   completed_at    DATETIME

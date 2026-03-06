@@ -58,11 +58,4 @@ export const groupApi = {
     })
     return data
   },
-
-  confirmReview: async (groupIds: number[]): Promise<{ updated: number }> => {
-    const { data } = await api.post<{ updated: number }>('/groups/confirm-review', {
-      group_ids: groupIds,
-    })
-    return data
-  },
 }

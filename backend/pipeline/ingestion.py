@@ -112,7 +112,6 @@ def _save_image_to_db(db: Session, image_data: dict, group: ImageGroup | None = 
         image_type=image_data.get("image_type", "battlemap"),
         content_hash=image_data.get("content_hash"),
         media_type=image_data.get("media_type", "image"),
-        needs_review=image_data.get("needs_review", False),
         import_job_id=image_data.get("import_job_id"),
         search_text=build_search_text(
             name=image_data.get("name"),
@@ -239,7 +238,6 @@ def prepare_single_image(
             reuse_storage_key = metadata.get("reuse_storage_key")
             reuse_thumbnail_key = metadata.get("reuse_thumbnail_key")
             relative_path = metadata.get("relative_path")
-            needs_review = metadata.get("needs_review", False)
             import_job_id = metadata.get("import_job_id")
         else:
             if parser is None:
@@ -264,7 +262,6 @@ def prepare_single_image(
             reuse_storage_key = None
             reuse_thumbnail_key = None
             relative_path = str(relative)
-            needs_review = False
             import_job_id = None
 
         # --- Duplicate reuse path ---
@@ -325,7 +322,6 @@ def prepare_single_image(
                 "image_type": image_type,
                 "content_hash": content_hash,
                 "media_type": "video" if reuse_ext in settings.supported_video_formats else "image",
-                "needs_review": needs_review,
                 "tags": tags,
                 "colors": colors,
                 "import_job_id": import_job_id,
@@ -466,7 +462,6 @@ def prepare_single_image(
             "image_type": image_type,
             "content_hash": content_hash,
             "media_type": "video" if is_video else "image",
-            "needs_review": needs_review,
             "tags": tags,
             "colors": colors,
             "import_job_id": import_job_id,
@@ -1068,7 +1063,6 @@ def _run_group(
     group_name: str,
     files: list[dict],
     pipeline_config: PipelineConfig | None = None,
-    needs_review: bool = False,
     job_id: str | None = None,
     file_map: dict[str, str] | None = None,
 ) -> tuple[int, int]:
@@ -1166,7 +1160,6 @@ def _run_group(
                             "media_type": file_info.get("media_type"),
                             "reuse_storage_key": file_info.get("reuse_storage_key"),
                             "reuse_thumbnail_key": file_info.get("reuse_thumbnail_key"),
-                            "needs_review": needs_review,
                             "import_job_id": job_id,
                         },
                         pipeline_config=pipeline_config,
@@ -1309,19 +1302,14 @@ def _mark_group_job_failed(group_job_id: str, error_message: str) -> None:
 def _finalize_import_job(job_id: str) -> None:
     """Update ImportJob status after a group finishes processing.
 
-    For the confirm-all path (all_confirmed=True), delegates to
-    transition_job_status() to auto-complete the job when all groups finish.
-
-    For the single-confirm path (all_confirmed=False), does NOT auto-complete
-    the job — it stays 'active' until the user explicitly calls /finalize.
-    Only the running→active and all-terminal→awaiting_input transitions are
-    applied in this path.
+    Delegates to transition_job_status() to auto-complete the job when all
+    groups finish.
 
     If the job was cancelled while a group was still running, performs a
     best-effort cleanup sweep to delete any images added after the initial
     cancel sweep.
     """
-    from backend.app.services.import_state import GROUP_TERMINAL_STATUSES, transition_job_status
+    from backend.app.services.import_state import transition_job_status
 
     logger = logging.getLogger(__name__)
     engine = get_engine(settings.database_url)
@@ -1346,54 +1334,6 @@ def _finalize_import_job(job_id: str) -> None:
                     job_id,
                 )
             db.commit()
-            return
-
-        if not job.all_confirmed:
-            # Single-confirm path: don't auto-complete — the job stays 'active'
-            # until the user explicitly calls /finalize.  Only apply the
-            # running→active and all-terminal→awaiting_input transitions.
-            groups = db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job_id).all()
-            has_running = any(g.status == "running" for g in groups)
-            all_terminal = not groups or all(g.status in GROUP_TERMINAL_STATUSES for g in groups)
-            has_failures = any(g.status == "failed" for g in groups)
-            now = datetime.now(UTC).replace(tzinfo=None)
-            if has_running:
-                job.status = "active"
-                job.updated_at = now
-            elif all_terminal and job.pending_groups > 0:
-                job.status = "awaiting_input"
-                job.updated_at = now
-
-            # When all submitted groups are done and no unconfirmed groups remain,
-            # eagerly clean up images from failed groups.  This prevents false
-            # duplicate-hash matches if the user re-uploads immediately, rather
-            # than waiting for the user to call /finalize or the 48h expiry.
-            if all_terminal and job.pending_groups == 0 and has_failures:
-                try:
-                    from backend.app.services.deletion_service import (
-                        cleanup_import_images as _cleanup_import_images,
-                    )
-
-                    cleaned = _cleanup_import_images(job_id, db)
-                    if cleaned:
-                        logger.info(
-                            "Cleaned up %d image(s) from failed single-confirm import %s",
-                            cleaned,
-                            job_id,
-                        )
-                except Exception:
-                    logger.warning(
-                        "Image cleanup failed for single-confirm job %s (non-fatal)",
-                        job_id,
-                        exc_info=True,
-                    )
-
-            db.commit()
-            logger.info(
-                "Import job %s stays '%s' (single-confirm, not auto-completing)",
-                job_id,
-                job.status,
-            )
             return
 
         new_status = transition_job_status(db, job_id)
@@ -1476,7 +1416,6 @@ def process_import_group(
         group_name,
         files,
         pipeline_config=pipeline_config,
-        needs_review=True,
         job_id=job_id,
         file_map=file_map,
     )
@@ -1484,7 +1423,7 @@ def process_import_group(
     if processed > 0:
         _rebuild_fts()
 
-    # Staging cleanup is handled by /finalize, /cancel, or expire_stale_jobs —
+    # Staging cleanup is handled by /cancel, or expire_stale_jobs —
     # NOT here, because other groups in the same job may still be pending.
 
     return {
@@ -1538,7 +1477,6 @@ def process_import_job(
                     group_name,
                     files,
                     pipeline_config=pipeline_config,
-                    needs_review=True,
                     job_id=job_id,
                     file_map=file_map,
                 )
@@ -1557,8 +1495,8 @@ def process_import_job(
                 total_failed += len(files)
     finally:
         # Always finalize the job and rebuild FTS — even if some groups raised
-        # unexpected exceptions.  Staging cleanup is handled by /finalize,
-        # /cancel, or expire_stale_jobs.
+        # unexpected exceptions.  Staging cleanup is handled by /cancel,
+        # or expire_stale_jobs.
         _finalize_import_job(job_id)
         if total_processed > 0:
             _rebuild_fts()

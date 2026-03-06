@@ -20,7 +20,6 @@ export interface Image {
   subgroup: string | null
   image_type: 'battlemap' | 'scene'
   thumbnail_key: string | null
-  needs_review: boolean
   media_type: 'image' | 'video'
   tags: Tag[]
   colors: Color[]
@@ -237,7 +236,6 @@ export interface ImportConfirmRequest {
   author: string
   group_name: string
   files: ImportConfirmFile[]
-  remaining_groups?: string[]
 }
 
 // Import types — editable state (frontend only)
@@ -392,7 +390,6 @@ export interface ImportJobSummary {
   completed_groups: number
   failed_groups: number
   running_groups: number
-  pending_groups: number
   total_files: number
   processed_files: number
   created_at: string

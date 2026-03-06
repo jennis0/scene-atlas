@@ -189,9 +189,6 @@ export function Gallery() {
         {/* Live import-review dialog -- opened by clicking an active or completed job in the tray */}
         <EditGroupDialog
           importJobId={dialogs.importLiveJobId ?? undefined}
-          importJobInitiallyDone={['completed', 'awaiting_input'].includes(
-            activeImports.jobs.find((j) => j.jobId === dialogs.importLiveJobId)?.status ?? '',
-          )}
           open={dialogs.importLiveJobId !== null}
           onClose={() => dialogs.setImportLiveJobId(null)}
           onSave={(reviewedImportJobId) => {
@@ -269,12 +266,9 @@ export function Gallery() {
           } else if (
             job?.status === 'completed' ||
             job?.status === 'active' ||
-            job?.status === 'running' ||
-            job?.status === 'awaiting_input'
+            job?.status === 'running'
           ) {
-            // Active, completed, and awaiting_input jobs open EditGroupDialog in live-review mode:
-            // - active: shows pending group stubs + any already-completed groups
-            // - completed/awaiting_input: all groups load immediately, no stubs
+            // Active and completed jobs open EditGroupDialog in live-review mode
             dialogs.setImportLiveJobId(jobId)
           } else if (job?.status === 'staging') {
             dialogs.openImportDialog(jobId)

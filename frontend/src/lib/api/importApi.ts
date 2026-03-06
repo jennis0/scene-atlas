@@ -66,11 +66,6 @@ export const importApi = {
     return data
   },
 
-  confirm: async (jobId: string, group: ImportConfirmRequest): Promise<ImportJobResponse> => {
-    const { data } = await api.post<ImportJobResponse>(`/imports/${jobId}/confirm`, group)
-    return data
-  },
-
   confirmAll: async (jobId: string, groups: ImportConfirmRequest[]): Promise<ImportJobResponse> => {
     const { data } = await api.post<ImportJobResponse>(`/imports/${jobId}/confirm-all`, { groups })
     return data
@@ -88,17 +83,6 @@ export const importApi = {
 
   active: async (): Promise<ActiveImportsResponse> => {
     const { data } = await api.get<ActiveImportsResponse>('/imports/active')
-    return data
-  },
-
-  finalize: async (
-    jobId: string,
-  ): Promise<{ status: string; staging_cleaned: boolean; already_terminal: boolean }> => {
-    const { data } = await api.post<{
-      status: string
-      staging_cleaned: boolean
-      already_terminal: boolean
-    }>(`/imports/${jobId}/finalize`)
     return data
   },
 

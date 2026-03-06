@@ -231,13 +231,12 @@ class TestImportStatus:
         assert resp.status_code == 200
         assert resp.json()["status"] == "completed"
 
-    def test_mixed_terminal_status_with_all_confirmed(self, test_client, tmp_db):
-        """When all_confirmed=True and all groups terminal, job status is failed (has failures)."""
+    def test_mixed_terminal_status_with_failures(self, test_client, tmp_db):
+        """When all groups are terminal and one has failed, job status is failed."""
         _, SessionLocal = tmp_db
         db = SessionLocal()
         # Status is authoritative — set it to what transition_job_status would compute
-        job = _make_job(db, "jobmixedcc", status="failed", total_files=4)
-        job.all_confirmed = True
+        _make_job(db, "jobmixedcc", status="failed", total_files=4)
         _make_group_job(db, "jobmixedcc", "grp_ok", status="completed", processed=2, total=2)
         _make_group_job(
             db, "jobmixedcc", "grp_fail", group_name="FailGroup", status="failed", total=2
@@ -251,27 +250,6 @@ class TestImportStatus:
         assert data["status"] == "failed"
         statuses = {g["group_name"]: g["status"] for g in data["groups"]}
         assert statuses["FailGroup"] == "failed"
-
-    def test_awaiting_input_with_pending_groups(self, test_client, tmp_db):
-        """When all submitted groups terminal but pending_groups > 0, status is awaiting_input."""
-        _, SessionLocal = tmp_db
-        db = SessionLocal()
-        job = _make_job(db, "jobmixeddd", status="awaiting_input", total_files=4)
-        job.all_confirmed = False
-        job.pending_groups = 1  # One group still unconfirmed
-        _make_group_job(db, "jobmixeddd", "grp_ok2", status="completed", processed=2, total=2)
-        _make_group_job(
-            db, "jobmixeddd", "grp_fail2", group_name="FailGroup", status="failed", total=2
-        )
-        db.commit()
-        db.close()
-
-        resp = test_client.get("/api/v1/imports/jobmixeddd/status")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["status"] == "awaiting_input"
-        assert data["detected_group_count"] == 3  # pending_groups + submitted
-        assert data["pending_group_count"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -448,178 +426,6 @@ class TestCancelImportGroup:
 
 
 # ---------------------------------------------------------------------------
-# POST /api/v1/imports/{job_id}/finalize
-# ---------------------------------------------------------------------------
-
-
-class TestFinalizeImport:
-    def test_finalize_staging_job(self, seeded_job):
-        """Finalizing a staging job (no groups) completes it."""
-        client, job_id = seeded_job
-        resp = client.post(f"/api/v1/imports/{job_id}/finalize")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["status"] == "completed"
-        assert data["already_terminal"] is False
-
-    def test_finalize_active_job_with_completed_groups(self, test_client, tmp_db):
-        """Finalize an active job whose groups are all done → completed + staging cleaned."""
-        from backend.app.config import settings
-
-        _, SessionLocal = tmp_db
-        db = SessionLocal()
-        _make_job(db, "jobfinact", status="active", total_files=2)
-        _make_group_job(db, "jobfinact", "grp_fin1", status="completed", processed=2, total=2)
-        db.commit()
-        db.close()
-
-        # Create fake staging dir
-        staging_dir = settings.staging_dir / "jobfinact"
-        staging_dir.mkdir(parents=True, exist_ok=True)
-        (staging_dir / "dummy.txt").write_text("test")
-
-        resp = test_client.post("/api/v1/imports/jobfinact/finalize")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["status"] == "completed"
-        assert data["staging_cleaned"] is True
-        assert not staging_dir.exists()
-
-    def test_finalize_active_job_with_failures(self, test_client, tmp_db):
-        """Finalize with one failed group → status becomes 'failed'."""
-        _, SessionLocal = tmp_db
-        db = SessionLocal()
-        _make_job(db, "jobfinfail", status="active", total_files=3)
-        _make_group_job(db, "jobfinfail", "grp_finok", status="completed", processed=2, total=2)
-        _make_group_job(
-            db, "jobfinfail", "grp_finfail", group_name="FailGrp", status="failed", total=1
-        )
-        db.commit()
-        db.close()
-
-        resp = test_client.post("/api/v1/imports/jobfinfail/finalize")
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "failed"
-
-    def test_finalize_failed_cleans_up_images(self, test_client, tmp_db):
-        """Finalize with failures must delete images so re-upload doesn't
-        hit false duplicate-hash matches."""
-        _, SessionLocal = tmp_db
-        db = SessionLocal()
-        _make_job(db, "jobfclean", status="active", total_files=3)
-        grp_ok = _make_group_job(
-            db, "jobfclean", "grp_fclean_ok", status="completed", processed=2, total=2
-        )
-        group = ImageGroup(base_name="CleanMap", author="Author")
-        db.add(group)
-        db.flush()
-        grp_ok.created_group_id = group.id
-        img = Image(
-            name="CleanMap",
-            filename="clean.jpg",
-            author="Author",
-            storage_key="cleankey.jpg",
-            content_hash="a" * 64,
-            group_id=group.id,
-            import_job_id="jobfclean",
-            media_type="image",
-        )
-        db.add(img)
-        _make_group_job(
-            db, "jobfclean", "grp_fclean_fail", group_name="FailGrp", status="failed", total=1
-        )
-        db.commit()
-
-        # Verify image exists before finalize
-        assert db.query(Image).filter_by(import_job_id="jobfclean").count() == 1
-        db.close()
-
-        resp = test_client.post("/api/v1/imports/jobfclean/finalize")
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "failed"
-
-        # Image must be gone after finalize
-        db2 = SessionLocal()
-        remaining = db2.query(Image).filter_by(import_job_id="jobfclean").count()
-        db2.close()
-        assert remaining == 0, f"Expected 0 images after failed finalize, found {remaining}"
-
-        # Duplicate check must no longer match the old hash
-        hash_resp = test_client.post(
-            "/api/v1/imports/check-hashes",
-            json={
-                "files": [
-                    {
-                        "relative_path": "clean.jpg",
-                        "filename": "clean.jpg",
-                        "content_hash": "a" * 64,
-                    }
-                ]
-            },
-        )
-        assert hash_resp.status_code == 200
-        assert hash_resp.json()["duplicates_found"] == 0
-
-    def test_finalize_rejects_running_groups(self, seeded_running_job):
-        """Cannot finalize while groups are still running → 409."""
-        client, job_id, _ = seeded_running_job
-        resp = client.post(f"/api/v1/imports/{job_id}/finalize")
-        assert resp.status_code == 409
-
-    def test_finalize_idempotent_for_terminal(self, seeded_completed_job):
-        """Finalizing an already-completed job returns OK with already_terminal=True."""
-        client, job_id = seeded_completed_job
-        resp = client.post(f"/api/v1/imports/{job_id}/finalize")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["already_terminal"] is True
-        assert data["status"] == "completed"
-
-    def test_finalize_404_for_missing_job(self, test_client):
-        resp = test_client.post("/api/v1/imports/doesnotexist/finalize")
-        assert resp.status_code == 404
-
-
-# ---------------------------------------------------------------------------
-# Active imports: pending_groups count
-# ---------------------------------------------------------------------------
-
-
-class TestActiveImportsPendingGroups:
-    def test_active_job_shows_pending_groups(self, test_client, tmp_db):
-        """An active job with pending_groups reports the count correctly."""
-        _, SessionLocal = tmp_db
-        db = SessionLocal()
-        job = _make_job(db, "jobpending", status="awaiting_input", total_files=6)
-        job.pending_groups = 2
-        # One group submitted and completed
-        _make_group_job(db, "jobpending", "grp_pa", status="completed", processed=2, total=2)
-        db.commit()
-        db.close()
-
-        resp = test_client.get("/api/v1/imports/active")
-        assert resp.status_code == 200
-        jobs = {j["job_id"]: j for j in resp.json()["jobs"]}
-        j = jobs["jobpending"]
-        assert j["pending_groups"] == 2
-
-    def test_status_endpoint_shows_pending_counts(self, test_client, tmp_db):
-        """Status endpoint includes detected_group_count and pending_group_count."""
-        _, SessionLocal = tmp_db
-        db = SessionLocal()
-        job = _make_job(db, "jobpendstat", status="staging", total_files=2)
-        job.pending_groups = 2
-        db.commit()
-        db.close()
-
-        resp = test_client.get("/api/v1/imports/jobpendstat/status")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["detected_group_count"] == 2  # pending_groups + 0 submitted
-        assert data["pending_group_count"] == 2
-
-
-# ---------------------------------------------------------------------------
 # Init endpoint tests
 # ---------------------------------------------------------------------------
 
@@ -767,21 +573,6 @@ class TestGetAnalysis:
         resp = test_client.get("/api/v1/imports/job-legacy/analysis")
         assert resp.status_code == 404  # No full groups available
 
-    def test_pending_groups_reflected_in_status(self, test_client, tmp_db):
-        """Status endpoint reports pending_groups from DB, not analysis_result."""
-        _, SessionLocal = tmp_db
-        db = SessionLocal()
-        job = _make_job(db, "job-newformat", status="staging", total_files=3)
-        job.pending_groups = 3
-        db.commit()
-        db.close()
-
-        resp = test_client.get("/api/v1/imports/job-newformat/status")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["detected_group_count"] == 3  # pending_groups + 0 submitted
-        assert data["pending_group_count"] == 3
-
 
 # ---------------------------------------------------------------------------
 # POST /api/v1/imports/{job_id}/fail
@@ -812,7 +603,6 @@ class TestFailEndpoint:
         job = db.query(ImportJob).filter(ImportJob.id == "job_fail_upload").first()
         assert job.status == "failed"
         assert job.error_message == "Network timeout during upload"
-        assert job.pending_groups == 0
         assert job.completed_at is not None
         db.close()
 
@@ -868,7 +658,7 @@ class TestFailEndpoint:
         )
         assert resp.status_code == 404
 
-    @pytest.mark.parametrize("status", ["failed", "cancelled", "awaiting_input", "broken"])
+    @pytest.mark.parametrize("status", ["failed", "cancelled", "broken"])
     def test_fail_disallowed_statuses(self, test_client, tmp_db, status):
         """All non-uploading/non-staging statuses return 409."""
         _, SessionLocal = tmp_db
@@ -907,71 +697,6 @@ class TestFailEndpoint:
         )
         assert resp.status_code == 200
         assert not (staging_root / "job_fail_cleanup").exists()
-
-
-# ---------------------------------------------------------------------------
-# Active imports: unreviewed images keep completed jobs visible indefinitely
-# ---------------------------------------------------------------------------
-
-
-class TestActiveImportsUnreviewed:
-    def test_old_completed_job_with_unreviewed_images_still_active(self, test_client, tmp_db):
-        """Completed jobs with needs_review images persist past the 1-hour TTL."""
-        _, SessionLocal = tmp_db
-        db = SessionLocal()
-
-        # Create a completed job from 2 hours ago
-        old_time = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=2)
-        job = _make_job(db, "job_old_unreviewed", status="completed", total_files=1)
-        job.completed_at = old_time
-        gj = _make_group_job(
-            db,
-            "job_old_unreviewed",
-            "grp_unreviewed",
-            status="completed",
-            processed=1,
-            total=1,
-            completed_at=old_time,
-        )
-
-        # Create an image with needs_review=True linked to this job
-        group = ImageGroup(base_name="UnreviewedGroup", author="Test")
-        db.add(group)
-        db.flush()
-        gj.created_group_id = group.id
-        img = Image(
-            name="test",
-            filename="test.jpg",
-            author="Test",
-            storage_key="key.jpg",
-            group_id=group.id,
-            needs_review=True,
-            import_job_id="job_old_unreviewed",
-            media_type="image",
-        )
-        db.add(img)
-        db.commit()
-        db.close()
-
-        resp = test_client.get("/api/v1/imports/active")
-        assert resp.status_code == 200
-        job_ids = [j["job_id"] for j in resp.json()["jobs"]]
-        assert "job_old_unreviewed" in job_ids
-
-    def test_old_completed_job_without_unreviewed_not_active(self, test_client, tmp_db):
-        """Completed jobs where all images are reviewed are filtered out after 1 hour."""
-        _, SessionLocal = tmp_db
-        db = SessionLocal()
-
-        old_time = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=2)
-        job = _make_job(db, "job_old_reviewed", status="completed", total_files=1)
-        job.completed_at = old_time
-        db.commit()
-        db.close()
-
-        resp = test_client.get("/api/v1/imports/active")
-        job_ids = [j["job_id"] for j in resp.json()["jobs"]]
-        assert "job_old_reviewed" not in job_ids
 
 
 # ---------------------------------------------------------------------------

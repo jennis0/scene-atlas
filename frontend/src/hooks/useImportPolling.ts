@@ -11,7 +11,6 @@ export function backendStatusToDialogState(status: string): DialogState {
     case 'uploading':
       return 'upload'
     case 'staging':
-    case 'awaiting_input':
       return 'preview'
     case 'active':
       return 'processing'

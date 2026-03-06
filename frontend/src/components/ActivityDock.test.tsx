@@ -30,7 +30,6 @@ const runningImport: ActiveImportJob = {
   completedGroups: 3,
   failedGroups: 0,
   runningGroups: 2,
-  pendingGroups: 3,
   totalFiles: 24,
   processedFiles: 9,
   createdAt: new Date().toISOString(),
@@ -47,7 +46,6 @@ const completedImport: ActiveImportJob = {
   completedGroups: 4,
   totalGroups: 4,
   runningGroups: 0,
-  pendingGroups: 0,
 }
 
 const runningBgJob: BackgroundJob = {

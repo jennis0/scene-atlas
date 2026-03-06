@@ -172,7 +172,7 @@ describe('importStorage', () => {
       const entry = loadImportJobsIndex().jobs.find((j) => j.jobId === 'job-1')!
       expect(entry.completedGroups).toBe(1)
       expect(entry.failedGroups).toBe(1)
-      expect(entry.pendingGroups).toBe(1)
+      expect(entry.totalGroups).toBe(3)
     })
 
     it('prunes expired jobs from the index', () => {
