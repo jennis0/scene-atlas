@@ -450,11 +450,22 @@ def search_groups(
         results = []
         for group in groups:
             hero_image = None
+            # Try to get primary image, fall back to first image in group
             if group.primary_image_id:
                 hero_image = (
                     db.query(Image)
                     .options(subqueryload(Image.tags), subqueryload(Image.colors))
                     .filter(Image.id == group.primary_image_id)
+                    .first()
+                )
+
+            # Fallback: get first image from group if no primary image
+            if not hero_image:
+                hero_image = (
+                    db.query(Image)
+                    .options(subqueryload(Image.tags), subqueryload(Image.colors))
+                    .filter(Image.group_id == group.id)
+                    .order_by(Image.id)
                     .first()
                 )
 

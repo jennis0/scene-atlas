@@ -95,7 +95,11 @@ export function Gallery() {
           <div className="flex h-full items-center justify-center">
             <p className="text-muted-foreground">Searching&hellip;</p>
           </div>
-        ) : search.displayImages.length === 0 ? (
+        ) : (
+            search.viewMode === 'grouped'
+              ? search.imageGroups.length === 0
+              : search.displayImages.length === 0
+          ) ? (
           <div className="flex h-full items-center justify-center">
             <div className="text-center max-w-md">
               {!search.hasActiveSearch && (search.facets?.total_images ?? 0) === 0 ? (
@@ -118,7 +122,13 @@ export function Gallery() {
               ) : (
                 <>
                   <p className="text-muted-foreground mb-2">
-                    {search.hasActiveSearch ? 'No images match your search' : 'No images available'}
+                    {search.hasActiveSearch
+                      ? search.viewMode === 'grouped'
+                        ? 'No groups match your search'
+                        : 'No images match your search'
+                      : search.viewMode === 'grouped'
+                        ? 'No groups available'
+                        : 'No images available'}
                   </p>
                   {search.isSemantic && (
                     <p className="text-sm text-muted-foreground">
