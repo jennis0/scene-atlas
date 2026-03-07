@@ -178,6 +178,7 @@ class GroupSearchResult(BaseModel):
     total_scenes: int
     matching_scenes: int
     best_score: float | None = None
+    all_image_ids: list[int] | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
