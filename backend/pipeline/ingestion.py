@@ -12,6 +12,7 @@ import gc
 import hashlib
 import json
 import logging
+import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -76,6 +77,20 @@ def _compute_file_hash(file_path: Path) -> str:
                 break
             h.update(chunk)
     return h.hexdigest()
+
+
+def _collect_futures(futures: list) -> list:
+    """Collect future results, cancelling all on exception.
+
+    Must collect ALL futures even on error — abandoning futures leaks work
+    into the shared pool. This helper ensures consistent error handling.
+    """
+    try:
+        return [f.result() for f in futures]
+    except Exception:
+        for f in futures:
+            f.cancel()
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -918,14 +933,7 @@ def bulk_image_ingestion(
                 )
                 for img_path in batch
             ]
-            # Must collect ALL futures even on error — abandoning futures leaks work into the shared pool.
-            # Cancel remaining futures before re-raising so the pool stays clean:
-            try:
-                prepared_results = [f.result() for f in futures]
-            except Exception:
-                for f in futures:
-                    f.cancel()
-                raise
+            prepared_results = _collect_futures(futures)
 
             # Step 2-4: Batch CLIP → batch DB save → batch Qdrant save
             batch_results, _, _warnings = _process_batch(prepared_results)
@@ -1141,9 +1149,7 @@ def _run_group(
             )
 
             # Prepare images with bounded concurrency to control peak memory use.
-            import time as _time
-
-            _t0 = _time.monotonic()
+            _t0 = time.monotonic()
             prep_pool = get_prepare_pool()
             futures = [
                 prep_pool.submit(
@@ -1171,22 +1177,15 @@ def _run_group(
                 )
                 for file_info, image_path in batch
             ]
-            # Must collect ALL futures even on error — abandoning futures leaks work into the shared pool.
-            # Cancel remaining futures before re-raising so the pool stays clean:
-            try:
-                prepared_results = [f.result() for f in futures]
-            except Exception:
-                for f in futures:
-                    f.cancel()
-                raise
-            _t_prepare = _time.monotonic() - _t0
+            prepared_results = _collect_futures(futures)
+            _t_prepare = time.monotonic() - _t0
             logger.info("[%s] prepare took %.1fs", group_name, _t_prepare)
 
             # Batch CLIP → batch DB → batch Qdrant
-            _t0 = _time.monotonic()
+            _t0 = time.monotonic()
             batch_results, _, batch_warnings = _process_batch(prepared_results)
             all_file_errors.extend(batch_warnings)
-            _t_process = _time.monotonic() - _t0
+            _t_process = time.monotonic() - _t0
             logger.info("[%s] process_batch took %.1fs", group_name, _t_process)
             batch_success = sum(1 for r in batch_results if r["status"] == "success")
             processed += batch_success
