@@ -1,8 +1,8 @@
-import { useEffect, useRef, Suspense, lazy } from 'react'
+import { useEffect, useRef, Suspense, lazy, useMemo } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Upload, Mountain, Loader2 } from 'lucide-react'
-import { groupApi } from '@/lib/api'
+import { groupApi, searchApi } from '@/lib/api'
 import { QUERY_KEYS, invalidateGalleryQueries } from '@/lib/queryKeys'
 import { ImageGrid } from '@/components/ImageGrid'
 import { GroupGrid } from '@/components/GroupGrid'
@@ -27,7 +27,38 @@ import { Button } from '@/components/ui/button'
 export function Gallery() {
   const queryClient = useQueryClient()
   const search = useGallerySearch()
-  const dialogs = useGalleryDialogs(search.displayImages)
+  const {
+    showMassEdit,
+    setShowMassEdit,
+    editAllSeedImages,
+    setEditAllSeedImages,
+    editAllLoading,
+    setEditAllLoading,
+    ...restDialogs
+  } = useGalleryDialogs(search.displayImages)
+
+  // For backward compatibility
+  const dialogs = useMemo(
+    () => ({
+      showMassEdit,
+      setShowMassEdit,
+      editAllSeedImages,
+      setEditAllSeedImages,
+      editAllLoading,
+      setEditAllLoading,
+      ...restDialogs,
+    }),
+    [
+      showMassEdit,
+      setShowMassEdit,
+      editAllSeedImages,
+      setEditAllSeedImages,
+      editAllLoading,
+      setEditAllLoading,
+      restDialogs,
+    ],
+  )
+
   const activeImports = useActiveImports()
   const backgroundJobs = useBackgroundJobs()
   const sentinelRef = useRef<HTMLDivElement>(null)
@@ -73,15 +104,44 @@ export function Gallery() {
     })
   }, [activeImports, queryClient, dialogs])
 
+  const handleOpenMassEdit = async () => {
+    // If individual view, just open the dialog with current images
+    if (search.viewMode === 'individual') {
+      dialogs.setShowMassEdit(true)
+      return
+    }
+
+    // Grouped view: fetch all matching images with current filters
+    if (search.viewMode === 'grouped' && search.totalGroups <= 100) {
+      dialogs.setEditAllLoading(true)
+      try {
+        const response = await searchApi.search({
+          query: search.submittedQuery || '',
+          ...search.filters,
+          image_types: search.imageType === 'all' ? [] : [search.imageType],
+          limit: 2000,
+          offset: 0,
+        })
+        dialogs.setEditAllSeedImages(response.images)
+        dialogs.setShowMassEdit(true)
+      } catch (error) {
+        toast.error('Failed to load images for bulk edit')
+        console.error(error)
+      } finally {
+        dialogs.setEditAllLoading(false)
+      }
+    }
+  }
+
   return (
     <div className="flex h-screen flex-col">
       {/* Header */}
       <GalleryHeader
-        search={search}
+        search={{ ...search, editAllLoading: dialogs.editAllLoading }}
         onOpenImport={() => dialogs.openImportDialog()}
         onOpenTagManagement={() => dialogs.setShowTagManagement(true)}
         onOpenSystemInfo={() => dialogs.setShowSystemInfo(true)}
-        onOpenMassEdit={() => dialogs.setShowMassEdit(true)}
+        onOpenMassEdit={handleOpenMassEdit}
         displayImageCount={search.displayImages.length}
       />
 
@@ -245,7 +305,9 @@ export function Gallery() {
 
         {/* Mass-edit dialog -- all images in current search results */}
         <EditGroupDialog
-          seedImages={search.displayImages}
+          seedImages={
+            search.viewMode === 'grouped' ? dialogs.editAllSeedImages : search.displayImages
+          }
           open={dialogs.showMassEdit}
           onClose={() => dialogs.setShowMassEdit(false)}
           onSave={() => {

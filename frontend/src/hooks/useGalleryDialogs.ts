@@ -56,6 +56,12 @@ export interface UseGalleryDialogsReturn {
   importSummaryJobId: string | null
   setImportSummaryJobId: (id: string | null) => void
 
+  // Edit all (mass edit) seed images and loading state
+  editAllSeedImages: Image[]
+  setEditAllSeedImages: (images: Image[]) => void
+  editAllLoading: boolean
+  setEditAllLoading: (loading: boolean) => void
+
   // Query invalidation
   invalidateGallery: () => void
 }
@@ -78,6 +84,10 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
 
   // Mass edit dialog
   const [showMassEdit, setShowMassEdit] = useState(false)
+
+  // Edit all (mass edit) seed images and loading state
+  const [editAllSeedImages, setEditAllSeedImages] = useState<Image[]>([])
+  const [editAllLoading, setEditAllLoading] = useState(false)
 
   // Group action menu state
   const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<ImageGroup | null>(null)
@@ -179,6 +189,12 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
     // Mass edit dialog
     showMassEdit,
     setShowMassEdit,
+
+    // Edit all (mass edit) seed images and loading state
+    editAllSeedImages,
+    setEditAllSeedImages,
+    editAllLoading,
+    setEditAllLoading,
 
     // Delete group confirmation
     deleteConfirmGroup,

@@ -16,6 +16,7 @@ import {
   Mountain,
   Sun,
   Moon,
+  Loader2,
 } from 'lucide-react'
 import { GalleryFilterPanel } from '@/components/GalleryFilterPanel'
 import { FilterChipList } from '@/components/FilterMenuContent'
@@ -53,7 +54,9 @@ const needsOverlayPadding = isApp && !isMac // Windows/Linux titlebar overlay
 // ---------------------------------------------------------------------------
 
 export interface GalleryHeaderProps {
-  search: UseGallerySearchReturn
+  search: UseGallerySearchReturn & {
+    editAllLoading?: boolean
+  }
   onOpenImport: () => void
   onOpenTagManagement: () => void
   onOpenSystemInfo: () => void
@@ -366,10 +369,19 @@ export function GalleryHeader({
                     ) : (
                       <button
                         onClick={onOpenMassEdit}
-                        title="Bulk-edit all groups in current results"
-                        className="flex items-center gap-1.5 hover:text-foreground transition-colors"
+                        disabled={search.editAllLoading}
+                        title={
+                          search.editAllLoading
+                            ? 'Loading images...'
+                            : 'Bulk-edit all groups in current results'
+                        }
+                        className="flex items-center gap-1.5 hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        <Pencil className="h-3 w-3" />
+                        {search.editAllLoading ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Pencil className="h-3 w-3" />
+                        )}
                         Edit all ({totalGroups})
                       </button>
                     )}
