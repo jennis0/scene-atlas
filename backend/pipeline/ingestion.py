@@ -28,8 +28,6 @@ from backend.app.models import (
     ImportJob,
     Tag,
     TagCategory,
-    get_engine,
-    get_session_local,
 )
 from backend.app.process_utils import get_rss_mb
 from backend.app.services import (
@@ -45,6 +43,7 @@ from backend.app.services.staging import (
     load_file_map as _load_file_map,
 )
 
+from .db import pipeline_db
 from .error_classifier import classify_ingest_error
 from .pipeline_config import PipelineConfig, load_pipeline_config
 from .tasks.embedding_generation import (
@@ -59,9 +58,7 @@ from .tasks.embedding_generation import (
 
 def _build_parser() -> ImageParser:
     """Create an ImageParser with tag vocabulary loaded from DB."""
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
-    with SessionLocal() as db:
+    with pipeline_db() as db:
         categories = db.query(TagCategory).all()
         cat_dicts = [{"name": c.name, "common_values": c.common_values} for c in categories]
         return ImageParser(tag_categories=cat_dicts)
@@ -292,9 +289,7 @@ def prepare_single_image(
 
         if reuse_storage_key:
             # Look up existing image to copy dimensions, file_size, colors
-            engine = get_engine(settings.database_url)
-            SessionLocal = get_session_local(engine)
-            with SessionLocal() as db:
+            with pipeline_db() as db:
                 source_image = (
                     db.query(Image).filter(Image.storage_key == reuse_storage_key).first()
                 )
@@ -522,10 +517,8 @@ def save_to_database(image_data: dict) -> int:
         Image ID
     """
     logger = logging.getLogger(__name__)
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
     try:
-        with SessionLocal() as db, db.begin():
+        with pipeline_db() as db:
             image_id = _save_image_to_db(db, image_data)
         logger.info("Saved image to database: %s (ID: %s)", image_data["filename"], image_id)
         return image_id
@@ -566,10 +559,8 @@ def batch_save_to_database(image_data_list: list[dict]) -> list[int]:
         List of image IDs
     """
     logger = logging.getLogger(__name__)
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
     try:
-        with SessionLocal() as db, db.begin():
+        with pipeline_db() as db:
             image_ids = []
             # Resolve the group once for the whole batch (all images share the same group)
             resolved_group: ImageGroup | None = None
@@ -644,9 +635,7 @@ def update_import_group_job_progress(
     file_errors: list[dict] | None = None,
 ) -> None:
     """Update ImportGroupJob progress counters in the database."""
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
-    with SessionLocal() as db:
+    with pipeline_db() as db:
         group_job = db.query(ImportGroupJob).filter(ImportGroupJob.id == group_job_id).first()
         if group_job:
             group_job.processed_files = processed
@@ -950,14 +939,9 @@ def bulk_image_ingestion(
     # Rebuild FTS index after bulk import
     if successful > 0:
         try:
-            engine = get_engine(settings.database_url)
-            SessionLocal = get_session_local(engine)
-            db_fts = SessionLocal()
-            try:
+            with pipeline_db() as db_fts:
                 fts_rebuild(db_fts)
                 logger.info("FTS index rebuilt after bulk ingestion")
-            finally:
-                db_fts.close()
         except Exception as e:
             logger.warning("FTS rebuild failed (non-fatal): %s", e)
 
@@ -998,9 +982,7 @@ def analyse_upload(
     groups = parser.group_files(relative_paths, image_type=default_image_type)
 
     # Compute content hashes and detect duplicates
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
-    with SessionLocal() as db:
+    with pipeline_db() as db:
         # Collect hashes that still need DB lookup (non-precomputed files)
         hashes_to_check: dict[str, list[dict]] = {}  # hash -> [file_entry, ...]
 
@@ -1235,10 +1217,7 @@ def _run_group(
         # Look up the ImageGroup that was created/updated so we can link back to it
         _created_group_id: int | None = None
         try:
-            _engine = get_engine(settings.database_url)
-            _Session = get_session_local(_engine)
-            _db = _Session()
-            try:
+            with pipeline_db() as _db:
                 grp = (
                     _db.query(ImageGroup)
                     .filter(ImageGroup.base_name == group_name, ImageGroup.author == author)
@@ -1246,8 +1225,6 @@ def _run_group(
                 )
                 if grp:
                     _created_group_id = grp.id
-            finally:
-                _db.close()
         except Exception:
             pass  # Non-fatal — link is a convenience, not required
 
@@ -1293,19 +1270,13 @@ def _mark_group_job_failed(group_job_id: str, error_message: str) -> None:
     """
     logger = logging.getLogger(__name__)
     try:
-        engine = get_engine(settings.database_url)
-        SessionLocal = get_session_local(engine)
-        db = SessionLocal()
-        try:
+        with pipeline_db() as db:
             group_job = db.query(ImportGroupJob).filter(ImportGroupJob.id == group_job_id).first()
             if group_job:
                 group_job.status = "failed"
                 group_job.error_message = error_message[:500] if error_message else None
                 group_job.completed_at = datetime.now(UTC).replace(tzinfo=None)
-                db.commit()
                 logger.info("Marked group job %s as failed", group_job_id)
-        finally:
-            db.close()
     except Exception as e:
         logger.warning("Could not mark group job %s as failed: %s", group_job_id, e)
 
@@ -1323,9 +1294,7 @@ def _finalize_import_job(job_id: str) -> None:
     from backend.app.services.import_state import transition_job_status
 
     logger = logging.getLogger(__name__)
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
-    with SessionLocal() as db:
+    with pipeline_db() as db:
         job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
         if not job:
             return
@@ -1385,9 +1354,7 @@ def _rebuild_fts() -> None:
     """Rebuild the FTS index (non-fatal on error)."""
     logger = logging.getLogger(__name__)
     try:
-        engine = get_engine(settings.database_url)
-        SessionLocal = get_session_local(engine)
-        with SessionLocal() as db:
+        with pipeline_db() as db:
             fts_rebuild(db)
         logger.info("FTS index rebuilt successfully")
     except Exception as e:

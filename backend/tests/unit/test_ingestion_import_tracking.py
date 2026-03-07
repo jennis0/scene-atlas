@@ -90,6 +90,9 @@ def test_run_group_injects_import_job_id_into_metadata(tmp_path):
 
     mock_session = MagicMock()
     mock_session.query.return_value.filter.return_value.first.return_value = None
+    # Make mock_session a context manager
+    mock_session.__enter__ = MagicMock(return_value=mock_session)
+    mock_session.__exit__ = MagicMock(return_value=False)
 
     mock_pipeline_config = MagicMock()
     mock_pipeline_config.ingestion_batch_size = 16
@@ -99,8 +102,7 @@ def test_run_group_injects_import_job_id_into_metadata(tmp_path):
         patch("backend.pipeline.ingestion.prepare_single_image", side_effect=fake_prepare),
         patch("backend.pipeline.ingestion.update_import_group_job_progress"),
         patch("backend.pipeline.ingestion._process_batch", return_value=([], 0, [])),
-        patch("backend.pipeline.ingestion.get_engine"),
-        patch("backend.pipeline.ingestion.get_session_local", return_value=lambda: mock_session),
+        patch("backend.pipeline.ingestion.pipeline_db", return_value=mock_session),
     ):
         fname = "test.jpg"
         (tmp_path / fname).write_text("fake")
