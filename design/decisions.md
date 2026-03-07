@@ -366,3 +366,31 @@ Pipeline functions in `backend/pipeline/` are now plain Python functions — no 
 - Backward compatible: `Image[]` assignable to `SeedImage[]`; `all_image_ids` field is optional
 - Backend query efficiency: single batch query (browse) or zero extra queries (search mode reuses RRF scoring)
 - Relevance slider filtering is client-side (instant raise) or debounced refetch (lower); pagination resets to page 0
+
+---
+
+## ADR-016: Multi-model embedding support via manifest files
+
+**Date:** 2026-03
+**Status:** Accepted
+
+**Context:** We want to support multiple embedding models (OpenCLIP, SigLIP2) with different preprocessing requirements, tokenizers, and embedding dimensions. We need easy model switching for dev/testing and model-scoped Qdrant collections.
+
+**Decision:**
+- Ship a `manifest.json` alongside each model's ONNX files capturing all model-specific parameters (image size, normalization, interpolation, resize mode, tokenizer config, embedding dimension)
+- CLIPService reads manifest at init and configures itself — no strategy pattern or plugin registry
+- Model-scoped Qdrant collections: `embeddings_{model_name}`, enabling instant switching
+- sentencepiece added as production dependency for SigLIP2's tokenizer
+- Own export script (`export_model_onnx.py`) for full control over quantisation
+
+**Alternatives considered:**
+- Strategy pattern: over-engineered for models that all follow the same ONNX inference path
+- JAX for ONNX export: requires jax2tf->tf2onnx (fragile, two conversion steps)
+- Pre-exported ONNX from onnx-community: less control over quantisation choices
+- tokenizer.json conversion for SigLIP2: fragile, may lose text lowercasing behavior
+
+**Consequences:**
+- Adding a new model requires only: export script run + manifest generation
+- Model switch in dev: set EMBEDDING_MODEL env var, rebuild-embeddings if needed
+- Startup auto-detects embedding count mismatch and triggers rebuild
+- sentencepiece adds ~1MB to production dependency footprint

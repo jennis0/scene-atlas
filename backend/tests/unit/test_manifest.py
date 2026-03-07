@@ -184,3 +184,139 @@ class TestManifestPreprocessing:
         old_result = np.transpose(pixels, (2, 0, 1))
 
         np.testing.assert_array_equal(new_result, old_result)
+
+
+class TestSentencePieceTokenizerWrapper:
+    """Tests for the _SentencePieceTokenizerWrapper used by SigLIP2 models."""
+
+    def test_output_has_ids_and_attention_mask(self):
+        from backend.app.services.clip_service import _SentencePieceTokenizerWrapper
+
+        # Mock sentencepiece to avoid needing a real model file
+        with patch("sentencepiece.SentencePieceProcessor") as mock_sp_cls:
+            mock_sp = MagicMock()
+            mock_sp.encode.return_value = [10, 20, 30]
+            mock_sp_cls.return_value = mock_sp
+
+            wrapper = _SentencePieceTokenizerWrapper(
+                model_path="fake.model", max_length=8, pad_id=1
+            )
+            result = wrapper.encode("hello world")
+
+        assert result.ids == [10, 20, 30, 1, 1, 1, 1, 1]
+        assert result.attention_mask == [1, 1, 1, 0, 0, 0, 0, 0]
+
+    def test_truncation(self):
+        from backend.app.services.clip_service import _SentencePieceTokenizerWrapper
+
+        with patch("sentencepiece.SentencePieceProcessor") as mock_sp_cls:
+            mock_sp = MagicMock()
+            mock_sp.encode.return_value = list(range(100))
+            mock_sp_cls.return_value = mock_sp
+
+            wrapper = _SentencePieceTokenizerWrapper(
+                model_path="fake.model", max_length=10, pad_id=1
+            )
+            result = wrapper.encode("very long text")
+
+        assert len(result.ids) == 10
+        assert len(result.attention_mask) == 10
+        assert result.ids == list(range(10))
+        assert result.attention_mask == [1] * 10
+
+    def test_lowercasing(self):
+        from backend.app.services.clip_service import _SentencePieceTokenizerWrapper
+
+        with patch("sentencepiece.SentencePieceProcessor") as mock_sp_cls:
+            mock_sp = MagicMock()
+            mock_sp.encode.return_value = [5]
+            mock_sp_cls.return_value = mock_sp
+
+            wrapper = _SentencePieceTokenizerWrapper(
+                model_path="fake.model", max_length=4, pad_id=1, lowercase=True
+            )
+            wrapper.encode("HELLO WORLD")
+
+        mock_sp.encode.assert_called_once_with("hello world", out_type=int)
+
+    def test_no_lowercasing(self):
+        from backend.app.services.clip_service import _SentencePieceTokenizerWrapper
+
+        with patch("sentencepiece.SentencePieceProcessor") as mock_sp_cls:
+            mock_sp = MagicMock()
+            mock_sp.encode.return_value = [5]
+            mock_sp_cls.return_value = mock_sp
+
+            wrapper = _SentencePieceTokenizerWrapper(
+                model_path="fake.model", max_length=4, pad_id=1, lowercase=False
+            )
+            wrapper.encode("HELLO WORLD")
+
+        mock_sp.encode.assert_called_once_with("HELLO WORLD", out_type=int)
+
+    def test_exact_length_no_padding(self):
+        from backend.app.services.clip_service import _SentencePieceTokenizerWrapper
+
+        with patch("sentencepiece.SentencePieceProcessor") as mock_sp_cls:
+            mock_sp = MagicMock()
+            mock_sp.encode.return_value = [10, 20, 30, 40]
+            mock_sp_cls.return_value = mock_sp
+
+            wrapper = _SentencePieceTokenizerWrapper(
+                model_path="fake.model", max_length=4, pad_id=1
+            )
+            result = wrapper.encode("test")
+
+        assert result.ids == [10, 20, 30, 40]
+        assert result.attention_mask == [1, 1, 1, 1]
+
+
+class TestSentencePieceServiceInit:
+    """Tests that CLIPService correctly initialises with a sentencepiece manifest."""
+
+    def test_sentencepiece_tokenizer_branch(self, tmp_path):
+        """CLIPService loads sentencepiece tokenizer when manifest says so."""
+        manifest = {
+            "model_id": "google/siglip2-base-patch16-224",
+            "model_family": "siglip2",
+            "embedding_dim": 768,
+            "image_size": 224,
+            "image_mean": [0.5, 0.5, 0.5],
+            "image_std": [0.5, 0.5, 0.5],
+            "interpolation": "bilinear",
+            "resize_mode": "direct_resize",
+            "tokenizer_type": "sentencepiece",
+            "tokenizer_max_length": 64,
+            "tokenizer_pad_id": 1,
+            "vision_encoder": "clip_vision_encoder.onnx",
+            "text_encoder": "clip_text_encoder.onnx",
+        }
+        (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+        tok_dir = tmp_path / "tokenizer"
+        tok_dir.mkdir()
+        (tok_dir / "spiece.model").write_bytes(b"fake")
+
+        mock_session = MagicMock()
+        mock_session.run.return_value = [np.zeros((1, 768))]
+
+        with (
+            patch("onnxruntime.InferenceSession", return_value=mock_session),
+            patch("sentencepiece.SentencePieceProcessor") as mock_sp_cls,
+        ):
+            mock_sp = MagicMock()
+            mock_sp.encode.return_value = [10, 20]
+            mock_sp_cls.return_value = mock_sp
+
+            from backend.app.services.clip_service import CLIPService
+
+            svc = CLIPService(models_dir=tmp_path, tokenizer_dir=tok_dir)
+
+        assert svc.embedding_dim == 768
+        assert svc._resize_mode == "direct_resize"
+        assert svc._interpolation == PILImage.BILINEAR
+
+        # Verify the tokenizer is the sentencepiece wrapper
+        from backend.app.services.clip_service import _SentencePieceTokenizerWrapper
+
+        assert isinstance(svc._tokenizer, _SentencePieceTokenizerWrapper)

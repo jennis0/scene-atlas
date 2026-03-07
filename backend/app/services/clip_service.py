@@ -47,6 +47,44 @@ _INTERPOLATION_MAP = {
 }
 
 
+# ── SentencePiece tokenizer wrapper ──────────────────────────────────────────
+# Provides the same interface as tokenizers.Tokenizer so CLIPService can use
+# either backend transparently.
+
+
+class _TokenizerOutput:
+    """Minimal output mimicking tokenizers.Encoding."""
+
+    def __init__(self, ids: list[int], attention_mask: list[int]):
+        self.ids = ids
+        self.attention_mask = attention_mask
+
+
+class _SentencePieceTokenizerWrapper:
+    """Thin wrapper around sentencepiece to match the tokenizers.Tokenizer API."""
+
+    def __init__(self, model_path: str, max_length: int, pad_id: int, lowercase: bool = True):
+        import sentencepiece as spm
+
+        self._sp = spm.SentencePieceProcessor(model_file=model_path)
+        self._max_length = max_length
+        self._pad_id = pad_id
+        self._lowercase = lowercase
+
+    def encode(self, text: str) -> _TokenizerOutput:
+        if self._lowercase:
+            text = text.lower()
+        ids = self._sp.encode(text, out_type=int)
+        # Truncate
+        ids = ids[: self._max_length]
+        # Build attention mask
+        attn_len = len(ids)
+        # Pad
+        ids = ids + [self._pad_id] * (self._max_length - len(ids))
+        attention_mask = [1] * attn_len + [0] * (self._max_length - attn_len)
+        return _TokenizerOutput(ids=ids, attention_mask=attention_mask)
+
+
 def _load_manifest(models_dir: Path) -> dict:
     """Load manifest.json from models_dir, falling back to hardcoded defaults."""
     manifest_path = models_dir / "manifest.json"
@@ -106,7 +144,6 @@ class CLIPService:
         # directory-scan OSErrors with transformers.  onnxruntime and tokenizers
         # are lightweight by comparison, but the pattern costs nothing.
         import onnxruntime as ort
-        from tokenizers import Tokenizer as HFTokenizer
 
         if models_dir is None:
             models_dir = _default_models_dir()
@@ -153,14 +190,28 @@ class CLIPService:
             str(models_dir / text_file), sess_opts, providers=providers
         )
 
-        # Tokenizer
+        # Tokenizer — branch on type (huggingface fast tokenizer vs sentencepiece)
+        tokenizer_type = manifest.get("tokenizer_type", "huggingface")
         tok_max_length = manifest.get("tokenizer_max_length", 77)
         tok_pad_id = manifest.get("tokenizer_pad_id", 49407)
 
-        tok_path = tokenizer_dir / "tokenizer.json"
-        self._tokenizer = HFTokenizer.from_file(str(tok_path))
-        self._tokenizer.enable_truncation(max_length=tok_max_length)
-        self._tokenizer.enable_padding(length=tok_max_length, pad_id=tok_pad_id)
+        if tokenizer_type == "sentencepiece":
+            # SigLIP2 uses SentencePiece tokenizer
+            sp_model_path = tokenizer_dir / "spiece.model"
+            if not sp_model_path.exists():
+                # Try alternative name
+                sp_model_path = tokenizer_dir / "sentencepiece.bpe.model"
+            self._tokenizer = _SentencePieceTokenizerWrapper(
+                str(sp_model_path), tok_max_length, tok_pad_id
+            )
+        else:
+            # CLIP uses HuggingFace fast tokenizer
+            from tokenizers import Tokenizer as HFTokenizer
+
+            tok_path = tokenizer_dir / "tokenizer.json"
+            self._tokenizer = HFTokenizer.from_file(str(tok_path))
+            self._tokenizer.enable_truncation(max_length=tok_max_length)
+            self._tokenizer.enable_padding(length=tok_max_length, pad_id=tok_pad_id)
 
         logger.info("ONNX models loaded (%s)", manifest.get("model_id", "unknown"))
 
