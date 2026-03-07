@@ -119,6 +119,7 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
   const invalidateGallery = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.search })
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.searchFacets })
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.images })
   }, [queryClient])
 
   const handleNext = useCallback(() => {

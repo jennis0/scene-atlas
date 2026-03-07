@@ -29,6 +29,7 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
     }
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        e.stopImmediatePropagation()
         setOpen(false)
         setSelectedCategory(null)
         setSearch('')

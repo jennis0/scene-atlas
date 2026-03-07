@@ -425,6 +425,7 @@ export function Gallery() {
             // the picker closes and the user can interact with the gallery.
             await queryClient.refetchQueries({ queryKey: QUERY_KEYS.search })
             queryClient.invalidateQueries({ queryKey: QUERY_KEYS.searchFacets })
+            queryClient.invalidateQueries({ queryKey: QUERY_KEYS.images })
             dialogs.setMergeSourceGroup(null)
           } catch (err) {
             console.error('Failed to merge groups:', err)

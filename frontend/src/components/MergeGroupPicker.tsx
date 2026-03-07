@@ -90,8 +90,12 @@ export function MergeGroupPicker({
                 }`}
               >
                 {/* Thumbnail */}
-                <div className="h-8 w-8 shrink-0 rounded overflow-hidden bg-muted/60 border border-border/30">
-                  {group.primary_image_id ? (
+                <div className="h-8 w-8 shrink-0 rounded overflow-hidden bg-muted/60 border border-border/30 relative">
+                  {/* Fallback icon — always present, covered by image if loaded */}
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <ImageIcon className="h-3.5 w-3.5 text-muted-foreground/30" />
+                  </div>
+                  {group.primary_image_id && (
                     <img
                       src={getThumbnailUrlById(group.primary_image_id)}
                       alt=""
@@ -99,13 +103,8 @@ export function MergeGroupPicker({
                       onError={(e) => {
                         e.currentTarget.style.display = 'none'
                       }}
-                      className="h-full w-full object-cover"
+                      className="absolute inset-0 h-full w-full object-cover"
                     />
-                  ) : null}
-                  {!group.primary_image_id && (
-                    <div className="h-full w-full flex items-center justify-center">
-                      <ImageIcon className="h-3.5 w-3.5 text-muted-foreground/30" />
-                    </div>
                   )}
                 </div>
 

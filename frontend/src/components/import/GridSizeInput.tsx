@@ -38,7 +38,11 @@ export function GridSizeInput({ width, height, onChange, disabled, compact }: Gr
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      e.stopPropagation()
+      ;(e.target as HTMLInputElement).blur()
+    }
   }
 
   const inputClass = compact ? compactClass : defaultClass

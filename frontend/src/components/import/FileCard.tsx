@@ -155,10 +155,16 @@ export function FileCard({
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
+                    e.preventDefault()
+                    e.stopPropagation()
                     onUpdate({ name: nameDraft })
                     setIsEditingName(false)
                   }
-                  if (e.key === 'Escape') setIsEditingName(false)
+                  if (e.key === 'Escape') {
+                    e.preventDefault()
+                    e.nativeEvent.stopImmediatePropagation()
+                    setIsEditingName(false)
+                  }
                 }}
                 maxLength={MAX_NAME_LENGTH}
                 className="font-display text-[12px] font-semibold text-foreground bg-transparent border-b border-primary/70 focus:outline-none flex-1 min-w-0 pb-px leading-snug"

@@ -230,8 +230,15 @@ export function FileToolbar({
               className="flex-1 min-w-0 h-7 px-2 text-sm bg-secondary border border-border rounded text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
               onKeyDown={(e) => {
                 e.stopPropagation()
-                if (e.key === 'Enter' && subgroupInput.trim()) applySubgroup(subgroupInput.trim())
-                if (e.key === 'Escape') setSubOpen(false)
+                if (e.key === 'Enter' && subgroupInput.trim()) {
+                  e.preventDefault()
+                  applySubgroup(subgroupInput.trim())
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault()
+                  e.nativeEvent.stopImmediatePropagation()
+                  setSubOpen(false)
+                }
               }}
             />
             <button

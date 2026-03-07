@@ -102,12 +102,24 @@ def search_groups(
         )
         counts = dict(rows)
 
+    # Compute fallback primary_image_id for groups that don't have one set
+    primary_ids: dict[int, int] = {}
+    missing = [g.id for g in groups if g.primary_image_id is None]
+    if missing:
+        rows = (
+            db.query(Image.group_id, func.min(Image.id))
+            .filter(Image.group_id.in_(missing))
+            .group_by(Image.group_id)
+            .all()
+        )
+        primary_ids = dict(rows)
+
     result = [
         GroupPickerItem(
             id=g.id,
             base_name=g.base_name,
             author=g.author,
-            primary_image_id=g.primary_image_id,
+            primary_image_id=g.primary_image_id or primary_ids.get(g.id),
             image_count=counts.get(g.id, 0),
         )
         for g in groups

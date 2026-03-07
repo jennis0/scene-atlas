@@ -334,8 +334,14 @@ function CategoryList({
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') handleCreate()
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  handleCreate()
+                }
                 if (e.key === 'Escape') {
+                  e.preventDefault()
+                  e.nativeEvent.stopImmediatePropagation()
                   setCreating(false)
                   setNewName('')
                 }
@@ -545,8 +551,14 @@ function CategoryEditor({
                   onChange={(e) => setNameInput(e.target.value)}
                   onBlur={handleNameSave}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      ;(e.target as HTMLInputElement).blur()
+                    }
                     if (e.key === 'Escape') {
+                      e.preventDefault()
+                      e.nativeEvent.stopImmediatePropagation()
                       setEditingName(false)
                       setNameInput(category.name)
                     }
@@ -614,7 +626,13 @@ function CategoryEditor({
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()
+                e.stopPropagation()
                 handleDescSave()
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault()
+                e.nativeEvent.stopImmediatePropagation()
+                ;(e.target as HTMLTextAreaElement).blur()
               }
             }}
             placeholder="Add a description…"
@@ -738,8 +756,14 @@ function TagValueList({
               value={newValue}
               onChange={(e) => setNewValue(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') handleAdd()
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  handleAdd()
+                }
                 if (e.key === 'Escape') {
+                  e.preventDefault()
+                  e.nativeEvent.stopImmediatePropagation()
                   setAddingValue(false)
                   setNewValue('')
                 }
@@ -864,8 +888,14 @@ function TagValueRow({
             onChange={(e) => setEditVal(e.target.value)}
             onBlur={handleRename}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                e.stopPropagation()
+                ;(e.target as HTMLInputElement).blur()
+              }
               if (e.key === 'Escape') {
+                e.preventDefault()
+                e.nativeEvent.stopImmediatePropagation()
                 editEndedAt.current = Date.now()
                 setEditMode('none')
                 setEditVal(entry.value)
@@ -935,8 +965,14 @@ function TagValueRow({
                 value={aliasInput}
                 onChange={(e) => setAliasInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') addAlias()
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    addAlias()
+                  }
                   if (e.key === 'Escape') {
+                    e.preventDefault()
+                    e.nativeEvent.stopImmediatePropagation()
                     editEndedAt.current = Date.now()
                     setEditMode('none')
                   }
