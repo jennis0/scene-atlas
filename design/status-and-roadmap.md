@@ -39,21 +39,16 @@ Scene Atlas is a tool for viewing and searching large collections of tabletop RP
 | Duplicate detection | `frontend/src/hooks/useImportUpload.ts` | SHA-256 hash check before upload |
 | Import robustness | `backend/app/services/import_state.py` | `broken` status on crash, `/fail` endpoint, cancel with cleanup |
 | Concurrency control | `backend/app/services/prepare_pool.py`, `backend/app/api/dependencies.py` | Global executor pool, admission control semaphore, resource-aware defaults |
+| Import error reporting UI | `frontend/src/components/ImportSummaryDialog.tsx` | Per-file errors, warnings, skipped files shown in dialog with colored status stripe |
+| Live import review | `frontend/src/hooks/useImportProgressPolling.ts`, `EditGroupDialog.tsx` | Edit groups while import is processing; pending groups shown as spinner stubs |
+| Simplified import flow | Migration 018 | Removed confirmation/review layer (pending_groups, all_confirmed, needs_review, awaiting_input) |
+| Memory-aware concurrency | `backend/app/resource_detector.py` | psutil-based defaults at first boot; 500 MB per worker, 2 GB reserve |
 
 ### In Progress (On Branches)
 
 | Feature | Branch | Plan File | Status |
 |---------|--------|-----------|--------|
 | Security Phase 2 | `feature/security-phase-2` (unpushed) | `docs/plans/2026-03-03-security-phase-2.md` | Auth middleware, rate limiting, security headers, CI scanning — all implemented but branch not pushed. Developer on leave. |
-
-### Planned (Not Started)
-
-| Feature | Plan File | Priority | Summary |
-|---------|-----------|----------|---------|
-| Remove import confirmation | `docs/plans/2026-03-05-remove-import-confirmation.md` | High | Simplify state machine by removing confirmation/review layer. 10 tasks covering backend migration, API simplification, frontend cleanup. |
-| Live import review | `docs/plans/2026-03-02-live-import-review.md` + `design` variant | Medium | Edit groups in EditGroupDialog while import is still processing. Pending groups shown as spinner stubs. |
-| Adaptive memory concurrency | `docs/plans/2026-03-02-adaptive-memory-concurrency-design.md` | Medium | Use psutil to dynamically adjust worker count based on available RAM per batch. Prevents OOM on constrained hardware. |
-| Ingest error reporting UI (Stage 3) | `docs/plans/2026-03-05-ingest-error-reporting-stage3.md` | Medium | Frontend UI for displaying import errors/warnings. ImportDetailsDialog, activity dock indicators. Backend data layer already complete. |
 
 ### Backlog Items
 
@@ -73,7 +68,7 @@ Scene Atlas is a tool for viewing and searching large collections of tabletop RP
 - **Desktop**: Electron with PyInstaller sidecar
 - **Pipeline**: Batched ingestion (prepare → CLIP → DB → Qdrant) via in-process JobRunner
 - **Search**: Dual endpoints — flat `/search` and grouped `/search/groups` with RRF ranking
-- **State machine**: 7 import states (uploading → staging → active → completed/failed/cancelled/expired/broken)
+- **State machine**: 7 import states (uploading → staging → active → completed/failed/cancelled/expired/broken). No confirmation step — groups auto-confirm.
 
 For detailed architecture, see:
 - [backend.md](backend.md) — API endpoints, services, config
