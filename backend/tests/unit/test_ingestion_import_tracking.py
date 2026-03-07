@@ -27,7 +27,7 @@ def db():
 class TestSaveImageToDbImportJobId:
     def test_import_job_id_stored_on_image(self, db):
         """_save_image_to_db stores import_job_id on the Image row."""
-        from backend.pipeline.ingestion import _save_image_to_db
+        from backend.pipeline.persistence import _save_image_to_db
 
         job = ImportJob(id="job-abc", status="active", total_files=1)
         db.add(job)
@@ -53,7 +53,7 @@ class TestSaveImageToDbImportJobId:
 
     def test_import_job_id_none_when_not_provided(self, db):
         """import_job_id is None when not present in image_data."""
-        from backend.pipeline.ingestion import _save_image_to_db
+        from backend.pipeline.persistence import _save_image_to_db
 
         image_data = {
             "filename": "test.jpg",
@@ -139,7 +139,7 @@ class TestBatchSaveGroupQueryCount:
     def test_group_queried_once_for_batch_of_three(self, db):
         """Three images in the same group trigger only one ImageGroup SELECT."""
         from backend.app.models.database import ImageGroup
-        from backend.pipeline.ingestion import _save_image_to_db
+        from backend.pipeline.persistence import _save_image_to_db
 
         query_call_count = 0
         original_query = db.query
@@ -186,7 +186,7 @@ class TestBatchSaveGroupQueryCount:
     def test_group_created_and_reused(self, db):
         """When a group doesn't exist yet, it's created on the first image and reused."""
         from backend.app.models.database import Image, ImageGroup
-        from backend.pipeline.ingestion import _save_image_to_db
+        from backend.pipeline.persistence import _save_image_to_db
 
         batch = [_make_image_data("New Group", "Bob", f"nk-{i}") for i in range(3)]
 
