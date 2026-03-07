@@ -403,6 +403,7 @@ def search_groups(
     offset: int = Query(0, ge=0),
     sort_by: str = Query("created_at", pattern="^(created_at|name|relevance)$"),
     sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
+    include_all_image_ids: bool = Query(False),
     db: Session = Depends(get_db),
 ):
     """
@@ -492,6 +493,20 @@ def search_groups(
                         best_score=None,
                     )
                 )
+
+        # Batch fetch all image IDs for requested groups (browse mode)
+        if include_all_image_ids and results:
+            paginated_group_ids = [r.group_id for r in results]
+            rows = (
+                db.query(Image.group_id, Image.id)
+                .filter(Image.group_id.in_(paginated_group_ids))
+                .all()
+            )
+            ids_by_group: dict[int, list[int]] = {}
+            for gid, img_id in rows:
+                ids_by_group.setdefault(gid, []).append(img_id)
+            for result in results:
+                result.all_image_ids = ids_by_group.get(result.group_id, [])
 
         return GroupSearchResponse(
             total_groups=total_groups,
@@ -630,6 +645,10 @@ def search_groups(
                 total_scenes=group.image_count,
                 matching_scenes=len(images_in_group),
                 best_score=hero_score,
+                # In-scope images for Edit All; non-matching group members will be marked outOfScope in dialog
+                all_image_ids=[img.id for img, _ in images_in_group]
+                if include_all_image_ids
+                else None,
             )
         )
 
