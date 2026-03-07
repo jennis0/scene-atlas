@@ -758,3 +758,56 @@ class TestGroupsEndpointSearch:
             # Mosaic should still be populated in browse mode
             assert isinstance(group["mosaic_images"], list)
             assert len(group["mosaic_images"]) <= 4
+
+
+class TestGroupsIncludeAllImageIds:
+    def test_browse_mode_without_flag_has_no_image_ids(self, grouped_library):
+        client, ids = grouped_library
+        resp = client.get("/api/v1/search/groups")
+        assert resp.status_code == 200
+        for group in resp.json()["groups"]:
+            assert group.get("all_image_ids") is None
+
+    def test_browse_mode_with_flag_returns_all_ids(self, grouped_library):
+        client, ids = grouped_library
+        resp = client.get("/api/v1/search/groups", params={"include_all_image_ids": True})
+        assert resp.status_code == 200
+        for group in resp.json()["groups"]:
+            assert group["all_image_ids"] is not None
+            assert len(group["all_image_ids"]) == group["total_scenes"]
+
+    def test_browse_mode_forest_group_ids_correct(self, grouped_library):
+        client, ids = grouped_library
+        resp = client.get("/api/v1/search/groups", params={"include_all_image_ids": True})
+        forest = next(g for g in resp.json()["groups"] if g["base_name"] == "Forest Variants")
+        assert set(forest["all_image_ids"]) == {ids["g1_1"], ids["g1_2"], ids["g1_3"], ids["g1_4"]}
+
+    def test_browse_mode_paginated_returns_ids_for_page_only(self, grouped_library):
+        client, ids = grouped_library
+        resp = client.get(
+            "/api/v1/search/groups", params={"include_all_image_ids": True, "limit": 1}
+        )
+        data = resp.json()
+        assert len(data["groups"]) == 1
+        assert data["groups"][0]["all_image_ids"] is not None
+
+    def test_search_mode_without_flag_has_no_image_ids(self, grouped_library):
+        client, ids = grouped_library
+        resp = client.get("/api/v1/search/groups", params={"query": "forest"})
+        assert resp.status_code == 200
+        for group in resp.json()["groups"]:
+            assert group.get("all_image_ids") is None
+
+    def test_search_mode_with_flag_returns_matched_ids(self, grouped_library):
+        client, ids = grouped_library
+        resp = client.get(
+            "/api/v1/search/groups",
+            params={"query": "forest", "include_all_image_ids": True},
+        )
+        assert resp.status_code == 200
+        forest_ids = {ids["g1_1"], ids["g1_2"], ids["g1_3"], ids["g1_4"]}
+        for group in resp.json()["groups"]:
+            if group["base_name"] == "Forest Variants":
+                assert group["all_image_ids"] is not None
+                for img_id in group["all_image_ids"]:
+                    assert img_id in forest_ids
