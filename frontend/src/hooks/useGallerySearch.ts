@@ -287,7 +287,7 @@ export function useGallerySearch(): UseGallerySearchReturn {
 
   // Track previous minScore for debounce direction detection
   const prevScoreRef = useRef(minScore)
-  const debounceTimerRef = useRef<NodeJS.Timeout | undefined>()
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>()
 
   // Debounce minScore changes in grouped view:
   // Optimization: raising threshold is instant (filters already-loaded results in useGroupSearch's memo),
