@@ -19,13 +19,16 @@ from backend.app.services.qdrant_service import get_qdrant_service
 logger = logging.getLogger(__name__)
 
 
-def rebuild_all_embeddings(progress_fn=None) -> dict:
-    """Delete and regenerate all CLIP embeddings.
+def rebuild_all_embeddings(progress_fn=None, *, force: bool = False) -> dict:
+    """Delete and regenerate all embeddings.
 
     Parameters
     ----------
     progress_fn:
         Optional callback ``(current, total, message)`` injected by JobRunner.
+    force:
+        If False and the collection already has the expected number of
+        embeddings, skip the rebuild.
 
     Returns a summary dict with total/succeeded/failed counts.
     """
@@ -33,12 +36,7 @@ def rebuild_all_embeddings(progress_fn=None) -> dict:
     clip_service = get_clip_service()
     image_store = get_image_store()
 
-    # Wipe and recreate the collection so stale entries are removed
-    logger.info("Recreating Qdrant collection...")
-    qdrant.delete_collection()
-    qdrant.ensure_collection()
-
-    # Load all image records
+    # Count images in SQLite
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)
     db = SessionLocal()
@@ -59,6 +57,28 @@ def rebuild_all_embeddings(progress_fn=None) -> dict:
         db.close()
 
     total = len(image_dicts)
+
+    # Skip rebuild if collection already populated (unless forced)
+    if not force:
+        try:
+            info = qdrant.get_collection_info()
+            existing_count = info.get("points_count", 0)
+            if existing_count == total and total > 0:
+                logger.info(
+                    "Collection already has %s embeddings matching %s images — skipping rebuild. "
+                    "Use force=True to rebuild anyway.",
+                    existing_count,
+                    total,
+                )
+                return {"total": total, "succeeded": total, "failed": 0, "skipped": True}
+        except Exception:
+            logger.debug("Could not check collection info, proceeding with rebuild")
+
+    # Wipe and recreate the collection so stale entries are removed
+    logger.info("Recreating Qdrant collection...")
+    qdrant.delete_collection()
+    qdrant.ensure_collection()
+
     logger.info("Rebuilding embeddings for %s images...", total)
 
     succeeded = 0
@@ -106,6 +126,6 @@ def rebuild_all_embeddings(progress_fn=None) -> dict:
         if progress_fn:
             progress_fn(min(i + batch_size, total), total, f"Batch {batch_num}/{total_batches}")
 
-    summary = {"total": total, "succeeded": succeeded, "failed": failed}
+    summary = {"total": total, "succeeded": succeeded, "failed": failed, "skipped": False}
     logger.info("Embedding rebuild complete: %s", summary)
     return summary

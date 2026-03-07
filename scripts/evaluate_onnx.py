@@ -29,7 +29,7 @@ import numpy as np
 from PIL import Image as PILImage
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-MODELS_DIR_DEFAULT = PROJECT_ROOT / "backend" / "models"
+MODELS_DIR_DEFAULT = PROJECT_ROOT / "backend" / "models" / "clip-vit-b-32"
 IMAGES_DIR_DEFAULT = PROJECT_ROOT / "data" / "store" / "images"
 
 MODEL_NAME = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"

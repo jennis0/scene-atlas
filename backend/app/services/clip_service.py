@@ -63,11 +63,11 @@ def _default_models_dir() -> Path:
 
     In a frozen PyInstaller sidecar the models are bundled at
     ``_MEIPASS/models/``.  In development they live under
-    ``backend/models/fp16/`` (or whichever quantisation variant is active).
+    ``backend/models/<embedding_model>/fp16/`` (or whichever quantisation variant is active).
     """
     if getattr(sys, "frozen", False):
         return Path(sys._MEIPASS) / "models"
-    return Path(__file__).parent.parent.parent / "models" / "fp16"
+    return Path(__file__).parent.parent.parent / "models" / _settings.embedding_model / "fp16"
 
 
 # Module-level LRU cache for text embeddings (avoids lru_cache-on-method leak).

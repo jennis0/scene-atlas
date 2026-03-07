@@ -22,9 +22,9 @@ ELECTRON_RESOURCES = ROOT / "backend" / "pyinstaller" / "dist"
 
 # ONNX model files that must exist before building
 _REQUIRED_ONNX_FILES = [
-    ROOT / "backend" / "models" / "fp16" / "clip_vision_encoder.onnx",
-    ROOT / "backend" / "models" / "fp16" / "clip_text_encoder.onnx",
-    ROOT / "backend" / "models" / "tokenizer" / "tokenizer.json",
+    ROOT / "backend" / "models" / "clip-vit-b-32" / "fp16" / "clip_vision_encoder.onnx",
+    ROOT / "backend" / "models" / "clip-vit-b-32" / "fp16" / "clip_text_encoder.onnx",
+    ROOT / "backend" / "models" / "clip-vit-b-32" / "tokenizer" / "tokenizer.json",
 ]
 
 
@@ -44,8 +44,7 @@ def check_onnx_models() -> bool:
         for f in missing:
             print(f"  - {f.relative_to(ROOT)}", file=sys.stderr)
         print(
-            "\nRun the export script first:\n"
-            "  uv run python scripts/export_clip_onnx.py",
+            "\nRun the export script first:\n  uv run python scripts/export_clip_onnx.py",
             file=sys.stderr,
         )
         return False
@@ -54,7 +53,9 @@ def check_onnx_models() -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build Scene Atlas backend sidecar")
-    parser.add_argument("--clean", action="store_true", help="Remove previous build before building")
+    parser.add_argument(
+        "--clean", action="store_true", help="Remove previous build before building"
+    )
     args = parser.parse_args()
 
     system, arch = get_platform_info()
@@ -73,10 +74,14 @@ def main() -> None:
 
     # Run PyInstaller via uv
     cmd = [
-        sys.executable, "-m", "PyInstaller",
+        sys.executable,
+        "-m",
+        "PyInstaller",
         "--noconfirm",
-        "--distpath", str(ROOT / "backend" / "pyinstaller" / "dist"),
-        "--workpath", str(ROOT / "backend" / "pyinstaller" / "build"),
+        "--distpath",
+        str(ROOT / "backend" / "pyinstaller" / "dist"),
+        "--workpath",
+        str(ROOT / "backend" / "pyinstaller" / "build"),
         str(SPEC),
     ]
 

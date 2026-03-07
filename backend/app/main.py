@@ -76,17 +76,61 @@ async def lifespan(app: FastAPI):
     # a running event loop on Python 3.12+ / Windows.
     app.state.heavy_op_semaphore = asyncio.Semaphore(app_config.max_concurrent_heavy_requests)
 
-    # Start CLIP loading in background — does not block server startup.
+    # Start embedding model loading in background — does not block server startup.
     # get_clip_service() will wait for it; empty-query searches skip CLIP entirely.
     from .services.clip_service import start_clip_background_load
 
-    logger.info("Starting CLIP model background load...")
+    logger.info("Starting embedding model background load...")
     start_clip_background_load()
 
     # Start background job runner (eagerly, so it's ready for requests)
     from .services.job_runner import get_job_runner, shutdown_job_runner
 
-    get_job_runner()
+    runner = get_job_runner()
+
+    # Check embedding consistency after model loads — if the Qdrant collection
+    # point count doesn't match the DB image count (e.g. after model switch),
+    # auto-trigger a background rebuild.
+    def _check_and_rebuild_embeddings() -> None:
+        from ..pipeline.write_new_embeddings import rebuild_all_embeddings
+        from .services.clip_service import get_clip_service
+        from .services.qdrant_service import get_qdrant_service
+
+        try:
+            get_clip_service()  # blocks until model is loaded
+            qdrant = get_qdrant_service()
+            info = qdrant.get_collection_info()
+            qdrant_count = info.get("points_count", 0)
+
+            from .models import Image, get_engine, get_session_local
+
+            db_engine = get_engine(settings.database_url)
+            _Session = get_session_local(db_engine)
+            with _Session() as db:
+                db_count = db.query(Image).count()
+
+            if db_count > 0 and qdrant_count != db_count:
+                logger.warning(
+                    "Embedding mismatch: %d images in DB, %d in Qdrant collection '%s'. "
+                    "Auto-triggering rebuild.",
+                    db_count,
+                    qdrant_count,
+                    settings.qdrant_collection_name,
+                )
+                runner.submit(rebuild_all_embeddings, name="Rebuild embeddings", force=True)
+            else:
+                logger.info(
+                    "Embedding check OK: %d images, %d embeddings in '%s'",
+                    db_count,
+                    qdrant_count,
+                    settings.qdrant_collection_name,
+                )
+        except Exception:
+            logger.debug("Startup embedding check skipped (not critical)", exc_info=True)
+
+    threading.Thread(
+        target=_check_and_rebuild_embeddings, daemon=True, name="embedding-check"
+    ).start()
 
     # Clean up any stale staging dirs left over from crashes or previous sessions
     from ..pipeline.maintenance import cleanup_stale_staging, mark_interrupted_jobs

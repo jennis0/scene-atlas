@@ -30,7 +30,7 @@ import torch.nn as nn
 from transformers import CLIPModel, CLIPProcessor
 
 MODEL_NAME = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
-OUTPUT_DIR = Path(__file__).resolve().parent.parent / "backend" / "models"
+OUTPUT_DIR = Path(__file__).resolve().parent.parent / "backend" / "models" / "clip-vit-b-32"
 # CLIP's maximum token sequence length.  The text encoder is exported with
 # this as a *fixed* dimension (only the batch axis is dynamic).  The inference
 # service always pads/truncates input_ids and attention_mask to this length.
