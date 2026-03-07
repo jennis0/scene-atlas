@@ -433,6 +433,11 @@ def search_groups(
         if exclude_authors:
             group_query = group_query.filter(~ImageGroup.author.in_(exclude_authors))
 
+        # Image type filter: show groups that contain at least one image of selected type(s)
+        if image_types:
+            subquery = db.query(Image.group_id).filter(Image.image_type.in_(image_types)).distinct()
+            group_query = group_query.filter(ImageGroup.id.in_(subquery))
+
         total_groups = group_query.count()
 
         # Apply sort
@@ -497,11 +502,13 @@ def search_groups(
         # Batch fetch all image IDs for requested groups (browse mode)
         if include_all_image_ids and results:
             paginated_group_ids = [r.group_id for r in results]
-            rows = (
-                db.query(Image.group_id, Image.id)
-                .filter(Image.group_id.in_(paginated_group_ids))
-                .all()
+            image_id_query = db.query(Image.group_id, Image.id).filter(
+                Image.group_id.in_(paginated_group_ids)
             )
+            # When filtering by image type, only fetch matching image IDs
+            if image_types:
+                image_id_query = image_id_query.filter(Image.image_type.in_(image_types))
+            rows = image_id_query.all()
             ids_by_group: dict[int, list[int]] = {}
             for gid, img_id in rows:
                 ids_by_group.setdefault(gid, []).append(img_id)
