@@ -310,234 +310,236 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
         </div>
 
         {/* ── Body ───────────────────────────────────────────── */}
-        {activeTab === 'library' && (
-          <div className="px-5 pb-5 pt-4 space-y-5 min-h-[220px]">
-            {/* ── Stats row ─────────────────────────────────────── */}
-            {isError ? (
-              <p className="text-sm text-muted-foreground italic py-2">
-                Could not load library information.
-              </p>
-            ) : (
-              <div className="flex gap-2">
-                <StatCard
-                  label="Images"
-                  value={info?.library.image_count.toLocaleString() ?? '—'}
-                  loading={isLoading}
-                />
-                <StatCard
-                  label="Groups"
-                  value={info?.library.group_count.toLocaleString() ?? '—'}
-                  loading={isLoading}
-                />
-                <StatCard
-                  label="Storage"
-                  value={info ? formatBytes(info.storage.total_bytes) : '—'}
-                  loading={isLoading}
-                />
-              </div>
-            )}
-
-            {/* ── Storage breakdown ─────────────────────────────── */}
-            {!isError && info && <StorageBar storage={info.storage} />}
-            {!isError && isLoading && (
-              <div className="space-y-2">
-                <Shimmer className="h-2 w-full rounded-full" />
-                <div className="flex gap-4">
-                  <Shimmer className="h-3 w-20" />
-                  <Shimmer className="h-3 w-20" />
-                  <Shimmer className="h-3 w-20" />
+        <div className="overflow-y-auto h-[380px]">
+          {activeTab === 'library' && (
+            <div className="px-5 pb-5 pt-4 space-y-5">
+              {/* ── Stats row ─────────────────────────────────────── */}
+              {isError ? (
+                <p className="text-sm text-muted-foreground italic py-2">
+                  Could not load library information.
+                </p>
+              ) : (
+                <div className="flex gap-2">
+                  <StatCard
+                    label="Images"
+                    value={info?.library.image_count.toLocaleString() ?? '—'}
+                    loading={isLoading}
+                  />
+                  <StatCard
+                    label="Groups"
+                    value={info?.library.group_count.toLocaleString() ?? '—'}
+                    loading={isLoading}
+                  />
+                  <StatCard
+                    label="Storage"
+                    value={info ? formatBytes(info.storage.total_bytes) : '—'}
+                    loading={isLoading}
+                  />
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* ── Library location (Electron only) ──────────────── */}
-            {isElectron && (
-              <section>
-                <p className="section-label mb-2">Library Location</p>
-
-                {locationPhase === 'restarting' ? (
-                  <div className="flex items-center gap-2.5 py-2">
-                    <RotateCcw className="h-3.5 w-3.5 animate-spin shrink-0 text-primary" />
-                    <span className="text-sm text-muted-foreground">Restarting Scene Atlas…</span>
+              {/* ── Storage breakdown ─────────────────────────────── */}
+              {!isError && info && <StorageBar storage={info.storage} />}
+              {!isError && isLoading && (
+                <div className="space-y-2">
+                  <Shimmer className="h-2 w-full rounded-full" />
+                  <div className="flex gap-4">
+                    <Shimmer className="h-3 w-20" />
+                    <Shimmer className="h-3 w-20" />
+                    <Shimmer className="h-3 w-20" />
                   </div>
-                ) : locationPhase === 'confirming' && pendingDir ? (
-                  <div className="space-y-3">
-                    <div className="rounded-md border border-border bg-secondary/40 p-3 space-y-2.5">
-                      <div className="space-y-1">
-                        <span className="section-label">Current</span>
-                        <p className="text-sm text-muted-foreground break-all leading-relaxed">
-                          {dataDir ?? '—'}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <ArrowRight className="h-3 w-3 shrink-0 text-primary/50" />
-                        <div className="h-px flex-1 border-t border-dashed border-border" />
-                      </div>
-                      <div className="space-y-1">
-                        <span className="text-[10px] font-semibold text-primary/70 uppercase tracking-[0.1em]">
-                          New
-                        </span>
-                        <p className="text-sm text-primary break-all leading-relaxed">
-                          {pendingDir}
-                        </p>
-                      </div>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Scene Atlas will restart to apply the new location.
-                    </p>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={handleCancelChange}
-                        className="flex-1 h-8"
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={handleConfirmChange}
-                        className="flex-1 h-8 text-primary border-primary/40 hover:bg-primary/10"
-                      >
-                        Restart &amp; Apply
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-2.5">
-                    <div className="rounded-md border border-border bg-secondary/40 px-3 py-2.5 min-h-[2.5rem] flex items-center">
-                      {dataDir ? (
-                        <p className="text-sm text-foreground/80 break-all leading-relaxed">
-                          {dataDir}
-                        </p>
-                      ) : (
-                        <Shimmer className="h-3 w-3/4" />
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={handleOpenInExplorer}
-                        disabled={!dataDir}
-                        className="gap-1.5 h-8"
-                      >
-                        <FolderOpen className="h-3.5 w-3.5" />
-                        Open
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={handleChooseDir}
-                        disabled={!dataDir}
-                        className="gap-1.5 h-8"
-                      >
-                        <FolderInput className="h-3.5 w-3.5" />
-                        Change Location
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </section>
-            )}
-
-            {/* ── Divider ───────────────────────────────────────── */}
-            <div className="border-t border-border/50" />
-
-            {/* ── Actions row ───────────────────────────────────── */}
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleExportLibrary}
-                disabled={exportingLibrary}
-                className="gap-1.5 h-8"
-              >
-                {exportingLibrary ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Download className="h-3.5 w-3.5" />
-                )}
-                {exportingLibrary ? 'Exporting…' : 'Export library'}
-              </Button>
-            </div>
-
-            {/* ── Danger zone ───────────────────────────────────── */}
-            <section className="rounded-md border border-destructive/15 bg-destructive/[0.03] p-3 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <div className="min-w-0">
-                  <p className="text-sm text-foreground/90">Delete library</p>
-                  <p className="text-xs text-muted-foreground">
-                    Remove all images, metadata, and vectors
-                  </p>
                 </div>
-                {purgeJob.isRunning ? (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground shrink-0">
+              )}
+
+              {/* ── Library location (Electron only) ──────────────── */}
+              {isElectron && (
+                <section>
+                  <p className="section-label mb-2">Library Location</p>
+
+                  {locationPhase === 'restarting' ? (
+                    <div className="flex items-center gap-2.5 py-2">
+                      <RotateCcw className="h-3.5 w-3.5 animate-spin shrink-0 text-primary" />
+                      <span className="text-sm text-muted-foreground">Restarting Scene Atlas…</span>
+                    </div>
+                  ) : locationPhase === 'confirming' && pendingDir ? (
+                    <div className="space-y-3">
+                      <div className="rounded-md border border-border bg-secondary/40 p-3 space-y-2.5">
+                        <div className="space-y-1">
+                          <span className="section-label">Current</span>
+                          <p className="text-sm text-muted-foreground break-all leading-relaxed">
+                            {dataDir ?? '—'}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <ArrowRight className="h-3 w-3 shrink-0 text-primary/50" />
+                          <div className="h-px flex-1 border-t border-dashed border-border" />
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-semibold text-primary/70 uppercase tracking-[0.1em]">
+                            New
+                          </span>
+                          <p className="text-sm text-primary break-all leading-relaxed">
+                            {pendingDir}
+                          </p>
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Scene Atlas will restart to apply the new location.
+                      </p>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleCancelChange}
+                          className="flex-1 h-8"
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleConfirmChange}
+                          className="flex-1 h-8 text-primary border-primary/40 hover:bg-primary/10"
+                        >
+                          Restart &amp; Apply
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      <div className="rounded-md border border-border bg-secondary/40 px-3 py-2.5 min-h-[2.5rem] flex items-center">
+                        {dataDir ? (
+                          <p className="text-sm text-foreground/80 break-all leading-relaxed">
+                            {dataDir}
+                          </p>
+                        ) : (
+                          <Shimmer className="h-3 w-3/4" />
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleOpenInExplorer}
+                          disabled={!dataDir}
+                          className="gap-1.5 h-8"
+                        >
+                          <FolderOpen className="h-3.5 w-3.5" />
+                          Open
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleChooseDir}
+                          disabled={!dataDir}
+                          className="gap-1.5 h-8"
+                        >
+                          <FolderInput className="h-3.5 w-3.5" />
+                          Change Location
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {/* ── Divider ───────────────────────────────────────── */}
+              <div className="border-t border-border/50" />
+
+              {/* ── Actions row ───────────────────────────────────── */}
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleExportLibrary}
+                  disabled={exportingLibrary}
+                  className="gap-1.5 h-8"
+                >
+                  {exportingLibrary ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    <span>
-                      {purgeJob.progress ?? 'Deleting…'}
-                      {purgeJob.progressPct != null && ` (${purgeJob.progressPct}%)`}
-                    </span>
+                  ) : (
+                    <Download className="h-3.5 w-3.5" />
+                  )}
+                  {exportingLibrary ? 'Exporting…' : 'Export library'}
+                </Button>
+              </div>
+
+              {/* ── Danger zone ───────────────────────────────────── */}
+              <section className="rounded-md border border-destructive/15 bg-destructive/[0.03] p-3 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm text-foreground/90">Delete library</p>
+                    <p className="text-xs text-muted-foreground">
+                      Remove all images, metadata, and vectors
+                    </p>
                   </div>
-                ) : purgeJob.isComplete ? (
-                  <span className="text-sm text-emerald-600 dark:text-emerald-300 shrink-0">
-                    Done
-                  </span>
-                ) : purgeJob.isFailed ? (
-                  <span
-                    className="text-sm text-destructive shrink-0"
-                    title={purgeJob.error ?? undefined}
-                  >
-                    Failed
-                  </span>
-                ) : (
+                  {purgeJob.isRunning ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground shrink-0">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <span>
+                        {purgeJob.progress ?? 'Deleting…'}
+                        {purgeJob.progressPct != null && ` (${purgeJob.progressPct}%)`}
+                      </span>
+                    </div>
+                  ) : purgeJob.isComplete ? (
+                    <span className="text-sm text-emerald-600 dark:text-emerald-300 shrink-0">
+                      Done
+                    </span>
+                  ) : purgeJob.isFailed ? (
+                    <span
+                      className="text-sm text-destructive shrink-0"
+                      title={purgeJob.error ?? undefined}
+                    >
+                      Failed
+                    </span>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => setConfirmingDelete(true)}
+                      className="gap-1.5 h-7 text-xs shrink-0"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                      Delete
+                    </Button>
+                  )}
+                </div>
+
+                <div className="border-t border-destructive/10" />
+
+                <div className="flex items-center justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm text-foreground/90">Reset tags</p>
+                    <p className="text-xs text-muted-foreground">
+                      Clear all tags and restore default categories
+                    </p>
+                  </div>
                   <Button
                     size="sm"
                     variant="destructive"
-                    onClick={() => setConfirmingDelete(true)}
+                    onClick={() => setConfirmingResetTags(true)}
+                    disabled={resetTagsMut.isPending}
                     className="gap-1.5 h-7 text-xs shrink-0"
                   >
-                    <Trash2 className="h-3 w-3" />
-                    Delete
+                    {resetTagsMut.isPending ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <RotateCcw className="h-3 w-3" />
+                    )}
+                    Reset
                   </Button>
-                )}
-              </div>
-
-              <div className="border-t border-destructive/10" />
-
-              <div className="flex items-center justify-between">
-                <div className="min-w-0">
-                  <p className="text-sm text-foreground/90">Reset tags</p>
-                  <p className="text-xs text-muted-foreground">
-                    Clear all tags and restore default categories
-                  </p>
                 </div>
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={() => setConfirmingResetTags(true)}
-                  disabled={resetTagsMut.isPending}
-                  className="gap-1.5 h-7 text-xs shrink-0"
-                >
-                  {resetTagsMut.isPending ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <RotateCcw className="h-3 w-3" />
-                  )}
-                  Reset
-                </Button>
-              </div>
-            </section>
-          </div>
-        )}
+              </section>
+            </div>
+          )}
 
-        {/* ── Settings tab ───────────────────────────────────── */}
-        {activeTab === 'settings' && (
-          <div className="px-5 pb-5 pt-4 min-h-[220px]">
-            <SettingsTabContent ref={settingsRef} dialogOpen={open} />
-          </div>
-        )}
+          {/* ── Settings tab ───────────────────────────────────── */}
+          {activeTab === 'settings' && (
+            <div className="px-5 pb-5 pt-4">
+              <SettingsTabContent ref={settingsRef} dialogOpen={open} />
+            </div>
+          )}
+        </div>
 
         <ConfirmDialog
           open={confirmingResetTags}
