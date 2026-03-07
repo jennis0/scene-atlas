@@ -502,7 +502,10 @@ export default function EditGroupDialog({
                 >
                   {groups.map((g, i) => (
                     <DroppableGroupRow key={g.id} groupId={g.id} activeDrag={activeDrag}>
-                      <DraggableGroupRow groupId={g.id} isDndEnabled={isMassEdit || isImportReview}>
+                      <DraggableGroupRow
+                        groupId={g.id}
+                        isDndEnabled={isMassEdit || isImportReview || groups.length > 1}
+                      >
                         <div className="group/navrow">
                           {deleteConfirmGroupId === g.id ? (
                             <div className="px-3 py-2 border-l-2 border-destructive/50 bg-destructive/5">
