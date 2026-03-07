@@ -522,7 +522,10 @@ export default function EditGroupDialog({
                                       <MoreHorizontal className="h-3.5 w-3.5" />
                                     </button>
                                   </DropdownMenuTrigger>
-                                  <DropdownMenuContent align="end">
+                                  <DropdownMenuContent
+                                    align="end"
+                                    onCloseAutoFocus={(e) => e.preventDefault()}
+                                  >
                                     <DropdownMenuItem onClick={() => setMergeSourceGroupId(g.id)}>
                                       <Merge className="h-4 w-4 mr-2" />
                                       Merge into…

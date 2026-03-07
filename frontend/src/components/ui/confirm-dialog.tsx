@@ -39,7 +39,7 @@ export function ConfirmDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isLoading}>
             Cancel
           </Button>
-          <Button variant={confirmVariant} onClick={onConfirm} disabled={isLoading} autoFocus>
+          <Button variant={confirmVariant} onClick={onConfirm} disabled={isLoading} data-autofocus>
             {isLoading ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin mr-1" />

@@ -33,6 +33,7 @@ export function imageToEditable(img: Image, outOfScope = false): EditableFileSta
     grid_type: img.grid_type ?? null,
     subgroup: img.subgroup ?? null,
     image_type: img.image_type ?? 'battlemap',
+    media_type: img.media_type ?? 'image',
     excluded: false,
     outOfScope,
     previewUrl: getThumbnailUrlById(img.id),

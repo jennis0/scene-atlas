@@ -56,7 +56,7 @@ export function GroupPickerShell({
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/60 pointer-events-none" />
             <Input
-              autoFocus
+              data-autofocus
               inputSize="compact"
               type="text"
               value={searchQuery}

@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -9,6 +10,8 @@ interface DialogProps {
 }
 
 const Dialog = ({ open, onOpenChange, children }: DialogProps) => {
+  const containerRef = React.useRef<HTMLDivElement>(null)
+
   React.useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && open) {
@@ -19,16 +22,52 @@ const Dialog = ({ open, onOpenChange, children }: DialogProps) => {
     return () => window.removeEventListener('keydown', handleEscape)
   }, [open, onOpenChange])
 
+  // Move focus into the dialog when it opens. Looks for an element marked with
+  // data-autofocus first, then falls back to the first focusable element.
+  // Uses a microtask so the DOM is settled after React's StrictMode double-mount.
+  // A brief focusout guard re-asserts focus if an external element (e.g. a closing
+  // Radix dropdown) steals it during the open transition.
+  React.useEffect(() => {
+    if (!open) return
+    const el = containerRef.current
+    if (!el) return
+
+    const findTarget = () =>
+      el.querySelector<HTMLElement>('[data-autofocus]') ??
+      el.querySelector<HTMLElement>(
+        'input:not([disabled]):not([type="hidden"]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )
+
+    // Guard: if focus leaves the dialog container, reclaim it
+    const onFocusOut = (e: FocusEvent) => {
+      const next = e.relatedTarget as Node | null
+      if (!next || !el.contains(next)) {
+        queueMicrotask(() => findTarget()?.focus())
+      }
+    }
+    el.addEventListener('focusout', onFocusOut)
+    const guardTimer = setTimeout(() => el.removeEventListener('focusout', onFocusOut), 500)
+
+    queueMicrotask(() => findTarget()?.focus())
+
+    return () => {
+      el.removeEventListener('focusout', onFocusOut)
+      clearTimeout(guardTimer)
+    }
+  }, [open])
+
   if (!open) return null
 
-  return (
+  return createPortal(
     <div
+      ref={containerRef}
       className="fixed inset-0 z-50 flex items-center justify-center"
       onClick={(e) => e.stopPropagation()}
     >
       <div className="fixed inset-0 bg-black/80" onClick={() => onOpenChange?.(false)} />
       {children}
-    </div>
+    </div>,
+    document.body,
   )
 }
 

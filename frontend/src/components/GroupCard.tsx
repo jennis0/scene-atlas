@@ -71,7 +71,11 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
                 <MoreHorizontal className="h-4 w-4" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+            <DropdownMenuContent
+              align="end"
+              onClick={(e) => e.stopPropagation()}
+              onCloseAutoFocus={(e) => e.preventDefault()}
+            >
               <DropdownMenuItem onClick={() => onEdit?.()}>
                 <Pencil className="h-4 w-4 mr-2" />
                 Edit

@@ -1,5 +1,6 @@
 import type { EditableFileState } from '@/types'
 import { ZoomIn } from 'lucide-react'
+import { VideoIndicator } from '@/components/ui/video-indicator'
 
 interface FileCardThumbnailProps {
   file: EditableFileState
@@ -54,6 +55,10 @@ export function FileCardThumbnail({
             el.parentElement!.appendChild(placeholder)
           }}
         />
+      )}
+      {/* Video indicator — bottom-left to avoid checkbox overlap */}
+      {file.media_type === 'video' && !dimmed && (
+        <VideoIndicator size="sm" className="bottom-1 left-1" />
       )}
       {/* Selection checkbox overlay */}
       {!dimmed && !hideCheckbox && (
