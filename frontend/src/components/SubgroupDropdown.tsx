@@ -88,11 +88,20 @@ export function SubgroupDropdown({
             autoFocus
             className="flex-1 min-w-0 h-6 px-2 text-[12px] bg-secondary border border-border rounded text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && draft.trim()) onCommit(draft.trim())
-              if (e.key === 'Escape') onCancel()
+              if (e.key === 'Enter' && draft.trim()) {
+                e.preventDefault()
+                e.stopPropagation()
+                onCommit(draft.trim())
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault()
+                e.nativeEvent.stopImmediatePropagation()
+                onCancel()
+              }
             }}
           />
           <Button
+            type="button"
             variant="outline"
             size="sm"
             className="h-6 text-xs flex-shrink-0"

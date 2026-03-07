@@ -194,7 +194,19 @@ export function ImageViewer({
       invalidateGalleryQueries(queryClient)
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scenes() })
       setConfirmingDelete(false)
-      onDelete?.(image.id)
+
+      // Navigate to the nearest sibling in the group (using pre-deletion scenes snapshot).
+      // Only delegate to the parent onDelete when there are no siblings left — that's when
+      // the parent needs to handle closing the viewer or moving to the next gallery item.
+      const siblings = (scenes ?? []).filter((s) => s.id !== image.id)
+      if (siblings.length > 0) {
+        const deletedIdx = (scenes ?? []).findIndex((s) => s.id === image.id)
+        const nextIdx = Math.min(Math.max(deletedIdx, 0), siblings.length - 1)
+        preserveStateRef.current = true
+        onImageChange?.(siblings[nextIdx])
+      } else {
+        onDelete?.(image.id)
+      }
     },
   })
 
