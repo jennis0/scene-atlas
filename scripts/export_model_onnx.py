@@ -274,6 +274,24 @@ def save_tokenizer_siglip2(processor, output_dir: Path) -> None:
 # ── Quantisation ─────────────────────────────────────────────────────────────
 
 
+def _preprocess_for_quantisation(src: Path, dst: Path) -> Path:
+    """Run ORT pre-processing (shape inference + graph optimisation) on a model.
+
+    The ONNX Runtime docs recommend this before any quantisation step so that
+    tensor shape information is available for higher-quality quantisation.
+    """
+    from onnxruntime.quantization.preprocess import quant_pre_process
+
+    print(f"    Pre-processing {src.name}...")
+    # Skip symbolic shape inference — it fails on CLIP/SigLIP Expand ops
+    # (TypeError in _broadcast_shapes). ONNX shape inference + model
+    # optimisation still run and provide the tensor shape info that
+    # quantisation needs.
+    quant_pre_process(str(src), str(dst), skip_symbolic_shape=True)
+
+    return dst
+
+
 def quantise_fp16(fp32_dir: Path, fp16_dir: Path) -> None:
     """Convert fp32 ONNX models to fp16."""
     import onnx
@@ -283,26 +301,63 @@ def quantise_fp16(fp32_dir: Path, fp16_dir: Path) -> None:
 
     for name in ENCODER_NAMES.values():
         print(f"  Quantising {name} to fp16...")
-        model = onnx.load(str(fp32_dir / name))
+        preprocessed = fp16_dir / f"_pre_{name}"
+        _preprocess_for_quantisation(fp32_dir / name, preprocessed)
+
+        model = onnx.load(str(preprocessed))
         model_fp16 = convert_float_to_float16(
             model,
             keep_io_types=True,
         )
         onnx.save(model_fp16, str(fp16_dir / name))
+        preprocessed.unlink(missing_ok=True)
+
+
+def _find_int8_exclusions(onnx_path: Path) -> list[str]:
+    """Find nodes that should be excluded from int8 quantisation.
+
+    For text encoders, the first transformer layer and the final projection
+    are excluded to prevent error accumulation through subsequent layers.
+    The first layer is the primary source of quantisation error because its
+    output feeds every downstream layer.
+    """
+    import onnx
+
+    model = onnx.load(str(onnx_path))
+    matmuls = [n.name for n in model.graph.node if n.op_type == "MatMul"]
+
+    # Exclude first transformer layer (layers.0/) and the final projection
+    exclude = [n for n in matmuls if "layers.0/" in n or "projection/MatMul" in n]
+    if exclude:
+        print(f"    Excluding {len(exclude)} sensitive nodes from quantisation")
+    return exclude
 
 
 def quantise_int8(fp32_dir: Path, int8_dir: Path) -> None:
-    """Convert fp32 ONNX models to int8 via dynamic quantisation."""
+    """Convert fp32 ONNX models to int8 via dynamic quantisation.
+
+    Uses signed int8 weights with per-channel quantisation.  For the text
+    encoder, the first transformer layer and projection are kept in fp32
+    to prevent error accumulation (reduces max cosine diff from ~0.21 to
+    ~0.005).
+    """
     from onnxruntime.quantization import QuantType, quantize_dynamic
 
     int8_dir.mkdir(parents=True, exist_ok=True)
 
-    for name in ENCODER_NAMES.values():
+    for encoder_type, name in ENCODER_NAMES.items():
         print(f"  Quantising {name} to int8...")
+        src = fp32_dir / name
+
+        # Only exclude nodes for the text encoder; vision quantises cleanly
+        nodes_to_exclude = _find_int8_exclusions(src) if encoder_type == "text" else []
+
         quantize_dynamic(
-            model_input=str(fp32_dir / name),
+            model_input=str(src),
             model_output=str(int8_dir / name),
-            weight_type=QuantType.QUInt8,
+            weight_type=QuantType.QInt8,
+            per_channel=True,
+            nodes_to_exclude=nodes_to_exclude or None,
         )
 
 
@@ -333,8 +388,14 @@ def extract_manifest(model, processor, model_id: str, family: str) -> dict:
     do_center_crop = getattr(img_proc, "do_center_crop", True)
     resize_mode = "shortest_edge_then_crop" if do_center_crop else "direct_resize"
 
-    # Embedding dimension
-    embedding_dim = model.config.projection_dim
+    # Embedding dimension — CLIP uses projection_dim on the top-level config,
+    # SigLIP/SigLIP2 stores it on the text_config or defaults to hidden_size
+    embedding_dim = getattr(model.config, "projection_dim", None)
+    if embedding_dim is None:
+        embedding_dim = getattr(model.config.text_config, "projection_dim", None)
+    if embedding_dim is None:
+        # SigLIP2 uses hidden_size as embedding dim when no projection exists
+        embedding_dim = model.config.text_config.hidden_size
 
     # Tokenizer config
     if family == "siglip2":
