@@ -38,6 +38,7 @@ def _patch_image_store(monkeypatch, tmp_path):
 
     store = ImageStore(tmp_path / "store")
     monkeypatch.setattr("backend.pipeline.ingestion.get_image_store", lambda: store)
+    monkeypatch.setattr("backend.pipeline.prepare.get_image_store", lambda: store)
     return store
 
 
