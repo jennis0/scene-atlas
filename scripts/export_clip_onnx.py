@@ -19,7 +19,9 @@ Usage:
     uv run python scripts/export_clip_onnx.py
 """
 
+import json
 import shutil
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -164,6 +166,67 @@ def quantise_int8(fp32_dir: Path, int8_dir: Path) -> None:
         )
 
 
+# ── Manifest ─────────────────────────────────────────────────────────────────
+
+
+def extract_manifest(model: CLIPModel, processor: CLIPProcessor) -> dict:
+    """Extract model metadata into a manifest dict.
+
+    The manifest captures all parameters the inference service needs to
+    configure itself for this model: image preprocessing, tokenizer settings,
+    embedding dimension, and ONNX filenames.
+    """
+    img_proc = processor.image_processor
+    tokenizer = processor.tokenizer
+
+    # Determine image size (CLIPImageProcessor stores size as dict)
+    size_cfg = img_proc.size
+    if isinstance(size_cfg, dict):
+        image_size = size_cfg.get("shortest_edge", size_cfg.get("height", 224))
+    else:
+        image_size = int(size_cfg)
+
+    # Determine interpolation mode
+    # CLIPImageProcessor.resample is a PILImageResampling enum
+    resample = getattr(img_proc, "resample", None)
+    if resample is not None:
+        # PILImageResampling: 3 = BICUBIC, 2 = BILINEAR
+        interpolation = "bicubic" if int(resample) == 3 else "bilinear"
+    else:
+        interpolation = "bicubic"
+
+    # Determine resize mode
+    do_center_crop = getattr(img_proc, "do_center_crop", True)
+    resize_mode = "shortest_edge_then_crop" if do_center_crop else "direct_resize"
+
+    # Embedding dimension from the projection head
+    embedding_dim = model.config.projection_dim
+
+    return {
+        "model_id": MODEL_NAME,
+        "model_family": "clip",
+        "embedding_dim": embedding_dim,
+        "image_size": image_size,
+        "image_mean": list(img_proc.image_mean),
+        "image_std": list(img_proc.image_std),
+        "interpolation": interpolation,
+        "resize_mode": resize_mode,
+        "tokenizer_type": "huggingface",
+        "tokenizer_max_length": tokenizer.model_max_length,
+        "tokenizer_pad_id": tokenizer.pad_token_id,
+        "vision_encoder": "clip_vision_encoder.onnx",
+        "text_encoder": "clip_text_encoder.onnx",
+        "exported_at": datetime.now(UTC).isoformat(),
+    }
+
+
+def write_manifest(manifest: dict, output_dir: Path) -> None:
+    """Write manifest.json to the given directory."""
+    path = output_dir / "manifest.json"
+    path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    print(f"  Manifest written to {path}")
+
+
 # ── Sanity check ─────────────────────────────────────────────────────────────
 
 
@@ -186,10 +249,7 @@ def sanity_check(model: CLIPModel, processor: CLIPProcessor, onnx_dir: Path) -> 
     )
     (onnx_emb,) = sess.run(["embeddings"], {"pixel_values": dummy_pixels.numpy()})
     vision_dot = float(np.dot(torch_emb[0], onnx_emb[0]))
-    print(
-        f"    Vision dot product: {vision_dot:.8f}  "
-        f"(diff from 1.0: {abs(1.0 - vision_dot):.2e})"
-    )
+    print(f"    Vision dot product: {vision_dot:.8f}  (diff from 1.0: {abs(1.0 - vision_dot):.2e})")
 
     # Text check
     dummy_text = "a dark forest with a river"
@@ -213,10 +273,7 @@ def sanity_check(model: CLIPModel, processor: CLIPProcessor, onnx_dir: Path) -> 
         },
     )
     text_dot = float(np.dot(torch_text_emb[0], onnx_text_emb[0]))
-    print(
-        f"    Text dot product:   {text_dot:.8f}  "
-        f"(diff from 1.0: {abs(1.0 - text_dot):.2e})"
-    )
+    print(f"    Text dot product:   {text_dot:.8f}  (diff from 1.0: {abs(1.0 - text_dot):.2e})")
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -238,16 +295,15 @@ def print_size_table(base_dir: Path) -> None:
         text = vdir / "clip_text_encoder.onnx"
         v_size = vision.stat().st_size / (1024 * 1024) if vision.exists() else 0
         t_size = text.stat().st_size / (1024 * 1024) if text.exists() else 0
-        print(f"  {variant:<8} {v_size:>10.1f} MB   {t_size:>10.1f} MB   {v_size + t_size:>10.1f} MB")
+        print(
+            f"  {variant:<8} {v_size:>10.1f} MB   {t_size:>10.1f} MB   {v_size + t_size:>10.1f} MB"
+        )
 
     # Tokenizer
     tok_dir = base_dir / "tokenizer"
     if tok_dir.exists():
         tok_size = sum(f.stat().st_size for f in tok_dir.rglob("*") if f.is_file())
-        print(
-            f"  {'tokenizer':<8} {'':>15} {'':>15} "
-            f"{tok_size / (1024 * 1024):>10.1f} MB"
-        )
+        print(f"  {'tokenizer':<8} {'':>15} {'':>15} {tok_size / (1024 * 1024):>10.1f} MB")
 
     print("=" * 70)
 
@@ -279,17 +335,24 @@ def main() -> None:
     print("\nSaving tokenizer...")
     copy_tokenizer(OUTPUT_DIR)
 
+    # Generate manifest
+    print("\nGenerating manifest...")
+    manifest = extract_manifest(model, processor)
+
     # Sanity check fp32
+    write_manifest(manifest, fp32_dir)
     sanity_check(model, processor, fp32_dir)
 
     # Quantise to fp16
     print("\nQuantising to fp16...")
     quantise_fp16(fp32_dir, fp16_dir)
+    write_manifest(manifest, fp16_dir)
     sanity_check(model, processor, fp16_dir)
 
     # Quantise to int8
     print("\nQuantising to int8...")
     quantise_int8(fp32_dir, int8_dir)
+    write_manifest(manifest, int8_dir)
     sanity_check(model, processor, int8_dir)
 
     # Size report
