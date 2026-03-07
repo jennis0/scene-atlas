@@ -1,6 +1,6 @@
 # Security Evaluation — Scene Atlas (Hosted Mode)
 
-**Date**: 2026-03-03
+**Date**: 2026-03-07 (updated)
 **Scope**: Hosted deployment behind reverse proxy
 
 ## Deployment Model
@@ -126,16 +126,29 @@ This also eliminates Windows MAX_PATH issues from deeply nested folder uploads.
 
 ## Implementation Status
 
-- **Finding #2 (path traversal):** FIXED via staging redesign (UUID-flat-file structure with `.file_map.json` sidecar)
-- **Findings 1, 3–10:** Remain unimplemented in the main branch
-- **Security Phase 2:** Implementation exists on an unpushed `feature/security-phase-2` branch covering auth, rate limiting, security headers, and CI scanning
+- **Finding #2 (path traversal):** FIXED on main — staging redesign (UUID-flat-file structure with `.file_map.json` sidecar)
+- **Findings 1, 3–5:** Implemented on `feature/security-phase-2` branch (pushed, not merged). See details below.
+- **Findings 6–10:** Not yet implemented
+
+### Security Phase 2 Branch (`feature/security-phase-2`)
+
+The branch implements findings 1, 3, 4, and 5. Key architectural decisions made:
+
+- **Auth model:** Optional bearer token via `AUTH_TOKEN` env var. Empty string or unset disables auth (backwards-compatible for Electron/dev). All 9 API routers get auth via `dependencies=[Depends(verify_auth)]`; `/health` and `/` stay unauthenticated for monitoring probes.
+- **Token comparison:** `hmac.compare_digest` for constant-time comparison (stdlib, no extra dependency).
+- **Security headers:** `SecurityHeadersMiddleware` added after CORS middleware in `main.py`. Sets `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`.
+- **Rate limiting:** `slowapi` with tiered limits via shared `rate_limits.py` module (avoids circular imports).
+- **CI scanning:** `pip-audit` + `bandit` for Python, `npm audit` for frontend. All use `continue-on-error: true` to establish baseline without blocking CI.
+- **Frontend auth:** `VITE_AUTH_TOKEN` build-time env var injected via axios request interceptor. Token visible in bundle but required to access API — acceptable for a personal tool.
+
+Remaining tasks on the branch: apply auth to all routers (task 4), rate limiting integration (task 6), CI scanning (task 7), CORS startup warning (task 8), frontend auth injection (task 9). See `docs/plans/2026-03-03-security-phase-2.md` for the full plan.
 
 ## Remediation Priority
 
-1. Path traversal fix via hash-based staging (done)
-2. Authentication middleware (on feature/security-phase-2 branch, not merged)
-3. Rate limiting (on feature/security-phase-2 branch, not merged)
-4. Security headers (on feature/security-phase-2 branch, not merged)
-5. CI/CD security scanning (on feature/security-phase-2 branch, not merged)
+1. Path traversal fix via hash-based staging (done, on main)
+2. Authentication middleware (on branch, partially implemented)
+3. Rate limiting (on branch, not yet implemented)
+4. Security headers (on branch, implemented)
+5. CI/CD security scanning (on branch, not yet implemented)
 6. Electron IPC validation (future)
 7. CORS/CSP hardening (future)

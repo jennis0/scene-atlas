@@ -240,6 +240,15 @@ Input validation helpers (file size, file type, path traversal prevention).
 ### VideoUtils
 Video frame extraction and dimension reading for video media type support.
 
+### AppSettingsService
+Manages the `app_settings` database table for runtime-configurable feature flags and tuning parameters (grid detection, color extraction, concurrency limits). Settings are seeded at first boot via `seed_default_settings()`. See `backend/app/services/app_settings.py`.
+
+### StagingService
+Manages temporary files during imports. Handles UUID-based flat-file storage with `.file_map.json` sidecar for path mapping. See `backend/app/services/staging.py`.
+
+### PreparePoolService
+Global `ThreadPoolExecutor` for CPU-heavy image preparation tasks (thumbnails, colors, grid detection). Capped by `max_concurrent_prepare` to prevent OOM. See `backend/app/services/prepare_pool.py`.
+
 ### JobRunner
 In-process background job runner using `ThreadPoolExecutor` (default 2 workers). Tracks job status, progress, and results in memory. Jobs are submitted from API endpoints and execute pipeline functions.
 

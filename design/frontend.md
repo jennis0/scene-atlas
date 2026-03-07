@@ -87,6 +87,10 @@ frontend/src/
 │   ├── ImageViewer.tsx        # Full-screen image viewer
 │   ├── ImportDialog.tsx       # Import flow (upload → preview → process)
 │   ├── LoadingScreen.tsx      # Electron: loading/error splash
+│   ├── GalleryHeader.tsx       # Main gallery header (search, view toggle, actions)
+│   ├── GroupPickerShell.tsx    # Wrapper for merge picker UI
+│   ├── GroupSidebarShell.tsx   # Sidebar shell for group browsing
+│   ├── ImportSummaryDialog.tsx # Import completion summary (errors, warnings, skipped)
 │   ├── MergeGroupPicker.tsx   # Group merge selection dialog
 │   ├── SceneTile.tsx          # Clickable scene thumbnail tile
 │   ├── SubgroupDropdown.tsx   # Subgroup selector dropdown
@@ -111,7 +115,11 @@ frontend/src/
 │   ├── useEditGroupDnd.ts     # Drag-and-drop for edit group dialog
 │   ├── useEditGroupOperations.ts # Edit group mutation operations
 │   ├── useEditGroupLoad.ts    # Load group data for editing
-│   └── useGroupSidebarMultiselect.ts # Multi-select in group sidebar
+│   ├── useGalleryDialogs.ts   # Manages multiple dialog open/close state
+│   ├── useGallerySearch.ts    # Gallery search with React Query
+│   ├── useGroupSidebarMultiselect.ts # Multi-select in group sidebar
+│   ├── useImportProgressPolling.ts   # Import progress tracking for live review
+│   └── useSettingsDraft.ts    # Settings UI draft state management
 ├── lib/
 │   ├── api.ts                 # Axios instance + all API functions
 │   ├── apiBase.ts             # Dynamic base URL (Electron port negotiation)

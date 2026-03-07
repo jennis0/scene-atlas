@@ -122,7 +122,9 @@ GitHub Actions runs a tiered pipeline:
 | Integration + coverage | Push to main | pytest integration, coverage reports (uploaded as artifacts) |
 | Electron build | Version tags (`v*`) | Gate check → multi-platform build (Win/macOS/Linux) → GitHub Release |
 
-Coverage thresholds: backend 40%, frontend 10% (ratcheted up over time).
+Coverage thresholds: backend 40%, frontend 20% (ratcheted up over time).
+
+For detailed test strategy, conventions, and stress testing, see [docs/testing.md](docs/testing.md).
 
 ---
 
@@ -190,7 +192,7 @@ Release builds are automated via GitHub Actions on `v*` tags — push a tag like
 ## Troubleshooting
 
 **CLIP model slow to load:**
-On first start, the CLIP model (~600 MB) downloads from HuggingFace. Subsequent starts use the local cache.
+On first start, the ONNX CLIP model (~289 MB FP16) is set up via `scripts/setup_models.py`. Subsequent starts use the local cache.
 
 **Import fails silently:**
 Check the API log for errors:
@@ -203,3 +205,18 @@ tail -f logs/api.log
 uv run python reset_database.py
 ```
 Drops and recreates the SQLite database. All image metadata will be lost. Image files in `data/images/` are not affected.
+
+---
+
+## Documentation
+
+| Directory | Contents |
+|---|---|
+| [design/](design/README.md) | Architecture, component design, decisions, visual standards, status and backlog |
+| [docs/](docs/) | How to build, test, deploy, and operate the system |
+
+Key docs:
+- [design/status-and-roadmap.md](design/status-and-roadmap.md) — feature inventory, in-progress work, backlog
+- [design/decisions.md](design/decisions.md) — all architecture decision records (ADRs 001-015)
+- [docs/building.md](docs/building.md) — build/deploy/run for all three deployment modes
+- [docs/testing.md](docs/testing.md) — running tests, E2E setup, stress testing

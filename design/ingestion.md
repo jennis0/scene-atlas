@@ -174,13 +174,13 @@ Settings in `backend/app/config.py`:
 | Setting | Default | Purpose |
 |---------|---------|---------|
 | `ingestion_batch_size` | 16 | Images per batch for CLIP/DB/Qdrant operations |
-| `max_concurrent_prepare` | 8 | Max concurrent `prepare_single_image` tasks |
+| `max_concurrent_prepare` | 4 | Max concurrent `prepare_single_image` tasks (dynamically computed by `resource_detector.py` at first boot) |
 | `color_kmeans_n_init` | 3 | K-means random initializations |
 | `color_clustering_samples` | 5000 | Max pixels sampled for color extraction |
 | `enable_image_grid_detection` | False | Enable image-analysis-based grid detection |
 | `grid_min_cell_px` | 32 | Minimum grid cell size in pixels |
-| `grid_max_cell_px` | 256 | Maximum grid cell size in pixels |
-| `grid_detection_max_dim` | 1024 | Downsample to this before analysis |
+| `grid_max_cell_px` | 320 | Maximum grid cell size in pixels |
+| `grid_detection_max_dim` | 20000 | Maximum image dimension for grid analysis |
 | `grid_presence_threshold` | 0.3 | Confidence threshold for grid presence |
 | `grid_size_threshold` | 0.15 | Threshold when presence already known |
 | `grid_period_ratio_threshold` | 0.98 | Period ratio threshold for square vs hex classification |

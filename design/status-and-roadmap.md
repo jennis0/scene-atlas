@@ -48,16 +48,22 @@ Scene Atlas is a tool for viewing and searching large collections of tabletop RP
 
 | Feature | Branch | Plan File | Status |
 |---------|--------|-----------|--------|
-| Security Phase 2 | `feature/security-phase-2` (unpushed) | `docs/plans/2026-03-03-security-phase-2.md` | Auth middleware, rate limiting, security headers, CI scanning — all implemented but branch not pushed. Developer on leave. |
+| Security Phase 2 | `feature/security-phase-2` (pushed, not merged) | `docs/plans/2026-03-03-security-phase-2.md` | Auth middleware + security headers implemented; rate limiting, CI scanning, CORS warning, frontend auth still TODO. See [security.md](security.md) for details. |
 
 ### Backlog Items
 
 | Item | Tracked In | Priority |
 |------|-----------|----------|
-| E2E test expansion (85 remaining tests) | `design/e2e-todo.md` | P1-P3 |
-| Code quality improvements (8 items) | `design/code-quality-backlog.md` | Medium |
-| Filename in analyse errors | `design/upload-error-improvements-todo.md` | Low |
-| Major ecosystem upgrades (Tailwind 4, ESLint 10, React 19, React Router 7) | `design/frontend-hardening-handover.md` (Priority 3) | Low |
+| E2E test expansion (85 remaining tests) | [e2e-todo.md](e2e-todo.md) | P1-P3 |
+| Code quality improvements (8 items) | [technical-debt.md](technical-debt.md) | Medium |
+| Filename in analyse-step error responses | — | Low |
+| Real Qdrant in integration tests | — | Low |
+| Tailwind CSS 3 → 4 (requires tailwind-merge v2→v3) | — | Low |
+| ESLint 8 → 10 (flat config migration) | — | Low |
+| React 18 → 19 (blocked by @dnd-kit compatibility) | — | Low |
+| React Router 6 → 7 (low risk, only one route) | — | Low |
+| lucide-react 0.307 → 0.577 (icon renames) | — | Low |
+| Electron session-level CSP narrowing | — | Low |
 
 ---
 

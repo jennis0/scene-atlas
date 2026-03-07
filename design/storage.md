@@ -38,6 +38,7 @@ images
   content_hash    TEXT(64)            -- SHA-256 hex digest for deduplication
   search_text     TEXT                -- Pre-tokenized text for FTS5 (CamelCase-split)
   thumbnail_key   TEXT                -- Key into thumbnail store
+  job_warnings    TEXT                -- JSON: upload skips and pipeline warnings (migration 017)
   created_at      DATETIME
   updated_at      DATETIME
 
@@ -81,6 +82,7 @@ import_jobs
                                        -- completed | failed | cancelled | expired | broken
   source_label    TEXT                 -- Display label for activity dock
   total_files     INTEGER DEFAULT 0
+  total_file_size INTEGER DEFAULT 0   -- Accumulated bytes across all upload batches
   error_message   TEXT
   analysis_result TEXT                 -- JSON: full analysis output for preview reconnection
   created_at      DATETIME
@@ -96,6 +98,7 @@ import_group_jobs
   processed_files INTEGER DEFAULT 0
   failed_files    INTEGER DEFAULT 0
   status          TEXT NOT NULL DEFAULT 'running'  -- running | completed | failed | cancelled
+  file_errors     TEXT                -- JSON: per-file error dicts [{filename, reason, stage}] (migration 012)
   error_message   TEXT
   created_group_id INTEGER             -- FK to variant_groups.id once processing finishes
   created_at      DATETIME
