@@ -63,6 +63,41 @@ class TestLoadManifest:
         result["embedding_dim"] = 9999
         assert _FALLBACK_MANIFEST["embedding_dim"] == 512
 
+    def test_fallback_nested_lists_are_independent(self, tmp_path):
+        """Mutating nested lists in fallback must not corrupt the module constant."""
+        from backend.app.services.clip_service import (
+            _FALLBACK_MANIFEST,
+            _load_manifest,
+        )
+
+        result = _load_manifest(tmp_path)
+        original_mean = list(_FALLBACK_MANIFEST["image_mean"])
+        result["image_mean"].append(0.5)
+        assert _FALLBACK_MANIFEST["image_mean"] == original_mean
+
+    def test_validates_missing_required_key(self, tmp_path):
+        """Manifest missing a required key should raise ValueError."""
+        from backend.app.services.clip_service import _load_manifest
+
+        bad_manifest = {"model_id": "test", "image_size": 224}
+        (tmp_path / "manifest.json").write_text(json.dumps(bad_manifest), encoding="utf-8")
+        with pytest.raises(ValueError, match="missing required key"):
+            _load_manifest(tmp_path)
+
+    def test_validates_wrong_type(self, tmp_path):
+        """Manifest with wrong type for a key should raise TypeError."""
+        from backend.app.services.clip_service import _load_manifest
+
+        bad_manifest = {
+            "embedding_dim": "not_an_int",
+            "image_size": 224,
+            "image_mean": [0.5, 0.5, 0.5],
+            "image_std": [0.5, 0.5, 0.5],
+        }
+        (tmp_path / "manifest.json").write_text(json.dumps(bad_manifest), encoding="utf-8")
+        with pytest.raises(TypeError, match="should be int"):
+            _load_manifest(tmp_path)
+
 
 class TestManifestPreprocessing:
     """Tests that manifest values are correctly applied to preprocessing."""
@@ -270,6 +305,60 @@ class TestSentencePieceTokenizerWrapper:
         assert result.ids == [10, 20, 30, 40]
         assert result.attention_mask == [1, 1, 1, 1]
 
+    def test_eos_token_appended(self):
+        """When eos_id is set, it should be appended after text tokens."""
+        from backend.app.services.clip_service import _SentencePieceTokenizerWrapper
+
+        with patch("sentencepiece.SentencePieceProcessor") as mock_sp_cls:
+            mock_sp = MagicMock()
+            mock_sp.encode.return_value = [10, 20]
+            mock_sp_cls.return_value = mock_sp
+
+            wrapper = _SentencePieceTokenizerWrapper(
+                model_path="fake.model", max_length=6, pad_id=1, eos_id=2
+            )
+            result = wrapper.encode("hello")
+
+        # [10, 20, EOS=2, pad=1, pad=1, pad=1]
+        assert result.ids == [10, 20, 2, 1, 1, 1]
+        assert result.attention_mask == [1, 1, 1, 0, 0, 0]
+
+    def test_eos_token_truncated_with_text(self):
+        """When text + EOS exceeds max_length, both get truncated."""
+        from backend.app.services.clip_service import _SentencePieceTokenizerWrapper
+
+        with patch("sentencepiece.SentencePieceProcessor") as mock_sp_cls:
+            mock_sp = MagicMock()
+            mock_sp.encode.return_value = list(range(10))
+            mock_sp_cls.return_value = mock_sp
+
+            wrapper = _SentencePieceTokenizerWrapper(
+                model_path="fake.model", max_length=4, pad_id=1, eos_id=99
+            )
+            result = wrapper.encode("long text")
+
+        # [0, 1, 2, 3] — text fills max_length, EOS pushed out
+        assert len(result.ids) == 4
+        assert result.attention_mask == [1, 1, 1, 1]
+
+    def test_empty_string(self):
+        """Empty string should produce all-padding output (or EOS + padding)."""
+        from backend.app.services.clip_service import _SentencePieceTokenizerWrapper
+
+        with patch("sentencepiece.SentencePieceProcessor") as mock_sp_cls:
+            mock_sp = MagicMock()
+            mock_sp.encode.return_value = []
+            mock_sp_cls.return_value = mock_sp
+
+            wrapper = _SentencePieceTokenizerWrapper(
+                model_path="fake.model", max_length=4, pad_id=1, eos_id=2
+            )
+            result = wrapper.encode("")
+
+        # [EOS=2, pad=1, pad=1, pad=1]
+        assert result.ids == [2, 1, 1, 1]
+        assert result.attention_mask == [1, 0, 0, 0]
+
 
 class TestSentencePieceServiceInit:
     """Tests that CLIPService correctly initialises with a sentencepiece manifest."""
@@ -288,6 +377,7 @@ class TestSentencePieceServiceInit:
             "tokenizer_type": "sentencepiece",
             "tokenizer_max_length": 64,
             "tokenizer_pad_id": 1,
+            "tokenizer_eos_id": 1,
             "vision_encoder": "clip_vision_encoder.onnx",
             "text_encoder": "clip_text_encoder.onnx",
         }

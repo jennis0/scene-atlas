@@ -10,6 +10,7 @@ with the ONNX models.  If no manifest is found, hardcoded CLIP ViT-B/32
 defaults are used for backward compatibility.
 """
 
+import copy
 import json
 import logging
 import sys
@@ -61,28 +62,65 @@ class _TokenizerOutput:
 
 
 class _SentencePieceTokenizerWrapper:
-    """Thin wrapper around sentencepiece to match the tokenizers.Tokenizer API."""
+    """Thin wrapper around sentencepiece to match the tokenizers.Tokenizer API.
 
-    def __init__(self, model_path: str, max_length: int, pad_id: int, lowercase: bool = True):
+    SigLIP2's HF tokenizer appends an EOS token after the text tokens
+    (with attention_mask=1).  We replicate that here when ``eos_id`` is
+    provided, so ONNX inference produces identical embeddings to the
+    original torch model.
+    """
+
+    def __init__(
+        self,
+        model_path: str,
+        max_length: int,
+        pad_id: int,
+        lowercase: bool = True,
+        eos_id: int | None = None,
+    ):
         import sentencepiece as spm
 
         self._sp = spm.SentencePieceProcessor(model_file=model_path)
         self._max_length = max_length
         self._pad_id = pad_id
         self._lowercase = lowercase
+        self._eos_id = eos_id
 
     def encode(self, text: str) -> _TokenizerOutput:
         if self._lowercase:
             text = text.lower()
         ids = self._sp.encode(text, out_type=int)
-        # Truncate
+        # Append EOS if configured (SigLIP2 convention)
+        if self._eos_id is not None:
+            ids = ids + [self._eos_id]
+        # Truncate to max_length
         ids = ids[: self._max_length]
-        # Build attention mask
+        # Build attention mask before padding
         attn_len = len(ids)
-        # Pad
+        # Pad to max_length
         ids = ids + [self._pad_id] * (self._max_length - len(ids))
         attention_mask = [1] * attn_len + [0] * (self._max_length - attn_len)
         return _TokenizerOutput(ids=ids, attention_mask=attention_mask)
+
+
+_REQUIRED_MANIFEST_KEYS = {
+    "embedding_dim": int,
+    "image_size": int,
+    "image_mean": list,
+    "image_std": list,
+}
+
+
+def _validate_manifest(manifest: dict, source: str) -> None:
+    """Check that required manifest keys exist and have correct types."""
+    for key, expected_type in _REQUIRED_MANIFEST_KEYS.items():
+        if key not in manifest:
+            raise ValueError(f"Manifest from {source} is missing required key '{key}'")
+        if not isinstance(manifest[key], expected_type):
+            raise TypeError(
+                f"Manifest key '{key}' should be {expected_type.__name__}, "
+                f"got {type(manifest[key]).__name__}"
+            )
 
 
 def _load_manifest(models_dir: Path) -> dict:
@@ -90,10 +128,11 @@ def _load_manifest(models_dir: Path) -> dict:
     manifest_path = models_dir / "manifest.json"
     if manifest_path.exists():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        _validate_manifest(manifest, str(manifest_path))
         logger.info("Loaded model manifest: %s", manifest.get("model_id", "unknown"))
         return manifest
     logger.warning("No manifest.json in %s — using CLIP ViT-B/32 fallback defaults", models_dir)
-    return dict(_FALLBACK_MANIFEST)
+    return copy.deepcopy(_FALLBACK_MANIFEST)
 
 
 def _default_models_dir() -> Path:
@@ -201,8 +240,9 @@ class CLIPService:
             if not sp_model_path.exists():
                 # Try alternative name
                 sp_model_path = tokenizer_dir / "sentencepiece.bpe.model"
+            tok_eos_id = manifest.get("tokenizer_eos_id")
             self._tokenizer = _SentencePieceTokenizerWrapper(
-                str(sp_model_path), tok_max_length, tok_pad_id
+                str(sp_model_path), tok_max_length, tok_pad_id, eos_id=tok_eos_id
             )
         else:
             # CLIP uses HuggingFace fast tokenizer

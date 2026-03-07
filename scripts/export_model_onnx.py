@@ -300,12 +300,16 @@ def extract_manifest(model, processor, model_id: str, family: str) -> dict:
         tokenizer_type = "sentencepiece"
         tok_max_length = getattr(tokenizer, "model_max_length", 64)
         tok_pad_id = getattr(tokenizer, "pad_token_id", 1)
+        # SigLIP2's HF tokenizer appends EOS after text tokens; we need to
+        # replicate this in the sentencepiece wrapper at inference time.
+        tok_eos_id = getattr(tokenizer, "eos_token_id", None)
     else:
         tokenizer_type = "huggingface"
         tok_max_length = getattr(tokenizer, "model_max_length", 77)
         tok_pad_id = getattr(tokenizer, "pad_token_id", 49407)
+        tok_eos_id = None  # HF fast tokenizer handles EOS internally
 
-    return {
+    manifest = {
         "model_id": model_id,
         "model_family": family,
         "embedding_dim": embedding_dim,
@@ -321,6 +325,12 @@ def extract_manifest(model, processor, model_id: str, family: str) -> dict:
         "text_encoder": ENCODER_NAMES["text"],
         "exported_at": datetime.now(UTC).isoformat(),
     }
+
+    # Only include tokenizer_eos_id when set (sentencepiece models)
+    if tok_eos_id is not None:
+        manifest["tokenizer_eos_id"] = tok_eos_id
+
+    return manifest
 
 
 def write_manifest(manifest: dict, output_dir: Path) -> None:
