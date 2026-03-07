@@ -370,9 +370,9 @@ export function GalleryHeader({
               ? totalGroups > 0 && (
                   <>
                     <span className="text-border/60 px-1.5">&middot;</span>
-                    {totalGroups > 100 ? (
+                    {totalGroups > 500 ? (
                       <div
-                        title={`Too many groups (${totalGroups}) — apply filters to narrow below 100`}
+                        title={`Too many groups (${totalGroups}) — apply filters to narrow below 500`}
                         className="flex items-center gap-1.5 cursor-not-allowed opacity-50"
                       >
                         <Pencil className="h-3 w-3" />

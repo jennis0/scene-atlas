@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { Upload, Mountain, Loader2 } from 'lucide-react'
 import { groupApi, searchApi } from '@/lib/api'
 import { QUERY_KEYS, invalidateGalleryQueries } from '@/lib/queryKeys'
+import type { SeedImage } from '@/types'
 import { ImageGrid } from '@/components/ImageGrid'
 import { GroupGrid } from '@/components/GroupGrid'
 import { ImageViewer } from '@/components/ImageViewer'
@@ -116,17 +117,19 @@ export function Gallery() {
     }
 
     // Grouped view: fetch all matching images with current filters
-    if (search.viewMode === 'grouped' && search.totalGroups <= 100) {
+    if (search.viewMode === 'grouped' && search.totalGroups <= 500) {
       dialogs.setEditAllLoading(true)
       try {
-        const response = await searchApi.search({
-          query: search.submittedQuery || '',
-          ...search.filters,
-          image_types: search.imageType === 'all' ? [] : [search.imageType],
-          limit: 2000,
+        const response = await searchApi.groups({
+          ...search.groupSearchParams,
+          limit: search.totalGroups,
           offset: 0,
+          include_all_image_ids: true,
         })
-        dialogs.setEditAllSeedImages(response.images)
+        const seedImages: SeedImage[] = response.groups.flatMap((g) =>
+          (g.all_image_ids ?? []).map((imgId) => ({ id: imgId, group_id: g.group_id })),
+        )
+        dialogs.setEditAllSeedImages(seedImages)
         dialogs.setShowMassEdit(true)
       } catch (error) {
         toast.error('Failed to load images for bulk edit')
