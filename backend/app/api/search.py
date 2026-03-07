@@ -662,11 +662,12 @@ def search_groups(
 
 
 @router.post("/rebuild-embeddings")
-def trigger_rebuild_embeddings():
-    """Rebuild all CLIP embeddings (fire-and-forget background job).
+def trigger_rebuild_embeddings(force: bool = False):
+    """Rebuild all embeddings (fire-and-forget background job).
 
     Deletes and recreates the Qdrant collection, then re-encodes every image.
     Search will be unavailable while the rebuild is running.
+    If force=False and collection is already populated, the rebuild is skipped.
     """
     from ...pipeline.write_new_embeddings import rebuild_all_embeddings
     from ..services.job_runner import get_job_runner
@@ -675,7 +676,7 @@ def trigger_rebuild_embeddings():
         runner = get_job_runner()
         if runner.has_active_job("Rebuild embeddings"):
             raise HTTPException(status_code=409, detail="Embedding rebuild already in progress")
-        job_id = runner.submit(rebuild_all_embeddings, name="Rebuild embeddings")
+        job_id = runner.submit(rebuild_all_embeddings, name="Rebuild embeddings", force=force)
         return {"job_id": job_id, "message": "Embedding rebuild started"}
     except HTTPException:
         raise

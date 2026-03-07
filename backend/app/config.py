@@ -43,13 +43,17 @@ class Settings(BaseSettings):
 
     # Qdrant (embedded local mode)
     qdrant_path: Path = data_dir / "qdrant_local"
-    qdrant_collection_name: str = "battlemap_images"
-    qdrant_vector_size: int = 512  # CLIP ViT-B/32 projection_dim (common space for text & image)
+    qdrant_vector_size: int = 512  # Overwritten from manifest.embedding_dim at startup
 
-    # CLIP Model
-    # clip_model_name: str = "openai/clip-vit-base-patch32"
-    clip_model_name: str = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
+    # Embedding model — selects which subdirectory under backend/models/
+    # Set via EMBEDDING_MODEL env var to switch models in dev.
+    embedding_model: str = "clip-vit-b-32"
     clip_device: str = "cpu"  # or "cuda" if GPU available
+
+    @property
+    def qdrant_collection_name(self) -> str:
+        """Collection name scoped to the active embedding model."""
+        return f"embeddings_{self.embedding_model}"
 
     # ── Service constants (env-backed, not in AppSettings DB) ─────────────────
     # Change via env var + restart. Suitable for operator/developer tuning.

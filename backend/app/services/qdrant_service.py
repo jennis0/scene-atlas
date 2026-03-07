@@ -26,9 +26,11 @@ class QdrantService:
         self,
         path: Path | str = settings.qdrant_path,
         collection_name: str = settings.qdrant_collection_name,
+        vector_size: int | None = None,
     ):
         self._lock = threading.RLock()
         self._path = Path(path)
+        self._vector_size = vector_size or settings.qdrant_vector_size
         self.client = QdrantClient(path=str(self._path))
         self.collection_name = collection_name
         self.ensure_collection()
@@ -45,7 +47,7 @@ class QdrantService:
                     self.client.create_collection(
                         collection_name=self.collection_name,
                         vectors_config=VectorParams(
-                            size=settings.qdrant_vector_size,
+                            size=self._vector_size,
                             distance=Distance.COSINE,
                         ),
                     )

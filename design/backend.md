@@ -268,7 +268,7 @@ All config via `backend/app/config.py` using `pydantic-settings`. Reads from `.e
 - `store_images_dir` / `store_thumbnails_dir` — object store base directories
 - `staging_dir` — temp directory for import uploads
 - `qdrant_path` — Qdrant embedded local storage directory
-- `clip_model_name` / `clip_device` — CLIP model config
+- `embedding_model` / `clip_device` — embedding model config (selects model subdirectory under `backend/models/`)
 - `max_job_workers` — concurrent background job threads
 - `scheduler_enabled` — periodic maintenance (backup, staging cleanup)
 - `cors_origins` — allowed origins (localhost:3000, localhost:5173)

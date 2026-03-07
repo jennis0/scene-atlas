@@ -1,10 +1,17 @@
-"""CLIP model service for generating image and text embeddings.
+"""Embedding model service for generating image and text embeddings.
 
-Uses ONNX Runtime for inference with fp16-quantised CLIP models.
-The ONNX models are exported from the torch model using
-``scripts/export_clip_onnx.py`` and bundled into the sidecar.
+Uses ONNX Runtime for inference with quantised models (CLIP, SigLIP2, etc.).
+The ONNX models are exported using ``scripts/export_clip_onnx.py`` (or
+``scripts/export_model_onnx.py``) and bundled into the sidecar.
+
+Model-specific parameters (image size, normalization, tokenizer config,
+embedding dimension) are read from a ``manifest.json`` file co-located
+with the ONNX models.  If no manifest is found, hardcoded CLIP ViT-B/32
+defaults are used for backward compatibility.
 """
 
+import copy
+import json
 import logging
 import sys
 import threading
@@ -17,10 +24,115 @@ from backend.app.config import settings as _settings
 
 logger = logging.getLogger(__name__)
 
-# CLIP image preprocessing constants (from preprocessor_config.json)
-_CLIP_IMAGE_SIZE = 224
-_CLIP_IMAGE_MEAN = np.array([0.48145466, 0.4578275, 0.40821073], dtype=np.float32)
-_CLIP_IMAGE_STD = np.array([0.26862954, 0.26130258, 0.27577711], dtype=np.float32)
+# Hardcoded CLIP ViT-B/32 defaults — used as fallback when no manifest.json
+# exists (backward compatibility for deployments that haven't re-exported).
+_FALLBACK_MANIFEST: dict = {
+    "model_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
+    "model_family": "clip",
+    "embedding_dim": 512,
+    "image_size": 224,
+    "image_mean": [0.48145466, 0.4578275, 0.40821073],
+    "image_std": [0.26862954, 0.26130258, 0.27577711],
+    "interpolation": "bicubic",
+    "resize_mode": "shortest_edge_then_crop",
+    "tokenizer_type": "huggingface",
+    "tokenizer_max_length": 77,
+    "tokenizer_pad_id": 49407,
+    "vision_encoder": "clip_vision_encoder.onnx",
+    "text_encoder": "clip_text_encoder.onnx",
+}
+
+_INTERPOLATION_MAP = {
+    "bicubic": Image.BICUBIC,
+    "bilinear": Image.BILINEAR,
+}
+
+
+# ── SentencePiece tokenizer wrapper ──────────────────────────────────────────
+# Provides the same interface as tokenizers.Tokenizer so CLIPService can use
+# either backend transparently.
+
+
+class _TokenizerOutput:
+    """Minimal output mimicking tokenizers.Encoding."""
+
+    def __init__(self, ids: list[int], attention_mask: list[int]):
+        self.ids = ids
+        self.attention_mask = attention_mask
+
+
+class _SentencePieceTokenizerWrapper:
+    """Thin wrapper around sentencepiece to match the tokenizers.Tokenizer API.
+
+    SigLIP2's HF tokenizer appends an EOS token after the text tokens
+    (with attention_mask=1).  We replicate that here when ``eos_id`` is
+    provided, so ONNX inference produces identical embeddings to the
+    original torch model.
+    """
+
+    def __init__(
+        self,
+        model_path: str,
+        max_length: int,
+        pad_id: int,
+        lowercase: bool = True,
+        eos_id: int | None = None,
+    ):
+        import sentencepiece as spm
+
+        self._sp = spm.SentencePieceProcessor(model_file=model_path)
+        self._max_length = max_length
+        self._pad_id = pad_id
+        self._lowercase = lowercase
+        self._eos_id = eos_id
+
+    def encode(self, text: str) -> _TokenizerOutput:
+        if self._lowercase:
+            text = text.lower()
+        ids = self._sp.encode(text, out_type=int)
+        # Append EOS if configured (SigLIP2 convention)
+        if self._eos_id is not None:
+            ids = ids + [self._eos_id]
+        # Truncate to max_length
+        ids = ids[: self._max_length]
+        # Build attention mask before padding
+        attn_len = len(ids)
+        # Pad to max_length
+        ids = ids + [self._pad_id] * (self._max_length - len(ids))
+        attention_mask = [1] * attn_len + [0] * (self._max_length - attn_len)
+        return _TokenizerOutput(ids=ids, attention_mask=attention_mask)
+
+
+_REQUIRED_MANIFEST_KEYS = {
+    "embedding_dim": int,
+    "image_size": int,
+    "image_mean": list,
+    "image_std": list,
+}
+
+
+def _validate_manifest(manifest: dict, source: str) -> None:
+    """Check that required manifest keys exist and have correct types."""
+    for key, expected_type in _REQUIRED_MANIFEST_KEYS.items():
+        if key not in manifest:
+            raise ValueError(f"Manifest from {source} is missing required key '{key}'")
+        if not isinstance(manifest[key], expected_type):
+            raise TypeError(
+                f"Manifest key '{key}' should be {expected_type.__name__}, "
+                f"got {type(manifest[key]).__name__}"
+            )
+
+
+def _load_manifest(models_dir: Path) -> dict:
+    """Load manifest.json from models_dir, falling back to hardcoded defaults."""
+    manifest_path = models_dir / "manifest.json"
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        _validate_manifest(manifest, str(manifest_path))
+        logger.info("Loaded model manifest: %s", manifest.get("model_id", "unknown"))
+        return manifest
+    logger.warning("No manifest.json in %s — using CLIP ViT-B/32 fallback defaults", models_dir)
+    return copy.deepcopy(_FALLBACK_MANIFEST)
 
 
 def _default_models_dir() -> Path:
@@ -28,11 +140,11 @@ def _default_models_dir() -> Path:
 
     In a frozen PyInstaller sidecar the models are bundled at
     ``_MEIPASS/models/``.  In development they live under
-    ``backend/models/fp16/`` (or whichever quantisation variant is active).
+    ``backend/models/<embedding_model>/fp16/`` (or whichever quantisation variant is active).
     """
     if getattr(sys, "frozen", False):
         return Path(sys._MEIPASS) / "models"
-    return Path(__file__).parent.parent.parent / "models" / "fp16"
+    return Path(__file__).parent.parent.parent / "models" / _settings.embedding_model / "fp16"
 
 
 # Module-level LRU cache for text embeddings (avoids lru_cache-on-method leak).
@@ -43,7 +155,11 @@ _text_embedding_cache: dict[str, tuple[float, ...]] = {}
 
 
 class CLIPService:
-    """Service for generating CLIP embeddings via ONNX Runtime.
+    """Service for generating embeddings via ONNX Runtime.
+
+    Reads a ``manifest.json`` from the models directory to configure itself
+    for the active model (image preprocessing, tokenizer, ONNX filenames).
+    Falls back to CLIP ViT-B/32 defaults if no manifest is present.
 
     Parameters
     ----------
@@ -52,8 +168,8 @@ class CLIPService:
     model_name : str
         Ignored (kept for backward compatibility).
     models_dir : path, optional
-        Directory containing ``clip_vision_encoder.onnx``,
-        ``clip_text_encoder.onnx``, and a ``tokenizer/`` sub-directory.
+        Directory containing ONNX vision/text encoders, a ``manifest.json``,
+        and a ``tokenizer/`` sub-directory.
     """
 
     def __init__(
@@ -67,11 +183,21 @@ class CLIPService:
         # directory-scan OSErrors with transformers.  onnxruntime and tokenizers
         # are lightweight by comparison, but the pattern costs nothing.
         import onnxruntime as ort
-        from tokenizers import Tokenizer as HFTokenizer
 
         if models_dir is None:
             models_dir = _default_models_dir()
         models_dir = Path(models_dir)
+
+        # Load manifest (or fall back to hardcoded CLIP defaults)
+        manifest = _load_manifest(models_dir)
+        self._manifest = manifest
+        self._image_size: int = manifest["image_size"]
+        self._image_mean = np.array(manifest["image_mean"], dtype=np.float32)
+        self._image_std = np.array(manifest["image_std"], dtype=np.float32)
+        self._interpolation = _INTERPOLATION_MAP.get(
+            manifest.get("interpolation", "bicubic"), Image.BICUBIC
+        )
+        self._resize_mode: str = manifest.get("resize_mode", "shortest_edge_then_crop")
 
         if tokenizer_dir is None:
             # Tokenizer lives as a sibling of the quantisation subdirectory
@@ -83,7 +209,7 @@ class CLIPService:
                 tokenizer_dir = models_dir / "tokenizer"
         tokenizer_dir = Path(tokenizer_dir)
 
-        logger.info("Loading ONNX CLIP models from %s", models_dir)
+        logger.info("Loading ONNX models from %s", models_dir)
 
         # Session options — limit threads to avoid contention with uvicorn
         sess_opts = ort.SessionOptions()
@@ -93,52 +219,84 @@ class CLIPService:
 
         providers = ["CPUExecutionProvider"]
 
+        vision_file = manifest.get("vision_encoder", "clip_vision_encoder.onnx")
+        text_file = manifest.get("text_encoder", "clip_text_encoder.onnx")
+
         self._vision_session = ort.InferenceSession(
-            str(models_dir / "clip_vision_encoder.onnx"), sess_opts, providers=providers
+            str(models_dir / vision_file), sess_opts, providers=providers
         )
         self._text_session = ort.InferenceSession(
-            str(models_dir / "clip_text_encoder.onnx"), sess_opts, providers=providers
+            str(models_dir / text_file), sess_opts, providers=providers
         )
 
-        # Tokenizer
-        tok_path = tokenizer_dir / "tokenizer.json"
-        self._tokenizer = HFTokenizer.from_file(str(tok_path))
-        self._tokenizer.enable_truncation(max_length=77)
-        self._tokenizer.enable_padding(length=77, pad_id=49407)
+        # Tokenizer — branch on type (huggingface fast tokenizer vs sentencepiece)
+        tokenizer_type = manifest.get("tokenizer_type", "huggingface")
+        tok_max_length = manifest.get("tokenizer_max_length", 77)
+        tok_pad_id = manifest.get("tokenizer_pad_id", 49407)
 
-        logger.info("ONNX CLIP models loaded")
+        if tokenizer_type == "sentencepiece":
+            # SigLIP2 uses SentencePiece tokenizer
+            sp_model_path = tokenizer_dir / "spiece.model"
+            if not sp_model_path.exists():
+                # Try alternative name
+                sp_model_path = tokenizer_dir / "sentencepiece.bpe.model"
+            tok_eos_id = manifest.get("tokenizer_eos_id")
+            self._tokenizer = _SentencePieceTokenizerWrapper(
+                str(sp_model_path), tok_max_length, tok_pad_id, eos_id=tok_eos_id
+            )
+        else:
+            # CLIP uses HuggingFace fast tokenizer
+            from tokenizers import Tokenizer as HFTokenizer
+
+            tok_path = tokenizer_dir / "tokenizer.json"
+            self._tokenizer = HFTokenizer.from_file(str(tok_path))
+            self._tokenizer.enable_truncation(max_length=tok_max_length)
+            self._tokenizer.enable_padding(length=tok_max_length, pad_id=tok_pad_id)
+
+        logger.info("ONNX models loaded (%s)", manifest.get("model_id", "unknown"))
+
+    # ── Properties ────────────────────────────────────────────────────────
+
+    @property
+    def embedding_dim(self) -> int:
+        """Embedding vector dimensionality for the active model."""
+        return self._manifest.get("embedding_dim", 512)
+
+    @property
+    def model_id(self) -> str:
+        """HuggingFace model ID for the active model."""
+        return self._manifest.get("model_id", "unknown")
 
     # ── Image preprocessing ──────────────────────────────────────────────
 
-    @staticmethod
-    def _preprocess_image(image: Image.Image) -> np.ndarray:
-        """Replicate CLIPImageProcessor: resize → centre-crop → normalise → CHW.
+    def _preprocess_image(self, image: Image.Image) -> np.ndarray:
+        """Resize, optionally crop, normalise, and transpose to CHW.
 
-        Returns a float32 array of shape ``[3, 224, 224]``.
+        Returns a float32 array of shape ``[3, size, size]``.
         """
-        # 1. Resize shortest side to 224 with BICUBIC
-        w, h = image.size
-        if h < w:
-            new_h = _CLIP_IMAGE_SIZE
-            new_w = int(w * _CLIP_IMAGE_SIZE / h)
+        size = self._image_size
+
+        if self._resize_mode == "shortest_edge_then_crop":
+            # Resize shortest side to target, then centre-crop
+            w, h = image.size
+            if h < w:
+                new_h = size
+                new_w = int(w * size / h)
+            else:
+                new_w = size
+                new_h = int(h * size / w)
+            image = image.resize((new_w, new_h), self._interpolation)
+
+            w, h = image.size
+            left = (w - size) // 2
+            top = (h - size) // 2
+            image = image.crop((left, top, left + size, top + size))
         else:
-            new_w = _CLIP_IMAGE_SIZE
-            new_h = int(h * _CLIP_IMAGE_SIZE / w)
-        image = image.resize((new_w, new_h), Image.BICUBIC)
+            # direct_resize — resize directly to (size, size)
+            image = image.resize((size, size), self._interpolation)
 
-        # 2. Centre crop to 224×224
-        w, h = image.size
-        left = (w - _CLIP_IMAGE_SIZE) // 2
-        top = (h - _CLIP_IMAGE_SIZE) // 2
-        image = image.crop((left, top, left + _CLIP_IMAGE_SIZE, top + _CLIP_IMAGE_SIZE))
-
-        # 3. Scale to [0, 1]
         pixels = np.array(image, dtype=np.float32) / 255.0
-
-        # 4. Normalise with CLIP mean / std
-        pixels = (pixels - _CLIP_IMAGE_MEAN) / _CLIP_IMAGE_STD
-
-        # 5. HWC → CHW
+        pixels = (pixels - self._image_mean) / self._image_std
         return np.transpose(pixels, (2, 0, 1))
 
     # ── Public interface ─────────────────────────────────────────────────
@@ -150,13 +308,13 @@ class CLIPService:
             image_path: Path to the image file.
 
         Returns:
-            Embedding vector as list of floats (512-d, L2-normalised).
+            Embedding vector as list of floats (L2-normalised).
         """
         try:
             with Image.open(image_path) as img:
                 pixel_values = self._preprocess_image(img.convert("RGB"))
 
-            pixel_values = pixel_values[np.newaxis, ...]  # [1, 3, 224, 224]
+            pixel_values = pixel_values[np.newaxis, ...]
 
             (embeddings,) = self._vision_session.run(["embeddings"], {"pixel_values": pixel_values})
             embedding = embeddings[0].tolist()
@@ -174,7 +332,7 @@ class CLIPService:
             text: Text query (e.g., "dark forest cave with water").
 
         Returns:
-            Embedding vector as list of floats (512-d, L2-normalised).
+            Embedding vector as list of floats (L2-normalised).
 
         Results are cached in a module-level LRU dict keyed on the query
         string to avoid repeated ONNX inference for common queries.
@@ -222,7 +380,7 @@ class CLIPService:
                 with Image.open(path) as img:
                     pixel_batch.append(self._preprocess_image(img.convert("RGB")))
 
-            pixel_values = np.stack(pixel_batch, axis=0)  # [N, 3, 224, 224]
+            pixel_values = np.stack(pixel_batch, axis=0)
             del pixel_batch
 
             (embeddings,) = self._vision_session.run(["embeddings"], {"pixel_values": pixel_values})
@@ -253,17 +411,17 @@ def _load_clip() -> None:
         service = CLIPService()
         with _clip_lock:
             _clip_service = service
-        logger.info("CLIP model ready")
+        logger.info("Embedding model ready")
     except Exception as exc:
         with _clip_lock:
             _clip_error = exc
-        logger.exception("CLIP model load failed")
+        logger.exception("Embedding model load failed")
     finally:
         _clip_ready.set()  # Always unblock waiters, even on failure
 
 
 def start_clip_background_load() -> threading.Thread:
-    """Kick off CLIP loading in a daemon thread.  Idempotent — safe to call twice."""
+    """Kick off model loading in a daemon thread.  Idempotent — safe to call twice."""
     if _clip_ready.is_set():
         # Already loaded (or failed) — nothing to do; return a harmless sentinel.
         t = threading.Thread(target=lambda: None, daemon=True, name="clip-loader-noop")
@@ -275,8 +433,8 @@ def start_clip_background_load() -> threading.Thread:
 
 
 def get_clip_service() -> CLIPService:
-    """Return the CLIP singleton, waiting for the background load if needed."""
+    """Return the embedding model singleton, waiting for background load if needed."""
     _clip_ready.wait()  # no-op once set; blocks briefly if still loading
     if _clip_service is None:
-        raise RuntimeError(f"CLIP service unavailable: {_clip_error}")
+        raise RuntimeError(f"Embedding service unavailable: {_clip_error}")
     return _clip_service

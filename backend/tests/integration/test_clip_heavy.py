@@ -1,6 +1,6 @@
-"""Heavy integration tests that use real CLIP model.
+"""Heavy integration tests that use real embedding models.
 
-These tests load the ONNX CLIP models and run real inference.
+These tests load the ONNX models and run real inference.
 They are SKIPPED by default — run explicitly with:
 
     uv run python -m pytest -m heavy -v
@@ -21,7 +21,7 @@ pytestmark = pytest.mark.heavy
 
 @pytest.fixture(scope="session")
 def clip_service():
-    """Load the real CLIP service once for the entire test session.
+    """Load the real embedding service once for the entire test session.
 
     Also primes the module-level singleton so that code paths using
     ``get_clip_service()`` work without needing ``start_clip_background_load()``.
@@ -39,18 +39,18 @@ def clip_service():
 
 
 class TestCLIPServiceReal:
-    """Tests using the real CLIP model (marked as heavy)."""
+    """Tests using the real model (marked as heavy)."""
 
-    def test_encode_image_returns_512_dim(self, clip_service, make_test_image, tmp_path):
+    def test_encode_image_returns_correct_dim(self, clip_service, make_test_image, tmp_path):
         img = tmp_path / "test.jpg"
         make_test_image(img, width=100, height=100, color=(100, 150, 200))
         embedding = clip_service.encode_image(img)
-        assert len(embedding) == 512
+        assert len(embedding) == clip_service.embedding_dim
         assert all(isinstance(v, float) for v in embedding)
 
-    def test_encode_text_returns_512_dim(self, clip_service):
+    def test_encode_text_returns_correct_dim(self, clip_service):
         embedding = clip_service.encode_text("a dark forest with a river")
-        assert len(embedding) == 512
+        assert len(embedding) == clip_service.embedding_dim
 
     def test_similar_images_have_higher_similarity(self, clip_service, make_test_image, tmp_path):
         """Two similar-colored images should be more similar than very different ones."""
@@ -87,7 +87,7 @@ class TestCLIPServiceReal:
 
         embeddings = clip_service.batch_encode_images(paths)
         assert len(embeddings) == 4
-        assert all(len(e) == 512 for e in embeddings)
+        assert all(len(e) == clip_service.embedding_dim for e in embeddings)
 
     def test_text_image_cross_similarity(self, clip_service, make_test_image, tmp_path):
         """A 'forest' text query should match a green image better than a red one."""
@@ -112,18 +112,20 @@ class TestCLIPServiceReal:
 
 
 class TestCLIPEmbeddingGenerationReal:
-    """Test the pipeline task functions with real CLIP."""
+    """Test the pipeline task functions with real model."""
 
-    def test_generate_clip_embedding(self, make_test_image, tmp_path):
+    def test_generate_clip_embedding(self, clip_service, make_test_image, tmp_path):
         from backend.pipeline.tasks.embedding_generation import generate_clip_embedding
 
         img = tmp_path / "test.jpg"
         make_test_image(img, width=100, height=100)
         embedding = generate_clip_embedding(str(img))
-        assert len(embedding) == 512
+        assert len(embedding) == clip_service.embedding_dim
 
-    def test_batch_generate_clip_embeddings(self, make_test_image, tmp_path):
-        from backend.pipeline.tasks.embedding_generation import batch_generate_clip_embeddings
+    def test_batch_generate_clip_embeddings(self, clip_service, make_test_image, tmp_path):
+        from backend.pipeline.tasks.embedding_generation import (
+            batch_generate_clip_embeddings,
+        )
 
         paths = []
         for i in range(3):
@@ -133,4 +135,4 @@ class TestCLIPEmbeddingGenerationReal:
 
         embeddings = batch_generate_clip_embeddings(paths, batch_size=2)
         assert len(embeddings) == 3
-        assert all(len(e) == 512 for e in embeddings)
+        assert all(len(e) == clip_service.embedding_dim for e in embeddings)

@@ -1,26 +1,29 @@
 #!/usr/bin/env python3
-"""Check ONNX CLIP models against the torch reference.
+"""Check ONNX embedding models against the torch reference.
 
-Runs after scripts/export_clip_onnx.py to verify that exported ONNX
+Runs after scripts/export_model_onnx.py to verify that exported ONNX
 models (fp32, fp16, int8) produce embeddings numerically equivalent
-to the original torch CLIP model.
+to the original torch model.  Supports both CLIP and SigLIP2 families.
 
 This is a data-science assessment, NOT a software test.  It lives outside
 the pytest suite and runs only when models are freshly generated.
 
 Prerequisites:
     1. Dev deps: torch, transformers (for the reference implementation)
-    2. ONNX models exported to backend/models/ (run scripts/export_clip_onnx.py)
+    2. ONNX models exported to backend/models/ (run scripts/export_model_onnx.py)
     3. (Optional) Real images in data/store/images/ for extended checks
 
 Usage:
     uv run python scripts/evaluate_onnx.py
-    uv run python scripts/evaluate_onnx.py --models-dir backend/models -v
+    EMBEDDING_MODEL=siglip2-base-patch16-224 uv run python scripts/evaluate_onnx.py
+    uv run python scripts/evaluate_onnx.py --models-dir backend/models/clip-vit-b-32 -v
     uv run python scripts/evaluate_onnx.py --variants fp16 int8
 """
 
 import argparse
+import json
 import logging
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -29,10 +32,17 @@ import numpy as np
 from PIL import Image as PILImage
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-MODELS_DIR_DEFAULT = PROJECT_ROOT / "backend" / "models"
+_EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "clip-vit-b-32")
+MODELS_DIR_DEFAULT = PROJECT_ROOT / "backend" / "models" / _EMBEDDING_MODEL
 IMAGES_DIR_DEFAULT = PROJECT_ROOT / "data" / "store" / "images"
 
-MODEL_NAME = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
+# Read model_id from manifest (if available), fall back to CLIP default
+_MANIFEST_PATH = MODELS_DIR_DEFAULT / "fp16" / "manifest.json"
+if _MANIFEST_PATH.exists():
+    _manifest = json.loads(_MANIFEST_PATH.read_text(encoding="utf-8"))
+    MODEL_NAME = _manifest.get("model_id", "laion/CLIP-ViT-B-32-laion2B-s34B-b79K")
+else:
+    MODEL_NAME = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
 
 # Thresholds: abs(1.0 - dot(torch_emb, onnx_emb))
 THRESHOLD_FP32 = 0.001
@@ -123,35 +133,57 @@ def _create_test_image(
 # ── Torch reference implementation ───────────────────────────────────────────
 
 
-class _TorchCLIPReference:
-    """Torch-based CLIP reference for comparison."""
+class _TorchReference:
+    """Torch-based reference for comparison (supports CLIP and SigLIP2)."""
 
     def __init__(self):
         import torch
-        from transformers import CLIPModel, CLIPProcessor
+        from transformers import AutoConfig, AutoModel, AutoProcessor
 
         self._torch = torch
-        self.model = CLIPModel.from_pretrained(MODEL_NAME, local_files_only=True)
+        config = AutoConfig.from_pretrained(MODEL_NAME, local_files_only=True)
+        class_name = type(config).__name__
+        self._family = "siglip2" if class_name in ("SiglipConfig", "Siglip2Config") else "clip"
+
+        self.model = AutoModel.from_pretrained(MODEL_NAME, local_files_only=True)
         self.model.eval()
-        self.processor = CLIPProcessor.from_pretrained(MODEL_NAME, local_files_only=True)
+        self.processor = AutoProcessor.from_pretrained(MODEL_NAME, local_files_only=True)
+        self._max_length = getattr(self.processor.tokenizer, "model_max_length", 77)
+        self.embedding_dim = config.projection_dim
+
+    def _encode_image_features(self, inputs):
+        F = self._torch.nn.functional
+        with self._torch.no_grad():
+            if self._family == "clip":
+                vo = self.model.vision_model(**inputs)
+                features = self.model.visual_projection(vo.pooler_output)
+            else:
+                features = self.model.get_image_features(**inputs)
+            return F.normalize(features, p=2, dim=-1)
+
+    def _encode_text_features(self, inputs):
+        F = self._torch.nn.functional
+        with self._torch.no_grad():
+            if self._family == "clip":
+                to = self.model.text_model(**inputs)
+                features = self.model.text_projection(to.pooler_output)
+            else:
+                features = self.model.get_text_features(**inputs)
+            return F.normalize(features, p=2, dim=-1)
 
     def encode_image(self, image_path) -> list[float]:
         with PILImage.open(image_path) as img:
             image = img.convert("RGB")
         inputs = self.processor(images=image, return_tensors="pt")
         del image
-        with self._torch.no_grad():
-            vo = self.model.vision_model(**inputs)
-            features = self.model.visual_projection(vo.pooler_output)
-            features = self._torch.nn.functional.normalize(features, p=2, dim=-1)
+        features = self._encode_image_features(inputs)
         return features.cpu().numpy().flatten().tolist()
 
     def encode_text(self, text: str) -> list[float]:
-        inputs = self.processor(text=text, return_tensors="pt", padding="max_length", max_length=77)
-        with self._torch.no_grad():
-            to = self.model.text_model(**inputs)
-            features = self.model.text_projection(to.pooler_output)
-            features = self._torch.nn.functional.normalize(features, p=2, dim=-1)
+        inputs = self.processor(
+            text=text, return_tensors="pt", padding="max_length", max_length=self._max_length
+        )
+        features = self._encode_text_features(inputs)
         return features.cpu().numpy().flatten().tolist()
 
     def batch_encode_images(self, image_paths) -> list[list[float]]:
@@ -161,10 +193,7 @@ class _TorchCLIPReference:
                 images.append(img.convert("RGB"))
         inputs = self.processor(images=images, return_tensors="pt", padding=True)
         del images
-        with self._torch.no_grad():
-            vo = self.model.vision_model(**inputs)
-            features = self.model.visual_projection(vo.pooler_output)
-            features = self._torch.nn.functional.normalize(features, p=2, dim=-1)
+        features = self._encode_image_features(inputs)
         return features.cpu().numpy().tolist()
 
 
@@ -172,7 +201,7 @@ class _TorchCLIPReference:
 
 
 def check_image_encoding(
-    torch_ref: _TorchCLIPReference,
+    torch_ref: _TorchReference,
     onnx_services: dict,
     tmp_dir: Path,
     real_images: list[Path],
@@ -202,14 +231,15 @@ def check_image_encoding(
         onnx_emb = svc.encode_image(img)
         torch_norm = abs(float(np.linalg.norm(torch_emb)) - 1.0)
         onnx_norm = abs(float(np.linalg.norm(onnx_emb)) - 1.0)
+        expected_dim = torch_ref.embedding_dim
         results.append(
             (
                 f"[{variant}] image_dimensions_and_norm",
-                len(torch_emb) == 512
-                and len(onnx_emb) == 512
+                len(torch_emb) == expected_dim
+                and len(onnx_emb) == expected_dim
                 and torch_norm < 0.001
                 and onnx_norm < 0.001,
-                f"torch_dim={len(torch_emb)} onnx_dim={len(onnx_emb)} "
+                f"torch_dim={len(torch_emb)} onnx_dim={len(onnx_emb)} expected={expected_dim} "
                 f"torch_norm_dev={torch_norm:.6f} onnx_norm_dev={onnx_norm:.6f}",
             )
         )
@@ -266,7 +296,7 @@ def check_image_encoding(
 
 
 def check_text_encoding(
-    torch_ref: _TorchCLIPReference,
+    torch_ref: _TorchReference,
     onnx_services: dict,
 ) -> list[CheckResult]:
     """Compare text encoding between torch and ONNX variants."""
@@ -294,14 +324,15 @@ def check_text_encoding(
         onnx_emb = svc.encode_text(text)
         torch_norm = abs(float(np.linalg.norm(torch_emb)) - 1.0)
         onnx_norm = abs(float(np.linalg.norm(onnx_emb)) - 1.0)
+        expected_dim = torch_ref.embedding_dim
         results.append(
             (
                 f"[{variant}] text_dimensions_and_norm",
-                len(torch_emb) == 512
-                and len(onnx_emb) == 512
+                len(torch_emb) == expected_dim
+                and len(onnx_emb) == expected_dim
                 and torch_norm < 0.001
                 and onnx_norm < 0.001,
-                f"torch_dim={len(torch_emb)} onnx_dim={len(onnx_emb)} "
+                f"torch_dim={len(torch_emb)} onnx_dim={len(onnx_emb)} expected={expected_dim} "
                 f"torch_norm_dev={torch_norm:.6f} onnx_norm_dev={onnx_norm:.6f}",
             )
         )
@@ -310,7 +341,7 @@ def check_text_encoding(
 
 
 def check_batch_encoding(
-    torch_ref: _TorchCLIPReference,
+    torch_ref: _TorchReference,
     onnx_services: dict,
     tmp_dir: Path,
     real_images: list[Path],
@@ -383,7 +414,7 @@ def check_batch_encoding(
 
 
 def check_cross_modal(
-    torch_ref: _TorchCLIPReference,
+    torch_ref: _TorchReference,
     onnx_services: dict,
     tmp_dir: Path,
 ) -> list[CheckResult]:
@@ -430,7 +461,7 @@ def check_cross_modal(
 
 
 def print_quantisation_report(
-    torch_ref: _TorchCLIPReference,
+    torch_ref: _TorchReference,
     onnx_services: dict,
     models_dir: Path,
     real_images: list[Path],
@@ -528,7 +559,7 @@ def main() -> int:
 
     # Load torch reference
     print(f"Loading torch reference: {MODEL_NAME}")
-    torch_ref = _TorchCLIPReference()
+    torch_ref = _TorchReference()
 
     # Load ONNX services (skip missing variants)
     from backend.app.services.clip_service import CLIPService
@@ -543,7 +574,7 @@ def main() -> int:
         print(f"  Loaded {variant}")
 
     if not onnx_services:
-        print("ERROR: No ONNX variants found. Run scripts/export_clip_onnx.py first.")
+        print("ERROR: No ONNX variants found. Run scripts/export_model_onnx.py first.")
         return 1
 
     real_images = _collect_real_images(args.images_dir)

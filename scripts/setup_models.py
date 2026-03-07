@@ -12,7 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-MODELS_DIR = Path(__file__).resolve().parent.parent / "backend" / "models"
+MODELS_DIR = Path(__file__).resolve().parent.parent / "backend" / "models" / "clip-vit-b-32"
 MODEL_NAME = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
 
 REQUIRED_FILES = [
