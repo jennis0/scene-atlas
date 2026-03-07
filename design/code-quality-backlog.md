@@ -219,9 +219,8 @@ import and call it.
 `GET /imports/active` issues:
 - 1 query for all `ImportJob` rows
 - N queries for `ImportGroupJob` rows (one per job)
-- Up to N more queries to check `Image.needs_review` for completed jobs
 
-With 20 jobs in the 7-day window this is up to 41 queries. The endpoint is polled every
+With 20 jobs in the 7-day window this is up to 21 queries. The endpoint is polled every
 few seconds by the ActivityDock.
 
 ### Fix
@@ -232,15 +231,6 @@ all_job_ids = [j.id for j in all_jobs]
 groups_by_job: dict[str, list[ImportGroupJob]] = defaultdict(list)
 for grp in db.query(ImportGroupJob).filter(ImportGroupJob.job_id.in_(all_job_ids)).all():
     groups_by_job[grp.job_id].append(grp)
-
-# One query for all job IDs with unreviewed images
-jobs_with_unreviewed = {
-    row[0]
-    for row in db.query(Image.import_job_id)
-    .filter(Image.import_job_id.in_(all_job_ids), Image.needs_review.is_(True))
-    .distinct()
-    .all()
-}
 ```
 
 ---
