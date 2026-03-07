@@ -124,12 +124,18 @@ This also eliminates Windows MAX_PATH issues from deeply nested folder uploads.
 
 ---
 
+## Implementation Status
+
+- **Finding #2 (path traversal):** FIXED via staging redesign (UUID-flat-file structure with `.file_map.json` sidecar)
+- **Findings 1, 3–10:** Remain unimplemented in the main branch
+- **Security Phase 2:** Implementation exists on an unpushed `feature/security-phase-2` branch covering auth, rate limiting, security headers, and CI scanning
+
 ## Remediation Priority
 
 1. Path traversal fix via hash-based staging (done)
-2. Authentication middleware (future)
-3. Rate limiting (future)
-4. Security headers (future)
-5. CI/CD security scanning (future)
+2. Authentication middleware (on feature/security-phase-2 branch, not merged)
+3. Rate limiting (on feature/security-phase-2 branch, not merged)
+4. Security headers (on feature/security-phase-2 branch, not merged)
+5. CI/CD security scanning (on feature/security-phase-2 branch, not merged)
 6. Electron IPC validation (future)
 7. CORS/CSP hardening (future)

@@ -4,8 +4,8 @@ Deferred items from the 2026-03-04 full backend code review (simplify pass). Ite
 grouped by theme and ordered roughly by impact vs effort.
 
 The following fixes **were applied** in the same session and are not listed here:
-- `finalize_import` now correctly treats `broken` as terminal
-- `ImageStore.delete` TOCTOU race fixed (atomic `unlink`)
+- `finalize_import` now correctly treats `broken` as terminal — **DONE**
+- `ImageStore.delete` TOCTOU race fixed (atomic `unlink`) — **DONE**
 - `PipelineConfig` fallback duplication removed in task files
 - `confirm_all_groups` now logs per-file skip warnings (matching `confirm_import`)
 - Thumbnail fallback now logs a `warning` before serving full-res

@@ -102,11 +102,15 @@ Returns `GroupSearchResponse` with paginated groups. Supports two modes:
 - `image_type?: 'battlemap' | 'scene'` — filter by image type
 - `media_type?: 'image' | 'video'` — filter by media type
 - `min_score?: number` — relevance slider threshold (0.0-1.0)
-- `limit?: number` — groups per page (default 25, max 500)
+- `semantic_only?: boolean` — restrict to semantic search only (no text/FTS)
+- `text_only?: boolean` — restrict to text/FTS search only (no semantic)
+- `sort_by?: string` — sort field (e.g. `baseName`, `bestScore`)
+- `sort_dir?: string` — sort direction (`asc` or `desc`)
+- `limit?: number` — groups per page (default 50, max 500)
 - `offset?: number` — pagination offset
 - `include_all_image_ids?: boolean` — populate `all_image_ids` field (default false). Used by Edit All to fetch all in-scope image IDs.
 
-**Response:**
+**Response (`GroupSearchResponse`):**
 ```json
 {
   "groups": [
@@ -114,15 +118,17 @@ Returns `GroupSearchResponse` with paginated groups. Supports two modes:
       "group_id": 123,
       "base_name": "Forest Variants",
       "author": "Czepeku",
+      "hero_image": { /* full Image object */ },
+      "mosaic_images": [ /* 3-4 full Image objects */ ],
       "total_scenes": 45,
-      "matching_count": 12,
+      "matching_scenes": 12,
       "best_score": 0.876,
       "all_image_ids": [1, 2, 3, ...] // only present when include_all_image_ids=true
     }
   ],
   "total_groups": 127,
   "page": 0,
-  "limit": 25
+  "limit": 50
 }
 ```
 
@@ -167,6 +173,10 @@ Returns `GroupSearchResponse` with paginated groups. Supports two modes:
 | POST | `/{job_id}/groups/{gid}/cancel` | Cancel a single group |
 | GET | `/{job_id}/preview/{path}` | Serve preview thumbnail |
 | GET | `/active` | List active import jobs |
+| POST | `/{job_id}/upload-batch` | Batch file upload for import job |
+| POST | `/{job_id}/analyse` | Trigger group detection on uploaded files |
+| POST | `/{job_id}/report-skipped` | Report skipped files from client |
+| POST | `/{job_id}/fail` | Client failure reporting (marks job as failed) |
 | DELETE | `/cleanup` | Clean up old/expired imports |
 
 ### Jobs (`/jobs`)
@@ -234,7 +244,12 @@ Video frame extraction and dimension reading for video media type support.
 In-process background job runner using `ThreadPoolExecutor` (default 2 workers). Tracks job status, progress, and results in memory. Jobs are submitted from API endpoints and execute pipeline functions.
 
 ### Scheduler
-Lightweight asyncio-based periodic task scheduler. Registers maintenance tasks (`backup_database` every 24h, `cleanup_staging` every 6h) during FastAPI lifespan startup.
+Lightweight asyncio-based periodic task scheduler. Registers maintenance tasks during FastAPI lifespan startup:
+- `backup_database` — every 24h
+- `cleanup_staging` — every 6h
+- `expire_stale_jobs` — every 6h
+- `sweep_orphaned_store_files` — every 24h
+- `check_qdrant_sync` — every 24h
 
 ## Configuration
 
@@ -253,9 +268,12 @@ All config via `backend/app/config.py` using `pydantic-settings`. Reads from `.e
 
 1. FastAPI app created in `main.py`
 2. On startup: create DB engine, run `init_db()` (create tables), run `seed_tag_categories()` (upsert vocabulary)
-3. Pre-load CLIP model, start JobRunner (background thread pool), start Scheduler (periodic tasks)
-4. Store DB engine in `app.state.db_engine` for dependency injection
-5. Routes mounted with `/api/v1` prefix
+3. Run `cleanup_stale_staging()` and `mark_interrupted_jobs()` to recover from unclean shutdowns
+4. Begin CLIP model background load (non-blocking, loads in a background thread)
+5. Start JobRunner (background thread pool), start Scheduler (periodic tasks)
+6. Start event loop heartbeat diagnostics (monitors asyncio event loop health)
+7. Store DB engine in `app.state.db_engine` for dependency injection
+8. Routes mounted with `/api/v1` prefix
 
 ## Dependencies Between Services
 

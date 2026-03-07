@@ -328,7 +328,7 @@ Full-screen overlay with fixed image canvas + structured sidebar:
 │         Image canvas             ├───────────────────────────────────┤
 │         dot-grid background      │  Map Name (font-display, xl)      │  ← fixed info section
 │         (dark navy + subtle      │  by Author                        │    (shrink-0, border-b)
-│          white dots at 24px)     │  Variant  [current value] [✎] [✕] │
+│          white dots at 28px)     │  Variant  [current value] [✎] [✕] │
 │                                  │  [Grid][Gridless][?]  W × H       │
 │    [◀]                   [▶]    │  ● ● ● ●  1920×1080 · 4.2MB      │
 │                                  │  [tag] [tag] [+ Tag]              │
@@ -344,7 +344,7 @@ Full-screen overlay with fixed image canvas + structured sidebar:
 ### Key layout rules
 - Container: `max-width: 1600px; height: 88vh` — fixed size, image fits within canvas
 - Canvas: `flex-1 relative`, `min-w-0` (allows flex shrink)
-- Canvas background: `hsl(var(--surface-canvas))` + `radial-gradient(circle, hsl(var(--foreground) / 0.045) 1px, transparent 1px)` at 24px
+- Canvas background: `hsl(var(--surface-canvas))` + `radial-gradient(circle, hsl(var(--foreground) / 0.045) 1px, transparent 1px)` at 28px
 - Sidebar: `w-[440px] shrink-0 flex flex-col` — **does not grow or shrink**
 
 ### Sidebar sections (top to bottom)

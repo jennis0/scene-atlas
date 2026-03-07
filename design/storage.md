@@ -34,6 +34,7 @@ images
   grid_type       TEXT                -- "square" | "hex" | NULL
   grid_confidence FLOAT               -- 0.0–1.0; NULL = filename-detected
   sub_variant     TEXT                -- Subgroup path (aliased as subgroup in app code)
+  import_job_id   TEXT                -- FK to import_jobs.id; tracks which import created the image
   content_hash    TEXT(64)            -- SHA-256 hex digest for deduplication
   search_text     TEXT                -- Pre-tokenized text for FTS5 (CamelCase-split)
   thumbnail_key   TEXT                -- Key into thumbnail store
@@ -45,6 +46,7 @@ image_groups (table name: variant_groups)
   base_name       TEXT NOT NULL        -- Canonical group name
   author          TEXT
   primary_image_id INTEGER FK → images.id
+  image_count     INTEGER DEFAULT 0   -- Maintained by DB triggers on images table
   created_at      DATETIME
 
 tags
@@ -76,7 +78,7 @@ colors
 import_jobs
   id              TEXT PK              -- UUID hex string
   status          TEXT NOT NULL        -- uploading | staging | active |
-                                       -- completed | failed | cancelled | expired
+                                       -- completed | failed | cancelled | expired | broken
   source_label    TEXT                 -- Display label for activity dock
   total_files     INTEGER DEFAULT 0
   error_message   TEXT
@@ -100,9 +102,11 @@ import_group_jobs
   completed_at    DATETIME
 
 app_settings
-  key             TEXT PK
-  value_json      TEXT                 -- JSON-encoded value
-  updated_at      DATETIME
+  key             TEXT PK              -- Setting identifier (e.g. "grid_detection_enabled")
+  value_json      TEXT                 -- JSON-encoded value (TEXT column, parsed at read time)
+  updated_at      DATETIME             -- Last modification timestamp
+  -- Seeded via seed_default_settings() at first boot with defaults for grid detection,
+  -- color extraction, ingestion performance, import limits, and job runner configuration
 ```
 
 ### Full-Text Search (FTS5)
@@ -165,7 +169,7 @@ This keeps any directory under ~256 entries.
 The filesystem is a dumb blob store. The DB's `storage_key` and `thumbnail_key` fields are the authoritative references. If a file exists in the store but has no DB entry, it's orphaned. If a DB entry's key points to a missing file, the image is broken.
 
 ### Staging Directory
-Import uploads are saved to `data/staging/{job_id}/` preserving relative paths from the upload. After processing, staging files are consumed by `process_single_image` which copies them into the ImageStore. Staging directories should be cleaned up after all groups in a job are processed.
+Import uploads are saved to `data/staging/{job_id}/` using a UUID-flat-file structure — each uploaded file is stored with a UUID-based filename (e.g. `a1b2c3d4.jpg`) rather than the user-supplied path. A `.file_map.json` sidecar maps original relative paths to staging filenames, allowing group detection and the frontend to use original paths as logical identifiers while eliminating path traversal risks (see [security.md](security.md)). After processing, staging files are consumed by `process_single_image` which copies them into the ImageStore. Staging directories should be cleaned up after all groups in a job are processed.
 
 ## Backups
 

@@ -19,6 +19,15 @@ Architecture and design documentation for the Scene Atlas project. These documen
 | [group-view.md](group-view.md) | Group view — hero+mosaic card layout for browsing by image group |
 | [visual-language.md](visual-language.md) | Visual design system — tokens, typography, components, patterns |
 | [code-quality-backlog.md](code-quality-backlog.md) | Deferred code quality items from the 2026-03-04 simplify pass |
+| [concurrency-architecture.md](concurrency-architecture.md) | Concurrency model — threading, async, and locking patterns |
+| [dialog-focus-management.md](dialog-focus-management.md) | Focus management across dialog and modal components |
+| [security.md](security.md) | Security evaluation for hosted deployment mode |
+| [e2e-todo.md](e2e-todo.md) | E2E test expansion plan |
+| [sidecar-onnx-phase2.md](sidecar-onnx-phase2.md) | Historical: ONNX sidecar size reduction plan (implemented as ADR-014) |
+| [upload-error-improvements-todo.md](upload-error-improvements-todo.md) | Upload error handling backend improvements |
+| [frontend-hardening-handover.md](frontend-hardening-handover.md) | Historical: Frontend hardening Phase 1 analysis |
+| [frontend-hardening-p1p2-handover.md](frontend-hardening-p1p2-handover.md) | Frontend hardening Phase 1+2 implementation handover |
+| [status-and-roadmap.md](status-and-roadmap.md) | **Single source of truth** — feature inventory, in-progress work, planned work, backlog |
 
 ## System Overview
 
@@ -57,10 +66,6 @@ Architecture and design documentation for the Scene Atlas project. These documen
 | **Electron app** | Bundled in `frontend/dist/` | PyInstaller sidecar subprocess | For non-technical users. See [electron.md](electron.md) |
 | **Web server** | Served by reverse proxy | Uvicorn behind reverse proxy | For power users with remote access |
 | **Developer** | `npm run dev` (:5173) | `uv run python scripts/start.py` (:8000) | Hot reload on both |
-
-## Archive
-
-Completed implementation plans, resolved design audits, and mockups are preserved in [`./archive/`](archive/) for historical reference. These are not current-state documents.
 
 ## Keeping These Docs Updated
 

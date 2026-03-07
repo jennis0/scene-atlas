@@ -1,6 +1,8 @@
 # Sidecar Size Reduction — Phase 2: ONNX Runtime
 
-## Status: Planned (not yet implemented)
+> **Note:** This plan has been fully implemented as ADR-014. This document is retained as a historical reference only.
+
+## Status: Implemented (ADR-014)
 
 Phase 1 (CPU-only torch + opencv-headless + spec exclusions) reduced the sidecar from
 7.2 GB to approximately 450–550 MB. Phase 2 targets a further reduction by replacing

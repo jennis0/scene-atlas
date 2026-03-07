@@ -124,6 +124,18 @@ Batch ingestion from one or more source directories (CLI entry point).
 3. Processes images in batches using the batched pipeline (same as `process_import_group`)
 4. Returns summary: `{total_images, processed, successful, failed, results}`
 
+## Embedding Reuse
+
+When re-importing a file with the same content hash as an existing image, the pipeline retrieves the existing CLIP embedding from Qdrant instead of regenerating it. This avoids redundant CLIP inference for duplicate files. The existing embedding is looked up by `image_id` of the original image and copied to the new image's Qdrant point.
+
+## Video Support
+
+The pipeline supports video files in addition to images:
+- **First-frame extraction:** For CLIP embedding generation, the first frame of a video is extracted as a JPEG and used as the input image
+- **File size limits:** Videos have a separate configurable limit via `max_video_file_size` (distinct from image file size limits)
+- **Media type tracking:** Each file is stored with a `media_type` field set to either `'image'` or `'video'` in the database
+- Video frame extraction and dimension reading are handled by `backend/app/services/video_utils.py`
+
 ## Key Task Functions
 
 ### `prepare_single_image`
@@ -149,6 +161,8 @@ Saves multiple images to SQLite in a single session/transaction using shared `_s
 
 **Batch failure isolation:** If the batch DB transaction fails (e.g. constraint violation from a concurrent duplicate insert), the error is caught per-image rather than aborting the entire group. Each image that fails the DB save is recorded with a `db_save` stage error in `ImportGroupJob.file_errors`, and processing continues for the remaining images. This prevents a single bad image from killing an entire import group.
 
+**Per-batch CLIP failure isolation:** If batch CLIP embedding generation fails, all images in that batch are marked as failed, but other batches in the same group continue processing independently. This ensures a transient CLIP error (e.g. OOM on a large batch) does not abort the entire import group.
+
 ### `batch_save_to_qdrant`
 
 Saves multiple embeddings to Qdrant in a single `batch_add_embeddings()` call.
@@ -169,6 +183,8 @@ Settings in `backend/app/config.py`:
 | `grid_detection_max_dim` | 1024 | Downsample to this before analysis |
 | `grid_presence_threshold` | 0.3 | Confidence threshold for grid presence |
 | `grid_size_threshold` | 0.15 | Threshold when presence already known |
+| `grid_period_ratio_threshold` | 0.98 | Period ratio threshold for square vs hex classification |
+| `grid_hex_rot_conf` | 0.20 | Confidence penalty for hex grid rotation |
 
 Thumbnail resampling: BILINEAR for 150px and 400px, LANCZOS for 800px. Preview thumbnails use BILINEAR.
 

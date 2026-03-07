@@ -86,9 +86,9 @@ SUMMER
 
 The grouped view uses a two-tier approach:
 
-1. **Backend** (`/api/v1/search/groups`): Returns `GroupSearchResult[]` — pre-grouped results with paginated groups, best-matching image IDs, and full group metadata. Handles pagination at the group level (default 25 groups per page, max 500). Supports filtering by all search parameters (text, tags, authors, colors, semantic) and score thresholds via relevance slider.
+1. **Backend** (`/api/v1/search/groups`): Returns `GroupSearchResult[]` — pre-grouped results with paginated groups, best-matching image IDs, and full group metadata. Handles pagination at the group level (default 50 groups per page, max 500). Supports filtering by all search parameters (text, tags, authors, colors, semantic) and score thresholds via relevance slider.
 
-2. **Frontend**: A `useGallerySearch` hook manages search/filter state and infinite scroll pagination. Results are rendered directly by `GroupGrid` without needing client-side grouping transformation.
+2. **Frontend**: A `useGallerySearch` hook manages search/filter state and infinite scroll pagination. Infinite scroll is implemented via a sentinel element observed by `IntersectionObserver` — when the sentinel enters the viewport, the next page is fetched and appended. Client-side `minScore` filtering in `useGroupSearch` allows the relevance slider to instantly hide groups below the threshold without re-fetching. Results are rendered directly by `GroupGrid` without needing client-side grouping transformation.
 
 ### Data Flow
 

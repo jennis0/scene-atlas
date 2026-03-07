@@ -25,7 +25,7 @@ Tier 4 — Version tags (v*):   gate check + multi-platform electron build + rel
 ### Coverage Thresholds
 
 - **Backend**: 40% line coverage (measured via `pytest-cov`, `pyproject.toml [tool.coverage.report]`)
-- **Frontend**: 10% line coverage (measured via `@vitest/coverage-v8`, `vitest.config.ts`)
+- **Frontend**: 20% line coverage (measured via `@vitest/coverage-v8`, `vitest.config.ts`)
 - Thresholds should be ratcheted up as test coverage improves
 
 ### Local Development
@@ -38,7 +38,7 @@ Tier 4 — Version tags (v*):   gate check + multi-platform electron build + rel
 make check          # lint + format-check (both backend + frontend)
 make test           # unit tests + frontend tests (fast, ~15s)
 make test-all       # unit + integration + frontend (~30s)
-make test-heavy     # CLIP model tests (downloads ~600MB model on first run)
+make test-heavy     # CLIP model tests (uses ONNX models, ~289 MB FP16 via scripts/setup_models.py)
 make test-e2e       # Playwright E2E tests (Chromium, ~35s with warm servers)
 make test-e2e-ui    # Playwright interactive UI mode (for debugging)
 make test-cov       # full suite with coverage reporting
@@ -63,7 +63,7 @@ cd frontend && npx vitest run
 # Frontend tests with watch mode
 cd frontend && npx vitest
 
-# Heavy tests (real CLIP model — ~600MB download on first run, cached after)
+# Heavy tests (real CLIP ONNX model — ~289MB FP16, setup via scripts/setup_models.py)
 uv run python -m pytest -m heavy -v
 
 # Run everything including heavy
@@ -77,7 +77,7 @@ npm run test:e2e:headed          # headed Chromium (see the browser)
 
 ## Heavy Tests (CLIP)
 
-Tests marked with `@pytest.mark.heavy` load the real CLIP model (~600 MB) and run real inference. They are **excluded by default** via `addopts = "-m 'not heavy'"` in pyproject.toml. Currently only `test_clip_heavy.py` uses this marker — it verifies the bundled ONNX model works correctly.
+Tests marked with `@pytest.mark.heavy` load the real CLIP ONNX model (~289 MB FP16, exported via `scripts/setup_models.py`) and run real inference. They are **excluded by default** via `addopts = "-m 'not heavy'"` in pyproject.toml. Currently only `test_clip_heavy.py` uses this marker — it verifies the bundled ONNX model works correctly.
 
 **Model caching:**
 - ONNX models are cached in CI via `actions/cache@v4` keyed on `scripts/export_clip_onnx.py` and `backend/app/config.py`

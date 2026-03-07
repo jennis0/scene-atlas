@@ -48,8 +48,6 @@ frontend/src/
 │   │   ├── FileToolbar.tsx        # Toolbar for file operations
 │   │   ├── ImportFileCard.tsx     # File card in import dialog
 │   │   ├── ImportFileToolbar.tsx  # Import-specific toolbar
-│   │   ├── ImportGroupContent.tsx # Group content pane
-│   │   ├── ImportGroupNav.tsx     # Tabbed group navigation
 │   │   ├── ImportUploadPane.tsx   # Upload drop zone
 │   │   ├── ImportDonePane.tsx     # Completion summary
 │   │   ├── MetadataForm.tsx       # Author/name form for groups
@@ -58,7 +56,24 @@ frontend/src/
 │   │   ├── GridSizeInput.tsx      # Grid dimensions input
 │   │   ├── tagColors.ts           # Tag color palette + lookup
 │   │   ├── fileFilter.ts          # File search/filter logic
-│   │   └── types.ts               # Import-specific types
+│   │   ├── types.ts               # Import-specific types
+│   │   └── shared/
+│   │       ├── FileToolbarCore.tsx     # Shared toolbar primitives
+│   │       ├── FileCardExcludedState.tsx # Excluded file visual state
+│   │       ├── FileCardThumbnail.tsx   # Shared thumbnail component
+│   │       ├── FileCardLightbox.tsx    # Lightbox for file cards
+│   │       ├── TypeToggle.tsx          # Image type toggle button
+│   │       ├── TypeToggleInline.tsx    # Inline type toggle variant
+│   │       ├── SubgroupRow.tsx         # Subgroup display row
+│   │       └── dnd/                    # Drag-and-drop infrastructure
+│   │           ├── DraggableFileCardWrapper.tsx
+│   │           ├── DroppableGroupRow.tsx
+│   │           ├── DroppableSubgroupSection.tsx
+│   │           └── DragOverlayContent.tsx
+│   ├── settings/               # Settings UI components
+│   │   ├── SettingRow.tsx          # Individual setting row
+│   │   ├── SettingsTabContent.tsx  # Settings tab panel content
+│   │   └── RestartBadge.tsx        # Badge indicating restart required
 │   ├── ActivityDock.tsx       # Import + background job status dock
 │   ├── DesktopGate.tsx        # Electron: wait for backend ready
 │   ├── EditGroupDialog.tsx    # Post-import group metadata editing
@@ -76,10 +91,11 @@ frontend/src/
 │   ├── SceneTile.tsx          # Clickable scene thumbnail tile
 │   ├── SubgroupDropdown.tsx   # Subgroup selector dropdown
 │   ├── SubgroupHeading.tsx    # Subgroup section heading
-│   ├── SystemInfoDialog.tsx   # System info + data dir settings
+│   ├── LibraryInfoDialog.tsx   # System info + data dir settings
 │   └── TagManagementDialog.tsx # Tag category CRUD dialog
 ├── contexts/
-│   └── TagColorContext.tsx    # DB-driven tag color provider
+│   ├── TagColorContext.tsx    # DB-driven tag color provider
+│   └── ThemeContext.tsx       # Light/dark mode toggle (stored in localStorage)
 ├── hooks/
 │   ├── useActiveImports.ts    # Active import polling + status
 │   ├── useAppMode.ts          # Detect Electron vs browser mode
@@ -90,7 +106,12 @@ frontend/src/
 │   ├── useImportPolling.ts    # Import status polling
 │   ├── useImportState.ts      # Complex import state machine
 │   ├── useImportUpload.ts     # File upload management
-│   └── useJobPolling.ts       # Background job polling
+│   ├── useJobPolling.ts       # Background job polling
+│   ├── useGroupSearch.ts      # Group search with pagination
+│   ├── useEditGroupDnd.ts     # Drag-and-drop for edit group dialog
+│   ├── useEditGroupOperations.ts # Edit group mutation operations
+│   ├── useEditGroupLoad.ts    # Load group data for editing
+│   └── useGroupSidebarMultiselect.ts # Multi-select in group sidebar
 ├── lib/
 │   ├── api.ts                 # Axios instance + all API functions
 │   ├── apiBase.ts             # Dynamic base URL (Electron port negotiation)
@@ -103,6 +124,7 @@ frontend/src/
 │   ├── hashFile.ts            # Client-side SHA-256 file hashing
 │   ├── importStorage.ts       # LocalStorage helpers for import state
 │   ├── mimeCheck.ts           # File type validation
+│   ├── queryKeys.ts           # Centralized query key definitions + cache invalidation helpers
 │   └── utils.ts               # Tailwind cn() helper
 ├── pages/
 │   └── Gallery.tsx            # Main page: search, filters, grid, import
@@ -164,7 +186,7 @@ Full-screen overlay for viewing an image at full resolution. Sidebar shows:
 ### Desktop Components
 - **DesktopGate** — Electron-only wrapper that waits for the `backend-ready` IPC signal before rendering the app. Shows `LoadingScreen` during sidecar startup.
 - **LoadingScreen** — Splash screen with loading spinner or error message for backend startup failures.
-- **SystemInfoDialog** — Displays storage usage, data directory path, and settings (data dir change triggers app relaunch via Electron IPC).
+- **LibraryInfoDialog** — Displays storage usage, data directory path, and settings (data dir change triggers app relaunch via Electron IPC).
 
 ### TagManagementDialog (`components/TagManagementDialog.tsx`)
 Category list with colored dots. Category editor with name, description, Tailwind color swatch picker, and tag value CRUD. Inline confirmation for destructive actions showing affected image counts.

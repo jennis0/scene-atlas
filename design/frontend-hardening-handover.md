@@ -1,5 +1,7 @@
 # Frontend Hardening — Handover Document
 
+> **Historical:** This was the Phase 1 analysis. Phase 2 implementation is documented in [frontend-hardening-p1p2-handover.md](frontend-hardening-p1p2-handover.md). Priority 1 and 2 items have been completed.
+
 **Date**: 2026-03-04
 **Branch**: `feature/frontend-hardening` (merged to main after this session)
 **Session scope**: Security review, dependency upgrades, and frontend maintainability improvements
