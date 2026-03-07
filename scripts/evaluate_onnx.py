@@ -15,7 +15,7 @@ Prerequisites:
 
 Usage:
     uv run python scripts/evaluate_onnx.py
-    EMBEDDING_MODEL=siglip2-base-patch16-224 uv run python scripts/evaluate_onnx.py
+    EMBEDDING_MODEL=siglip2-base uv run python scripts/evaluate_onnx.py
     uv run python scripts/evaluate_onnx.py --models-dir backend/models/clip-vit-b-32 -v
     uv run python scripts/evaluate_onnx.py --variants fp16 int8
 """

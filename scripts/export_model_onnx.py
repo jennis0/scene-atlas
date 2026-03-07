@@ -1,28 +1,19 @@
 #!/usr/bin/env python3
-"""Export embedding models (CLIP, SigLIP2) to ONNX format with fp32, fp16, and int8 variants.
+"""Export embedding models (CLIP, SigLIP2) to ONNX format.
 
 Requires dev dependencies: torch, transformers, onnxruntime, onnx.
 Outputs ONNX graphs + tokenizer files + manifest.json to backend/models/<output-name>/.
 
-Prerequisites:
-    The model weights must be downloaded to the HuggingFace cache before
-    running this script (local_files_only=True is used to avoid accidental
-    network access).  Download once with:
-
-        uv run python -c "
-        from transformers import AutoModel, AutoProcessor
-        AutoModel.from_pretrained('<model-id>')
-        AutoProcessor.from_pretrained('<model-id>')
-        "
-
 Usage:
-    # CLIP (default):
-    uv run python scripts/export_model_onnx.py
+    # Export a specific model by name:
+    uv run python scripts/export_model_onnx.py clip-vit-b-32
+    uv run python scripts/export_model_onnx.py siglip2-base
 
-    # SigLIP2:
-    uv run python scripts/export_model_onnx.py \\
-        --model-id google/siglip2-base-patch16-224 \\
-        --output-name siglip2-base-patch16-224
+    # Export all registered models:
+    uv run python scripts/export_model_onnx.py --all
+
+    # List available models:
+    uv run python scripts/export_model_onnx.py --list
 """
 
 import argparse
@@ -37,24 +28,74 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformers import AutoConfig, AutoModel, AutoProcessor
 
+# ── Model registry ───────────────────────────────────────────────────────────
+
+MODEL_REGISTRY: list[dict] = [
+    {
+        "name": "clip-vit-b-32",
+        "model_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
+        "quants": ["fp32", "fp16", "int8"],
+    },
+    {
+        "name": "siglip2-base",
+        "model_id": "google/siglip2-base-patch16-224",
+        "quants": ["fp32", "fp16", "int8"],
+    },
+    {
+        "name": "siglip2-so400m",
+        "model_id": "google/siglip2-so400m-patch14-384",
+        "quants": ["fp32", "fp16", "int8"],
+    },
+]
+
+MODEL_BY_NAME = {m["name"]: m for m in MODEL_REGISTRY}
+
+
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
 
 def parse_args() -> argparse.Namespace:
+    names = [m["name"] for m in MODEL_REGISTRY]
     parser = argparse.ArgumentParser(
-        description="Export an embedding model (CLIP or SigLIP2) to ONNX."
+        description="Export embedding models to ONNX.",
+        epilog=f"Available models: {', '.join(names)}",
     )
     parser.add_argument(
-        "--model-id",
-        default="laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
-        help="HuggingFace model ID (default: %(default)s)",
+        "models",
+        nargs="*",
+        metavar="MODEL",
+        help="Model name(s) to export (see --list for available models)",
     )
     parser.add_argument(
-        "--output-name",
-        default="clip-vit-b-32",
-        help="Directory name under backend/models/ (default: %(default)s)",
+        "--all",
+        action="store_true",
+        help="Export all registered models",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--list",
+        action="store_true",
+        dest="list_models",
+        help="List available models and exit",
+    )
+    args = parser.parse_args()
+
+    if args.list_models:
+        print("Available models:")
+        for m in MODEL_REGISTRY:
+            print(f"  {m['name']:<25} {m['model_id']}")
+            print(f"  {'':25} quants: {', '.join(m['quants'])}")
+        raise SystemExit(0)
+
+    if args.all:
+        args.models = names
+    elif not args.models:
+        parser.error("specify model name(s) or --all (use --list to see available models)")
+
+    for name in args.models:
+        if name not in MODEL_BY_NAME:
+            parser.error(f"unknown model '{name}' (use --list to see available models)")
+
+    return args
 
 
 # ── Family detection ─────────────────────────────────────────────────────────
@@ -62,7 +103,7 @@ def parse_args() -> argparse.Namespace:
 
 def detect_family(model_id: str) -> str:
     """Auto-detect model family from the HuggingFace config class name."""
-    config = AutoConfig.from_pretrained(model_id, local_files_only=True)
+    config = AutoConfig.from_pretrained(model_id, local_files_only=False)
     class_name = type(config).__name__
     if class_name in ("SiglipConfig", "Siglip2Config"):
         return "siglip2"
@@ -440,11 +481,17 @@ def print_size_table(base_dir: Path) -> None:
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 
-def main() -> None:
-    args = parse_args()
-    model_id = args.model_id
-    output_name = args.output_name
-    output_dir = Path(__file__).resolve().parent.parent / "backend" / "models" / output_name
+def export_model(entry: dict, base_dir: Path) -> None:
+    """Export a single model with all its configured quantisations."""
+    name = entry["name"]
+    model_id = entry["model_id"]
+    quants = entry["quants"]
+    output_dir = base_dir / name
+
+    print(f"\n{'=' * 70}")
+    print(f"Exporting: {name} ({model_id})")
+    print(f"Quants: {', '.join(quants)}")
+    print(f"{'=' * 70}")
 
     # Detect model family
     family = detect_family(model_id)
@@ -456,22 +503,20 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     fp32_dir = output_dir / "fp32"
-    fp16_dir = output_dir / "fp16"
-    int8_dir = output_dir / "int8"
     fp32_dir.mkdir(parents=True, exist_ok=True)
 
     # Load model
     print(f"Loading model: {model_id}")
-    model = AutoModel.from_pretrained(model_id, local_files_only=True)
+    model = AutoModel.from_pretrained(model_id, local_files_only=False)
     model.eval()
-    processor = AutoProcessor.from_pretrained(model_id, local_files_only=True)
+    processor = AutoProcessor.from_pretrained(model_id, local_files_only=False)
 
     # Extract manifest (needed for image_size and context_length)
     manifest = extract_manifest(model, processor, model_id, family)
     image_size = manifest["image_size"]
     context_length = manifest["tokenizer_max_length"]
 
-    # Export fp32
+    # Export fp32 (always needed as base for quantisation)
     print(f"\nExporting fp32 vision encoder (image_size={image_size})...")
     export_vision(model, family, image_size, fp32_dir)
     print(f"Exporting fp32 text encoder (context_length={context_length})...")
@@ -484,28 +529,48 @@ def main() -> None:
     else:
         save_tokenizer_clip(processor, output_dir)
 
-    # Generate manifest & sanity check fp32
-    print("\nGenerating manifest...")
-    write_manifest(manifest, fp32_dir)
-    sanity_check(model, processor, family, image_size, context_length, fp32_dir)
+    # Write manifest & sanity check fp32
+    if "fp32" in quants:
+        print("\nGenerating fp32 manifest...")
+        write_manifest(manifest, fp32_dir)
+        sanity_check(model, processor, family, image_size, context_length, fp32_dir)
 
     # Quantise to fp16
-    print("\nQuantising to fp16...")
-    quantise_fp16(fp32_dir, fp16_dir)
-    write_manifest(manifest, fp16_dir)
-    sanity_check(model, processor, family, image_size, context_length, fp16_dir)
+    if "fp16" in quants:
+        fp16_dir = output_dir / "fp16"
+        print("\nQuantising to fp16...")
+        quantise_fp16(fp32_dir, fp16_dir)
+        write_manifest(manifest, fp16_dir)
+        sanity_check(model, processor, family, image_size, context_length, fp16_dir)
 
     # Quantise to int8
-    print("\nQuantising to int8...")
-    quantise_int8(fp32_dir, int8_dir)
-    write_manifest(manifest, int8_dir)
-    sanity_check(model, processor, family, image_size, context_length, int8_dir)
+    if "int8" in quants:
+        int8_dir = output_dir / "int8"
+        print("\nQuantising to int8...")
+        quantise_int8(fp32_dir, int8_dir)
+        write_manifest(manifest, int8_dir)
+        sanity_check(model, processor, family, image_size, context_length, int8_dir)
+
+    # Remove fp32 dir if it wasn't requested (it was only needed as quantisation source)
+    if "fp32" not in quants:
+        shutil.rmtree(fp32_dir)
 
     # Size report
     print_size_table(output_dir)
+    print(f"\nExport complete: {output_dir}")
 
-    print("\nExport complete.")
-    print(f"Models at: {output_dir}")
+
+def main() -> None:
+    args = parse_args()
+    base_dir = Path(__file__).resolve().parent.parent / "backend" / "models"
+
+    for name in args.models:
+        export_model(MODEL_BY_NAME[name], base_dir)
+
+    if len(args.models) > 1:
+        print(f"\n{'=' * 70}")
+        print(f"All done. Exported {len(args.models)} models to {base_dir}")
+        print(f"{'=' * 70}")
 
 
 if __name__ == "__main__":

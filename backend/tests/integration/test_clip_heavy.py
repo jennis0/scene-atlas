@@ -11,7 +11,7 @@ Or run everything including heavy:
 
 Requires ONNX models to be exported first:
 
-    uv run python scripts/export_clip_onnx.py
+    uv run python scripts/export_model_onnx.py clip-vit-b-32
 """
 
 import pytest
