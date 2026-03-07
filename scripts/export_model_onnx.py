@@ -482,6 +482,7 @@ def sanity_check(
         return_tensors="pt",
         padding="max_length",
         max_length=context_length,
+        return_attention_mask=True,
     )
     with torch.no_grad():
         if family == "clip":
