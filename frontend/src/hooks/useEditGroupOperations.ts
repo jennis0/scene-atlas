@@ -71,7 +71,7 @@ export interface UseEditGroupOperationsReturn {
     drag: { id: string; groupId: string },
     targetGroupId: string,
   ) => Promise<void>
-  handleDragMergeConfirm: (dragMergeSource: string, dragMergeTarget: string) => Promise<void>
+  handleDragMergeConfirm: (dragMergeSourceIds: string[], dragMergeTarget: string) => Promise<void>
 
   // Reset
   resetOperations: () => void
@@ -517,47 +517,65 @@ export function useEditGroupOperations({
     [selections, setGroups, deselectAll, invalidateGallery, setActiveTab],
   )
 
-  const handleDragMergeConfirm = async (dragMergeSource: string, dragMergeTarget: string) => {
-    if (!dragMergeSource || !dragMergeTarget) return
+  const handleDragMergeConfirm = async (dragMergeSourceIds: string[], dragMergeTarget: string) => {
+    if (dragMergeSourceIds.length === 0 || !dragMergeTarget) return
     setMerging(true)
     setSaveError(null)
+
+    const sourceIdSet = new Set(dragMergeSourceIds)
+    const mergedSourceIds: string[] = []
     try {
-      await groupApi.merge(Number(dragMergeSource), Number(dragMergeTarget))
-
-      const sourceIdx = groups.findIndex((g) => g.id === dragMergeSource)
-      const targetInGroups = groups.some((g) => g.id === dragMergeTarget)
-      let updatedGroups = groups.filter((g) => g.id !== dragMergeSource)
-
-      if (targetInGroups) {
-        const reloaded = await groupApi.get(Number(dragMergeTarget))
-        const originalSeedIds = new Set(
-          groups
-            .filter((g) => g.id === dragMergeTarget || g.id === dragMergeSource)
-            .flatMap((g) =>
-              g.files.filter((f) => !f.outOfScope).map((f) => Number(f.relative_path)),
-            ),
-        )
-        updatedGroups = updatedGroups.map((g) => {
-          if (g.id !== dragMergeTarget) return g
-          return {
-            ...g,
-            files: reloaded.images.map((img) => imageToEditable(img, !originalSeedIds.has(img.id))),
-            total: reloaded.images.length,
-          }
-        })
+      for (const sourceId of dragMergeSourceIds) {
+        await groupApi.merge(Number(sourceId), Number(dragMergeTarget))
+        mergedSourceIds.push(sourceId)
       }
-
-      setGroups(updatedGroups)
-      if (activeTab !== ALL_TAB) {
-        if (sourceIdx < activeTab) setActiveTab(activeTab - 1)
-        else if (sourceIdx === activeTab) setActiveTab(Math.max(0, activeTab - 1))
-      }
-      invalidateGallery()
     } catch (err) {
-      setSaveError(getApiErrorMessage(err, 'Merge failed'))
-    } finally {
-      setMerging(false)
+      setSaveError(
+        getApiErrorMessage(
+          err,
+          mergedSourceIds.length > 0
+            ? `Merge failed after merging ${mergedSourceIds.length}/${dragMergeSourceIds.length} groups`
+            : 'Merge failed',
+        ),
+      )
     }
+
+    // Resync local state from the API regardless of partial failure
+    if (mergedSourceIds.length > 0) {
+      try {
+        const deletedSet = new Set(mergedSourceIds)
+        const targetInGroups = groups.some((g) => g.id === dragMergeTarget)
+        let updatedGroups = groups.filter((g) => !deletedSet.has(g.id))
+
+        if (targetInGroups) {
+          const reloaded = await groupApi.get(Number(dragMergeTarget))
+          const originalSeedIds = new Set(
+            groups
+              .filter((g) => g.id === dragMergeTarget || sourceIdSet.has(g.id))
+              .flatMap((g) =>
+                g.files.filter((f) => !f.outOfScope).map((f) => Number(f.relative_path)),
+              ),
+          )
+          updatedGroups = updatedGroups.map((g) => {
+            if (g.id !== dragMergeTarget) return g
+            return {
+              ...g,
+              files: reloaded.images.map((img) =>
+                imageToEditable(img, !originalSeedIds.has(img.id)),
+              ),
+              total: reloaded.images.length,
+            }
+          })
+        }
+
+        setGroups(updatedGroups)
+        setActiveTab(ALL_TAB)
+        invalidateGallery()
+      } catch {
+        // Resync failed — error already shown above
+      }
+    }
+    setMerging(false)
   }
 
   const handleBulkDelete = async (selectedGroupIds: Set<string>) => {

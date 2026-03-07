@@ -19,4 +19,6 @@ export interface ActiveDragState {
   selectedCount: number
   previewUrl?: string
   label?: string
+  /** When dragging a group that is part of a multi-selection, contains all selected group IDs */
+  selectedGroupIds?: Set<string>
 }

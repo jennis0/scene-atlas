@@ -25,9 +25,14 @@ export function DragOverlayContent({ activeDrag }: { activeDrag: ActiveDragState
   }
 
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-primary/50 bg-card shadow-lg px-3 py-2 pointer-events-none max-w-[180px]">
+    <div className="flex items-center gap-2 rounded-lg border border-primary/50 bg-card shadow-lg px-3 py-2 pointer-events-none max-w-[200px]">
       <GripVertical className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
       <span className="text-xs text-foreground truncate">{activeDrag.label ?? 'Group'}</span>
+      {activeDrag.selectedCount > 1 && (
+        <span className="ml-auto shrink-0 w-5 h-5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center">
+          {activeDrag.selectedCount}
+        </span>
+      )}
     </div>
   )
 }

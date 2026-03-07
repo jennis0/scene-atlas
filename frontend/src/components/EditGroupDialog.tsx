@@ -29,7 +29,8 @@ import { FileToolbar } from './import/FileToolbar'
 import { MetadataForm } from './import/MetadataForm'
 import { SubgroupHeading } from './SubgroupHeading'
 import { applyFileFilter } from './import/fileFilter'
-import { useFileEditing, ALL_TAB } from '@/hooks/useFileEditing'
+import { EMPTY_FILTER } from '@/components/import/fileFilter'
+import { useFileEditing, ALL_TAB, MULTI_GROUP_ID } from '@/hooks/useFileEditing'
 import { useEditGroupLoad } from '@/hooks/useEditGroupLoad'
 import { useEditGroupOperations } from '@/hooks/useEditGroupOperations'
 import { useEditGroupDnd } from '@/hooks/useEditGroupDnd'
@@ -139,6 +140,8 @@ export default function EditGroupDialog({
     bulkSetImageType,
     bulkSetSubgroup,
     bulkExclude,
+    bulkUpdateFilesInGroups,
+    bulkExcludeInGroups,
     clearSubgroupLabel,
     renameSubgroup,
     isAllTab,
@@ -148,6 +151,10 @@ export default function EditGroupDialog({
   } = useFileEditing({
     onGroupChange: (affected) => affected.forEach((g) => autoSaveRef.current(g)),
   })
+
+  // ── Sidebar multiselect ──────────────────────────────────────────────
+  const { selectedGroupIds, setSelectedGroupIds, handleGroupClick, resetMultiselect } =
+    useGroupSidebarMultiselect({ groups, onSelectTab: setActiveTab })
 
   // ── Operations (save, merge, delete, split) ─────────────────────
   const ops = useEditGroupOperations({
@@ -168,13 +175,10 @@ export default function EditGroupDialog({
   const dnd = useEditGroupDnd({
     groups,
     selections,
+    selectedGroupIds,
     updateFilesInGroup,
     handleMoveImagesToGroup: ops.handleMoveImagesToGroup,
   })
-
-  // ── Sidebar multiselect ──────────────────────────────────────────────
-  const { selectedGroupIds, setSelectedGroupIds, handleGroupClick, resetMultiselect } =
-    useGroupSidebarMultiselect({ groups, onSelectTab: setActiveTab })
 
   // Reset dialog-local state (everything NOT owned by useEditGroupLoad or useFileEditing)
   const { resetOperations } = ops
@@ -262,9 +266,10 @@ export default function EditGroupDialog({
   const {
     sensors,
     activeDrag,
-    dragMergeSource,
+    dragModifiers,
+    dragMergeSourceIds,
     dragMergeTarget,
-    setDragMergeSource,
+    setDragMergeSourceIds,
     setDragMergeTarget,
     handleDragStart,
     handleDragEnd,
@@ -272,20 +277,55 @@ export default function EditGroupDialog({
 
   // ── Derived values ─────────────────────────────────────────────
 
+  // Multi-select mode: 2+ groups selected in sidebar
+  const isMultiSelect = selectedGroupIds.size >= 2
+  const effectiveActiveGroupId = isMultiSelect ? MULTI_GROUP_ID : activeGroupId
+  const selectedGroupIdArray = useMemo(() => [...selectedGroupIds], [selectedGroupIds])
+
+  // Reset file filter and selections when multi-select composition changes
+  const multiSelectKey = useMemo(() => [...selectedGroupIds].sort().join(','), [selectedGroupIds])
+  useEffect(() => {
+    if (selectedGroupIds.size >= 2) {
+      setFileFilter(EMPTY_FILTER)
+      deselectAll(MULTI_GROUP_ID)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [multiSelectKey])
+
+  // Common author across selected groups (for multi-select mode)
+  const multiSelectSameAuthor = useMemo(() => {
+    if (!isMultiSelect) return ''
+    const selected = groups.filter((g) => selectedGroupIds.has(g.id))
+    if (selected.length === 0) return ''
+    const first = selected[0].author
+    return selected.every((g) => g.author === first) ? first : ''
+  }, [isMultiSelect, groups, selectedGroupIds])
+
   // All tab shows only in-scope files; per-group tab shows all (incl. out-of-scope for context)
   const allInScopeFiles = useMemo(
     () => groups.flatMap((g) => g.files.filter((f) => !f.outOfScope)),
     [groups],
   )
 
-  // Map from file.relative_path → groupId, so cards on the All tab carry their real group ID
+  // Multi-select: files from only the selected groups
+  const multiSelectFiles = useMemo(
+    () =>
+      isMultiSelect
+        ? groups
+            .filter((g) => selectedGroupIds.has(g.id))
+            .flatMap((g) => g.files.filter((f) => !f.outOfScope))
+        : [],
+    [isMultiSelect, groups, selectedGroupIds],
+  )
+
+  // Map from file.relative_path → groupId, so cards on the All/multi tab carry their real group ID
   // in drag data (relative_path = String(img.id) in EditGroupDialog context).
   const fileGroupIdMap = useMemo(
     () => new Map(groups.flatMap((g) => g.files.map((f) => [f.relative_path, g.id]))),
     [groups],
   )
   const perGroupFiles = activeGroup?.files ?? []
-  const sourceFiles = isAllTab ? allInScopeFiles : perGroupFiles
+  const sourceFiles = isMultiSelect ? multiSelectFiles : isAllTab ? allInScopeFiles : perGroupFiles
 
   // Filtered files: for the in-scope section, filter normally; out-of-scope shown separately
   const inScopeSource = useMemo(() => sourceFiles.filter((f) => !f.outOfScope), [sourceFiles])
@@ -294,11 +334,12 @@ export default function EditGroupDialog({
     [inScopeSource, fileFilter],
   )
   const outOfScopeFiles = useMemo(
-    () => (!isAllTab ? (activeGroup?.files ?? []).filter((f) => f.outOfScope) : []),
-    [isAllTab, activeGroup],
+    () =>
+      !isAllTab && !isMultiSelect ? (activeGroup?.files ?? []).filter((f) => f.outOfScope) : [],
+    [isAllTab, isMultiSelect, activeGroup],
   )
 
-  const activeSelection = selections[activeGroupId] ?? new Set<string>()
+  const activeSelection = selections[effectiveActiveGroupId] ?? new Set<string>()
 
   const groupSubVariants = useMemo(
     () =>
@@ -327,7 +368,9 @@ export default function EditGroupDialog({
   }))
 
   const hasActiveFilter = fileFilter.text || fileFilter.active.length > 0
-  const isOriginalGroup = !isAllTab && !isMassEdit && activeGroup?.id === String(groupId)
+  const isOriginalGroup =
+    !isAllTab && !isMultiSelect && !isMassEdit && activeGroup?.id === String(groupId)
+  const showsMultipleGroups = isAllTab || isMultiSelect
 
   const totalInScope = groups.reduce(
     (s, g) => s + g.files.filter((f) => !f.outOfScope && !f.excluded).length,
@@ -591,31 +634,51 @@ export default function EditGroupDialog({
                 {/* Group metadata */}
                 <div className="px-5 pt-4 pb-3 border-b border-border/30 shrink-0">
                   <MetadataForm
-                    author={isAllTab ? allSameAuthor : (activeGroup?.author ?? '')}
-                    groupName={isAllTab ? '' : (activeGroup?.group_name ?? '')}
-                    authorPlaceholder={
-                      isAllTab && !allSameAuthor
-                        ? 'Multiple — type to set for all groups'
-                        : 'Author name'
+                    author={
+                      isMultiSelect
+                        ? multiSelectSameAuthor
+                        : isAllTab
+                          ? allSameAuthor
+                          : (activeGroup?.author ?? '')
                     }
-                    groupNamePlaceholder={isAllTab ? '— (select a group to rename)' : 'Group name'}
-                    groupNameDisabled={isAllTab}
+                    groupName={showsMultipleGroups ? '' : (activeGroup?.group_name ?? '')}
+                    authorPlaceholder={
+                      isMultiSelect && !multiSelectSameAuthor
+                        ? 'Multiple — type to set for selected groups'
+                        : isAllTab && !allSameAuthor
+                          ? 'Multiple — type to set for all groups'
+                          : 'Author name'
+                    }
+                    groupNamePlaceholder={
+                      isMultiSelect
+                        ? `— (${selectedGroupIds.size} groups selected)`
+                        : isAllTab
+                          ? '— (select a group to rename)'
+                          : 'Group name'
+                    }
+                    groupNameDisabled={showsMultipleGroups}
                     isMassEdit={isMassEdit}
-                    isAllTab={isAllTab}
+                    isAllTab={isAllTab || isMultiSelect}
                     authorSuggestions={authorSuggestions}
                     suggestionsListId="author-suggestions-edit"
                     onAuthorChange={(val) => {
-                      if (isAllTab) {
+                      if (isMultiSelect) {
+                        setGroups((prev) =>
+                          prev.map((g) => (selectedGroupIds.has(g.id) ? { ...g, author: val } : g)),
+                        )
+                      } else if (isAllTab) {
                         setGroups((prev) => prev.map((g) => ({ ...g, author: val })))
                       } else {
                         updateGroup(activeTab, { author: val })
                       }
                     }}
                     onGroupNameChange={(val) =>
-                      !isAllTab && updateGroup(activeTab, { group_name: val })
+                      !showsMultipleGroups && updateGroup(activeTab, { group_name: val })
                     }
                     onBlur={() => {
-                      if (isAllTab) {
+                      if (isMultiSelect) {
+                        groups.filter((g) => selectedGroupIds.has(g.id)).forEach(ops.autoSaveGroup)
+                      } else if (isAllTab) {
                         groups.forEach(ops.autoSaveGroup)
                       } else if (activeGroup) {
                         ops.autoSaveGroup(activeGroup)
@@ -634,17 +697,53 @@ export default function EditGroupDialog({
                     filter={fileFilter}
                     vocab={tagVocab}
                     onFilterChange={setFileFilter}
-                    onSelectAll={() => selectAllVisible(activeGroupId, filteredInScope)}
-                    onDeselectAll={() => deselectAll(activeGroupId)}
-                    onBulkAddTag={(tag) => bulkAddTag(isAllTab ? null : activeGroupId, tag)}
-                    onBulkSetGrid={(gridded, gridType) =>
-                      bulkSetGrid(isAllTab ? null : activeGroupId, gridded, gridType)
+                    onSelectAll={() => selectAllVisible(effectiveActiveGroupId, filteredInScope)}
+                    onDeselectAll={() => deselectAll(effectiveActiveGroupId)}
+                    onBulkAddTag={(tag) =>
+                      isMultiSelect
+                        ? bulkUpdateFilesInGroups(selectedGroupIdArray, MULTI_GROUP_ID, (f) => {
+                            if (
+                              f.tags.some(
+                                (t) => t.category === tag.category && t.value === tag.value,
+                              )
+                            )
+                              return f
+                            return { ...f, tags: [...f.tags, tag] }
+                          })
+                        : bulkAddTag(isAllTab ? null : activeGroupId, tag)
                     }
-                    onBulkSetImageType={(v) => bulkSetImageType(isAllTab ? null : activeGroupId, v)}
-                    onBulkSetSubgroup={(v) => bulkSetSubgroup(isAllTab ? null : activeGroupId, v)}
-                    onBulkExclude={() => bulkExclude(isAllTab ? null : activeGroupId)}
+                    onBulkSetGrid={(gridded, gridType) =>
+                      isMultiSelect
+                        ? bulkUpdateFilesInGroups(selectedGroupIdArray, MULTI_GROUP_ID, (f) => ({
+                            ...f,
+                            gridded,
+                            grid_type: gridType,
+                          }))
+                        : bulkSetGrid(isAllTab ? null : activeGroupId, gridded, gridType)
+                    }
+                    onBulkSetImageType={(v) =>
+                      isMultiSelect
+                        ? bulkUpdateFilesInGroups(selectedGroupIdArray, MULTI_GROUP_ID, (f) => ({
+                            ...f,
+                            image_type: v,
+                          }))
+                        : bulkSetImageType(isAllTab ? null : activeGroupId, v)
+                    }
+                    onBulkSetSubgroup={(v) =>
+                      isMultiSelect
+                        ? bulkUpdateFilesInGroups(selectedGroupIdArray, MULTI_GROUP_ID, (f) => ({
+                            ...f,
+                            subgroup: v.trim() || null,
+                          }))
+                        : bulkSetSubgroup(isAllTab ? null : activeGroupId, v)
+                    }
+                    onBulkExclude={() =>
+                      isMultiSelect
+                        ? bulkExcludeInGroups(selectedGroupIdArray, MULTI_GROUP_ID)
+                        : bulkExclude(isAllTab ? null : activeGroupId)
+                    }
                     onMoveToNewGroup={
-                      !isAllTab && !isMassEdit && activeGroup?.id
+                      !showsMultipleGroups && !isMassEdit && activeGroup?.id
                         ? async () => {
                             await moveToNewGroup(activeGroup.id)
                             setFocusGroupName(true)
@@ -662,7 +761,7 @@ export default function EditGroupDialog({
                     subVariantGroups.map((svGroup) => {
                       const nonExcluded = svGroup.files.filter((f) => !f.excluded).length
                       const isEditing =
-                        !isAllTab &&
+                        !showsMultipleGroups &&
                         editingSvHeading === svGroup.subVariant &&
                         svGroup.subVariant !== null
                       return (
@@ -683,7 +782,7 @@ export default function EditGroupDialog({
                             }}
                             onCancel={() => setEditingSvHeading(null)}
                             onClear={() => clearSubgroupLabel(activeGroup!.id, svGroup.subVariant!)}
-                            canEdit={!isAllTab}
+                            canEdit={!showsMultipleGroups}
                           />
                           <div className="grid grid-cols-2 gap-2 pt-1.5 pb-2">
                             {svGroup.files.map((file) => (
@@ -691,7 +790,7 @@ export default function EditGroupDialog({
                                 key={file.relative_path}
                                 file={file}
                                 groupId={
-                                  isAllTab
+                                  showsMultipleGroups
                                     ? (fileGroupIdMap.get(file.relative_path) ?? '')
                                     : activeGroupId
                                 }
@@ -704,10 +803,10 @@ export default function EditGroupDialog({
                                   existingSubgroups={groupSubVariants}
                                   selected={activeSelection.has(file.relative_path)}
                                   onToggleSelect={() =>
-                                    toggleFileSelection(activeGroupId, file.relative_path)
+                                    toggleFileSelection(effectiveActiveGroupId, file.relative_path)
                                   }
                                   onUpdate={(updates) =>
-                                    isAllTab
+                                    showsMultipleGroups
                                       ? updateFileAnyGroup(file.relative_path, updates)
                                       : updateFile(activeTab, file.relative_path, updates)
                                   }
@@ -728,7 +827,7 @@ export default function EditGroupDialog({
                           key={file.relative_path}
                           file={file}
                           groupId={
-                            isAllTab
+                            showsMultipleGroups
                               ? (fileGroupIdMap.get(file.relative_path) ?? '')
                               : activeGroupId
                           }
@@ -741,10 +840,10 @@ export default function EditGroupDialog({
                             existingSubgroups={groupSubVariants}
                             selected={activeSelection.has(file.relative_path)}
                             onToggleSelect={() =>
-                              toggleFileSelection(activeGroupId, file.relative_path)
+                              toggleFileSelection(effectiveActiveGroupId, file.relative_path)
                             }
                             onUpdate={(updates) =>
-                              isAllTab
+                              showsMultipleGroups
                                 ? updateFileAnyGroup(file.relative_path, updates)
                                 : updateFile(activeTab, file.relative_path, updates)
                             }
@@ -888,7 +987,7 @@ export default function EditGroupDialog({
             </div>
 
             {/* ── Drag overlay ── */}
-            <DragOverlay dropAnimation={null}>
+            <DragOverlay dropAnimation={null} modifiers={dragModifiers}>
               <DragOverlayContent activeDrag={activeDrag} />
             </DragOverlay>
           </DndContext>
@@ -928,23 +1027,32 @@ export default function EditGroupDialog({
 
       {/* Merge via drag confirmation */}
       <ConfirmDialog
-        open={dragMergeSource !== null && dragMergeTarget !== null}
+        open={dragMergeSourceIds !== null && dragMergeTarget !== null}
         onOpenChange={(open) => {
           if (!open) {
-            setDragMergeSource(null)
+            setDragMergeSourceIds(null)
             setDragMergeTarget(null)
           }
         }}
         title="Merge Groups"
-        description={`Merge "${groups.find((g) => g.id === dragMergeSource)?.group_name ?? ''}" (${groups.find((g) => g.id === dragMergeSource)?.files.filter((f) => !f.excluded).length ?? 0} images) into "${groups.find((g) => g.id === dragMergeTarget)?.group_name ?? ''}"? This cannot be undone.`}
-        confirmLabel="Merge"
+        description={
+          dragMergeSourceIds && dragMergeSourceIds.length > 1
+            ? `Merge ${dragMergeSourceIds.length} groups into "${groups.find((g) => g.id === dragMergeTarget)?.group_name ?? ''}"? This cannot be undone.`
+            : `Merge "${groups.find((g) => g.id === dragMergeSourceIds?.[0])?.group_name ?? ''}" (${groups.find((g) => g.id === dragMergeSourceIds?.[0])?.files.filter((f) => !f.excluded).length ?? 0} images) into "${groups.find((g) => g.id === dragMergeTarget)?.group_name ?? ''}"? This cannot be undone.`
+        }
+        confirmLabel={
+          dragMergeSourceIds && dragMergeSourceIds.length > 1
+            ? `Merge ${dragMergeSourceIds.length} Groups`
+            : 'Merge'
+        }
         confirmVariant="default"
         loadingLabel="Merging…"
         onConfirm={() => {
-          if (dragMergeSource && dragMergeTarget) {
-            handleDragMergeConfirm(dragMergeSource, dragMergeTarget).then(() => {
-              setDragMergeSource(null)
+          if (dragMergeSourceIds && dragMergeTarget) {
+            handleDragMergeConfirm(dragMergeSourceIds, dragMergeTarget).then(() => {
+              setDragMergeSourceIds(null)
               setDragMergeTarget(null)
+              resetMultiselect()
             })
           }
         }}

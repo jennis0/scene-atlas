@@ -1,12 +1,14 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useMemo } from 'react'
 import { PointerSensor, KeyboardSensor, useSensor, useSensors } from '@dnd-kit/core'
-import type { DragStartEvent, DragEndEvent } from '@dnd-kit/core'
+import type { DragStartEvent, DragEndEvent, Modifier } from '@dnd-kit/core'
+import { snapCenterToCursor } from '@dnd-kit/modifiers'
 import type { EditableGroupState, EditableFileState } from '@/types'
 import type { DragData, DropData, ActiveDragState } from '@/components/import/shared/dnd'
 
 interface UseEditGroupDndOptions {
   groups: EditableGroupState[]
   selections: Record<string, Set<string>>
+  selectedGroupIds: Set<string>
   updateFilesInGroup: (
     groupId: string,
     paths: string[],
@@ -21,9 +23,10 @@ interface UseEditGroupDndOptions {
 export interface UseEditGroupDndReturn {
   sensors: ReturnType<typeof useSensors>
   activeDrag: ActiveDragState | null
-  dragMergeSource: string | null
+  dragModifiers: Modifier[]
+  dragMergeSourceIds: string[] | null
   dragMergeTarget: string | null
-  setDragMergeSource: React.Dispatch<React.SetStateAction<string | null>>
+  setDragMergeSourceIds: React.Dispatch<React.SetStateAction<string[] | null>>
   setDragMergeTarget: React.Dispatch<React.SetStateAction<string | null>>
   handleDragStart: (event: DragStartEvent) => void
   handleDragEnd: (event: DragEndEvent) => void
@@ -33,11 +36,12 @@ export interface UseEditGroupDndReturn {
 export function useEditGroupDnd({
   groups,
   selections,
+  selectedGroupIds,
   updateFilesInGroup,
   handleMoveImagesToGroup,
 }: UseEditGroupDndOptions): UseEditGroupDndReturn {
   const [activeDrag, setActiveDrag] = useState<ActiveDragState | null>(null)
-  const [dragMergeSource, setDragMergeSource] = useState<string | null>(null)
+  const [dragMergeSourceIds, setDragMergeSourceIds] = useState<string[] | null>(null)
   const [dragMergeTarget, setDragMergeTarget] = useState<string | null>(null)
 
   const sensors = useSensors(
@@ -79,16 +83,18 @@ export function useEditGroupDnd({
         })
       } else {
         const group = groups.find((g) => g.id === data.groupId)
+        const isPartOfMultiSelect = selectedGroupIds.has(data.groupId) && selectedGroupIds.size >= 2
         setActiveDrag({
           type: 'group',
           id: data.id,
           groupId: data.groupId,
-          selectedCount: 1,
+          selectedCount: isPartOfMultiSelect ? selectedGroupIds.size : 1,
           label: group?.group_name,
+          selectedGroupIds: isPartOfMultiSelect ? new Set(selectedGroupIds) : undefined,
         })
       }
     },
-    [selections, groups],
+    [selections, groups, selectedGroupIds],
   )
 
   const handleDragEnd = useCallback(
@@ -109,8 +115,16 @@ export function useEditGroupDnd({
       } else if (activeDrag.type === 'card' && dropData.type === 'subgroup') {
         moveToSubgroupRef.current(activeDrag, dropData.subgroup ?? null)
       } else if (activeDrag.type === 'group' && dropData.type === 'group' && dropData.groupId) {
-        if (activeDrag.groupId !== dropData.groupId) {
-          setDragMergeSource(activeDrag.groupId)
+        if (activeDrag.selectedGroupIds) {
+          // Multi-group drag: merge all selected groups (except the target) into the target
+          const sourceIds = [...activeDrag.selectedGroupIds].filter((id) => id !== dropData.groupId)
+          if (sourceIds.length > 0) {
+            setDragMergeSourceIds(sourceIds)
+            setDragMergeTarget(dropData.groupId!)
+          }
+        } else if (activeDrag.groupId !== dropData.groupId) {
+          // Single group drag
+          setDragMergeSourceIds([activeDrag.groupId])
           setDragMergeTarget(dropData.groupId)
         }
       }
@@ -119,18 +133,31 @@ export function useEditGroupDnd({
     [activeDrag],
   )
 
+  // Snap overlay to cursor only for multi-item drags (single drags keep natural feel)
+  const conditionalSnapModifier: Modifier = useCallback(
+    (args) => {
+      if (activeDrag && activeDrag.selectedCount > 1) {
+        return snapCenterToCursor(args)
+      }
+      return args.transform
+    },
+    [activeDrag],
+  )
+  const dragModifiers = useMemo(() => [conditionalSnapModifier], [conditionalSnapModifier])
+
   const resetDnd = useCallback(() => {
     setActiveDrag(null)
-    setDragMergeSource(null)
+    setDragMergeSourceIds(null)
     setDragMergeTarget(null)
   }, [])
 
   return {
     sensors,
     activeDrag,
-    dragMergeSource,
+    dragModifiers,
+    dragMergeSourceIds,
     dragMergeTarget,
-    setDragMergeSource,
+    setDragMergeSourceIds,
     setDragMergeTarget,
     handleDragStart,
     handleDragEnd,

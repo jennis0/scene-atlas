@@ -10,14 +10,15 @@ export function DroppableGroupRow({
   activeDrag: ActiveDragState | null
   children: React.ReactNode
 }) {
+  const isCoSelected = activeDrag?.selectedGroupIds?.has(groupId) ?? false
   const { isOver, setNodeRef } = useDroppable({
     id: `group-drop-${groupId}`,
     data: { type: 'group', groupId } satisfies DropData,
-    disabled: !activeDrag || activeDrag.groupId === groupId,
+    disabled: !activeDrag || isCoSelected,
   })
 
-  // Only highlight when a compatible drag is over (card→group or group→group, not self)
-  const showHighlight = isOver && activeDrag && activeDrag.groupId !== groupId
+  // Only highlight when a compatible drag is over (not self, not co-selected in multi-drag)
+  const showHighlight = isOver && activeDrag && activeDrag.groupId !== groupId && !isCoSelected
 
   return (
     <div
