@@ -377,20 +377,25 @@ Pipeline functions in `backend/pipeline/` are now plain Python functions — no 
 **Context:** We want to support multiple embedding models (OpenCLIP, SigLIP2) with different preprocessing requirements, tokenizers, and embedding dimensions. We need easy model switching for dev/testing and model-scoped Qdrant collections.
 
 **Decision:**
-- Ship a `manifest.json` alongside each model's ONNX files capturing all model-specific parameters (image size, normalization, interpolation, resize mode, tokenizer config, embedding dimension)
+- Ship a `manifest.json` alongside each model's ONNX files capturing all model-specific parameters (image size, normalization, interpolation, resize mode, tokenizer config, embedding dimension, EOS token ID)
 - CLIPService reads manifest at init and configures itself — no strategy pattern or plugin registry
-- Model-scoped Qdrant collections: `embeddings_{model_name}`, enabling instant switching
-- sentencepiece added as production dependency for SigLIP2's tokenizer
-- Own export script (`export_model_onnx.py`) for full control over quantisation
+- Model-scoped Qdrant collections: `embeddings_{model_name}`, enabling instant switching without re-embedding
+- `qdrant_vector_size` is auto-derived from the manifest's `embedding_dim` at startup, before any Qdrant service is created — model identity flows through collection names, not dimension matching
+- sentencepiece added as production dependency (~1MB) for SigLIP2's tokenizer, with a thin wrapper that replicates HF tokenizer behaviour (including EOS token appending)
+- Own export script (`export_model_onnx.py`) for full control over quantisation and manifest generation
+- Manifest validation at load time catches missing/malformed fields early
+- Backward-compatible fallback: if no manifest exists, hardcoded CLIP ViT-B/32 defaults are used
 
 **Alternatives considered:**
 - Strategy pattern: over-engineered for models that all follow the same ONNX inference path
-- JAX for ONNX export: requires jax2tf->tf2onnx (fragile, two conversion steps)
+- JAX for ONNX export: requires jax2tf→tf2onnx (fragile, two conversion steps)
 - Pre-exported ONNX from onnx-community: less control over quantisation choices
-- tokenizer.json conversion for SigLIP2: fragile, may lose text lowercasing behavior
+- tokenizer.json conversion for SigLIP2: fragile, may lose text lowercasing and EOS token behaviour
+- Dimension-based model compatibility checking: weak proxy — two models can share dimensions but produce incompatible embeddings; model identity is better encoded in collection names
 
 **Consequences:**
 - Adding a new model requires only: export script run + manifest generation
-- Model switch in dev: set EMBEDDING_MODEL env var, rebuild-embeddings if needed
-- Startup auto-detects embedding count mismatch and triggers rebuild
+- Model switch in dev: set `EMBEDDING_MODEL` env var, restart server; auto-rebuild triggers if collection is missing or has wrong count
+- All dev/build scripts (`setup_models.py`, `build_sidecar.py`, `evaluate_onnx.py`, PyInstaller spec) respect `EMBEDDING_MODEL` env var
 - sentencepiece adds ~1MB to production dependency footprint
+- Models directory structure: `backend/models/{model-name}/{fp32,fp16,int8}/` + `tokenizer/`

@@ -109,8 +109,10 @@ a = Analysis(
         # ONNX Runtime (CLIP inference)
         'onnxruntime',
         'onnxruntime.capi',
-        # Tokenizers (CLIP text tokenization)
+        # Tokenizers (CLIP text tokenization — HuggingFace fast tokenizer)
         'tokenizers',
+        # SentencePiece (SigLIP2 text tokenization)
+        'sentencepiece',
         # Misc
         'numpy',
         'PIL',

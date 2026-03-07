@@ -8,6 +8,7 @@ Usage:
 """
 
 import argparse
+import os
 import platform
 import shutil
 import subprocess
@@ -20,11 +21,15 @@ PYINSTALLER_OUT = ROOT / "backend" / "pyinstaller" / "dist" / "scene-atlas-backe
 # electron-builder copies this directory to process.resourcesPath/sidecar/
 ELECTRON_RESOURCES = ROOT / "backend" / "pyinstaller" / "dist"
 
+# Model to bundle — matches EMBEDDING_MODEL env var used by the spec file
+_EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "clip-vit-b-32")
+_MODELS_DIR = ROOT / "backend" / "models" / _EMBEDDING_MODEL
+
 # ONNX model files that must exist before building
 _REQUIRED_ONNX_FILES = [
-    ROOT / "backend" / "models" / "clip-vit-b-32" / "fp16" / "clip_vision_encoder.onnx",
-    ROOT / "backend" / "models" / "clip-vit-b-32" / "fp16" / "clip_text_encoder.onnx",
-    ROOT / "backend" / "models" / "clip-vit-b-32" / "tokenizer" / "tokenizer.json",
+    _MODELS_DIR / "fp16" / "clip_vision_encoder.onnx",
+    _MODELS_DIR / "fp16" / "clip_text_encoder.onnx",
+    _MODELS_DIR / "fp16" / "manifest.json",
 ]
 
 
@@ -44,7 +49,8 @@ def check_onnx_models() -> bool:
         for f in missing:
             print(f"  - {f.relative_to(ROOT)}", file=sys.stderr)
         print(
-            "\nRun the export script first:\n  uv run python scripts/export_clip_onnx.py",
+            f"\nRun the export script first:\n  uv run python scripts/export_model_onnx.py"
+            f"\n\nActive model: {_EMBEDDING_MODEL} (set EMBEDDING_MODEL env var to change)",
             file=sys.stderr,
         )
         return False
