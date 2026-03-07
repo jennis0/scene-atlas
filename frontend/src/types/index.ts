@@ -302,7 +302,11 @@ export interface GroupSearchResult {
   total_scenes: number
   matching_scenes: number
   best_score: number | null
+  all_image_ids?: number[] // populated when include_all_image_ids=true
 }
+
+/** Minimal image reference for mass-edit seeding — only id and group_id needed. */
+export type SeedImage = { id: number; group_id: number | null }
 
 export interface GroupSearchResponse {
   total_groups: number

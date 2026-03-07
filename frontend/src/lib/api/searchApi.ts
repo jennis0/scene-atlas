@@ -8,7 +8,7 @@ export const searchApi = {
   },
 
   groups: async (
-    params: SearchParams & { limit?: number; offset?: number },
+    params: SearchParams & { limit?: number; offset?: number; include_all_image_ids?: boolean },
   ): Promise<GroupSearchResponse> => {
     const { data } = await api.get<GroupSearchResponse>('/search/groups', { params })
     return data

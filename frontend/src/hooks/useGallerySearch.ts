@@ -117,6 +117,7 @@ export interface UseGallerySearchReturn {
   // Data
   facets: FacetData | undefined
   searchParams: SearchParams
+  groupSearchParams: Omit<SearchParams, 'limit' | 'offset'>
   displayImages: Image[]
   imageGroups: ImageGroup[]
   isSearching: boolean
@@ -444,6 +445,7 @@ export function useGallerySearch(): UseGallerySearchReturn {
     // Data
     facets,
     searchParams,
+    groupSearchParams,
     displayImages,
     imageGroups,
     isSearching,
