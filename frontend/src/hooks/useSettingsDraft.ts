@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { settingsApi } from '@/lib/api'
 import { QUERY_KEYS } from '@/lib/queryKeys'
@@ -12,17 +12,31 @@ export interface UseSettingsDraftReturn {
   save: () => Promise<AppSettings>
   discard: () => void
   isSaving: boolean
+  isLoading: boolean
+  isError: boolean
+  error: Error | null
 }
 
-export function useSettingsDraft(): UseSettingsDraftReturn {
+interface UseSettingsDraftOptions {
+  enabled?: boolean
+}
+
+export function useSettingsDraft(options?: UseSettingsDraftOptions): UseSettingsDraftReturn {
   const [draft, setDraft] = useState<Partial<AppSettings>>({})
   const queryClient = useQueryClient()
+  const { enabled = true } = options || {}
 
-  // Fetch current settings
-  const { data: settings } = useQuery({
-    queryKey: [QUERY_KEYS.appSettings],
+  // Fetch current settings (with optional enabled flag for lazy-loading)
+  const {
+    data: settings,
+    isLoading,
+    isError,
+    error,
+  } = useQuery({
+    queryKey: QUERY_KEYS.appSettings,
     queryFn: () => settingsApi.get(),
     staleTime: 30_000,
+    enabled,
   })
 
   // Mutation for saving settings
@@ -30,15 +44,10 @@ export function useSettingsDraft(): UseSettingsDraftReturn {
     mutationFn: (partialSettings: Partial<AppSettings>) => settingsApi.patch(partialSettings),
     onSuccess: (updatedSettings) => {
       // Update query cache with full updated settings
-      queryClient.setQueryData([QUERY_KEYS.appSettings], updatedSettings)
-      // Clear only the fields that were saved from draft
-      setDraft((prev) => {
-        const newDraft = { ...prev }
-        Object.keys(updatedSettings).forEach((key) => {
-          delete newDraft[key as keyof AppSettings]
-        })
-        return newDraft
-      })
+      queryClient.setQueryData(QUERY_KEYS.appSettings, updatedSettings)
+      // Clear entire draft on successful save. Race-condition edits are intentionally discarded
+      // (user edits made while mutation in-flight are lost, but this is acceptable UX)
+      setDraft({})
     },
     onError: (error) => {
       console.error('Failed to save settings:', error)
@@ -47,17 +56,15 @@ export function useSettingsDraft(): UseSettingsDraftReturn {
 
   const isDirty = useMemo(() => Object.keys(draft).length > 0, [draft])
 
-  const handleSetField = (key: keyof AppSettings, value: string | number | boolean) => {
+  const handleSetField = useCallback((key: keyof AppSettings, value: string | number | boolean) => {
     setDraft((prev) => ({ ...prev, [key]: value }))
-  }
+  }, [])
 
-  const handleSave = async () => {
-    return saveMutation.mutateAsync(draft)
-  }
+  const handleSave = useCallback(() => saveMutation.mutateAsync(draft), [draft, saveMutation])
 
-  const handleDiscard = () => {
+  const handleDiscard = useCallback(() => {
     setDraft({})
-  }
+  }, [])
 
   return {
     settings,
@@ -67,5 +74,8 @@ export function useSettingsDraft(): UseSettingsDraftReturn {
     save: handleSave,
     discard: handleDiscard,
     isSaving: saveMutation.isPending,
+    isLoading,
+    isError,
+    error: error as Error | null,
   }
 }
