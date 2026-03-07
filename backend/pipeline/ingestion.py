@@ -12,8 +12,8 @@ import gc
 import hashlib
 import json
 import logging
+import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -28,8 +28,6 @@ from backend.app.models import (
     ImportJob,
     Tag,
     TagCategory,
-    get_engine,
-    get_session_local,
 )
 from backend.app.process_utils import get_rss_mb
 from backend.app.services import (
@@ -40,10 +38,12 @@ from backend.app.services import (
 )
 from backend.app.services.fts_service import fts_rebuild
 from backend.app.services.image_parser import build_search_text
+from backend.app.services.prepare_pool import get_prepare_pool
 from backend.app.services.staging import (
     load_file_map as _load_file_map,
 )
 
+from .db import pipeline_db
 from .error_classifier import classify_ingest_error
 from .pipeline_config import PipelineConfig, load_pipeline_config
 from .tasks.embedding_generation import (
@@ -58,9 +58,7 @@ from .tasks.embedding_generation import (
 
 def _build_parser() -> ImageParser:
     """Create an ImageParser with tag vocabulary loaded from DB."""
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
-    with SessionLocal() as db:
+    with pipeline_db() as db:
         categories = db.query(TagCategory).all()
         cat_dicts = [{"name": c.name, "common_values": c.common_values} for c in categories]
         return ImageParser(tag_categories=cat_dicts)
@@ -76,6 +74,20 @@ def _compute_file_hash(file_path: Path) -> str:
                 break
             h.update(chunk)
     return h.hexdigest()
+
+
+def _collect_futures(futures: list) -> list:
+    """Collect future results, cancelling all on exception.
+
+    Must collect ALL futures even on error — abandoning futures leaks work
+    into the shared pool. This helper ensures consistent error handling.
+    """
+    try:
+        return [f.result() for f in futures]
+    except Exception:
+        for f in futures:
+            f.cancel()
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -277,9 +289,7 @@ def prepare_single_image(
 
         if reuse_storage_key:
             # Look up existing image to copy dimensions, file_size, colors
-            engine = get_engine(settings.database_url)
-            SessionLocal = get_session_local(engine)
-            with SessionLocal() as db:
+            with pipeline_db() as db:
                 source_image = (
                     db.query(Image).filter(Image.storage_key == reuse_storage_key).first()
                 )
@@ -507,10 +517,8 @@ def save_to_database(image_data: dict) -> int:
         Image ID
     """
     logger = logging.getLogger(__name__)
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
     try:
-        with SessionLocal() as db, db.begin():
+        with pipeline_db() as db:
             image_id = _save_image_to_db(db, image_data)
         logger.info("Saved image to database: %s (ID: %s)", image_data["filename"], image_id)
         return image_id
@@ -551,10 +559,8 @@ def batch_save_to_database(image_data_list: list[dict]) -> list[int]:
         List of image IDs
     """
     logger = logging.getLogger(__name__)
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
     try:
-        with SessionLocal() as db, db.begin():
+        with pipeline_db() as db:
             image_ids = []
             # Resolve the group once for the whole batch (all images share the same group)
             resolved_group: ImageGroup | None = None
@@ -629,9 +635,7 @@ def update_import_group_job_progress(
     file_errors: list[dict] | None = None,
 ) -> None:
     """Update ImportGroupJob progress counters in the database."""
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
-    with SessionLocal() as db:
+    with pipeline_db() as db:
         group_job = db.query(ImportGroupJob).filter(ImportGroupJob.id == group_job_id).first()
         if group_job:
             group_job.processed_files = processed
@@ -882,7 +886,6 @@ def bulk_image_ingestion(
     successful = 0
     failed = 0
     total_images = 0
-    concurrency = pipeline_config.max_concurrent_prepare
 
     # Build parser once for all images (avoids per-image DB query)
     parser = _build_parser()
@@ -908,19 +911,18 @@ def bulk_image_ingestion(
             )
 
             # Step 1: Prepare images with bounded concurrency to control memory usage.
-            prepared_results = []
-            with ThreadPoolExecutor(max_workers=concurrency) as prep_pool:
-                futures = [
-                    prep_pool.submit(
-                        prepare_single_image,
-                        image_path=img_path,
-                        source_dir=dir_path,
-                        parser=parser,
-                        pipeline_config=pipeline_config,
-                    )
-                    for img_path in batch
-                ]
-                prepared_results = [f.result() for f in futures]
+            prep_pool = get_prepare_pool()
+            futures = [
+                prep_pool.submit(
+                    prepare_single_image,
+                    image_path=img_path,
+                    source_dir=dir_path,
+                    parser=parser,
+                    pipeline_config=pipeline_config,
+                )
+                for img_path in batch
+            ]
+            prepared_results = _collect_futures(futures)
 
             # Step 2-4: Batch CLIP → batch DB save → batch Qdrant save
             batch_results, _, _warnings = _process_batch(prepared_results)
@@ -937,14 +939,9 @@ def bulk_image_ingestion(
     # Rebuild FTS index after bulk import
     if successful > 0:
         try:
-            engine = get_engine(settings.database_url)
-            SessionLocal = get_session_local(engine)
-            db_fts = SessionLocal()
-            try:
+            with pipeline_db() as db_fts:
                 fts_rebuild(db_fts)
                 logger.info("FTS index rebuilt after bulk ingestion")
-            finally:
-                db_fts.close()
         except Exception as e:
             logger.warning("FTS rebuild failed (non-fatal): %s", e)
 
@@ -985,9 +982,7 @@ def analyse_upload(
     groups = parser.group_files(relative_paths, image_type=default_image_type)
 
     # Compute content hashes and detect duplicates
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
-    with SessionLocal() as db:
+    with pipeline_db() as db:
         # Collect hashes that still need DB lookup (non-precomputed files)
         hashes_to_check: dict[str, list[dict]] = {}  # hash -> [file_entry, ...]
 
@@ -1136,45 +1131,43 @@ def _run_group(
             )
 
             # Prepare images with bounded concurrency to control peak memory use.
-            import time as _time
-
-            _t0 = _time.monotonic()
-            with ThreadPoolExecutor(max_workers=concurrency) as prep_pool:
-                futures = [
-                    prep_pool.submit(
-                        prepare_single_image,
-                        image_path=image_path,
-                        metadata={
-                            "author": author,
-                            "group_name": group_name,
-                            "name": file_info.get("name") or group_name,
-                            "relative_path": file_info.get("relative_path"),
-                            "tags": file_info.get("tags", []),
-                            "gridded": file_info.get("gridded"),
-                            "grid_width": file_info.get("grid_width"),
-                            "grid_height": file_info.get("grid_height"),
-                            "grid_type": file_info.get("grid_type"),
-                            "subgroup": file_info.get("subgroup"),
-                            "image_type": file_info.get("image_type", "battlemap"),
-                            "content_hash": file_info.get("content_hash"),
-                            "media_type": file_info.get("media_type"),
-                            "reuse_storage_key": file_info.get("reuse_storage_key"),
-                            "reuse_thumbnail_key": file_info.get("reuse_thumbnail_key"),
-                            "import_job_id": job_id,
-                        },
-                        pipeline_config=pipeline_config,
-                    )
-                    for file_info, image_path in batch
-                ]
-                prepared_results = [f.result() for f in futures]
-            _t_prepare = _time.monotonic() - _t0
+            _t0 = time.monotonic()
+            prep_pool = get_prepare_pool()
+            futures = [
+                prep_pool.submit(
+                    prepare_single_image,
+                    image_path=image_path,
+                    metadata={
+                        "author": author,
+                        "group_name": group_name,
+                        "name": file_info.get("name") or group_name,
+                        "relative_path": file_info.get("relative_path"),
+                        "tags": file_info.get("tags", []),
+                        "gridded": file_info.get("gridded"),
+                        "grid_width": file_info.get("grid_width"),
+                        "grid_height": file_info.get("grid_height"),
+                        "grid_type": file_info.get("grid_type"),
+                        "subgroup": file_info.get("subgroup"),
+                        "image_type": file_info.get("image_type", "battlemap"),
+                        "content_hash": file_info.get("content_hash"),
+                        "media_type": file_info.get("media_type"),
+                        "reuse_storage_key": file_info.get("reuse_storage_key"),
+                        "reuse_thumbnail_key": file_info.get("reuse_thumbnail_key"),
+                        "import_job_id": job_id,
+                    },
+                    pipeline_config=pipeline_config,
+                )
+                for file_info, image_path in batch
+            ]
+            prepared_results = _collect_futures(futures)
+            _t_prepare = time.monotonic() - _t0
             logger.info("[%s] prepare took %.1fs", group_name, _t_prepare)
 
             # Batch CLIP → batch DB → batch Qdrant
-            _t0 = _time.monotonic()
+            _t0 = time.monotonic()
             batch_results, _, batch_warnings = _process_batch(prepared_results)
             all_file_errors.extend(batch_warnings)
-            _t_process = _time.monotonic() - _t0
+            _t_process = time.monotonic() - _t0
             logger.info("[%s] process_batch took %.1fs", group_name, _t_process)
             batch_success = sum(1 for r in batch_results if r["status"] == "success")
             processed += batch_success
@@ -1224,10 +1217,7 @@ def _run_group(
         # Look up the ImageGroup that was created/updated so we can link back to it
         _created_group_id: int | None = None
         try:
-            _engine = get_engine(settings.database_url)
-            _Session = get_session_local(_engine)
-            _db = _Session()
-            try:
+            with pipeline_db() as _db:
                 grp = (
                     _db.query(ImageGroup)
                     .filter(ImageGroup.base_name == group_name, ImageGroup.author == author)
@@ -1235,8 +1225,6 @@ def _run_group(
                 )
                 if grp:
                     _created_group_id = grp.id
-            finally:
-                _db.close()
         except Exception:
             pass  # Non-fatal — link is a convenience, not required
 
@@ -1282,19 +1270,13 @@ def _mark_group_job_failed(group_job_id: str, error_message: str) -> None:
     """
     logger = logging.getLogger(__name__)
     try:
-        engine = get_engine(settings.database_url)
-        SessionLocal = get_session_local(engine)
-        db = SessionLocal()
-        try:
+        with pipeline_db() as db:
             group_job = db.query(ImportGroupJob).filter(ImportGroupJob.id == group_job_id).first()
             if group_job:
                 group_job.status = "failed"
                 group_job.error_message = error_message[:500] if error_message else None
                 group_job.completed_at = datetime.now(UTC).replace(tzinfo=None)
-                db.commit()
                 logger.info("Marked group job %s as failed", group_job_id)
-        finally:
-            db.close()
     except Exception as e:
         logger.warning("Could not mark group job %s as failed: %s", group_job_id, e)
 
@@ -1312,9 +1294,7 @@ def _finalize_import_job(job_id: str) -> None:
     from backend.app.services.import_state import transition_job_status
 
     logger = logging.getLogger(__name__)
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
-    with SessionLocal() as db:
+    with pipeline_db() as db:
         job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
         if not job:
             return
@@ -1374,9 +1354,7 @@ def _rebuild_fts() -> None:
     """Rebuild the FTS index (non-fatal on error)."""
     logger = logging.getLogger(__name__)
     try:
-        engine = get_engine(settings.database_url)
-        SessionLocal = get_session_local(engine)
-        with SessionLocal() as db:
+        with pipeline_db() as db:
             fts_rebuild(db)
         logger.info("FTS index rebuilt successfully")
     except Exception as e:

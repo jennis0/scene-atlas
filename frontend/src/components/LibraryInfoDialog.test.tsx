@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/renderWithProviders'
-import { SystemInfoDialog } from './SystemInfoDialog'
+import { LibraryInfoDialog } from './LibraryInfoDialog'
 
 // ── Mock electronAPI ──────────────────────────────────────────────────────────
 
@@ -44,19 +44,6 @@ vi.mock('@/lib/api', () => ({
       seeded_categories: 10,
     }),
   },
-  settingsApi: {
-    get: vi.fn().mockResolvedValue({
-      enable_image_grid_detection: true,
-      grid_min_cell_px: 20,
-      grid_max_cell_px: 200,
-      grid_detection_max_dim: 2048,
-      grid_presence_threshold: 0.5,
-      grid_size_threshold: 0.5,
-      grid_period_ratio_threshold: 0.3,
-      grid_hex_rot_conf: 0.5,
-    }),
-    patch: vi.fn().mockResolvedValue({}),
-  },
   jobApi: {
     get: vi.fn().mockResolvedValue({
       id: 'test-purge-1',
@@ -72,7 +59,7 @@ vi.mock('@/lib/api', () => ({
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-describe('SystemInfoDialog', () => {
+describe('LibraryInfoDialog', () => {
   let mockAPI: ReturnType<typeof makeMockElectronAPI>
 
   beforeEach(() => {
@@ -86,19 +73,19 @@ describe('SystemInfoDialog', () => {
   })
 
   it('renders nothing when open=false', () => {
-    const { container } = renderWithProviders(<SystemInfoDialog open={false} onClose={vi.fn()} />)
+    const { container } = renderWithProviders(<LibraryInfoDialog open={false} onClose={vi.fn()} />)
     expect(container.querySelector('[role="dialog"]')).toBeNull()
   })
 
   it('displays the data directory path', async () => {
-    renderWithProviders(<SystemInfoDialog open onClose={vi.fn()} />)
+    renderWithProviders(<LibraryInfoDialog open onClose={vi.fn()} />)
     await waitFor(() => {
       expect(screen.getByText('C:\\Users\\test\\Scene Atlas\\data')).toBeInTheDocument()
     })
   })
 
   it('displays storage sizes when data loads', async () => {
-    renderWithProviders(<SystemInfoDialog open onClose={vi.fn()} />)
+    renderWithProviders(<LibraryInfoDialog open onClose={vi.fn()} />)
     await waitFor(() => {
       expect(screen.getByText('1.8 MB')).toBeInTheDocument() // total in stat card
       expect(screen.getByText('1.0 MB')).toBeInTheDocument() // images in storage bar
@@ -108,7 +95,7 @@ describe('SystemInfoDialog', () => {
   })
 
   it('displays library counts', async () => {
-    renderWithProviders(<SystemInfoDialog open onClose={vi.fn()} />)
+    renderWithProviders(<LibraryInfoDialog open onClose={vi.fn()} />)
     await waitFor(() => {
       expect(screen.getByText('42')).toBeInTheDocument()
       expect(screen.getByText('7')).toBeInTheDocument()
@@ -117,7 +104,7 @@ describe('SystemInfoDialog', () => {
 
   it('calls openDataDir when Open button is clicked', async () => {
     const user = userEvent.setup()
-    renderWithProviders(<SystemInfoDialog open onClose={vi.fn()} />)
+    renderWithProviders(<LibraryInfoDialog open onClose={vi.fn()} />)
 
     // Wait for dataDir to load (buttons are disabled until then)
     await waitFor(() => {
@@ -132,7 +119,7 @@ describe('SystemInfoDialog', () => {
     const user = userEvent.setup()
     mockAPI.chooseDataDir.mockResolvedValue('D:\\NewLocation\\data')
 
-    renderWithProviders(<SystemInfoDialog open onClose={vi.fn()} />)
+    renderWithProviders(<LibraryInfoDialog open onClose={vi.fn()} />)
 
     await waitFor(() => {
       expect(screen.getByText('C:\\Users\\test\\Scene Atlas\\data')).toBeInTheDocument()
@@ -150,7 +137,7 @@ describe('SystemInfoDialog', () => {
     const user = userEvent.setup()
     mockAPI.chooseDataDir.mockResolvedValue('D:\\NewLocation\\data')
 
-    renderWithProviders(<SystemInfoDialog open onClose={vi.fn()} />)
+    renderWithProviders(<LibraryInfoDialog open onClose={vi.fn()} />)
 
     await waitFor(() => {
       expect(screen.getByText('C:\\Users\\test\\Scene Atlas\\data')).toBeInTheDocument()
@@ -177,7 +164,7 @@ describe('SystemInfoDialog', () => {
     mockAPI.changeDataDir.mockReturnValue(new Promise(() => {}))
     mockAPI.chooseDataDir.mockResolvedValue('D:\\NewLocation\\data')
 
-    renderWithProviders(<SystemInfoDialog open onClose={vi.fn()} />)
+    renderWithProviders(<LibraryInfoDialog open onClose={vi.fn()} />)
 
     await waitFor(() => {
       expect(screen.getByText('C:\\Users\\test\\Scene Atlas\\data')).toBeInTheDocument()
@@ -201,7 +188,7 @@ describe('SystemInfoDialog', () => {
   // ── Danger Zone tests ────────────────────────────────────────────────────
 
   it('shows danger zone section with delete and reset buttons', async () => {
-    renderWithProviders(<SystemInfoDialog open onClose={vi.fn()} />)
+    renderWithProviders(<LibraryInfoDialog open onClose={vi.fn()} />)
     await waitFor(() => {
       expect(screen.getByText('Delete library')).toBeInTheDocument()
       expect(screen.getByText('Reset tags')).toBeInTheDocument()
@@ -212,7 +199,7 @@ describe('SystemInfoDialog', () => {
 
   it('shows delete confirmation dialog on Delete button click', async () => {
     const user = userEvent.setup()
-    renderWithProviders(<SystemInfoDialog open onClose={vi.fn()} />)
+    renderWithProviders(<LibraryInfoDialog open onClose={vi.fn()} />)
 
     await waitFor(() => {
       expect(screen.getByText('Delete library')).toBeInTheDocument()
@@ -229,7 +216,7 @@ describe('SystemInfoDialog', () => {
 
   it('shows reset tags confirmation dialog on Reset button click', async () => {
     const user = userEvent.setup()
-    renderWithProviders(<SystemInfoDialog open onClose={vi.fn()} />)
+    renderWithProviders(<LibraryInfoDialog open onClose={vi.fn()} />)
 
     await waitFor(() => {
       expect(screen.getByText('Reset tags')).toBeInTheDocument()

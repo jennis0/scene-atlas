@@ -34,6 +34,19 @@ from backend.app.models import (  # noqa: E402
     init_db,
     seed_tag_categories,
 )
+from backend.app.services.prepare_pool import (  # noqa: E402
+    init_prepare_pool,
+    shutdown_prepare_pool,
+)
+
+
+@pytest.fixture(autouse=True)
+def prepare_pool_fixture():
+    """Initialize and clean up the prepare pool for each test."""
+    shutdown_prepare_pool(wait=True)  # Ensure clean state
+    init_prepare_pool(max_workers=2)  # Use small pool for tests
+    yield
+    shutdown_prepare_pool(wait=True)
 
 
 @pytest.fixture

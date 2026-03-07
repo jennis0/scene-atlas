@@ -52,6 +52,10 @@ export interface UseGalleryDialogsReturn {
   showSystemInfo: boolean
   setShowSystemInfo: (show: boolean) => void
 
+  // Settings panel
+  settingsOpen: boolean
+  setSettingsOpen: (show: boolean) => void
+
   // Import summary dialog (failed/broken jobs)
   importSummaryJobId: string | null
   setImportSummaryJobId: (id: string | null) => void
@@ -108,6 +112,9 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
 
   // System info dialog
   const [showSystemInfo, setShowSystemInfo] = useState(false)
+
+  // Settings panel
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   // Import summary dialog (failed/broken jobs)
   const [importSummaryJobId, setImportSummaryJobId] = useState<string | null>(null)
@@ -220,6 +227,10 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
     // System info dialog
     showSystemInfo,
     setShowSystemInfo,
+
+    // Settings panel
+    settingsOpen,
+    setSettingsOpen,
 
     // Import summary dialog (failed/broken jobs)
     importSummaryJobId,

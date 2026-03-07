@@ -25,6 +25,7 @@ from .models import (
     seed_tag_categories,
 )
 from .process_utils import get_rss_mb
+from .services.prepare_pool import init_prepare_pool, shutdown_prepare_pool
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,9 @@ async def lifespan(app: FastAPI):
         app_config = get_app_settings(session)
     finally:
         session.close()
+
+    # Initialize prepare pool with the system-wide concurrency limit
+    init_prepare_pool(app_config.max_concurrent_prepare)
 
     # Store engine in app state
     app.state.db_engine = engine
@@ -167,6 +171,7 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down application")
     await scheduler.stop()
     shutdown_job_runner()
+    shutdown_prepare_pool()
 
     from .services.qdrant_service import shutdown_qdrant_service
 
