@@ -675,7 +675,7 @@ export default function EditGroupDialog({
                             onClear={() => clearSubgroupLabel(activeGroup!.id, svGroup.subVariant!)}
                             canEdit={!isAllTab}
                           />
-                          <div className="grid grid-cols-2 gap-2 pb-2">
+                          <div className="grid grid-cols-2 gap-2 pt-1.5 pb-2">
                             {svGroup.files.map((file) => (
                               <DraggableFileCardWrapper
                                 key={file.relative_path}
