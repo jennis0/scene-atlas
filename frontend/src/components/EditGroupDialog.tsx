@@ -101,6 +101,7 @@ export default function EditGroupDialog({
   const invalidateGallery = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.search })
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.searchFacets })
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.images })
   }, [queryClient])
 
   // ── Shared file editing state and mutations ───────────────────────
