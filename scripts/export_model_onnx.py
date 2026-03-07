@@ -398,16 +398,20 @@ def extract_manifest(model, processor, model_id: str, family: str) -> dict:
         embedding_dim = model.config.text_config.hidden_size
 
     # Tokenizer config
+    # Some tokenizers report model_max_length as ~1e30 (effectively infinity).
+    # Fall back to text_config.max_position_embeddings which is the real limit.
+    tok_max_length = getattr(tokenizer, "model_max_length", None)
+    if tok_max_length is None or tok_max_length > 1_000_000:
+        tok_max_length = model.config.text_config.max_position_embeddings
+
     if family == "siglip2":
         tokenizer_type = "sentencepiece"
-        tok_max_length = getattr(tokenizer, "model_max_length", 64)
         tok_pad_id = getattr(tokenizer, "pad_token_id", 1)
         # SigLIP2's HF tokenizer appends EOS after text tokens; we need to
         # replicate this in the sentencepiece wrapper at inference time.
         tok_eos_id = getattr(tokenizer, "eos_token_id", None)
     else:
         tokenizer_type = "huggingface"
-        tok_max_length = getattr(tokenizer, "model_max_length", 77)
         tok_pad_id = getattr(tokenizer, "pad_token_id", 49407)
         tok_eos_id = None  # HF fast tokenizer handles EOS internally
 
