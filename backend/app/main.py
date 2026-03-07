@@ -76,6 +76,25 @@ async def lifespan(app: FastAPI):
     # a running event loop on Python 3.12+ / Windows.
     app.state.heavy_op_semaphore = asyncio.Semaphore(app_config.max_concurrent_heavy_requests)
 
+    # Derive qdrant_vector_size from the model manifest before any service is
+    # created.  The manifest is a lightweight JSON read — no model loading.
+    # This ensures QdrantService creates collections with the correct dimension
+    # regardless of which model is active (CLIP 512-d, SigLIP2 768-d, etc.).
+    from .services.clip_service import _default_models_dir, _load_manifest
+
+    try:
+        manifest = _load_manifest(_default_models_dir())
+        manifest_dim = manifest.get("embedding_dim", 512)
+        if settings.qdrant_vector_size != manifest_dim:
+            logger.info(
+                "Setting qdrant_vector_size=%d from model manifest (was %d)",
+                manifest_dim,
+                settings.qdrant_vector_size,
+            )
+            settings.qdrant_vector_size = manifest_dim
+    except Exception:
+        logger.debug("Could not read model manifest for vector size — using default", exc_info=True)
+
     # Start embedding model loading in background — does not block server startup.
     # get_clip_service() will wait for it; empty-query searches skip CLIP entirely.
     from .services.clip_service import start_clip_background_load
@@ -102,24 +121,7 @@ async def lifespan(app: FastAPI):
         from .services.qdrant_service import get_qdrant_service
 
         try:
-            clip_svc = get_clip_service()  # blocks until model is loaded
-
-            # Validate that qdrant_vector_size matches the loaded model's
-            # embedding_dim — a mismatch would cause silent failures or
-            # dimension errors on upsert.
-            model_dim = clip_svc.embedding_dim
-            if settings.qdrant_vector_size != model_dim:
-                logger.warning(
-                    "qdrant_vector_size=%d does not match model embedding_dim=%d. "
-                    "Updating to %d for this session. Set QDRANT_VECTOR_SIZE=%d "
-                    "in your environment to suppress this warning.",
-                    settings.qdrant_vector_size,
-                    model_dim,
-                    model_dim,
-                    model_dim,
-                )
-                settings.qdrant_vector_size = model_dim
-
+            get_clip_service()  # blocks until model is loaded
             qdrant = get_qdrant_service()
             info = qdrant.get_collection_info()
             qdrant_count = info.get("points_count", 0)

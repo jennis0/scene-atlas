@@ -43,7 +43,7 @@ class Settings(BaseSettings):
 
     # Qdrant (embedded local mode)
     qdrant_path: Path = data_dir / "qdrant_local"
-    qdrant_vector_size: int = 512  # Auto-derived from manifest at startup if possible
+    qdrant_vector_size: int = 512  # Overwritten from manifest.embedding_dim at startup
 
     # Embedding model — selects which subdirectory under backend/models/
     # Set via EMBEDDING_MODEL env var to switch models in dev.
