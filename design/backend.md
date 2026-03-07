@@ -73,14 +73,62 @@ All endpoints are prefixed with `/api/v1`.
 ### Search (`/search`)
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/` | Multi-faceted search (text + tags + colors + semantic) |
+| GET | `/` | Multi-faceted search (text + tags + colors + semantic), returns flat Image[] |
+| GET | `/groups` | **[NEW]** Grouped search — returns groups with pagination, image IDs, and scores. See below. |
 | GET | `/facets` | Filter panel facet counts |
 | POST | `/rebuild-embeddings` | Trigger CLIP embedding rebuild (background job) |
+
+**GET `/groups` — Grouped Search Endpoint**
+
+Returns `GroupSearchResponse` with paginated groups. Supports two modes:
+
+**Browse Mode (no query):**
+- Groups sorted alphabetically by `baseName`
+- All groups returned; image IDs included for all images in each group
+- Used for initial gallery view
+
+**Search Mode (query parameter):**
+- Groups sorted by `bestScore` descending (semantic or RRF score)
+- Returns only groups with matching images
+- Image IDs in `all_image_ids` are only matching images (non-matching group members excluded)
+- Non-matching group members marked as `outOfScope` in Edit All dialogs
+
+**Parameters:**
+- `query?: string` — text or semantic search string
+- `authors?: string[]` — filter by author (OR semantics)
+- `tags?: string[]` — filter by tags (OR within category, AND across)
+- `colors?: string[]` — filter by dominant color (OR)
+- `gridded?: 'true' | 'false' | 'unknown'` — filter by grid state
+- `image_type?: 'battlemap' | 'scene'` — filter by image type
+- `media_type?: 'image' | 'video'` — filter by media type
+- `min_score?: number` — relevance slider threshold (0.0-1.0)
+- `limit?: number` — groups per page (default 25, max 500)
+- `offset?: number` — pagination offset
+- `include_all_image_ids?: boolean` — populate `all_image_ids` field (default false). Used by Edit All to fetch all in-scope image IDs.
+
+**Response:**
+```json
+{
+  "groups": [
+    {
+      "group_id": 123,
+      "base_name": "Forest Variants",
+      "author": "Czepeku",
+      "total_scenes": 45,
+      "matching_count": 12,
+      "best_score": 0.876,
+      "all_image_ids": [1, 2, 3, ...] // only present when include_all_image_ids=true
+    }
+  ],
+  "total_groups": 127,
+  "page": 0,
+  "limit": 25
+}
+```
 
 ### Groups (`/groups`)
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/search` | Search groups by name (token Jaccard similarity) |
 | GET | `/{id}` | Get group with members |
 | GET | `/{id}/download` | Stream group as ZIP archive |
 | PUT | `/{id}` | Update group metadata |

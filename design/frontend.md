@@ -120,11 +120,21 @@ The main page. Contains:
 - **Search bar** — text search with toggle between text/semantic mode
 - **View mode toggle** — switches between Individual (flat grid) and Grouped (hero+mosaic) views
 - **Filter panel** (Sheet/sidebar) — author checkboxes, tag checkboxes grouped by category, color filters, grid state filter, image/media type filters. Filter search input to narrow long lists.
+- **Relevance slider** (grouped view only) — filters groups by semantic score threshold. Instant client-side filter when raising (stricter), debounced 400ms refetch when lowering (lenient). Hidden in browse mode (no scores).
 - **Import button** — opens ImportDialog
+- **Edit All button** (grouped view only) — enabled when ≤500 groups. Fetches all matching images via `/search/groups?include_all_image_ids=true`, seeds EditGroupDialog for mass-editing.
 - **Image grid or group grid** — renders filtered/searched images in selected view mode
 - **Image viewer** — modal for full-screen viewing with variant switching
 
-**State management:** All filter/search state is local `useState`. Image data fetched via React Query. View mode state controls which grid component renders. The `useImageGrouping` hook transforms flat results into groups client-side.
+**State management:** Filter/search state managed by `useGallerySearch` hook with React Query. View mode state controls which grid component renders. Grouped view fetches directly from `/search/groups` endpoint (no client-side grouping).
+
+**Edit All flow:**
+1. User clicks "Edit All" in grouped view (≤500 groups)
+2. `handleOpenMassEdit` fetches groups with `include_all_image_ids: true`
+3. Maps image IDs to `SeedImage[]` objects
+4. Opens EditGroupDialog with seedImages prop
+5. Dialog marks non-seeded images as `outOfScope` (visible but protected from bulk edits)
+6. User can bring images into scope by clicking them individually
 
 ### ImportDialog (`components/ImportDialog.tsx`)
 Group management tool for organizing files before import. Per-file metadata editing (tags, grid, name) is deferred to post-import via `ImageViewer` and `EditGroupDialog`.
@@ -170,14 +180,20 @@ Axios instance with:
 
 Key API groups:
 - `imageApi` — list, get, patch, delete, getScenes, getAuthors, backfillGrids
-- `searchApi` — search (text+filters+semantic), facets, rebuildEmbeddings
+- `searchApi` — search (flat Image[], text+filters+semantic), groups (grouped view with pagination), facets, rebuildEmbeddings
 - `tagApi` — categories CRUD, tag value CRUD, retag-all, stats
 - `importApi` — init, upload, confirm, confirmAll, status, analysis, finalize, cancel, active, checkHashes
-- `groupApi` — search, get, edit, delete, merge, moveImages, download
+- `groupApi` — get, edit, delete, merge, moveImages, download
 - `jobApi` — list, get
 - `exportApi` — library export
 - `systemApi` — info, deleteLibrary, resetTags
 - `settingsApi` — get, patch
+
+**searchApi.groups()** — Grouped search with pagination
+- Returns pre-grouped results with image IDs and semantic scores
+- Supports all search parameters (query, filters, min_score)
+- When `include_all_image_ids: true`, populates `all_image_ids` for Edit All seeding
+- Used for grouped view gallery and Edit All functionality
 
 Helper functions:
 - `getImageUrl(image)` → `/api/v1/images/{id}/file`
@@ -199,9 +215,18 @@ Filters are applied server-side. The frontend sends query parameters:
 ## Types (`types/index.ts`)
 
 All interfaces mirror the backend Pydantic schemas. Key types:
+
+**Image & Search:**
 - `Image`, `Tag`, `Color`, `ImageGroup` (DB model), `TagCategory`
-- `SearchParams`, `SearchResult` (includes optional `scores` dict for semantic search)
-- `ViewMode`, `ImageGroup` (client-side grouped view types)
+- `SearchParams`, `SearchResult` (flat image results with optional `scores` dict)
+- `GroupSearchResult`, `GroupSearchResponse` (grouped results with pagination)
+- `SeedImage` — minimal image reference `{ id: number; group_id: number | null }` used for Edit All seeding
+
+**View Modes:**
+- `ViewMode` — `'individual' | 'grouped'`
+- `ImageGroup` — client-side grouped view type (rendered from GroupSearchResult + full Image objects)
+
+**Import & Jobs:**
 - `ImportUploadResponse`, `ImportGroup`, `ImportFileInfo`
 - `ImportConfirmRequest`, `ImportJobResponse`, `ImportGroupStatus`
 - `BackgroundJob`, `JobStatus`

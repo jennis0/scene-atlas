@@ -325,3 +325,44 @@ Pipeline functions in `backend/pipeline/` are now plain Python functions — no 
 - No first-run HuggingFace download (models are bundled)
 - ONNX models must be re-exported when changing the base CLIP model (`scripts/export_clip_onnx.py`)
 - `backend/models/` is gitignored; CI must run the export script before building
+
+---
+
+## ADR-015: Dedicated backend endpoint for grouped search
+
+**Date:** 2026-03
+**Status:** Accepted
+
+**Context:** The grouped view (Hero + Mosaic cards) originally used client-side grouping: fetch flat `Image[]` from `/search`, then group locally in `useImageGrouping`. This created two critical issues:
+
+1. **Pagination conflict:** Image-level pagination (limit: 2000) doesn't align with group-level display. Groups could be split across pages, breaking layout and breaking Edit All when total matching images exceeded 2000.
+
+2. **Edit All truncation:** The "Edit All" feature for mass-editing multiple groups needs all matching image IDs. With image-level pagination, it silently truncated results at 2000 images regardless of actual group size.
+
+3. **Filter spreading bug:** The original Edit All handler spread `search.filters` (an `ActiveFilter[]` array) as an object, producing integer-keyed properties and silently losing filter context.
+
+**Decision:** Implement dedicated `/api/v1/search/groups` endpoint returning pre-grouped results:
+
+1. **Backend**:
+   - New endpoint handles browse mode (all groups, sorted alphabetically) and search mode (groups sorted by best-score, only matching image IDs).
+   - Accepts `include_all_image_ids=true` to populate `all_image_ids` field with in-scope image IDs for Edit All seeding.
+   - Browse mode: batch query groups with all image IDs. Search mode: leverage pre-computed RRF scoring.
+   - Paginated at group level: default 25/page, max 500 groups to prevent query explosion.
+
+2. **Frontend**:
+   - New `SeedImage` type (`{ id: number; group_id: number | null }`) for Edit All seeding — only requires `id` and `group_id`.
+   - `Edit All` button fetches groups with `include_all_image_ids: true`, maps response to `SeedImage[]`.
+   - Uses `search.groupSearchParams` (proper `SearchParams` object) instead of broken filter spread.
+   - Threshold raised to 500 groups (matches backend capacity).
+
+3. **Type safety**:
+   - `Image[]` is structurally assignable to `SeedImage[]` (backward compatible for individual view).
+   - `useEditGroupLoad` marks non-seeded images as `outOfScope` in dialog (applies identically to browse, search, and individual views).
+
+**Consequences:**
+- Edit All now works reliably up to 500 groups, with no image count cap
+- Active filters properly passed to grouped view (filter spreading bug fixed)
+- Groups are never split across pages (pagination at group level)
+- Backward compatible: `Image[]` assignable to `SeedImage[]`; `all_image_ids` field is optional
+- Backend query efficiency: single batch query (browse) or zero extra queries (search mode reuses RRF scoring)
+- Relevance slider filtering is client-side (instant raise) or debounced refetch (lower); pagination resets to page 0
