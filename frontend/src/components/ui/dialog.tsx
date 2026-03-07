@@ -38,11 +38,14 @@ const Dialog = ({ open, onOpenChange, children }: DialogProps) => {
         'input:not([disabled]):not([type="hidden"]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])',
       )
 
-    // Guard: if focus leaves the dialog container, reclaim it
+    // Guard: if focus leaves the dialog container, reclaim it.
+    // Uses setTimeout instead of queueMicrotask to avoid starving the event
+    // loop when relatedTarget is null (e.g. jsdom), which would prevent the
+    // guardTimer cleanup from ever firing.
     const onFocusOut = (e: FocusEvent) => {
       const next = e.relatedTarget as Node | null
       if (!next || !el.contains(next)) {
-        queueMicrotask(() => findTarget()?.focus())
+        setTimeout(() => findTarget()?.focus(), 0)
       }
     }
     el.addEventListener('focusout', onFocusOut)
