@@ -11,6 +11,7 @@ import type {
   Image,
   GroupEditRequest,
   ParsedTagVocab,
+  SeedImage,
 } from '@/types'
 
 // ── Pure helpers (exported for use by EditGroupDialog) ────────────────────
@@ -64,7 +65,7 @@ export function buildPayload(group: EditableGroupState): GroupEditRequest {
 export interface UseEditGroupLoadOptions {
   open: boolean
   groupId?: number | null
-  seedImages?: Image[]
+  seedImages?: SeedImage[]
   groupIds?: number[]
   /** Called in addition to resetLoad() when the single-group load effect
    *  detects no group to load (gId === null). Use this to reset dialog-local
@@ -199,7 +200,7 @@ export function useEditGroupLoad({
     setLoadError(null)
 
     // Group seed images by group_id
-    const byGroup = new Map<number, Image[]>()
+    const byGroup = new Map<number, SeedImage[]>()
     let ungrouped = 0
     for (const img of seedImages!) {
       if (img.group_id === null) {

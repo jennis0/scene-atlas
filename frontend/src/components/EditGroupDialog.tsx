@@ -14,7 +14,7 @@ import {
   EyeOff,
 } from 'lucide-react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
-import type { EditableGroupState, Image } from '@/types'
+import type { EditableGroupState, SeedImage } from '@/types'
 import { MergeGroupPicker } from './MergeGroupPicker'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import {
@@ -49,7 +49,7 @@ interface EditGroupDialogProps {
   // Single-group mode: pass groupId
   groupId?: number | null
   // Mass-edit mode: pass seedImages (the search result images to edit)
-  seedImages?: Image[]
+  seedImages?: SeedImage[]
   // Import-review mode: pass groupIds to load multiple groups by ID, all images in scope
   groupIds?: number[]
   // Live import mode: pass importJobId to enable polling and pending-group stubs.

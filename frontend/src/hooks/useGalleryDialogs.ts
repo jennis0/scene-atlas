@@ -2,7 +2,7 @@ import { useState, useCallback, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { groupApi } from '@/lib/api'
 import { QUERY_KEYS } from '@/lib/queryKeys'
-import type { Image, ImageGroup } from '@/types'
+import type { Image, ImageGroup, SeedImage } from '@/types'
 
 // ---------------------------------------------------------------------------
 // Return type
@@ -61,8 +61,8 @@ export interface UseGalleryDialogsReturn {
   setImportSummaryJobId: (id: string | null) => void
 
   // Edit all (mass edit) seed images and loading state
-  editAllSeedImages: Image[]
-  setEditAllSeedImages: (images: Image[]) => void
+  editAllSeedImages: SeedImage[]
+  setEditAllSeedImages: (images: SeedImage[]) => void
   editAllLoading: boolean
   setEditAllLoading: (loading: boolean) => void
 
@@ -90,7 +90,7 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
   const [showMassEdit, setShowMassEdit] = useState(false)
 
   // Edit all (mass edit) seed images and loading state
-  const [editAllSeedImages, setEditAllSeedImages] = useState<Image[]>([])
+  const [editAllSeedImages, setEditAllSeedImages] = useState<SeedImage[]>([])
   const [editAllLoading, setEditAllLoading] = useState(false)
 
   // Group action menu state
