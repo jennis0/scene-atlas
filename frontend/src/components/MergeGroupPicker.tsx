@@ -38,6 +38,7 @@ export function MergeGroupPicker({
       return groupApi.merge(sourceGroupId, targetGroup.id)
     },
     onSuccess: async (_, targetGroup) => {
+      // Wait for search gallery to update before closing, so user sees fresh data
       await queryClient.refetchQueries({ queryKey: QUERY_KEYS.search })
       invalidateGalleryQueries(queryClient)
       onMergeComplete?.()
