@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { groupApi } from '@/lib/api'
-import { QUERY_KEYS } from '@/lib/queryKeys'
+import { invalidateGalleryQueries } from '@/lib/queryKeys'
 import type { Image, ImageGroup, SeedImage } from '@/types'
 
 // ---------------------------------------------------------------------------
@@ -116,11 +116,7 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
   const displayImagesRef = useRef(displayImages)
   displayImagesRef.current = displayImages
 
-  const invalidateGallery = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.search })
-    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.searchFacets })
-    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.images })
-  }, [queryClient])
+  const invalidateGallery = useCallback(() => invalidateGalleryQueries(queryClient), [queryClient])
 
   const handleNext = useCallback(() => {
     setSelectedImage((prev) => {

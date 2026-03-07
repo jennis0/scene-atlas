@@ -42,7 +42,7 @@ import {
   DragOverlayContent,
 } from './import/shared/dnd'
 import { GroupSidebarShell } from './import/shared/GroupSidebarShell'
-import { QUERY_KEYS } from '@/lib/queryKeys'
+import { invalidateGalleryQueries } from '@/lib/queryKeys'
 import { useImportProgressPolling } from '@/hooks/useImportProgressPolling'
 
 interface EditGroupDialogProps {
@@ -98,11 +98,7 @@ export default function EditGroupDialog({
     enabled: open && !!importJobId,
   })
 
-  const invalidateGallery = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.search })
-    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.searchFacets })
-    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.images })
-  }, [queryClient])
+  const invalidateGallery = useCallback(() => invalidateGalleryQueries(queryClient), [queryClient])
 
   // ── Shared file editing state and mutations ───────────────────────
 
