@@ -343,13 +343,6 @@ def search_images(
     if not merged_scores:
         return ImageSearchResponse(total=0, limit=limit, offset=offset, images=[])
 
-    # Normalize RRF scores to [0, 1] so the frontend relevance threshold works.
-    # Raw RRF scores are tiny (~0.01–0.05); without normalization the threshold
-    # slider (default 0.2) would filter out every result.
-    max_rrf = max(merged_scores.values())
-    if max_rrf > 0:
-        merged_scores = {img_id: s / max_rrf for img_id, s in merged_scores.items()}
-
     # Apply SQL filters to the candidate set
     candidate_ids = list(merged_scores.keys())
     sql_query = sql_query.filter(Image.id.in_(candidate_ids))
@@ -372,8 +365,10 @@ def search_images(
     total = len(filtered_images)
     results = filtered_images[offset : offset + limit]
 
-    # Return only scores for returned images
-    returned_scores = {img.id: merged_scores.get(img.id, 0.0) for img in results}
+    # Return semantic similarity scores for client-side relevance filtering.
+    # RRF scores are used only for ordering; the slider filters on absolute
+    # CLIP cosine similarity so the threshold is consistent across queries.
+    returned_scores = {img.id: semantic_scores.get(img.id, 0.0) for img in results}
 
     return ImageSearchResponse(
         total=total,
@@ -591,10 +586,6 @@ def search_groups(
     if not merged_scores:
         return GroupSearchResponse(total_groups=0, limit=limit, offset=offset, groups=[])
 
-    max_rrf = max(merged_scores.values())
-    if max_rrf > 0:
-        merged_scores = {img_id: s / max_rrf for img_id, s in merged_scores.items()}
-
     # Filter & collapse by group
     sql_query = sql_query.filter(Image.id.in_(list(merged_scores.keys())))
     filtered_images = sql_query.distinct().all()
@@ -627,7 +618,7 @@ def search_groups(
         if not group:
             continue
         images_in_group = groups_dict[gid]
-        hero_image, hero_score = images_in_group[0]
+        hero_image, _hero_rrf = images_in_group[0]
         mosaic_images = [img for img, _ in images_in_group[1:5]]
 
         if len(mosaic_images) < 4:
@@ -651,7 +642,10 @@ def search_groups(
                 mosaic_images=mosaic_images,
                 total_scenes=group.image_count,
                 matching_scenes=len(images_in_group),
-                best_score=hero_score,
+                best_score=max(
+                    (semantic_scores.get(img.id, 0.0) for img, _ in images_in_group),
+                    default=0.0,
+                ),
                 # In-scope images for Edit All; non-matching group members will be marked outOfScope in dialog
                 all_image_ids=[img.id for img, _ in images_in_group]
                 if include_all_image_ids

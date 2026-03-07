@@ -1,16 +1,18 @@
 import { useState, useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { Loader2, ImageIcon, Layers } from 'lucide-react'
 import { GroupPickerShell } from '@/components/GroupPickerShell'
 import { groupApi, getThumbnailUrlById } from '@/lib/api'
-import { QUERY_KEYS } from '@/lib/queryKeys'
+import { QUERY_KEYS, invalidateGalleryQueries } from '@/lib/queryKeys'
 import type { GroupPickerItem } from '@/types'
 
 interface MergeGroupPickerProps {
   open: boolean
   onClose: () => void
+  sourceGroupId?: number | null
   excludeGroupId?: number | null
-  onSelect: (targetGroup: GroupPickerItem) => void
+  onSelect?: (targetGroup: GroupPickerItem) => void
+  onMergeComplete?: () => void
   title?: string
   currentGroupName?: string
 }
@@ -18,14 +20,34 @@ interface MergeGroupPickerProps {
 export function MergeGroupPicker({
   open,
   onClose,
+  sourceGroupId,
   excludeGroupId,
   onSelect,
+  onMergeComplete,
   title = 'Merge into Group',
   currentGroupName,
 }: MergeGroupPickerProps) {
+  const queryClient = useQueryClient()
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [selected, setSelected] = useState<GroupPickerItem | null>(null)
+
+  const mergeMutation = useMutation({
+    mutationFn: (targetGroup: GroupPickerItem) => {
+      if (!sourceGroupId) throw new Error('Source group ID is required')
+      return groupApi.merge(sourceGroupId, targetGroup.id)
+    },
+    onSuccess: async (_, targetGroup) => {
+      await queryClient.refetchQueries({ queryKey: QUERY_KEYS.search })
+      invalidateGalleryQueries(queryClient)
+      onMergeComplete?.()
+      onSelect?.(targetGroup)
+      onClose()
+    },
+    onError: (err) => {
+      console.error('Failed to merge groups:', err)
+    },
+  })
 
   // Debounce search input
   useEffect(() => {
@@ -63,8 +85,8 @@ export function MergeGroupPicker({
       title={title}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      confirmDisabled={!selected}
-      onConfirm={() => selected && onSelect(selected)}
+      confirmDisabled={!selected || mergeMutation.isPending}
+      onConfirm={() => selected && mergeMutation.mutate(selected)}
     >
       {isLoading ? (
         <div className="flex items-center justify-center h-[200px]">

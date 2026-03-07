@@ -2,8 +2,8 @@ import { useEffect, useRef, Suspense, lazy, useMemo } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Upload, Mountain, Loader2 } from 'lucide-react'
-import { groupApi, searchApi } from '@/lib/api'
-import { QUERY_KEYS, invalidateGalleryQueries } from '@/lib/queryKeys'
+import { searchApi } from '@/lib/api'
+import { invalidateGalleryQueries } from '@/lib/queryKeys'
 import type { SeedImage } from '@/types'
 import { ImageGrid } from '@/components/ImageGrid'
 import { GroupGrid } from '@/components/GroupGrid'
@@ -415,22 +415,10 @@ export function Gallery() {
       <MergeGroupPicker
         open={dialogs.mergeSourceGroup !== null}
         onClose={() => dialogs.setMergeSourceGroup(null)}
+        sourceGroupId={dialogs.mergeSourceGroup?.groupId}
         excludeGroupId={dialogs.mergeSourceGroup?.groupId}
         currentGroupName={dialogs.mergeSourceGroup?.baseName}
-        onSelect={async (targetGroup) => {
-          if (!dialogs.mergeSourceGroup?.groupId) return
-          try {
-            await groupApi.merge(dialogs.mergeSourceGroup.groupId, targetGroup.id)
-            // Await search refetch so stale group cards are removed before
-            // the picker closes and the user can interact with the gallery.
-            await queryClient.refetchQueries({ queryKey: QUERY_KEYS.search })
-            queryClient.invalidateQueries({ queryKey: QUERY_KEYS.searchFacets })
-            queryClient.invalidateQueries({ queryKey: QUERY_KEYS.images })
-            dialogs.setMergeSourceGroup(null)
-          } catch (err) {
-            console.error('Failed to merge groups:', err)
-          }
-        }}
+        onMergeComplete={() => dialogs.setMergeSourceGroup(null)}
       />
     </div>
   )
