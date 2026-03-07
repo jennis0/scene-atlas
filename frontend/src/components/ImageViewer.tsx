@@ -18,7 +18,7 @@ import { SceneTile } from '@/components/SceneTile'
 import { SubgroupDropdown } from '@/components/SubgroupDropdown'
 import { imageApi, tagApi, getImageUrl, getGroupDownloadUrl } from '@/lib/api'
 import { MAX_NAME_LENGTH } from '@/lib/constants'
-import { QUERY_KEYS } from '@/lib/queryKeys'
+import { QUERY_KEYS, invalidateGalleryQueries } from '@/lib/queryKeys'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { useGetTagColor } from '@/contexts/TagColorContext'
 import { TagPicker } from '@/components/import/TagPicker'
@@ -191,7 +191,7 @@ export function ImageViewer({
   const deleteMutation = useMutation({
     mutationFn: () => imageApi.delete(image.id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.search })
+      invalidateGalleryQueries(queryClient)
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scenes() })
       setConfirmingDelete(false)
       onDelete?.(image.id)

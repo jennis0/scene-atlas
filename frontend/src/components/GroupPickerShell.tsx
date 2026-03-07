@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactNode } from 'react'
-import { Search, Merge } from 'lucide-react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Search, Merge, X } from 'lucide-react'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 
 interface GroupPickerShellProps {
   open: boolean
@@ -35,40 +36,62 @@ export function GroupPickerShell({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-md p-0 overflow-hidden gap-0" onClose={onClose}>
-        <DialogHeader className="px-5 pt-5 pb-0">
-          <DialogTitle className="text-[15px] tracking-wide">{title}</DialogTitle>
-        </DialogHeader>
+      <DialogContent className="max-w-[440px] bg-card border-border/50 p-0 gap-0 overflow-hidden flex flex-col relative">
+        {/* Amber top stripe */}
+        <div className="absolute top-0 inset-x-0 h-0.5 bg-gradient-to-r from-primary/70 via-primary/30 to-transparent pointer-events-none rounded-t-lg" />
 
-        <div className="px-5 pt-3 pb-2">
+        {/* Header: bg-popover strip with title and close button */}
+        <div className="px-4 py-2.5 border-b border-border/30 bg-popover flex items-center justify-between shrink-0 relative">
+          <div className="flex-1">
+            <span className="font-display text-[13px] font-medium tracking-[0.06em] text-foreground leading-none">
+              {title}
+            </span>
+            <div className="mt-[3px] h-px w-7 bg-gradient-to-r from-primary to-transparent" />
+          </div>
+          <button
+            onClick={onClose}
+            className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 shrink-0 ml-2"
+          >
+            <X className="h-3.5 w-3.5" />
+            <span className="sr-only">Close</span>
+          </button>
+        </div>
+
+        {/* Search input */}
+        <div className="px-4 pt-3 pb-2 shrink-0">
           <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/60" />
-            <input
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/60 pointer-events-none" />
+            <Input
               ref={inputRef}
+              inputSize="compact"
               type="text"
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
-              placeholder="Search groups..."
-              className="w-full h-8 pl-8 pr-3 text-sm bg-secondary border border-border rounded-md text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/40 transition-colors"
+              placeholder="Search groups…"
+              className="pl-8"
             />
           </div>
         </div>
 
-        <div className="min-h-[200px] max-h-[320px] overflow-y-auto px-2 pb-2 scrollbar-thin">
+        {/* Groups list */}
+        <div className="min-h-[200px] max-h-[320px] overflow-y-auto px-2 pb-2 scrollbar-thin flex-1">
           {children}
         </div>
 
-        <div className="flex justify-end gap-2 px-5 py-3 border-t border-border/30 bg-muted/10">
+        {/* Footer with buttons */}
+        <div className="flex justify-end gap-2 px-4 py-3 border-t border-border/30 bg-muted/5 shrink-0">
           <button
             onClick={onClose}
-            className="px-3 py-1.5 text-sm rounded-md border border-border/50 text-muted-foreground hover:text-foreground hover:border-border transition-colors"
+            className="px-3 py-1.5 text-sm rounded-md border border-border/50 text-muted-foreground hover:text-foreground hover:border-border transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
           >
             Cancel
           </button>
           <button
             onClick={onConfirm}
             disabled={confirmDisabled}
-            className="px-4 py-1.5 text-sm rounded-md font-medium bg-primary/90 text-primary-foreground hover:bg-primary transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1.5"
+            className="px-3.5 py-1.5 text-sm rounded-md border font-medium flex items-center gap-1.5 transition-colors
+              border-primary/30 bg-primary/10 text-primary hover:bg-primary/20
+              disabled:opacity-30 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
           >
             {confirmIcon ?? <Merge className="h-3.5 w-3.5" />}
             {confirmLabel}

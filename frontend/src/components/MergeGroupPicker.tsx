@@ -71,7 +71,7 @@ export function MergeGroupPicker({
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground/50" />
         </div>
       ) : groups.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-[200px] text-muted-foreground/50">
+        <div className="flex flex-col items-center justify-center h-[200px] text-muted-foreground/60">
           <Layers className="h-8 w-8 mb-2 opacity-40" />
           <p className="text-sm">
             {debouncedQuery || currentGroupName ? 'No groups found' : 'Type to search groups'}
@@ -95,9 +95,14 @@ export function MergeGroupPicker({
                     <img
                       src={getThumbnailUrlById(group.primary_image_id)}
                       alt=""
+                      loading="eager"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none'
+                      }}
                       className="h-full w-full object-cover"
                     />
-                  ) : (
+                  ) : null}
+                  {!group.primary_image_id && (
                     <div className="h-full w-full flex items-center justify-center">
                       <ImageIcon className="h-3.5 w-3.5 text-muted-foreground/30" />
                     </div>
@@ -121,7 +126,7 @@ export function MergeGroupPicker({
                 </div>
 
                 {/* Image count */}
-                <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/50 bg-muted/40 px-1.5 py-0.5 rounded">
+                <span className="shrink-0 px-1.5 py-px rounded-full bg-primary/15 text-[10px] font-medium text-primary tabular-nums">
                   {group.image_count}
                 </span>
               </button>
