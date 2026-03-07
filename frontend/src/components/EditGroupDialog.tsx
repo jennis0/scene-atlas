@@ -74,6 +74,12 @@ export default function EditGroupDialog({
   onSave,
 }: EditGroupDialogProps) {
   const queryClient = useQueryClient()
+  const [focusGroupName, setFocusGroupName] = useState(false)
+
+  // Clear the one-shot focus flag after it's been consumed by a render
+  useEffect(() => {
+    if (focusGroupName) setFocusGroupName(false)
+  }, [focusGroupName])
 
   // ── Live import review state ────────────────────────────────────────────
   // Grows as groups complete processing; starts from any pre-fetched groupIds.
@@ -612,6 +618,7 @@ export default function EditGroupDialog({
                         ops.autoSaveGroup(activeGroup)
                       }
                     }}
+                    groupNameAutoFocus={focusGroupName}
                   />
                 </div>
 
@@ -635,7 +642,10 @@ export default function EditGroupDialog({
                     onBulkExclude={() => bulkExclude(isAllTab ? null : activeGroupId)}
                     onMoveToNewGroup={
                       !isAllTab && !isMassEdit && activeGroup?.id
-                        ? () => moveToNewGroup(activeGroup.id)
+                        ? async () => {
+                            await moveToNewGroup(activeGroup.id)
+                            setFocusGroupName(true)
+                          }
                         : undefined
                     }
                     excludeLabel={isMassEdit ? 'Remove' : 'Delete'}

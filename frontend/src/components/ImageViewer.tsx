@@ -97,6 +97,7 @@ export function ImageViewer({
   const [editingName, setEditingName] = useState(false)
   const [nameDraft, setNameDraft] = useState(image.name)
   const [editingSV, setEditingSV] = useState(false)
+  const svTriggerRef = useRef<HTMLButtonElement>(null)
   const [downloading, setDownloading] = useState(false)
   const [downloadingGroup, setDownloadingGroup] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
@@ -589,6 +590,7 @@ export function ImageViewer({
               <span className="section-label w-[72px] shrink-0">Subgroup</span>
               <div className="relative flex-1 min-w-0">
                 <button
+                  ref={svTriggerRef}
                   onClick={() => !editingSV && setEditingSV(true)}
                   className={`w-full h-6 px-2 text-left text-xs bg-secondary border border-border flex items-center hover:border-primary/40 transition-colors ${editingSV ? 'rounded-t border-b-0' : 'rounded'}`}
                   title={img.subgroup ?? undefined}
@@ -615,6 +617,7 @@ export function ImageViewer({
                   existingSubgroups={existingSubgroups}
                   initialValue={img.subgroup ?? ''}
                   variant="attached"
+                  triggerRef={svTriggerRef}
                   onCommit={(val) => {
                     patchMutation.mutate({ subgroup: val || null })
                     setEditingSV(false)

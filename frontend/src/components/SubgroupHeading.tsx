@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import { Pencil, X } from 'lucide-react'
 import { SubgroupDropdown } from './SubgroupDropdown'
 
@@ -33,6 +34,7 @@ export function SubgroupHeading({
   onClear,
   canEdit,
 }: SubgroupHeadingProps) {
+  const pencilRef = useRef<HTMLButtonElement>(null)
   const showActions = canEdit && subgroup !== null && !isEditing
 
   return (
@@ -43,6 +45,7 @@ export function SubgroupHeading({
 
       {showActions && (
         <button
+          ref={pencilRef}
           onClick={onStartEdit}
           className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
           title={`Rename "${subgroup}"`}
@@ -71,6 +74,7 @@ export function SubgroupHeading({
         initialValue={subgroup ?? ''}
         onCommit={onCommit}
         onCancel={onCancel}
+        triggerRef={pencilRef}
       />
     </div>
   )

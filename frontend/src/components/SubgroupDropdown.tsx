@@ -19,6 +19,8 @@ interface SubgroupDropdownProps {
    * 'floating' — standalone dropdown with its own rounding and gap (default).
    */
   variant?: 'attached' | 'floating'
+  /** Ref to the trigger element — focus is restored here when the dropdown closes via keyboard */
+  triggerRef?: React.RefObject<HTMLElement | null>
 }
 
 export function SubgroupDropdown({
@@ -28,6 +30,7 @@ export function SubgroupDropdown({
   onCommit,
   onCancel,
   variant = 'floating',
+  triggerRef,
 }: SubgroupDropdownProps) {
   const [draft, setDraft] = useState(initialValue)
   const ref = useRef<HTMLDivElement>(null)
@@ -91,11 +94,13 @@ export function SubgroupDropdown({
               if (e.key === 'Enter' && draft.trim()) {
                 e.preventDefault()
                 e.stopPropagation()
+                triggerRef?.current?.focus()
                 onCommit(draft.trim())
               }
               if (e.key === 'Escape') {
                 e.preventDefault()
                 e.nativeEvent.stopImmediatePropagation()
+                triggerRef?.current?.focus()
                 onCancel()
               }
             }}

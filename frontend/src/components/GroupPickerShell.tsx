@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react'
+import { type ReactNode } from 'react'
 import { Search, Merge, X } from 'lucide-react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -28,12 +28,6 @@ export function GroupPickerShell({
   confirmIcon,
   children,
 }: GroupPickerShellProps) {
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    if (open) setTimeout(() => inputRef.current?.focus(), 50)
-  }, [open])
-
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-[440px] bg-card border-border/50 p-0 gap-0 overflow-hidden flex flex-col relative">
@@ -62,7 +56,7 @@ export function GroupPickerShell({
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/60 pointer-events-none" />
             <Input
-              ref={inputRef}
+              autoFocus
               inputSize="compact"
               type="text"
               value={searchQuery}

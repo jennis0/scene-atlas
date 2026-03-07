@@ -22,6 +22,8 @@ interface MetadataFormProps {
   onGroupNameChange: (val: string) => void
   /** Called on blur for either input — used for auto-save */
   onBlur?: () => void
+  /** When true, auto-focuses the group name input (e.g. after a split) */
+  groupNameAutoFocus?: boolean
 }
 
 export function MetadataForm({
@@ -39,6 +41,7 @@ export function MetadataForm({
   onAuthorChange,
   onGroupNameChange,
   onBlur,
+  groupNameAutoFocus,
 }: MetadataFormProps) {
   const labelClass =
     'text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1.5 block font-semibold'
@@ -76,6 +79,7 @@ export function MetadataForm({
       <div>
         <label className={labelClass}>Group Name</label>
         <input
+          autoFocus={groupNameAutoFocus}
           value={groupName}
           onChange={(e) => onGroupNameChange(e.target.value)}
           onBlur={onBlur}
