@@ -105,6 +105,9 @@ export function Gallery() {
   }, [activeImports, queryClient, dialogs])
 
   const handleOpenMassEdit = async () => {
+    // Guard against multiple concurrent requests
+    if (dialogs.editAllLoading) return
+
     // If individual view, just open the dialog with current images
     if (search.viewMode === 'individual') {
       dialogs.setShowMassEdit(true)
@@ -309,7 +312,10 @@ export function Gallery() {
             search.viewMode === 'grouped' ? dialogs.editAllSeedImages : search.displayImages
           }
           open={dialogs.showMassEdit}
-          onClose={() => dialogs.setShowMassEdit(false)}
+          onClose={() => {
+            dialogs.setShowMassEdit(false)
+            dialogs.setEditAllSeedImages([])
+          }}
           onSave={() => {
             dialogs.setShowMassEdit(false)
             dialogs.invalidateGallery()
