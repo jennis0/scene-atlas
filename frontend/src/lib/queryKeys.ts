@@ -27,6 +27,7 @@ export const QUERY_KEYS = {
 export function invalidateGalleryQueries(queryClient: QueryClient) {
   queryClient.invalidateQueries({ queryKey: QUERY_KEYS.search })
   queryClient.invalidateQueries({ queryKey: QUERY_KEYS.searchFacets })
+  queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups })
   queryClient.invalidateQueries({ queryKey: QUERY_KEYS.images })
 }
 
