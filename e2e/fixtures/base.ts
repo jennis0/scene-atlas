@@ -56,7 +56,7 @@ export const test = base.extend<object, { seedData: void }>({
         if (verifyFacets.total_images === 0) {
           throw new Error(
             "Seeding failed: no images found in DB after import completed. " +
-              "Check that CLIP ONNX models are present in backend/models/fp16/",
+              "Check that CLIP ONNX models are present in backend/models/clip-vit-b-32/",
           );
         }
         console.log(
