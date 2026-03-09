@@ -313,52 +313,72 @@ def quantise_fp16(fp32_dir: Path, fp16_dir: Path) -> None:
         preprocessed.unlink(missing_ok=True)
 
 
-def _find_int8_exclusions(onnx_path: Path) -> list[str]:
+def _find_int8_exclusions(onnx_path: Path, family: str) -> list[str]:
     """Find nodes that should be excluded from int8 quantisation.
 
-    For text encoders, the first transformer layer and the final projection
-    are excluded to prevent error accumulation through subsequent layers.
-    The first layer is the primary source of quantisation error because its
-    output feeds every downstream layer.
+    Model-family-aware: CLIP text encoders need first-layer + projection
+    exclusion to prevent error accumulation. SigLIP2 text encoders quantise
+    cleanly without exclusions (max diff ~0.01 on 100+ real images).
     """
+    if family == "siglip2":
+        # SigLIP2 text encoder quantises cleanly — no exclusions needed
+        return []
+
     import onnx
 
     model = onnx.load(str(onnx_path))
     matmuls = [n.name for n in model.graph.node if n.op_type == "MatMul"]
 
-    # Exclude first transformer layer (layers.0/) and the final projection
+    # CLIP: exclude first transformer layer (layers.0/) and the final projection
     exclude = [n for n in matmuls if "layers.0/" in n or "projection/MatMul" in n]
     if exclude:
         print(f"    Excluding {len(exclude)} sensitive nodes from quantisation")
     return exclude
 
 
-def quantise_int8(fp32_dir: Path, int8_dir: Path) -> None:
-    """Convert fp32 ONNX models to int8 via dynamic quantisation.
+def quantise_int8(fp32_dir: Path, fp16_dir: Path, int8_dir: Path, family: str) -> None:
+    """Create a hybrid int8 variant: fp16 vision + int8 text.
 
-    Uses signed int8 weights with per-channel quantisation.  For the text
-    encoder, the first transformer layer and projection are kept in fp32
-    to prevent error accumulation (reduces max cosine diff from ~0.21 to
-    ~0.005).
+    SigLIP2 vision doesn't quantise cleanly to int8 (max cosine diff ~0.32).
+    CLIP vision quantises well (~0.004) but we use fp16 for consistency.
+    The text encoder uses int8 — CLIP needs first-layer + projection
+    exclusion; SigLIP2 quantises cleanly without exclusions.
+
+    On Windows, ``quantize_dynamic`` internally creates a temp file for
+    shape inference that fails with ``FileNotFoundError``.  We work around
+    this by running ``quant_pre_process`` first to a named file, then
+    quantising that.
     """
+    import shutil
+
     from onnxruntime.quantization import QuantType, quantize_dynamic
+    from onnxruntime.quantization.preprocess import quant_pre_process
 
     int8_dir.mkdir(parents=True, exist_ok=True)
 
-    for encoder_type, name in ENCODER_NAMES.items():
-        print(f"  Quantising {name} to int8...")
-        src = fp32_dir / name
+    # Vision encoder: copy from fp16 (int8 vision has unacceptable quality for SigLIP2)
+    vision_name = ENCODER_NAMES["vision"]
+    print(f"  Copying {vision_name} from fp16 (hybrid: vision stays fp16)...")
+    shutil.copy2(str(fp16_dir / vision_name), str(int8_dir / vision_name))
 
-        # Only exclude nodes for the text encoder; vision quantises cleanly
-        nodes_to_exclude = _find_int8_exclusions(src) if encoder_type == "text" else []
+    # Text encoder: int8 with family-specific exclusions
+    text_name = ENCODER_NAMES["text"]
+    print(f"  Quantising {text_name} to int8...")
+    nodes_to_exclude = _find_int8_exclusions(fp32_dir / text_name, family)
 
-        quantize_dynamic(
-            model_input=str(src),
-            model_output=str(int8_dir / name),
-            weight_type=QuantType.QInt8,
-            per_channel=True,
-            nodes_to_exclude=nodes_to_exclude or None,
-        )
+    # Pre-process to a named file to avoid Windows temp file issues
+    preprocessed = int8_dir / f"_pre_{text_name}"
+    quant_pre_process(str(fp32_dir / text_name), str(preprocessed), skip_symbolic_shape=True)
+
+    quantize_dynamic(
+        model_input=str(preprocessed),
+        model_output=str(int8_dir / text_name),
+        weight_type=QuantType.QInt8,
+        per_channel=True,
+        nodes_to_exclude=nodes_to_exclude or None,
+    )
+
+    preprocessed.unlink(missing_ok=True)
 
 
 # ── Manifest ─────────────────────────────────────────────────────────────────
@@ -384,8 +404,9 @@ def extract_manifest(model, processor, model_id: str, family: str) -> dict:
     else:
         interpolation = "bicubic"
 
-    # Determine resize mode
-    do_center_crop = getattr(img_proc, "do_center_crop", True)
+    # Determine resize mode — CLIP uses shortest-edge + center-crop,
+    # SigLIP2 resizes directly to (size, size) without cropping.
+    do_center_crop = getattr(img_proc, "do_center_crop", False)
     resize_mode = "shortest_edge_then_crop" if do_center_crop else "direct_resize"
 
     # Embedding dimension — CLIP uses projection_dim on the top-level config,
@@ -601,25 +622,28 @@ def export_model(entry: dict, base_dir: Path) -> None:
         write_manifest(manifest, fp32_dir)
         sanity_check(model, processor, family, image_size, context_length, fp32_dir)
 
-    # Quantise to fp16
-    if "fp16" in quants:
-        fp16_dir = output_dir / "fp16"
+    # Quantise to fp16 (always needed as base for int8 hybrid vision encoder)
+    fp16_dir = output_dir / "fp16"
+    if "fp16" in quants or "int8" in quants:
         print("\nQuantising to fp16...")
         quantise_fp16(fp32_dir, fp16_dir)
         write_manifest(manifest, fp16_dir)
-        sanity_check(model, processor, family, image_size, context_length, fp16_dir)
+        if "fp16" in quants:
+            sanity_check(model, processor, family, image_size, context_length, fp16_dir)
 
-    # Quantise to int8
+    # Quantise to int8 (hybrid: fp16 vision + int8 text)
     if "int8" in quants:
         int8_dir = output_dir / "int8"
-        print("\nQuantising to int8...")
-        quantise_int8(fp32_dir, int8_dir)
+        print("\nQuantising to int8 (hybrid: fp16 vision + int8 text)...")
+        quantise_int8(fp32_dir, fp16_dir, int8_dir, family)
         write_manifest(manifest, int8_dir)
         sanity_check(model, processor, family, image_size, context_length, int8_dir)
 
-    # Remove fp32 dir if it wasn't requested (it was only needed as quantisation source)
+    # Remove intermediate dirs that weren't requested
     if "fp32" not in quants:
         shutil.rmtree(fp32_dir)
+    if "fp16" not in quants and fp16_dir.exists():
+        shutil.rmtree(fp16_dir)
 
     # Size report
     print_size_table(output_dir)

@@ -31,6 +31,9 @@ from pathlib import Path
 import numpy as np
 from PIL import Image as PILImage
 
+from scripts.quantisation.queries import TEXT_QUERIES  # noqa: E402
+from scripts.quantisation.utils import rank_correlation as _rank_correlation  # noqa: E402
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "clip-vit-b-32")
 MODELS_DIR_DEFAULT = PROJECT_ROOT / "backend" / "models" / _EMBEDDING_MODEL
@@ -47,34 +50,20 @@ else:
 # Thresholds: abs(1.0 - dot(torch_emb, onnx_emb))
 THRESHOLD_FP32 = 0.001
 THRESHOLD_FP16 = 0.001
-THRESHOLD_INT8 = 0.01
+THRESHOLD_INT8_MAX = 0.02
+THRESHOLD_INT8_MEAN = 0.005
 
 # Variants that gate the exit code — failures in other variants are warnings only
-GATING_VARIANTS = {"fp16"}
+GATING_VARIANTS = {"fp32", "fp16", "int8"}
 
 VARIANTS = ["fp32", "fp16", "int8"]
 VARIANT_THRESHOLDS = {
     "fp32": THRESHOLD_FP32,
     "fp16": THRESHOLD_FP16,
-    "int8": THRESHOLD_INT8,
+    "int8": THRESHOLD_INT8_MAX,
 }
 
-TEXT_QUERIES = [
-    "a dark forest with a river",
-    "bright sunny beach with palm trees",
-    "underground dungeon with torches",
-    "medieval castle on a hill",
-    "dark cave entrance",
-    "snowy mountain pass",
-    "underwater coral reef",
-    "city streets at night",
-    "ancient temple ruins",
-    "peaceful meadow with flowers",
-    # Edge cases
-    "a",  # single word
-    "the quick brown fox jumps over the lazy dog " * 5,  # long text (truncation)
-    "UPPERCASE TEXT WITH NUMBERS 123",  # mixed case + numbers
-]
+# TEXT_QUERIES is imported from scripts.quantisation.queries (single source of truth)
 
 ASPECT_RATIO_SIZES = [
     (50, 50),  # smaller than 224
@@ -92,7 +81,7 @@ logger = logging.getLogger(__name__)
 CheckResult = tuple[str, bool, str]
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# -- Helpers ------------------------------------------------------------------
 
 
 def _dot(a: list[float], b: list[float]) -> float:
@@ -130,7 +119,7 @@ def _create_test_image(
     return path
 
 
-# ── Torch reference implementation ───────────────────────────────────────────
+# -- Torch reference implementation -------------------------------------------
 
 
 class _TorchReference:
@@ -148,8 +137,16 @@ class _TorchReference:
         self.model = AutoModel.from_pretrained(MODEL_NAME, local_files_only=True)
         self.model.eval()
         self.processor = AutoProcessor.from_pretrained(MODEL_NAME, local_files_only=True)
-        self._max_length = getattr(self.processor.tokenizer, "model_max_length", 77)
-        self.embedding_dim = config.projection_dim
+        tok_max_length = getattr(self.processor.tokenizer, "model_max_length", None)
+        if tok_max_length is None or tok_max_length > 1_000_000:
+            tok_max_length = config.text_config.max_position_embeddings
+        self._max_length = tok_max_length
+        embedding_dim = getattr(config, "projection_dim", None)
+        if embedding_dim is None:
+            embedding_dim = getattr(config.text_config, "projection_dim", None)
+        if embedding_dim is None:
+            embedding_dim = config.text_config.hidden_size
+        self.embedding_dim = embedding_dim
 
     def _encode_image_features(self, inputs):
         F = self._torch.nn.functional
@@ -180,8 +177,16 @@ class _TorchReference:
         return features.cpu().numpy().flatten().tolist()
 
     def encode_text(self, text: str) -> list[float]:
+        # SigLIP2 was trained on lowercased text; the production SentencePiece
+        # wrapper lowercases, so the torch reference must match.
+        if self._family == "siglip2":
+            text = text.lower()
         inputs = self.processor(
-            text=text, return_tensors="pt", padding="max_length", max_length=self._max_length
+            text=text,
+            return_tensors="pt",
+            padding="max_length",
+            max_length=self._max_length,
+            return_attention_mask=True,
         )
         features = self._encode_text_features(inputs)
         return features.cpu().numpy().flatten().tolist()
@@ -197,7 +202,7 @@ class _TorchReference:
         return features.cpu().numpy().tolist()
 
 
-# ── Assessment suites ────────────────────────────────────────────────────────
+# -- Assessment suites --------------------------------------------------------
 
 
 def check_image_encoding(
@@ -306,15 +311,28 @@ def check_text_encoding(
         threshold = VARIANT_THRESHOLDS[variant]
 
         # Text queries
+        text_diffs: list[float] = []
         for text in TEXT_QUERIES:
             torch_emb = torch_ref.encode_text(text)
             onnx_emb = svc.encode_text(text)
             diff = _diff(torch_emb, onnx_emb)
+            text_diffs.append(diff)
             results.append(
                 (
                     f"[{variant}] text '{text[:30]}'",
                     diff < threshold,
                     f"diff={diff:.6f} threshold={threshold}",
+                )
+            )
+
+        # Aggregate mean check for int8
+        if variant == "int8" and text_diffs:
+            mean_diff = float(np.mean(text_diffs))
+            results.append(
+                (
+                    f"[{variant}] text_mean_diff",
+                    mean_diff < THRESHOLD_INT8_MEAN,
+                    f"mean_diff={mean_diff:.6f} threshold={THRESHOLD_INT8_MEAN}",
                 )
             )
 
@@ -460,70 +478,213 @@ def check_cross_modal(
     return results
 
 
-def print_quantisation_report(
+def check_rank_correlation(
+    torch_ref: _TorchReference,
+    onnx_services: dict,
+    real_images: list[Path],
+) -> list[CheckResult]:
+    """Measure retrieval rank correlation on real images.
+
+    Uses top-20 Spearman rho and top-5 set preservation to verify that
+    quantisation does not degrade search result quality.
+    """
+    results: list[CheckResult] = []
+
+    if len(real_images) < 10:
+        return results  # not enough images for meaningful rank stats
+
+    # Pre-compute torch reference embeddings for a query subset + all images
+    query_subset = TEXT_QUERIES[:30]  # use first 30 queries for speed
+    torch_img_embs = [np.array(torch_ref.encode_image(p)) for p in real_images]
+    torch_txt_embs = [np.array(torch_ref.encode_text(t)) for t in query_subset]
+
+    for variant, svc in onnx_services.items():
+        onnx_img_embs = [np.array(svc.encode_image(p)) for p in real_images]
+        onnx_txt_embs = [np.array(svc.encode_text(t)) for t in query_subset]
+
+        stats = _rank_correlation(
+            torch_img_embs,
+            torch_txt_embs,
+            onnx_img_embs,
+            onnx_txt_embs,
+        )
+
+        results.append(
+            (
+                f"[{variant}] rank_top5_preserved",
+                stats["pct_top5_preserved"] >= 0.90,
+                f"top5_preserved={stats['pct_top5_preserved']:.1%} "
+                f"mean_rho={stats['mean_rho']:.4f} "
+                f"min_rho={stats['min_rho']:.4f}",
+            )
+        )
+
+    return results
+
+
+def _measure_inference_time(
+    fn,
+    args_list: list,
+    warmup: int = 3,
+    repeats: int = 3,
+) -> float:
+    """Measure average inference time in ms over args_list × repeats.
+
+    Runs warmup iterations first (using the first item) to let the runtime
+    optimise, then times each item in args_list repeated `repeats` times.
+    """
+    import time
+
+    # Warmup
+    for _ in range(warmup):
+        fn(args_list[0])
+
+    total = 0.0
+    n = 0
+    for args in args_list:
+        for _ in range(repeats):
+            start = time.perf_counter()
+            fn(args)
+            total += time.perf_counter() - start
+            n += 1
+
+    return (total / n) * 1000  # ms
+
+
+def quantisation_report(
     torch_ref: _TorchReference,
     onnx_services: dict,
     models_dir: Path,
     real_images: list[Path],
+    tmp_dir: Path,
 ) -> None:
-    """Print aggregate quantisation accuracy and size report."""
+    """Print quantisation report and write stats into each variant's manifest.
+
+    For each variant, collects:
+    - Similarity to original model (mean, variance, max diff) for text and image
+    - Per-encoder and total model sizes
+    - Average inference time for text and image encoding
+    """
     variants = list(onnx_services.keys())
 
-    if not real_images:
-        print("\n  (Skipping quantisation report — no real images available)")
-        return
+    # Build image set — use real images if available, else synthetics
+    image_paths: list[Path] = []
+    if real_images:
+        image_paths = real_images[:50]
+    else:
+        for i in range(20):
+            p = _create_test_image(
+                tmp_dir / f"report_synth_{i}.jpg", 300, 200, (i * 12, 100, 200 - i * 8)
+            )
+            image_paths.append(p)
 
-    # Collect image diffs
-    image_diffs: dict[str, list[float]] = {v: [] for v in variants}
-    for img in real_images[:50]:
-        torch_emb = torch_ref.encode_image(img)
-        for variant, svc in onnx_services.items():
-            onnx_emb = svc.encode_image(img)
-            image_diffs[variant].append(_diff(torch_emb, onnx_emb))
+    # Pre-compute torch reference embeddings
+    torch_image_embs = [torch_ref.encode_image(p) for p in image_paths]
+    torch_text_embs = [torch_ref.encode_text(t) for t in TEXT_QUERIES]
 
-    # Collect text diffs
-    text_diffs: dict[str, list[float]] = {v: [] for v in variants}
-    for text in TEXT_QUERIES:
-        torch_emb = torch_ref.encode_text(text)
-        for variant, svc in onnx_services.items():
-            onnx_emb = svc.encode_text(text)
-            text_diffs[variant].append(_diff(torch_emb, onnx_emb))
+    # Collect per-variant stats
+    report_data: dict[str, dict] = {}
 
-    # Model sizes
-    sizes: dict[str, float] = {}
-    for variant in variants:
+    for variant, svc in onnx_services.items():
+        # --- Similarity ---
+        image_diffs = []
+        for i, p in enumerate(image_paths):
+            onnx_emb = svc.encode_image(p)
+            image_diffs.append(_diff(torch_image_embs[i], onnx_emb))
+
+        text_diffs = []
+        for i, t in enumerate(TEXT_QUERIES):
+            onnx_emb = svc.encode_text(t)
+            text_diffs.append(_diff(torch_text_embs[i], onnx_emb))
+
+        i_arr = np.array(image_diffs)
+        t_arr = np.array(text_diffs)
+
+        # --- Model sizes ---
         vdir = models_dir / variant
+        vision_size = 0.0
+        text_size = 0.0
         if vdir.exists():
-            total = sum(f.stat().st_size for f in vdir.rglob("*") if f.is_file())
-            sizes[variant] = total / (1024 * 1024)
-        else:
-            sizes[variant] = 0.0
+            for f in vdir.iterdir():
+                if not f.is_file():
+                    continue
+                sz = f.stat().st_size / (1024 * 1024)
+                if "vision" in f.name:
+                    vision_size = sz
+                elif "text" in f.name:
+                    text_size = sz
 
-    # Print report
-    n_images = min(len(real_images), 50)
+        # --- Inference timing ---
+        image_ms = _measure_inference_time(svc.encode_image, image_paths)
+        text_ms = _measure_inference_time(svc.encode_text, list(TEXT_QUERIES))
+
+        report_data[variant] = {
+            "image": {
+                "max_diff": float(i_arr.max()),
+                "mean_diff": float(i_arr.mean()),
+                "var_diff": float(i_arr.var()),
+                "n_samples": len(image_diffs),
+                "model_size_mb": round(vision_size, 2),
+                "avg_inference_ms": round(image_ms, 2),
+            },
+            "text": {
+                "max_diff": float(t_arr.max()),
+                "mean_diff": float(t_arr.mean()),
+                "var_diff": float(t_arr.var()),
+                "n_samples": len(text_diffs),
+                "model_size_mb": round(text_size, 2),
+                "avg_inference_ms": round(text_ms, 2),
+            },
+            "total_size_mb": round(vision_size + text_size, 2),
+        }
+
+    # --- Print human-readable report ---
+    source = "real" if real_images else "synthetic"
     print(
         f"\n{'=' * 90}\n"
-        f"Quantisation Report ({n_images} images, {len(TEXT_QUERIES)} text queries)\n"
-        f"{'=' * 90}\n"
-        f"{'Variant':<8} | {'Img Max':>10} | {'Img Mean':>10} | {'Img P99':>10} "
-        f"| {'Txt Max':>10} | {'Txt Mean':>10} | {'Size':>10}\n"
-        f"{'-' * 90}"
+        f"Quantisation Report ({len(image_paths)} {source} images, "
+        f"{len(TEXT_QUERIES)} text queries)\n"
+        f"{'=' * 90}"
     )
 
     for variant in variants:
-        i_arr = np.array(image_diffs[variant])
-        t_arr = np.array(text_diffs[variant])
+        d = report_data[variant]
+        img = d["image"]
+        txt = d["text"]
+        print(f"\n  {variant.upper()}")
+        print(f"  {'-' * 86}")
         print(
-            f"{variant:<8} | {i_arr.max():>10.6f} | {i_arr.mean():>10.6f} "
-            f"| {np.percentile(i_arr, 99):>10.6f} "
-            f"| {t_arr.max():>10.6f} | {t_arr.mean():>10.6f} "
-            f"| {sizes[variant]:>8.1f} MB"
+            f"  {'':20} {'Max Diff':>12} {'Mean Diff':>12} {'Variance':>12} "
+            f"{'Size':>10} {'Avg Time':>10}"
         )
+        print(f"  {'-' * 86}")
+        print(
+            f"  {'Vision encoder':<20} {img['max_diff']:>12.6f} {img['mean_diff']:>12.6f} "
+            f"{img['var_diff']:>12.2e} {img['model_size_mb']:>8.1f} MB "
+            f"{img['avg_inference_ms']:>7.1f} ms"
+        )
+        print(
+            f"  {'Text encoder':<20} {txt['max_diff']:>12.6f} {txt['mean_diff']:>12.6f} "
+            f"{txt['var_diff']:>12.2e} {txt['model_size_mb']:>8.1f} MB "
+            f"{txt['avg_inference_ms']:>7.1f} ms"
+        )
+        print(f"  {'-' * 86}")
+        print(f"  {'Total size:':<20} {d['total_size_mb']:.1f} MB")
 
-    print("=" * 90)
+    print(f"\n{'=' * 90}")
+
+    # --- Write stats into each variant's manifest ---
+    for variant in variants:
+        manifest_path = models_dir / variant / "manifest.json"
+        if not manifest_path.exists():
+            continue
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["quantisation_quality"] = report_data[variant]
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        print(f"  Updated {manifest_path} with quantisation stats")
 
 
-# ── Main ─────────────────────────────────────────────────────────────────────
+# -- Main ---------------------------------------------------------------------
 
 
 def main() -> int:
@@ -598,47 +759,53 @@ def main() -> int:
         print("Checking cross-modal consistency...")
         all_results.extend(check_cross_modal(torch_ref, onnx_services, tmp))
 
-    # Print results summary — distinguish gating failures from warnings
-    passed = sum(1 for _, ok, _ in all_results if ok)
-    failed_gating = [
-        (name, ok, msg)
-        for name, ok, msg in all_results
-        if not ok and any(f"[{v}]" in name for v in GATING_VARIANTS)
-    ]
-    failed_warn = [
-        (name, ok, msg)
-        for name, ok, msg in all_results
-        if not ok and not any(f"[{v}]" in name for v in GATING_VARIANTS)
-    ]
+        if real_images:
+            print("Checking rank correlation on real images...")
+            all_results.extend(check_rank_correlation(torch_ref, onnx_services, real_images))
 
-    if args.verbose:
-        print(f"\n{'─' * 70}")
-        for name, ok, msg in all_results:
-            gating = any(f"[{v}]" in name for v in GATING_VARIANTS)
-            status = "PASS" if ok else ("FAIL" if gating else "WARN")
-            print(f"  {status}  {name}: {msg}")
+        # Print results summary — distinguish gating failures from warnings
+        passed = sum(1 for _, ok, _ in all_results if ok)
+        failed_gating = [
+            (name, ok, msg)
+            for name, ok, msg in all_results
+            if not ok and any(f"[{v}]" in name for v in GATING_VARIANTS)
+        ]
+        failed_warn = [
+            (name, ok, msg)
+            for name, ok, msg in all_results
+            if not ok and not any(f"[{v}]" in name for v in GATING_VARIANTS)
+        ]
 
-    print(f"\n{'=' * 70}")
-    print(
-        f"Results: {passed} passed, {len(failed_gating)} failed"
-        f", {len(failed_warn)} warned, {len(all_results)} total"
-    )
-    print(f"Gating variants (must pass): {sorted(GATING_VARIANTS)}")
+        if args.verbose:
+            print(f"\n{'-' * 70}")
+            for name, ok, msg in all_results:
+                gating = any(f"[{v}]" in name for v in GATING_VARIANTS)
+                status = "PASS" if ok else ("FAIL" if gating else "WARN")
+                print(f"  {status}  {name}: {msg}")
 
-    if failed_gating:
-        print("\nFAILED checks (gating):")
-        for name, _, msg in failed_gating:
-            print(f"  FAIL  {name}: {msg}")
+        print(f"\n{'=' * 70}")
+        print(
+            f"Results: {passed} passed, {len(failed_gating)} failed"
+            f", {len(failed_warn)} warned, {len(all_results)} total"
+        )
+        print(f"Gating variants (must pass): {sorted(GATING_VARIANTS)}")
 
-    if failed_warn:
-        print("\nWARNING checks (non-gating):")
-        for name, _, msg in failed_warn:
-            print(f"  WARN  {name}: {msg}")
+        if failed_gating:
+            print("\nFAILED checks (gating):")
+            for name, _, msg in failed_gating:
+                print(f"  FAIL  {name}: {msg}")
 
-    # Quantisation report (informational, requires real images)
-    print_quantisation_report(torch_ref, onnx_services, args.models_dir, real_images)
+        if failed_warn:
+            print("\nWARNING checks (non-gating):")
+            for name, _, msg in failed_warn:
+                print(f"  WARN  {name}: {msg}")
 
-    print(f"{'=' * 70}")
+        # Quantisation report (similarity, size, and timing)
+        print("\nRunning quantisation report (timing + stats)...")
+        quantisation_report(torch_ref, onnx_services, args.models_dir, real_images, tmp)
+
+        print(f"{'=' * 70}")
+
     return 1 if failed_gating else 0
 
 

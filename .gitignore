@@ -112,3 +112,6 @@ data/
 # Stress test generated files
 stress_tests/.fixtures/
 stress_tests/results/
+
+# Quantisation ablation results (generated, machine-specific)
+scripts/results/
