@@ -52,26 +52,27 @@ make lint-fix       # auto-fix all lint + format issues
 Tests marked with `@pytest.mark.heavy` load the real CLIP ONNX model (~289 MB FP16, exported via `scripts/setup_models.py`) and run real inference. They are **excluded by default** via `addopts = "-m 'not heavy'"` in pyproject.toml. Currently only `test_clip_heavy.py` uses this marker.
 
 **Model caching:**
-- ONNX models are cached in CI via `actions/cache@v4` keyed on `scripts/export_clip_onnx.py` and `backend/app/config.py`
+- ONNX models are cached in CI via `actions/cache@v4` keyed on `scripts/export_model_onnx.py` and `backend/app/config.py`
 - Models are only re-exported when the export script or config changes
 
 **Test fixture:** The `clip_service` fixture is `session`-scoped and also primes the module-level singleton, so both direct `CLIPService` usage and `get_clip_service()` code paths work.
 
 ## ONNX Model Assessment
 
-The `scripts/evaluate_onnx.py` script compares ONNX model outputs against the torch CLIP reference. This is a data-science assessment (not a software test) and runs only when models are freshly generated.
+Quality evaluation is integrated into `scripts/export_model_onnx.py` via the `--image-dir` flag. When provided, the export script runs a comprehensive quality assessment using the torch model (still loaded from the export phase) as reference.
 
 **When it runs:**
-- In CI: automatically after `scripts/export_clip_onnx.py` on ONNX cache miss
-- Locally: `make evaluate-onnx` or `uv run python scripts/evaluate_onnx.py -v`
+- Locally: `make evaluate-onnx` or `uv run python scripts/export_model_onnx.py clip-vit-b-32 --image-dir /path/to/images`
+- Not in CI (requires real images and torch model; CI only does quick export)
 
 **What it checks:**
-- Embedding dot product deviation < threshold for all variants (fp32/fp16/int8)
-- Synthetic images, real images (if available), varied aspect ratios
-- Text encoding across 13 diverse queries
-- Batch encoding consistency (torch vs ONNX, batch vs single)
+- Cosine diffs (max, mean) for vision and text encoders vs torch reference
+- Top-5 set preservation and Spearman rank correlation on real images
+- Batch encoding consistency
+- Aspect ratio stress tests
 - Cross-modal ranking preservation
-- Quantisation accuracy/size report
+- Inference timing and model sizes
+- Results written to `quantisation_quality` section of manifest.json
 
 **Thresholds:** fp32=0.001, fp16=0.001, int8=0.01
 

@@ -130,10 +130,8 @@ jobs:
         id: cache-onnx
         uses: actions/cache@v4
         with:
-          path: |
-            backend/models/fp16
-            backend/models/tokenizer
-          key: onnx-models-${{ hashFiles('scripts/export_clip_onnx.py', 'backend/app/config.py') }}
+          path: backend/models/clip-vit-b-32
+          key: onnx-models-${{ hashFiles('scripts/export_model_onnx.py', 'backend/app/config.py') }}
 
       - name: Cache HuggingFace models
         if: steps.cache-onnx.outputs.cache-hit != 'true'
@@ -277,10 +275,8 @@ jobs:
         id: cache-onnx
         uses: actions/cache@v4
         with:
-          path: |
-            backend/models/fp16
-            backend/models/tokenizer
-          key: onnx-models-${{ hashFiles('scripts/export_clip_onnx.py', 'backend/app/config.py') }}
+          path: backend/models/clip-vit-b-32
+          key: onnx-models-${{ hashFiles('scripts/export_model_onnx.py', 'backend/app/config.py') }}
 
       - name: Cache HuggingFace models
         if: steps.cache-onnx.outputs.cache-hit != 'true'

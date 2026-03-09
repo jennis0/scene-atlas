@@ -11,7 +11,7 @@ cleanly.  This script focuses the exclusion sweep on the text encoder
 text) vs pure int8.
 
 Ablation results are *relative* (config vs config).  For production-
-representative numbers, use ``scripts/evaluate_onnx.py``.
+representative numbers, use ``scripts/export_model_onnx.py --image-dir``.
 
 Usage:
     uv run python -m scripts.quantisation.ablation_clip \\

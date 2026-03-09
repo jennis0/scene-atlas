@@ -27,9 +27,9 @@ _MODELS_DIR = ROOT / "backend" / "models" / _EMBEDDING_MODEL
 
 # ONNX model files that must exist before building
 _REQUIRED_ONNX_FILES = [
-    _MODELS_DIR / "fp16" / "clip_vision_encoder.onnx",
-    _MODELS_DIR / "fp16" / "clip_text_encoder.onnx",
-    _MODELS_DIR / "fp16" / "manifest.json",
+    _MODELS_DIR / "clip_vision_encoder.onnx",
+    _MODELS_DIR / "clip_text_encoder.onnx",
+    _MODELS_DIR / "manifest.json",
 ]
 
 

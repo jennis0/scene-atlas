@@ -135,7 +135,7 @@ jobs:
 
       # ── Export ONNX models ─────────────────────────────────────────────
       # torch+transformers are dev deps used only for this export step.
-      # The frozen sidecar bundles the fp16 ONNX files + onnxruntime (~289 MB)
+      # The frozen sidecar bundles the optimised ONNX files + onnxruntime (~289 MB)
       # instead of the full torch installation (~445 MB).
       # Models are cached by export-script+config hash — only re-exported
       # when the model or export logic changes.
@@ -143,10 +143,8 @@ jobs:
         id: cache-onnx
         uses: actions/cache@v4
         with:
-          path: |
-            backend/models/fp16
-            backend/models/tokenizer
-          key: onnx-models-${{ hashFiles('scripts/export_clip_onnx.py', 'backend/app/config.py') }}
+          path: backend/models/clip-vit-b-32
+          key: onnx-models-${{ hashFiles('scripts/export_model_onnx.py', 'backend/app/config.py') }}
 
       - name: Cache HuggingFace models
         if: steps.cache-onnx.outputs.cache-hit != 'true'
@@ -157,9 +155,9 @@ jobs:
           restore-keys: |
             huggingface-clip-
 
-      - name: Export ONNX models (fp16)
+      - name: Export ONNX models
         if: steps.cache-onnx.outputs.cache-hit != 'true'
-        run: uv run python scripts/export_clip_onnx.py
+        run: uv run python scripts/setup_models.py
 
       # ── Build Python sidecar ───────────────────────────────────────────
       - name: Build sidecar

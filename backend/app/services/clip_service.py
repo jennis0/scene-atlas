@@ -140,11 +140,11 @@ def _default_models_dir() -> Path:
 
     In a frozen PyInstaller sidecar the models are bundled at
     ``_MEIPASS/models/``.  In development they live under
-    ``backend/models/<embedding_model>/fp16/`` (or whichever quantisation variant is active).
+    ``backend/models/<embedding_model>/``.
     """
     if getattr(sys, "frozen", False):
         return Path(sys._MEIPASS) / "models"
-    return Path(__file__).parent.parent.parent / "models" / _settings.embedding_model / "fp16"
+    return Path(__file__).parent.parent.parent / "models" / _settings.embedding_model
 
 
 # Module-level LRU cache for text embeddings (avoids lru_cache-on-method leak).
@@ -200,13 +200,12 @@ class CLIPService:
         self._resize_mode: str = manifest.get("resize_mode", "shortest_edge_then_crop")
 
         if tokenizer_dir is None:
-            # Tokenizer lives as a sibling of the quantisation subdirectory
-            # in dev mode, or directly under models/ in the frozen sidecar.
-            candidate = models_dir.parent / "tokenizer"
-            if candidate.exists():
-                tokenizer_dir = candidate
-            else:
-                tokenizer_dir = models_dir / "tokenizer"
+            # Tokenizer lives directly under the model directory in the flat
+            # layout, or under models/ in the frozen sidecar.
+            candidate = models_dir / "tokenizer"
+            if not candidate.exists():
+                candidate = models_dir.parent / "tokenizer"
+            tokenizer_dir = candidate
         tokenizer_dir = Path(tokenizer_dir)
 
         logger.info("Loading ONNX models from %s", models_dir)
