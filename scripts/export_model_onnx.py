@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Export embedding models (CLIP, SigLIP2) to ONNX format.
 
-Requires dev dependencies: torch, transformers, onnxruntime, onnx.
-Outputs ONNX graphs + tokenizer files + manifest.json to backend/models/<output-name>/.
+Exports a single production-optimal variant per model (fp16 vision + int8 or
+fp16 text, depending on model).  Optionally runs quality evaluation when
+``--image-dir`` is provided (torch model stays loaded to avoid double-load).
+
+Outputs ONNX graphs + tokenizer files + manifest.json to backend/models/<name>/.
 
 Usage:
     # Export a specific model by name:
@@ -12,6 +15,9 @@ Usage:
     # Export all registered models:
     uv run python scripts/export_model_onnx.py --all
 
+    # Export with quality evaluation (recommended for production):
+    uv run python scripts/export_model_onnx.py clip-vit-b-32 --image-dir /path/to/images
+
     # List available models:
     uv run python scripts/export_model_onnx.py --list
 """
@@ -19,6 +25,8 @@ Usage:
 import argparse
 import json
 import shutil
+import tempfile
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -29,22 +37,31 @@ import torch.nn.functional as F
 from transformers import AutoConfig, AutoModel, AutoProcessor
 
 # ── Model registry ───────────────────────────────────────────────────────────
+# Each model has a fixed production strategy: vision_quant + text_quant.
+# text_int8_exclude_layers: number of early transformer layers to exclude from
+# int8 quantisation (0 = no exclusions).  Only relevant when text_quant="int8".
 
 MODEL_REGISTRY: list[dict] = [
     {
         "name": "clip-vit-b-32",
         "model_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
-        "quants": ["fp32", "fp16", "int8"],
+        "vision_quant": "fp16",
+        "text_quant": "int8",
+        "text_int8_exclude_layers": 3,
     },
     {
         "name": "siglip2-base",
         "model_id": "google/siglip2-base-patch16-224",
-        "quants": ["fp32", "fp16", "int8"],
+        "vision_quant": "fp16",
+        "text_quant": "int8",
+        "text_int8_exclude_layers": 1,
     },
     {
         "name": "siglip2-so400m",
         "model_id": "google/siglip2-so400m-patch14-384",
-        "quants": ["fp32", "fp16", "int8"],
+        "vision_quant": "fp16",
+        "text_quant": "fp16",
+        "text_int8_exclude_layers": 0,
     },
 ]
 
@@ -77,13 +94,28 @@ def parse_args() -> argparse.Namespace:
         dest="list_models",
         help="List available models and exit",
     )
+    parser.add_argument(
+        "--image-dir",
+        type=Path,
+        default=None,
+        help="Directory of real images for quality evaluation (optional)",
+    )
+    parser.add_argument(
+        "--max-images",
+        type=int,
+        default=100,
+        help="Maximum images to use for evaluation (default: 100)",
+    )
     args = parser.parse_args()
 
     if args.list_models:
         print("Available models:")
         for m in MODEL_REGISTRY:
+            quant_desc = f"vision={m['vision_quant']}, text={m['text_quant']}"
+            if m["text_quant"] == "int8" and m["text_int8_exclude_layers"]:
+                quant_desc += f", exclude_layers={m['text_int8_exclude_layers']}"
             print(f"  {m['name']:<25} {m['model_id']}")
-            print(f"  {'':25} quants: {', '.join(m['quants'])}")
+            print(f"  {'':25} {quant_desc}")
         raise SystemExit(0)
 
     if args.all:
@@ -284,100 +316,65 @@ def _preprocess_for_quantisation(src: Path, dst: Path) -> Path:
 
     print(f"    Pre-processing {src.name}...")
     # Skip symbolic shape inference — it fails on CLIP/SigLIP Expand ops
-    # (TypeError in _broadcast_shapes). ONNX shape inference + model
-    # optimisation still run and provide the tensor shape info that
-    # quantisation needs.
     quant_pre_process(str(src), str(dst), skip_symbolic_shape=True)
-
     return dst
 
 
-def quantise_fp16(fp32_dir: Path, fp16_dir: Path) -> None:
-    """Convert fp32 ONNX models to fp16."""
+def quantise_encoder_fp16(fp32_path: Path, output_path: Path) -> None:
+    """Convert a single fp32 ONNX encoder to fp16."""
     import onnx
     from onnxruntime.transformers.float16 import convert_float_to_float16
 
-    fp16_dir.mkdir(parents=True, exist_ok=True)
+    print(f"  Quantising {fp32_path.name} to fp16...")
+    preprocessed = output_path.parent / f"_pre_{fp32_path.name}"
+    _preprocess_for_quantisation(fp32_path, preprocessed)
 
-    for name in ENCODER_NAMES.values():
-        print(f"  Quantising {name} to fp16...")
-        preprocessed = fp16_dir / f"_pre_{name}"
-        _preprocess_for_quantisation(fp32_dir / name, preprocessed)
-
-        model = onnx.load(str(preprocessed))
-        model_fp16 = convert_float_to_float16(
-            model,
-            keep_io_types=True,
-        )
-        onnx.save(model_fp16, str(fp16_dir / name))
-        preprocessed.unlink(missing_ok=True)
+    model = onnx.load(str(preprocessed))
+    model_fp16 = convert_float_to_float16(model, keep_io_types=True)
+    onnx.save(model_fp16, str(output_path))
+    preprocessed.unlink(missing_ok=True)
 
 
-def _find_int8_exclusions(onnx_path: Path, family: str) -> list[str]:
-    """Find nodes that should be excluded from int8 quantisation.
+def quantise_encoder_int8(
+    fp32_path: Path, output_path: Path, family: str, exclude_layers: int
+) -> None:
+    """Quantise a single fp32 ONNX encoder to int8 with layer exclusions.
 
-    Model-family-aware: CLIP text encoders need first-layer + projection
-    exclusion to prevent error accumulation. SigLIP2 text encoders quantise
-    cleanly without exclusions (max diff ~0.01 on 100+ real images).
+    Uses ``find_layer_nodes()`` from quantisation utils to identify nodes
+    to exclude.  On Windows, pre-processes to a named file to avoid ORT
+    temp file issues.
     """
-    if family == "siglip2":
-        # SigLIP2 text encoder quantises cleanly — no exclusions needed
-        return []
-
-    import onnx
-
-    model = onnx.load(str(onnx_path))
-    matmuls = [n.name for n in model.graph.node if n.op_type == "MatMul"]
-
-    # CLIP: exclude first transformer layer (layers.0/) and the final projection
-    exclude = [n for n in matmuls if "layers.0/" in n or "projection/MatMul" in n]
-    if exclude:
-        print(f"    Excluding {len(exclude)} sensitive nodes from quantisation")
-    return exclude
-
-
-def quantise_int8(fp32_dir: Path, fp16_dir: Path, int8_dir: Path, family: str) -> None:
-    """Create a hybrid int8 variant: fp16 vision + int8 text.
-
-    SigLIP2 vision doesn't quantise cleanly to int8 (max cosine diff ~0.32).
-    CLIP vision quantises well (~0.004) but we use fp16 for consistency.
-    The text encoder uses int8 — CLIP needs first-layer + projection
-    exclusion; SigLIP2 quantises cleanly without exclusions.
-
-    On Windows, ``quantize_dynamic`` internally creates a temp file for
-    shape inference that fails with ``FileNotFoundError``.  We work around
-    this by running ``quant_pre_process`` first to a named file, then
-    quantising that.
-    """
-    import shutil
-
     from onnxruntime.quantization import QuantType, quantize_dynamic
     from onnxruntime.quantization.preprocess import quant_pre_process
 
-    int8_dir.mkdir(parents=True, exist_ok=True)
+    from scripts.quantisation.utils import find_layer_nodes
 
-    # Vision encoder: copy from fp16 (int8 vision has unacceptable quality for SigLIP2)
-    vision_name = ENCODER_NAMES["vision"]
-    print(f"  Copying {vision_name} from fp16 (hybrid: vision stays fp16)...")
-    shutil.copy2(str(fp16_dir / vision_name), str(int8_dir / vision_name))
+    print(f"  Quantising {fp32_path.name} to int8 (exclude_layers={exclude_layers})...")
 
-    # Text encoder: int8 with family-specific exclusions
-    text_name = ENCODER_NAMES["text"]
-    print(f"  Quantising {text_name} to int8...")
-    nodes_to_exclude = _find_int8_exclusions(fp32_dir / text_name, family)
+    nodes_to_exclude: list[str] = []
+    if exclude_layers > 0:
+        layers = find_layer_nodes(fp32_path)
+        for i in range(exclude_layers):
+            key = str(i)
+            if key in layers:
+                nodes_to_exclude.extend(layers[key])
+        # Always exclude projection nodes for stability
+        if "projection" in layers:
+            nodes_to_exclude.extend(layers["projection"])
+        if nodes_to_exclude:
+            print(f"    Excluding {len(nodes_to_exclude)} sensitive nodes from quantisation")
 
     # Pre-process to a named file to avoid Windows temp file issues
-    preprocessed = int8_dir / f"_pre_{text_name}"
-    quant_pre_process(str(fp32_dir / text_name), str(preprocessed), skip_symbolic_shape=True)
+    preprocessed = output_path.parent / f"_pre_{fp32_path.name}"
+    quant_pre_process(str(fp32_path), str(preprocessed), skip_symbolic_shape=True)
 
     quantize_dynamic(
         model_input=str(preprocessed),
-        model_output=str(int8_dir / text_name),
+        model_output=str(output_path),
         weight_type=QuantType.QInt8,
         per_channel=True,
         nodes_to_exclude=nodes_to_exclude or None,
     )
-
     preprocessed.unlink(missing_ok=True)
 
 
@@ -399,28 +396,22 @@ def extract_manifest(model, processor, model_id: str, family: str) -> dict:
     # Determine interpolation mode
     resample = getattr(img_proc, "resample", None)
     if resample is not None:
-        # PILImageResampling: 3 = BICUBIC, 2 = BILINEAR
         interpolation = "bicubic" if int(resample) == 3 else "bilinear"
     else:
         interpolation = "bicubic"
 
-    # Determine resize mode — CLIP uses shortest-edge + center-crop,
-    # SigLIP2 resizes directly to (size, size) without cropping.
+    # Determine resize mode
     do_center_crop = getattr(img_proc, "do_center_crop", False)
     resize_mode = "shortest_edge_then_crop" if do_center_crop else "direct_resize"
 
-    # Embedding dimension — CLIP uses projection_dim on the top-level config,
-    # SigLIP/SigLIP2 stores it on the text_config or defaults to hidden_size
+    # Embedding dimension
     embedding_dim = getattr(model.config, "projection_dim", None)
     if embedding_dim is None:
         embedding_dim = getattr(model.config.text_config, "projection_dim", None)
     if embedding_dim is None:
-        # SigLIP2 uses hidden_size as embedding dim when no projection exists
         embedding_dim = model.config.text_config.hidden_size
 
     # Tokenizer config
-    # Some tokenizers report model_max_length as ~1e30 (effectively infinity).
-    # Fall back to text_config.max_position_embeddings which is the real limit.
     tok_max_length = getattr(tokenizer, "model_max_length", None)
     if tok_max_length is None or tok_max_length > 1_000_000:
         tok_max_length = model.config.text_config.max_position_embeddings
@@ -428,13 +419,11 @@ def extract_manifest(model, processor, model_id: str, family: str) -> dict:
     if family == "siglip2":
         tokenizer_type = "sentencepiece"
         tok_pad_id = getattr(tokenizer, "pad_token_id", 1)
-        # SigLIP2's HF tokenizer appends EOS after text tokens; we need to
-        # replicate this in the sentencepiece wrapper at inference time.
         tok_eos_id = getattr(tokenizer, "eos_token_id", None)
     else:
         tokenizer_type = "huggingface"
         tok_pad_id = getattr(tokenizer, "pad_token_id", 49407)
-        tok_eos_id = None  # HF fast tokenizer handles EOS internally
+        tok_eos_id = None
 
     manifest = {
         "model_id": model_id,
@@ -453,7 +442,6 @@ def extract_manifest(model, processor, model_id: str, family: str) -> dict:
         "exported_at": datetime.now(UTC).isoformat(),
     }
 
-    # Only include tokenizer_eos_id when set (sentencepiece models)
     if tok_eos_id is not None:
         manifest["tokenizer_eos_id"] = tok_eos_id
 
@@ -476,7 +464,7 @@ def sanity_check(
     """Quick sanity check: compare torch vs ONNX for a dummy input."""
     import onnxruntime as ort
 
-    print(f"\n  Sanity check against {onnx_dir.name} variant...")
+    print(f"\n  Sanity check against {onnx_dir}...")
 
     # Vision check
     dummy_pixels = torch.randn(1, 3, image_size, image_size)
@@ -534,63 +522,284 @@ def sanity_check(
     print(f"    Text dot product:   {text_dot:.8f}  (diff from 1.0: {abs(1.0 - text_dot):.2e})")
 
 
+# ── Quality evaluation (gated behind --image-dir) ───────────────────────────
+
+
+def _torch_encode_image(model, processor, family: str, image_path: Path) -> np.ndarray:
+    """Encode a single image via the torch model."""
+    from PIL import Image as PILImage
+
+    with PILImage.open(image_path) as img:
+        image = img.convert("RGB")
+    inputs = processor(images=image, return_tensors="pt")
+    with torch.no_grad():
+        if family == "clip":
+            vo = model.vision_model(**inputs)
+            features = model.visual_projection(vo.pooler_output)
+        else:
+            features = model.get_image_features(**inputs)
+        return F.normalize(features, p=2, dim=-1).cpu().numpy().flatten()
+
+
+def _torch_encode_text(model, processor, family: str, text: str, max_length: int) -> np.ndarray:
+    """Encode a single text via the torch model."""
+    if family == "siglip2":
+        text = text.lower()
+    inputs = processor(
+        text=text,
+        return_tensors="pt",
+        padding="max_length",
+        max_length=max_length,
+        return_attention_mask=True,
+    )
+    with torch.no_grad():
+        if family == "clip":
+            to = model.text_model(**inputs)
+            features = model.text_projection(to.pooler_output)
+        else:
+            features = model.get_text_features(**inputs)
+        return F.normalize(features, p=2, dim=-1).cpu().numpy().flatten()
+
+
+def _measure_inference_time(fn, args_list: list, warmup: int = 3, repeats: int = 3) -> float:
+    """Average inference time in ms."""
+    for _ in range(warmup):
+        fn(args_list[0])
+    total = 0.0
+    n = 0
+    for args in args_list:
+        for _ in range(repeats):
+            start = time.perf_counter()
+            fn(args)
+            total += time.perf_counter() - start
+            n += 1
+    return (total / n) * 1000
+
+
+def evaluate_quality(
+    model,
+    processor,
+    family: str,
+    max_length: int,
+    output_dir: Path,
+    image_dir: Path,
+    max_images: int,
+) -> dict:
+    """Run quality evaluation comparing torch reference against ONNX output.
+
+    Returns the quantisation_quality dict to write into the manifest.
+    """
+    from PIL import Image as PILImage
+
+    from backend.app.services.clip_service import CLIPService
+    from scripts.quantisation.queries import TEXT_QUERIES
+    from scripts.quantisation.utils import (
+        collect_images,
+        cosine_diffs,
+        rank_correlation,
+    )
+
+    print(f"\n{'=' * 70}")
+    print("Quality Evaluation")
+    print(f"{'=' * 70}")
+
+    # Collect real images
+    images = collect_images(image_dir, max_count=max_images)
+    print(f"  Using {len(images)} real images from {image_dir}")
+
+    # Load ONNX service from flat output dir
+    svc = CLIPService(models_dir=output_dir)
+
+    # --- Compute torch reference embeddings ---
+    print("  Computing torch reference embeddings...")
+    torch_img_embs = [_torch_encode_image(model, processor, family, p) for p in images]
+    torch_txt_embs = [
+        _torch_encode_text(model, processor, family, t, max_length) for t in TEXT_QUERIES
+    ]
+
+    # --- Compute ONNX embeddings ---
+    print("  Computing ONNX embeddings...")
+    onnx_img_embs = [np.array(svc.encode_image(p)) for p in images]
+    onnx_txt_embs = [np.array(svc.encode_text(t)) for t in TEXT_QUERIES]
+
+    # --- Cosine diffs ---
+    img_diffs = cosine_diffs(torch_img_embs, onnx_img_embs)
+    txt_diffs = cosine_diffs(torch_txt_embs, onnx_txt_embs)
+
+    # --- Rank correlation ---
+    rank_stats = rank_correlation(torch_img_embs, torch_txt_embs, onnx_img_embs, onnx_txt_embs)
+
+    # --- Batch consistency check ---
+    print("  Checking batch encoding consistency...")
+    if len(images) >= 8:
+        batch_paths = images[:8]
+        batch_embs = svc.batch_encode_images(batch_paths)
+        single_embs = [svc.encode_image(p) for p in batch_paths]
+        batch_diffs = [
+            abs(1.0 - float(np.dot(np.array(b), np.array(s))))
+            for b, s in zip(batch_embs, single_embs, strict=True)
+        ]
+        max_batch_diff = max(batch_diffs)
+    else:
+        max_batch_diff = 0.0
+
+    # --- Aspect ratio stress test ---
+    print("  Running aspect ratio stress tests...")
+    aspect_sizes = [(50, 50), (224, 224), (300, 200), (200, 300), (1000, 1000), (1920, 1080)]
+    aspect_diffs: list[float] = []
+    with tempfile.TemporaryDirectory(prefix="onnx_aspect_") as tmp:
+        for w, h in aspect_sizes:
+            img_path = Path(tmp) / f"aspect_{w}x{h}.jpg"
+            PILImage.new("RGB", (w, h), (80, 120, 160)).save(img_path, format="JPEG", quality=70)
+            t_emb = _torch_encode_image(model, processor, family, img_path)
+            o_emb = np.array(svc.encode_image(img_path))
+            aspect_diffs.append(abs(1.0 - float(np.dot(t_emb, o_emb))))
+
+    # --- Cross-modal ranking test ---
+    print("  Checking cross-modal ranking preservation...")
+    with tempfile.TemporaryDirectory(prefix="onnx_rank_") as tmp:
+        colors = {
+            "green": (20, 150, 30),
+            "blue": (30, 30, 200),
+            "red": (220, 20, 20),
+            "yellow": (220, 220, 30),
+        }
+        color_paths = {}
+        for cname, color in colors.items():
+            p = Path(tmp) / f"rank_{cname}.jpg"
+            PILImage.new("RGB", (100, 100), color).save(p, format="JPEG", quality=70)
+            color_paths[cname] = p
+
+        query = "lush green forest"
+        torch_text = _torch_encode_text(model, processor, family, query, max_length)
+        onnx_text = np.array(svc.encode_text(query))
+
+        torch_scores = {}
+        onnx_scores = {}
+        for cname, path in color_paths.items():
+            t_img = _torch_encode_image(model, processor, family, path)
+            o_img = np.array(svc.encode_image(path))
+            torch_scores[cname] = float(np.dot(torch_text, t_img))
+            onnx_scores[cname] = float(np.dot(onnx_text, o_img))
+
+        torch_ranking = sorted(torch_scores, key=torch_scores.get, reverse=True)
+        onnx_ranking = sorted(onnx_scores, key=onnx_scores.get, reverse=True)
+        ranking_preserved = torch_ranking == onnx_ranking
+
+    # --- Model sizes ---
+    vision_size = (output_dir / ENCODER_NAMES["vision"]).stat().st_size / (1024 * 1024)
+    text_size = (output_dir / ENCODER_NAMES["text"]).stat().st_size / (1024 * 1024)
+
+    # --- Inference timing ---
+    print("  Measuring inference timing...")
+    image_ms = _measure_inference_time(svc.encode_image, images[:20])
+    text_ms = _measure_inference_time(svc.encode_text, list(TEXT_QUERIES[:20]))
+
+    # --- Build quality report ---
+    quality = {
+        "image": {
+            "max_diff": float(img_diffs.max()),
+            "mean_diff": float(img_diffs.mean()),
+            "var_diff": float(img_diffs.var()),
+            "n_samples": len(images),
+            "model_size_mb": round(vision_size, 2),
+            "avg_inference_ms": round(image_ms, 2),
+        },
+        "text": {
+            "max_diff": float(txt_diffs.max()),
+            "mean_diff": float(txt_diffs.mean()),
+            "var_diff": float(txt_diffs.var()),
+            "n_samples": len(TEXT_QUERIES),
+            "model_size_mb": round(text_size, 2),
+            "avg_inference_ms": round(text_ms, 2),
+        },
+        "total_size_mb": round(vision_size + text_size, 2),
+        "rank_correlation": {
+            "mean_rho": rank_stats["mean_rho"],
+            "min_rho": rank_stats["min_rho"],
+            "pct_top5_preserved": rank_stats["pct_top5_preserved"],
+        },
+        "batch_consistency_max_diff": max_batch_diff,
+        "aspect_ratio_max_diff": max(aspect_diffs) if aspect_diffs else 0.0,
+        "cross_modal_ranking_preserved": ranking_preserved,
+    }
+
+    # --- Print human-readable report ---
+    img = quality["image"]
+    txt = quality["text"]
+    print(f"\n  {'':20} {'Max Diff':>12} {'Mean Diff':>12} {'Size':>10} {'Avg Time':>10}")
+    print(f"  {'-' * 70}")
+    print(
+        f"  {'Vision encoder':<20} {img['max_diff']:>12.6f} {img['mean_diff']:>12.6f} "
+        f"{img['model_size_mb']:>8.1f} MB {img['avg_inference_ms']:>7.1f} ms"
+    )
+    print(
+        f"  {'Text encoder':<20} {txt['max_diff']:>12.6f} {txt['mean_diff']:>12.6f} "
+        f"{txt['model_size_mb']:>8.1f} MB {txt['avg_inference_ms']:>7.1f} ms"
+    )
+    print(f"  {'-' * 70}")
+    print(f"  Total size: {quality['total_size_mb']:.1f} MB")
+    rc = quality["rank_correlation"]
+    print(
+        f"  Rank correlation: mean_rho={rc['mean_rho']:.4f} "
+        f"min_rho={rc['min_rho']:.4f} "
+        f"top5_preserved={rc['pct_top5_preserved']:.1%}"
+    )
+    print(f"  Batch consistency max diff: {max_batch_diff:.6f}")
+    print(f"  Aspect ratio max diff: {quality['aspect_ratio_max_diff']:.6f}")
+    print(f"  Cross-modal ranking preserved: {ranking_preserved}")
+    print(f"{'=' * 70}")
+
+    return quality
+
+
 # ── Size report ──────────────────────────────────────────────────────────────
 
 
-def print_size_table(base_dir: Path) -> None:
-    """Print a size comparison table for all variants."""
-    print("\n" + "=" * 70)
-    print("Model Size Comparison")
-    print("=" * 70)
-    print(f"  {'Variant':<8} {'Vision':<15} {'Text':<15} {'Total':<15}")
-    print("-" * 70)
-
-    for variant in ("fp32", "fp16", "int8"):
-        vdir = base_dir / variant
-        if not vdir.exists():
-            continue
-        vision = vdir / ENCODER_NAMES["vision"]
-        text = vdir / ENCODER_NAMES["text"]
-        v_size = vision.stat().st_size / (1024 * 1024) if vision.exists() else 0
-        t_size = text.stat().st_size / (1024 * 1024) if text.exists() else 0
-        print(
-            f"  {variant:<8} {v_size:>10.1f} MB   {t_size:>10.1f} MB   {v_size + t_size:>10.1f} MB"
-        )
-
-    tok_dir = base_dir / "tokenizer"
+def print_size_report(output_dir: Path) -> None:
+    """Print final model sizes."""
+    print(f"\n{'=' * 50}")
+    print("Model Sizes")
+    print(f"{'=' * 50}")
+    for label, key in [("Vision", "vision"), ("Text", "text")]:
+        path = output_dir / ENCODER_NAMES[key]
+        if path.exists():
+            size = path.stat().st_size / (1024 * 1024)
+            print(f"  {label:<10} {size:>10.1f} MB")
+    tok_dir = output_dir / "tokenizer"
     if tok_dir.exists():
         tok_size = sum(f.stat().st_size for f in tok_dir.rglob("*") if f.is_file())
-        print(f"  {'tokenizer':<8} {'':>15} {'':>15} {tok_size / (1024 * 1024):>10.1f} MB")
-
-    print("=" * 70)
+        print(f"  {'Tokenizer':<10} {tok_size / (1024 * 1024):>10.1f} MB")
+    print(f"{'=' * 50}")
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 
-def export_model(entry: dict, base_dir: Path) -> None:
-    """Export a single model with all its configured quantisations."""
+def export_model(entry: dict, base_dir: Path, image_dir: Path | None, max_images: int) -> None:
+    """Export a single model with its production-optimal quantisation."""
     name = entry["name"]
     model_id = entry["model_id"]
-    quants = entry["quants"]
+    vision_quant = entry["vision_quant"]
+    text_quant = entry["text_quant"]
+    exclude_layers = entry["text_int8_exclude_layers"]
     output_dir = base_dir / name
 
     print(f"\n{'=' * 70}")
     print(f"Exporting: {name} ({model_id})")
-    print(f"Quants: {', '.join(quants)}")
+    print(f"Strategy: vision={vision_quant}, text={text_quant}")
+    if text_quant == "int8" and exclude_layers:
+        print(f"Text int8 exclusions: first {exclude_layers} layer(s) + projection")
     print(f"{'=' * 70}")
 
     # Detect model family
     family = detect_family(model_id)
     print(f"Detected model family: {family}")
 
-    # Clean output directory
+    # Clean output directory (preserve tokenizer if it exists to speed up re-exports)
     if output_dir.exists():
         shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    fp32_dir = output_dir / "fp32"
-    fp32_dir.mkdir(parents=True, exist_ok=True)
 
     # Load model
     print(f"Loading model: {model_id}")
@@ -598,55 +807,68 @@ def export_model(entry: dict, base_dir: Path) -> None:
     model.eval()
     processor = AutoProcessor.from_pretrained(model_id, local_files_only=False)
 
-    # Extract manifest (needed for image_size and context_length)
+    # Extract manifest
     manifest = extract_manifest(model, processor, model_id, family)
     image_size = manifest["image_size"]
     context_length = manifest["tokenizer_max_length"]
 
-    # Export fp32 (always needed as base for quantisation)
-    print(f"\nExporting fp32 vision encoder (image_size={image_size})...")
-    export_vision(model, family, image_size, fp32_dir)
-    print(f"Exporting fp32 text encoder (context_length={context_length})...")
-    export_text(model, family, context_length, fp32_dir)
+    # Step 1: Export fp32 to temp dir
+    with tempfile.TemporaryDirectory(prefix=f"onnx_fp32_{name}_") as fp32_tmp:
+        fp32_dir = Path(fp32_tmp)
+        print(f"\nExporting fp32 vision encoder (image_size={image_size})...")
+        export_vision(model, family, image_size, fp32_dir)
+        print(f"Exporting fp32 text encoder (context_length={context_length})...")
+        export_text(model, family, context_length, fp32_dir)
 
-    # Save tokenizer (shared across all variants)
+        # Step 2: Synthetic quality gate (torch vs fp32)
+        print("\nSynthetic quality gate (torch vs fp32)...")
+        sanity_check(model, processor, family, image_size, context_length, fp32_dir)
+
+        # Step 3: Quantise vision encoder
+        fp32_vision = fp32_dir / ENCODER_NAMES["vision"]
+        out_vision = output_dir / ENCODER_NAMES["vision"]
+        if vision_quant == "fp16":
+            quantise_encoder_fp16(fp32_vision, out_vision)
+        else:
+            raise ValueError(f"Unsupported vision_quant: {vision_quant}")
+
+        # Step 4: Quantise text encoder
+        fp32_text = fp32_dir / ENCODER_NAMES["text"]
+        out_text = output_dir / ENCODER_NAMES["text"]
+        if text_quant == "fp16":
+            quantise_encoder_fp16(fp32_text, out_text)
+        elif text_quant == "int8":
+            quantise_encoder_int8(fp32_text, out_text, family, exclude_layers)
+        else:
+            raise ValueError(f"Unsupported text_quant: {text_quant}")
+
+    # fp32 temp dir is now cleaned up automatically
+
+    # Step 5: Sanity check quantised models
+    print("\nSanity check (quantised)...")
+    sanity_check(model, processor, family, image_size, context_length, output_dir)
+
+    # Step 6: Save tokenizer
     print("\nSaving tokenizer...")
     if family == "siglip2":
         save_tokenizer_siglip2(processor, output_dir)
     else:
         save_tokenizer_clip(processor, output_dir)
 
-    # Write manifest & sanity check fp32
-    if "fp32" in quants:
-        print("\nGenerating fp32 manifest...")
-        write_manifest(manifest, fp32_dir)
-        sanity_check(model, processor, family, image_size, context_length, fp32_dir)
+    # Step 7: Write manifest
+    write_manifest(manifest, output_dir)
 
-    # Quantise to fp16 (always needed as base for int8 hybrid vision encoder)
-    fp16_dir = output_dir / "fp16"
-    if "fp16" in quants or "int8" in quants:
-        print("\nQuantising to fp16...")
-        quantise_fp16(fp32_dir, fp16_dir)
-        write_manifest(manifest, fp16_dir)
-        if "fp16" in quants:
-            sanity_check(model, processor, family, image_size, context_length, fp16_dir)
+    # Step 8: Quality evaluation (if --image-dir provided)
+    if image_dir is not None:
+        quality = evaluate_quality(
+            model, processor, family, context_length, output_dir, image_dir, max_images
+        )
+        # Update manifest with quality metrics
+        manifest["quantisation_quality"] = quality
+        write_manifest(manifest, output_dir)
 
-    # Quantise to int8 (hybrid: fp16 vision + int8 text)
-    if "int8" in quants:
-        int8_dir = output_dir / "int8"
-        print("\nQuantising to int8 (hybrid: fp16 vision + int8 text)...")
-        quantise_int8(fp32_dir, fp16_dir, int8_dir, family)
-        write_manifest(manifest, int8_dir)
-        sanity_check(model, processor, family, image_size, context_length, int8_dir)
-
-    # Remove intermediate dirs that weren't requested
-    if "fp32" not in quants:
-        shutil.rmtree(fp32_dir)
-    if "fp16" not in quants and fp16_dir.exists():
-        shutil.rmtree(fp16_dir)
-
-    # Size report
-    print_size_table(output_dir)
+    # Step 9: Size report
+    print_size_report(output_dir)
     print(f"\nExport complete: {output_dir}")
 
 
@@ -655,7 +877,7 @@ def main() -> None:
     base_dir = Path(__file__).resolve().parent.parent / "backend" / "models"
 
     for name in args.models:
-        export_model(MODEL_BY_NAME[name], base_dir)
+        export_model(MODEL_BY_NAME[name], base_dir, args.image_dir, args.max_images)
 
     if len(args.models) > 1:
         print(f"\n{'=' * 70}")

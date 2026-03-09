@@ -36,10 +36,10 @@ import os as _os
 _embedding_model = _os.environ.get('EMBEDDING_MODEL', 'clip-vit-b-32')
 models_dir = project_root / 'backend' / 'models' / _embedding_model
 onnx_datas = [
-    (str(models_dir / 'fp16' / 'clip_vision_encoder.onnx'), 'models'),
-    (str(models_dir / 'fp16' / 'clip_text_encoder.onnx'),   'models'),
-    (str(models_dir / 'fp16' / 'manifest.json'),             'models'),
-    (str(models_dir / 'tokenizer'),                          'models/tokenizer'),
+    (str(models_dir / 'clip_vision_encoder.onnx'), 'models'),
+    (str(models_dir / 'clip_text_encoder.onnx'),   'models'),
+    (str(models_dir / 'manifest.json'),             'models'),
+    (str(models_dir / 'tokenizer'),                 'models/tokenizer'),
 ]
 
 a = Analysis(

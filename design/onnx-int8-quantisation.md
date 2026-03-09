@@ -14,8 +14,7 @@ This document captures the methodology, experiments, and key findings from optim
     - `queries.py` — 103 text queries (single source of truth)
     - `ablation_clip.py` — CLIP ViT-B/32 ablation experiments
     - `ablation_siglip2.py` — SigLIP2-base ablation experiments
-  - `scripts/export_model_onnx.py` — export and quantisation pipeline
-  - `scripts/evaluate_onnx.py` — evaluation harness (production preprocessing)
+  - `scripts/export_model_onnx.py` — export, quantisation, and evaluation pipeline (single script; evaluation gated behind `--image-dir`)
   - `design/decisions.md` — ADR-014 documents the quantisation decision
 
 ## Quality Metric
@@ -26,7 +25,7 @@ This document captures the methodology, experiments, and key findings from optim
 
 **Thresholds:** max cosine diff < 0.02, mean < 0.005 (for int8). pct_top5_preserved > 90%.
 
-**Important distinction:** Ablation scripts use AutoProcessor for both sides — results are *relative* (config vs config). The `evaluate_onnx.py` harness uses the production `CLIPService` preprocessing pipeline — those results represent production quality.
+**Important distinction:** Ablation scripts use AutoProcessor for both sides — results are *relative* (config vs config). The `export_model_onnx.py --image-dir` evaluation uses the production `CLIPService` preprocessing pipeline — those results represent production quality.
 
 ## Methodology: Phased Approach
 
@@ -159,10 +158,11 @@ Excluding late layers has zero effect. Excluding 1–5 early layers barely helps
 ### Model Family Differences
 
 **Quantisation strategy differs by family:**
-- **CLIP:** fp16 vision + int8 text with layer 0 + projection exclusion. CLIP vision *does* quantise cleanly to int8 (max diff ~0.004), but the export pipeline uses fp16 vision for consistency across families. If model size is critical, CLIP int8 vision is viable — re-run the CLIP ablation to confirm.
-- **SigLIP2:** fp16 vision (int8 is unrecoverable — see layer-6 cliff above) + int8 text with no exclusions needed
+- **CLIP:** fp16 vision + int8 text with first 3 layers + projection exclusion. CLIP vision *does* quantise cleanly to int8 (max diff ~0.004), but the export pipeline uses fp16 vision for consistency across families. If model size is critical, CLIP int8 vision is viable — re-run the CLIP ablation to confirm.
+- **SigLIP2-base:** fp16 vision (int8 is unrecoverable — see layer-6 cliff above) + int8 text with first 1 layer + projection exclusion (safety margin — max diff 0.0097 without exclusion may degrade at scale)
+- **SigLIP2-so400m:** fp16 vision + fp16 text (no int8 study yet)
 
-The `_find_int8_exclusions()` function in `export_model_onnx.py` is family-aware — it skips exclusions for SigLIP2 and applies layer 0 + projection exclusion for CLIP. The `quantise_int8()` function uses `quant_pre_process` as a Windows workaround before calling `quantize_dynamic`.
+The `quantise_encoder_int8()` function in `export_model_onnx.py` is family-aware — it uses `find_layer_nodes()` from `scripts/quantisation/utils.py` to identify exclusion nodes. Per the model registry: CLIP excludes first 3 layers + projection, SigLIP2-base excludes first 1 layer + projection, SigLIP2-so400m uses fp16 text (no int8). The `quant_pre_process` Windows workaround is applied before calling `quantize_dynamic`.
 
 **Image preprocessing differs:**
 - **CLIP:** `shortest_edge_then_crop` with `bicubic` interpolation
@@ -179,19 +179,20 @@ This is detected from the HF processor's `do_center_crop` attribute and stored i
 When optimising a new model, run experiments in this order:
 
 ```bash
-# 1. Export fp32 baseline
-uv run python scripts/export_model_onnx.py <model-name>
-
-# 2. Run ablation (requires real images — cannot be skipped)
+# 1. Run ablation (requires real images — cannot be skipped)
 uv run python -m scripts.quantisation.ablation_siglip2 --image-dir /path/to/images
 uv run python -m scripts.quantisation.ablation_clip --image-dir /path/to/images
 
-# 3. Update export settings based on ablation findings, re-export
+# 2. Update MODEL_REGISTRY in export_model_onnx.py based on ablation findings
 
-# 4. Validate with production preprocessing
-EMBEDDING_MODEL=<model-name> uv run python scripts/evaluate_onnx.py \
-    --variants fp32 fp16 int8 --images-dir /path/to/images -v
+# 3. Export with quality evaluation (recommended)
+uv run python scripts/export_model_onnx.py <model-name> --image-dir /path/to/images --max-images 500
+
+# 4. Quick export (no images, CI/first-time setup)
+uv run python scripts/export_model_onnx.py <model-name>
 ```
+
+Output is a flat directory: `backend/models/<model-name>/` containing ONNX files, manifest.json, and tokenizer/.
 
 Results are written to `scripts/results/` as timestamped JSON files for regression comparison.
 
@@ -242,7 +243,7 @@ Results are written to `scripts/results/` as timestamped JSON files for regressi
 
 **Bugs found during investigation:**
 1. `resize_mode` default was `shortest_edge_then_crop` — wrong for SigLIP2 which uses `direct_resize`. Caused 0.03-0.08 vision diffs on non-square images.
-2. `evaluate_onnx.py` torch reference missing `return_attention_mask=True` for SigLIP2 tokenizer
-3. `evaluate_onnx.py` torch reference not lowercasing text for SigLIP2 (production pipeline lowercases via SentencePiece wrapper)
+2. Torch reference missing `return_attention_mask=True` for SigLIP2 tokenizer
+3. Torch reference not lowercasing text for SigLIP2 (production pipeline lowercases via SentencePiece wrapper)
 4. `embedding_dim` extraction used `config.projection_dim` which is `None` for SigLIP2
 5. `model_max_length` for SigLIP2 tokenizer is ~1e30, needs fallback to `max_position_embeddings`

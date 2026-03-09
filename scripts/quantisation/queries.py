@@ -1,6 +1,6 @@
 """Canonical set of text queries for quantisation evaluation.
 
-Single source of truth — imported by both ablation scripts and evaluate_onnx.py.
+Single source of truth — imported by ablation scripts and export_model_onnx.py.
 """
 
 TEXT_QUERIES: list[str] = [

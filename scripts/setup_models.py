@@ -19,9 +19,9 @@ _MODEL_NAME = os.environ.get("EMBEDDING_MODEL", _DEFAULT_MODEL)
 _MODELS_DIR = _ROOT / "backend" / "models" / _MODEL_NAME
 
 _REQUIRED_FILES = [
-    _MODELS_DIR / "fp16" / "clip_vision_encoder.onnx",
-    _MODELS_DIR / "fp16" / "clip_text_encoder.onnx",
-    _MODELS_DIR / "fp16" / "manifest.json",
+    _MODELS_DIR / "clip_vision_encoder.onnx",
+    _MODELS_DIR / "clip_text_encoder.onnx",
+    _MODELS_DIR / "manifest.json",
 ]
 
 

@@ -307,9 +307,8 @@ Pipeline functions in `backend/pipeline/` are now plain Python functions — no 
 
 **Key changes:**
 - `backend/app/services/clip_service.py` — Rewritten to use ONNX Runtime; same public interface (`CLIPService`, `get_clip_service()`)
-- `scripts/export_model_onnx.py` — Exports fp32/fp16/int8 ONNX models + tokenizer from the torch model
-- `scripts/evaluate_onnx.py` — Standalone assessment script comparing ONNX output vs torch (runs after export, not in pytest suite)
-- `backend/pyinstaller/scene_atlas_backend.spec` — Removed torch/transformers, bundles fp16 ONNX models
+- `scripts/export_model_onnx.py` — Exports optimised ONNX models + tokenizer from the torch model; quality evaluation via `--image-dir`
+- `backend/pyinstaller/scene_atlas_backend.spec` — Removed torch/transformers, bundles optimised ONNX models
 - Image preprocessing done with PIL + numpy (no `CLIPImageProcessor` dependency)
 - Text tokenization via `tokenizers.Tokenizer` from exported `tokenizer.json`
 
@@ -396,6 +395,6 @@ Pipeline functions in `backend/pipeline/` are now plain Python functions — no 
 **Consequences:**
 - Adding a new model requires only: export script run + manifest generation
 - Model switch in dev: set `EMBEDDING_MODEL` env var, restart server; auto-rebuild triggers if collection is missing or has wrong count
-- All dev/build scripts (`setup_models.py`, `build_sidecar.py`, `evaluate_onnx.py`, PyInstaller spec) respect `EMBEDDING_MODEL` env var
+- All dev/build scripts (`setup_models.py`, `build_sidecar.py`, `export_model_onnx.py`, PyInstaller spec) respect `EMBEDDING_MODEL` env var
 - sentencepiece adds ~1MB to production dependency footprint
-- Models directory structure: `backend/models/{model-name}/{fp32,fp16,int8}/` + `tokenizer/`
+- Models directory structure: `backend/models/{model-name}/` (flat: ONNX files + manifest.json + tokenizer/)
