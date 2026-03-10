@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from PIL import Image
+from tqdm import tqdm
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 MAX_DIMENSION = 7999
@@ -92,21 +93,28 @@ def load_batch_relpaths(batch_path: Path) -> list[str]:
 
 
 def sample_images_stratified(
-    source_dir: Path, all_images: list[Path], target: int
+    source_dir: Path, all_images: list[Path], target: int, oversample_factor: float = 1.2
 ) -> list[Path]:
     """Sample images stratified by top-level folder with inverse-sqrt weighting.
 
     Small folders get higher sampling rates, but not 100% unless they're tiny
     relative to the overall target. Uses inverse-sqrt weighting for a smooth scale.
 
+    Oversamples by default to account for images that may be skipped during
+    processing (e.g., corrupt files, oversized images).
+
     Args:
         source_dir: The root directory images were collected from
         all_images: List of all image Path objects
         target: Target number of images to sample
+        oversample_factor: Multiply target by this factor (default 1.2 = 20% buffer)
 
     Returns:
         List of sampled image paths (not shuffled yet)
     """
+    # Apply oversample factor to target to compensate for skipped images
+    adjusted_target = max(target, round(target * oversample_factor))
+
     # Group images by top-level folder
     folder_groups: dict[str, list[Path]] = {}
     for img_path in all_images:
@@ -130,10 +138,10 @@ def sample_images_stratified(
 
     total_weight = sum(weights.values())
 
-    # Compute initial quotas
+    # Compute initial quotas using adjusted target
     quotas: dict[str, int] = {}
     for folder_name in folder_names:
-        quota = round(target * weights[folder_name] / total_weight)
+        quota = round(adjusted_target * weights[folder_name] / total_weight)
         quotas[folder_name] = quota
 
     # Cap quotas and track surplus from each capped folder
@@ -221,11 +229,11 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     else:
         sampled = False
 
-    # Process each image
+    # Process each image with progress bar
     valid_relpaths: list[str] = []
     skipped: list[tuple[str, str]] = []
 
-    for img_path in all_images:
+    for img_path in tqdm(all_images, desc="Processing images", unit="img"):
         relpath = img_path.relative_to(source_dir).as_posix()
         thumb_name = relpath_to_thumbnail_name(relpath)
 
@@ -246,10 +254,8 @@ def cmd_prepare(args: argparse.Namespace) -> int:
                 reason = f"PIL read error: {e}"
 
             skipped.append((relpath, reason))
-            print(f"  [SKIP] {relpath}: {reason}")
         else:
             valid_relpaths.append(relpath)
-            print(f"  [OK] {relpath}")
 
     # Shuffle before batching to mix images from different groups
     random.shuffle(valid_relpaths)
@@ -288,6 +294,8 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     print(f"  Valid images: {len(valid_relpaths)}")
     print(f"  Skipped: {len(skipped)}")
     print(f"  Batches: {num_batches}")
+    if sampled:
+        print(f"  Sampling: target={sample_target}, sampled={len(all_images)}, valid={len(valid_relpaths)}")
     print(f"  Prep dir: {prep_dir}")
     return 0
 
