@@ -111,8 +111,9 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="cpu",
         choices=["cpu", "cuda", "directml", "coreml"],
-        help="Device for torch inference during sanity check/evaluation (default: cpu). "
-        "ONNX export itself always runs on CPU.",
+        help="Device for ONNX inference during quality evaluation (default: cpu). "
+        "Torch uses CUDA when available; DirectML is ONNX-only. "
+        "ONNX export/quantisation itself always runs on CPU.",
     )
     args = parser.parse_args()
 
@@ -586,6 +587,8 @@ def _torch_encode_image(model, processor, family: str, image_path: Path) -> np.n
     with PILImage.open(image_path) as img:
         image = img.convert("RGB")
     inputs = processor(images=image, return_tensors="pt")
+    dev = next(model.parameters()).device
+    inputs = {k: v.to(dev) for k, v in inputs.items()}
     with torch.no_grad():
         if family == "clip":
             vo = model.vision_model(**inputs)
@@ -606,6 +609,8 @@ def _torch_encode_text(model, processor, family: str, text: str, max_length: int
         max_length=max_length,
         return_attention_mask=True,
     )
+    dev = next(model.parameters()).device
+    inputs = {k: v.to(dev) for k, v in inputs.items()}
     with torch.no_grad():
         if family == "clip":
             to = model.text_model(**inputs)
@@ -638,6 +643,7 @@ def evaluate_quality(
     output_dir: Path,
     image_dir: Path,
     max_images: int,
+    device: str = "cpu",
 ) -> dict:
     """Run quality evaluation comparing torch reference against ONNX output.
 
@@ -661,8 +667,8 @@ def evaluate_quality(
     images = collect_images(image_dir, max_count=max_images)
     print(f"  Using {len(images)} real images from {image_dir}")
 
-    # Load ONNX service from flat output dir
-    svc = CLIPService(models_dir=output_dir)
+    # Load ONNX service from flat output dir, using requested device
+    svc = CLIPService(models_dir=output_dir, device=device)
 
     # --- Compute torch reference embeddings ---
     print("  Computing torch reference embeddings...")
@@ -916,14 +922,21 @@ def export_model(
 
     # Step 8: Quality evaluation (if --image-dir provided)
     if image_dir is not None:
-        # Move model to requested device for evaluation (torch ref is the bottleneck)
-        # torch doesn't support DirectML — fall back to CPU for that case
+        # Move torch model to GPU if available (torch doesn't support DirectML
+        # natively — only CUDA is supported for torch acceleration)
         torch_dev = "cuda" if device == "cuda" else "cpu"
         if torch_dev != "cpu":
             model.to(torch_dev)
             print(f"  Moved torch model to {torch_dev} for evaluation")
         quality = evaluate_quality(
-            model, processor, family, context_length, output_dir, image_dir, max_images
+            model,
+            processor,
+            family,
+            context_length,
+            output_dir,
+            image_dir,
+            max_images,
+            device=device,
         )
         # Update manifest with quality metrics
         manifest["quantisation_quality"] = quality

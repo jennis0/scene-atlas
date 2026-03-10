@@ -179,7 +179,7 @@ class CLIPService:
 
     def __init__(
         self,
-        device: str = "cpu",
+        device: str | None = None,
         model_name: str = "",
         models_dir: str | Path | None = None,
         tokenizer_dir: str | Path | None = None,
@@ -214,8 +214,11 @@ class CLIPService:
 
         logger.info("Loading ONNX models from %s", models_dir)
 
-        # Resolve execution providers (auto-detect GPU or honour explicit config)
-        providers = resolve_providers(_settings.inference_device)
+        # Resolve execution providers — explicit device param takes priority
+        # over the global INFERENCE_DEVICE setting (used by scripts that pass
+        # --device directly).
+        inference_device = device if device is not None else _settings.inference_device
+        providers = resolve_providers(inference_device)
         sess_opts = get_session_options(providers)
 
         vision_file = manifest.get("vision_encoder", "clip_vision_encoder.onnx")
