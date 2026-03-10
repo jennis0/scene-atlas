@@ -4,6 +4,10 @@ For testing strategy, conventions, and guidelines on what to test, see [design/t
 
 For stress testing the import pipeline, see [stress-testing.md](stress-testing.md).
 
+## Pre-commit Setup
+
+Run `npm install` at the repository root to activate Husky pre-commit hooks. This installs git hooks that run `lint-staged` (ruff + ESLint + Prettier) on staged files before committing. If you only run `uv sync` (Python setup), the pre-commit hooks will not be installed.
+
 ## Quick Reference
 
 ```bash
@@ -125,7 +129,10 @@ backend/tests/
 │   ├── test_grid_detector.py      # Image-based grid detection algorithm
 │   ├── test_image_store.py        # Hash-sharded filesystem storage
 │   ├── test_maintenance.py        # Backup + cleanup tasks
-│   └── test_config_mode.py        # APP_MODE config detection
+│   ├── test_config_mode.py        # APP_MODE config detection
+│   ├── test_ort_providers.py      # ONNX Runtime execution provider selection + fallback
+│   ├── test_manifest.py           # Model manifest loading and validation
+│   └── test_resource_detector.py  # compute_resource_defaults concurrency scaling
 ├── integration/                   # Real SQLite DB, mocked CLIP/Qdrant
 │   ├── test_metadata_roundtrip.py # User edits survive to DB (highest priority)
 │   ├── test_analyse_upload.py     # analyse_upload (grouping + thumbnails)
@@ -165,15 +172,24 @@ frontend/src/
 ├── components/
 │   ├── ActivityDock.test.tsx
 │   ├── DesktopGate.test.tsx
-│   ├── SystemInfoDialog.test.tsx
+│   ├── EditGroupDialog.test.tsx
+│   ├── LibraryInfoDialog.test.tsx
 │   └── import/
 │       ├── fileFilter.test.ts
 │       ├── tagColors.test.ts
 │       └── types.test.ts
+├── contexts/
+│   └── ThemeContext.test.tsx
 ├── hooks/
+│   ├── useEditGroupOperations.test.ts
 │   ├── useFileEditing.test.ts
+│   ├── useGalleryDialogs.test.ts
+│   ├── useGallerySearch.test.ts
 │   ├── useImageGrouping.test.ts
-│   └── useJobPolling.test.ts
+│   ├── useImportState.moveFiles.test.ts
+│   ├── useImportUpload.test.ts
+│   ├── useJobPolling.test.ts
+│   └── useSettingsDraft.test.tsx
 └── lib/
     ├── apiBase.test.ts
     ├── appMode.test.ts

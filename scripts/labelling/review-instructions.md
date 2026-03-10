@@ -32,27 +32,78 @@ You are reviewing another agent's image labels for correctness against the label
 
 ---
 
-## What to Look For
+## Grid Type
 
-When reviewing each label, check for these issues:
+Check that the grid field is correctly set:
 
-### Type Errors
-- Scene labeled as battlemap (or vice versa) — check with the decision tree
-- Tokens or assets labeled as anything other than `other`
-- Large-scale maps (city/region) labeled as `battlemap`
-- Top-down encounter-scale views labeled as `scene` or `map`
+| Grid | When to use |
+|------|-------------|
+| `square` | Visible square or rectangular grid overlay, or strong implied grid lines |
+| `hex` | Visible hexagonal grid overlay |
+| `none` | No grid present, or image type is `scene`, `map`, or `other` |
 
-### Description Errors
+**Error to watch for:** Scene/map/other labeled with grid `square` or `hex`. These should always be `none`.
+
+---
+
+## Descriptions: Three Distinct Styles
+
+The original agent wrote three descriptions per image. Review each one for correctness and style.
+
+| Field | Style | Check for |
+|---|---|---|
+| `description_standard` | Full sentence, complete visual inventory | Specific details, not generic; mentions key structures/objects; natural language |
+| `description_search` | Comma-separated keywords and short phrases | Keywords are searchable; appropriate keyword coverage; no grammar or verbs |
+| `description_terse` | Single short noun phrase | Captures the essence; 2–5 words maximum |
+
+### What to Look For
+
+#### Common Description Errors
 - **Too generic**: "fantasy terrain", "interior layout", "volcanic landscape" — needs specific details
 - **References the medium**: "A detailed battlemap showing..." or "A fantasy map of..." — describe the CONTENT not the format
 - **Derived from filename**: mentions color variants, grid status, or artist names that came from the filename
 - **Mentions grid overlays**: "with tactical grid overlay" — the type field handles this, descriptions should describe the scene
 - **Missing key features**: if the image clearly shows a distinctive object (giant skeleton, glowing crystal, ship wreck) and the description doesn't mention it
 
-### What a Good Description Looks Like
-- One sentence, specific, search-useful
-- Describes what you SEE: terrain, structures, creatures/objects, atmosphere, notable features
-- Example: "A desert excavation site with two massive beast skeletons partially buried in sand, surrounded by rocky cliff edges"
+#### Standard Description Specific Errors
+- Incomplete sentences or sentence fragments
+- Too short (under 10 words) — should be comprehensive
+- Too generic or lacking specificity
+
+#### Search Description Specific Errors
+- Contains verbs ("has", "shows") — should be keywords only
+- Missing important searchable keywords
+- Too many words (looks like a badly formatted full description)
+
+#### Terse Description Specific Errors
+- More than one noun phrase (2+ sentences)
+- More than 5 words
+- Generic ("a location", "some scenery") instead of specific ("a forest path", "a tavern")
+
+### Example Review
+
+**Original labels from agent:**
+```json
+{"relpath": "Forest.jpg", "type": "battlemap", "grid": "none", "description_standard": "A forest", "description_search": "forest", "description_terse": "a forest"}
+```
+
+**Problem:** All three descriptions are too generic and repetitive. They're essentially paraphrases of each other.
+
+**Corrected:**
+```json
+{
+  "relpath": "Forest.jpg",
+  "type": "battlemap",
+  "grid": "none",
+  "description_standard": "A narrow winding path through an ancient forest with massive old trees on either side, undergrowth of ferns and vines, dappled sunlight filtering through the dense green canopy",
+  "description_search": "forest, path, ancient trees, ferns, vines, undergrowth, dense, sunlight",
+  "description_terse": "a forest path",
+  "original_description_standard": "A forest",
+  "original_description_search": "forest",
+  "original_description_terse": "a forest",
+  "reason": "Original descriptions were too generic and identical in structure. Revised to add specific visual details (path, ancient trees, undergrowth, sunlight) and created distinct description styles per guidelines."
+}
+```
 
 ---
 
@@ -81,19 +132,40 @@ Read up to 10 thumbnails in parallel using the Read tool.
 ### Step 4: Evaluate Each Label
 For each image, compare the original label against what you see in the thumbnail:
 - Is the type correct per the decision tree?
-- Is the description specific, visual, and search-useful?
-- Does the description avoid the common errors listed above?
+- Is the grid field correct?
+- Are the three descriptions specific, distinct, and search-useful?
+- Do the descriptions avoid the common errors listed above?
 
 ### Step 5: Write Results
 
 **If the label is correct**, append to `{review-dir}/approved.jsonl`:
 ```json
-{"relpath": "Avernus.jpg", "type": "battlemap", "description": "A hellish infernal landscape with demonic structures, lava flows, and winding dark rivers"}
+{
+  "relpath": "Avernus.jpg",
+  "type": "battlemap",
+  "grid": "square",
+  "description_standard": "A hellish infernal landscape with demonic structures, lava flows, and winding dark rivers between jagged rocky terrain",
+  "description_search": "hell, infernal, lava, demonic, dark rivers, rocky, jagged",
+  "description_terse": "a hellish infernal landscape"
+}
 ```
 
 **If the label needs correction**, append to `{review-dir}/corrections.jsonl`:
 ```json
-{"relpath": "Avernus.jpg", "type": "battlemap", "description": "Corrected description here", "original_type": "map", "original_description": "Original description here", "reason": "Was classified as map but is clearly encounter-scale top-down view"}
+{
+  "relpath": "Avernus.jpg",
+  "type": "battlemap",
+  "grid": "square",
+  "description_standard": "Corrected standard description",
+  "description_search": "corrected, search, keywords",
+  "description_terse": "corrected terse description",
+  "original_type": "map",
+  "original_grid": "none",
+  "original_description_standard": "Original standard",
+  "original_description_search": "original, search",
+  "original_description_terse": "original terse",
+  "reason": "Type was incorrectly labeled as map; this is clearly an encounter-scale top-down view. Grid should be square, not none. Descriptions were also too generic."
+}
 ```
 
 ### Step 6: Continue or Stop
@@ -108,14 +180,14 @@ When stopping, report:
 
 ## Output Format Reference
 
-**approved.jsonl** — same format as labels:
+**approved.jsonl** — same format as original labels:
 ```
-{"relpath": "Avernus.jpg", "type": "battlemap", "description": "..."}
+{"relpath": "Avernus.jpg", "type": "battlemap", "grid": "square", "description_standard": "...", "description_search": "...", "description_terse": "..."}
 ```
 
 **corrections.jsonl** — corrected label with originals and reason:
 ```
-{"relpath": "Avernus.jpg", "type": "battlemap", "description": "corrected", "original_type": "map", "original_description": "original", "reason": "explanation"}
+{"relpath": "Avernus.jpg", "type": "battlemap", "grid": "square", "description_standard": "corrected", "description_search": "corrected", "description_terse": "corrected", "original_type": "map", "original_grid": "none", "original_description_standard": "original", "original_description_search": "original", "original_description_terse": "original", "reason": "explanation"}
 ```
 
 Each line must be independently valid JSON. No trailing commas.

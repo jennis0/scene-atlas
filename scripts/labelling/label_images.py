@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -89,6 +90,93 @@ def load_batch_relpaths(batch_path: Path) -> list[str]:
     ]
 
 
+def sample_images_stratified(
+    source_dir: Path, all_images: list[Path], target: int
+) -> list[Path]:
+    """Sample images stratified by top-level folder with inverse-sqrt weighting.
+
+    Small folders get higher sampling rates, but not 100% unless they're tiny
+    relative to the overall target. Uses inverse-sqrt weighting for a smooth scale.
+
+    Args:
+        source_dir: The root directory images were collected from
+        all_images: List of all image Path objects
+        target: Target number of images to sample
+
+    Returns:
+        List of sampled image paths (not shuffled yet)
+    """
+    # Group images by top-level folder
+    folder_groups: dict[str, list[Path]] = {}
+    for img_path in all_images:
+        relpath = img_path.relative_to(source_dir)
+        # Top-level folder is the first part of the path
+        if relpath.parent == Path("."):
+            folder_name = "ROOT"
+        else:
+            folder_name = relpath.parts[0]
+
+        if folder_name not in folder_groups:
+            folder_groups[folder_name] = []
+        folder_groups[folder_name].append(img_path)
+
+    # Compute weights (inverse-sqrt of folder size)
+    folder_names = sorted(folder_groups.keys())
+    weights: dict[str, float] = {}
+    for folder_name in folder_names:
+        count = len(folder_groups[folder_name])
+        weights[folder_name] = 1.0 / (count ** 0.5)
+
+    total_weight = sum(weights.values())
+
+    # Compute initial quotas
+    quotas: dict[str, int] = {}
+    for folder_name in folder_names:
+        quota = round(target * weights[folder_name] / total_weight)
+        quotas[folder_name] = quota
+
+    # Cap quotas and track if capped
+    capped: set[str] = set()
+    for folder_name in folder_names:
+        actual_count = len(folder_groups[folder_name])
+        if quotas[folder_name] > actual_count:
+            capped.add(folder_name)
+            quotas[folder_name] = actual_count
+
+    # Redistribute surplus from capped folders
+    while capped:
+        surplus = sum(len(folder_groups[f]) - quotas[f] for f in capped)
+        uncapped_folders = [f for f in folder_names if f not in capped]
+
+        if not uncapped_folders or surplus == 0:
+            break
+
+        uncapped_weight = sum(weights[f] for f in uncapped_folders)
+        new_capped: set[str] = set()
+
+        for folder_name in uncapped_folders:
+            extra = round(surplus * weights[folder_name] / uncapped_weight)
+            quotas[folder_name] += extra
+
+            actual_count = len(folder_groups[folder_name])
+            if quotas[folder_name] > actual_count:
+                new_capped.add(folder_name)
+                quotas[folder_name] = actual_count
+
+        if not new_capped or new_capped == capped:
+            break
+        capped = new_capped
+
+    # Sample from each folder
+    sampled: list[Path] = []
+    for folder_name in folder_names:
+        folder_images = folder_groups[folder_name]
+        quota = quotas[folder_name]
+        sampled.extend(random.sample(folder_images, min(quota, len(folder_images))))
+
+    return sampled
+
+
 # ---------------------------------------------------------------------------
 # Subcommands
 # ---------------------------------------------------------------------------
@@ -118,6 +206,15 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     # Collect all images recursively
     all_images = collect_images(source_dir)
     print(f"Found {len(all_images)} images in {source_dir}")
+
+    # Apply stratified sampling if requested
+    sample_target = getattr(args, "sample", None)
+    if sample_target and sample_target > 0:
+        all_images = sample_images_stratified(source_dir, all_images, sample_target)
+        print(f"Sampled {len(all_images)} images (target: {sample_target})")
+        sampled = True
+    else:
+        sampled = False
 
     # Process each image
     valid_relpaths: list[str] = []
@@ -149,8 +246,8 @@ def cmd_prepare(args: argparse.Namespace) -> int:
             valid_relpaths.append(relpath)
             print(f"  [OK] {relpath}")
 
-    # Sort alphabetically for deterministic batching
-    valid_relpaths.sort()
+    # Shuffle before batching to mix images from different groups
+    random.shuffle(valid_relpaths)
 
     # Write batch files
     num_batches = 0
@@ -167,8 +264,11 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         "skipped_count": len(skipped),
         "batch_count": num_batches,
         "batch_size": BATCH_SIZE,
+        "sampled": sampled,
         "created_at": datetime.now(UTC).isoformat(),
     }
+    if sampled and sample_target:
+        config["sample_target"] = sample_target
     (prep_dir / "config.json").write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
     # Write skipped list
@@ -224,19 +324,6 @@ def cmd_init(args: argparse.Namespace) -> int:
     instructions = instructions.replace("{run-dir}", str(run_dir))
     instructions = instructions.replace("{source-dir}", config.get("source_dir", "UNKNOWN"))
 
-    # Inject personality if provided
-    personality = getattr(args, "personality", None)
-    if personality:
-        personality_section = (
-            "## Voice & Style\n\n"
-            "You MUST follow this voice and style in all your descriptions, "
-            "while still meeting the description guidelines above:\n\n"
-            f"> {personality}\n\n---\n"
-        )
-        instructions = instructions.replace("{personality-section}", personality_section)
-    else:
-        instructions = instructions.replace("{personality-section}", "")
-
     (run_dir / "instructions.md").write_text(instructions, encoding="utf-8")
 
     print("Initialized labeling run:")
@@ -244,8 +331,6 @@ def cmd_init(args: argparse.Namespace) -> int:
     print(f"  Prep dir: {prep_dir}")
     print(f"  Source: {config.get('source_dir', 'UNKNOWN')}")
     print(f"  Images: {config.get('image_count', 'UNKNOWN')}")
-    if personality:
-        print(f"  Personality: {personality}")
     print("\nNext step: give an agent this prompt:")
     print(f'  "Read {run_dir}/instructions.md and follow the instructions"')
     return 0
@@ -446,16 +531,18 @@ def main() -> int:
     p_prepare = subparsers.add_parser("prepare", help="Scan images, create thumbnails and batches")
     p_prepare.add_argument("--source", required=True, help="Source directory containing images")
     p_prepare.add_argument("--prep-dir", required=True, help="Output directory for prep data")
+    p_prepare.add_argument(
+        "--sample",
+        type=int,
+        help="Target number of images to sample. If omitted, use all images. "
+        "Uses stratified sampling with inverse-sqrt weighting by folder.",
+    )
     p_prepare.add_argument("--force", action="store_true", help="Overwrite existing prep directory")
 
     # init
     p_init = subparsers.add_parser("init", help="Initialize a new labeling run")
     p_init.add_argument("--prep-dir", required=True, help="Path to prep directory")
     p_init.add_argument("--run-dir", required=True, help="Path for the new run directory")
-    p_init.add_argument(
-        "--personality",
-        help="Voice/style instruction for the labeling agent (baked into instructions)",
-    )
 
     # init-review
     p_review = subparsers.add_parser("init-review", help="Initialize a review of an existing run")
