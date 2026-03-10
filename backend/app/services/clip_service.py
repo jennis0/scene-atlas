@@ -184,6 +184,10 @@ class CLIPService:
         models_dir: str | Path | None = None,
         tokenizer_dir: str | Path | None = None,
     ):
+        # Clear stale text embedding cache — different model instances may
+        # produce different-dimensional embeddings.
+        _text_embedding_cache.clear()
+
         if models_dir is None:
             models_dir = _default_models_dir()
         models_dir = Path(models_dir)

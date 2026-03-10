@@ -112,7 +112,13 @@ def create_ort_session(onnx_path: Path, *, device: str = "cpu"):
     sess_opts.inter_op_num_threads = inter
     sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
 
-    return ort.InferenceSession(str(onnx_path), sess_opts, providers=providers)
+    session = ort.InferenceSession(str(onnx_path), sess_opts, providers=providers)
+    active = session.get_providers()
+    if active != providers:
+        print(f"  ⚠ Requested {providers} but active: {active}")
+    else:
+        print(f"  Provider: {active[0]}")
+    return session
 
 
 def get_torch_device(device: str) -> str:
