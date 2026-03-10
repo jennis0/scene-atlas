@@ -1,0 +1,62 @@
+#!/bin/sh
+
+# Pre-push hook: run the same checks CI runs to catch failures before they
+# reach GitHub.  Skippable with `git push --no-verify` if needed.
+
+echo "🔍 Running pre-push checks..."
+
+# ── Backend ──────────────────────────────────────────────────────────────────
+
+echo ""
+echo "=== Backend lint (ruff check) ==="
+uv run ruff check backend/ || {
+  echo "❌ Backend lint failed. Fix issues before pushing."
+  exit 1
+}
+
+echo ""
+echo "=== Backend format check (ruff format) ==="
+uv run ruff format --check backend/ || {
+  echo "❌ Backend format check failed. Run: uv run ruff format backend/"
+  exit 1
+}
+
+echo ""
+echo "=== Backend unit tests ==="
+uv run python -m pytest backend/tests/unit/ -q || {
+  echo "❌ Backend unit tests failed."
+  exit 1
+}
+
+# ── Frontend ─────────────────────────────────────────────────────────────────
+
+echo ""
+echo "=== Frontend lint (ESLint) ==="
+npx --prefix frontend eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0 || {
+  echo "❌ Frontend lint failed."
+  exit 1
+}
+
+echo ""
+echo "=== Frontend format check (Prettier) ==="
+npx --prefix frontend prettier --check src/ || {
+  echo "❌ Frontend format check failed. Run: npx --prefix frontend prettier --write src/"
+  exit 1
+}
+
+echo ""
+echo "=== Frontend type check (tsc) ==="
+npx --prefix frontend tsc --noEmit || {
+  echo "❌ Frontend type check failed."
+  exit 1
+}
+
+echo ""
+echo "=== Frontend tests (vitest) ==="
+npx --prefix frontend vitest run || {
+  echo "❌ Frontend tests failed."
+  exit 1
+}
+
+echo ""
+echo "✅ All pre-push checks passed!"
