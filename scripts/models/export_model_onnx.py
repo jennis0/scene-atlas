@@ -356,7 +356,9 @@ def quantise_encoder_fp16(fp32_path: Path, output_path: Path) -> None:
     large = fp32_path.stat().st_size >= _PROTO_SIZE_LIMIT
     print(f"  Quantising {fp32_path.name} to fp16...")
 
-    model = onnx.load(str(fp32_path), load_external_data=large)
+    # Always load external data — torch may store individual large tensors
+    # externally even when the overall model file is under 2 GB.
+    model = onnx.load(str(fp32_path), load_external_data=True)
     model_fp16 = convert_float_to_float16(model, keep_io_types=True)
 
     if large:
