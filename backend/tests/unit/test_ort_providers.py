@@ -151,13 +151,17 @@ class TestCreateSessionWithFallback:
     """Test session creation with GPU→CPU fallback."""
 
     @patch("onnxruntime.InferenceSession")
-    def test_success_returns_requested_providers(self, mock_session_cls):
+    def test_success_returns_actual_providers(self, mock_session_cls):
         from backend.app.services.ort_providers import (
             create_session_with_fallback,
             get_session_options,
         )
 
         mock_session = MagicMock()
+        mock_session.get_providers.return_value = [
+            "CUDAExecutionProvider",
+            "CPUExecutionProvider",
+        ]
         mock_session_cls.return_value = mock_session
 
         providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
@@ -165,7 +169,26 @@ class TestCreateSessionWithFallback:
         session, actual = create_session_with_fallback("model.onnx", providers, opts)
 
         assert session is mock_session
-        assert actual == providers
+        assert actual == ["CUDAExecutionProvider", "CPUExecutionProvider"]
+
+    @patch("onnxruntime.InferenceSession")
+    def test_success_returns_actual_when_provider_dropped(self, mock_session_cls):
+        from backend.app.services.ort_providers import (
+            create_session_with_fallback,
+            get_session_options,
+        )
+
+        mock_session = MagicMock()
+        # ORT silently drops the GPU provider
+        mock_session.get_providers.return_value = ["CPUExecutionProvider"]
+        mock_session_cls.return_value = mock_session
+
+        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        opts = get_session_options(providers)
+        session, actual = create_session_with_fallback("model.onnx", providers, opts)
+
+        assert session is mock_session
+        assert actual == ["CPUExecutionProvider"]
 
     @patch("onnxruntime.InferenceSession")
     def test_gpu_failure_falls_back_to_cpu(self, mock_session_cls):

@@ -55,12 +55,9 @@ Fallback occurs at **session creation only** — not at runtime inference. If th
 | DirectML | 1 | 1 | Async GPU dispatch; extra threads wasteful |
 | CoreML | 1 | 1 | Same rationale as DirectML |
 
-### Batch Size Adaptation
+### Batch Size
 
-- **CUDA discrete GPUs:** `batch_size = 32` (typically 4GB+ VRAM)
-- **Everything else:** `batch_size = 16` (DirectML covers integrated GPUs with limited VRAM)
-
-User-configured batch sizes in `AppSettings` take precedence.
+Batch size is controlled by `PipelineConfig.ingestion_batch_size` (default: 16). Users can override this via the database `AppSettings` table. No provider-specific batch size adaptation is performed — users with high-VRAM GPUs can increase the batch size through settings.
 
 ## Architecture
 

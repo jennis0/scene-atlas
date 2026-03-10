@@ -207,6 +207,7 @@ jobs:
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') || github.event.inputs.publish == 'true'
         env:
           TARGET_PLATFORM: ${{ matrix.platform }}
+          GPU_VARIANT: ${{ matrix.gpu || '' }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # macOS code signing (optional — set these secrets to enable signing)
           CSC_LINK: ${{ secrets.MAC_CERT_P12 }}
@@ -220,6 +221,7 @@ jobs:
         if: "!(github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) && github.event.inputs.publish != 'true'"
         env:
           TARGET_PLATFORM: ${{ matrix.platform }}
+          GPU_VARIANT: ${{ matrix.gpu || '' }}
         run: uv run python scripts/build_electron.py --skip-sidecar --skip-frontend --platform "$TARGET_PLATFORM"
 
       # ── Upload artifacts ───────────────────────────────────────────────

@@ -26,6 +26,7 @@ _EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "clip-vit-b-32")
 
 # GPU variant — passed through to PyInstaller spec for provider-specific bundling
 _GPU_VARIANT = os.environ.get("GPU_VARIANT", "")
+# CoreML is opportunistic (no special build handling needed) so it's not a GPU_VARIANT.
 _KNOWN_GPU_VARIANTS = {"directml", "cuda"}
 _MODELS_DIR = ROOT / "backend" / "models" / _EMBEDDING_MODEL
 
