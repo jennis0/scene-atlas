@@ -49,8 +49,6 @@ def test_low_ram_caps_concurrent_prepare():
 
 def test_psutil_unavailable_falls_back_gracefully():
     """When psutil is unavailable, returns conservative but valid ints."""
-    import sys
-
-    with patch.dict(sys.modules, {"psutil": None}):
+    with patch("backend.app.resource_detector._psutil", None):
         defaults = compute_resource_defaults()
     assert all(isinstance(v, int) and v >= 1 for v in defaults.values())
