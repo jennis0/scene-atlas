@@ -11,23 +11,23 @@ third-party models, not original works.
 
 Usage:
     # Publish a specific model:
-    uv run python scripts/publish_models_hf.py clip-vit-b-32
+    uv run python scripts/models/publish_models_hf.py clip-vit-b-32
 
     # Publish all registered models:
-    uv run python scripts/publish_models_hf.py --all
+    uv run python scripts/models/publish_models_hf.py --all
 
     # Dry run (show what would be uploaded):
-    uv run python scripts/publish_models_hf.py clip-vit-b-32 --dry-run
+    uv run python scripts/models/publish_models_hf.py clip-vit-b-32 --dry-run
 
     # Create/update the HF collection linking all published models:
-    uv run python scripts/publish_models_hf.py --create-collection
+    uv run python scripts/models/publish_models_hf.py --create-collection
 
     # List available models:
-    uv run python scripts/publish_models_hf.py --list
+    uv run python scripts/models/publish_models_hf.py --list
 
 Requires:
     - HF_TOKEN environment variable or `huggingface-cli login`
-    - Models must be exported first via scripts/export_model_onnx.py
+    - Models must be exported first via scripts/models/export_model_onnx.py
 """
 
 import argparse
@@ -38,9 +38,7 @@ from pathlib import Path
 
 # ── Import model registry from export script ────────────────────────────────
 
-# Add scripts/ to path so we can import the export module
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from export_model_onnx import ENCODER_NAMES, MODEL_BY_NAME, MODEL_REGISTRY  # noqa: E402
+from export_model_onnx import ENCODER_NAMES, MODEL_BY_NAME, MODEL_REGISTRY
 
 # ── Load .env ────────────────────────────────────────────────────────────────
 

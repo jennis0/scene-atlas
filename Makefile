@@ -37,7 +37,7 @@ test-heavy:
 	uv run python -m pytest -m heavy -v
 
 evaluate-onnx:
-	uv run python scripts/export_model_onnx.py clip-vit-b-32 --image-dir data/store/images
+	uv run python scripts/models/export_model_onnx.py clip-vit-b-32 --image-dir data/store/images
 
 test-e2e:
 	cd e2e && npx playwright test --project=chromium

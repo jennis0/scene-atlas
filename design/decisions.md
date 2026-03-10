@@ -307,7 +307,7 @@ Pipeline functions in `backend/pipeline/` are now plain Python functions — no 
 
 **Key changes:**
 - `backend/app/services/clip_service.py` — Rewritten to use ONNX Runtime; same public interface (`CLIPService`, `get_clip_service()`)
-- `scripts/export_model_onnx.py` — Exports optimised ONNX models + tokenizer from the torch model; quality evaluation via `--image-dir`
+- `scripts/models/export_model_onnx.py` — Exports optimised ONNX models + tokenizer from the torch model; quality evaluation via `--image-dir`
 - `backend/pyinstaller/scene_atlas_backend.spec` — Removed torch/transformers, bundles optimised ONNX models
 - Image preprocessing done with PIL + numpy (no `CLIPImageProcessor` dependency)
 - Text tokenization via `tokenizers.Tokenizer` from exported `tokenizer.json`
@@ -322,7 +322,7 @@ Pipeline functions in `backend/pipeline/` are now plain Python functions — no 
 **Consequences:**
 - Sidecar drops from ~768 MB to ~350 MB (estimated, with fp16 models + onnxruntime)
 - No first-run HuggingFace download (models are bundled)
-- ONNX models must be re-exported when changing the base model (`scripts/export_model_onnx.py`)
+- ONNX models must be re-exported when changing the base model (`scripts/models/export_model_onnx.py`)
 - `backend/models/` is gitignored; CI must run the export script before building
 
 ---

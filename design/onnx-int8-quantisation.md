@@ -14,7 +14,7 @@ This document captures the methodology, experiments, and key findings from optim
     - `queries.py` — 103 text queries (single source of truth)
     - `ablation_clip.py` — CLIP ViT-B/32 ablation experiments
     - `ablation_siglip2.py` — SigLIP2-base ablation experiments
-  - `scripts/export_model_onnx.py` — export, quantisation, and evaluation pipeline (single script; evaluation gated behind `--image-dir`)
+  - `scripts/models/export_model_onnx.py` — export, quantisation, and evaluation pipeline (single script; evaluation gated behind `--image-dir`)
   - `design/decisions.md` — ADR-014 documents the quantisation decision
 
 ## Quality Metric
@@ -186,10 +186,10 @@ uv run python -m scripts.quantisation.ablation_clip --image-dir /path/to/images
 # 2. Update MODEL_REGISTRY in export_model_onnx.py based on ablation findings
 
 # 3. Export with quality evaluation (recommended)
-uv run python scripts/export_model_onnx.py <model-name> --image-dir /path/to/images --max-images 500
+uv run python scripts/models/export_model_onnx.py <model-name> --image-dir /path/to/images --max-images 500
 
 # 4. Quick export (no images, CI/first-time setup)
-uv run python scripts/export_model_onnx.py <model-name>
+uv run python scripts/models/export_model_onnx.py <model-name>
 ```
 
 Output is a flat directory: `backend/models/<model-name>/` containing ONNX files, manifest.json, and tokenizer/.

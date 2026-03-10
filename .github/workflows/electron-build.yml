@@ -153,7 +153,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: backend/models/clip-vit-b-32
-          key: onnx-models-${{ hashFiles('scripts/export_model_onnx.py', 'backend/app/config.py') }}
+          key: onnx-models-${{ hashFiles('scripts/models/export_model_onnx.py', 'backend/app/config.py') }}
 
       - name: Cache HuggingFace models
         if: steps.cache-onnx.outputs.cache-hit != 'true'
@@ -166,13 +166,13 @@ jobs:
 
       - name: Export ONNX models
         if: steps.cache-onnx.outputs.cache-hit != 'true'
-        run: uv run python scripts/setup_models.py
+        run: uv run python scripts/models/setup_models.py
 
       # ── Build Python sidecar ───────────────────────────────────────────
       - name: Build sidecar
         env:
           GPU_VARIANT: ${{ matrix.gpu || '' }}
-        run: uv run python scripts/build_sidecar.py
+        run: uv run python scripts/build/build_sidecar.py
 
       # ── Node.js setup ──────────────────────────────────────────────────
       - name: Set up Node.js
@@ -215,14 +215,14 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: uv run python scripts/build_electron.py --skip-sidecar --skip-frontend --platform "$TARGET_PLATFORM" --publish
+        run: uv run python scripts/build/build_electron.py --skip-sidecar --skip-frontend --platform "$TARGET_PLATFORM" --publish
 
       - name: Build Electron app (no publish)
         if: "!(github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) && github.event.inputs.publish != 'true'"
         env:
           TARGET_PLATFORM: ${{ matrix.platform }}
           GPU_VARIANT: ${{ matrix.gpu || '' }}
-        run: uv run python scripts/build_electron.py --skip-sidecar --skip-frontend --platform "$TARGET_PLATFORM"
+        run: uv run python scripts/build/build_electron.py --skip-sidecar --skip-frontend --platform "$TARGET_PLATFORM"
 
       # ── Upload artifacts ───────────────────────────────────────────────
       - name: Upload build artifacts

@@ -131,7 +131,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: backend/models/clip-vit-b-32
-          key: onnx-models-${{ hashFiles('scripts/export_model_onnx.py', 'backend/app/config.py') }}
+          key: onnx-models-${{ hashFiles('scripts/models/export_model_onnx.py', 'backend/app/config.py') }}
 
       - name: Cache HuggingFace models
         if: steps.cache-onnx.outputs.cache-hit != 'true'
@@ -144,7 +144,7 @@ jobs:
 
       - name: Export ONNX models
         if: steps.cache-onnx.outputs.cache-hit != 'true'
-        run: uv run python scripts/setup_models.py
+        run: uv run python scripts/models/setup_models.py
 
       - name: Run heavy tests (real CLIP model)
         run: uv run python -m pytest -m heavy -v
@@ -276,7 +276,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: backend/models/clip-vit-b-32
-          key: onnx-models-${{ hashFiles('scripts/export_model_onnx.py', 'backend/app/config.py') }}
+          key: onnx-models-${{ hashFiles('scripts/models/export_model_onnx.py', 'backend/app/config.py') }}
 
       - name: Cache HuggingFace models
         if: steps.cache-onnx.outputs.cache-hit != 'true'
@@ -289,7 +289,7 @@ jobs:
 
       - name: Export ONNX models
         if: steps.cache-onnx.outputs.cache-hit != 'true'
-        run: uv run python scripts/setup_models.py
+        run: uv run python scripts/models/setup_models.py
 
       - name: Run E2E tests
         run: npm run test:e2e

@@ -27,7 +27,7 @@ The change must be backward-compatible: existing CPU workflows must work unchang
 ### Quantisation/ablation scripts
 - `scripts/quantisation/utils.py` — Shared utilities. `create_ort_session()` at line 72-86 has the second hardcoded `CPUExecutionProvider`. This function is used by ablation scripts.
 - `scripts/quantisation/ablation_clip.py` and `ablation_siglip2.py` — Run ablation experiments. Load torch models via `AutoModel.from_pretrained()` with no explicit device (defaults to CPU). Use torch for reference embeddings, ONNX for test embeddings.
-- `scripts/export_model_onnx.py` — Exports torch models to ONNX, quantises per model strategy, and optionally evaluates quality (gated behind `--image-dir`). Uses torch for sanity checks. `torch.onnx.export` requires CPU tensors. Evaluation functionality (previously in `scripts/evaluate_onnx.py`) is now absorbed here.
+- `scripts/models/export_model_onnx.py` — Exports torch models to ONNX, quantises per model strategy, and optionally evaluates quality (gated behind `--image-dir`). Uses torch for sanity checks. `torch.onnx.export` requires CPU tensors. Evaluation functionality (previously in `scripts/evaluate_onnx.py`) is now absorbed here.
 
 ### Configuration
 - `backend/app/config.py` — Pydantic `Settings` class. Line 51: `clip_device: str = "cpu"` exists but is **completely unused** — nothing reads it. Must be removed cleanly.
@@ -47,7 +47,7 @@ The change must be backward-compatible: existing CPU workflows must work unchang
 - `electron/src/main.ts` — Has `autoUpdater` integration. The update channel must be set at build time.
 
 ### CI workflows
-- `.github/workflows/electron-build.yml` — References `scripts/export_model_onnx.py` for cache key hashing. (The stale `export_clip_onnx.py` reference was fixed during the export pipeline simplification.)
+- `.github/workflows/electron-build.yml` — References `scripts/models/export_model_onnx.py` for cache key hashing. (The stale `export_clip_onnx.py` reference was fixed during the export pipeline simplification.)
 - `.github/workflows/ci.yml` — Runs `uv sync --extra dev` for all jobs.
 - Both workflows must continue to work unchanged for CPU builds.
 
@@ -143,7 +143,7 @@ def active_providers(self) -> list[str]:
 - Move torch model: `model.to(get_torch_device(args.device))`
 - Move torch inputs: `inputs = processor(..., return_tensors="pt").to(get_torch_device(args.device))`
 
-**Modify `scripts/export_model_onnx.py`:**
+**Modify `scripts/models/export_model_onnx.py`:**
 - Add `--device` CLI argument
 - Move torch model to device during sanity check (in `torch.no_grad()` blocks)
 - ONNX export MUST stay on CPU (`torch.onnx.export` requires CPU tensors)
@@ -253,7 +253,7 @@ Verify: `uv sync --extra dev` must still install onnxruntime (CPU).
 - Set `autoUpdater.channel = 'gpu'` when the GPU build is running
 - Without this, GPU users will auto-update to the CPU build
 
-**Modify `scripts/build_sidecar.py`:**
+**Modify `scripts/build/build_sidecar.py`:**
 - Pass `GPU_VARIANT` through to PyInstaller invocation
 - When `GPU_VARIANT=directml`: validate that `ort.get_available_providers()` includes `DmlExecutionProvider`
 
@@ -313,7 +313,7 @@ The PyInstaller spec strips debug symbols. `DirectML.dll` and `onnxruntime_provi
 DirectML targets "any DX12 GPU" including Intel integrated graphics with 1-2GB VRAM. Keep batch=16 for DirectML. Only CUDA gets 32.
 
 ### CI references (resolved)
-The stale `scripts/export_clip_onnx.py` reference in `electron-build.yml` has been fixed — it now references `scripts/export_model_onnx.py`.
+The stale `scripts/export_clip_onnx.py` reference in `electron-build.yml` has been fixed — it now references `scripts/models/export_model_onnx.py`.
 
 ---
 
@@ -327,12 +327,12 @@ The stale `scripts/export_clip_onnx.py` reference in `electron-build.yml` has be
 | `scripts/quantisation/utils.py` | Add device parameter, inline provider resolution |
 | `scripts/quantisation/ablation_clip.py` | Add `--device` CLI arg, torch model to device |
 | `scripts/quantisation/ablation_siglip2.py` | Add `--device` CLI arg, torch model to device |
-| `scripts/export_model_onnx.py` | Add `--device` for sanity check and evaluation torch inference |
+| `scripts/models/export_model_onnx.py` | Add `--device` for sanity check and evaluation torch inference |
 | `backend/pipeline/tasks/embedding_generation.py` | Provider-aware batch size |
 | `pyproject.toml` | Conflict markers, move onnxruntime to optional extras |
 | `backend/tests/unit/test_ort_providers.py` | **NEW** — unit tests |
 | `backend/pyinstaller/scene_atlas_backend.spec` | `.dist-info` + `upx_exclude` for GPU builds |
-| `scripts/build_sidecar.py` | Pass `GPU_VARIANT`, validate package |
+| `scripts/build/build_sidecar.py` | Pass `GPU_VARIANT`, validate package |
 | `.github/workflows/electron-build.yml` | Fix stale ref, add GPU matrix entry |
 | `electron-builder.yml` | Update channel support |
 | `electron/src/main.ts` | Set `autoUpdater.channel` from build variant |
