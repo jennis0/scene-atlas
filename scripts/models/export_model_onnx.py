@@ -343,31 +343,23 @@ def _preprocess_for_quantisation(src: Path, dst: Path) -> Path:
 
 
 def quantise_encoder_fp16(fp32_path: Path, output_path: Path) -> None:
-    """Convert a single fp32 ONNX encoder to fp16."""
+    """Convert a single fp32 ONNX encoder to fp16.
+
+    Skips quant_pre_process entirely — preprocessing adds shape inference
+    which benefits int8 quantisation but is unnecessary for fp16 (a lossless
+    type cast).  It also avoids ORT's internal ``onnx.save()`` which doesn't
+    support external data and fails on models near or above 2 GB.
+    """
     import onnx
     from onnxruntime.transformers.float16 import convert_float_to_float16
 
     large = fp32_path.stat().st_size >= _PROTO_SIZE_LIMIT
     print(f"  Quantising {fp32_path.name} to fp16...")
 
-    if large:
-        # Skip quant_pre_process for large models — ORT's internal
-        # onnx.save() during preprocessing doesn't support external data,
-        # hitting the 2GB protobuf limit.  Pre-processing adds shape
-        # inference which is beneficial for int8 but unnecessary for fp16
-        # (a lossless type cast).
-        print(f"    Skipping pre-processing (>{_PROTO_SIZE_LIMIT // (1024**3)}GB model)")
-        model = onnx.load(str(fp32_path), load_external_data=True)
-    else:
-        preprocessed = output_path.parent / f"_pre_{fp32_path.name}"
-        _preprocess_for_quantisation(fp32_path, preprocessed)
-        model = onnx.load(str(preprocessed))
-
+    model = onnx.load(str(fp32_path), load_external_data=large)
     model_fp16 = convert_float_to_float16(model, keep_io_types=True)
 
     if large:
-        # After fp16 conversion the model is ~half size but may still exceed
-        # 2 GB, so save with external data to be safe.
         onnx.save(
             model_fp16,
             str(output_path),
@@ -377,8 +369,6 @@ def quantise_encoder_fp16(fp32_path: Path, output_path: Path) -> None:
         )
     else:
         onnx.save(model_fp16, str(output_path))
-        # Clean up preprocessed files
-        preprocessed.unlink(missing_ok=True)
 
 
 def quantise_encoder_int8(
