@@ -18,12 +18,14 @@ import threading
 from pathlib import Path
 
 import numpy as np
+import onnxruntime as ort
 from PIL import Image
 
 from backend.app.config import settings as _settings
 from backend.app.services.ort_providers import (
     create_session_with_fallback,
     get_session_options,
+    is_gpu_provider,
     resolve_providers,
 )
 
@@ -158,6 +160,12 @@ def _default_models_dir() -> Path:
 _TEXT_CACHE_MAX = _settings.clip_text_cache_max
 _text_embedding_cache: dict[str, tuple[float, ...]] = {}
 
+# DirectML leaks GPU memory on each .run() call with no public API to
+# flush/sync (ORT issues #975, #25996).  Session recreation is the only
+# way to release resources.  Counted in items processed, not .run() calls,
+# because larger batches consume more GPU memory per call.
+_DML_SESSION_RECREATION_INTERVAL = 75
+
 
 class CLIPService:
     """Service for generating embeddings via ONNX Runtime.
@@ -223,6 +231,10 @@ class CLIPService:
 
         vision_file = manifest.get("vision_encoder", "clip_vision_encoder.onnx")
         text_file = manifest.get("text_encoder", "clip_text_encoder.onnx")
+
+        self._vision_model_path = str(models_dir / vision_file)
+        self._text_model_path = str(models_dir / text_file)
+        self._inference_count = 0
 
         self._vision_session, vision_providers = create_session_with_fallback(
             models_dir / vision_file, providers, sess_opts
@@ -321,6 +333,70 @@ class CLIPService:
         pixels = (pixels - self._image_mean) / self._image_std
         return np.transpose(pixels, (2, 0, 1))
 
+    # ── GPU resilience ─────────────────────────────────────────────────
+
+    def _maybe_recreate_dml_session(
+        self, session_attr: str, model_path: str, item_count: int = 1
+    ) -> None:
+        """Recreate DML session periodically to prevent command buffer exhaustion.
+
+        DirectML leaks GPU memory on each ``.run()`` call with no public API
+        to flush/sync (ORT issues #975, #25996).  Session recreation is the
+        only way to release resources.  No-op for non-DML providers.
+
+        Parameters
+        ----------
+        session_attr : str
+            Name of the session attribute (``"_vision_session"`` or ``"_text_session"``).
+        model_path : str
+            Path to the ONNX model file (for recreating the session).
+        item_count : int
+            Number of items in this inference (1 for single, batch size for batch).
+        """
+        if self._active_providers[0] != "DmlExecutionProvider":
+            return
+        self._inference_count += item_count
+        if self._inference_count < _DML_SESSION_RECREATION_INTERVAL:
+            return
+        logger.debug(
+            "Recreating %s DML session after %d items processed",
+            session_attr,
+            self._inference_count,
+        )
+        providers = self._active_providers
+        sess_opts = get_session_options(providers)
+        new_session, actual = create_session_with_fallback(model_path, providers, sess_opts)
+        setattr(self, session_attr, new_session)
+        self._active_providers = actual
+        self._inference_count = 0
+
+    def _run_with_fallback(
+        self,
+        session_attr: str,
+        model_path: str,
+        output_names: list[str],
+        feed: dict[str, np.ndarray],
+    ) -> list[np.ndarray]:
+        """Run inference, falling back to CPU if GPU provider crashes."""
+        session = getattr(self, session_attr)
+        try:
+            return session.run(output_names, feed)
+        except Exception as exc:
+            if not is_gpu_provider(self._active_providers):
+                raise
+            logger.warning(
+                "GPU inference failed (%s), falling back to CPU: %s",
+                self._active_providers[0],
+                exc,
+            )
+            cpu_providers = ["CPUExecutionProvider"]
+            cpu_opts = get_session_options(cpu_providers)
+            new_session = ort.InferenceSession(model_path, cpu_opts, providers=cpu_providers)
+            setattr(self, session_attr, new_session)
+            self._active_providers = cpu_providers
+            self._inference_count = 0
+            return new_session.run(output_names, feed)
+
     # ── Public interface ─────────────────────────────────────────────────
 
     def encode_image(self, image_path: str | Path) -> list[float]:
@@ -338,7 +414,13 @@ class CLIPService:
 
             pixel_values = pixel_values[np.newaxis, ...]
 
-            (embeddings,) = self._vision_session.run(["embeddings"], {"pixel_values": pixel_values})
+            self._maybe_recreate_dml_session("_vision_session", self._vision_model_path)
+            (embeddings,) = self._run_with_fallback(
+                "_vision_session",
+                self._vision_model_path,
+                ["embeddings"],
+                {"pixel_values": pixel_values},
+            )
             embedding = embeddings[0].tolist()
             logger.debug("Generated embedding for %s, size: %s", image_path, len(embedding))
             return embedding
@@ -369,7 +451,10 @@ class CLIPService:
             input_ids = np.array([encoding.ids], dtype=np.int64)
             attention_mask = np.array([encoding.attention_mask], dtype=np.int64)
 
-            (embeddings,) = self._text_session.run(
+            self._maybe_recreate_dml_session("_text_session", self._text_model_path)
+            (embeddings,) = self._run_with_fallback(
+                "_text_session",
+                self._text_model_path,
                 ["embeddings"],
                 {"input_ids": input_ids, "attention_mask": attention_mask},
             )
@@ -405,7 +490,17 @@ class CLIPService:
             pixel_values = np.stack(pixel_batch, axis=0)
             del pixel_batch
 
-            (embeddings,) = self._vision_session.run(["embeddings"], {"pixel_values": pixel_values})
+            self._maybe_recreate_dml_session(
+                "_vision_session",
+                self._vision_model_path,
+                item_count=len(image_paths),
+            )
+            (embeddings,) = self._run_with_fallback(
+                "_vision_session",
+                self._vision_model_path,
+                ["embeddings"],
+                {"pixel_values": pixel_values},
+            )
             result = embeddings.tolist()
             logger.debug("Generated batch embeddings for %s images", len(image_paths))
             return result

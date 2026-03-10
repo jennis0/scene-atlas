@@ -44,7 +44,18 @@ Installation:
 
 ### Fallback Strategy
 
-Fallback occurs at **session creation only** — not at runtime inference. If the GPU provider rejects the model, `create_session_with_fallback()` catches the exception and recreates with CPU. No runtime re-creation is attempted because the `CLIPService` singleton has no lock protecting session replacement after `_clip_ready` is set.
+Two layers of protection:
+
+1. **Session-creation fallback** — if the GPU provider rejects the model at load time, `create_session_with_fallback()` catches the exception and recreates with CPU.
+2. **Runtime inference fallback** — if `.run()` fails on a GPU provider (e.g. DML command buffer exhaustion), `CLIPService._run_with_fallback()` recreates the session on CPU permanently and retries the failed inference.
+
+### Known DirectML Limitations
+
+DirectML leaks GPU memory on each `.run()` call (~517MB per call observed in [ORT #25996](https://github.com/microsoft/onnxruntime/issues/25996)). The command buffer accumulates until the GPU crashes with error `887A0006` (typically after ~110 sequential calls). There is no public API to flush/sync the DML command queue — session destruction is the only way to release resources.
+
+**Mitigation:** `CLIPService._maybe_recreate_dml_session()` proactively recreates the DML session every 75 items processed (controlled by `_DML_SESSION_RECREATION_INTERVAL`). This is a workaround for a known, unresolved ORT issue — see [onnxruntime-genai #975](https://github.com/microsoft/onnxruntime-genai/issues/975), [onnxruntime #25996](https://github.com/microsoft/onnxruntime/issues/25996), [onnxruntime #10546](https://github.com/microsoft/onnxruntime/issues/10546). CUDA and CoreML are unaffected.
+
+DirectML is in "sustained engineering" status (Microsoft shifting focus to Windows ML). If these issues are resolved upstream, the session recreation workaround can be removed.
 
 ### Session Options (Provider-Specific)
 
