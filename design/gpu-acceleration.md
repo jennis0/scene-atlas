@@ -76,6 +76,22 @@ A "Scene Atlas (GPU)" installer bundles `onnxruntime-directml`. DirectML works w
 - **Auto-update channels:** `latest` for CPU, `gpu` for GPU (prevents cross-update)
 - **PyInstaller:** `DirectML.dll` and `onnxruntime_providers_dml.dll` added to `upx_exclude`
 
+### DirectML Maintenance Status (as of 2026)
+
+**DirectML is in maintenance-only mode.** The DirectML team was reassigned in mid-2025 (confirmed via [onnxruntime#23783](https://github.com/microsoft/onnxruntime/issues/23783)). Microsoft's active Windows GPU acceleration investment has moved to the Windows ML platform. DirectML continues to ship as a system DLL (`windows/system32/DirectML.dll`) for backwards compatibility and receives security updates, but will not gain new operators, performance improvements, or bug fixes.
+
+**Do not invest in DirectML-specific optimisations** — they will not pay off.
+
+#### Intel Integrated GPU Cold-Start Issue
+
+Users with Intel integrated graphics (Iris Xe and similar) experience **25–180 second session creation times** on first DirectML launch due to shader compilation in ORT's `DmlGraphFusionTransformer`. This was reported in [onnxruntime#20502](https://github.com/microsoft/onnxruntime/issues/20502) and closed **NOT_PLANNED** by Microsoft in June 2025 — it will never be fixed.
+
+- **NVIDIA discrete GPUs**: not affected (~600ms first launch)
+- **AMD GPUs**: unknown, likely variable
+- **Intel iGPU**: worst case, up to 3 minutes on first launch per process
+
+Windows caches D3D12 PSOs after first run, so subsequent launches are fast. The first launch delay is unavoidable when using the DirectML GPU build on Intel hardware. This should be documented for end-users if/when the GPU installer ships.
+
 ### Developer Scripts
 
 The `--device` CLI flag controls both ONNX provider and torch device in ablation/export scripts. Torch doesn't support DirectML natively, so `--device directml` uses CPU for torch and DirectML for ONNX.
