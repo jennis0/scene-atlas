@@ -69,21 +69,61 @@ def collect_images(
 # ── ORT session factory ─────────────────────────────────────────────────────
 
 
-def create_ort_session(onnx_path: Path):
+def create_ort_session(onnx_path: Path, *, device: str = "cpu"):
     """Create an ORT InferenceSession with production-matching options.
 
-    Mirrors the session configuration used in ``clip_service.py``:
-    ``intra_op_num_threads=2``, ``inter_op_num_threads=1``,
-    ``ORT_ENABLE_ALL`` graph optimisation.
+    Mirrors the session configuration used in ``clip_service.py``.
+    Provider resolution is implemented inline so these scripts remain
+    runnable in isolation without importing from the backend app stack.
+
+    Parameters
+    ----------
+    onnx_path : Path
+        Path to the ONNX model file.
+    device : str
+        ``"cpu"`` (default), ``"cuda"``, ``"directml"``, or ``"coreml"``.
     """
     import onnxruntime as ort
 
+    device = device.strip().lower()
+
+    # Map device name → ORT provider + thread counts
+    _PROVIDER_MAP = {
+        "cuda": ("CUDAExecutionProvider", 4, 2),
+        "directml": ("DmlExecutionProvider", 1, 1),
+        "coreml": ("CoreMLExecutionProvider", 1, 1),
+    }
+
+    if device in _PROVIDER_MAP:
+        provider, intra, inter = _PROVIDER_MAP[device]
+        available = set(ort.get_available_providers())
+        if provider in available:
+            providers = [provider, "CPUExecutionProvider"]
+        else:
+            print(f"  Warning: {provider} not available, falling back to CPU")
+            providers = ["CPUExecutionProvider"]
+            intra, inter = 2, 1
+    else:
+        providers = ["CPUExecutionProvider"]
+        intra, inter = 2, 1
+
     sess_opts = ort.SessionOptions()
-    sess_opts.intra_op_num_threads = 2
-    sess_opts.inter_op_num_threads = 1
+    sess_opts.intra_op_num_threads = intra
+    sess_opts.inter_op_num_threads = inter
     sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
 
-    return ort.InferenceSession(str(onnx_path), sess_opts, providers=["CPUExecutionProvider"])
+    return ort.InferenceSession(str(onnx_path), sess_opts, providers=providers)
+
+
+def get_torch_device(device: str) -> str:
+    """Map a ``--device`` CLI value to a torch device string.
+
+    Torch doesn't support DirectML natively, so ``directml`` maps to ``cpu``.
+    """
+    device = device.strip().lower()
+    if device == "cuda":
+        return "cuda"
+    return "cpu"
 
 
 # ── Metrics ──────────────────────────────────────────────────────────────────
@@ -431,4 +471,11 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
         type=Path,
         default=Path(__file__).resolve().parent.parent / "results",
         help="Directory for JSON results output (default: scripts/results/)",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cpu",
+        choices=["cpu", "cuda", "directml", "coreml"],
+        help="Inference device for ONNX + torch (default: cpu)",
     )

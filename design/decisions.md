@@ -66,7 +66,7 @@ This document records all significant architectural decisions for the Scene Atla
 
 **Consequences:**
 - Model is ~600MB, loaded once at startup (lazy singleton via `get_clip_service()`)
-- Runs on CPU by default; `clip_device` setting supports CUDA
+- Runs on CPU by default; `inference_device` setting supports GPU acceleration (CUDA, DirectML, CoreML) — see `design/gpu-acceleration.md`
 - Each image ingest generates one embedding; stored in Qdrant
 - Cosine similarity is used for matching (configured in Qdrant collection)
 

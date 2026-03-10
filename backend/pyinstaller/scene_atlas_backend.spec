@@ -34,6 +34,7 @@ ort_binaries = collect_dynamic_libs('onnxruntime')
 # The model to bundle is controlled by the EMBEDDING_MODEL env var (default: clip-vit-b-32).
 import os as _os
 _embedding_model = _os.environ.get('EMBEDDING_MODEL', 'clip-vit-b-32')
+_gpu_variant = _os.environ.get('GPU_VARIANT', '')
 models_dir = project_root / 'backend' / 'models' / _embedding_model
 onnx_datas = [
     (str(models_dir / 'clip_vision_encoder.onnx'), 'models'),
@@ -157,7 +158,12 @@ a = Analysis(
 
 # ── Post-analysis cleanup ─────────────────────────────────────────────────────
 # Remove directories and files that hooks collect but are never needed at runtime.
+import platform as _platform
 import re as _re
+
+# On Windows, strip=True can corrupt DLLs if MSYS2 strip.exe is on PATH.
+# PyInstaller's strip only affects ELF/Mach-O binaries on Linux/macOS.
+_strip_binaries = _platform.system() != 'Windows'
 
 _JUNK_PREFIXES = (
     # scipy submodules intentionally NOT excluded — sklearn has transitive deps
@@ -166,17 +172,22 @@ _JUNK_PREFIXES = (
 )
 
 # .dist-info directories are package metadata — safe to strip at runtime.
-# IMPORTANT: Some packages use entry_points.txt in .dist-info for plugin
-# discovery (e.g. onnxruntime execution providers).  CPUExecutionProvider is
-# statically compiled into onnxruntime and requires no entry-points lookup,
-# so stripping .dist-info is safe for the current provider list.  If GPU or
-# other plugin-based providers are ever added, revisit this filter.
+# Exception: GPU builds preserve onnxruntime .dist-info because GPU execution
+# providers (DirectML, CUDA) may use entry_points.txt for plugin registration.
+# CPU-only builds strip all .dist-info since CPUExecutionProvider is statically
+# compiled into onnxruntime.
 _DIST_INFO_RE = _re.compile(r'\.dist-info/')
 
 def _keep_entry(entry):
     name = entry[0].replace('\\', '/')
     if _DIST_INFO_RE.search(name):
-        return False
+        # When a GPU variant is active, preserve .dist-info for onnxruntime
+        # packages — GPU execution providers rely on entry_points.txt for
+        # plugin registration.
+        if _gpu_variant and 'onnxruntime' in name:
+            pass  # keep it
+        else:
+            return False
     for prefix in _JUNK_PREFIXES:
         if name.startswith(prefix) or f'/{prefix}' in name:
             return False
@@ -196,7 +207,7 @@ exe = EXE(
     name='scene-atlas-backend',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=True,         # Strip debug symbols from binaries
+    strip=_strip_binaries,  # Strip debug symbols (disabled on Windows to protect DLLs)
     upx=True,           # UPX-compress binaries
     console=True,       # Must be True: stdout is how we signal SCENE_ATLAS_READY
     disable_windowed_traceback=False,
@@ -211,11 +222,16 @@ coll = COLLECT(
     exe,
     a.binaries,
     a.datas,
-    strip=True,         # Strip debug symbols — matches EXE setting above
+    strip=_strip_binaries,  # Strip debug symbols (disabled on Windows to protect DLLs)
     upx=True,
     upx_exclude=[
         # OpenCV — monolithic .so with complex symbol resolution
         'cv2.abi3.so',
-    ],
+    ] + ([
+        # DirectML DLLs must not be UPX-compressed — they are loaded by the
+        # onnxruntime DML execution provider at runtime via LoadLibrary.
+        'DirectML.dll',
+        'onnxruntime_providers_dml.dll',
+    ] if _gpu_variant == 'directml' else []),
     name='scene-atlas-backend',
 )

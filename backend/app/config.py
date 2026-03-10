@@ -1,5 +1,7 @@
 """Application configuration management."""
 
+import logging
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -48,7 +50,11 @@ class Settings(BaseSettings):
     # Embedding model — selects which subdirectory under backend/models/
     # Set via EMBEDDING_MODEL env var to switch models in dev.
     embedding_model: str = "clip-vit-b-32"
-    clip_device: str = "cpu"  # or "cuda" if GPU available
+
+    # Inference device: auto/cpu/cuda/directml/coreml
+    # "auto" probes for the best available GPU provider and falls back to CPU.
+    # See design/gpu-acceleration.md for details.
+    inference_device: str = "auto"
 
     @property
     def qdrant_collection_name(self) -> str:
@@ -90,6 +96,12 @@ class Settings(BaseSettings):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        # Migration aid: warn if the old CLIP_DEVICE env var is set
+        if os.environ.get("CLIP_DEVICE"):
+            logging.getLogger(__name__).warning(
+                "CLIP_DEVICE env var is deprecated and ignored. "
+                "Use INFERENCE_DEVICE instead (auto/cpu/cuda/directml/coreml)."
+            )
         # Recompute derived paths when data_dir was overridden (e.g. via DATA_DIR env var
         # for desktop/sidecar mode). Class-level defaults are computed at definition time
         # from the original base_dir, so they won't reflect an overridden data_dir.

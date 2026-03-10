@@ -39,6 +39,7 @@ from scripts.quantisation.utils import (
     cosine_diffs,
     create_ort_session,
     find_layer_nodes,
+    get_torch_device,
     print_results_table,
     quantise_encoder,
     rank_correlation,
@@ -60,6 +61,7 @@ def get_torch_embeddings(
     processor,
     images: list[Path],
     texts: list[str],
+    torch_device: str = "cpu",
 ) -> tuple[list[Path], list[np.ndarray], list[np.ndarray]]:
     """Compute normalised torch reference embeddings for CLIP."""
     print(f"  Computing torch reference for {len(images)} images, {len(texts)} texts...")
@@ -76,10 +78,11 @@ def get_torch_embeddings(
             skipped.append((p.name, str(e)))
             continue
         inputs = processor(images=image, return_tensors="pt")
+        inputs = {k: v.to(torch_device) for k, v in inputs.items()}
         with torch.no_grad():
             features = model.get_image_features(**inputs)
             features = F.normalize(features, p=2, dim=-1)
-        image_embs.append((p, features.numpy().flatten()))
+        image_embs.append((p, features.cpu().numpy().flatten()))
 
     if skipped:
         print(f"  Skipped {len(skipped)} images: {skipped[0]}")
@@ -94,13 +97,14 @@ def get_torch_embeddings(
             max_length=77,
             truncation=True,
         )
+        inputs = {k: v.to(torch_device) for k, v in inputs.items()}
         with torch.no_grad():
             features = model.get_text_features(
                 input_ids=inputs["input_ids"],
                 attention_mask=inputs["attention_mask"],
             )
             features = F.normalize(features, p=2, dim=-1)
-        text_embs.append(features.numpy().flatten())
+        text_embs.append(features.cpu().numpy().flatten())
 
     valid_paths = [p for p, _ in image_embs]
     valid_embs = [e for _, e in image_embs]
@@ -112,12 +116,13 @@ def get_onnx_embeddings(
     images: list[Path],
     texts: list[str],
     processor,
+    device: str = "cpu",
 ) -> tuple[list[np.ndarray], list[np.ndarray]]:
     """Compute ONNX embeddings using production-matching session options."""
     PILImage.MAX_IMAGE_PIXELS = 300_000_000
 
-    vision_sess = create_ort_session(onnx_dir / "clip_vision_encoder.onnx")
-    text_sess = create_ort_session(onnx_dir / "clip_text_encoder.onnx")
+    vision_sess = create_ort_session(onnx_dir / "clip_vision_encoder.onnx", device=device)
+    text_sess = create_ort_session(onnx_dir / "clip_text_encoder.onnx", device=device)
 
     image_embs: list[np.ndarray] = []
     for p in images:
@@ -157,10 +162,15 @@ def run_ablation(args: argparse.Namespace) -> None:
     print("CLIP ViT-B/32 INT8 Quantisation Ablation")
     print("=" * 80)
 
+    # Resolve devices
+    torch_dev = get_torch_device(args.device)
+    print(f"  ONNX device: {args.device}, torch device: {torch_dev}")
+
     # Load model
     print("\nLoading model...")
     model = AutoModel.from_pretrained(MODEL_ID, local_files_only=True)
     model.eval()
+    model.to(torch_dev)
     processor = AutoProcessor.from_pretrained(MODEL_ID, local_files_only=True)
 
     # Collect test data
@@ -171,7 +181,7 @@ def run_ablation(args: argparse.Namespace) -> None:
         # Torch reference
         print("\nComputing torch reference embeddings...")
         valid_images, torch_img_embs, torch_txt_embs = get_torch_embeddings(
-            model, processor, all_images, TEXT_QUERIES
+            model, processor, all_images, TEXT_QUERIES, torch_dev
         )
         all_images = valid_images
         print(f"  {len(all_images)} images loaded successfully")
@@ -335,7 +345,7 @@ def run_ablation(args: argparse.Namespace) -> None:
 
             # Measure embeddings
             onnx_img_embs, onnx_txt_embs = get_onnx_embeddings(
-                exp_dir, all_images, TEXT_QUERIES, processor
+                exp_dir, all_images, TEXT_QUERIES, processor, args.device
             )
 
             img_diffs = cosine_diffs(torch_img_embs, onnx_img_embs)

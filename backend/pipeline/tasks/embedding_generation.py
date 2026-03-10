@@ -43,13 +43,13 @@ def batch_generate_clip_embeddings(
         List of embedding vectors, one per image
     """
     logger = logging.getLogger(__name__)
-    if batch_size is None:
-        from backend.pipeline.pipeline_config import PipelineConfig
-
-        batch_size = PipelineConfig().ingestion_batch_size
-
     try:
         clip_service = get_clip_service()
+
+        if batch_size is None:
+            from backend.pipeline.pipeline_config import PipelineConfig
+
+            batch_size = PipelineConfig().ingestion_batch_size
         all_embeddings: list[list[float]] = []
 
         for i in range(0, len(image_paths), batch_size):

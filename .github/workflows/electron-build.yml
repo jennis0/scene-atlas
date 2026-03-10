@@ -67,6 +67,10 @@ jobs:
           - os: windows-latest
             platform: windows
             arch: x64
+          - os: windows-latest
+            platform: windows
+            arch: x64
+            gpu: directml
           - os: macos-latest
             platform: macos
             arch: arm64
@@ -78,7 +82,7 @@ jobs:
             arch: x64
 
     runs-on: ${{ matrix.os }}
-    name: ${{ matrix.platform }} (${{ matrix.arch }})
+    name: ${{ matrix.platform }} (${{ matrix.arch }}${{ matrix.gpu && ', ' || '' }}${{ matrix.gpu || '' }})
 
     steps:
       - name: Checkout
@@ -116,7 +120,12 @@ jobs:
         run: uv python install 3.12
 
       - name: Install Python dependencies (including dev for ONNX export)
-        run: uv sync --extra dev
+        run: |
+          if [ "${{ matrix.gpu }}" = "directml" ]; then
+            uv sync --extra dev --extra gpu-directml
+          else
+            uv sync --extra dev
+          fi
 
       - name: Install PyInstaller
         run: uv pip install pyinstaller
@@ -161,6 +170,8 @@ jobs:
 
       # ── Build Python sidecar ───────────────────────────────────────────
       - name: Build sidecar
+        env:
+          GPU_VARIANT: ${{ matrix.gpu || '' }}
         run: uv run python scripts/build_sidecar.py
 
       # ── Node.js setup ──────────────────────────────────────────────────
@@ -190,6 +201,8 @@ jobs:
         run: npx tsc -p electron/tsconfig.json
 
       # ── Build Electron app ─────────────────────────────────────────────
+      # GPU builds: build_electron.py reads GPU_VARIANT env var and passes
+      # --config electron-builder-gpu.yml to electron-builder automatically.
       - name: Build Electron app (publish)
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') || github.event.inputs.publish == 'true'
         env:
@@ -213,7 +226,7 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: scene-atlas-${{ matrix.platform }}-${{ matrix.arch }}
+          name: scene-atlas-${{ matrix.platform }}-${{ matrix.arch }}${{ matrix.gpu && '-gpu' || '' }}
           path: |
             dist-electron/*.exe
             dist-electron/*.msi

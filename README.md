@@ -49,6 +49,18 @@ cd frontend && npm ci && cd ..
 npm install
 ```
 
+### Server deployment
+
+For server deployments (no dev dependencies), you must explicitly install an onnxruntime variant:
+
+```bash
+uv sync --extra cpu                        # CPU-only inference
+uv sync --extra gpu-cuda                   # NVIDIA GPU (requires CUDA toolkit)
+uv sync --extra gpu-directml               # DirectX 12 GPU (Windows only)
+```
+
+A bare `uv sync` does **not** install onnxruntime — the app will fail at startup with a clear error.
+
 ---
 
 ## Development
@@ -139,7 +151,7 @@ cp .env.example .env
 | Variable | Default | Description |
 |---|---|---|
 | `CORS_ORIGINS` | `["http://localhost:5173"]` | Add your LAN IP for remote access |
-| `CLIP_DEVICE` | `cpu` | Set to `cuda` if a GPU is available |
+| `INFERENCE_DEVICE` | `auto` | GPU acceleration: `auto`/`cpu`/`cuda`/`directml`/`coreml` |
 | `MAX_IMPORT_FILE_SIZE` | `52428800` (50 MB) | Per-file upload limit |
 | `MAX_IMPORT_TOTAL_SIZE` | `524288000` (500 MB) | Total upload size per import job |
 

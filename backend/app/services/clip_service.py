@@ -21,6 +21,11 @@ import numpy as np
 from PIL import Image
 
 from backend.app.config import settings as _settings
+from backend.app.services.ort_providers import (
+    create_session_with_fallback,
+    get_session_options,
+    resolve_providers,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -179,11 +184,6 @@ class CLIPService:
         models_dir: str | Path | None = None,
         tokenizer_dir: str | Path | None = None,
     ):
-        # Deferred imports — mirrors the Windows-safe pattern that prevented
-        # directory-scan OSErrors with transformers.  onnxruntime and tokenizers
-        # are lightweight by comparison, but the pattern costs nothing.
-        import onnxruntime as ort
-
         if models_dir is None:
             models_dir = _default_models_dir()
         models_dir = Path(models_dir)
@@ -210,23 +210,34 @@ class CLIPService:
 
         logger.info("Loading ONNX models from %s", models_dir)
 
-        # Session options — limit threads to avoid contention with uvicorn
-        sess_opts = ort.SessionOptions()
-        sess_opts.intra_op_num_threads = 2
-        sess_opts.inter_op_num_threads = 1
-        sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-
-        providers = ["CPUExecutionProvider"]
+        # Resolve execution providers (auto-detect GPU or honour explicit config)
+        providers = resolve_providers(_settings.inference_device)
+        sess_opts = get_session_options(providers)
 
         vision_file = manifest.get("vision_encoder", "clip_vision_encoder.onnx")
         text_file = manifest.get("text_encoder", "clip_text_encoder.onnx")
 
-        self._vision_session = ort.InferenceSession(
-            str(models_dir / vision_file), sess_opts, providers=providers
+        self._vision_session, vision_providers = create_session_with_fallback(
+            models_dir / vision_file, providers, sess_opts
         )
-        self._text_session = ort.InferenceSession(
-            str(models_dir / text_file), sess_opts, providers=providers
+        self._text_session, text_providers = create_session_with_fallback(
+            models_dir / text_file, providers, sess_opts
         )
+
+        # Use the most conservative provider for downstream decisions:
+        # if either session fell back to CPU, treat the whole service as CPU.
+        if vision_providers != text_providers:
+            self._active_providers = ["CPUExecutionProvider"]
+            logger.warning(
+                "Vision and text sessions using different providers "
+                "(%s vs %s); treating as CPU for safety",
+                vision_providers[0],
+                text_providers[0],
+            )
+        else:
+            self._active_providers = vision_providers
+
+        logger.info("ONNX providers: %s", self._active_providers)
 
         # Tokenizer — branch on type (huggingface fast tokenizer vs sentencepiece)
         tokenizer_type = manifest.get("tokenizer_type", "huggingface")
@@ -255,6 +266,11 @@ class CLIPService:
         logger.info("ONNX models loaded (%s)", manifest.get("model_id", "unknown"))
 
     # ── Properties ────────────────────────────────────────────────────────
+
+    @property
+    def active_providers(self) -> list[str]:
+        """ORT execution providers in use (e.g. ``["CUDAExecutionProvider", "CPUExecutionProvider"]``)."""
+        return self._active_providers
 
     @property
     def embedding_dim(self) -> int:

@@ -64,3 +64,4 @@ linux:
 publish:
   provider: github
   releaseType: release
+  channel: latest

@@ -15,6 +15,7 @@ Options:
 """
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -222,6 +223,15 @@ def main() -> None:
         publish_value = "always" if args.publish else "never"
         step(f"Packaging with electron-builder (--publish {publish_value})")
         cmd = ["electron-builder", "--publish", publish_value]
+        # GPU builds use a separate config overlay for the auto-update channel
+        gpu_variant = os.environ.get("GPU_VARIANT", "")
+        if gpu_variant:
+            gpu_config = ROOT / "electron-builder-gpu.yml"
+            if gpu_config.exists():
+                cmd.extend(["--config", str(gpu_config)])
+                info(f"GPU build: using {gpu_config.name} for update channel")
+            else:
+                warn(f"GPU_VARIANT={gpu_variant} but {gpu_config.name} not found")
         if platform_flag:
             cmd.append(platform_flag)
         npx(*cmd)

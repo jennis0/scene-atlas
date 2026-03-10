@@ -22,6 +22,7 @@ backend/
 │   ├── services/
 │   │   ├── clip_service.py      # CLIP model for embeddings
 │   │   ├── color_search.py      # Color-based image search (LAB distance)
+│   │   ├── ort_providers.py     # ONNX Runtime provider resolution + GPU fallback
 │   │   ├── deletion_service.py  # Cascade deletion (image + store + Qdrant)
 │   │   ├── fts_service.py       # SQLite FTS5 full-text search
 │   │   ├── grid_detector.py     # Image-based grid detection algorithm
@@ -268,7 +269,8 @@ All config via `backend/app/config.py` using `pydantic-settings`. Reads from `.e
 - `store_images_dir` / `store_thumbnails_dir` — object store base directories
 - `staging_dir` — temp directory for import uploads
 - `qdrant_path` — Qdrant embedded local storage directory
-- `embedding_model` / `clip_device` — embedding model config (selects model subdirectory under `backend/models/`)
+- `embedding_model` — selects model subdirectory under `backend/models/`
+- `inference_device` — ONNX Runtime execution provider (`auto`/`cpu`/`cuda`/`directml`/`coreml`)
 - `max_job_workers` — concurrent background job threads
 - `scheduler_enabled` — periodic maintenance (backup, staging cleanup)
 - `cors_origins` — allowed origins (localhost:3000, localhost:5173)

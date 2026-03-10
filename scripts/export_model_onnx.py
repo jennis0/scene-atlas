@@ -106,6 +106,14 @@ def parse_args() -> argparse.Namespace:
         default=100,
         help="Maximum images to use for evaluation (default: 100)",
     )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cpu",
+        choices=["cpu", "cuda", "directml", "coreml"],
+        help="Device for torch inference during sanity check/evaluation (default: cpu). "
+        "ONNX export itself always runs on CPU.",
+    )
     args = parser.parse_args()
 
     if args.list_models:
@@ -776,7 +784,9 @@ def print_size_report(output_dir: Path) -> None:
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 
-def export_model(entry: dict, base_dir: Path, image_dir: Path | None, max_images: int) -> None:
+def export_model(
+    entry: dict, base_dir: Path, image_dir: Path | None, max_images: int, device: str = "cpu"
+) -> None:
     """Export a single model with its production-optimal quantisation."""
     name = entry["name"]
     model_id = entry["model_id"]
@@ -860,6 +870,12 @@ def export_model(entry: dict, base_dir: Path, image_dir: Path | None, max_images
 
     # Step 8: Quality evaluation (if --image-dir provided)
     if image_dir is not None:
+        # Move model to requested device for evaluation (torch ref is the bottleneck)
+        # torch doesn't support DirectML — fall back to CPU for that case
+        torch_dev = "cuda" if device == "cuda" else "cpu"
+        if torch_dev != "cpu":
+            model.to(torch_dev)
+            print(f"  Moved torch model to {torch_dev} for evaluation")
         quality = evaluate_quality(
             model, processor, family, context_length, output_dir, image_dir, max_images
         )
@@ -877,7 +893,7 @@ def main() -> None:
     base_dir = Path(__file__).resolve().parent.parent / "backend" / "models"
 
     for name in args.models:
-        export_model(MODEL_BY_NAME[name], base_dir, args.image_dir, args.max_images)
+        export_model(MODEL_BY_NAME[name], base_dir, args.image_dir, args.max_images, args.device)
 
     if len(args.models) > 1:
         print(f"\n{'=' * 70}")

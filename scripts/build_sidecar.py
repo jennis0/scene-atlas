@@ -23,6 +23,10 @@ ELECTRON_RESOURCES = ROOT / "backend" / "pyinstaller" / "dist"
 
 # Model to bundle — matches EMBEDDING_MODEL env var used by the spec file
 _EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "clip-vit-b-32")
+
+# GPU variant — passed through to PyInstaller spec for provider-specific bundling
+_GPU_VARIANT = os.environ.get("GPU_VARIANT", "")
+_KNOWN_GPU_VARIANTS = {"directml", "cuda"}
 _MODELS_DIR = ROOT / "backend" / "models" / _EMBEDDING_MODEL
 
 # ONNX model files that must exist before building
@@ -57,6 +61,33 @@ def check_onnx_models() -> bool:
     return True
 
 
+def _check_directml_provider() -> None:
+    """Warn if DmlExecutionProvider is not available in the current onnxruntime."""
+    try:
+        import onnxruntime
+
+        providers = onnxruntime.get_available_providers()
+        if "DmlExecutionProvider" not in providers:
+            print(
+                "WARNING: GPU_VARIANT=directml but DmlExecutionProvider is not available "
+                "in this onnxruntime installation.",
+                file=sys.stderr,
+            )
+            print(
+                f"  Available providers: {providers}",
+                file=sys.stderr,
+            )
+            print(
+                "  Install onnxruntime-directml to enable DirectML support.",
+                file=sys.stderr,
+            )
+    except ImportError:
+        print(
+            "WARNING: GPU_VARIANT=directml but onnxruntime is not installed.",
+            file=sys.stderr,
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build Scene Atlas backend sidecar")
     parser.add_argument(
@@ -66,6 +97,25 @@ def main() -> None:
 
     system, arch = get_platform_info()
     print(f"Building sidecar for {system} {arch}")
+    if _GPU_VARIANT:
+        if _GPU_VARIANT not in _KNOWN_GPU_VARIANTS:
+            print(
+                f"ERROR: Unknown GPU_VARIANT '{_GPU_VARIANT}'. "
+                f"Valid values: {', '.join(sorted(_KNOWN_GPU_VARIANTS))}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        print(f"GPU variant: {_GPU_VARIANT}")
+        if _GPU_VARIANT == "cuda":
+            print(
+                "WARNING: CUDA GPU variant is untested for Electron packaging. "
+                "DirectML is recommended for desktop apps.",
+                file=sys.stderr,
+            )
+
+    # Validate GPU provider availability before building
+    if _GPU_VARIANT == "directml":
+        _check_directml_provider()
 
     if not check_onnx_models():
         sys.exit(1)
@@ -91,8 +141,13 @@ def main() -> None:
         str(SPEC),
     ]
 
+    # Build an env dict that passes GPU_VARIANT through to the spec file
+    env = os.environ.copy()
+    if _GPU_VARIANT:
+        env["GPU_VARIANT"] = _GPU_VARIANT
+
     print(f"Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd, cwd=str(ROOT), check=False)
+    result = subprocess.run(cmd, cwd=str(ROOT), env=env, check=False)
 
     if result.returncode != 0:
         print("PyInstaller build failed", file=sys.stderr)
