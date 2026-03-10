@@ -141,6 +141,7 @@ explicit = true
 dev = [
     "ipywidgets>=8.1.8",
     "matplotlib>=3.10.8",
+    "huggingface-hub[hf-xet]>=0.20.0", # Publish ONNX models to HF Hub
     "onnx>=1.14.0,<2.0",      # ONNX export + quantisation tools
     "onnxscript>=0.6.0",      # Required by torch.onnx.export (newer torch versions)
 ]

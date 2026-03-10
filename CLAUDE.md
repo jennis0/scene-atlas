@@ -26,7 +26,6 @@ IMPORTANT: It must be possible to build on both windows and linux and run on Win
 - When a feature request is particularly large, create a separate branch to work on it
 - Whenever a bug is found, if possible, write tests to prevent that class of bug from occuring again
 - After developing a feature, ensure you update the tests, add any news tests that would be useful, run all linting and formatting, and commit them with a useful commit message
-- When you write 75% usage, write a handover document with detailed information of what you've done and what still needs to be done that can be passed over to the next agent then stop
 
 # How to run
 - To run backend: uv run backend.app.main:app
