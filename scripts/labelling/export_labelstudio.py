@@ -5,8 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from pathlib import Path
-from urllib.parse import urljoin
+from pathlib import Path, PurePosixPath
 
 
 def generate_labelstudio_xml() -> str:
@@ -125,7 +124,7 @@ def build_labelstudio_task(
         "data": {"image": image_url},
         "annotations": [
             {
-                "id": f"annotation_{task_id}",
+                "id": task_id,
                 "completed_by": 1,
                 "result": result,
                 "was_cancelled": False,
@@ -167,7 +166,11 @@ def export_labelstudio(
     tasks = []
     for idx, label in enumerate(labels, start=1):
         relpath = label.get("relpath", "")
-        image_url = urljoin(image_base_url, relpath)
+        # Build image URL by joining base with relpath using proper path semantics
+        # Use PurePosixPath for consistency even on Windows (JSONL uses forward slashes)
+        base_path = PurePosixPath(image_base_url.rstrip("/"))
+        full_path = base_path / relpath
+        image_url = str(full_path).replace("\\", "/")
         task = build_labelstudio_task(idx, relpath, image_url, label)
         tasks.append(task)
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import shutil
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -135,17 +136,19 @@ def sample_images_stratified(
         quota = round(target * weights[folder_name] / total_weight)
         quotas[folder_name] = quota
 
-    # Cap quotas and track if capped
+    # Cap quotas and track surplus from each capped folder
     capped: set[str] = set()
+    over_allocated: dict[str, int] = {}  # Track how much each folder was over-allocated
     for folder_name in folder_names:
         actual_count = len(folder_groups[folder_name])
         if quotas[folder_name] > actual_count:
             capped.add(folder_name)
+            over_allocated[folder_name] = quotas[folder_name] - actual_count
             quotas[folder_name] = actual_count
 
     # Redistribute surplus from capped folders
     while capped:
-        surplus = sum(len(folder_groups[f]) - quotas[f] for f in capped)
+        surplus = sum(over_allocated.get(f, 0) for f in capped)
         uncapped_folders = [f for f in folder_names if f not in capped]
 
         if not uncapped_folders or surplus == 0:
@@ -161,11 +164,13 @@ def sample_images_stratified(
             actual_count = len(folder_groups[folder_name])
             if quotas[folder_name] > actual_count:
                 new_capped.add(folder_name)
+                over_allocated[folder_name] = quotas[folder_name] - actual_count
                 quotas[folder_name] = actual_count
 
         if not new_capped or new_capped == capped:
             break
         capped = new_capped
+        over_allocated.clear()  # Clear after each iteration for next round
 
     # Sample from each folder
     sampled: list[Path] = []
@@ -361,8 +366,6 @@ def cmd_init_review(args: argparse.Namespace) -> int:
     review_dir.mkdir(parents=True)
 
     # Copy original labels as read-only reference
-    import shutil
-
     shutil.copy2(source_labels, review_dir / "original-labels.jsonl")
 
     # Create empty output files

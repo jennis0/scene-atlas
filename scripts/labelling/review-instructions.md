@@ -113,7 +113,7 @@ Repeat this loop until all labels are reviewed or you're running low on context:
 
 ### Step 1: Check Status
 ```
-uv run scripts/label_images.py status --prep-dir {prep-dir} --review-dir {review-dir}
+uv run scripts/labelling/label_images.py status --prep-dir {prep-dir} --review-dir {review-dir}
 ```
 This tells you which labels still need reviewing and lists the next batch of relpaths.
 
