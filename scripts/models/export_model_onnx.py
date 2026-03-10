@@ -345,23 +345,29 @@ def _preprocess_for_quantisation(src: Path, dst: Path) -> Path:
 def quantise_encoder_fp16(fp32_path: Path, output_path: Path) -> None:
     """Convert a single fp32 ONNX encoder to fp16.
 
-    Skips quant_pre_process entirely — preprocessing adds shape inference
-    which benefits int8 quantisation but is unnecessary for fp16 (a lossless
-    type cast).  It also avoids ORT's internal ``onnx.save()`` which doesn't
-    support external data and fails on models near or above 2 GB.
+    All parameters are unconditionally safe for any model size:
+
+    - ``load_external_data=True``: no-op when model has no external refs
+    - ``disable_shape_infer=True``: fp16 is a lossless type cast — shape
+      inference adds nothing.  Skipping it also avoids the internal
+      ``SerializeToString()`` call that hits the 2 GB protobuf limit.
+    - No ``quant_pre_process``: preprocessing benefits int8 but is
+      unnecessary for fp16.
+    - Save strategy decided by ``ByteSize()`` of the converted model.
     """
     import onnx
     from onnxruntime.transformers.float16 import convert_float_to_float16
 
-    large = fp32_path.stat().st_size >= _PROTO_SIZE_LIMIT
     print(f"  Quantising {fp32_path.name} to fp16...")
 
-    # Always load external data — torch may store individual large tensors
-    # externally even when the overall model file is under 2 GB.
     model = onnx.load(str(fp32_path), load_external_data=True)
-    model_fp16 = convert_float_to_float16(model, keep_io_types=True)
+    model_fp16 = convert_float_to_float16(
+        model,
+        keep_io_types=True,
+        disable_shape_infer=True,
+    )
 
-    if large:
+    if model_fp16.ByteSize() >= _PROTO_SIZE_LIMIT:
         onnx.save(
             model_fp16,
             str(output_path),
