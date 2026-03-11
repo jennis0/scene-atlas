@@ -70,9 +70,18 @@ def get_alias_expansions(query: str, db: Session) -> list[str]:
 
     Used to run a separate lower-weight FTS pass that expands synonym forms.
     Kept separate from the main query to avoid BM25 score dilution.
+
+    Words inside quoted phrases are excluded from alias expansion — the user
+    explicitly requested an exact phrase match for those terms.
     """
     vocab, reverse = get_alias_vocab(db)
-    words = set(_sanitize_fts_query(query).lower().split())
+    sanitized = _sanitize_fts_query(query)
+    # Only expand loose (non-phrase) tokens.
+    tokens = _parse_fts_tokens(sanitized)
+    words = set()
+    for token in tokens:
+        if not token.startswith('"'):
+            words.add(token.lower())
     extras: set[str] = set()
 
     for word in words:
@@ -100,19 +109,49 @@ def invalidate_alias_cache() -> None:
 
 
 def _sanitize_fts_query(raw: str) -> str:
-    """Strip FTS5 special syntax so user input always produces a valid MATCH query.
+    """Sanitize user input into a valid FTS5 MATCH expression.
 
-    FTS5 special chars: " ( ) ^ * - AND OR NOT (boolean operators are case-sensitive).
-    Unbalanced quotes or dangling operators cause silent empty results; stripping
-    them means "mine (underground)" correctly matches 'mine' and 'underground'
-    instead of returning nothing.
+    Preserves double-quoted phrases for exact phrase matching (e.g. ``"forest
+    shrine"`` matches only adjacent words).  Single-word phrases are degraded
+    to plain terms.  Unbalanced quotes are treated as loose words.
+
+    All other FTS5 special syntax (boolean operators, parentheses, carets,
+    asterisks) is stripped so user input never causes silent empty results.
     """
     # Remove FTS5 boolean operators (must be uppercase to be operators in FTS5)
     cleaned = re.sub(r"\b(AND|OR|NOT)\b", " ", raw)
-    # Remove all chars that are special in FTS5 MATCH syntax
-    cleaned = re.sub(r"[^\w\s]", " ", cleaned)
-    # Collapse whitespace and strip
-    return " ".join(cleaned.split())
+
+    # Extract balanced quoted phrase contents before stripping special chars.
+    phrases: list[str] = re.findall(r'"([^"]*)"', cleaned)
+    # Remove matched quoted regions so they don't appear in the loose portion.
+    loose = re.sub(r'"[^"]*"', " ", cleaned)
+
+    # Sanitize the loose portion (strip all non-word/non-space chars).
+    loose = re.sub(r"[^\w\s]", " ", loose)
+    loose_words = loose.split()
+
+    # Sanitize each phrase interior and keep only multi-word phrases.
+    phrase_tokens: list[str] = []
+    for phrase in phrases:
+        inner = re.sub(r"[^\w\s]", " ", phrase)
+        words = inner.split()
+        if len(words) >= 2:
+            phrase_tokens.append(f'"{" ".join(words)}"')
+        else:
+            # Single-word or empty phrase degrades to a plain term.
+            loose_words.extend(words)
+
+    parts = phrase_tokens + loose_words
+    return " ".join(parts)
+
+
+def _parse_fts_tokens(fts_query: str) -> list[str]:
+    """Split a sanitized FTS query into tokens (quoted phrases or single words).
+
+    >>> _parse_fts_tokens('"forest shrine" cave')
+    ['"forest shrine"', 'cave']
+    """
+    return re.findall(r'"[^"]*"|\S+', fts_query)
 
 
 def _run_fts(db: Session, match_query: str, limit: int) -> list[tuple[int, float]]:
@@ -147,8 +186,10 @@ def fts_search(db: Session, query: str, limit: int = 500) -> list[tuple[int, flo
     Diacritics are normalised, so 'Cepeku' matches 'Čepeku'.
 
     For multi-word queries, runs both:
-    - AND query (all words must match) — high-quality matches
-    - OR query (any word matches) — partial matches appended after AND results
+    - AND query (all terms/phrases must match) — high-quality matches
+    - OR query (any term/phrase matches) — partial matches appended after AND results
+
+    Quoted phrases (e.g. ``"forest shrine"``) require adjacent word matching.
 
     Column weights: name × 10, search_text × 5, filename × 1, author × 0.5.
     User input is sanitized before passing to MATCH so special characters never
@@ -158,14 +199,14 @@ def fts_search(db: Session, query: str, limit: int = 500) -> list[tuple[int, flo
     if not fts_query:
         return []
 
-    words = fts_query.split()
+    tokens = _parse_fts_tokens(fts_query)
 
-    # Primary: AND query (implicit in FTS5 for space-separated terms)
+    # Primary: AND query (implicit in FTS5 for space-separated terms/phrases)
     and_results = _run_fts(db, fts_query, limit)
 
-    # Secondary: OR fallback for multi-word queries (surfaces partial matches)
-    if len(words) >= 2:
-        or_query = " OR ".join(words)
+    # Secondary: OR fallback for multi-token queries (surfaces partial matches)
+    if len(tokens) >= 2:
+        or_query = " OR ".join(tokens)
         or_results = _run_fts(db, or_query, limit)
         # Append OR-only results after AND results — RRF will rank AND results
         # higher since they appear earlier in the returned list.
