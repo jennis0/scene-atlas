@@ -1,0 +1,277 @@
+# Search Architecture
+
+## Overview
+
+Scene Atlas uses **hybrid search** combining three ranked result lists — FTS5 full-text, CLIP semantic, and alias expansion — merged via Reciprocal Rank Fusion (RRF). The frontend sends a single query string; the backend runs all three search paths, fuses their rankings, applies SQL filters, and returns paginated results.
+
+## Search Modes
+
+Users control which search paths run via a prefix on the query string:
+
+| Prefix | Mode | What runs | Use case |
+|--------|------|-----------|----------|
+| _(none)_ | Hybrid | FTS5 + CLIP + alias | Default — best for most queries |
+| `~` | Semantic-only | CLIP only | Visual similarity ("a dark cave with water") |
+| `=` | Text-only | FTS5 only | Exact keyword matching, faster |
+
+The frontend strips the prefix before sending `query`, `semantic_only`, and `text_only` params to the API.
+
+## Data Flow
+
+```
+User types query in search bar
+    │
+    ▼
+Frontend (GalleryHeader.tsx)
+    ├── Strip prefix (~, =)
+    ├── Build SearchParams
+    └── GET /api/v1/search/groups (or /search/)
+            │
+            ▼
+    Backend (search.py)
+    ├── _build_image_filter_query()
+    │   └── Builds SQL WHERE clause from filters
+    │       (image_type, media_type, gridded, authors,
+    │        tags, exclude_tags, colors, etc.)
+    │
+    ├── [unless semantic_only]
+    │   ├── fts_search(query)
+    │   │   ├── _sanitize_fts_query()     ← preserves "quoted phrases"
+    │   │   ├── AND pass (primary)
+    │   │   └── OR pass (fallback)
+    │   │
+    │   └── get_alias_expansions(query)
+    │       └── fts_search_terms(aliases)  ← OR semantics, 0.5× weight
+    │
+    ├── [unless text_only]
+    │   ├── clip_service.encode_text(query)
+    │   └── qdrant_service.search_similar(embedding)
+    │
+    ├── Reciprocal Rank Fusion
+    │   └── Merge text + alias + semantic ranked lists
+    │
+    ├── Apply SQL filters to candidate set
+    ├── Sort (by relevance, name, or created_at)
+    └── Paginate and return
+            │
+            ▼
+    Frontend receives images[] + scores{}
+    └── Client-side relevance slider filters on CLIP score
+```
+
+## FTS5 Text Search
+
+### Virtual Table
+
+```sql
+CREATE VIRTUAL TABLE image_fts USING fts5(
+    name, filename, author, search_text,
+    content='images', content_rowid='id',
+    tokenize='porter unicode61 remove_diacritics 2'
+);
+```
+
+**Tokenizer chain:**
+- `porter` — Stemmer: "forests" matches "forest", "mining" matches "mine"
+- `unicode61` — Case-folding and Unicode normalisation
+- `remove_diacritics 2` — "Cepeku" matches "Čepeku"
+
+### Column Weights (BM25)
+
+| Column | Weight | Rationale |
+|--------|--------|-----------|
+| `name` | 10.0 | Title matches are highest priority |
+| `search_text` | 5.0 | Tag values and metadata |
+| `filename` | 1.0 | Useful fallback |
+| `author` | 0.5 | Rarely matches user intent |
+
+BM25 scores are **negative** — more negative = better match.
+
+### Query Processing
+
+`_sanitize_fts_query(raw)` sanitizes user input:
+1. Strips FTS5 boolean operators (`AND`, `OR`, `NOT`)
+2. Extracts balanced `"quoted phrases"` and sanitizes their interiors
+3. Strips all remaining non-word/non-space characters from loose text
+4. Single-word phrases degrade to plain terms; unbalanced quotes become loose words
+
+### Multi-Word Strategy
+
+For queries with 2+ tokens, `fts_search()` runs two passes:
+1. **AND pass** — all terms/phrases must match (implicit in FTS5 space-separated syntax)
+2. **OR pass** — any term/phrase matches, appended after AND results
+
+AND results appear first in the ranked list, so RRF naturally scores them higher.
+
+### Phrase Matching
+
+Quoted phrases use FTS5's native phrase matching:
+- `"forest shrine"` — matches only when "forest" is immediately followed by "shrine"
+- `"forest shrine" cave` — phrase AND + regular term AND
+- Words inside phrases are **excluded from alias expansion**
+
+### Search Text Construction
+
+`build_search_text()` in `image_parser.py` builds the indexed text at ingest time:
+- CamelCase splitting: `"desertCanyon"` → `"desert Canyon"`
+- Separator replacement: underscores, hyphens, dollar signs → spaces
+- Components: image name + filename + author + tag values + subgroup paths
+
+## Alias Expansion
+
+Tag categories define a vocabulary with optional aliases (e.g. "rainy" → "rain"). `get_alias_expansions()` looks up synonyms for loose query words and runs a separate FTS5 pass with OR semantics.
+
+- **Vocabulary source:** `TagCategory.common_values` in the database
+- **Cache:** Module-level dict with 5-minute TTL (avoids per-request DB hit)
+- **FTS5 pass:** Uses `fts_search_terms()` (OR join, bypasses sanitizer's OR-stripping)
+- **RRF weight:** 0.5× (lower than text, prevents alias dilution)
+- **Phrase exclusion:** Words inside `"quoted phrases"` are not alias-expanded
+
+## CLIP Semantic Search
+
+### Model Selection
+
+Multiple ONNX vision-language models are available under `backend/models/`. The active model is selected by the `EMBEDDING_MODEL` env var (default: `clip-vit-b-32`), which picks the corresponding subdirectory.
+
+| Directory | Model | Embedding Dim | Notes |
+|-----------|-------|---------------|-------|
+| `clip-vit-b-32` | CLIP ViT-B/32 (laion2B) | 512 | Default, fastest |
+| `siglip2-base` | SigLIP2 Base | 768 | Better semantic quality |
+| `siglip2-so400m` | SigLIP2 SO400M | 1152 | Largest, most accurate |
+
+Each model directory contains:
+- `manifest.json` — model parameters (embedding dim, image size, normalization, tokenizer config, ONNX filenames)
+- ONNX vision + text encoder files
+- `tokenizer/` subdirectory (HuggingFace fast tokenizer or SentencePiece)
+
+If no `manifest.json` is found, hardcoded CLIP ViT-B/32 defaults are used for backward compatibility.
+
+### Model Configuration Flow
+
+At startup (`main.py`), the manifest is read to derive:
+1. `qdrant_vector_size` — set from `manifest.embedding_dim` (overrides the 512 default)
+2. `qdrant_collection_name` — scoped to model: `embeddings_{EMBEDDING_MODEL}` (e.g. `embeddings_clip-vit-b-32`)
+
+This means **switching models creates a new Qdrant collection** — the old collection remains but is unused. Run `rebuild_all_embeddings()` after switching to populate the new collection.
+
+### Inference
+
+ONNX Runtime with automatic provider selection: CUDA → DirectML → CoreML → CPU (configurable via `INFERENCE_DEVICE` env var). The `ClipService` is lazy-loaded as a singleton on first use.
+
+### Vector Database
+
+Qdrant runs **in-process** (embedded mode, no Docker). Thread-safe: writes serialised via `RLock`, reads lock-free.
+
+- **Collection:** `embeddings_{EMBEDDING_MODEL}` (model-scoped)
+- **Distance metric:** Cosine similarity
+- **Score threshold:** 0.15 (both hybrid and semantic-only modes)
+- **Candidate pool:** `limit × 3` for hybrid, same for semantic-only
+
+### Query Flow
+
+1. `clip_service.encode_text(query)` → 512-dim normalised vector
+2. `qdrant_service.search_similar(embedding, limit, threshold)` → `[{image_id, score}]`
+
+### Vector Population & Maintenance
+
+Qdrant is the **semantic search index, not the source of truth** — SQLite is authoritative. If Qdrant loses data, embeddings can be regenerated from images.
+
+**Population during ingestion** (`backend/pipeline/ingestion.py`):
+1. `batch_generate_clip_embeddings(image_paths)` — CLIP encodes images in batched forward passes
+2. `batch_save_to_qdrant(items)` — upserts `{image_id, embedding, metadata}` points in a single call
+3. Each point stores payload: `image_id`, `filename`, `author`, `base_name`
+
+**Single-image flow** (`save_to_qdrant` in `persistence.py`):
+- Used by `process_single_image()` for one-off additions
+- Calls `qdrant_service.add_image_embedding(image_id, embedding, metadata)`
+
+**Deletion** (`backend/app/services/deletion_service.py`):
+- Single image: `qdrant_service.delete_image_embedding(image_id)`
+- Batch (failed import cleanup): `qdrant_service.delete_embeddings(image_ids)`
+- Cascade deletion removes the Qdrant point alongside SQLite row and filesystem files
+
+**Desync detection** (`backend/pipeline/maintenance.py`):
+- Scheduled daily: compares `images` row count vs Qdrant `points_count`
+- Logs warning if delta exceeds 10 images
+- Repair: run `write_new_embeddings` pipeline script
+
+**Full rebuild** (`backend/pipeline/write_new_embeddings.py`):
+- `rebuild_all_embeddings()` — deletes the entire Qdrant collection and regenerates all embeddings from stored images
+- Used after model changes or to repair desync
+
+**Backup:**
+- `qdrant_service.backup_storage(target_dir)` — copies the Qdrant storage directory (called by the scheduled backup task)
+
+## Reciprocal Rank Fusion (RRF)
+
+Merges three independently-ranked result lists into a single score:
+
+```
+score(image) = Σ  weight_i / (K + rank_i)
+               i ∈ {text, alias, semantic}
+```
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| K | 60 | Standard RRF dampening constant |
+| Text weight | 1.1 | Slight boost for keyword matches |
+| Alias weight | 0.5 | Lower to prevent synonym dilution |
+| Semantic weight | 1.0 | Baseline |
+
+Images only contribute to lists they appear in. The merged score determines final ordering when `sort_by=relevance`.
+
+**Client-side scores:** The API returns raw CLIP cosine similarity scores (not RRF scores) in the `scores` dict. The frontend's relevance slider filters on absolute CLIP similarity for consistency across queries.
+
+## SQL Filters
+
+After RRF produces a candidate set, SQL filters narrow it:
+
+| Filter | Semantics |
+|--------|-----------|
+| `image_types` | IN filter (battlemap, scene) |
+| `media_types` | IN filter (image, video) |
+| `gridded` / `gridded_unknown` | Boolean / IS NULL |
+| `grid_type` | Exact match (square, hex) |
+| `authors` | OR across values |
+| `exclude_authors` | NOT IN |
+| `tags` | OR within category, AND across categories |
+| `exclude_tags` | NOT IN (per tag) |
+| `colors` | LAB colour distance via `color_index` |
+
+## FTS5 Index Maintenance
+
+### Triggers (auto-sync)
+
+Three SQLite triggers keep `image_fts` in sync with the `images` table:
+- `image_fts_ai` — AFTER INSERT: adds new row to FTS
+- `image_fts_ad` — AFTER DELETE: removes row from FTS
+- `image_fts_au` — AFTER UPDATE: delete-then-insert (FTS5 content sync pattern)
+
+### Maintenance Functions
+
+| Function | Purpose |
+|----------|---------|
+| `backfill_search_text(db)` | Populate `search_text` for all images missing it. Drops triggers during bulk update, rebuilds afterwards |
+| `fts_rebuild(db)` | Full FTS5 index rebuild (`INSERT INTO image_fts(image_fts) VALUES ('rebuild')`) |
+| `rebuild_search_text(image, db)` | Single-image re-index after tag changes. Recalculates `search_text` and flushes to trigger `image_fts_au` |
+
+## Key Files
+
+| File | Responsibility |
+|------|---------------|
+| `backend/app/api/search.py` | Search API endpoints, RRF orchestration, filter building |
+| `backend/app/services/fts_service.py` | FTS5 query building, sanitization, alias expansion, index maintenance |
+| `backend/app/services/clip_service.py` | CLIP model loading, text/image encoding |
+| `backend/app/services/qdrant_service.py` | Qdrant embedded vector DB client |
+| `backend/app/services/image_parser.py` | `build_search_text()`, filename/metadata parsing |
+| `backend/app/services/color_search.py` | LAB colour distance search |
+| `frontend/src/hooks/useGallerySearch.ts` | Search state management, prefix parsing |
+| `frontend/src/components/GalleryHeader.tsx` | Search input UI, mode indicator icon |
+| `frontend/src/lib/api/searchApi.ts` | API client for search endpoints |
+| `backend/pipeline/ingestion.py` | Embedding generation + Qdrant population during ingest |
+| `backend/pipeline/persistence.py` | `batch_save_to_qdrant()`, `save_to_qdrant()` |
+| `backend/pipeline/write_new_embeddings.py` | Full Qdrant rebuild from stored images |
+| `backend/pipeline/maintenance.py` | Scheduled desync detection (DB vs Qdrant count) |
+| `backend/app/services/deletion_service.py` | Cascade deletion (SQLite + Qdrant + filesystem) |
+| `backend/alembic/versions/001_initial_schema.py` | FTS5 table + trigger creation |
+| `backend/alembic/versions/015_search_ranking.py` | Tokenizer upgrade (diacritics) |

@@ -238,7 +238,7 @@ export function GalleryHeader({
               )}
               <Input
                 type="text"
-                placeholder={`Search ${imageType === 'all' ? 'scenes' : imageType === 'battlemap' ? 'maps' : 'scenes'}\u2026  prefix ~ for visual, = for keyword`}
+                placeholder={`Search ${imageType === 'all' ? 'scenes' : imageType === 'battlemap' ? 'maps' : 'scenes'}\u2026  "quotes" for exact phrase, ~ visual, = keyword`}
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 maxLength={MAX_SEARCH_LENGTH}

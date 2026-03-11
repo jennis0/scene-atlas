@@ -21,6 +21,7 @@ How individual features and subsystems are designed.
 
 | File | Description |
 |------|-------------|
+| [search.md](search.md) | Search system -- hybrid FTS5 + CLIP semantic, RRF fusion, phrase matching, model selection |
 | [frontend.md](frontend.md) | Frontend SPA -- React, components, hooks, filter logic |
 | [ingestion.md](ingestion.md) | Ingestion pipeline -- batched processing, CLIP embeddings, background jobs |
 | [web-import.md](web-import.md) | Web import flow -- upload, grouping, preview, confirm, processing |
