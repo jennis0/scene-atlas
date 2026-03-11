@@ -27,15 +27,6 @@ COOLDOWN_SECONDS = 60
 # ---------------------------------------------------------------------------
 
 
-def relpath_to_thumbnail_name(relpath: str) -> str:
-    """Convert a relative path to a flat thumbnail filename.
-
-    Replaces directory separators with '__' to flatten subdirectories.
-    e.g. 'subfolder/Map.jpg' -> 'subfolder__Map.jpg'
-    """
-    return relpath.replace("/", "__").replace("\\", "__")
-
-
 def collect_images(source_dir: Path) -> list[Path]:
     """Recursively collect all image files under source_dir."""
     images = []
@@ -311,10 +302,10 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         config["sample_target"] = sample_target
     (prep_dir / "config.json").write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
-    # Write skipped list
+    # Write skipped list (anonymized — only reasons, no filenames)
     skipped_path = prep_dir / "skipped.txt"
     if skipped:
-        lines = [f"{relpath}: {reason}" for relpath, reason in skipped]
+        lines = [f"image {i + 1}: {reason}" for i, (_, reason) in enumerate(skipped)]
         skipped_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     else:
         skipped_path.write_text("No images skipped.\n", encoding="utf-8")
@@ -460,20 +451,22 @@ def _enforce_cooldown(run_dir: Path) -> None:
     """Enforce a cooldown between status calls to avoid API rate limits.
 
     Checks the timestamp of the last status call and sleeps if needed
-    to ensure at least COOLDOWN_SECONDS have elapsed.
+    to ensure at least COOLDOWN_SECONDS have elapsed. Uses wall-clock
+    time (time.time()) so timestamps are meaningful across process
+    invocations and system reboots.
     """
     timestamp_path = run_dir / ".last_status_time"
-    now = time.monotonic()
+    now = time.time()
 
     if timestamp_path.exists():
         try:
             last_time = float(timestamp_path.read_text(encoding="utf-8").strip())
             elapsed = now - last_time
-            if elapsed < COOLDOWN_SECONDS:
+            if 0 <= elapsed < COOLDOWN_SECONDS:
                 wait = COOLDOWN_SECONDS - elapsed
                 print(f"Cooldown: waiting {wait:.0f}s before next batch...")
                 time.sleep(wait)
-                now = time.monotonic()
+                now = time.time()
         except (ValueError, OSError):
             pass
 
@@ -488,9 +481,6 @@ def _status_labeling(prep_dir: Path, run_dir: Path, config: dict) -> int:
 
     # Enforce cooldown between status calls
     _enforce_cooldown(run_dir)
-
-    # Load mapping for human-readable display if anonymized
-    mapping = load_mapping(prep_dir) if config.get("anonymized") else {}
 
     batch_dir = prep_dir / "batches"
     labeled = load_relpaths_from_jsonl(run_dir / "labels.jsonl")
@@ -548,8 +538,7 @@ def _status_labeling(prep_dir: Path, run_dir: Path, config: dict) -> int:
         print(f"\nNext: {next_batch}")
         print(f"Remaining in {next_batch}:")
         for entry in next_remaining:
-            display = mapping.get(entry, entry)
-            print(f"  {entry}" + (f"  ({display})" if mapping else ""))
+            print(f"  {entry}")
     elif total_labeled == total_images:
         print("\nAll images labeled!")
 

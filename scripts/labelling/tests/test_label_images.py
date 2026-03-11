@@ -237,12 +237,12 @@ def test_enforce_cooldown_creates_timestamp_file(tmp_path: Path):
 def test_enforce_cooldown_sleeps_when_called_too_soon(tmp_path: Path):
     """Second call within cooldown period should sleep."""
     # Write a recent timestamp
-    (tmp_path / ".last_status_time").write_text(str(time.monotonic()), encoding="utf-8")
+    (tmp_path / ".last_status_time").write_text(str(time.time()), encoding="utf-8")
 
     with patch("scripts.labelling.label_images.time.sleep") as mock_sleep:
         with patch(
-            "scripts.labelling.label_images.time.monotonic",
-            side_effect=[time.monotonic(), time.monotonic() + COOLDOWN_SECONDS],
+            "scripts.labelling.label_images.time.time",
+            side_effect=[time.time(), time.time() + COOLDOWN_SECONDS],
         ):
             _enforce_cooldown(tmp_path)
 
@@ -254,8 +254,20 @@ def test_enforce_cooldown_sleeps_when_called_too_soon(tmp_path: Path):
 def test_enforce_cooldown_skips_sleep_after_cooldown(tmp_path: Path):
     """Call after cooldown has elapsed should not sleep."""
     # Write an old timestamp (well past cooldown)
-    old_time = time.monotonic() - COOLDOWN_SECONDS - 10
+    old_time = time.time() - COOLDOWN_SECONDS - 10
     (tmp_path / ".last_status_time").write_text(str(old_time), encoding="utf-8")
+
+    with patch("scripts.labelling.label_images.time.sleep") as mock_sleep:
+        _enforce_cooldown(tmp_path)
+
+    mock_sleep.assert_not_called()
+
+
+def test_enforce_cooldown_skips_sleep_on_negative_elapsed(tmp_path: Path):
+    """Clock jumping backward (e.g. after reboot) should not cause long sleep."""
+    # Write a future timestamp (simulates clock jump backward)
+    future_time = time.time() + 10000
+    (tmp_path / ".last_status_time").write_text(str(future_time), encoding="utf-8")
 
     with patch("scripts.labelling.label_images.time.sleep") as mock_sleep:
         _enforce_cooldown(tmp_path)

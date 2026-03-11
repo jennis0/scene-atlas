@@ -81,7 +81,7 @@ def build_labelstudio_task(
         task_id: Unique task identifier
         relpath: The relative path of the image
         image_url: Full URL to the image
-        label: The label dictionary with type, grid, and three descriptions
+        label: The label dictionary with type, grid, and four descriptions
 
     Returns:
         A task dict in Label Studio format
