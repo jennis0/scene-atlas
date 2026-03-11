@@ -30,33 +30,41 @@ uv run python -m pytest backend/tests/unit/ -q || {
 
 # ── Frontend ─────────────────────────────────────────────────────────────────
 
+cd frontend
+
 echo ""
 echo "=== Frontend lint (ESLint) ==="
-npx --prefix frontend eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0 || {
+npx eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0 || {
   echo "❌ Frontend lint failed."
+  cd ..
   exit 1
 }
 
 echo ""
 echo "=== Frontend format check (Prettier) ==="
-npx --prefix frontend prettier --check src/ || {
-  echo "❌ Frontend format check failed. Run: npx --prefix frontend prettier --write src/"
+npx prettier --check src/ || {
+  echo "❌ Frontend format check failed. Run: cd frontend && npx prettier --write src/"
+  cd ..
   exit 1
 }
 
 echo ""
 echo "=== Frontend type check (tsc) ==="
-npx --prefix frontend tsc --noEmit || {
+npx tsc --noEmit || {
   echo "❌ Frontend type check failed."
+  cd ..
   exit 1
 }
 
 echo ""
 echo "=== Frontend tests (vitest) ==="
-npx --prefix frontend vitest run || {
+npx vitest run || {
   echo "❌ Frontend tests failed."
+  cd ..
   exit 1
 }
+
+cd ..
 
 echo ""
 echo "✅ All pre-push checks passed!"
