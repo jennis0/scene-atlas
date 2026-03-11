@@ -13,7 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-_ROOT = Path(__file__).resolve().parent.parent
+_ROOT = Path(__file__).resolve().parent.parent.parent
 _DEFAULT_MODEL = "clip-vit-b-32"
 _MODEL_NAME = os.environ.get("EMBEDDING_MODEL", _DEFAULT_MODEL)
 _MODELS_DIR = _ROOT / "backend" / "models" / _MODEL_NAME

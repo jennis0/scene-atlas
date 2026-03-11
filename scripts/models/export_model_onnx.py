@@ -949,7 +949,7 @@ def export_model(
 
 def main() -> None:
     args = parse_args()
-    base_dir = Path(__file__).resolve().parent.parent / "backend" / "models"
+    base_dir = Path(__file__).resolve().parent.parent.parent / "backend" / "models"
 
     for name in args.models:
         export_model(MODEL_BY_NAME[name], base_dir, args.image_dir, args.max_images, args.device)
