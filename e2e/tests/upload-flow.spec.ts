@@ -10,13 +10,13 @@ import {
   openFilterPanel,
   getTestImagePaths,
   openImageViewer,
-  getSceneCount,
 } from "../helpers/actions";
 
 const imageDir = path.resolve(__dirname, "..", ".tmp-images");
 
 test.describe.serial("Upload -> Process -> Edit -> Search", () => {
   test("upload images via import dialog", async ({ page }) => {
+    test.setTimeout(180_000);
     // Skip if no test images available
     if (!fs.existsSync(imageDir)) {
       test.skip();
@@ -32,24 +32,27 @@ test.describe.serial("Upload -> Process -> Edit -> Search", () => {
     await page.goto("/");
     await waitForGalleryLoad(page);
 
-    const initialCount = await getSceneCount(page);
-
     await openImportDialog(page);
     await uploadFiles(page, filePaths, 30_000);
 
-    // Wait for gallery to refresh with increased count after CLIP processing
-    await page.waitForFunction(
-      (expected) => {
-        const countText = document.body.innerText.match(/(\d+)\s+scenes/);
-        if (!countText) return false;
-        return parseInt(countText[1]) > expected;
-      },
-      initialCount,
-      { timeout: 120_000 },
-    );
+    // Verify the activity dock pill appears (import processing started)
+    await expect(page.getByTestId("activity-dock-pill")).toBeVisible({
+      timeout: 15_000,
+    });
 
-    const newCount = await getSceneCount(page);
-    expect(newCount).toBeGreaterThan(initialCount);
+    // Expand the dock and verify the job card appears
+    await page.getByTestId("activity-dock-pill").click();
+    await expect(page.getByTestId("activity-dock-panel")).toBeVisible({
+      timeout: 5_000,
+    });
+
+    // Wait for upload to finish — dock shows "ready to review" when staging completes
+    await expect(
+      page
+        .getByTestId("import-job-card")
+        .first()
+        .getByText(/ready to review/i),
+    ).toBeVisible({ timeout: 120_000 });
   });
 
   test("search finds uploaded images", async ({ page }) => {
@@ -79,7 +82,7 @@ test.describe.serial("Upload -> Process -> Edit -> Search", () => {
     await searchFor(page, "~fantasy landscape");
 
     // Verify relevance slider appears (indicates semantic mode was activated)
-    await expect(page.getByText("Relevance").first()).toBeVisible({
+    await expect(page.locator('input[type="range"]')).toBeVisible({
       timeout: 15_000,
     });
 
@@ -95,13 +98,10 @@ test.describe.serial("Upload -> Process -> Edit -> Search", () => {
 
     await openFilterPanel(page);
 
-    // Wait for filter content to load, then click the first clickable filter option
-    // Authors appear as buttons in the filter panel
-    const filterOption = page
-      .locator('[role="dialog"], [data-radix-popper-content-wrapper]')
-      .locator("button")
-      .filter({ hasText: /.+/ })
-      .first();
+    // Click the first author option in the filter panel
+    const filterPopover = page.locator("[data-radix-popper-content-wrapper]");
+    await expect(filterPopover).toBeVisible({ timeout: 5_000 });
+    const filterOption = filterPopover.locator("button[title]").first();
     await filterOption.click({ timeout: 5_000 });
 
     // Verify a filter chip appears

@@ -207,20 +207,7 @@ export async function seedTestData(imageDir: string): Promise<void> {
     );
   }
 
-  // 7. Finalize the import
-  console.log("[seed] Step 7: Finalising...");
-  const finalizeRes = await fetch(
-    `${BACKEND_URL}/api/v1/imports/${jobId}/finalize`,
-    {
-      method: "POST",
-    },
-  );
-  if (!finalizeRes.ok) {
-    const body = await finalizeRes.text();
-    throw new Error(`Finalize failed: ${finalizeRes.status} ${body}`);
-  }
-  const finalizeBody = await finalizeRes.json().catch(() => null);
-  console.log(`[seed] Finalize response: ${JSON.stringify(finalizeBody)}`);
+  // Import auto-finalizes when all groups complete — no manual finalize needed.
   console.log("[seed] Seed complete.");
 }
 

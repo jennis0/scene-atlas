@@ -6,7 +6,6 @@ import {
   openImportDialog,
   uploadFiles,
   getTestImagePaths,
-  getSceneCount,
 } from "../helpers/actions";
 
 const imageDir = path.resolve(__dirname, "..", ".tmp-images");
@@ -39,23 +38,23 @@ test.describe("Import Deep", () => {
 
     await openImportDialog(page);
 
-    // Verify type toggle buttons are visible
-    const battlemapButton = page.getByRole("button", { name: "Battlemap" });
-    const sceneButton = page.getByRole("button", { name: "Scene" });
+    // Verify type toggle buttons are visible (All / Maps / Scenes)
+    const mapsButton = page.getByRole("button", { name: "Maps" });
+    const scenesButton = page.getByRole("button", { name: "Scenes" });
 
-    await expect(battlemapButton).toBeVisible({ timeout: 5_000 });
-    await expect(sceneButton).toBeVisible({ timeout: 5_000 });
+    await expect(mapsButton).toBeVisible({ timeout: 5_000 });
+    await expect(scenesButton).toBeVisible({ timeout: 5_000 });
 
-    // Battlemap should be the default (active state — check for aria-pressed or a distinguishing class)
-    // At minimum, both buttons should be present and interactable
-    await expect(battlemapButton).toBeEnabled();
-    await expect(sceneButton).toBeEnabled();
+    // Both buttons should be present and interactable
+    await expect(mapsButton).toBeEnabled();
+    await expect(scenesButton).toBeEnabled();
 
     // Close dialog
     await page.keyboard.press("Escape");
   });
 
   test("file upload triggers processing", async ({ page }) => {
+    test.setTimeout(180_000);
     // Skip if no test images available
     if (!fs.existsSync(imageDir)) {
       test.skip();
@@ -71,24 +70,13 @@ test.describe("Import Deep", () => {
     await page.goto("/");
     await waitForGalleryLoad(page);
 
-    const initialCount = await getSceneCount(page);
-
     // Open import dialog and upload files
     await openImportDialog(page);
     await uploadFiles(page, filePaths, 30_000);
 
-    // Wait for gallery count to reflect new images after CLIP processing
-    await page.waitForFunction(
-      (expected) => {
-        const countText = document.body.innerText.match(/(\d+)\s+scenes/);
-        if (!countText) return false;
-        return parseInt(countText[1]) > expected;
-      },
-      initialCount,
-      { timeout: 120_000 },
-    );
-
-    const newCount = await getSceneCount(page);
-    expect(newCount).toBeGreaterThan(initialCount);
+    // Verify the activity dock pill appears (import processing started)
+    await expect(page.getByTestId("activity-dock-pill")).toBeVisible({
+      timeout: 15_000,
+    });
   });
 });

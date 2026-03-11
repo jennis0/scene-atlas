@@ -15,10 +15,15 @@ test.describe("Gallery Deep", () => {
     await page.goto("/");
     await waitForGalleryLoad(page);
 
-    await searchFor(page, "=sometext");
+    // Use = prefix with a term that will match seeded data
+    await searchFor(page, "=Caeora");
 
-    // The relevance slider should NOT be visible for text-only searches
-    await expect(page.getByText("Relevance")).not.toBeVisible();
+    // Wait for results to appear (keyword mode suffix)
+    await expect(page.getByText(/keyword/)).toBeVisible({ timeout: 10_000 });
+
+    // The relevance range slider should NOT be rendered for text-only searches
+    // (Note: "Relevance" text may appear in the sort button, so check the slider input)
+    await expect(page.locator('input[type="range"]')).not.toBeVisible();
 
     await clearSearch(page);
   });
@@ -29,8 +34,8 @@ test.describe("Gallery Deep", () => {
 
     await searchFor(page, "~dark cave");
 
-    // The relevance slider label should be visible for semantic searches
-    await expect(page.getByText("Relevance").first()).toBeVisible({
+    // The relevance range slider should be visible for semantic searches
+    await expect(page.locator('input[type="range"]')).toBeVisible({
       timeout: 5_000,
     });
 
@@ -56,19 +61,28 @@ test.describe("Gallery Deep", () => {
 
     await openFilterPanel(page);
 
-    // Click the first checkbox/option in the filter panel (author filter)
-    const firstAuthorOption = page
-      .locator('[role="checkbox"], [role="option"]')
-      .first();
+    // The filter panel has category nav on the left and options on the right.
+    // The "Authors" category should be selected by default. Click the first
+    // author option in the right pane (author name from seeded data: "e2e-images").
+    const filterPopover = page.locator("[data-radix-popper-content-wrapper]");
+    await expect(filterPopover).toBeVisible({ timeout: 5_000 });
+
+    // Author options have a title attribute with the author name
+    const firstAuthorOption = filterPopover.locator("button[title]").first();
     await firstAuthorOption.click({ timeout: 5_000 });
 
-    // Verify a filter chip appears
+    // Verify a filter chip appears in the header
     await expect(page.getByTestId("filter-chip").first()).toBeVisible({
       timeout: 5_000,
     });
 
-    // Remove filters via Clear all
-    await page.getByText("Clear all").click();
+    // Close the filter popover first (Escape), wait for it to close,
+    // then click header's "Clear all"
+    await page.keyboard.press("Escape");
+    await expect(
+      page.locator("[data-radix-popper-content-wrapper]"),
+    ).not.toBeVisible({ timeout: 5_000 });
+    await page.getByRole("button", { name: "Clear all" }).click();
 
     // Verify filter chips are gone
     await expect(page.getByTestId("filter-chip")).toHaveCount(0);
@@ -99,10 +113,13 @@ test.describe("Gallery Deep", () => {
     await page.goto("/");
     await waitForGalleryLoad(page);
 
-    await searchFor(page, "zzzznonexistentzzzzz");
+    // Use = prefix for text-only search — CLIP semantic search can return results for anything
+    await searchFor(page, "=zzzznonexistentzzzzz");
 
     // Verify empty state message is shown
-    await expect(page.getByText(/No images match/)).toBeVisible({
+    await expect(
+      page.getByText(/No (images|groups) match your search/),
+    ).toBeVisible({
       timeout: 10_000,
     });
 
