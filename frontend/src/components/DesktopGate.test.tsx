@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, act, waitFor } from '@testing-library/react'
 import { DesktopGate } from './DesktopGate'
 
 describe('DesktopGate', () => {
@@ -61,12 +61,13 @@ describe('DesktopGate', () => {
     // Should be in waiting state
     expect(screen.queryByTestId('app-content')).not.toBeInTheDocument()
 
-    // Simulate backend ready signal
-    readyCallback!(8000)
+    // Simulate backend ready signal — use async act() to flush the setTimeout
+    // poll chain and its resulting state updates (setState calls inside the
+    // async poll function).
+    await act(async () => readyCallback!(8000))
 
     // Wait for health poll to succeed and children to appear
-    // The polling interval is 1500ms, but the first poll happens immediately via setInterval
-    await vi.waitFor(
+    await waitFor(
       () => {
         expect(screen.getByTestId('app-content')).toBeInTheDocument()
       },
@@ -93,7 +94,7 @@ describe('DesktopGate', () => {
     )
 
     // Simulate backend error
-    errorCallback!('Sidecar crashed with exit code 1')
+    act(() => errorCallback!('Sidecar crashed with exit code 1'))
 
     await vi.waitFor(() => {
       expect(screen.getByText(/couldn.*t start/i)).toBeInTheDocument()

@@ -194,6 +194,9 @@ class TestUpdatedAt:
     def test_transition_sets_updated_at(self, db):
         job = _make_job(db, "j1", status="active")
         _make_group(db, "j1", "g1", status="completed")
+        # Force a distinct timestamp so the transition is always detectable,
+        # even on fast machines where datetime.now() can return the same value.
+        job.updated_at = datetime(2020, 1, 1)
         original = job.updated_at
 
         transition_job_status(db, "j1")
