@@ -6,10 +6,11 @@ You are reviewing another agent's image labels for correctness against the label
 
 - **Prep directory**: `{prep-dir}` (thumbnails and batch files)
 - **Review directory**: `{review-dir}` (where you write approved/corrected labels)
-- **Source images**: `{source-dir}`
 - **Original labels**: `{review-dir}/original-labels.jsonl`
 
 **IMPORTANT**: Only one agent may work on a review at a time. Do not run concurrently with another agent on the same review directory.
+
+**IMPORTANT**: Image identifiers in labels are anonymous UUIDs, not filenames. Do not attempt to infer anything about the image from the identifier.
 
 ---
 
@@ -46,29 +47,33 @@ Check that the grid field is correctly set:
 
 ---
 
-## Descriptions: Three Distinct Styles
+## Descriptions: Four Distinct Styles
 
-The original agent wrote three descriptions per image. Review each one for correctness and style.
+The original agent wrote four descriptions per image. Review each one for correctness and style.
 
 | Field | Style | Check for |
 |---|---|---|
-| `description_standard` | Full sentence, complete visual inventory | Specific details, not generic; mentions key structures/objects; natural language |
-| `description_search` | Comma-separated keywords and short phrases | Keywords are searchable; appropriate keyword coverage; no grammar or verbs |
-| `description_terse` | Single short noun phrase | Captures the essence; 2–5 words maximum |
+| `description_standard` | Full sentence, 8–25 words | Specific details, not generic; mentions key structures/objects; natural language |
+| `description_alt` | Full sentence, 8–25 words, different vocabulary | Uses genuinely different nouns/adjectives from standard; not a rearrangement |
+| `description_search` | Comma-separated keywords, 5–10 items | Keywords are searchable; appropriate coverage; no grammar or verbs |
+| `description_terse` | Single short noun phrase, 2–5 words | Captures the essence; concise |
 
 ### What to Look For
 
 #### Common Description Errors
 - **Too generic**: "fantasy terrain", "interior layout", "volcanic landscape" — needs specific details
 - **References the medium**: "A detailed battlemap showing..." or "A fantasy map of..." — describe the CONTENT not the format
-- **Derived from filename**: mentions color variants, grid status, or artist names that came from the filename
-- **Mentions grid overlays**: "with tactical grid overlay" — the type field handles this, descriptions should describe the scene
+- **Formulaic openings**: Every description starts with "A top-down view of..." or "A perspective view of..." — should lead with the most distinctive feature
+- **Banned padding**: Contains phrases like "suitable for tactical encounters", "unsuitable for tactical grid-based play", "creating an encounter-scale location" — the `type` field handles this
 - **Missing key features**: if the image clearly shows a distinctive object (giant skeleton, glowing crystal, ship wreck) and the description doesn't mention it
 
-#### Standard Description Specific Errors
-- Incomplete sentences or sentence fragments
-- Too short (under 10 words) — should be comprehensive
-- Too generic or lacking specificity
+#### Alt Description Specific Errors
+- **Same vocabulary as standard**: If `description_alt` reuses the same key nouns and adjectives as `description_standard`, it needs to be rewritten with different words
+- **Just a rearrangement**: Moving words around isn't enough — genuinely different vocabulary is required
+
+#### Standard/Alt Length Errors
+- Padded with filler to reach a word count when the image is visually simple
+- Too short for a complex scene (under 8 words for a multi-room dungeon)
 
 #### Search Description Specific Errors
 - Contains verbs ("has", "shows") — should be keywords only
@@ -84,24 +89,31 @@ The original agent wrote three descriptions per image. Review each one for corre
 
 **Original labels from agent:**
 ```json
-{"relpath": "Forest.jpg", "type": "battlemap", "grid": "none", "description_standard": "A forest", "description_search": "forest", "description_terse": "a forest"}
+{"relpath": "a1b2c3d4.jpg", "type": "battlemap", "grid": "none", "description_standard": "A top-down view of a forest path arranged for tactical encounters", "description_alt": "A top-down forest path suitable for tactical play", "description_search": "forest, path, tactical", "description_terse": "a forest"}
 ```
 
-**Problem:** All three descriptions are too generic and repetitive. They're essentially paraphrases of each other.
+**Problems:**
+1. Both standard and alt use formulaic "top-down view of" openings
+2. Both contain banned padding ("arranged for tactical encounters", "suitable for tactical play")
+3. Alt is essentially the same as standard — no vocabulary diversity
+4. Search keywords are too sparse
+5. Terse is too generic ("a forest" vs "a forest path")
 
 **Corrected:**
 ```json
 {
-  "relpath": "Forest.jpg",
+  "relpath": "a1b2c3d4.jpg",
   "type": "battlemap",
   "grid": "none",
-  "description_standard": "A narrow winding path through an ancient forest with massive old trees on either side, undergrowth of ferns and vines, dappled sunlight filtering through the dense green canopy",
-  "description_search": "forest, path, ancient trees, ferns, vines, undergrowth, dense, sunlight",
+  "description_standard": "A narrow winding path through an ancient forest with massive old trees, undergrowth of ferns and vines, dappled sunlight filtering through the dense green canopy",
+  "description_alt": "A twisting trail beneath towering hardwoods, the floor thick with bracken and creepers, shafts of light breaking through the leafy roof overhead",
+  "description_search": "forest, path, ancient trees, ferns, vines, undergrowth, dense, sunlight, woodland",
   "description_terse": "a forest path",
-  "original_description_standard": "A forest",
-  "original_description_search": "forest",
+  "original_description_standard": "A top-down view of a forest path arranged for tactical encounters",
+  "original_description_alt": "A top-down forest path suitable for tactical play",
+  "original_description_search": "forest, path, tactical",
   "original_description_terse": "a forest",
-  "reason": "Original descriptions were too generic and identical in structure. Revised to add specific visual details (path, ancient trees, undergrowth, sunlight) and created distinct description styles per guidelines."
+  "reason": "Descriptions used banned formulaic openings and padding. Alt lacked vocabulary diversity. Search keywords too sparse. Terse too generic."
 }
 ```
 
@@ -115,17 +127,16 @@ Repeat this loop until all labels are reviewed or you're running low on context:
 ```
 uv run scripts/labelling/label_images.py status --prep-dir {prep-dir} --review-dir {review-dir}
 ```
-This tells you which labels still need reviewing and lists the next batch of relpaths.
+This tells you which labels still need reviewing and lists the next batch of identifiers.
 
 ### Step 2: Read Original Labels
-Read `{review-dir}/original-labels.jsonl` and find the entries for the next batch of relpaths to review.
+Read `{review-dir}/original-labels.jsonl` and find the entries for the next batch of identifiers to review.
 
 ### Step 3: Read Thumbnails
-For each relpath, the thumbnail is at:
+Each image identifier in the labels is also the thumbnail filename. Read the thumbnail at:
 ```
-{prep-dir}/thumbnails/<thumbnail_name>
+{prep-dir}/thumbnails/<identifier>
 ```
-Where `<thumbnail_name>` is the relpath with `/` replaced by `__`.
 
 Read up to 10 thumbnails in parallel using the Read tool.
 
@@ -133,7 +144,8 @@ Read up to 10 thumbnails in parallel using the Read tool.
 For each image, compare the original label against what you see in the thumbnail:
 - Is the type correct per the decision tree?
 - Is the grid field correct?
-- Are the three descriptions specific, distinct, and search-useful?
+- Are the four descriptions specific, distinct, and search-useful?
+- Does `description_alt` use genuinely different vocabulary from `description_standard`?
 - Do the descriptions avoid the common errors listed above?
 
 ### Step 5: Write Results
@@ -141,30 +153,33 @@ For each image, compare the original label against what you see in the thumbnail
 **If the label is correct**, append to `{review-dir}/approved.jsonl`:
 ```json
 {
-  "relpath": "Avernus.jpg",
+  "relpath": "a1b2c3d4.jpg",
   "type": "battlemap",
   "grid": "square",
-  "description_standard": "A hellish infernal landscape with demonic structures, lava flows, and winding dark rivers between jagged rocky terrain",
-  "description_search": "hell, infernal, lava, demonic, dark rivers, rocky, jagged",
-  "description_terse": "a hellish infernal landscape"
+  "description_standard": "...",
+  "description_alt": "...",
+  "description_search": "...",
+  "description_terse": "..."
 }
 ```
 
 **If the label needs correction**, append to `{review-dir}/corrections.jsonl`:
 ```json
 {
-  "relpath": "Avernus.jpg",
+  "relpath": "a1b2c3d4.jpg",
   "type": "battlemap",
   "grid": "square",
   "description_standard": "Corrected standard description",
+  "description_alt": "Corrected alt description with different vocabulary",
   "description_search": "corrected, search, keywords",
-  "description_terse": "corrected terse description",
+  "description_terse": "corrected terse",
   "original_type": "map",
   "original_grid": "none",
   "original_description_standard": "Original standard",
+  "original_description_alt": "Original alt",
   "original_description_search": "original, search",
   "original_description_terse": "original terse",
-  "reason": "Type was incorrectly labeled as map; this is clearly an encounter-scale top-down view. Grid should be square, not none. Descriptions were also too generic."
+  "reason": "Type was incorrectly labeled as map; this is clearly an encounter-scale top-down view."
 }
 ```
 
@@ -182,12 +197,12 @@ When stopping, report:
 
 **approved.jsonl** — same format as original labels:
 ```
-{"relpath": "Avernus.jpg", "type": "battlemap", "grid": "square", "description_standard": "...", "description_search": "...", "description_terse": "..."}
+{"relpath": "a1b2c3d4.jpg", "type": "battlemap", "grid": "square", "description_standard": "...", "description_alt": "...", "description_search": "...", "description_terse": "..."}
 ```
 
 **corrections.jsonl** — corrected label with originals and reason:
 ```
-{"relpath": "Avernus.jpg", "type": "battlemap", "grid": "square", "description_standard": "corrected", "description_search": "corrected", "description_terse": "corrected", "original_type": "map", "original_grid": "none", "original_description_standard": "original", "original_description_search": "original", "original_description_terse": "original", "reason": "explanation"}
+{"relpath": "a1b2c3d4.jpg", "type": "battlemap", "grid": "square", "description_standard": "corrected", "description_alt": "corrected alt", "description_search": "corrected", "description_terse": "corrected", "original_type": "map", "original_grid": "none", "original_description_standard": "original", "original_description_alt": "original alt", "original_description_search": "original", "original_description_terse": "original", "reason": "explanation"}
 ```
 
 Each line must be independently valid JSON. No trailing commas.

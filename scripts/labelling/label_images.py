@@ -7,6 +7,8 @@ import json
 import random
 import shutil
 import sys
+import time
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -17,20 +19,12 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 MAX_DIMENSION = 7999
 THUMBNAIL_MAX_SIZE = 800
 BATCH_SIZE = 10
+COOLDOWN_SECONDS = 60
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def relpath_to_thumbnail_name(relpath: str) -> str:
-    """Convert a relative path to a flat thumbnail filename.
-
-    Replaces directory separators with '__' to flatten subdirectories.
-    e.g. 'subfolder/Map.jpg' -> 'subfolder__Map.jpg'
-    """
-    return relpath.replace("/", "__").replace("\\", "__")
 
 
 def collect_images(source_dir: Path) -> list[Path]:
@@ -77,6 +71,23 @@ def load_relpaths_from_jsonl(path: Path, key: str = "relpath") -> set[str]:
                 except (json.JSONDecodeError, KeyError):
                     pass
     return result
+
+
+def generate_image_id() -> str:
+    """Generate a random UUID4 hex string for anonymous image identification."""
+    return uuid.uuid4().hex
+
+
+def load_mapping(prep_dir: Path) -> dict[str, str]:
+    """Load the thumbnail-name-to-relpath mapping from a prep directory.
+
+    Returns a dict mapping anonymous thumbnail filenames to real relative paths.
+    Returns an empty dict if no mapping file exists (non-anonymized prep).
+    """
+    mapping_path = prep_dir / "mapping.json"
+    if mapping_path.exists():
+        return json.loads(mapping_path.read_text(encoding="utf-8"))
+    return {}
 
 
 def load_template(name: str) -> str:
@@ -134,7 +145,7 @@ def sample_images_stratified(
     weights: dict[str, float] = {}
     for folder_name in folder_names:
         count = len(folder_groups[folder_name])
-        weights[folder_name] = 1.0 / (count ** 0.5)
+        weights[folder_name] = 1.0 / (count**0.5)
 
     total_weight = sum(weights.values())
 
@@ -230,14 +241,18 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         sampled = False
 
     # Process each image with progress bar
-    valid_relpaths: list[str] = []
+    # mapping: anonymous thumbnail name -> real relpath
+    mapping: dict[str, str] = {}
+    valid_thumb_names: list[str] = []
     skipped: list[tuple[str, str]] = []
 
     for img_path in tqdm(all_images, desc="Processing images", unit="img"):
         relpath = img_path.relative_to(source_dir).as_posix()
-        thumb_name = relpath_to_thumbnail_name(relpath)
 
-        # Preserve original extension for the thumbnail
+        # Generate anonymous thumbnail name using UUID
+        ext = ".png" if img_path.suffix.lower() == ".png" else ".jpg"
+        image_id = generate_image_id()
+        thumb_name = f"{image_id}{ext}"
         thumb_path = thumb_dir / thumb_name
 
         result = create_thumbnail(img_path, thumb_path)
@@ -255,48 +270,56 @@ def cmd_prepare(args: argparse.Namespace) -> int:
 
             skipped.append((relpath, reason))
         else:
-            valid_relpaths.append(relpath)
+            mapping[thumb_name] = relpath
+            valid_thumb_names.append(thumb_name)
 
     # Shuffle before batching to mix images from different groups
-    random.shuffle(valid_relpaths)
+    random.shuffle(valid_thumb_names)
 
-    # Write batch files
+    # Write batch files (containing anonymous thumbnail names, not relpaths)
     num_batches = 0
-    for i in range(0, len(valid_relpaths), BATCH_SIZE):
-        batch = valid_relpaths[i : i + BATCH_SIZE]
+    for i in range(0, len(valid_thumb_names), BATCH_SIZE):
+        batch = valid_thumb_names[i : i + BATCH_SIZE]
         num_batches += 1
         batch_path = batch_dir / f"batch-{num_batches:03d}.txt"
         batch_path.write_text("\n".join(batch) + "\n", encoding="utf-8")
 
+    # Write mapping file for UUID-to-relpath resolution
+    (prep_dir / "mapping.json").write_text(json.dumps(mapping, indent=2) + "\n", encoding="utf-8")
+
     # Write config
     config = {
         "source_dir": str(source_dir),
-        "image_count": len(valid_relpaths),
+        "image_count": len(valid_thumb_names),
         "skipped_count": len(skipped),
         "batch_count": num_batches,
         "batch_size": BATCH_SIZE,
         "sampled": sampled,
+        "anonymized": True,
         "created_at": datetime.now(UTC).isoformat(),
     }
     if sampled and sample_target:
         config["sample_target"] = sample_target
     (prep_dir / "config.json").write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
-    # Write skipped list
+    # Write skipped list (anonymized — only reasons, no filenames)
     skipped_path = prep_dir / "skipped.txt"
     if skipped:
-        lines = [f"{relpath}: {reason}" for relpath, reason in skipped]
+        lines = [f"image {i + 1}: {reason}" for i, (_, reason) in enumerate(skipped)]
         skipped_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     else:
         skipped_path.write_text("No images skipped.\n", encoding="utf-8")
 
     print("\nPrepare complete:")
-    print(f"  Valid images: {len(valid_relpaths)}")
+    print(f"  Valid images: {len(valid_thumb_names)}")
     print(f"  Skipped: {len(skipped)}")
     print(f"  Batches: {num_batches}")
     if sampled:
-        print(f"  Sampling: target={sample_target}, sampled={len(all_images)}, valid={len(valid_relpaths)}")
+        print(
+            f"  Sampling: target={sample_target}, sampled={len(all_images)}, valid={len(valid_thumb_names)}"
+        )
     print(f"  Prep dir: {prep_dir}")
+    print("  Anonymized: yes (UUID-based thumbnails and batches)")
     return 0
 
 
@@ -424,11 +447,40 @@ def cmd_status(args: argparse.Namespace) -> int:
         return _status_labeling(prep_dir, run_dir, config)
 
 
+def _enforce_cooldown(run_dir: Path) -> None:
+    """Enforce a cooldown between status calls to avoid API rate limits.
+
+    Checks the timestamp of the last status call and sleeps if needed
+    to ensure at least COOLDOWN_SECONDS have elapsed. Uses wall-clock
+    time (time.time()) so timestamps are meaningful across process
+    invocations and system reboots.
+    """
+    timestamp_path = run_dir / ".last_status_time"
+    now = time.time()
+
+    if timestamp_path.exists():
+        try:
+            last_time = float(timestamp_path.read_text(encoding="utf-8").strip())
+            elapsed = now - last_time
+            if 0 <= elapsed < COOLDOWN_SECONDS:
+                wait = COOLDOWN_SECONDS - elapsed
+                print(f"Cooldown: waiting {wait:.0f}s before next batch...")
+                time.sleep(wait)
+                now = time.time()
+        except (ValueError, OSError):
+            pass
+
+    timestamp_path.write_text(str(now), encoding="utf-8")
+
+
 def _status_labeling(prep_dir: Path, run_dir: Path, config: dict) -> int:
     if not run_dir.exists():
         print(f"Error: run directory does not exist: {run_dir}", file=sys.stderr)
         print("Run 'init' first to create a labeling run.", file=sys.stderr)
         return 1
+
+    # Enforce cooldown between status calls
+    _enforce_cooldown(run_dir)
 
     batch_dir = prep_dir / "batches"
     labeled = load_relpaths_from_jsonl(run_dir / "labels.jsonl")
@@ -450,25 +502,25 @@ def _status_labeling(prep_dir: Path, run_dir: Path, config: dict) -> int:
 
     batch_lines: list[str] = []
     for batch_path in batch_files:
-        relpaths = load_batch_relpaths(batch_path)
-        done = sum(1 for r in relpaths if r in labeled)
-        total_images += len(relpaths)
+        entries = load_batch_relpaths(batch_path)
+        done = sum(1 for r in entries if r in labeled)
+        total_images += len(entries)
         total_labeled += done
 
         batch_name = batch_path.stem
 
-        if done == len(relpaths):
-            batch_lines.append(f"  {batch_name}: {done}/{len(relpaths)} DONE")
+        if done == len(entries):
+            batch_lines.append(f"  {batch_name}: {done}/{len(entries)} DONE")
         elif done > 0:
-            batch_lines.append(f"  {batch_name}: {done}/{len(relpaths)} incomplete")
+            batch_lines.append(f"  {batch_name}: {done}/{len(entries)} incomplete")
             if next_batch is None:
                 next_batch = batch_path.name
-                next_remaining = [r for r in relpaths if r not in labeled]
+                next_remaining = [r for r in entries if r not in labeled]
         else:
-            batch_lines.append(f"  {batch_name}: {done}/{len(relpaths)} pending")
+            batch_lines.append(f"  {batch_name}: {done}/{len(entries)} pending")
             if next_batch is None:
                 next_batch = batch_path.name
-                next_remaining = relpaths
+                next_remaining = entries
 
     # Print report
     pct = (total_labeled / total_images * 100) if total_images > 0 else 0
@@ -485,8 +537,8 @@ def _status_labeling(prep_dir: Path, run_dir: Path, config: dict) -> int:
     if next_batch:
         print(f"\nNext: {next_batch}")
         print(f"Remaining in {next_batch}:")
-        for r in next_remaining:
-            print(f"  {r}")
+        for entry in next_remaining:
+            print(f"  {entry}")
     elif total_labeled == total_images:
         print("\nAll images labeled!")
 
@@ -524,6 +576,57 @@ def _status_review(prep_dir: Path, review_dir: Path, config: dict) -> int:
     else:
         print("\nAll labels reviewed!")
 
+    return 0
+
+
+def cmd_resolve(args: argparse.Namespace) -> int:
+    """Replace anonymous image IDs in labels with real relative paths."""
+    prep_dir = Path(args.prep_dir)
+    run_dir = Path(args.run_dir)
+
+    mapping_path = prep_dir / "mapping.json"
+    if not mapping_path.exists():
+        print(f"Error: no mapping.json found in {prep_dir}", file=sys.stderr)
+        return 1
+    mapping = load_mapping(prep_dir)
+
+    labels_path = run_dir / "labels.jsonl"
+    if not labels_path.exists():
+        print(f"Error: no labels.jsonl found in {run_dir}", file=sys.stderr)
+        return 1
+
+    output_path = run_dir / "labels-resolved.jsonl"
+    resolved_count = 0
+    missing_ids: list[str] = []
+
+    lines = labels_path.read_text(encoding="utf-8").splitlines()
+    resolved_lines: list[str] = []
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        image_id = entry.get("relpath", "")
+        if image_id in mapping:
+            entry["relpath"] = mapping[image_id]
+            resolved_count += 1
+        else:
+            missing_ids.append(image_id)
+
+        resolved_lines.append(json.dumps(entry, ensure_ascii=False))
+
+    output_path.write_text("\n".join(resolved_lines) + "\n", encoding="utf-8")
+
+    print(f"Resolved {resolved_count} labels -> {output_path}")
+    if missing_ids:
+        print(f"Warning: {len(missing_ids)} image IDs not found in mapping:", file=sys.stderr)
+        for mid in missing_ids[:10]:
+            print(f"  {mid}", file=sys.stderr)
     return 0
 
 
@@ -567,6 +670,17 @@ def main() -> int:
     p_status.add_argument("--run-dir", help="Path to labeling run directory")
     p_status.add_argument("--review-dir", help="Path to review directory")
 
+    # resolve
+    p_resolve = subparsers.add_parser(
+        "resolve", help="Replace anonymous IDs with real paths in labels"
+    )
+    p_resolve.add_argument(
+        "--prep-dir", required=True, help="Path to prep directory (has mapping.json)"
+    )
+    p_resolve.add_argument(
+        "--run-dir", required=True, help="Path to run directory (has labels.jsonl)"
+    )
+
     args = parser.parse_args()
 
     # Validate status args
@@ -578,10 +692,11 @@ def main() -> int:
         "init": cmd_init,
         "init-review": cmd_init_review,
         "status": cmd_status,
+        "resolve": cmd_resolve,
     }
 
     # Suppress unused variable warnings for subparser references
-    _ = p_prepare, p_init, p_review, p_status
+    _ = p_prepare, p_init, p_review, p_status, p_resolve
 
     return commands[args.command](args)
 
