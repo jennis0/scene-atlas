@@ -87,6 +87,7 @@ asyncio_mode = "auto"
 testpaths = [
     "backend/tests/unit",
     "backend/tests/integration",
+    "scripts/labelling/tests",
 ]
 addopts = "--ignore=backend/tests/legacy --ignore=backend/tests/e2e -m 'not heavy'"
 markers = [

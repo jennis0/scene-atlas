@@ -39,6 +39,11 @@ def generate_labelstudio_xml() -> str:
   </View>
 
   <View style="box-shadow: 2px 2px 5px rgba(0,0,0,0.1); padding: 10px">
+    <Text value="Description (Alt):" style="font-weight: bold;"/>
+    <TextArea name="description_alt" toName="image" rows="3" placeholder="Alternative description with different vocabulary"/>
+  </View>
+
+  <View style="box-shadow: 2px 2px 5px rgba(0,0,0,0.1); padding: 10px">
     <Text value="Description (Search):" style="font-weight: bold;"/>
     <TextArea name="description_search" toName="image" rows="2" placeholder="Comma-separated keywords and phrases"/>
   </View>
@@ -102,6 +107,13 @@ def build_labelstudio_task(
             "type": "textarea",
             "value": {"text": [label.get("description_standard", "")]},
             "id": f"desc_std_{task_id}",
+        },
+        {
+            "from_name": "description_alt",
+            "to_name": "image",
+            "type": "textarea",
+            "value": {"text": [label.get("description_alt", "")]},
+            "id": f"desc_alt_{task_id}",
         },
         {
             "from_name": "description_search",
@@ -183,9 +195,7 @@ def export_labelstudio(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Export labels.jsonl to Label Studio JSON format."
-    )
+    parser = argparse.ArgumentParser(description="Export labels.jsonl to Label Studio JSON format.")
     parser.add_argument("--input", required=True, help="Input labels.jsonl file")
     parser.add_argument("--output", required=True, help="Output tasks.json file")
     parser.add_argument(
