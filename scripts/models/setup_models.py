@@ -5,7 +5,7 @@ Idempotent: checks if the model's ONNX files already exist and skips if they do.
 Uses export_model_onnx.py which handles both downloading and exporting.
 
 Usage:
-    uv run python scripts/setup_models.py
+    uv run python scripts/models/setup_models.py
 """
 
 import os

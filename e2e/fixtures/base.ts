@@ -19,7 +19,7 @@ export const test = base.extend<object, { seedData: void }>({
   seedData: [
     async ({}, use) => {
       // Ensure CLIP ONNX models are present (idempotent, downloads if missing)
-      execSync("uv run python scripts/setup_models.py", {
+      execSync("uv run python scripts/models/setup_models.py", {
         cwd: PROJECT_ROOT,
         stdio: "inherit",
       });
