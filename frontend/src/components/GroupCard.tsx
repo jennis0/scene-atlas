@@ -55,6 +55,7 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
 
   return (
     <div
+      data-testid="group-card"
       className="group/card relative cursor-pointer overflow-hidden rounded-lg border border-border/30 bg-card transition-[transform,box-shadow] duration-200 hover:border-primary/40 hover:shadow-xl hover:shadow-black/40"
       onClick={onClick}
     >

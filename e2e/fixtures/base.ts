@@ -1,11 +1,10 @@
 import { test as base } from "@playwright/test";
 import { execSync } from "child_process";
-import fs from "fs";
 import path from "path";
+import { ensureTestImages } from "../helpers/decrypt-fixtures";
 import { seedTestData } from "../helpers/seed";
 
 const PROJECT_ROOT = path.resolve(__dirname, "..", "..");
-const IMAGE_DIR = path.resolve(__dirname, "..", ".tmp-images");
 const BACKEND_URL = "http://localhost:8000";
 
 /**
@@ -24,14 +23,8 @@ export const test = base.extend<object, { seedData: void }>({
         stdio: "inherit",
       });
 
-      // Generate test images if they don't already exist
-      if (!fs.existsSync(IMAGE_DIR) || fs.readdirSync(IMAGE_DIR).length === 0) {
-        fs.mkdirSync(IMAGE_DIR, { recursive: true });
-        execSync(
-          `uv run python scripts/generate_e2e_images.py --output-dir "${IMAGE_DIR}"`,
-          { cwd: PROJECT_ROOT, stdio: "inherit" },
-        );
-      }
+      // Decrypt and extract test images if not already present
+      const imageDir = ensureTestImages();
 
       // Check if data is already seeded (images exist in the backend)
       console.log("[fixture] Checking backend for existing data...");
@@ -44,7 +37,7 @@ export const test = base.extend<object, { seedData: void }>({
       if (facets.total_images === 0) {
         console.log("[fixture] No data found — running seed...");
         // Seed test data via the import API
-        await seedTestData(IMAGE_DIR);
+        await seedTestData(imageDir);
 
         // Verify seeding succeeded — pipeline must have run with CLIP models
         console.log("[fixture] Verifying seed result...");
