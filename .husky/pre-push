@@ -68,3 +68,6 @@ cd ..
 
 echo ""
 echo "✅ All pre-push checks passed!"
+
+# ── Git LFS ─────────────────────────────────────────────────────────────────
+command -v git-lfs >/dev/null 2>&1 && git lfs pre-push "$@"

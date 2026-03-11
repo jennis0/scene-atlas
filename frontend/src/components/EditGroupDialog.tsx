@@ -388,7 +388,10 @@ export default function EditGroupDialog({
         if (!o && !saving) onClose()
       }}
     >
-      <DialogContent className="max-w-5xl h-[85vh] overflow-hidden flex flex-col p-0 gap-0">
+      <DialogContent
+        data-testid="edit-group-dialog"
+        className="max-w-5xl h-[85vh] overflow-hidden flex flex-col p-0 gap-0"
+      >
         {/* Amber stripe */}
         <div className="absolute top-0 inset-x-0 h-0.5 bg-gradient-to-r from-primary/70 via-primary/30 to-transparent pointer-events-none rounded-t-xl" />
 

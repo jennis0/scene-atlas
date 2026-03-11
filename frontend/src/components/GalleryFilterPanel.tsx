@@ -157,6 +157,7 @@ export function GalleryFilterPanel({ filters, facets, onFiltersChange }: Gallery
       </PopoverTrigger>
 
       <PopoverContent
+        data-testid="filter-popover"
         align="end"
         className="w-[400px] p-0 h-[520px] flex flex-col bg-card rounded-lg overflow-hidden"
       >

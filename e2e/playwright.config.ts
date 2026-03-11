@@ -1,5 +1,9 @@
 import { defineConfig, devices } from '@playwright/test'
+import { config } from 'dotenv'
 import path from 'path'
+
+// Load .env from project root (parent of e2e/)
+config({ path: path.resolve(__dirname, '..', '.env') })
 
 const isCI = !!process.env.CI
 

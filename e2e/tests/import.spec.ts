@@ -1,69 +1,63 @@
-import { test, expect } from '../fixtures/base'
-import path from 'path'
-import fs from 'fs'
+import { test, expect } from "../fixtures/base";
+import path from "path";
+import fs from "fs";
+import { getTestImagePaths } from "../helpers/actions";
 
-test.describe('Import flow', () => {
-  test('import dialog opens and shows upload UI', async ({ page }) => {
-    await page.goto('/')
-    await expect(page.locator('h1')).toContainText('Scene Atlas')
+test.describe("Import flow", () => {
+  test("import dialog opens and shows upload UI", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.locator("h1")).toContainText("Scene Atlas");
 
     // Click the Import button (has title="Import images")
-    await page.getByTitle('Import images').click()
+    await page.getByTitle("Import images").click();
 
     // The import dialog should open — custom Dialog uses div.fixed.inset-0.z-50
-    await expect(page.getByText('Import Scenes')).toBeVisible({ timeout: 5_000 })
+    await expect(page.getByText("Import Scenes")).toBeVisible({
+      timeout: 5_000,
+    });
 
     // Should show upload controls
-    await expect(
-      page.getByText(/Drop files or folders here/),
-    ).toBeVisible()
-    await expect(
-      page.getByText('Browse files'),
-    ).toBeVisible()
-  })
+    await expect(page.getByText(/Drop files or folders here/)).toBeVisible();
+    await expect(page.getByText("Browse files")).toBeVisible();
+  });
 
-  test('upload a file and see it in preview', async ({ page }) => {
-    await page.goto('/')
-    await expect(page.locator('h1')).toContainText('Scene Atlas')
+  test("upload a file and see it in preview", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.locator("h1")).toContainText("Scene Atlas");
 
     // Open import dialog
-    await page.getByTitle('Import images').click()
-    await expect(page.getByText('Import Scenes')).toBeVisible({ timeout: 5_000 })
+    await page.getByTitle("Import images").click();
+    await expect(page.getByText("Import Scenes")).toBeVisible({
+      timeout: 5_000,
+    });
 
     // Find a test image to upload
     const imageDir =
-      process.env.E2E_IMAGE_DIR ||
-      path.resolve(__dirname, '..', '.tmp-images')
+      process.env.E2E_IMAGE_DIR || path.resolve(__dirname, "..", ".tmp-images");
 
-    // In CI, images must be available — fail hard if missing
-    if (!fs.existsSync(imageDir)) {
-      if (process.env.CI) throw new Error(`Image dir missing: ${imageDir}`)
-      test.skip()
-      return
-    }
-
-    const testFile = path.resolve(imageDir, 'LooseFile_Tavern.jpg')
-    if (!fs.existsSync(testFile)) {
-      if (process.env.CI) throw new Error(`Test file missing: ${testFile}`)
-      test.skip()
-      return
+    const testFiles = getTestImagePaths(imageDir, 1);
+    if (testFiles.length === 0) {
+      if (process.env.CI)
+        throw new Error(`No test images found in ${imageDir}`);
+      test.skip();
+      return;
     }
 
     // Use the file chooser to upload
-    const fileChooserPromise = page.waitForEvent('filechooser')
+    const fileChooserPromise = page.waitForEvent("filechooser");
 
     // Click the "Browse files" button to trigger file chooser
-    await page.getByText('Browse files').click()
+    await page.getByText("Browse files").click();
 
-    const fileChooser = await fileChooserPromise
-    await fileChooser.setFiles(testFile)
+    const fileChooser = await fileChooserPromise;
+    await fileChooser.setFiles(testFiles[0]);
 
     // After upload, the dialog auto-confirms all groups and closes itself when
     // processing starts (ImportDialog closes on state='processing'). Wait for
     // the 'Import Scenes' heading to disappear — that's the reliable signal
     // that upload + analysis + auto-confirm all completed successfully.
     await expect(
-      page.getByRole('heading', { name: 'Import Scenes' }),
-    ).toBeHidden({ timeout: 30_000 })
-  })
-})
+      page.getByRole("heading", { name: "Import Scenes" }),
+    ).toBeHidden({ timeout: 30_000 });
+  });
+});

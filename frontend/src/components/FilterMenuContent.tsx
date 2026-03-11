@@ -981,6 +981,7 @@ function FilterChip({
   if (filter.exclude) {
     return (
       <span
+        data-testid="filter-chip"
         className="inline-flex items-center gap-1 text-xs rounded-full border border-destructive/30 bg-destructive/10 text-destructive px-2 py-0.5"
         title={filter.label}
       >
@@ -1017,6 +1018,7 @@ function FilterChip({
 
   return (
     <span
+      data-testid="filter-chip"
       className={`inline-flex items-center gap-1 text-xs rounded-full px-2 py-0.5 ${chipClasses}`}
       title={filter.label}
     >

@@ -91,6 +91,7 @@ export function ActivityDock({
   if (!expanded) {
     return (
       <button
+        data-testid="activity-dock-pill"
         onClick={() => setExpanded(true)}
         className="fixed bottom-6 right-6 z-30
           flex items-center gap-2 py-2 px-3.5
@@ -138,6 +139,7 @@ export function ActivityDock({
 
       <div className="fixed bottom-6 right-6 z-30">
         <div
+          data-testid="activity-dock-panel"
           className="w-[320px] flex flex-col bg-card rounded-xl border border-border/30
             shadow-2xl shadow-black/60 overflow-hidden"
           style={{ maxHeight: 'min(520px, 65vh)' }}
@@ -290,6 +292,7 @@ function ImportJobCard({
 
   return (
     <div
+      data-testid="import-job-card"
       className={`group/job rounded-md border transition-colors cursor-pointer ${
         isTerminal
           ? 'border-border/15 bg-muted/10 opacity-75 hover:opacity-100'
