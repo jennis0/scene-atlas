@@ -1,5 +1,4 @@
 import { test, expect } from "../fixtures/base";
-import path from "path";
 import fs from "fs";
 import {
   waitForGalleryLoad,
@@ -11,19 +10,18 @@ import {
   getTestImagePaths,
   openImageViewer,
 } from "../helpers/actions";
+import { IMAGE_DIR } from "../helpers/decrypt-fixtures";
 
-const imageDir = path.resolve(__dirname, "..", ".tmp-images");
-
-test.describe.serial("Upload -> Process -> Edit -> Search", () => {
+test.describe("Upload & Gallery Interactions", () => {
   test("upload images via import dialog", async ({ page }) => {
     test.setTimeout(180_000);
     // Skip if no test images available
-    if (!fs.existsSync(imageDir)) {
+    if (!fs.existsSync(IMAGE_DIR)) {
       test.skip();
       return;
     }
 
-    const filePaths = getTestImagePaths(imageDir, 4);
+    const filePaths = getTestImagePaths(IMAGE_DIR, 4);
     if (filePaths.length === 0) {
       test.skip();
       return;
@@ -99,7 +97,7 @@ test.describe.serial("Upload -> Process -> Edit -> Search", () => {
     await openFilterPanel(page);
 
     // Click the first author option in the filter panel
-    const filterPopover = page.locator("[data-radix-popper-content-wrapper]");
+    const filterPopover = page.getByTestId("filter-popover");
     await expect(filterPopover).toBeVisible({ timeout: 5_000 });
     const filterOption = filterPopover.locator("button[title]").first();
     await filterOption.click({ timeout: 5_000 });

@@ -1,7 +1,6 @@
 import fs from "fs";
 import path from "path";
-
-const BACKEND_URL = "http://localhost:8000";
+import { BACKEND_URL } from "./config";
 
 interface ImportFileInfo {
   relative_path: string;

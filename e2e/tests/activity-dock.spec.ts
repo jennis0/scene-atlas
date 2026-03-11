@@ -1,5 +1,4 @@
 import { test, expect } from "../fixtures/base";
-import path from "path";
 import fs from "fs";
 import {
   waitForGalleryLoad,
@@ -7,18 +6,17 @@ import {
   uploadFiles,
   getTestImagePaths,
 } from "../helpers/actions";
-
-const imageDir = path.resolve(__dirname, "..", ".tmp-images");
+import { IMAGE_DIR } from "../helpers/decrypt-fixtures";
 
 test.describe("Activity Dock", () => {
   test("dock pill appears after starting import", async ({ page }) => {
     // Skip if no test images available
-    if (!fs.existsSync(imageDir)) {
+    if (!fs.existsSync(IMAGE_DIR)) {
       test.skip();
       return;
     }
 
-    const filePaths = getTestImagePaths(imageDir, 2);
+    const filePaths = getTestImagePaths(IMAGE_DIR, 2);
     if (filePaths.length === 0) {
       test.skip();
       return;
@@ -48,12 +46,12 @@ test.describe("Activity Dock", () => {
 
     if (!pillVisible) {
       // No active jobs — start an import to make the dock appear
-      if (!fs.existsSync(imageDir)) {
+      if (!fs.existsSync(IMAGE_DIR)) {
         test.skip();
         return;
       }
 
-      const filePaths = getTestImagePaths(imageDir, 2);
+      const filePaths = getTestImagePaths(IMAGE_DIR, 2);
       if (filePaths.length === 0) {
         test.skip();
         return;

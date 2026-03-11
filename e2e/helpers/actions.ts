@@ -2,8 +2,6 @@ import { Page, expect } from "@playwright/test";
 import path from "path";
 import fs from "fs";
 
-const BACKEND_URL = "http://localhost:8000";
-
 /** Wait for the gallery to load and show a scene count. */
 export async function waitForGalleryLoad(
   page: Page,
@@ -79,24 +77,6 @@ export async function switchToIndividualView(page: Page): Promise<void> {
 /** Open the filter panel popover. */
 export async function openFilterPanel(page: Page): Promise<void> {
   await page.getByRole("button", { name: /Filters/ }).click();
-}
-
-/** Poll the backend API until an import job completes. */
-export async function waitForImportComplete(
-  jobId: string,
-  timeoutMs = 120_000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const res = await fetch(`${BACKEND_URL}/api/v1/imports/${jobId}/status`);
-    const data = (await res.json()) as { status: string };
-    if (data.status === "completed") return;
-    if (data.status === "failed") {
-      throw new Error(`Import job ${jobId} failed: ${JSON.stringify(data)}`);
-    }
-    await new Promise((r) => setTimeout(r, 1000));
-  }
-  throw new Error(`Import job ${jobId} timed out after ${timeoutMs}ms`);
 }
 
 /**

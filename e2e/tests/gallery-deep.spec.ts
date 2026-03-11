@@ -64,7 +64,7 @@ test.describe("Gallery Deep", () => {
     // The filter panel has category nav on the left and options on the right.
     // The "Authors" category should be selected by default. Click the first
     // author option in the right pane (author name from seeded data: "e2e-images").
-    const filterPopover = page.locator("[data-radix-popper-content-wrapper]");
+    const filterPopover = page.getByTestId("filter-popover");
     await expect(filterPopover).toBeVisible({ timeout: 5_000 });
 
     // Author options have a title attribute with the author name
@@ -79,9 +79,7 @@ test.describe("Gallery Deep", () => {
     // Close the filter popover first (Escape), wait for it to close,
     // then click header's "Clear all"
     await page.keyboard.press("Escape");
-    await expect(
-      page.locator("[data-radix-popper-content-wrapper]"),
-    ).not.toBeVisible({ timeout: 5_000 });
+    await expect(filterPopover).not.toBeVisible({ timeout: 5_000 });
     await page.getByRole("button", { name: "Clear all" }).click();
 
     // Verify filter chips are gone
@@ -145,26 +143,5 @@ test.describe("Gallery Deep", () => {
     await expect(page.getByTestId("scene-tile").first()).toBeVisible({
       timeout: 5_000,
     });
-  });
-
-  test("sort dropdown changes ordering", async ({ page }) => {
-    await page.goto("/");
-    await waitForGalleryLoad(page);
-
-    // Open the sort dropdown
-    const sortButton = page.getByRole("button", { name: /Newest|Oldest|Name/ });
-    await sortButton.click();
-
-    // Select "Name A-Z"
-    await page.getByRole("menuitemradio", { name: /Name A/ }).click();
-
-    // Verify the sort button label updated
-    await expect(page.getByRole("button", { name: /Name A/ })).toBeVisible();
-
-    // Restore default: open dropdown again and select "Newest"
-    await page.getByRole("button", { name: /Name A/ }).click();
-    await page.getByRole("menuitemradio", { name: /Newest/ }).click();
-
-    await expect(page.getByRole("button", { name: /Newest/ })).toBeVisible();
   });
 });

@@ -65,6 +65,7 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
+                data-testid="group-card-menu"
                 className="opacity-0 group-hover/card:opacity-100 h-7 w-7 rounded-md flex items-center justify-center bg-black/50 text-white/80 hover:text-white hover:bg-black/70 backdrop-blur-sm transition-all"
                 onClick={(e) => e.stopPropagation()}
                 onPointerDown={(e) => e.stopPropagation()}

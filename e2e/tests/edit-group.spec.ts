@@ -1,55 +1,33 @@
 import { test, expect } from "../fixtures/base";
 import { waitForGalleryLoad, switchToGroupedView } from "../helpers/actions";
+import { Page } from "@playwright/test";
+
+/** Navigate to grouped view and open the EditGroupDialog for the first group. */
+async function openEditDialogForFirstGroup(page: Page) {
+  await page.goto("/");
+  await waitForGalleryLoad(page);
+  await switchToGroupedView(page);
+
+  const groupCard = page.getByTestId("group-card").first();
+  await expect(groupCard).toBeVisible({ timeout: 10_000 });
+
+  await groupCard.hover();
+  await groupCard.getByTestId("group-card-menu").click();
+  await page.getByRole("menuitem", { name: /Edit/ }).click();
+
+  const dialog = page.getByTestId("edit-group-dialog");
+  await expect(dialog).toBeVisible({ timeout: 5_000 });
+  return dialog;
+}
 
 test.describe("Edit Group Dialog", () => {
   test("opens from group card context menu", async ({ page }) => {
-    await page.goto("/");
-    await waitForGalleryLoad(page);
-
-    // Switch to grouped view
-    await switchToGroupedView(page);
-
-    // Wait for group cards to appear
-    const groupCard = page.getByTestId("group-card").first();
-    await expect(groupCard).toBeVisible({ timeout: 10_000 });
-
-    // Hover the card to reveal the three-dot menu button, then click it
-    await groupCard.hover();
-    const menuButton = groupCard
-      .locator("button")
-      .filter({ has: page.locator("svg") })
-      .last();
-    await menuButton.click();
-
-    // Click "Edit" in the context menu
-    await page.getByRole("menuitem", { name: /Edit/ }).click();
-
-    // Verify the EditGroupDialog opens
-    await expect(page.getByTestId("edit-group-dialog")).toBeVisible({
-      timeout: 5_000,
-    });
+    const dialog = await openEditDialogForFirstGroup(page);
+    await expect(dialog).toBeVisible();
   });
 
   test("shows group images and metadata", async ({ page }) => {
-    await page.goto("/");
-    await waitForGalleryLoad(page);
-
-    // Switch to grouped view and open edit dialog
-    await switchToGroupedView(page);
-
-    const groupCard = page.getByTestId("group-card").first();
-    await expect(groupCard).toBeVisible({ timeout: 10_000 });
-
-    await groupCard.hover();
-    const menuButton = groupCard
-      .locator("button")
-      .filter({ has: page.locator("svg") })
-      .last();
-    await menuButton.click();
-    await page.getByRole("menuitem", { name: /Edit/ }).click();
-
-    const dialog = page.getByTestId("edit-group-dialog");
-    await expect(dialog).toBeVisible({ timeout: 5_000 });
+    const dialog = await openEditDialogForFirstGroup(page);
 
     // Verify images are listed (img elements or thumbnails within the dialog)
     await expect(dialog.locator("img").first()).toBeVisible({ timeout: 5_000 });
@@ -65,25 +43,7 @@ test.describe("Edit Group Dialog", () => {
   });
 
   test("can close dialog with escape", async ({ page }) => {
-    await page.goto("/");
-    await waitForGalleryLoad(page);
-
-    // Switch to grouped view and open edit dialog
-    await switchToGroupedView(page);
-
-    const groupCard = page.getByTestId("group-card").first();
-    await expect(groupCard).toBeVisible({ timeout: 10_000 });
-
-    await groupCard.hover();
-    const menuButton = groupCard
-      .locator("button")
-      .filter({ has: page.locator("svg") })
-      .last();
-    await menuButton.click();
-    await page.getByRole("menuitem", { name: /Edit/ }).click();
-
-    const dialog = page.getByTestId("edit-group-dialog");
-    await expect(dialog).toBeVisible({ timeout: 5_000 });
+    const dialog = await openEditDialogForFirstGroup(page);
 
     // Press Escape to close
     await page.keyboard.press("Escape");

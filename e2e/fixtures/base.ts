@@ -3,9 +3,9 @@ import { execSync } from "child_process";
 import path from "path";
 import { ensureTestImages } from "../helpers/decrypt-fixtures";
 import { seedTestData } from "../helpers/seed";
+import { BACKEND_URL } from "../helpers/config";
 
 const PROJECT_ROOT = path.resolve(__dirname, "..", "..");
-const BACKEND_URL = "http://localhost:8000";
 
 /**
  * Extended test fixture that automatically seeds test data once per worker.
