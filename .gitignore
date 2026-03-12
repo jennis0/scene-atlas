@@ -116,3 +116,6 @@ stress_tests/results/
 
 # Quantisation ablation results (generated, machine-specific)
 scripts/results/
+
+# Scraped evaluation data (copyrighted images, not for redistribution)
+eval/data/dndbeyond/
