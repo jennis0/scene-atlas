@@ -382,6 +382,31 @@ embeddings_by_id = get_qdrant_service().get_embeddings(source_ids)
 
 ---
 
+---
+
+## 11. Remove `continue-on-error` from CI security scanning
+
+**Priority: Medium**
+**Effort: Small (30 minutes)**
+**Files:** `.github/workflows/ci.yml`
+**Target:** 2 weeks after merge (2026-03-28)
+
+### Problem
+
+The `pip-audit`, `bandit`, and `npm audit` CI steps all use `continue-on-error: true`,
+so findings never fail the build. This was necessary to establish a baseline without
+blocking CI, but it means findings will be permanently ignored unless someone actively
+reviews CI logs on green builds.
+
+### Fix
+
+1. Triage the initial findings (fix or suppress known issues).
+2. Remove `continue-on-error: true` from all three steps.
+3. Add targeted `bandit` exclusions (via `bandit.yaml` or `# nosec` comments) for
+   any remaining acceptable findings.
+
+---
+
 ## Priority Summary
 
 | # | Item | Priority | Effort |

@@ -42,6 +42,8 @@ dev = [
     "transformers>=4.36.0,<5.0",
     "onnx>=1.14.0,<2.0",   # ONNX export + quantisation tools (dev only)
     "tqdm>=4.60.0",
+    "pip-audit>=2.7.0",    # CI: Python CVE scanning
+    "bandit>=1.7.0",       # CI: Python SAST
 ]
 
 [build-system]
