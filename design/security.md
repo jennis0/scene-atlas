@@ -1,6 +1,6 @@
 # Security Evaluation — Scene Atlas (Hosted Mode)
 
-**Date**: 2026-03-07 (updated)
+**Date**: 2026-03-14 (updated)
 **Scope**: Hosted deployment behind reverse proxy
 
 ## Deployment Model
@@ -12,17 +12,19 @@ Scene Atlas has three deployment modes:
 
 This evaluation focuses on mode 2.
 
+**Server mode deployment requirement**: Until session-based authentication is implemented, server mode MUST be behind network-level access control (VPN, Tailscale, Cloudflare Access, or similar). The application currently has no authentication — all API endpoints are accessible to anyone who can reach the server.
+
 ---
 
 ## What's Already Done Well
 
 | Area | Details |
 |------|---------|
-| SQL injection | All queries use SQLAlchemy ORM; FTS5 input sanitized in `fts_service.py:14-27` |
+| SQL injection | All queries use SQLAlchemy ORM; FTS5 input sanitized in `fts_service.py` |
 | XSS | No unsafe DOM injection patterns; all content via React text interpolation |
-| ZIP bombs | `check_zip_safety()` in `validation.py:29-68` validates count, size, zip-slip |
+| ZIP bombs | `check_zip_safety()` in `validation.py` validates count, size, zip-slip |
 | MIME validation | `verify_media_mime()` uses PIL to verify headers match extensions |
-| File storage | UUID hash-sharded keys, not user-controlled names (`image_store.py:82-92`) |
+| File storage | UUID hash-sharded keys, not user-controlled names (`image_store.py`) |
 | Error handling | Global handler returns generic messages; details logged server-side only |
 | Secrets | No hardcoded secrets; all config via env vars; `.env` in `.gitignore` |
 | Supply chain | Lock files (`uv.lock` with hashes, `package-lock.json`) present |
@@ -36,78 +38,73 @@ This evaluation focuses on mode 2.
 
 ### 1. CRITICAL: No Authentication or Authorization
 
-**Location**: `backend/app/api/dependencies.py`
+**Status**: DEFERRED to Phase 3 (session-based auth with multi-user support)
 
-All endpoints are public, including destructive ones:
+All endpoints are currently public. Network-level isolation is required until session-based auth is implemented. Bearer-token auth was prototyped on `feature/security-phase-2` but abandoned because the token baked into the frontend JS bundle provides no real security against anyone who can access the frontend URL.
 
-| Endpoint | Risk |
-|----------|------|
-| `DELETE /api/v1/system/library` | Purges entire library |
-| `POST /api/v1/system/tags/reset` | Resets all tags |
-| `DELETE /api/v1/images/{id}` | Deletes images |
-| `POST /api/v1/search/rebuild-embeddings` | CPU-intensive ML job |
-| `GET /api/v1/export/library` | Downloads entire library |
-| `POST /api/v1/imports/*` | Upload arbitrary files |
-
-**Remediation**: Add optional bearer token auth middleware. Skip when `AUTH_TOKEN` is unset (Electron/dev). Apply to all mutating endpoints.
+**Phase 3 plan**: Login page, server-side sessions (HTTP-only cookies), CSRF protection. This approach solves the `<img src>` authentication problem natively (cookies are sent automatically) and provides a foundation for future multi-user support.
 
 ### 2. HIGH: Path Traversal in Upload Endpoint
 
-**Location**: `backend/app/api/imports.py:273`
-
-User-supplied `relative_path` was used directly to construct disk paths without `is_path_within()` validation. The preview endpoint had this check but the upload path did not.
-
-**Status**: FIXED — staging now uses UUID-based flat filenames (see below).
+**Status**: FIXED on main — staging redesign (UUID-flat-file structure with `.file_map.json` sidecar)
 
 ### 3. HIGH: No Rate Limiting
 
-**Impact**: Unlimited calls to upload, rebuild-embeddings, export, and library purge endpoints.
+**Status**: DONE (Phase 2)
 
-**Remediation**: Add `slowapi` middleware with tiered limits:
-- General: 60 req/min
-- Upload: 10 req/min
-- Expensive ops: 2 req/min
-- Destructive: 1 req/hour
+Rate limiting implemented via `slowapi` with three tiers:
+- **upload** (20/min): `POST /imports/{job_id}/upload-batch`
+- **expensive** (2/min): `POST /search/rebuild-embeddings`, `GET /export/library`, `PATCH /settings/`, `POST /tags/retag-all`, `POST /images/backfill-grids`
+- **destructive** (1/min): `DELETE /system/library`, `POST /system/tags/reset`
+
+Configurable via `RATE_LIMIT_UPLOAD`, `RATE_LIMIT_EXPENSIVE`, `RATE_LIMIT_DESTRUCTIVE` env vars. Disable entirely with `RATE_LIMIT_ENABLED=false`.
+
+**Reverse proxy requirement**: The proxy MUST overwrite (not append to) `X-Forwarded-For` so rate limiting keys on the real client IP. If the proxy appends, an attacker can spoof the header to get unlimited fresh rate limit buckets.
 
 ### 4. MEDIUM: No Security Headers
 
-**Location**: `backend/app/main.py`
+**Status**: DONE (Phase 2)
 
-Missing: `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`.
+Pure ASGI `SecurityHeadersMiddleware` adds to every response:
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY`
+- `Referrer-Policy: strict-origin-when-cross-origin`
+- `Permissions-Policy: camera=(), microphone=()`
 
-**Remediation**: Add response header middleware. Note: `Strict-Transport-Security` should come from the reverse proxy.
+HSTS intentionally omitted — must come from the reverse proxy to avoid breaking non-TLS deployments (Electron, local dev).
 
 ### 5. MEDIUM: No Security Scanning in CI/CD
 
-**Location**: `.github/workflows/ci.yml`
+**Status**: DONE (Phase 2)
 
-**Remediation**: Add `pip-audit` and `npm audit --audit-level=high` steps. Consider `bandit` for Python SAST.
+CI now includes:
+- `pip-audit --desc` (Python CVE scanning)
+- `bandit -r backend/app backend/pipeline -ll` (Python SAST)
+- `npm audit --audit-level=high` (Frontend dependency audit)
+
+All use `continue-on-error: true` initially. Tracked in `technical-debt.md` to remove within 2 weeks once baseline is triaged.
 
 ### 6. MEDIUM: Electron IPC Accepts Arbitrary Paths
 
-**Location**: `electron/src/main.ts:126-140`
-
-`fs:read-directory` and `fs:read-file-bytes` accept any path from the renderer. Should validate paths are within allowed directories.
+**Status**: Not yet implemented (future work)
 
 ### 7. MEDIUM: CORS Configuration
 
-**Location**: `backend/app/main.py:170-176`
+**Status**: DONE (Phase 2)
 
-`allow_credentials=True` with localhost defaults. Needs explicit configuration for hosted deployment.
-
-**Remediation**: Add startup warning when server mode uses localhost CORS origins.
+Startup warning logged when `APP_MODE=server` and CORS origins are still set to localhost defaults.
 
 ### 8. LOW: CSP connect-src Too Broad
 
-`connect-src 'self' http://localhost:*` should be `'self'` only for hosted mode. Electron can inject localhost variant at runtime.
+**Status**: Not yet implemented (future work)
 
 ### 9. LOW: No CSRF Protection
 
-Moot without authentication. Should be added alongside auth (finding 1).
+**Status**: Will be implemented alongside session-based auth (Phase 3)
 
 ### 10. LOW: No Dependency Vulnerability Scanning
 
-Lock files exist but no automated scanning. Covered by finding 5.
+**Status**: DONE — covered by Finding 5
 
 ---
 
@@ -120,35 +117,15 @@ The path traversal issue (finding 2) was resolved by redesigning the staging dir
 
 A `.file_map.json` sidecar maps `{relative_path: staging_key}` so group detection and the frontend still use original paths as logical identifiers.
 
-This also eliminates Windows MAX_PATH issues from deeply nested folder uploads.
-
 ---
-
-## Implementation Status
-
-- **Finding #2 (path traversal):** FIXED on main — staging redesign (UUID-flat-file structure with `.file_map.json` sidecar)
-- **Findings 1, 3–5:** Implemented on `feature/security-phase-2` branch (pushed, not merged). See details below.
-- **Findings 6–10:** Not yet implemented
-
-### Security Phase 2 Branch (`feature/security-phase-2`)
-
-The branch implements findings 1, 3, 4, and 5. Key architectural decisions made:
-
-- **Auth model:** Optional bearer token via `AUTH_TOKEN` env var. Empty string or unset disables auth (backwards-compatible for Electron/dev). All 9 API routers get auth via `dependencies=[Depends(verify_auth)]`; `/health` and `/` stay unauthenticated for monitoring probes.
-- **Token comparison:** `hmac.compare_digest` for constant-time comparison (stdlib, no extra dependency).
-- **Security headers:** `SecurityHeadersMiddleware` added after CORS middleware in `main.py`. Sets `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`.
-- **Rate limiting:** `slowapi` with tiered limits via shared `rate_limits.py` module (avoids circular imports).
-- **CI scanning:** `pip-audit` + `bandit` for Python, `npm audit` for frontend. All use `continue-on-error: true` to establish baseline without blocking CI.
-- **Frontend auth:** `VITE_AUTH_TOKEN` build-time env var injected via axios request interceptor. Token visible in bundle but required to access API — acceptable for a personal tool.
-
-Remaining tasks on the branch: apply auth to all routers (task 4), rate limiting integration (task 6), CI scanning (task 7), CORS startup warning (task 8), frontend auth injection (task 9). See `docs/plans/2026-03-03-security-phase-2.md` for the full plan.
 
 ## Remediation Priority
 
-1. Path traversal fix via hash-based staging (done, on main)
-2. Authentication middleware (on branch, partially implemented)
-3. Rate limiting (on branch, not yet implemented)
-4. Security headers (on branch, implemented)
-5. CI/CD security scanning (on branch, not yet implemented)
-6. Electron IPC validation (future)
-7. CORS/CSP hardening (future)
+1. ~~Path traversal fix via hash-based staging~~ (DONE)
+2. ~~Security headers~~ (DONE — Phase 2)
+3. ~~Rate limiting~~ (DONE — Phase 2)
+4. ~~CI/CD security scanning~~ (DONE — Phase 2)
+5. ~~CORS startup warning~~ (DONE — Phase 2)
+6. Session-based authentication (Phase 3 — planned)
+7. Electron IPC validation (future)
+8. CORS/CSP hardening (future)

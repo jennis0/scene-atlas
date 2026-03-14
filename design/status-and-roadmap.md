@@ -53,14 +53,15 @@ Scene Atlas is a tool for viewing and searching large collections of tabletop RP
 
 | Feature | Branch | Plan File | Status |
 |---------|--------|-----------|--------|
-| Security Phase 2 | `feature/security-phase-2` (pushed, not merged) | `docs/plans/2026-03-03-security-phase-2.md` | Fully implemented: auth middleware, security headers, rate limiting, CI scanning (pip-audit/bandit/npm audit), CORS warning, frontend bearer-token injection. Awaiting merge review. See [security.md](security.md) for details. |
+| Security Phase 2 (headers + rate limiting) | `feature/security-phase-2-headers` | [security.md](security.md) | Security headers, rate limiting (8 endpoints), CI scanning, CORS warning. Auth deferred to Phase 3. |
 
 ### Backlog Items
 
 | Item | Tracked In | Priority |
 |------|-----------|----------|
+| Session-based auth (Phase 3) | [security.md](security.md) | High |
 | E2E test expansion (~42 remaining tests) | [e2e-todo.md](e2e-todo.md) | P1-P3 |
-| Code quality improvements (10 items) | [technical-debt.md](technical-debt.md) | Medium |
+| Code quality improvements (11 items) | [technical-debt.md](technical-debt.md) | Medium |
 | Filename in analyse-step error responses | — | Low |
 | Real Qdrant in integration tests | — | Low |
 | Tailwind CSS 3 → 4 (requires tailwind-merge v2→v3) | — | Low |
