@@ -1,11 +1,13 @@
 """App settings API — GET and PATCH /api/v1/settings."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
+from ..config import settings as app_config
 from ..models.schemas import AppSettings, AppSettingsPatch
 from ..services.app_settings import get_settings, update_settings
 from .dependencies import get_db
+from .rate_limits import limiter
 
 router = APIRouter()
 
@@ -17,7 +19,9 @@ def get_app_settings(db: Session = Depends(get_db)) -> AppSettings:
 
 
 @router.patch("/", response_model=AppSettings)
+@limiter.limit(lambda: app_config.rate_limit_expensive)
 def patch_app_settings(
+    request: Request,
     patch: AppSettingsPatch,
     db: Session = Depends(get_db),
 ) -> AppSettings:

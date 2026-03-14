@@ -2,17 +2,19 @@
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..models import (
     Image,
     ImageResponse,
 )
 from ..services import get_image_store, get_thumbnail_store, safe_delete_image
 from .dependencies import get_db
+from .rate_limits import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +144,8 @@ def get_image_thumbnail(image_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/backfill-grids")
-def trigger_backfill_grids(force: bool = False):
+@limiter.limit(lambda: settings.rate_limit_expensive)
+def trigger_backfill_grids(request: Request, force: bool = False):
     """Run grid detection on battlemaps missing grid info (background job).
 
     Pass ?force=true to re-detect ALL battlemaps.

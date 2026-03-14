@@ -2,10 +2,11 @@
 
 import json
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session, subqueryload
 
+from ..config import settings
 from ..models import (
     Image,
     Tag,
@@ -18,6 +19,7 @@ from ..models import (
     TagValueUpdate,
 )
 from .dependencies import get_db
+from .rate_limits import limiter
 
 router = APIRouter()
 
@@ -384,7 +386,8 @@ def get_tag_statistics(db: Session = Depends(get_db)):
 
 
 @router.post("/retag-all")
-def trigger_retag_all():
+@limiter.limit(lambda: settings.rate_limit_expensive)
+def trigger_retag_all(request: Request):
     """Trigger the retag_all_images job (fire-and-forget)."""
     from ...pipeline.retag_all_images import retag_all_images
     from ..services.job_runner import get_job_runner

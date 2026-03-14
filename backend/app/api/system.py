@@ -21,6 +21,7 @@ from ..models import (
     seed_tag_categories,
 )
 from .dependencies import get_db
+from .rate_limits import limiter
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -140,6 +141,7 @@ def _purge_library(
 
 
 @router.delete("/library")
+@limiter.limit(lambda: settings.rate_limit_destructive)
 def delete_library(request: Request):
     """Purge the entire library (images, metadata, vectors, files).
 
@@ -162,7 +164,8 @@ def delete_library(request: Request):
 
 
 @router.post("/tags/reset")
-def reset_tags(db: Session = Depends(get_db)):
+@limiter.limit(lambda: settings.rate_limit_destructive)
+def reset_tags(request: Request, db: Session = Depends(get_db)):
     """Delete all per-image tags and tag categories, then re-seed defaults.
 
     This is a fast DB-only operation (no files or vectors affected).

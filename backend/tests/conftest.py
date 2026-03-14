@@ -160,12 +160,19 @@ def test_client(tmp_db, tmp_path):
     settings.store_thumbnails_dir.mkdir(parents=True, exist_ok=True)
     settings.staging_dir.mkdir(parents=True, exist_ok=True)
 
+    # Disable rate limiting during tests to prevent inter-test interference.
+    from backend.app.api.rate_limits import limiter
+
+    orig_limiter_enabled = limiter.enabled
+    limiter.enabled = False
+
     try:
         with TestClient(app) as client:
             app.state.db_engine = engine
             yield client
     finally:
-        # Restore original paths
+        # Restore original paths and rate limiter state
+        limiter.enabled = orig_limiter_enabled
         settings.database_url = orig_db_url
         settings.store_images_dir = orig_images
         settings.store_thumbnails_dir = orig_thumbnails

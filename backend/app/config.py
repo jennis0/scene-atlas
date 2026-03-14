@@ -81,6 +81,14 @@ class Settings(BaseSettings):
     def all_supported_formats(self) -> list[str]:
         return self.supported_formats + self.supported_video_formats
 
+    # Rate limiting — per-IP via slowapi.  Set RATE_LIMIT_ENABLED=false to disable.
+    # When behind a reverse proxy, ensure it overwrites X-Forwarded-For (not appends)
+    # so rate limiting keys on the real client IP.  See design/security.md.
+    rate_limit_upload: str = "20/minute"
+    rate_limit_expensive: str = "2/minute"
+    rate_limit_destructive: str = "1/minute"
+    rate_limit_enabled: bool = True
+
     # API
     api_host: str = "0.0.0.0"
     api_port: int = 8000
