@@ -188,6 +188,15 @@ async def lifespan(app: FastAPI):
         await scheduler.start()
         logger.info("Scheduler started")
 
+    # Warn if server mode is using default localhost-only CORS origins — a common
+    # misconfiguration when deploying behind a reverse proxy.
+    _default_cors = {"http://localhost:3000", "http://localhost:5173", "http://localhost:8000"}
+    if settings.app_mode == "server" and set(settings.cors_origins) == _default_cors:
+        logger.warning(
+            "CORS origins are still set to localhost defaults but APP_MODE=server. "
+            "Set CORS_ORIGINS in your .env to your actual frontend origin."
+        )
+
     logger.info("Server ready on %s:%s", settings.api_host, settings.api_port)
     # Signal to desktop shell (Electron) that the backend is ready.
     # CLIP is still loading in the background — the app is usable immediately;
@@ -261,6 +270,42 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "Accept"],
 )
+
+
+# Security headers middleware (pure ASGI — avoids BaseHTTPMiddleware
+# performance issues with streaming responses and background tasks).
+# HSTS intentionally omitted — must come from the reverse proxy to avoid
+# breaking non-TLS deployments (Electron, local dev).
+_SECURITY_HEADERS = [
+    (b"x-content-type-options", b"nosniff"),
+    (b"x-frame-options", b"DENY"),
+    (b"referrer-policy", b"strict-origin-when-cross-origin"),
+    (b"permissions-policy", b"camera=(), microphone=()"),
+]
+
+
+class SecurityHeadersMiddleware:
+    """Add static security headers to every HTTP response."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers.extend(_SECURITY_HEADERS)
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
+
+
+app.add_middleware(SecurityHeadersMiddleware)
 
 # Include API routers
 app.include_router(images.router, prefix=f"{settings.api_prefix}/images", tags=["images"])
