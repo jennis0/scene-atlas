@@ -1,7 +1,6 @@
 import fs from "fs";
 import path from "path";
-
-const BACKEND_URL = "http://localhost:8000";
+import { BACKEND_URL } from "./config";
 
 interface ImportFileInfo {
   relative_path: string;
@@ -60,7 +59,19 @@ export async function seedTestData(imageDir: string): Promise<void> {
     const relativePath = path.relative(imageDir, filePath).replace(/\\/g, "/");
     relativePaths.push(relativePath);
     const buffer = fs.readFileSync(filePath);
-    const blob = new Blob([buffer], { type: "image/jpeg" });
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeTypes: Record<string, string> = {
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".png": "image/png",
+      ".webp": "image/webp",
+      ".gif": "image/gif",
+      ".mp4": "video/mp4",
+      ".webm": "video/webm",
+    };
+    const blob = new Blob([buffer], {
+      type: mimeTypes[ext] || "application/octet-stream",
+    });
     form.append("files", blob, path.basename(filePath));
   }
   form.append("relative_paths", JSON.stringify(relativePaths));
@@ -195,56 +206,18 @@ export async function seedTestData(imageDir: string): Promise<void> {
     );
   }
 
-  // 6b. Confirm review — imported images have needs_review=True by default,
-  //     which hides them from search/facets. Clear the flag so they're visible.
-  const groupIds = groups
-    .map((g) => g.group_id)
-    .filter((id): id is number => id != null);
-  if (groupIds.length > 0) {
-    console.log(`[seed] Step 6b: Confirming review for group_ids: ${groupIds.join(", ")}...`);
-    const reviewRes = await fetch(
-      `${BACKEND_URL}/api/v1/groups/confirm-review`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ group_ids: groupIds }),
-      },
-    );
-    if (!reviewRes.ok) {
-      const body = await reviewRes.text();
-      throw new Error(`Confirm review failed: ${reviewRes.status} ${body}`);
-    }
-    const reviewBody = await reviewRes.json().catch(() => null);
-    console.log(`[seed] Confirm review response: ${JSON.stringify(reviewBody)}`);
-  } else {
-    console.log("[seed] Step 6b: No group_ids found — skipping confirm-review.");
-  }
-
-  // 7. Finalize the import
-  console.log("[seed] Step 7: Finalising...");
-  const finalizeRes = await fetch(
-    `${BACKEND_URL}/api/v1/imports/${jobId}/finalize`,
-    {
-      method: "POST",
-    },
-  );
-  if (!finalizeRes.ok) {
-    const body = await finalizeRes.text();
-    throw new Error(`Finalize failed: ${finalizeRes.status} ${body}`);
-  }
-  const finalizeBody = await finalizeRes.json().catch(() => null);
-  console.log(`[seed] Finalize response: ${JSON.stringify(finalizeBody)}`);
+  // Import auto-finalizes when all groups complete — no manual finalize needed.
   console.log("[seed] Seed complete.");
 }
 
-/** Collect all .jpg/.jpeg files recursively from a directory. */
+/** Collect all supported media files recursively from a directory. */
 function collectFiles(dir: string): string[] {
   const results: string[] = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       results.push(...collectFiles(full));
-    } else if (/\.jpe?g$/i.test(entry.name)) {
+    } else if (/\.(jpe?g|png|webp|gif|mp4|webm)$/i.test(entry.name)) {
       results.push(full);
     }
   }

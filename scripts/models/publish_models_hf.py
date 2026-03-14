@@ -42,7 +42,7 @@ from export_model_onnx import ENCODER_NAMES, MODEL_BY_NAME, MODEL_REGISTRY
 
 # ── Load .env ────────────────────────────────────────────────────────────────
 
-_ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
+_ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
 if _ENV_FILE.exists():
     for line in _ENV_FILE.read_text(encoding="utf-8").splitlines():
         line = line.strip()
@@ -54,7 +54,7 @@ if _ENV_FILE.exists():
 
 HF_NAMESPACE = "jennis0"
 REPO_PREFIX = "scene-atlas-"
-MODELS_DIR = Path(__file__).resolve().parent.parent / "backend" / "models"
+MODELS_DIR = Path(__file__).resolve().parent.parent.parent / "backend" / "models"
 COLLECTION_TITLE = "Scene Atlas Models"
 COLLECTION_DESCRIPTION = (
     "ONNX-exported and quantised vision-language models for Scene Atlas. "
@@ -297,7 +297,7 @@ def publish_model(entry: dict, dry_run: bool = False) -> str:
 
     # Set unlisted visibility
     print("Setting visibility to unlisted...")
-    api.update_repo_visibility(repo_id=repo_id, private=False)
+    api.update_repo_settings(repo_id=repo_id, private=False)
 
     # Upload model card
     print("Uploading model card...")

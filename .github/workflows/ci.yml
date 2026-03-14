@@ -260,6 +260,8 @@ jobs:
     if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
@@ -326,6 +328,7 @@ jobs:
         run: npm run test:e2e
         env:
           CI: "true"
+          E2E_IMAGE_KEY: ${{ secrets.E2E_IMAGE_KEY }}
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4

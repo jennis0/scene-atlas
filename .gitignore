@@ -99,6 +99,7 @@ backend/models/
 # Playwright E2E
 e2e/.tmp-data/
 e2e/.tmp-images/
+e2e/.tmp-e2e-images.zip
 e2e/test-results/
 e2e/playwright-report/
 e2e/blob-report/
@@ -115,3 +116,7 @@ stress_tests/results/
 
 # Quantisation ablation results (generated, machine-specific)
 scripts/results/
+
+# Scraped evaluation data (copyrighted images, not for redistribution)
+eval/data/dndbeyond/
+eval/data/czepeku/
