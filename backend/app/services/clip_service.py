@@ -102,11 +102,12 @@ class _SentencePieceTokenizerWrapper:
             ids = ids + [self._eos_id]
         # Truncate to max_length
         ids = ids[: self._max_length]
-        # Build attention mask before padding
-        attn_len = len(ids)
         # Pad to max_length
         ids = ids + [self._pad_id] * (self._max_length - len(ids))
-        attention_mask = [1] * attn_len + [0] * (self._max_length - attn_len)
+        # SigLIP2 does NOT use attention masking for padding — the HF
+        # processor never returns an attention_mask.  Passing all-ones
+        # is required; zeroing out pad positions destroys embeddings.
+        attention_mask = [1] * self._max_length
         return _TokenizerOutput(ids=ids, attention_mask=attention_mask)
 
 

@@ -6,13 +6,17 @@ Covers:
 - backfill_search_text(): populates search_text for images that are missing it
 """
 
+from unittest.mock import patch
+
 from sqlalchemy import text
 
 from backend.app.models.database import Image
 from backend.app.services.fts_service import (
+    _parse_fts_tokens,
     _sanitize_fts_query,
     backfill_search_text,
     fts_search,
+    get_alias_expansions,
 )
 
 # ---------------------------------------------------------------------------
@@ -71,8 +75,35 @@ class TestSanitizeFtsQuery:
         """Parentheses and similar punctuation are removed."""
         assert _sanitize_fts_query("mine (underground)") == "mine underground"
 
-    def test_removes_quotes(self):
-        assert _sanitize_fts_query('"forest night"') == "forest night"
+    def test_preserves_quoted_phrase(self):
+        """A balanced quoted phrase is preserved for FTS5 phrase matching."""
+        assert _sanitize_fts_query('"forest night"') == '"forest night"'
+
+    def test_mixed_phrase_and_words(self):
+        """Quoted phrases and loose words coexist in the sanitized output."""
+        assert _sanitize_fts_query('"forest shrine" cave') == '"forest shrine" cave'
+
+    def test_single_word_phrase_degrades(self):
+        """A single-word quoted phrase degrades to a plain term."""
+        assert _sanitize_fts_query('"forest"') == "forest"
+
+    def test_unbalanced_quotes_stripped(self):
+        """Unbalanced (unclosed) quotes are treated as loose words."""
+        assert _sanitize_fts_query('"forest shrine') == "forest shrine"
+
+    def test_multiple_phrases(self):
+        """Multiple quoted phrases are all preserved."""
+        result = _sanitize_fts_query('"dark cave" "forest shrine"')
+        assert '"dark cave"' in result
+        assert '"forest shrine"' in result
+
+    def test_empty_phrase_ignored(self):
+        """An empty phrase ('""') is discarded."""
+        assert _sanitize_fts_query('""') == ""
+
+    def test_phrase_with_special_chars_inside(self):
+        """Special chars inside a phrase are stripped but the phrase is kept."""
+        assert _sanitize_fts_query('"forest (shrine)"') == '"forest shrine"'
 
     def test_collapses_whitespace(self):
         """Multiple spaces are collapsed to a single space and stripped."""
@@ -91,6 +122,77 @@ class TestSanitizeFtsQuery:
     def test_caret_removed(self):
         """Caret (FTS5 boost operator) is stripped."""
         assert _sanitize_fts_query("^forest") == "forest"
+
+
+# ---------------------------------------------------------------------------
+# TestParseFtsTokens
+# ---------------------------------------------------------------------------
+
+
+class TestParseFtsTokens:
+    """Pure unit tests for _parse_fts_tokens -- no DB required."""
+
+    def test_single_word(self):
+        assert _parse_fts_tokens("cave") == ["cave"]
+
+    def test_multiple_words(self):
+        assert _parse_fts_tokens("forest cave") == ["forest", "cave"]
+
+    def test_phrase_token(self):
+        assert _parse_fts_tokens('"forest shrine"') == ['"forest shrine"']
+
+    def test_mixed_phrase_and_words(self):
+        assert _parse_fts_tokens('"forest shrine" cave') == ['"forest shrine"', "cave"]
+
+    def test_empty_string(self):
+        assert _parse_fts_tokens("") == []
+
+
+# ---------------------------------------------------------------------------
+# TestAliasExpansionWithPhrases
+# ---------------------------------------------------------------------------
+
+
+class TestAliasExpansionWithPhrases:
+    """Verify that words inside quoted phrases are excluded from alias expansion."""
+
+    def test_phrase_words_not_expanded(self, db_session):
+        """Words inside a quoted phrase should not be alias-expanded."""
+        # Mock the alias vocab so "forest" has alias "woodland"
+        mock_vocab = {"woodland": "forest", "forest": "forest"}
+        mock_reverse = {"forest": {"woodland"}}
+        with patch(
+            "backend.app.services.fts_service.get_alias_vocab",
+            return_value=(mock_vocab, mock_reverse),
+        ):
+            # "forest" inside a phrase — should NOT expand to "woodland"
+            result = get_alias_expansions('"forest shrine"', db_session)
+            assert "woodland" not in result
+
+    def test_loose_words_still_expanded(self, db_session):
+        """Loose words outside phrases should still be alias-expanded."""
+        mock_vocab = {"woodland": "forest", "forest": "forest"}
+        mock_reverse = {"forest": {"woodland"}}
+        with patch(
+            "backend.app.services.fts_service.get_alias_vocab",
+            return_value=(mock_vocab, mock_reverse),
+        ):
+            # "forest" as a loose word — should expand to "woodland"
+            result = get_alias_expansions("forest", db_session)
+            assert "woodland" in result
+
+    def test_mixed_phrase_and_loose_expands_only_loose(self, db_session):
+        """Only loose words are expanded; phrase-internal words are skipped."""
+        mock_vocab = {"rainy": "rain", "rain": "rain", "woodland": "forest", "forest": "forest"}
+        mock_reverse = {"rain": {"rainy"}, "forest": {"woodland"}}
+        with patch(
+            "backend.app.services.fts_service.get_alias_vocab",
+            return_value=(mock_vocab, mock_reverse),
+        ):
+            # "forest" is in a phrase (skip), "rain" is loose (expand)
+            result = get_alias_expansions('"forest shrine" rain', db_session)
+            assert "rainy" in result
+            assert "woodland" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -153,6 +255,39 @@ class TestFtsSearch:
         """A query with no matching images returns an empty list."""
         results = fts_search(db_session, "zzznomatch")
         assert results == []
+
+    def test_phrase_matches_adjacent_words(self, db_session):
+        """A quoted phrase matches only when words are adjacent in order."""
+        img = _make_image("Forest Shrine Map", key="phrasematch1.jpg")
+        db_session.add(img)
+        db_session.commit()
+        backfill_search_text(db_session)
+
+        results = fts_search(db_session, '"Forest Shrine"')
+        image_ids = [row[0] for row in results]
+        assert img.id in image_ids
+
+    def test_phrase_rejects_wrong_order(self, db_session):
+        """A quoted phrase does not match when words appear in reverse order."""
+        img = _make_image("Shrine Forest Map", key="phraseorder1.jpg")
+        db_session.add(img)
+        db_session.commit()
+        backfill_search_text(db_session)
+
+        results = fts_search(db_session, '"Forest Shrine"')
+        image_ids = [row[0] for row in results]
+        assert img.id not in image_ids
+
+    def test_phrase_rejects_non_adjacent(self, db_session):
+        """A quoted phrase does not match when words are separated by other words."""
+        img = _make_image("Forest Dark Shrine", key="phrasenonadj1.jpg")
+        db_session.add(img)
+        db_session.commit()
+        backfill_search_text(db_session)
+
+        results = fts_search(db_session, '"Forest Shrine"')
+        image_ids = [row[0] for row in results]
+        assert img.id not in image_ids
 
 
 # ---------------------------------------------------------------------------

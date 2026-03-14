@@ -239,7 +239,7 @@ class TestSentencePieceTokenizerWrapper:
             result = wrapper.encode("hello world")
 
         assert result.ids == [10, 20, 30, 1, 1, 1, 1, 1]
-        assert result.attention_mask == [1, 1, 1, 0, 0, 0, 0, 0]
+        assert result.attention_mask == [1, 1, 1, 1, 1, 1, 1, 1]
 
     def test_truncation(self):
         from backend.app.services.clip_service import _SentencePieceTokenizerWrapper
@@ -321,7 +321,7 @@ class TestSentencePieceTokenizerWrapper:
 
         # [10, 20, EOS=2, pad=1, pad=1, pad=1]
         assert result.ids == [10, 20, 2, 1, 1, 1]
-        assert result.attention_mask == [1, 1, 1, 0, 0, 0]
+        assert result.attention_mask == [1, 1, 1, 1, 1, 1]
 
     def test_eos_token_truncated_with_text(self):
         """When text + EOS exceeds max_length, both get truncated."""
@@ -357,7 +357,7 @@ class TestSentencePieceTokenizerWrapper:
 
         # [EOS=2, pad=1, pad=1, pad=1]
         assert result.ids == [2, 1, 1, 1]
-        assert result.attention_mask == [1, 0, 0, 0]
+        assert result.attention_mask == [1, 1, 1, 1]
 
 
 class TestSentencePieceServiceInit:

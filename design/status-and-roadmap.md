@@ -1,12 +1,12 @@
 # Scene Atlas — Status and Roadmap
 
-**Last updated:** 2026-03-07
+**Last updated:** 2026-03-14
 
 ## What Scene Atlas Does
 
 Scene Atlas is a tool for viewing and searching large collections of tabletop RPG scenes (battlemaps, vistas, portraits, encounter art). Key capabilities:
 
-- **Search**: By name, author, tags, color, grid type, and semantic image description (CLIP-powered)
+- **Search**: By name, author, tags, color, grid type, and semantic image description (CLIP/SigLIP2-powered)
 - **Import**: Drag-and-drop upload with automatic group detection, duplicate checking, and type-aware processing
 - **Groups**: Related images grouped together (e.g., seasonal variants of same map). Groups display as hero+mosaic cards
 - **Type-aware processing**: Battlemaps get grid detection; scenes skip it
@@ -21,6 +21,7 @@ Scene Atlas is a tool for viewing and searching large collections of tabletop RP
 | Feature | Key Files | Notes |
 |---------|-----------|-------|
 | Image search (text + semantic) | `backend/app/api/search.py`, `frontend/src/hooks/useGallerySearch.ts` | FTS5 + CLIP with RRF ranking |
+| FTS phrase matching | `backend/app/services/fts_service.py` | Quoted phrases (`"forest shrine"`) use FTS5 native adjacent-word matching; excluded from alias expansion |
 | Grouped search endpoint | `backend/app/api/search.py` (`/groups`), `frontend/src/hooks/useGroupSearch.ts` | Dedicated endpoint with hero+mosaic, infinite scroll |
 | Import pipeline | `backend/pipeline/ingestion.py`, `frontend/src/hooks/useImportState.ts` | Batched: prepare → CLIP → DB → Qdrant |
 | Group detection | `backend/app/services/image_parser.py` | Two-pass: folder-based + prefix-based |
@@ -33,7 +34,8 @@ Scene Atlas is a tool for viewing and searching large collections of tabletop RP
 | Settings UI | `frontend/src/components/SettingsPanel.tsx`, `backend/app/api/settings.py` | Auto-save on blur, 6 configurable settings |
 | Activity dock | `frontend/src/components/ActivityDock.tsx` | Real-time import progress, connection status |
 | Video support | Throughout pipeline | First-frame extraction, media_type field |
-| ONNX Runtime for CLIP | `backend/app/services/clip_service.py` | FP16 models, ~289 MB (was ~500 MB with PyTorch) |
+| Multi-model ONNX inference | `backend/app/services/clip_service.py`, `backend/models/` | Manifest-driven model registry; CLIP ViT-B/32 (512d), SigLIP2-Base (768d), SigLIP2-SO400M (1152d); FP16 ONNX; SentencePiece tokenizer support |
+| GPU acceleration | `backend/app/services/clip_service.py` | CUDA → DirectML → CoreML → CPU provider chain; DirectML session recreation on failure, CPU fallback |
 | Electron desktop app | `electron/src/main.ts` | Sidecar lifecycle, borderless titlebar, config storage |
 | Backup system | `backend/pipeline/maintenance.py` | Automated daily backups with weekly rotation |
 | Duplicate detection | `frontend/src/hooks/useImportUpload.ts` | SHA-256 hash check before upload |
@@ -43,19 +45,22 @@ Scene Atlas is a tool for viewing and searching large collections of tabletop RP
 | Live import review | `frontend/src/hooks/useImportProgressPolling.ts`, `EditGroupDialog.tsx` | Edit groups while import is processing; pending groups shown as spinner stubs |
 | Simplified import flow | Migration 018 | Removed confirmation/review layer (pending_groups, all_confirmed, needs_review, awaiting_input) |
 | Memory-aware concurrency | `backend/app/resource_detector.py` | psutil-based defaults at first boot; 500 MB per worker, 2 GB reserve |
+| Automated labelling | `scripts/labelling/` | Sampling, grid labelling, three-description format, UUID anonymization, quality guardrails |
+| CI hardening | `.github/workflows/ci.yml`, `.husky/pre-push` | Pre-push hook; unit tests on Ubuntu + Windows + macOS; integration tests on PRs; Dependabot |
+| E2E test infrastructure | `e2e/` | Real encrypted fixture images (Git LFS); reusable action helpers; ~35 tests across 10 spec files |
 
 ### In Progress (On Branches)
 
 | Feature | Branch | Plan File | Status |
 |---------|--------|-----------|--------|
-| Security Phase 2 | `feature/security-phase-2` (pushed, not merged) | `docs/plans/2026-03-03-security-phase-2.md` | Auth middleware + security headers implemented; rate limiting, CI scanning, CORS warning, frontend auth still TODO. See [security.md](security.md) for details. |
+| Security Phase 2 | `feature/security-phase-2` (pushed, not merged) | `docs/plans/2026-03-03-security-phase-2.md` | Fully implemented: auth middleware, security headers, rate limiting, CI scanning (pip-audit/bandit/npm audit), CORS warning, frontend bearer-token injection. Awaiting merge review. See [security.md](security.md) for details. |
 
 ### Backlog Items
 
 | Item | Tracked In | Priority |
 |------|-----------|----------|
-| E2E test expansion (85 remaining tests) | [e2e-todo.md](e2e-todo.md) | P1-P3 |
-| Code quality improvements (8 items) | [technical-debt.md](technical-debt.md) | Medium |
+| E2E test expansion (~42 remaining tests) | [e2e-todo.md](e2e-todo.md) | P1-P3 |
+| Code quality improvements (10 items) | [technical-debt.md](technical-debt.md) | Medium |
 | Filename in analyse-step error responses | — | Low |
 | Real Qdrant in integration tests | — | Low |
 | Tailwind CSS 3 → 4 (requires tailwind-merge v2→v3) | — | Low |
@@ -69,11 +74,11 @@ Scene Atlas is a tool for viewing and searching large collections of tabletop RP
 
 ## Architecture Quick Reference
 
-- **Backend**: FastAPI + SQLite + Qdrant (embedded) + ONNX Runtime CLIP
+- **Backend**: FastAPI + SQLite + Qdrant (embedded) + ONNX Runtime (CLIP / SigLIP2)
 - **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS + Radix UI + React Query
 - **Desktop**: Electron with PyInstaller sidecar
 - **Pipeline**: Batched ingestion (prepare → CLIP → DB → Qdrant) via in-process JobRunner
-- **Search**: Dual endpoints — flat `/search` and grouped `/search/groups` with RRF ranking
+- **Search**: Dual endpoints — flat `/search` and grouped `/search/groups` with RRF ranking; hybrid FTS5 + semantic + alias expansion
 - **State machine**: 7 import states (uploading → staging → active → completed/failed/cancelled/expired/broken). No confirmation step — groups auto-confirm.
 
 For detailed architecture, see:
@@ -81,6 +86,8 @@ For detailed architecture, see:
 - [frontend.md](frontend.md) — Components, hooks, patterns
 - [storage.md](storage.md) — Database schema, Qdrant, file storage
 - [ingestion.md](ingestion.md) — Pipeline architecture
+- [search.md](search.md) — Search architecture (FTS5, semantic, RRF, phrase matching, multi-model)
+- [gpu-acceleration.md](gpu-acceleration.md) — GPU provider chain, DirectML maintenance notes
 - [decisions.md](decisions.md) — All Architecture Decision Records (ADRs 001-015)
 
 ---
@@ -93,3 +100,4 @@ For detailed architecture, see:
 4. CLIP model loaded in background — doesn't block startup
 5. Per-image error isolation — one bad image doesn't fail the batch
 6. All state changes go through `transition_job_status()` for consistency
+7. Switching embedding models creates a new Qdrant collection — run `rebuild_all_embeddings()` after model changes
