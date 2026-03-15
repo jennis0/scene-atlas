@@ -575,7 +575,7 @@ class AppSettings(BaseModel):
     # Import processing
     convert_to_webp: bool = True
     webp_lossless: bool = True
-    webp_quality: int = 95
+    webp_quality: int = Field(95, ge=0, le=100)
 
 
 class AppSettingsPatch(BaseModel):
@@ -604,4 +604,4 @@ class AppSettingsPatch(BaseModel):
     scheduler_enabled: bool | None = None
     convert_to_webp: bool | None = None
     webp_lossless: bool | None = None
-    webp_quality: int | None = None
+    webp_quality: int | None = Field(None, ge=0, le=100)
