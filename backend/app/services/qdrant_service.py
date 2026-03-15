@@ -286,14 +286,14 @@ def reload_qdrant_service(collection_name: str) -> None:
     global _qdrant_service
     with _init_lock:
         old_service = _qdrant_service
-        new_service = QdrantService(
+        _qdrant_service = None
+        if old_service is not None:
+            old_service.close()
+        _qdrant_service = QdrantService(
             path=settings.qdrant_path,
             collection_name=collection_name,
             vector_size=settings.qdrant_vector_size,
         )
-        _qdrant_service = new_service
-        if old_service is not None:
-            old_service.close()
     logger.info("Qdrant service reloaded for collection '%s'", collection_name)
 
 

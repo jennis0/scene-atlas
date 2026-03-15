@@ -449,8 +449,8 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
 
               {/* Pending switch confirmation banner */}
               {pendingModel && (
-                <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700 p-3 text-xs space-y-2">
-                  <p className="text-amber-800 dark:text-amber-200">
+                <div className="rounded-md border border-border bg-muted/50 p-3 text-xs space-y-2">
+                  <p className="text-muted-foreground">
                     Switching models will re-process all images. This can take a while.
                   </p>
                   <div className="flex gap-2">
