@@ -83,36 +83,75 @@ def rebuild_all_embeddings(progress_fn=None, *, force: bool = False) -> dict:
 
     succeeded = 0
     failed = 0
-    batch_size = 100
+    qdrant_batch_size = 100  # Write batch for Qdrant upserts
+    encode_batch_size = 16  # GPU forward-pass batch for ONNX vision encoder
 
-    for i in range(0, total, batch_size):
-        batch = image_dicts[i : i + batch_size]
-        batch_num = i // batch_size + 1
-        total_batches = (total + batch_size - 1) // batch_size
+    for i in range(0, total, qdrant_batch_size):
+        batch = image_dicts[i : i + qdrant_batch_size]
+        batch_num = i // qdrant_batch_size + 1
+        total_batches = (total + qdrant_batch_size - 1) // qdrant_batch_size
         logger.info("Batch %s/%s (%s images)", batch_num, total_batches, len(batch))
 
-        # Encode images
-        items = []
+        # Resolve paths and filter out missing files
+        valid_recs = []
+        paths = []
         for rec in batch:
             try:
-                path = image_store.get_path(rec["storage_key"])
-                embedding = clip_service.encode_image(path)
-                items.append(
-                    {
-                        "image_id": rec["id"],
-                        "embedding": embedding,
-                        "metadata": {
-                            "filename": rec["filename"],
-                            "author": rec["author"],
-                            "base_name": rec["group_name"],
-                        },
-                    }
-                )
+                paths.append(image_store.get_path(rec["storage_key"]))
+                valid_recs.append(rec)
             except Exception:
                 logger.warning(
-                    "Failed to encode image %s (%s)", rec["id"], rec["filename"], exc_info=True
+                    "Failed to locate image %s (%s)", rec["id"], rec["filename"], exc_info=True
                 )
                 failed += 1
+
+        # Encode in GPU-sized sub-batches using batch_encode_images()
+        items = []
+        for j in range(0, len(valid_recs), encode_batch_size):
+            sub_paths = paths[j : j + encode_batch_size]
+            sub_recs = valid_recs[j : j + encode_batch_size]
+            try:
+                embeddings = clip_service.batch_encode_images(sub_paths)
+                for rec, embedding in zip(sub_recs, embeddings, strict=True):
+                    items.append(
+                        {
+                            "image_id": rec["id"],
+                            "embedding": embedding,
+                            "metadata": {
+                                "filename": rec["filename"],
+                                "author": rec["author"],
+                                "base_name": rec["group_name"],
+                            },
+                        }
+                    )
+            except Exception:
+                logger.warning(
+                    "Batch encode failed for %d images, falling back to one-at-a-time",
+                    len(sub_paths),
+                    exc_info=True,
+                )
+                for path, rec in zip(sub_paths, sub_recs, strict=True):
+                    try:
+                        embedding = clip_service.encode_image(path)
+                        items.append(
+                            {
+                                "image_id": rec["id"],
+                                "embedding": embedding,
+                                "metadata": {
+                                    "filename": rec["filename"],
+                                    "author": rec["author"],
+                                    "base_name": rec["group_name"],
+                                },
+                            }
+                        )
+                    except Exception:
+                        logger.warning(
+                            "Failed to encode image %s (%s)",
+                            rec["id"],
+                            rec["filename"],
+                            exc_info=True,
+                        )
+                        failed += 1
 
         # Write batch to Qdrant
         if items:
@@ -124,7 +163,9 @@ def rebuild_all_embeddings(progress_fn=None, *, force: bool = False) -> dict:
                 logger.error("Batch %s Qdrant write failed", batch_num)
 
         if progress_fn:
-            progress_fn(min(i + batch_size, total), total, f"Batch {batch_num}/{total_batches}")
+            progress_fn(
+                min(i + qdrant_batch_size, total), total, f"Batch {batch_num}/{total_batches}"
+            )
 
     summary = {"total": total, "succeeded": succeeded, "failed": failed, "skipped": False}
     logger.info("Embedding rebuild complete: %s", summary)
