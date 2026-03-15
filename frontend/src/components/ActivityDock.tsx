@@ -543,7 +543,7 @@ function ImportStatusText({ job }: { job: ActiveImportJob }) {
         <span>
           {hasUploadProgress
             ? `Uploading ${job.processedFiles} of ${job.totalFiles} file${job.totalFiles !== 1 ? 's' : ''}`
-            : job.uploadPhase ?? 'Uploading…'}
+            : (job.uploadPhase ?? 'Uploading…')}
         </span>
       )
     }

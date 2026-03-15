@@ -225,8 +225,7 @@ def create_session_with_fallback(
                     )
                 if any("cublas" in lib or "cufft" in lib or "cudart" in lib for lib in missing):
                     hints.append(
-                        "Install the CUDA 12 toolkit: "
-                        "https://developer.nvidia.com/cuda-12-toolkit"
+                        "Install the CUDA 12 toolkit: https://developer.nvidia.com/cuda-12-toolkit"
                     )
                 hints.append("See design/gpu-acceleration.md for full prerequisites.")
                 logger.warning(" ".join(hints), ", ".join(missing))
