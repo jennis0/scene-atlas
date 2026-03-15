@@ -1,0 +1,241 @@
+"""Unit tests for backend.app.services.model_download_service."""
+
+import json
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+
+class TestIsModelDownloaded:
+    def test_returns_false_when_no_version_json(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "backend.app.services.model_download_service._settings",
+            _make_settings(tmp_path),
+        )
+        from backend.app.services.model_download_service import is_model_downloaded
+
+        assert is_model_downloaded("small") is False
+
+    def test_returns_true_when_version_json_present(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "backend.app.services.model_download_service._settings",
+            _make_settings(tmp_path),
+        )
+        _write_version_json(tmp_path, "small")
+
+        from backend.app.services.model_download_service import is_model_downloaded
+
+        assert is_model_downloaded("small") is True
+
+    def test_returns_false_for_different_model(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "backend.app.services.model_download_service._settings",
+            _make_settings(tmp_path),
+        )
+        _write_version_json(tmp_path, "small")
+
+        from backend.app.services.model_download_service import is_model_downloaded
+
+        # "medium" version.json is absent
+        assert is_model_downloaded("medium") is False
+
+
+class TestGetVersionInfo:
+    def test_returns_none_when_missing(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "backend.app.services.model_download_service._settings",
+            _make_settings(tmp_path),
+        )
+        from backend.app.services.model_download_service import get_version_info
+
+        assert get_version_info("small") is None
+
+    def test_returns_dict_when_version_json_present(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "backend.app.services.model_download_service._settings",
+            _make_settings(tmp_path),
+        )
+        _write_version_json(tmp_path, "small", sha="abc123")
+
+        from backend.app.services.model_download_service import get_version_info
+
+        info = get_version_info("small")
+        assert isinstance(info, dict)
+        assert info["hf_commit_sha"] == "abc123"
+        assert "downloaded_at" in info
+
+    def test_returns_none_on_corrupt_json(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "backend.app.services.model_download_service._settings",
+            _make_settings(tmp_path),
+        )
+        model_dir = tmp_path / "models" / "small"
+        model_dir.mkdir(parents=True, exist_ok=True)
+        (model_dir / "version.json").write_text("not valid json", encoding="utf-8")
+
+        from backend.app.services.model_download_service import get_version_info
+
+        assert get_version_info("small") is None
+
+
+class TestDownloadModel:
+    def test_raises_model_download_error_on_unknown_name(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "backend.app.services.model_download_service._settings",
+            _make_settings(tmp_path),
+        )
+        from backend.app.services.model_download_service import (
+            ModelDownloadError,
+            download_model,
+        )
+
+        with pytest.raises(ModelDownloadError, match="Unknown model"):
+            download_model("does_not_exist")
+
+    def test_raises_on_hf_http_error(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "backend.app.services.model_download_service._settings",
+            _make_settings(tmp_path),
+        )
+
+        from huggingface_hub.utils import HfHubHTTPError
+
+        mock_response = MagicMock()
+        mock_response.status_code = 403
+        mock_response.headers = {}
+
+        # The service does `from huggingface_hub import model_info as hf_model_info`
+        # inside the function body, so we patch huggingface_hub.model_info directly.
+        with patch(
+            "huggingface_hub.model_info",
+            side_effect=HfHubHTTPError("403 Forbidden", response=mock_response),
+        ):
+            from backend.app.services.model_download_service import (
+                ModelDownloadError,
+                download_model,
+            )
+
+            with pytest.raises(ModelDownloadError):
+                download_model("small")
+
+    def test_raises_on_connection_error(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "backend.app.services.model_download_service._settings",
+            _make_settings(tmp_path),
+        )
+
+        import requests
+
+        with patch(
+            "huggingface_hub.model_info",
+            side_effect=requests.exceptions.ConnectionError("network unreachable"),
+        ):
+            from backend.app.services.model_download_service import (
+                ModelDownloadError,
+                download_model,
+            )
+
+            with pytest.raises(ModelDownloadError, match="HuggingFace|connect"):
+                download_model("small")
+
+    def test_writes_version_json_after_success(self, tmp_path, monkeypatch):
+        """version.json is the completion marker — written after all required files."""
+        monkeypatch.setattr(
+            "backend.app.services.model_download_service._settings",
+            _make_settings(tmp_path),
+        )
+
+        mock_info = MagicMock()
+        mock_info.sha = "deadbeef1234"
+
+        def fake_snapshot_download(repo_id, local_dir, ignore_patterns=None):
+            # Simulate what a real download would do
+            dest = Path(local_dir)
+            dest.mkdir(parents=True, exist_ok=True)
+            (dest / "manifest.json").write_text("{}", encoding="utf-8")
+            (dest / "clip_vision_encoder.onnx").write_bytes(b"fake-onnx")
+            (dest / "clip_text_encoder.onnx").write_bytes(b"fake-onnx")
+
+        with (
+            patch("huggingface_hub.model_info", return_value=mock_info),
+            patch(
+                "huggingface_hub.snapshot_download",
+                side_effect=fake_snapshot_download,
+            ),
+        ):
+            from backend.app.services.model_download_service import (
+                download_model,
+                get_model_dir,
+                is_model_downloaded,
+            )
+
+            result = download_model("small")
+
+        # version.json must exist (completion marker)
+        model_dir = get_model_dir("small")
+        assert (model_dir / "version.json").exists()
+        assert is_model_downloaded("small") is True
+
+        # Return value should include sha and name
+        assert result["name"] == "small"
+        assert result["hf_commit_sha"] == "deadbeef1234"
+        assert "downloaded_at" in result
+
+    def test_version_json_not_written_on_missing_files(self, tmp_path, monkeypatch):
+        """If required files are absent after snapshot_download, version.json must NOT be written."""
+        monkeypatch.setattr(
+            "backend.app.services.model_download_service._settings",
+            _make_settings(tmp_path),
+        )
+
+        mock_info = MagicMock()
+        mock_info.sha = "abc"
+
+        def fake_snapshot_download_incomplete(repo_id, local_dir, ignore_patterns=None):
+            # Only creates manifest.json — missing the ONNX files
+            dest = Path(local_dir)
+            dest.mkdir(parents=True, exist_ok=True)
+            (dest / "manifest.json").write_text("{}", encoding="utf-8")
+            # Intentionally NOT creating the .onnx files
+
+        with (
+            patch("huggingface_hub.model_info", return_value=mock_info),
+            patch(
+                "huggingface_hub.snapshot_download",
+                side_effect=fake_snapshot_download_incomplete,
+            ),
+        ):
+            from backend.app.services.model_download_service import (
+                ModelDownloadError,
+                download_model,
+                get_model_dir,
+            )
+
+            with pytest.raises(ModelDownloadError, match="incomplete"):
+                download_model("small")
+
+        # version.json must NOT exist after a failed download
+        model_dir = get_model_dir("small")
+        assert not (model_dir / "version.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_settings(data_dir: Path):
+    """Return a minimal settings mock with data_dir pointing at tmp_path."""
+    settings = MagicMock()
+    settings.data_dir = data_dir
+    return settings
+
+
+def _write_version_json(data_dir: Path, name: str, sha: str = "sha123") -> Path:
+    """Create a minimal version.json for a model under data_dir/models/{name}/."""
+    model_dir = data_dir / "models" / name
+    model_dir.mkdir(parents=True, exist_ok=True)
+    version_data = {"hf_commit_sha": sha, "downloaded_at": "2026-01-01T00:00:00+00:00"}
+    (model_dir / "version.json").write_text(json.dumps(version_data, indent=2), encoding="utf-8")
+    return model_dir / "version.json"

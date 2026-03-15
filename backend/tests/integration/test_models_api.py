@@ -1,0 +1,167 @@
+"""Integration tests for /api/v1/models/ endpoints."""
+
+from unittest.mock import MagicMock
+
+
+class TestListModels:
+    def test_list_models_returns_200(self, test_client):
+        resp = test_client.get("/api/v1/models/")
+        assert resp.status_code == 200
+
+    def test_list_models_returns_three_models(self, test_client):
+        data = test_client.get("/api/v1/models/").json()
+        assert "models" in data
+        assert len(data["models"]) == 3
+
+    def test_list_models_includes_expected_names(self, test_client):
+        data = test_client.get("/api/v1/models/").json()
+        names = {m["name"] for m in data["models"]}
+        assert names == {"small", "medium", "large"}
+
+    def test_list_models_each_has_required_fields(self, test_client):
+        data = test_client.get("/api/v1/models/").json()
+        required_fields = {
+            "name",
+            "label",
+            "description",
+            "description_technical",
+            "recommended_hardware",
+            "approx_size_mb",
+            "downloaded",
+            "active",
+        }
+        for model in data["models"]:
+            for field in required_fields:
+                assert field in model, f"Model '{model.get('name')}' missing field '{field}'"
+
+    def test_list_models_exactly_one_active(self, test_client):
+        data = test_client.get("/api/v1/models/").json()
+        active = [m for m in data["models"] if m["active"]]
+        # There must be exactly one active model (the effective model name)
+        assert len(active) == 1
+
+
+class TestSetupStatus:
+    def test_setup_status_returns_200(self, test_client):
+        resp = test_client.get("/api/v1/models/setup-status")
+        assert resp.status_code == 200
+
+    def test_setup_status_has_required_fields(self, test_client):
+        data = test_client.get("/api/v1/models/setup-status").json()
+        for field in ("needs_model", "recommended", "has_gpu", "gpu_provider"):
+            assert field in data
+
+    def test_setup_status_recommended_is_valid_name(self, test_client):
+        data = test_client.get("/api/v1/models/setup-status").json()
+        assert data["recommended"] in ("small", "medium", "large")
+
+    def test_setup_status_needs_model_is_bool(self, test_client):
+        data = test_client.get("/api/v1/models/setup-status").json()
+        assert isinstance(data["needs_model"], bool)
+
+    def test_setup_status_has_gpu_is_bool(self, test_client):
+        data = test_client.get("/api/v1/models/setup-status").json()
+        assert isinstance(data["has_gpu"], bool)
+
+
+class TestDownloadModelEndpoint:
+    def test_download_unknown_model_returns_404(self, test_client):
+        resp = test_client.post("/api/v1/models/does_not_exist/download")
+        assert resp.status_code == 404
+
+    def test_download_already_downloaded_returns_already_downloaded(self, test_client, monkeypatch):
+        monkeypatch.setattr(
+            "backend.app.api.models.is_model_downloaded",
+            lambda name: True,
+        )
+        resp = test_client.post("/api/v1/models/small/download")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "already_downloaded"
+        assert resp.json()["job_id"] is None
+
+    def test_download_triggers_job_when_not_downloaded(self, test_client, monkeypatch):
+        monkeypatch.setattr(
+            "backend.app.api.models.is_model_downloaded",
+            lambda name: False,
+        )
+        mock_runner = MagicMock()
+        mock_runner.submit.return_value = "job-xyz"
+        monkeypatch.setattr("backend.app.api.models.get_job_runner", lambda: mock_runner)
+
+        resp = test_client.post("/api/v1/models/small/download")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "downloading"
+        assert data["job_id"] == "job-xyz"
+
+
+class TestDeleteEmbeddings:
+    def test_delete_active_model_embeddings_returns_409(self, test_client, monkeypatch):
+        monkeypatch.setattr(
+            "backend.app.api.models.get_effective_model_name",
+            lambda: "small",
+        )
+        resp = test_client.delete("/api/v1/models/small/embeddings")
+        assert resp.status_code == 409
+
+    def test_delete_unknown_model_returns_404(self, test_client):
+        resp = test_client.delete("/api/v1/models/unknown_model/embeddings")
+        assert resp.status_code == 404
+
+    def test_delete_inactive_model_embeddings_returns_204(self, test_client, monkeypatch):
+        # "large" is inactive — deleting its embeddings should succeed
+        monkeypatch.setattr(
+            "backend.app.api.models.get_effective_model_name",
+            lambda: "small",
+        )
+        resp = test_client.delete("/api/v1/models/large/embeddings")
+        # Qdrant is mocked in conftest; delete_collection_by_name is a no-op
+        assert resp.status_code == 204
+
+
+class TestSetActiveModel:
+    def test_set_active_model_invalid_name_returns_422(self, test_client):
+        resp = test_client.post(
+            "/api/v1/models/active",
+            json={"model_name": "invalid_model_name"},
+        )
+        assert resp.status_code == 422
+
+    def test_set_active_model_already_active_returns_already_active(self, test_client, monkeypatch):
+        monkeypatch.setattr(
+            "backend.app.api.models.get_effective_model_name",
+            lambda: "small",
+        )
+        resp = test_client.post(
+            "/api/v1/models/active",
+            json={"model_name": "small"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "already_active"
+
+    def test_set_active_model_valid_name_returns_job(self, test_client, monkeypatch):
+        # Make "medium" appear to be the current model so we can switch to "small"
+        monkeypatch.setattr(
+            "backend.app.api.models.get_effective_model_name",
+            lambda: "medium",
+        )
+        monkeypatch.setattr(
+            "backend.app.api.models.is_model_downloaded",
+            lambda name: True,
+        )
+        mock_runner = MagicMock()
+        mock_runner.submit.return_value = "activate-job-id"
+        monkeypatch.setattr("backend.app.api.models.get_job_runner", lambda: mock_runner)
+
+        resp = test_client.post(
+            "/api/v1/models/active",
+            json={"model_name": "small"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "job_id" in data
+        assert data["job_id"] == "activate-job-id"
+
+    def test_set_active_model_missing_body_returns_422(self, test_client):
+        resp = test_client.post("/api/v1/models/active", json={})
+        assert resp.status_code == 422
