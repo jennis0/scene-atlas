@@ -43,20 +43,30 @@ npm run test:e2e:headed          # headed Chromium (see the browser)
 ```bash
 make check          # lint + format-check (both backend + frontend)
 make test           # unit tests + frontend tests (fast, ~15s)
-make test-all       # unit + integration + frontend (~30s)
-make test-heavy     # CLIP model tests (uses ONNX models, ~289 MB FP16 via scripts/models/setup_models.py)
+make test-all       # unit + integration + frontend (downloads small model on first run)
+make test-heavy     # CLIP model tests (downloads small model on first run)
 make test-e2e       # Playwright E2E tests (Chromium, ~35s with warm servers)
 make test-e2e-ui    # Playwright interactive UI mode (for debugging)
 make test-cov       # full suite with coverage reporting
 make lint-fix       # auto-fix all lint + format issues
 ```
 
+## Integration Tests (CLIP model required)
+
+Integration tests and heavy tests need a real ONNX model. `make test-integration` and `make test-heavy` automatically download the `small` model (~262 MB, quantized) on first run via `make ensure-model`. The model is cached locally and only downloaded once.
+
+```bash
+make ensure-model       # download small model if not present
+make test-integration   # integration tests with EMBEDDING_MODEL=small
+make test-heavy         # heavy tests with real CLIP inference
+```
+
 ## Heavy Tests (CLIP)
 
-Tests marked with `@pytest.mark.heavy` load the real CLIP ONNX model (~289 MB FP16, exported via `scripts/models/setup_models.py`) and run real inference. They are **excluded by default** via `addopts = "-m 'not heavy'"` in pyproject.toml. Currently only `test_clip_heavy.py` uses this marker.
+Tests marked with `@pytest.mark.heavy` load the real CLIP ONNX model and run real inference. They are **excluded by default** via `addopts = "-m 'not heavy'"` in pyproject.toml. Currently only `test_clip_heavy.py` uses this marker.
 
 **Model caching:**
-- ONNX models are cached in CI via `actions/cache@v4` keyed on `scripts/models/export_model_onnx.py` and `backend/app/config.py`
+- ONNX models are cached in CI via `actions/cache@v4` keyed on `backend/app/services/model_registry.py`
 - Models are only re-exported when the export script or config changes
 
 **Test fixture:** The `clip_service` fixture is `session`-scoped and also primes the module-level singleton, so both direct `CLIPService` usage and `get_clip_service()` code paths work.
