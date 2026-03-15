@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Download the default embedding model from HuggingFace for Scene Atlas.
 
-Downloads pre-built ONNX files to backend/models/{name}/ (the dev fallback
-path used by CLIPService when DATA_DIR/models/{name}/ does not exist).
+Downloads pre-built ONNX files to APP_DATA_DIR/models/{name}/ using the
+model_download_service (writes version.json as a completion marker, consistent
+with is_model_downloaded() and the setup-status API).
 
-Idempotent: skips if the model files are already present.
+Idempotent: skips if version.json is already present.
 
 Usage:
     uv run python scripts/models/setup_models.py [model_name]
@@ -13,9 +14,6 @@ Usage:
 """
 
 import sys
-from pathlib import Path
-
-_ROOT = Path(__file__).resolve().parent.parent.parent
 
 # Resolve model name: CLI arg → env var → default
 _DEFAULT_MODEL = "small"
@@ -28,31 +26,30 @@ else:
 
 
 def main() -> None:
-    # Import here so the script can be run with just huggingface-hub installed
-    import huggingface_hub
-
-    from backend.app.services.model_registry import ENCODER_NAMES, MODEL_BY_NAME
+    from backend.app.services.model_download_service import (
+        ModelDownloadError,
+        download_model,
+        get_model_dir,
+        is_model_downloaded,
+    )
+    from backend.app.services.model_registry import MODEL_BY_NAME
 
     if _MODEL_NAME not in MODEL_BY_NAME:
         print(f"Unknown model '{_MODEL_NAME}'. Valid names: {list(MODEL_BY_NAME)}", file=sys.stderr)
         sys.exit(1)
 
-    model_info = MODEL_BY_NAME[_MODEL_NAME]
-    dest = _ROOT / "backend" / "models" / _MODEL_NAME
-
-    # Check all expected ONNX files + manifest are present
-    required = [dest / f for f in list(ENCODER_NAMES.values()) + ["manifest.json"]]
-    if all(p.exists() for p in required):
-        print(f"Model '{_MODEL_NAME}' already present at {dest} — skipping download.")
+    if is_model_downloaded(_MODEL_NAME):
+        print(f"Model '{_MODEL_NAME}' already present at {get_model_dir(_MODEL_NAME)} — skipping download.")
         return
 
-    print(f"Downloading model '{_MODEL_NAME}' from {model_info['hf_repo']} → {dest}")
-    huggingface_hub.snapshot_download(
-        repo_id=model_info["hf_repo"],
-        local_dir=str(dest),
-        ignore_patterns=["*.md"],
-    )
-    print(f"Model '{_MODEL_NAME}' downloaded successfully.")
+    print(f"Downloading model '{_MODEL_NAME}' to {get_model_dir(_MODEL_NAME)} …")
+    try:
+        result = download_model(_MODEL_NAME)
+    except ModelDownloadError as exc:
+        print(f"Download failed: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Model '{_MODEL_NAME}' downloaded successfully (sha: {result['hf_commit_sha']}).")
 
 
 if __name__ == "__main__":

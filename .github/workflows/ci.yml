@@ -152,7 +152,7 @@ jobs:
         id: cache-onnx
         uses: actions/cache@v4
         with:
-          path: backend/models/small
+          path: data/models/small
           key: onnx-models-small-${{ hashFiles('backend/app/services/model_registry.py') }}
       - name: Download ONNX model from HuggingFace
         if: steps.cache-onnx.outputs.cache-hit != 'true'
@@ -270,7 +270,7 @@ jobs:
         id: cache-onnx
         uses: actions/cache@v4
         with:
-          path: backend/models/small
+          path: data/models/small
           key: onnx-models-small-${{ hashFiles('backend/app/services/model_registry.py') }}
       - name: Download ONNX model from HuggingFace
         if: steps.cache-onnx.outputs.cache-hit != 'true'
