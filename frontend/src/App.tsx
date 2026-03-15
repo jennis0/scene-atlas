@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { HashRouter as Router, Routes, Route } from 'react-router-dom'
 import { Toaster } from 'sonner'
 import { Gallery } from './pages/Gallery'
@@ -36,8 +36,10 @@ function App() {
     )
   }
 
+  const handleSetupComplete = useCallback(() => setModelReady(true), [])
+
   if (!modelReady) {
-    return <ModelSetupScreen onComplete={() => setModelReady(true)} />
+    return <ModelSetupScreen onComplete={handleSetupComplete} />
   }
 
   return (

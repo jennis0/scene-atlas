@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { modelsApi, type ModelInfo, type SetupStatus } from '@/lib/api/modelsApi'
 import { jobApi } from '@/lib/api/jobApi'
+import { HARDWARE_BADGE } from '@/lib/modelConstants'
 
 interface ModelSetupScreenProps {
   onComplete: () => void
@@ -12,11 +13,6 @@ const GPU_PROVIDER_LABELS: Record<string, string> = {
   CoreMLExecutionProvider: 'Apple GPU (Core ML)',
 }
 
-const HARDWARE_BADGE: Record<string, { label: string; className: string }> = {
-  cpu: { label: 'CPU', className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' },
-  gpu: { label: 'GPU', className: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' },
-  any: { label: 'Any', className: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' },
-}
 
 type Phase = 'loading' | 'select' | 'submitting' | 'progress' | 'error'
 

@@ -1,4 +1,4 @@
-import { useCallback, forwardRef, useImperativeHandle, useState } from 'react'
+import { useCallback, forwardRef, useImperativeHandle, useState, useEffect } from 'react'
 import { AlertCircle, Check } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { SettingRow } from '@/components/settings/SettingRow'
 import { useSettingsDraft } from '@/hooks/useSettingsDraft'
 import { modelsApi } from '@/lib/api/modelsApi'
+import { HARDWARE_BADGE } from '@/lib/modelConstants'
 import type { AppSettings } from '@/types'
 
 export interface SettingsTabContentRef {
@@ -17,23 +18,6 @@ interface SettingsTabContentProps {
   dialogOpen: boolean
 }
 
-const HARDWARE_BADGE: Record<string, { label: string; className: string }> = {
-  cpu: {
-    label: 'CPU',
-    className:
-      'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
-  },
-  gpu: {
-    label: 'GPU',
-    className:
-      'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300',
-  },
-  any: {
-    label: 'Any',
-    className:
-      'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
-  },
-}
 
 export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabContentProps>(
   ({ dialogOpen }, ref) => {
@@ -46,7 +30,12 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
     // Pending model switch (requires confirmation)
     const [pendingModel, setPendingModel] = useState<string | null>(null)
 
-    const { data: modelsData } = useQuery({
+    // Reset pending model when dialog closes to avoid stale confirmation state
+    useEffect(() => {
+      if (!dialogOpen) setPendingModel(null)
+    }, [dialogOpen])
+
+    const { data: modelsData, isLoading: modelsLoading, isError: modelsError } = useQuery({
       queryKey: ['models'],
       queryFn: () => modelsApi.list(),
       enabled: dialogOpen,
@@ -157,6 +146,12 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
               </p>
 
               {/* Model cards */}
+              {modelsLoading && (
+                <p className="text-xs text-muted-foreground">Loading models…</p>
+              )}
+              {modelsError && (
+                <p className="text-xs text-destructive">Could not load model list</p>
+              )}
               {modelsData && modelsData.models.length > 0 && (
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">
                   {modelsData.models.map((model) => {
@@ -264,7 +259,7 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                             <button
                               type="button"
                               onClick={() => deleteEmbeddingsMutation.mutate(model.name)}
-                              disabled={deleteEmbeddingsMutation.isPending}
+                              disabled={deleteEmbeddingsMutation.isPending && deleteEmbeddingsMutation.variables === model.name}
                               className="text-xs text-destructive hover:underline disabled:opacity-50"
                             >
                               Delete embeddings
