@@ -33,12 +33,17 @@ Requires:
 import argparse
 import json
 import os
-import sys
 from pathlib import Path
 
-# ── Import model registry from export script ────────────────────────────────
-
-from export_model_onnx import ENCODER_NAMES, MODEL_BY_NAME, MODEL_REGISTRY
+from backend.app.services.model_registry import (
+    ENCODER_NAMES,
+    HF_NAMESPACE,
+    MODEL_BY_NAME,
+    REPO_PREFIX,
+)
+from backend.app.services.model_registry import (
+    MODELS as MODEL_REGISTRY,
+)
 
 # ── Load .env ────────────────────────────────────────────────────────────────
 
@@ -51,9 +56,6 @@ if _ENV_FILE.exists():
             os.environ.setdefault(key.strip(), value.strip())
 
 # ── Constants ────────────────────────────────────────────────────────────────
-
-HF_NAMESPACE = "jennis0"
-REPO_PREFIX = "scene-atlas-"
 MODELS_DIR = Path(__file__).resolve().parent.parent.parent / "backend" / "models"
 COLLECTION_TITLE = "Scene Atlas Models"
 COLLECTION_DESCRIPTION = (

@@ -577,6 +577,9 @@ class AppSettings(BaseModel):
     webp_lossless: bool = True
     webp_quality: int = Field(95, ge=0, le=100)
 
+    # Model selection (managed via POST /api/v1/models/active — not in AppSettingsPatch)
+    active_model: str = ""  # "" = auto-detect at startup; "small"|"medium"|"large" once set
+
 
 class AppSettingsPatch(BaseModel):
     """Partial update for app settings — only include fields you want to change."""

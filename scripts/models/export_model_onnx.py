@@ -36,37 +36,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformers import AutoConfig, AutoModel, AutoProcessor
 
-# ── Model registry ───────────────────────────────────────────────────────────
-# Each model has a fixed production strategy: vision_quant + text_quant.
-# text_int8_exclude_layers: number of early transformer layers to exclude from
-# int8 quantisation (0 = no exclusions).  Only relevant when text_quant="int8".
-
-MODEL_REGISTRY: list[dict] = [
-    {
-        "name": "small",
-        "model_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
-        "vision_quant": "fp16",
-        "text_quant": "int8",
-        "text_int8_exclude_layers": 3,
-    },
-    {
-        "name": "medium",
-        "model_id": "google/siglip2-base-patch16-224",
-        "vision_quant": "fp16",
-        "text_quant": "int8",
-        "text_int8_exclude_layers": 1,
-    },
-    {
-        "name": "large",
-        "model_id": "google/siglip2-so400m-patch14-384",
-        "vision_quant": "fp16",
-        "text_quant": "fp16",
-        "text_int8_exclude_layers": 0,
-    },
-]
-
-MODEL_BY_NAME = {m["name"]: m for m in MODEL_REGISTRY}
-
+from backend.app.services.model_registry import ENCODER_NAMES, MODEL_BY_NAME
+from backend.app.services.model_registry import MODELS as MODEL_REGISTRY
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
@@ -219,11 +190,6 @@ class SigLIP2TextONNX(nn.Module):
 
 
 # ── Export functions ─────────────────────────────────────────────────────────
-
-ENCODER_NAMES = {
-    "vision": "clip_vision_encoder.onnx",
-    "text": "clip_text_encoder.onnx",
-}
 
 
 def export_vision(model, family: str, image_size: int, output_dir: Path) -> Path:

@@ -18,6 +18,11 @@ logger = logging.getLogger(__name__)
 
 _KNOWN_KEYS: frozenset[str] = frozenset(AppSettings.model_fields.keys())
 
+# NOTE: active_model is intentionally NOT auto-seeded into the DB on first boot.
+# It defaults to "" in AppSettings, and get_settings() will use that default if the
+# key is absent from the DB. This allows _get_active_model_name() in clip_service.py
+# to detect that the key is missing and trigger auto-detection at startup.
+
 
 def get_settings(db: Session) -> AppSettings:
     """Read all setting rows and merge with schema defaults.

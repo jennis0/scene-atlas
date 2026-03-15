@@ -1,43 +1,58 @@
 #!/usr/bin/env python3
-"""Set up the default embedding model for Scene Atlas.
+"""Download the default embedding model from HuggingFace for Scene Atlas.
 
-Idempotent: checks if the model's ONNX files already exist and skips if they do.
-Uses export_model_onnx.py which handles both downloading and exporting.
+Downloads pre-built ONNX files to backend/models/{name}/ (the dev fallback
+path used by CLIPService when DATA_DIR/models/{name}/ does not exist).
+
+Idempotent: skips if the model files are already present.
 
 Usage:
-    uv run python scripts/models/setup_models.py
+    uv run python scripts/models/setup_models.py [model_name]
+
+    model_name: small | medium | large  (default: small)
 """
 
-import os
-import subprocess
 import sys
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent.parent
-_DEFAULT_MODEL = "clip-vit-b-32"
-_MODEL_NAME = os.environ.get("EMBEDDING_MODEL", _DEFAULT_MODEL)
-_MODELS_DIR = _ROOT / "backend" / "models" / _MODEL_NAME
 
-_REQUIRED_FILES = [
-    _MODELS_DIR / "clip_vision_encoder.onnx",
-    _MODELS_DIR / "clip_text_encoder.onnx",
-    _MODELS_DIR / "manifest.json",
-]
+# Resolve model name: CLI arg → env var → default
+_DEFAULT_MODEL = "small"
+if len(sys.argv) > 1:
+    _MODEL_NAME = sys.argv[1]
+else:
+    import os
 
-
-def models_exist() -> bool:
-    return all(p.exists() for p in _REQUIRED_FILES)
+    _MODEL_NAME = os.environ.get("EMBEDDING_MODEL", _DEFAULT_MODEL)
 
 
 def main() -> None:
-    if models_exist():
-        print(f"ONNX models already present for {_MODEL_NAME} — skipping setup.")
+    # Import here so the script can be run with just huggingface-hub installed
+    import huggingface_hub
+
+    from backend.app.services.model_registry import ENCODER_NAMES, MODEL_BY_NAME
+
+    if _MODEL_NAME not in MODEL_BY_NAME:
+        print(f"Unknown model '{_MODEL_NAME}'. Valid names: {list(MODEL_BY_NAME)}", file=sys.stderr)
+        sys.exit(1)
+
+    model_info = MODEL_BY_NAME[_MODEL_NAME]
+    dest = _ROOT / "backend" / "models" / _MODEL_NAME
+
+    # Check all expected ONNX files + manifest are present
+    required = [dest / f for f in list(ENCODER_NAMES.values()) + ["manifest.json"]]
+    if all(p.exists() for p in required):
+        print(f"Model '{_MODEL_NAME}' already present at {dest} — skipping download.")
         return
 
-    print(f"ONNX models not found for {_MODEL_NAME} — exporting...")
-    script = Path(__file__).parent / "export_model_onnx.py"
-    subprocess.run([sys.executable, str(script), _MODEL_NAME], check=True)
-    print("Model setup complete.")
+    print(f"Downloading model '{_MODEL_NAME}' from {model_info['hf_repo']} → {dest}")
+    huggingface_hub.snapshot_download(
+        repo_id=model_info["hf_repo"],
+        local_dir=str(dest),
+        ignore_patterns=["*.md"],
+    )
+    print(f"Model '{_MODEL_NAME}' downloaded successfully.")
 
 
 if __name__ == "__main__":
