@@ -123,6 +123,9 @@ def prepare_single_image(
             reuse_thumbnail_key = metadata.get("reuse_thumbnail_key")
             relative_path = metadata.get("relative_path")
             import_job_id = metadata.get("import_job_id")
+            # Resolve original filename: staging paths use UUID hex names,
+            # so we derive the human-readable filename from relative_path.
+            original_filename = Path(relative_path).name if relative_path else image_path_obj.name
         else:
             if parser is None:
                 parser = _build_parser()
@@ -147,6 +150,7 @@ def prepare_single_image(
             reuse_thumbnail_key = None
             relative_path = str(relative)
             import_job_id = None
+            original_filename = image_path_obj.name
 
         # --- Duplicate reuse path ---
         # If we're reusing an existing file, skip copy/thumbnail/color extraction
@@ -186,7 +190,7 @@ def prepare_single_image(
         if reuse_storage_key:
             reuse_ext = image_path_obj.suffix.lower()
             image_data = {
-                "filename": image_path_obj.name,
+                "filename": original_filename,
                 "storage_key": reuse_storage_key,
                 "name": name,
                 "author": author,
@@ -210,7 +214,7 @@ def prepare_single_image(
             }
 
             qdrant_metadata = {
-                "filename": image_path_obj.name,
+                "filename": original_filename,
                 "author": author,
                 "base_name": group_name,
             }
@@ -326,7 +330,7 @@ def prepare_single_image(
 
         # --- Build result ---
         image_data = {
-            "filename": image_path_obj.name,
+            "filename": original_filename,
             "storage_key": storage_key,
             "name": name,
             "author": author,
@@ -350,7 +354,7 @@ def prepare_single_image(
         }
 
         qdrant_metadata = {
-            "filename": image_path_obj.name,
+            "filename": original_filename,
             "author": author,
             "base_name": group_name,
         }

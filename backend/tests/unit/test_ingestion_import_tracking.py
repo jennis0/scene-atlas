@@ -120,6 +120,88 @@ def test_run_group_injects_import_job_id_into_metadata(tmp_path):
     assert any(m.get("import_job_id") == "job-xyz" for m in captured_metadata)
 
 
+class TestPrepareUsesOriginalFilename:
+    """prepare_single_image should use the original filename from relative_path,
+    not the UUID-based staging path name."""
+
+    def test_filename_from_relative_path_not_staging_key(self, tmp_path):
+        """When image_path is a UUID staging key but relative_path has the
+        original name, the returned filename should be the original."""
+        from backend.pipeline.prepare import prepare_single_image
+
+        # Simulate a staging file with a UUID hex name
+        staging_key = "a1b2c3d4e5f6.jpg"
+        staging_file = tmp_path / staging_key
+        # Create a minimal valid JPEG (SOI + EOI markers)
+        staging_file.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 100 + b"\xff\xd9")
+
+        original_filename = "Forest - Winter - Day.jpg"
+
+        with (
+            patch("backend.pipeline.prepare.get_image_store") as mock_store,
+            patch(
+                "backend.pipeline.tasks.image_processing.generate_thumbnails",
+                return_value={"keys": {"medium": "thumb.jpg"}, "dimensions": (100, 100)},
+            ),
+            patch(
+                "backend.pipeline.tasks.color_extraction.extract_dominant_colors",
+                return_value=[],
+            ),
+        ):
+            mock_store.return_value.put = MagicMock()
+
+            result = prepare_single_image(
+                image_path=str(staging_file),
+                metadata={
+                    "author": "TestAuthor",
+                    "group_name": "Forest",
+                    "name": "Forest - Winter - Day",
+                    "relative_path": original_filename,
+                    "tags": [],
+                    "image_type": "scene",
+                },
+            )
+
+        assert result["status"] == "success"
+        assert result["image_data"]["filename"] == original_filename
+        assert result["qdrant_metadata"]["filename"] == original_filename
+
+    def test_filename_falls_back_to_path_name_without_relative_path(self, tmp_path):
+        """Without relative_path in metadata, filename should come from the
+        image path itself."""
+        from backend.pipeline.prepare import prepare_single_image
+
+        image_file = tmp_path / "actual_image.jpg"
+        image_file.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 100 + b"\xff\xd9")
+
+        with (
+            patch("backend.pipeline.prepare.get_image_store") as mock_store,
+            patch(
+                "backend.pipeline.tasks.image_processing.generate_thumbnails",
+                return_value={"keys": {"medium": "thumb.jpg"}, "dimensions": (100, 100)},
+            ),
+            patch(
+                "backend.pipeline.tasks.color_extraction.extract_dominant_colors",
+                return_value=[],
+            ),
+        ):
+            mock_store.return_value.put = MagicMock()
+
+            result = prepare_single_image(
+                image_path=str(image_file),
+                metadata={
+                    "author": "TestAuthor",
+                    "group_name": "Test",
+                    "name": "Test",
+                    "tags": [],
+                    "image_type": "scene",
+                },
+            )
+
+        assert result["status"] == "success"
+        assert result["image_data"]["filename"] == "actual_image.jpg"
+
+
 def _make_image_data(group_name: str, author: str, storage_key: str) -> dict:
     return {
         "filename": f"{storage_key}.jpg",
