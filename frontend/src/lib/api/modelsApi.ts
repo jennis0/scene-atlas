@@ -44,14 +44,14 @@ export const modelsApi = {
   },
 
   setActiveModel: async (modelName: string): Promise<{ status: string; job_id: string | null }> => {
-    const { data } = await api.post<{ status: string; job_id: string | null }>(
-      `/models/${modelName}/activate`,
-    )
+    const { data } = await api.post<{ status: string; job_id: string | null }>('/models/active', {
+      model_name: modelName,
+    })
     return data
   },
 
   getEmbeddingStats: async (name: string): Promise<EmbeddingStats> => {
-    const { data } = await api.get<EmbeddingStats>(`/models/${name}/embedding-stats`)
+    const { data } = await api.get<EmbeddingStats>(`/models/${name}/embeddings`)
     return data
   },
 
