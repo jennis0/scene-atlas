@@ -13,6 +13,7 @@ defaults are used for backward compatibility.
 import copy
 import json
 import logging
+import os
 import sys
 import threading
 from pathlib import Path
@@ -146,13 +147,66 @@ def _load_manifest(models_dir: Path) -> dict:
 def _default_models_dir() -> Path:
     """Resolve the ONNX models directory.
 
-    In a frozen PyInstaller sidecar the models are bundled at
-    ``_MEIPASS/models/``.  In development they live under
-    ``backend/models/<embedding_model>/``.
+    Search order:
+    1. DATA_DIR/models/{name}/ — user data dir (HF downloads)
+    2. backend/models/{name}/ — dev fallback (local exports)
+    3. _MEIPASS/models/ — frozen PyInstaller sidecar (uses name from manifest)
+
+    In the frozen sidecar, a single bundled model is used regardless of name.
     """
     if getattr(sys, "frozen", False):
         return Path(sys._MEIPASS) / "models"
-    return Path(__file__).parent.parent.parent / "models" / _settings.embedding_model
+    model_name = _get_active_model_name()
+    # 1. User data dir (HF downloads)
+    data_models = _settings.data_dir / "models" / model_name
+    if data_models.exists() and (data_models / "manifest.json").exists():
+        return data_models
+    # 2. Dev fallback (local exports in backend/models/)
+    return Path(__file__).parent.parent.parent / "models" / model_name
+
+
+def _get_active_model_name() -> str:
+    """Resolve the active model name from env var → DB → auto-detect.
+
+    1. EMBEDDING_MODEL env var (operator override)
+    2. active_model key in app_settings DB
+    3. Auto-detect: GPU present → medium, CPU-only → small
+
+    The deferred database import must remain inside this function to avoid
+    circular imports (database.py imports nothing from clip_service.py, but
+    module-level cross-imports between services can still cause issues at
+    startup).  The bare except is intentional — if the DB is locked or not
+    yet initialised, auto-detect silently activates.
+    """
+    # 1. Env var override
+    env = os.environ.get("EMBEDDING_MODEL", "")
+    if env:
+        return env
+
+    # 2. DB setting (deferred import — must stay local)
+    try:
+        from backend.app.models import get_engine, get_session_local  # noqa: PLC0415
+        from backend.app.models.database import AppSetting  # noqa: PLC0415
+
+        engine = get_engine(_settings.database_url)
+        Session = get_session_local(engine)
+        with Session() as db:
+            row = db.query(AppSetting).filter_by(key="active_model").first()
+            if row and row.value_json:
+                return json.loads(row.value_json)
+    except Exception:
+        pass
+
+    # 3. Auto-detect based on ORT provider availability
+    providers = resolve_providers("auto")
+    return "medium" if _has_real_gpu_provider(providers) else "small"
+
+
+def _has_real_gpu_provider(providers: list[str]) -> bool:
+    """Return True only if a real GPU provider (CUDA/DirectML/CoreML) is available."""
+    from backend.app.services.model_registry import GPU_PROVIDERS  # noqa: PLC0415
+
+    return bool(set(providers) & GPU_PROVIDERS)
 
 
 # Module-level LRU cache for text embeddings (avoids lru_cache-on-method leak).
@@ -537,14 +591,17 @@ _clip_service: CLIPService | None = None
 _clip_lock = threading.Lock()
 _clip_ready = threading.Event()
 _clip_error: Exception | None = None
+_active_model_name: str | None = None  # Set by _load_clip(); read by get_effective_model_name()
+_reload_lock = threading.Lock()
 
 
 def _load_clip() -> None:
-    global _clip_service, _clip_error
+    global _clip_service, _clip_error, _active_model_name
     try:
         service = CLIPService()
         with _clip_lock:
             _clip_service = service
+            _active_model_name = _get_active_model_name()  # Record what was loaded
         logger.info("Embedding model ready")
     except Exception as exc:
         with _clip_lock:
@@ -566,9 +623,41 @@ def start_clip_background_load() -> threading.Thread:
     return t
 
 
+def get_effective_model_name() -> str:
+    """Return the currently active model name (set during last successful load).
+
+    Falls back to _get_active_model_name() if the service hasn't loaded yet.
+    """
+    if _active_model_name is not None:
+        return _active_model_name
+    return _get_active_model_name()
+
+
 def get_clip_service() -> CLIPService:
     """Return the embedding model singleton, waiting for background load if needed."""
     _clip_ready.wait()  # no-op once set; blocks briefly if still loading
     if _clip_service is None:
         raise RuntimeError(f"Embedding service unavailable: {_clip_error}")
     return _clip_service
+
+
+def reload_clip_service() -> threading.Thread:
+    """Reload the CLIPService singleton with the currently active model.
+
+    Thread-safe: uses _reload_lock to prevent concurrent reloads.
+    If a reload is already in progress (event is cleared), waits for it
+    to complete and returns the current thread as a no-op sentinel.
+
+    Returns the loader thread (callers can .join() to wait for completion).
+    """
+    with _reload_lock:
+        if not _clip_ready.is_set():
+            # Reload already in progress — wait for it instead of double-loading
+            _clip_ready.wait()
+            return threading.current_thread()
+        global _clip_service, _clip_error
+        _clip_ready.clear()
+        with _clip_lock:
+            _clip_service = None
+            _clip_error = None
+    return start_clip_background_load()
