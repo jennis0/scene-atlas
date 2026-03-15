@@ -18,63 +18,71 @@ class TestResolveProviders:
         assert result == ["CPUExecutionProvider"]
         mock_providers.assert_not_called()
 
-    @patch("onnxruntime.get_available_providers")
-    def test_auto_with_cuda_available(self, mock_providers):
+    @patch("backend.app.services.ort_providers._cuda_provider_available", return_value=True)
+    @patch("onnxruntime.get_available_providers", return_value=["CPUExecutionProvider"])
+    def test_auto_with_cuda_available(self, _mock_avail, _mock_cuda):
+        # CUDA detection uses _cuda_provider_available(), not get_available_providers()
         from backend.app.services.ort_providers import resolve_providers
 
-        mock_providers.return_value = ["CUDAExecutionProvider", "CPUExecutionProvider"]
         result = resolve_providers("auto")
         assert result == ["CUDAExecutionProvider", "CPUExecutionProvider"]
 
-    @patch("onnxruntime.get_available_providers")
-    def test_auto_with_directml_available(self, mock_providers):
+    @patch("backend.app.services.ort_providers._cuda_provider_available", return_value=False)
+    @patch(
+        "onnxruntime.get_available_providers",
+        return_value=["DmlExecutionProvider", "CPUExecutionProvider"],
+    )
+    def test_auto_with_directml_available(self, _mock_avail, _mock_cuda):
         from backend.app.services.ort_providers import resolve_providers
 
-        mock_providers.return_value = ["DmlExecutionProvider", "CPUExecutionProvider"]
         result = resolve_providers("auto")
         assert result == ["DmlExecutionProvider", "CPUExecutionProvider"]
 
-    @patch("onnxruntime.get_available_providers")
-    def test_auto_with_coreml_available(self, mock_providers):
+    @patch("backend.app.services.ort_providers._cuda_provider_available", return_value=False)
+    @patch(
+        "onnxruntime.get_available_providers",
+        return_value=["CoreMLExecutionProvider", "CPUExecutionProvider"],
+    )
+    def test_auto_with_coreml_available(self, _mock_avail, _mock_cuda):
         from backend.app.services.ort_providers import resolve_providers
 
-        mock_providers.return_value = ["CoreMLExecutionProvider", "CPUExecutionProvider"]
         result = resolve_providers("auto")
         assert result == ["CoreMLExecutionProvider", "CPUExecutionProvider"]
 
-    @patch("onnxruntime.get_available_providers")
-    def test_auto_prefers_cuda_over_directml(self, mock_providers):
+    @patch("backend.app.services.ort_providers._cuda_provider_available", return_value=True)
+    @patch(
+        "onnxruntime.get_available_providers",
+        return_value=["DmlExecutionProvider", "CPUExecutionProvider"],
+    )
+    def test_auto_prefers_cuda_over_directml(self, _mock_avail, _mock_cuda):
+        # CUDA takes priority — even when DML is in get_available_providers()
         from backend.app.services.ort_providers import resolve_providers
 
-        mock_providers.return_value = [
-            "CUDAExecutionProvider",
-            "DmlExecutionProvider",
-            "CPUExecutionProvider",
-        ]
         result = resolve_providers("auto")
         assert result[0] == "CUDAExecutionProvider"
 
-    @patch("onnxruntime.get_available_providers")
-    def test_auto_cpu_only(self, mock_providers):
+    @patch("backend.app.services.ort_providers._cuda_provider_available", return_value=False)
+    @patch("onnxruntime.get_available_providers", return_value=["CPUExecutionProvider"])
+    def test_auto_cpu_only(self, _mock_avail, _mock_cuda):
         from backend.app.services.ort_providers import resolve_providers
 
-        mock_providers.return_value = ["CPUExecutionProvider"]
         result = resolve_providers("auto")
         assert result == ["CPUExecutionProvider"]
 
-    @patch("onnxruntime.get_available_providers")
-    def test_explicit_cuda_available(self, mock_providers):
+    @patch("backend.app.services.ort_providers._cuda_provider_available", return_value=True)
+    @patch("onnxruntime.get_available_providers", return_value=["CPUExecutionProvider"])
+    def test_explicit_cuda_available(self, _mock_avail, _mock_cuda):
+        # Explicit "cuda" also uses _cuda_provider_available(), not get_available_providers()
         from backend.app.services.ort_providers import resolve_providers
 
-        mock_providers.return_value = ["CUDAExecutionProvider", "CPUExecutionProvider"]
         result = resolve_providers("cuda")
         assert result == ["CUDAExecutionProvider", "CPUExecutionProvider"]
 
-    @patch("onnxruntime.get_available_providers")
-    def test_explicit_cuda_not_available(self, mock_providers):
+    @patch("backend.app.services.ort_providers._cuda_provider_available", return_value=False)
+    @patch("onnxruntime.get_available_providers", return_value=["CPUExecutionProvider"])
+    def test_explicit_cuda_not_available(self, _mock_avail, _mock_cuda):
         from backend.app.services.ort_providers import resolve_providers
 
-        mock_providers.return_value = ["CPUExecutionProvider"]
         result = resolve_providers("cuda")
         assert result == ["CPUExecutionProvider"]
 

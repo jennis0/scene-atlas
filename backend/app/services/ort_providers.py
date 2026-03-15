@@ -46,6 +46,24 @@ def _check_cuda_libs() -> list[str]:
     return missing
 
 
+def _cuda_provider_available() -> bool:
+    """Return True if CUDAExecutionProvider is usable.
+
+    ``ort.get_available_providers()`` can omit CUDAExecutionProvider on certain
+    platforms (notably WSL2) even when the provider .so is present and all CUDA
+    runtime libraries are loadable.  This probe avoids that false negative by
+    checking the provider shared library directly.
+    """
+    try:
+        import onnxruntime as ort
+    except ImportError:
+        return False
+    provider_so = Path(ort.__file__).parent / "capi" / "libonnxruntime_providers_cuda.so"
+    if not provider_so.exists():
+        return False
+    return not _check_cuda_libs()
+
+
 # Provider name → friendly label for log messages
 _GPU_PROVIDERS = {
     "CUDAExecutionProvider": "CUDA",
@@ -102,10 +120,17 @@ def resolve_providers(preference: str = "auto") -> list[str]:
     if preference == "cpu":
         return ["CPUExecutionProvider"]
 
+    # get_available_providers() can omit CUDAExecutionProvider on some platforms
+    # (e.g. WSL2) even when CUDA actually works — so CUDA uses a separate probe.
     available = set(ort.get_available_providers())
 
     if preference == "auto":
-        for provider in _AUTO_PRIORITY:
+        # CUDA: probe-based (get_available_providers() is unreliable for CUDA on WSL2)
+        if _cuda_provider_available():
+            logger.info("Auto-detected CUDA provider")
+            return ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        # DML / CoreML: platform checks are built into get_available_providers()
+        for provider in ["DmlExecutionProvider", "CoreMLExecutionProvider"]:
             if provider in available:
                 label = _GPU_PROVIDERS[provider]
                 logger.info("Auto-detected %s provider", label)
@@ -122,7 +147,11 @@ def resolve_providers(preference: str = "auto") -> list[str]:
         )
         return ["CPUExecutionProvider"]
 
-    if provider not in available:
+    # For CUDA, use the same probe rather than get_available_providers()
+    provider_available = (
+        _cuda_provider_available() if provider == "CUDAExecutionProvider" else provider in available
+    )
+    if not provider_available:
         label = _GPU_PROVIDERS[provider]
         logger.warning(
             "%s provider requested but not available (installed providers: %s). "
