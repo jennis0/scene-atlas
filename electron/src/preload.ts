@@ -1,7 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('electronAPI', {
-  /** Host OS: 'darwin' | 'win32' | 'linux' — for platform-specific UI layout. */
   platform: process.platform,
 
   onBackendReady: (callback: (port: number) => void) => {
@@ -11,16 +10,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.once('backend-error', (_event, message: string) => callback(message))
   },
 
-  // System settings
-  getDataDir: (): Promise<string | null> => ipcRenderer.invoke('system:get-data-dir'),
-  openDataDir: (): Promise<void> => ipcRenderer.invoke('system:open-data-dir'),
-  chooseDataDir: (): Promise<string | null> => ipcRenderer.invoke('system:choose-data-dir'),
-  changeDataDir: (newPath: string): Promise<void> => ipcRenderer.invoke('system:change-data-dir', newPath),
+  // Storage path IPC
+  getAppDataDir: (): Promise<string | null> => ipcRenderer.invoke('system:get-app-data-dir'),
+  getImageLibraryDir: (): Promise<string | null> => ipcRenderer.invoke('system:get-image-library-dir'),
+  chooseAppDataDir: (): Promise<string | null> => ipcRenderer.invoke('system:choose-app-data-dir'),
+  chooseImageLibraryDir: (): Promise<string | null> => ipcRenderer.invoke('system:choose-image-library-dir'),
+  // Saves config AND restarts. Call only when user confirms they've moved files.
+  changeStorageDirs: (appDataDir: string, imageLibraryDir: string): Promise<void> =>
+    ipcRenderer.invoke('system:change-storage-dirs', appDataDir, imageLibraryDir),
 
   // Filesystem access for drag-and-drop folder traversal
-  readDirectory: (
-    dirPath: string,
-  ): Promise<Array<{ relativePath: string; absolutePath: string }>> =>
+  readDirectory: (dirPath: string): Promise<Array<{ relativePath: string; absolutePath: string }>> =>
     ipcRenderer.invoke('fs:read-directory', dirPath),
   readFileBytes: (absolutePath: string): Promise<{ data: Uint8Array }> =>
     ipcRenderer.invoke('fs:read-file-bytes', absolutePath),
