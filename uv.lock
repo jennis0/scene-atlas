@@ -2,17 +2,35 @@ version = 1
 revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
-    "python_full_version >= '3.14' and sys_platform != 'darwin'",
-    "python_full_version >= '3.14' and sys_platform == 'darwin'",
-    "python_full_version == '3.13.*' and sys_platform != 'darwin'",
-    "python_full_version == '3.13.*' and sys_platform == 'darwin'",
-    "python_full_version < '3.13' and sys_platform != 'darwin'",
-    "python_full_version < '3.13' and sys_platform == 'darwin'",
+    "python_full_version >= '3.14' and sys_platform != 'darwin' and extra != 'extra-11-scene-atlas-gpu-cuda' and extra != 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime'",
+    "python_full_version >= '3.14' and sys_platform == 'darwin' and extra != 'extra-11-scene-atlas-gpu-cuda' and extra != 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime'",
+    "python_full_version == '3.13.*' and sys_platform != 'darwin' and extra != 'extra-11-scene-atlas-gpu-cuda' and extra != 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime'",
+    "python_full_version == '3.13.*' and sys_platform == 'darwin' and extra != 'extra-11-scene-atlas-gpu-cuda' and extra != 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime'",
+    "python_full_version < '3.13' and sys_platform != 'darwin' and extra != 'extra-11-scene-atlas-gpu-cuda' and extra != 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime'",
+    "python_full_version < '3.13' and sys_platform == 'darwin' and extra != 'extra-11-scene-atlas-gpu-cuda' and extra != 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime'",
+    "python_full_version >= '3.14' and sys_platform != 'darwin' and extra != 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml' and extra != 'group-11-scene-atlas-cpu-runtime'",
+    "python_full_version >= '3.14' and sys_platform == 'darwin' and extra != 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml' and extra != 'group-11-scene-atlas-cpu-runtime'",
+    "python_full_version == '3.13.*' and sys_platform != 'darwin' and extra != 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml' and extra != 'group-11-scene-atlas-cpu-runtime'",
+    "python_full_version == '3.13.*' and sys_platform == 'darwin' and extra != 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml' and extra != 'group-11-scene-atlas-cpu-runtime'",
+    "python_full_version < '3.13' and sys_platform != 'darwin' and extra != 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml' and extra != 'group-11-scene-atlas-cpu-runtime'",
+    "python_full_version < '3.13' and sys_platform == 'darwin' and extra != 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml' and extra != 'group-11-scene-atlas-cpu-runtime'",
+    "python_full_version >= '3.14' and extra != 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda' and extra != 'extra-11-scene-atlas-gpu-directml' and extra != 'group-11-scene-atlas-cpu-runtime'",
+    "python_full_version == '3.13.*' and extra != 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda' and extra != 'extra-11-scene-atlas-gpu-directml' and extra != 'group-11-scene-atlas-cpu-runtime'",
+    "python_full_version < '3.13' and extra != 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda' and extra != 'extra-11-scene-atlas-gpu-directml' and extra != 'group-11-scene-atlas-cpu-runtime'",
+    "python_full_version >= '3.14' and sys_platform != 'darwin' and extra != 'extra-11-scene-atlas-gpu-cuda' and extra != 'extra-11-scene-atlas-gpu-directml' and extra != 'group-11-scene-atlas-cpu-runtime'",
+    "python_full_version >= '3.14' and sys_platform == 'darwin' and extra != 'extra-11-scene-atlas-gpu-cuda' and extra != 'extra-11-scene-atlas-gpu-directml' and extra != 'group-11-scene-atlas-cpu-runtime'",
+    "python_full_version == '3.13.*' and sys_platform != 'darwin' and extra != 'extra-11-scene-atlas-gpu-cuda' and extra != 'extra-11-scene-atlas-gpu-directml' and extra != 'group-11-scene-atlas-cpu-runtime'",
+    "python_full_version == '3.13.*' and sys_platform == 'darwin' and extra != 'extra-11-scene-atlas-gpu-cuda' and extra != 'extra-11-scene-atlas-gpu-directml' and extra != 'group-11-scene-atlas-cpu-runtime'",
+    "python_full_version < '3.13' and sys_platform != 'darwin' and extra != 'extra-11-scene-atlas-gpu-cuda' and extra != 'extra-11-scene-atlas-gpu-directml' and extra != 'group-11-scene-atlas-cpu-runtime'",
+    "python_full_version < '3.13' and sys_platform == 'darwin' and extra != 'extra-11-scene-atlas-gpu-cuda' and extra != 'extra-11-scene-atlas-gpu-directml' and extra != 'group-11-scene-atlas-cpu-runtime'",
 ]
 conflicts = [[
-    { package = "scene-atlas", extra = "cpu" },
     { package = "scene-atlas", extra = "gpu-cuda" },
     { package = "scene-atlas", extra = "gpu-directml" },
+    { package = "scene-atlas", group = "cpu-runtime" },
+], [
+    { package = "scene-atlas", extra = "cpu" },
+    { package = "scene-atlas", extra = "gpu-cuda" },
 ]]
 
 [[package]]
@@ -71,7 +89,7 @@ version = "4.12.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "idna" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml')" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'group-11-scene-atlas-cpu-runtime') or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/96/f0/5eb65b2bb0d09ac6776f2eb54adee6abe8228ea05b20a5ad0e4945de8aac/anyio-4.12.1.tar.gz", hash = "sha256:41cfcc3a4c85d3f05c932da7c26d0201ac36f72abd4435ba90d0464a3ffed703", size = 228685, upload-time = "2026-01-06T11:45:21.246Z" }
 wheels = [
@@ -92,7 +110,7 @@ name = "bandit"
 version = "1.9.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml')" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'group-11-scene-atlas-cpu-runtime') or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
     { name = "pyyaml" },
     { name = "rich" },
     { name = "stevedore" },
@@ -200,7 +218,7 @@ name = "click"
 version = "8.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml')" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'group-11-scene-atlas-cpu-runtime') or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/3d/fa/656b739db8587d7b5dfa22e22ed02566950fbfbcdc20311993483657a5c0/click-8.3.1.tar.gz", hash = "sha256:12ff4785d337a1bb490bb7e9c2b1ee5da3112e94a8622f26a6c77f5d2fc6842a", size = 295065, upload-time = "2025-11-15T20:45:42.706Z" }
 wheels = [
@@ -393,7 +411,7 @@ dependencies = [
     { name = "packageurl-python" },
     { name = "py-serializable" },
     { name = "sortedcontainers" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml')" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'group-11-scene-atlas-cpu-runtime') or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/89/ed/54ecfa25fc145c58bf4f98090f7b6ffe5188d0759248c57dde44427ea239/cyclonedx_python_lib-11.6.0.tar.gz", hash = "sha256:7fb85a4371fa3a203e5be577ac22b7e9a7157f8b0058b7448731474d6dea7bf0", size = 1408147, upload-time = "2025-12-02T12:28:46.446Z" }
 wheels = [
@@ -738,7 +756,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "filelock" },
     { name = "fsspec" },
-    { name = "hf-xet", marker = "platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'arm64' or platform_machine == 'x86_64' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml')" },
+    { name = "hf-xet", marker = "platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'arm64' or platform_machine == 'x86_64' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'group-11-scene-atlas-cpu-runtime') or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
     { name = "packaging" },
     { name = "pyyaml" },
     { name = "requests" },
@@ -787,12 +805,12 @@ name = "ipython"
 version = "9.10.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml')" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'group-11-scene-atlas-cpu-runtime') or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
     { name = "decorator" },
     { name = "ipython-pygments-lexers" },
     { name = "jedi" },
     { name = "matplotlib-inline" },
-    { name = "pexpect", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'emscripten' and extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (sys_platform == 'emscripten' and extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-directml') or (sys_platform == 'emscripten' and extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (sys_platform == 'win32' and extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (sys_platform == 'win32' and extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-directml') or (sys_platform == 'win32' and extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml')" },
+    { name = "pexpect", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'emscripten' and extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (sys_platform == 'emscripten' and extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (sys_platform == 'emscripten' and extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'group-11-scene-atlas-cpu-runtime') or (sys_platform == 'emscripten' and extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime') or (sys_platform == 'win32' and extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (sys_platform == 'win32' and extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (sys_platform == 'win32' and extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'group-11-scene-atlas-cpu-runtime') or (sys_platform == 'win32' and extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
     { name = "prompt-toolkit" },
     { name = "pygments" },
     { name = "stack-data" },
@@ -976,7 +994,7 @@ name = "macholib"
 version = "1.16.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "altgraph", marker = "sys_platform == 'darwin' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml')" },
+    { name = "altgraph", marker = "sys_platform == 'darwin' or extra == 'extra-11-scene-atlas-gpu-cuda' or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/10/2f/97589876ea967487978071c9042518d28b958d87b17dceb7cdc1d881f963/macholib-1.16.4.tar.gz", hash = "sha256:f408c93ab2e995cd2c46e34fe328b130404be143469e41bc366c807448979362", size = 59427, upload-time = "2025-11-22T08:28:38.373Z" }
 wheels = [
@@ -1349,7 +1367,7 @@ name = "nvidia-cudnn-cu12"
 version = "9.1.0.70"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas-cu12", marker = "sys_platform != 'darwin'" },
+    { name = "nvidia-cublas-cu12" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9f/fd/713452cd72343f682b1c7b9321e23829f00b842ceaedcda96e742ea0b0b3/nvidia_cudnn_cu12-9.1.0.70-py3-none-manylinux2014_x86_64.whl", hash = "sha256:165764f44ef8c61fcdfdfdbe769d687e06374059fbb388b6c89ecb0e28793a6f", size = 664752741, upload-time = "2024-04-22T15:24:15.253Z" },
@@ -1361,7 +1379,7 @@ name = "nvidia-cufft-cu12"
 version = "11.2.1.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink-cu12", marker = "sys_platform != 'darwin'" },
+    { name = "nvidia-nvjitlink-cu12" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7a/8a/0e728f749baca3fbeffad762738276e5df60851958be7783af121a7221e7/nvidia_cufft_cu12-11.2.1.3-py3-none-manylinux2014_aarch64.whl", hash = "sha256:5dad8008fc7f92f5ddfa2101430917ce2ffacd86824914c82e28990ad7f00399", size = 211422548, upload-time = "2024-06-18T19:33:39.396Z" },
@@ -1384,9 +1402,9 @@ name = "nvidia-cusolver-cu12"
 version = "11.6.1.9"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas-cu12", marker = "sys_platform != 'darwin'" },
-    { name = "nvidia-cusparse-cu12", marker = "sys_platform != 'darwin'" },
-    { name = "nvidia-nvjitlink-cu12", marker = "sys_platform != 'darwin'" },
+    { name = "nvidia-cublas-cu12" },
+    { name = "nvidia-cusparse-cu12" },
+    { name = "nvidia-nvjitlink-cu12" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/46/6b/a5c33cf16af09166845345275c34ad2190944bcc6026797a39f8e0a282e0/nvidia_cusolver_cu12-11.6.1.9-py3-none-manylinux2014_aarch64.whl", hash = "sha256:d338f155f174f90724bbde3758b7ac375a70ce8e706d70b018dd3375545fc84e", size = 127634111, upload-time = "2024-06-18T19:35:01.793Z" },
@@ -1399,7 +1417,7 @@ name = "nvidia-cusparse-cu12"
 version = "12.3.1.170"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink-cu12", marker = "sys_platform != 'darwin'" },
+    { name = "nvidia-nvjitlink-cu12" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/96/a9/c0d2f83a53d40a4a41be14cea6a0bf9e668ffcf8b004bd65633f433050c0/nvidia_cusparse_cu12-12.3.1.170-py3-none-manylinux2014_aarch64.whl", hash = "sha256:9d32f62896231ebe0480efd8a7f702e143c98cfaa0e8a76df3386c1ba2b54df3", size = 207381987, upload-time = "2024-06-18T19:35:32.989Z" },
@@ -1478,8 +1496,8 @@ dependencies = [
     { name = "ml-dtypes" },
     { name = "numpy" },
     { name = "onnx" },
-    { name = "sympy", version = "1.13.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-scene-atlas-gpu-cuda' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-directml')" },
-    { name = "sympy", version = "1.14.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-scene-atlas-cpu' or extra != 'extra-11-scene-atlas-gpu-cuda' or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml')" },
+    { name = "sympy", version = "1.13.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-scene-atlas-gpu-cuda' or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
+    { name = "sympy", version = "1.14.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-scene-atlas-cpu' or extra != 'extra-11-scene-atlas-gpu-cuda' or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'group-11-scene-atlas-cpu-runtime')" },
     { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/b2/a5/acc43c8fa6edbc584d127fb6bbd13ae9ebfc01b9675c74e0da2de15fa4a6/onnx_ir-0.2.0.tar.gz", hash = "sha256:8bad3906691987290789b26d05e0dbff467029a0b1e411e12e4cae02e43503e4", size = 141693, upload-time = "2026-02-24T02:31:10.998Z" }
@@ -1786,7 +1804,7 @@ name = "portalocker"
 version = "3.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pywin32", marker = "sys_platform == 'win32' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml')" },
+    { name = "pywin32", marker = "sys_platform == 'win32' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'group-11-scene-atlas-cpu-runtime') or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/5e/77/65b857a69ed876e1951e88aaba60f5ce6120c33703f7cb61a3c894b8c1b6/portalocker-3.2.0.tar.gz", hash = "sha256:1f3002956a54a8c3730586c5c77bf18fae4149e07eaf1c29fc3faf4d5a3f89ac", size = 95644, upload-time = "2025-06-14T13:20:40.03Z" }
 wheels = [
@@ -1980,11 +1998,11 @@ version = "6.19.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "altgraph" },
-    { name = "macholib", marker = "sys_platform == 'darwin' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml')" },
+    { name = "macholib", marker = "sys_platform == 'darwin' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'group-11-scene-atlas-cpu-runtime') or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
     { name = "packaging" },
-    { name = "pefile", marker = "sys_platform == 'win32' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml')" },
+    { name = "pefile", marker = "sys_platform == 'win32' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'group-11-scene-atlas-cpu-runtime') or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
     { name = "pyinstaller-hooks-contrib" },
-    { name = "pywin32-ctypes", marker = "sys_platform == 'win32' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml')" },
+    { name = "pywin32-ctypes", marker = "sys_platform == 'win32' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'group-11-scene-atlas-cpu-runtime') or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
     { name = "setuptools" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/c8/63/fd62472b6371d89dc138d40c36d87a50dc2de18a035803bbdc376b4ffac4/pyinstaller-6.19.0.tar.gz", hash = "sha256:ec73aeb8bd9b7f2f1240d328a4542e90b3c6e6fbc106014778431c616592a865", size = 4036072, upload-time = "2026-02-14T18:06:28.718Z" }
@@ -2029,7 +2047,7 @@ name = "pytest"
 version = "9.0.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml')" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'group-11-scene-atlas-cpu-runtime') or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
     { name = "iniconfig" },
     { name = "packaging" },
     { name = "pluggy" },
@@ -2046,7 +2064,7 @@ version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pytest" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml')" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'group-11-scene-atlas-cpu-runtime') or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/90/2c/8af215c0f776415f3590cac4f9086ccefd6fd463befeae41cd4d3f193e5a/pytest_asyncio-1.3.0.tar.gz", hash = "sha256:d7f52f36d231b80ee124cd216ffb19369aa168fc10095013c6b014a34d3ee9e5", size = 50087, upload-time = "2025-11-10T16:07:47.256Z" }
 wheels = [
@@ -2379,9 +2397,8 @@ dependencies = [
 
 [package.optional-dependencies]
 cpu = [
-    { name = "onnxruntime" },
-    { name = "torch", version = "2.10.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'darwin' and extra == 'extra-11-scene-atlas-cpu') or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml')" },
-    { name = "torch", version = "2.10.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform != 'darwin' and extra == 'extra-11-scene-atlas-cpu') or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml')" },
+    { name = "torch", version = "2.10.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'darwin' and extra == 'extra-11-scene-atlas-cpu') or (sys_platform == 'darwin' and extra != 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'group-11-scene-atlas-cpu-runtime')" },
+    { name = "torch", version = "2.10.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform != 'darwin' and extra == 'extra-11-scene-atlas-cpu') or (sys_platform != 'darwin' and extra != 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'group-11-scene-atlas-cpu-runtime') or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
 ]
 dev = [
     { name = "bandit" },
@@ -2405,6 +2422,9 @@ gpu-directml = [
 ]
 
 [package.dev-dependencies]
+cpu-runtime = [
+    { name = "onnxruntime" },
+]
 dev = [
     { name = "huggingface-hub", extra = ["hf-xet"] },
     { name = "ipywidgets" },
@@ -2423,7 +2443,6 @@ requires-dist = [
     { name = "huggingface-hub", specifier = ">=0.20.0" },
     { name = "numpy", specifier = ">=1.26.0,<3.0" },
     { name = "onnx", marker = "extra == 'dev'", specifier = ">=1.14.0,<2.0" },
-    { name = "onnxruntime", marker = "extra == 'cpu'", specifier = ">=1.16.0,<2.0" },
     { name = "onnxruntime-directml", marker = "extra == 'gpu-directml'", specifier = ">=1.16.0,<2.0" },
     { name = "onnxruntime-gpu", marker = "extra == 'gpu-cuda'", specifier = ">=1.16.0,<2.0" },
     { name = "opencv-python-headless", specifier = ">=4.9.0,<5.0" },
@@ -2456,6 +2475,7 @@ requires-dist = [
 provides-extras = ["cpu", "gpu-cuda", "gpu-directml", "dev"]
 
 [package.metadata.requires-dev]
+cpu-runtime = [{ name = "onnxruntime", specifier = ">=1.16.0,<2.0" }]
 dev = [
     { name = "huggingface-hub", extras = ["hf-xet"], specifier = ">=0.20.0" },
     { name = "ipywidgets", specifier = ">=8.1.8" },
@@ -2661,7 +2681,7 @@ name = "sqlalchemy"
 version = "2.0.47"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "greenlet", marker = "platform_machine == 'AMD64' or platform_machine == 'WIN32' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'ppc64le' or platform_machine == 'win32' or platform_machine == 'x86_64' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml')" },
+    { name = "greenlet", marker = "platform_machine == 'AMD64' or platform_machine == 'WIN32' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'ppc64le' or platform_machine == 'win32' or platform_machine == 'x86_64' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'group-11-scene-atlas-cpu-runtime') or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
     { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/cd/4b/1e00561093fe2cd8eef09d406da003c8a118ff02d6548498c1ae677d68d9/sqlalchemy-2.0.47.tar.gz", hash = "sha256:e3e7feb57b267fe897e492b9721ae46d5c7de6f9e8dee58aacf105dc4e154f3d", size = 9886323, upload-time = "2026-02-24T16:34:27.947Z" }
@@ -2722,7 +2742,7 @@ version = "0.52.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml')" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'group-11-scene-atlas-cpu-runtime') or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/c4/68/79977123bb7be889ad680d79a40f339082c1978b5cfcf62c2d8d196873ac/starlette-0.52.1.tar.gz", hash = "sha256:834edd1b0a23167694292e94f597773bc3f89f362be6effee198165a35d62933", size = 2653702, upload-time = "2026-01-18T13:34:11.062Z" }
 wheels = [
@@ -2743,15 +2763,12 @@ name = "sympy"
 version = "1.13.1"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "python_full_version >= '3.14' and sys_platform != 'darwin'",
-    "python_full_version >= '3.14' and sys_platform == 'darwin'",
-    "python_full_version == '3.13.*' and sys_platform != 'darwin'",
-    "python_full_version == '3.13.*' and sys_platform == 'darwin'",
-    "python_full_version < '3.13' and sys_platform != 'darwin'",
-    "python_full_version < '3.13' and sys_platform == 'darwin'",
+    "python_full_version >= '3.14'",
+    "python_full_version == '3.13.*'",
+    "python_full_version < '3.13'",
 ]
 dependencies = [
-    { name = "mpmath", marker = "extra == 'extra-11-scene-atlas-gpu-cuda' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-directml')" },
+    { name = "mpmath", marker = "extra == 'extra-11-scene-atlas-gpu-cuda' or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/ca/99/5a5b6f19ff9f083671ddf7b9632028436167cd3d33e11015754e41b249a4/sympy-1.13.1.tar.gz", hash = "sha256:9cebf7e04ff162015ce31c9c6c9144daa34a93bd082f54fd8f12deca4f47515f", size = 7533040, upload-time = "2024-07-19T09:26:51.238Z" }
 wheels = [
@@ -2771,7 +2788,7 @@ resolution-markers = [
     "python_full_version < '3.13' and sys_platform == 'darwin'",
 ]
 dependencies = [
-    { name = "mpmath", marker = "extra == 'extra-11-scene-atlas-cpu' or extra != 'extra-11-scene-atlas-gpu-cuda' or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml')" },
+    { name = "mpmath", marker = "extra == 'extra-11-scene-atlas-cpu' or extra != 'extra-11-scene-atlas-gpu-cuda' or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'group-11-scene-atlas-cpu-runtime')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/83/d3/803453b36afefb7c2bb238361cd4ae6125a569b4db67cd9e79846ba2d68c/sympy-1.14.0.tar.gz", hash = "sha256:d3d3fe8df1e5a0b42f0e7bdf50541697dbe7d23746e894990c030e2b05e72517", size = 7793921, upload-time = "2025-04-27T18:05:01.611Z" }
 wheels = [
@@ -2872,12 +2889,9 @@ name = "torch"
 version = "2.6.0+cu124"
 source = { registry = "https://download.pytorch.org/whl/cu124" }
 resolution-markers = [
-    "python_full_version >= '3.14' and sys_platform != 'darwin'",
-    "python_full_version >= '3.14' and sys_platform == 'darwin'",
-    "python_full_version == '3.13.*' and sys_platform != 'darwin'",
-    "python_full_version == '3.13.*' and sys_platform == 'darwin'",
-    "python_full_version < '3.13' and sys_platform != 'darwin'",
-    "python_full_version < '3.13' and sys_platform == 'darwin'",
+    "python_full_version >= '3.14'",
+    "python_full_version == '3.13.*'",
+    "python_full_version < '3.13'",
 ]
 dependencies = [
     { name = "filelock" },
@@ -2920,13 +2934,13 @@ resolution-markers = [
     "python_full_version < '3.13' and sys_platform == 'darwin'",
 ]
 dependencies = [
-    { name = "filelock", marker = "sys_platform == 'darwin'" },
-    { name = "fsspec", marker = "sys_platform == 'darwin'" },
-    { name = "jinja2", marker = "sys_platform == 'darwin'" },
-    { name = "networkx", marker = "sys_platform == 'darwin'" },
-    { name = "setuptools", marker = "sys_platform == 'darwin'" },
-    { name = "sympy", version = "1.14.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'darwin'" },
-    { name = "typing-extensions", marker = "sys_platform == 'darwin'" },
+    { name = "filelock", marker = "sys_platform == 'darwin' or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
+    { name = "fsspec", marker = "sys_platform == 'darwin' or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
+    { name = "jinja2", marker = "sys_platform == 'darwin' or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
+    { name = "networkx", marker = "sys_platform == 'darwin' or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
+    { name = "setuptools", marker = "sys_platform == 'darwin' or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
+    { name = "sympy", version = "1.14.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'darwin' or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
+    { name = "typing-extensions", marker = "sys_platform == 'darwin' or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
 ]
 wheels = [
     { url = "https://download.pytorch.org/whl/cpu/torch-2.10.0-1-cp312-none-macosx_11_0_arm64.whl", hash = "sha256:7fbbf409143a4fe0812a40c0b46a436030a7e1d14fe8c5234dfbe44df47f617e" },
@@ -2950,13 +2964,13 @@ resolution-markers = [
     "python_full_version < '3.13' and sys_platform != 'darwin'",
 ]
 dependencies = [
-    { name = "filelock", marker = "sys_platform != 'darwin'" },
-    { name = "fsspec", marker = "sys_platform != 'darwin'" },
-    { name = "jinja2", marker = "sys_platform != 'darwin'" },
-    { name = "networkx", marker = "sys_platform != 'darwin'" },
-    { name = "setuptools", marker = "sys_platform != 'darwin'" },
-    { name = "sympy", version = "1.14.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'darwin'" },
-    { name = "typing-extensions", marker = "sys_platform != 'darwin'" },
+    { name = "filelock", marker = "sys_platform != 'darwin' or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
+    { name = "fsspec", marker = "sys_platform != 'darwin' or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
+    { name = "jinja2", marker = "sys_platform != 'darwin' or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
+    { name = "networkx", marker = "sys_platform != 'darwin' or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
+    { name = "setuptools", marker = "sys_platform != 'darwin' or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
+    { name = "sympy", version = "1.14.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'darwin' or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
+    { name = "typing-extensions", marker = "sys_platform != 'darwin' or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
 ]
 wheels = [
     { url = "https://download.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp312-cp312-linux_aarch64.whl", hash = "sha256:8de5a36371b775e2d4881ed12cc7f2de400b1ad3d728aa74a281f649f87c9b8c" },
@@ -2993,7 +3007,7 @@ name = "tqdm"
 version = "4.67.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml')" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'group-11-scene-atlas-cpu-runtime') or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/09/a9/6ba95a270c6f1fbcd8dac228323f2777d886cb206987444e4bce66338dd4/tqdm-4.67.3.tar.gz", hash = "sha256:7d825f03f89244ef73f1d4ce193cb1774a8179fd96f31d7e1dcde62092b960bb", size = 169598, upload-time = "2026-02-03T17:35:53.048Z" }
 wheels = [
@@ -3084,11 +3098,11 @@ wheels = [
 
 [package.optional-dependencies]
 standard = [
-    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml')" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'group-11-scene-atlas-cpu-runtime') or (extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
     { name = "httptools" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
-    { name = "uvloop", marker = "(platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32') or (platform_python_implementation == 'PyPy' and extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (platform_python_implementation == 'PyPy' and extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-directml') or (platform_python_implementation == 'PyPy' and extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (sys_platform == 'cygwin' and extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (sys_platform == 'cygwin' and extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-directml') or (sys_platform == 'cygwin' and extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (sys_platform == 'win32' and extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (sys_platform == 'win32' and extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-directml') or (sys_platform == 'win32' and extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml')" },
+    { name = "uvloop", marker = "(platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32') or (platform_python_implementation == 'PyPy' and extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (platform_python_implementation == 'PyPy' and extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (platform_python_implementation == 'PyPy' and extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'group-11-scene-atlas-cpu-runtime') or (platform_python_implementation == 'PyPy' and extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime') or (sys_platform == 'cygwin' and extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (sys_platform == 'cygwin' and extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (sys_platform == 'cygwin' and extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'group-11-scene-atlas-cpu-runtime') or (sys_platform == 'cygwin' and extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime') or (sys_platform == 'win32' and extra == 'extra-11-scene-atlas-cpu' and extra == 'extra-11-scene-atlas-gpu-cuda') or (sys_platform == 'win32' and extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'extra-11-scene-atlas-gpu-directml') or (sys_platform == 'win32' and extra == 'extra-11-scene-atlas-gpu-cuda' and extra == 'group-11-scene-atlas-cpu-runtime') or (sys_platform == 'win32' and extra == 'extra-11-scene-atlas-gpu-directml' and extra == 'group-11-scene-atlas-cpu-runtime')" },
     { name = "watchfiles" },
     { name = "websockets" },
 ]
