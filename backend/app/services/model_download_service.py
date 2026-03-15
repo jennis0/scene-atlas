@@ -9,6 +9,7 @@ import logging
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import NoReturn
 
 from backend.app.config import settings as _settings
 from backend.app.services.model_registry import MODEL_BY_NAME, get_model
@@ -158,7 +159,7 @@ def download_model(name: str, progress_fn=None) -> dict:
     return {"name": name, "hf_commit_sha": commit_sha, "downloaded_at": downloaded_at}
 
 
-def _raise_download_error(exc: Exception, repo_id: str) -> None:
+def _raise_download_error(exc: Exception, repo_id: str) -> NoReturn:
     """Convert various HuggingFace/network exceptions into ModelDownloadError."""
     exc_str = str(exc)
     try:
