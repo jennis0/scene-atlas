@@ -18,20 +18,27 @@ GPU acceleration is **opt-in** via the `INFERENCE_DEVICE` config setting (`auto`
 ```toml
 [project.optional-dependencies]
 cpu = ["onnxruntime>=1.16.0,<2.0"]
-gpu-cuda = ["onnxruntime-gpu>=1.16.0,<2.0"]
+cpu-dev = ["onnxruntime>=1.16.0,<2.0", "torch>=2.1.0,<3.0"]
+gpu = ["onnxruntime-gpu>=1.16.0,<1.20"]
+gpu-dev = ["onnxruntime-gpu>=1.16.0,<1.20", "torch>=2.1.0,<3.0"]
 gpu-directml = ["onnxruntime-directml>=1.16.0,<2.0"]
 
 [tool.uv]
 conflicts = [
-    [{ extra = "cpu" }, { extra = "gpu-cuda" }, { extra = "gpu-directml" }],
+    [{ extra = "cpu" }, { extra = "cpu-dev" }, { extra = "gpu" }, { extra = "gpu-dev" }, { extra = "gpu-directml" }],
 ]
 ```
 
+> **Note:** `onnxruntime-gpu` is pinned to `<1.20` because v1.20+ switched to a split-package model with a broken ABI (`undefined symbol: Provider_GetHost`). Re-evaluate after Microsoft fixes the split-package approach.
+
 Installation:
-- **Server:** `uv sync --extra cpu` — CPU onnxruntime (required — onnxruntime is not in core deps)
-- **Dev:** `uv sync --extra dev` — CPU onnxruntime (dev extra includes `scene-atlas[cpu]`)
-- **Dev + CUDA:** `uv sync --extra dev --extra gpu-cuda` — CUDA onnxruntime
-- **Dev + DirectML:** `uv sync --extra dev --extra gpu-directml` — DirectML onnxruntime
+- **Server (CPU):** `uv sync --extra cpu` — CPU onnxruntime only
+- **Server (CUDA):** `uv sync --extra gpu` — CUDA onnxruntime
+- **Server (DirectML):** `uv sync --extra gpu-directml` — DirectML onnxruntime
+- **Dev (CPU):** `uv sync --extra dev --extra cpu-dev` — CPU onnxruntime + torch for model export
+- **Dev (CUDA):** `uv sync --extra dev --extra gpu-dev` — CUDA onnxruntime + torch
+
+The `-dev` variants add `torch`, needed for ONNX model export scripts. The non-dev variants are lighter (no torch).
 
 **Important:** A bare `uv sync` (no extras) does not install any onnxruntime variant. The application will fail at startup with a clear `ImportError` explaining which extra to install.
 

@@ -107,8 +107,8 @@ def resolve_providers(preference: str = "auto") -> list[str]:
         raise ImportError(
             "No onnxruntime package is installed. Install one of:\n"
             "  uv sync --extra cpu           # CPU inference (default)\n"
-            "  uv sync --extra gpu-cuda       # NVIDIA CUDA\n"
-            "  uv sync --extra gpu-directml   # DirectX 12 (Windows)\n"
+            "  uv sync --extra gpu           # NVIDIA CUDA\n"
+            "  uv sync --extra gpu-directml  # DirectX 12 (Windows)\n"
             "See design/gpu-acceleration.md for details."
         ) from None
 

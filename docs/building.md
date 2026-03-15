@@ -8,7 +8,7 @@ Scene Atlas supports three deployment modes. All modes must build on Windows and
 
 - **Python 3.12+** with [uv](https://docs.astral.sh/uv/) for dependency management
 - **Node.js 18+** with npm
-- ONNX models: `uv run python scripts/setup_models.py` (downloads OpenCLIP model and quantises it into a ~289 MB FP16 version)
+- ONNX models: `uv run python scripts/models/setup_models.py` (downloads CLIP model and quantises it)
 
 ### Running Locally
 

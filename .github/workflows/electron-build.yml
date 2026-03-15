@@ -30,7 +30,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install Python dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra cpu
 
       - name: Backend lint
         run: uv run ruff check backend/
@@ -124,7 +124,7 @@ jobs:
           if [ "${{ matrix.gpu }}" = "directml" ]; then
             uv sync --extra dev --extra gpu-directml
           else
-            uv sync --extra dev
+            uv sync --extra dev --extra cpu-dev
           fi
 
       - name: Install PyInstaller

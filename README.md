@@ -39,8 +39,8 @@ No Docker required — Qdrant runs in embedded local mode within the Python proc
 ## First-time setup
 
 ```bash
-# Python dependencies
-uv sync --extra dev
+# Python dependencies (dev tools + CPU onnxruntime)
+uv sync --extra dev --extra cpu-dev
 
 # Frontend dependencies
 cd frontend && npm ci && cd ..
@@ -55,8 +55,15 @@ For server deployments (no dev dependencies), you must explicitly install an onn
 
 ```bash
 uv sync --extra cpu                        # CPU-only inference
-uv sync --extra gpu-cuda                   # NVIDIA GPU (requires CUDA toolkit)
+uv sync --extra gpu                        # NVIDIA GPU (requires CUDA toolkit + cuDNN)
 uv sync --extra gpu-directml               # DirectX 12 GPU (Windows only)
+```
+
+For development with model export capabilities (torch), use the `-dev` variants:
+
+```bash
+uv sync --extra dev --extra cpu-dev        # CPU + dev tools + torch
+uv sync --extra dev --extra gpu-dev        # CUDA + dev tools + torch
 ```
 
 A bare `uv sync` does **not** install onnxruntime — the app will fail at startup with a clear error.
@@ -204,7 +211,7 @@ Release builds are automated via GitHub Actions on `v*` tags — push a tag like
 ## Troubleshooting
 
 **CLIP model slow to load:**
-On first start, the ONNX CLIP model (~289 MB FP16) is set up via `scripts/setup_models.py`. Subsequent starts use the local cache.
+On first start, the ONNX CLIP model (~289 MB FP16) is set up via `scripts/models/setup_models.py`. Subsequent starts use the local cache.
 
 **Import fails silently:**
 Check the API log for errors:

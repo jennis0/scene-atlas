@@ -26,7 +26,7 @@ cd frontend && npx vitest run
 # Frontend tests with watch mode
 cd frontend && npx vitest
 
-# Heavy tests (real CLIP ONNX model -- ~289MB FP16, setup via scripts/setup_models.py)
+# Heavy tests (real CLIP ONNX model -- ~289MB FP16, setup via scripts/models/setup_models.py)
 uv run python -m pytest -m heavy -v
 
 # Run everything including heavy
@@ -44,7 +44,7 @@ npm run test:e2e:headed          # headed Chromium (see the browser)
 make check          # lint + format-check (both backend + frontend)
 make test           # unit tests + frontend tests (fast, ~15s)
 make test-all       # unit + integration + frontend (~30s)
-make test-heavy     # CLIP model tests (uses ONNX models, ~289 MB FP16 via scripts/setup_models.py)
+make test-heavy     # CLIP model tests (uses ONNX models, ~289 MB FP16 via scripts/models/setup_models.py)
 make test-e2e       # Playwright E2E tests (Chromium, ~35s with warm servers)
 make test-e2e-ui    # Playwright interactive UI mode (for debugging)
 make test-cov       # full suite with coverage reporting
@@ -53,20 +53,20 @@ make lint-fix       # auto-fix all lint + format issues
 
 ## Heavy Tests (CLIP)
 
-Tests marked with `@pytest.mark.heavy` load the real CLIP ONNX model (~289 MB FP16, exported via `scripts/setup_models.py`) and run real inference. They are **excluded by default** via `addopts = "-m 'not heavy'"` in pyproject.toml. Currently only `test_clip_heavy.py` uses this marker.
+Tests marked with `@pytest.mark.heavy` load the real CLIP ONNX model (~289 MB FP16, exported via `scripts/models/setup_models.py`) and run real inference. They are **excluded by default** via `addopts = "-m 'not heavy'"` in pyproject.toml. Currently only `test_clip_heavy.py` uses this marker.
 
 **Model caching:**
-- ONNX models are cached in CI via `actions/cache@v4` keyed on `scripts/export_model_onnx.py` and `backend/app/config.py`
+- ONNX models are cached in CI via `actions/cache@v4` keyed on `scripts/models/export_model_onnx.py` and `backend/app/config.py`
 - Models are only re-exported when the export script or config changes
 
 **Test fixture:** The `clip_service` fixture is `session`-scoped and also primes the module-level singleton, so both direct `CLIPService` usage and `get_clip_service()` code paths work.
 
 ## ONNX Model Assessment
 
-Quality evaluation is integrated into `scripts/export_model_onnx.py` via the `--image-dir` flag. When provided, the export script runs a comprehensive quality assessment using the torch model (still loaded from the export phase) as reference.
+Quality evaluation is integrated into `scripts/models/export_model_onnx.py` via the `--image-dir` flag. When provided, the export script runs a comprehensive quality assessment using the torch model (still loaded from the export phase) as reference.
 
 **When it runs:**
-- Locally: `make evaluate-onnx` or `uv run python scripts/export_model_onnx.py clip-vit-b-32 --image-dir /path/to/images`
+- Locally: `make evaluate-onnx` or `uv run python scripts/models/export_model_onnx.py clip-vit-b-32 --image-dir /path/to/images`
 - Not in CI (requires real images and torch model; CI only does quick export)
 
 **What it checks:**

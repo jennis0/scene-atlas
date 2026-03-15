@@ -65,7 +65,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra cpu
       - name: Run unit tests
         run: uv run python -m pytest backend/tests/unit/ -v
   backend-unit-cross-platform:
@@ -88,7 +88,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra cpu
       - name: Run unit tests
         run: uv run python -m pytest backend/tests/unit/ -v
   backend-integration:
@@ -107,7 +107,18 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra cpu
+      - name: Cache ONNX models (small)
+        id: cache-onnx
+        uses: actions/cache@v4
+        with:
+          path: data/models/small
+          key: onnx-models-small-${{ hashFiles('backend/app/services/model_registry.py') }}
+      - name: Download ONNX model
+        if: steps.cache-onnx.outputs.cache-hit != 'true'
+        run: uv run python scripts/models/setup_models.py
+        env:
+          EMBEDDING_MODEL: small
       - name: Run unit tests with coverage
         # Tolerate exit 134 (SIGABRT): native C++ libs (torch, qdrant) can
         # crash during interpreter shutdown after all tests pass.
@@ -147,7 +158,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --extra cpu-dev
       - name: Cache ONNX models
         id: cache-onnx
         uses: actions/cache@v4
@@ -251,7 +262,7 @@ jobs:
             package-lock.json
             frontend/package-lock.json
       - name: Install Python dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra cpu
       - name: Install root dependencies
         run: npm ci
       - name: Install frontend dependencies
