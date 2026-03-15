@@ -47,21 +47,18 @@ def _check_cuda_libs() -> list[str]:
 
 
 def _cuda_provider_available() -> bool:
-    """Return True if CUDAExecutionProvider is usable.
+    """Return True if CUDAExecutionProvider is usable according to ORT itself.
 
-    ``ort.get_available_providers()`` can omit CUDAExecutionProvider on certain
-    platforms (notably WSL2) even when the provider .so is present and all CUDA
-    runtime libraries are loadable.  This probe avoids that false negative by
-    checking the provider shared library directly.
+    We trust ``ort.get_available_providers()`` as the authoritative check.
+    If it doesn't list CUDAExecutionProvider, ORT cannot initialise it and any
+    session request will silently fall back to CPU — so we should not claim GPU
+    is available even if the provider .so file exists on disk.
     """
     try:
         import onnxruntime as ort
     except ImportError:
         return False
-    provider_so = Path(ort.__file__).parent / "capi" / "libonnxruntime_providers_cuda.so"
-    if not provider_so.exists():
-        return False
-    return not _check_cuda_libs()
+    return "CUDAExecutionProvider" in ort.get_available_providers()
 
 
 # Provider name → friendly label for log messages
