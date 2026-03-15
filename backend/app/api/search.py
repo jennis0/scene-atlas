@@ -309,6 +309,10 @@ def search_images(
                 score_threshold=threshold,
             )
             semantic_scores = {r["image_id"]: r["score"] for r in qdrant_results}
+        except RuntimeError as exc:
+            raise HTTPException(
+                status_code=503, detail="Embedding model is not available. Check /health."
+            ) from exc
         except Exception:
             logger.exception("Semantic search error")
 
@@ -558,6 +562,10 @@ def search_groups(
                 embedding, limit=candidate_pool, score_threshold=threshold
             )
             semantic_scores = {r["image_id"]: r["score"] for r in qdrant_results}
+        except RuntimeError as exc:
+            raise HTTPException(
+                status_code=503, detail="Embedding model is not available. Check /health."
+            ) from exc
         except Exception:
             logger.exception("Semantic search error")
 

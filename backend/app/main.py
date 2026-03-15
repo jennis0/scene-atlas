@@ -388,6 +388,17 @@ async def health(request: Request):
         logger.warning("Health check — Qdrant error: %s", exc)
         overall = "degraded"
 
+    # Embedding model check
+    from .services.clip_service import _clip_error, _clip_ready
+
+    if not _clip_ready.is_set():
+        checks["embedding"] = "loading"
+    elif _clip_error is not None:
+        checks["embedding"] = f"error: {_clip_error}"
+        overall = "degraded"
+    else:
+        checks["embedding"] = "ok"
+
     # Job runner status
     from .services.job_runner import get_job_runner
 

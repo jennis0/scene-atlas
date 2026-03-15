@@ -345,8 +345,8 @@ class TestSearchTextOnly:
 
 
 class TestSearchSemanticFallback:
-    def test_clip_error_falls_back_gracefully(self, library, monkeypatch):
-        """If CLIP raises, the endpoint must not return 500."""
+    def test_clip_error_returns_503(self, library, monkeypatch):
+        """If CLIP model is unavailable, return 503 not a silent degradation."""
         client, _ = library
 
         def _raise(*args, **kwargs):
@@ -355,7 +355,19 @@ class TestSearchSemanticFallback:
         monkeypatch.setattr("backend.app.api.search.get_clip_service", _raise)
 
         resp = client.get("/api/v1/search/", params={"query": "forest"})
-        # Should not be 500; may return empty results if text search also fails
+        assert resp.status_code == 503
+        assert "Embedding model" in resp.json()["detail"]
+
+    def test_text_only_search_works_without_clip(self, library, monkeypatch):
+        """text_only=true bypasses CLIP entirely, so it works even if model is down."""
+        client, _ = library
+
+        def _raise(*args, **kwargs):
+            raise RuntimeError("CLIP model not loaded")
+
+        monkeypatch.setattr("backend.app.api.search.get_clip_service", _raise)
+
+        resp = client.get("/api/v1/search/", params={"query": "forest", "text_only": "true"})
         assert resp.status_code == 200
 
 
