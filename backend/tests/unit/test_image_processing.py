@@ -1,6 +1,5 @@
 """Tests for generate_thumbnails use_webp parameter."""
 
-
 import pytest
 from PIL import Image as PILImage
 
