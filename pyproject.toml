@@ -28,7 +28,11 @@ dependencies = [
 
 [project.optional-dependencies]
 cpu = ["onnxruntime>=1.16.0,<2.0"]
-gpu-cuda = ["onnxruntime-gpu>=1.16.0,<2.0"]
+gpu-cuda = [
+    "onnxruntime-gpu>=1.16.0,<2.0",
+    "nvidia-cublas-cu12",  # provides libcublasLt.so.12 / libcublas.so.12
+    "nvidia-cudnn-cu12",   # provides libcudnn.so required by onnxruntime-gpu
+]
 gpu-directml = ["onnxruntime-directml>=1.16.0,<2.0"]
 dev = [
     "scene-atlas[cpu]",   # Default ONNX runtime for dev

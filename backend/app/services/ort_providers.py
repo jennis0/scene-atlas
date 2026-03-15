@@ -15,6 +15,8 @@ See ``design/gpu-acceleration.md`` for rationale.
 
 from __future__ import annotations
 
+import ctypes
+import importlib.util
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -23,6 +25,35 @@ if TYPE_CHECKING:
     import onnxruntime as ort
 
 logger = logging.getLogger(__name__)
+
+
+def _preload_nvidia_cuda_libs() -> None:
+    """Preload CUDA 12 shared libraries from nvidia pip packages if present.
+
+    onnxruntime-gpu is compiled against CUDA 12 but the system may have a newer
+    CUDA toolkit (e.g. 13.x) that doesn't provide libcublasLt.so.12.  Installing
+    ``nvidia-cublas-cu12`` and ``nvidia-cudnn-cu12`` supplies those libraries as
+    Python packages, but the dynamic linker won't find them automatically.  This
+    function explicitly loads them with ctypes so they are resident in the process
+    before onnxruntime's CUDA provider DSO is opened.
+    """
+    nvidia_packages = ["nvidia.cublas", "nvidia.cudnn"]
+    for pkg in nvidia_packages:
+        spec = importlib.util.find_spec(pkg)
+        if spec is None or not spec.submodule_search_locations:
+            continue
+        lib_dir = Path(next(iter(spec.submodule_search_locations))) / "lib"
+        if not lib_dir.is_dir():
+            continue
+        for so_file in sorted(lib_dir.glob("*.so.*")):
+            try:
+                ctypes.CDLL(str(so_file))
+                logger.debug("Preloaded %s", so_file.name)
+            except OSError as exc:
+                logger.debug("Could not preload %s: %s", so_file.name, exc)
+
+
+_preload_nvidia_cuda_libs()
 
 # Provider name → friendly label for log messages
 _GPU_PROVIDERS = {
