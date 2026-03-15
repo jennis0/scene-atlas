@@ -23,6 +23,7 @@ MODELS: list[dict] = [
         # Export/quantisation parameters (used by export_model_onnx.py)
         "model_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
         "embedding_dim": 512,
+        "semantic_threshold": 0.15,  # CLIP contrastive loss → higher cosine sims
         "vision_quant": "fp16",
         "text_quant": "int8",
         "text_int8_exclude_layers": 3,
@@ -37,6 +38,7 @@ MODELS: list[dict] = [
         "approx_size_mb": 500,
         "model_id": "google/siglip2-base-patch16-224",
         "embedding_dim": 768,
+        "semantic_threshold": 0.0,  # SigLIP sigmoid loss → lower cosine sims
         "vision_quant": "fp16",
         "text_quant": "int8",
         "text_int8_exclude_layers": 1,
@@ -51,6 +53,7 @@ MODELS: list[dict] = [
         "approx_size_mb": 1000,
         "model_id": "google/siglip2-so400m-patch14-384",
         "embedding_dim": 1152,
+        "semantic_threshold": 0.0,  # SigLIP sigmoid loss → lower cosine sims
         "vision_quant": "fp16",
         "text_quant": "fp16",
         "text_int8_exclude_layers": 0,
@@ -97,6 +100,14 @@ def get_model(name: str) -> dict | None:
 def get_default_model(has_gpu: bool) -> str:
     """Return the recommended model name for the detected hardware."""
     return "medium" if has_gpu else "small"
+
+
+def get_semantic_threshold(model_name: str | None) -> float:
+    """Return the semantic search score threshold for a model (0.0 if unknown)."""
+    if model_name is None:
+        return 0.0
+    model = get_model(model_name)
+    return model["semantic_threshold"] if model else 0.0
 
 
 def get_gpu_provider_label(provider: str) -> str:

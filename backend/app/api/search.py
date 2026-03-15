@@ -17,7 +17,9 @@ from ..models import (
 )
 from ..models.schemas import GroupSearchResponse, GroupSearchResult
 from ..services import get_clip_service, get_qdrant_service
+from ..services.clip_service import get_effective_model_name
 from ..services.fts_service import fts_search, fts_search_terms, get_alias_expansions
+from ..services.model_registry import get_semantic_threshold
 from .dependencies import get_db
 from .rate_limits import limiter
 
@@ -274,8 +276,7 @@ def search_images(
         return ImageSearchResponse(total=total, limit=limit, offset=offset, images=results)
 
     # --- Hybrid search: FTS5, alias expansion, and CLIP semantic ---
-    SEMANTIC_THRESHOLD = 0.0
-    SEMANTIC_ONLY_THRESHOLD = 0.0
+    model_threshold = get_semantic_threshold(get_effective_model_name())
     RRF_K = 60  # standard dampening constant for Reciprocal Rank Fusion
     RRF_TEXT_WEIGHT = 1.1  # text ranks weighted vs semantic 1×
     RRF_ALIAS_WEIGHT = 0.5
@@ -296,25 +297,26 @@ def search_images(
             alias_results = fts_search_terms(db, alias_terms, limit=limit * 3)
             alias_scores = dict(alias_results)
 
-    # CLIP semantic search (skipped in text_only mode)
+    # CLIP semantic search (skipped in text_only mode).
+    # Failures are non-fatal in hybrid mode — text results still returned.
     semantic_scores: dict[int, float] = {}
     if not text_only:
         try:
             clip_service = get_clip_service()
             query_embedding = clip_service.encode_text(effective_query)
-            threshold = SEMANTIC_ONLY_THRESHOLD if semantic_only else SEMANTIC_THRESHOLD
             qdrant_results = get_qdrant_service().search_similar(
                 query_embedding=query_embedding,
                 limit=limit * 3,
-                score_threshold=threshold,
+                score_threshold=model_threshold,
             )
             semantic_scores = {r["image_id"]: r["score"] for r in qdrant_results}
-        except RuntimeError as exc:
-            raise HTTPException(
-                status_code=503, detail="Embedding model is not available. Check /health."
-            ) from exc
         except Exception:
             logger.exception("Semantic search error")
+            if semantic_only:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Semantic search failed and no text fallback available.",
+                ) from None
 
     # Reciprocal Rank Fusion across three ranked lists
     all_candidate_ids = (
@@ -542,7 +544,8 @@ def search_groups(
     )
 
     # Hybrid search
-    SEMANTIC_THRESHOLD, SEMANTIC_ONLY_THRESHOLD, RRF_K = 0.0, 0.0, 60
+    model_threshold = get_semantic_threshold(get_effective_model_name())
+    RRF_K = 60
     RRF_TEXT_WEIGHT, RRF_ALIAS_WEIGHT = 1.1, 0.5
     candidate_pool = max(limit * 20, 1000)
 
@@ -557,17 +560,17 @@ def search_groups(
     if not text_only:
         try:
             embedding = get_clip_service().encode_text(query)
-            threshold = SEMANTIC_ONLY_THRESHOLD if semantic_only else SEMANTIC_THRESHOLD
             qdrant_results = get_qdrant_service().search_similar(
-                embedding, limit=candidate_pool, score_threshold=threshold
+                embedding, limit=candidate_pool, score_threshold=model_threshold
             )
             semantic_scores = {r["image_id"]: r["score"] for r in qdrant_results}
-        except RuntimeError as exc:
-            raise HTTPException(
-                status_code=503, detail="Embedding model is not available. Check /health."
-            ) from exc
         except Exception:
             logger.exception("Semantic search error")
+            if semantic_only:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Semantic search failed and no text fallback available.",
+                ) from None
 
     candidate_ids = set(text_scores.keys()) | set(alias_scores.keys()) | set(semantic_scores.keys())
     if not candidate_ids:
