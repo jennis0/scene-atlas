@@ -394,7 +394,8 @@ def list_tag_packs(db: Session = Depends(get_db)):
 
 
 @router.post("/packs/{pack_name}/import")
-def import_tag_pack(pack_name: str, db: Session = Depends(get_db)):
+@limiter.limit(lambda: settings.rate_limit_expensive)
+def import_tag_pack(pack_name: str, request: Request, db: Session = Depends(get_db)):
     """Import/merge a tag pack into the database vocabulary."""
     from ..services.tag_packs import import_tag_pack as do_import
 

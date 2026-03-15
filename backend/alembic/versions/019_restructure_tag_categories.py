@@ -68,13 +68,14 @@ def upgrade():
     )
 
     # 4. Move feature-type tags from environment to features
-    placeholders = ", ".join(f"'{v}'" for v in FEATURE_VALUES)
-    conn.execute(
-        sa.text(
-            f"UPDATE tags SET category = 'features' "
-            f"WHERE category = 'environment' AND value IN ({placeholders})"
+    for val in FEATURE_VALUES:
+        conn.execute(
+            sa.text(
+                "UPDATE tags SET category = 'features' "
+                "WHERE category = 'environment' AND value = :val"
+            ),
+            {"val": val},
         )
-    )
 
     # 5. Update common_values on environment to remove feature values
     row = conn.execute(
@@ -132,6 +133,24 @@ def upgrade():
 def downgrade():
     conn = op.get_bind()
 
+    # Merge features common_values back into environment before renaming
+    env_row = conn.execute(
+        sa.text("SELECT common_values FROM tag_categories WHERE name = 'environment'")
+    ).fetchone()
+    feat_row = conn.execute(
+        sa.text("SELECT common_values FROM tag_categories WHERE name = 'features'")
+    ).fetchone()
+    merged_cv = []
+    if env_row and env_row[0]:
+        merged_cv.extend(json.loads(env_row[0]))
+    if feat_row and feat_row[0]:
+        merged_cv.extend(json.loads(feat_row[0]))
+    if merged_cv:
+        conn.execute(
+            sa.text("UPDATE tag_categories SET common_values = :cv WHERE name = 'environment'"),
+            {"cv": json.dumps(merged_cv)},
+        )
+
     # Reverse: merge features back into terrain, rename back
     conn.execute(sa.text("UPDATE tags SET category = 'terrain' WHERE category = 'features'"))
     conn.execute(sa.text("UPDATE tags SET category = 'terrain' WHERE category = 'environment'"))
@@ -142,17 +161,23 @@ def downgrade():
     conn.execute(sa.text("UPDATE tags SET category = 'quality' WHERE category = 'style'"))
 
     # Re-create floor category
-    conn.execute(
-        sa.text(
-            "INSERT INTO tag_categories (name, description, color, display_order, "
-            "common_values) VALUES ('floor', 'Building level or floor', 'stone', 7, "
-            '\'["roof", "basement", "interior", '
-            '{"value": "ground", "aliases": ["ground floor"]}]\')'
-        )
+    floor_cv = json.dumps(
+        [
+            "roof",
+            "basement",
+            "interior",
+            {"value": "ground", "aliases": ["ground floor"]},
+        ]
     )
     conn.execute(
         sa.text(
-            "UPDATE tags SET category = 'floor' "
-            "WHERE category = 'environment' AND value = 'interior'"
+            "INSERT INTO tag_categories (name, description, color, display_order, "
+            "common_values) VALUES ('floor', 'Building level or floor', 'stone', 7, :cv)"
+        ),
+        {"cv": floor_cv},
+    )
+    conn.execute(
+        sa.text(
+            "UPDATE tags SET category = 'floor' WHERE category = 'terrain' AND value = 'interior'"
         )
     )

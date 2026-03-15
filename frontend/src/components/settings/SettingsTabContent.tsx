@@ -139,6 +139,7 @@ function TagPackCard({
         type="button"
         disabled={pack.imported || isImporting}
         onClick={onImport}
+        aria-label={`Import ${pack.label} tag pack`}
         className={`shrink-0 flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 ${
           pack.imported
             ? 'text-emerald-500/70 cursor-default'
