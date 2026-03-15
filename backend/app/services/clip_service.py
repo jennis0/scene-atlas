@@ -23,6 +23,7 @@ import onnxruntime as ort
 from PIL import Image
 
 from backend.app.config import settings as _settings
+from backend.app.services.model_registry import GPU_PROVIDERS
 from backend.app.services.ort_providers import (
     create_session_with_fallback,
     get_session_options,
@@ -204,8 +205,6 @@ def _get_active_model_name() -> str:
 
 def _has_real_gpu_provider(providers: list[str]) -> bool:
     """Return True only if a real GPU provider (CUDA/DirectML/CoreML) is available."""
-    from backend.app.services.model_registry import GPU_PROVIDERS  # noqa: PLC0415
-
     return bool(set(providers) & GPU_PROVIDERS)
 
 
@@ -247,6 +246,10 @@ class CLIPService:
         models_dir: str | Path | None = None,
         tokenizer_dir: str | Path | None = None,
     ):
+        # Record the exact model name resolved at construction time so that
+        # _load_clip() can record what was actually loaded (not a later re-resolution).
+        self.model_name: str = _get_active_model_name()
+
         # Clear stale text embedding cache — different model instances may
         # produce different-dimensional embeddings.
         _text_embedding_cache.clear()
@@ -601,7 +604,7 @@ def _load_clip() -> None:
         service = CLIPService()
         with _clip_lock:
             _clip_service = service
-            _active_model_name = _get_active_model_name()  # Record what was loaded
+            _active_model_name = service.model_name  # Record what was actually loaded
         logger.info("Embedding model ready")
     except Exception as exc:
         with _clip_lock:
@@ -612,7 +615,12 @@ def _load_clip() -> None:
 
 
 def start_clip_background_load() -> threading.Thread:
-    """Kick off model loading in a daemon thread.  Idempotent — safe to call twice."""
+    """Kick off model loading in a daemon thread.
+
+    Idempotent for the initial load — safe to call twice before first load completes.
+    After reload_clip_service() clears the ready event, calling this again
+    starts a fresh load (intended behaviour — not a duplicate).
+    """
     if _clip_ready.is_set():
         # Already loaded (or failed) — nothing to do; return a harmless sentinel.
         t = threading.Thread(target=lambda: None, daemon=True, name="clip-loader-noop")
@@ -628,6 +636,9 @@ def get_effective_model_name() -> str:
 
     Falls back to _get_active_model_name() if the service hasn't loaded yet.
     """
+    # CPython: str assignment is atomic at bytecode level, so reading _active_model_name
+    # without _clip_lock is safe in practice. The write happens under _clip_lock in
+    # _load_clip(), so the value is either None (not loaded) or a complete string.
     if _active_model_name is not None:
         return _active_model_name
     return _get_active_model_name()
