@@ -77,6 +77,15 @@ GPU_PROVIDER_LABELS: dict[str, str] = {
 }
 
 
+# Standard ONNX file names used for all Scene Atlas model exports.
+# These are the fixed filenames written by export_model_onnx.py and expected
+# by publish_models_hf.py and the runtime CLIPService loader.
+ENCODER_NAMES: dict[str, str] = {
+    "vision": "clip_vision_encoder.onnx",
+    "text": "clip_text_encoder.onnx",
+}
+
+
 def get_model(name: str) -> dict | None:
     """Return model entry by name, or None if not found."""
     return MODEL_BY_NAME.get(name)

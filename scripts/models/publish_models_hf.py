@@ -35,9 +35,8 @@ import json
 import os
 from pathlib import Path
 
-from export_model_onnx import ENCODER_NAMES
-
 from backend.app.services.model_registry import (
+    ENCODER_NAMES,
     HF_NAMESPACE,
     MODEL_BY_NAME,
     REPO_PREFIX,

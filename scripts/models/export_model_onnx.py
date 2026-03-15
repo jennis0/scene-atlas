@@ -36,7 +36,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformers import AutoConfig, AutoModel, AutoProcessor
 
-from backend.app.services.model_registry import MODEL_BY_NAME
+from backend.app.services.model_registry import ENCODER_NAMES, MODEL_BY_NAME
 from backend.app.services.model_registry import MODELS as MODEL_REGISTRY
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
@@ -190,11 +190,6 @@ class SigLIP2TextONNX(nn.Module):
 
 
 # ── Export functions ─────────────────────────────────────────────────────────
-
-ENCODER_NAMES = {
-    "vision": "clip_vision_encoder.onnx",
-    "text": "clip_text_encoder.onnx",
-}
 
 
 def export_vision(model, family: str, image_size: int, output_dir: Path) -> Path:
