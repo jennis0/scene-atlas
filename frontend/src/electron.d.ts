@@ -4,18 +4,18 @@
  */
 
 interface ElectronAPI {
-  /** Host OS identifier for platform-specific UI layout. */
   readonly platform: 'darwin' | 'win32' | 'linux'
 
-  // Backend lifecycle events
   onBackendReady(callback: (port: number) => void): void
   onBackendError(callback: (message: string) => void): void
 
-  // System settings IPC
-  getDataDir(): Promise<string | null>
-  openDataDir(): Promise<void>
-  chooseDataDir(): Promise<string | null>
-  changeDataDir(newPath: string): Promise<void>
+  // Storage path IPC
+  getAppDataDir(): Promise<string | null>
+  getImageLibraryDir(): Promise<string | null>
+  chooseAppDataDir(): Promise<string | null>
+  chooseImageLibraryDir(): Promise<string | null>
+  /** Saves config and restarts the app. Call only when user confirms file-move intent. */
+  changeStorageDirs(appDataDir: string, imageLibraryDir: string): Promise<void>
 
   // Filesystem access for drag-and-drop folder traversal
   readDirectory(dirPath: string): Promise<Array<{ relativePath: string; absolutePath: string }>>
