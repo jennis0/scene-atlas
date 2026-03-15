@@ -6,7 +6,7 @@
 ## Overview
 
 Scene Atlas ships without bundled ONNX models. On first boot the user selects an
-embedding model, which is downloaded from HuggingFace and stored in `DATA_DIR/models/`.
+embedding model, which is downloaded from HuggingFace and stored in `APP_DATA_DIR/models/`.
 The active model is persisted to the database and can be changed at any time; switching
 triggers a background job that reloads both the CLIP service and the Qdrant collection,
 then re-embeds all scenes.
@@ -68,7 +68,7 @@ call once the service is running.
 **Storage layout:**
 
 ```
-DATA_DIR/
+APP_DATA_DIR/
   models/
     small/
       manifest.json
@@ -77,7 +77,7 @@ DATA_DIR/
       version.json          ← completion marker
     medium/  ...
     large/   ...
-    .tmp/                   ← transient; cleaned up after each download
+    .tmp/                   ← transient; cleaned up after each download attempt
       <name>/
 ```
 
@@ -221,12 +221,12 @@ split-storage setup wizard described in
 
 | Mode | Model storage | First-boot flow | Notes |
 |------|--------------|-----------------|-------|
-| Electron | `DATA_DIR` managed by Electron | Wizard step (stub) | Wizard not yet integrated |
-| Web / server | Operator-controlled `DATA_DIR` | `ModelSetupScreen` overlay | `EMBEDDING_MODEL` env var can pre-select |
-| Dev | `DATA_DIR` or `backend/models/<name>/` fallback | Same as web | Fallback path allows testing with locally exported models |
+| Electron | `APP_DATA_DIR` managed by Electron | Wizard step (stub) | Wizard not yet integrated |
+| Web / server | Operator-controlled `APP_DATA_DIR` | `ModelSetupScreen` overlay | `EMBEDDING_MODEL` env var can pre-select |
+| Dev | `APP_DATA_DIR` or `backend/models/<name>/` fallback | Same as web | Fallback path allows testing with locally exported models |
 
-The dev fallback path in `_get_model_dir()` checks `DATA_DIR/models/<name>/` first,
-then falls back to `backend/models/<name>/`. This allows developers to test with models
+Fallback path in `_default_models_dir()` (`clip_service.py`) checks `APP_DATA_DIR/models/<name>/` first,
+then `backend/models/<name>/`. This allows developers to test with models
 exported by `scripts/models/export_model_onnx.py` without a full HF download.
 
 ---

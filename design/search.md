@@ -131,29 +131,32 @@ Tag categories define a vocabulary with optional aliases (e.g. "rainy" → "rain
 
 ### Model Selection
 
-Multiple ONNX vision-language models are available under `backend/models/`. The active model is selected by the `EMBEDDING_MODEL` env var (default: `clip-vit-b-32`), which picks the corresponding subdirectory.
+Three models are offered, each hosted on HuggingFace and downloaded on demand to `APP_DATA_DIR/models/{name}/`. The active model is resolved in priority order:
+1. `EMBEDDING_MODEL` env var (dev/operator override)
+2. `active_model` key in `app_settings` DB (set via `POST /api/v1/models/active`)
+3. Auto-detect: GPU present → `medium`, CPU-only → `small`
 
-| Directory | Model | Embedding Dim | Notes |
-|-----------|-------|---------------|-------|
-| `clip-vit-b-32` | CLIP ViT-B/32 (laion2B) | 512 | Default, fastest |
-| `siglip2-base` | SigLIP2 Base | 768 | Better semantic quality |
-| `siglip2-large` | SigLIP2 SO400M | 1152 | Better quality, GPU recommended |
-| `siglip2-giant` | SigLIP2 Giant | 1536 | Best quality, opt-in |
+| Name | Architecture | Embedding Dim | HF Repo | Notes |
+|------|-------------|---------------|---------|-------|
+| `small` | CLIP ViT-B/32 (laion2B), vision fp16, text int8 | 512 | jennis0/scene-atlas-small | Default without GPU |
+| `medium` | SigLIP2-base-patch16-224, vision fp16, text int8 | 768 | jennis0/scene-atlas-medium | Default with GPU |
+| `large` | SigLIP2-so400m-patch14-384, vision fp16/fp16 | 1152 | jennis0/scene-atlas-large | GPU strongly recommended |
 
-Each model directory contains:
-- `manifest.json` — model parameters (embedding dim, image size, normalization, tokenizer config, ONNX filenames)
-- ONNX vision + text encoder files
-- `tokenizer/` subdirectory (HuggingFace fast tokenizer or SentencePiece)
+A dev fallback path (`backend/models/{name}/`) is checked before the APP_DATA_DIR path, allowing developers to test with locally exported models without a HF download.
 
-If no `manifest.json` is found, hardcoded CLIP ViT-B/32 defaults are used for backward compatibility.
+Each model directory (whether in APP_DATA_DIR or backend/models/) contains:
+- `manifest.json` — model parameters (embedding dim, image size, normalization, tokenizer config)
+- `clip_vision_encoder.onnx` and `clip_text_encoder.onnx`
+- `tokenizer/` subdirectory
+- `version.json` — HF commit SHA + download timestamp (completion marker, APP_DATA_DIR only)
 
 ### Model Configuration Flow
 
 At startup (`main.py`), the manifest is read to derive:
-1. `qdrant_vector_size` — set from `manifest.embedding_dim` (overrides the 512 default)
-2. `qdrant_collection_name` — scoped to model: `embeddings_{EMBEDDING_MODEL}` (e.g. `embeddings_clip-vit-b-32`)
+1. `qdrant_vector_size` — set from `manifest.embedding_dim`
+2. `qdrant_collection_name` — scoped to model: `embeddings_{model_name}` (e.g. `embeddings_small`)
 
-This means **switching models creates a new Qdrant collection** — the old collection remains but is unused. Run `rebuild_all_embeddings()` after switching to populate the new collection.
+Switching models creates a new Qdrant collection — the old collection is preserved (not deleted). Run `rebuild_all_embeddings(force=True)` after switching to populate the new collection. The `POST /api/v1/models/active` endpoint handles the full switch sequence automatically.
 
 ### Inference
 

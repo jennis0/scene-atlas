@@ -398,3 +398,39 @@ Pipeline functions in `backend/pipeline/` are now plain Python functions — no 
 - All dev/build scripts (`setup_models.py`, `build_sidecar.py`, `export_model_onnx.py`, PyInstaller spec) respect `EMBEDDING_MODEL` env var
 - sentencepiece adds ~1MB to production dependency footprint
 - Models directory structure: `backend/models/{model-name}/` (flat: ONNX files + manifest.json + tokenizer/)
+
+---
+
+## ADR-017: HuggingFace-hosted model distribution
+
+**Date:** 2026-03-15
+**Status:** Accepted
+
+**Context:** ONNX models were previously bundled in `backend/models/` (gitignored, produced by `export_model_onnx.py`). This required developers to run the export script before the backend would start, and made it impossible for non-technical users to choose a model or download an updated version. The three models (`small`/`medium`/`large`) are now published to HuggingFace under the `jennis0` namespace as pre-built ONNX packages.
+
+**Decision:** Ship models on HuggingFace; download on first boot or on explicit user selection.
+
+Key choices:
+
+1. **Download location:** `APP_DATA_DIR/models/{name}/` — user-owned, on fast storage, consistent with the split-storage spec. Dev fallback to `backend/models/{name}/` (still used by developers and CI).
+
+2. **Completion marker:** `version.json` written *last*, after all files are verified. `is_model_downloaded()` checks only for `version.json` — any directory without it is treated as incomplete.
+
+3. **Atomic download:** Downloads go to a temp dir (`.tmp/{name}/`), files are verified, then the temp dir is renamed to the final location in a single filesystem operation. A crash mid-download leaves no unusable partial state.
+
+4. **Active model source:** `EMBEDDING_MODEL` env var → DB `app_settings.active_model` → auto-detect (GPU present → `medium`, CPU-only → `small`). The `active_model` DB key is intentionally not seeded on first boot so auto-detect runs on fresh installs.
+
+5. **`active_model` not in `AppSettingsPatch`:** Switching the active model triggers a multi-step background job (download, service reload, re-embed). Routing it through the generic settings PATCH would obscure that intent and risk skipping the job. A dedicated `POST /api/v1/models/active` endpoint makes the side-effects explicit.
+
+6. **Model switch sequence:** `POST /active` submits `_download_and_activate` to JobRunner which sequences: download → `reload_clip_service()` → `wait_for_clip_ready()` → `reload_qdrant_service(f"embeddings_{name}")` → `rebuild_all_embeddings(force=True)`. `force=True` is required because the existing embeddings are for the old model and the skip-if-present guard must not fire.
+
+7. **Model registry as single source of truth:** `backend/app/services/model_registry.py` contains all model specs (HF repos, descriptions, hardware recommendations, quantisation parameters). Export and publish scripts import from this module rather than maintaining their own inline registry.
+
+8. **No auto-update:** `version.json` stores `hf_commit_sha` to enable future update detection, but no polling or auto-download is implemented. Intentional — compute overhead and user expectation around background downloads.
+
+**Consequences:**
+- Non-technical users can choose a model via the UI (or accept the hardware-aware default)
+- CI uses `huggingface_hub.snapshot_download` to fetch pre-built ONNX — no torch/transformers needed in CI
+- A fresh install with no model in `APP_DATA_DIR` starts the backend in a degraded state (CLIPService fails to load); web mode shows a blocking `ModelSetupScreen` overlay
+- Stale embeddings from previous models are preserved in named Qdrant collections (`embeddings_{name}`) — user can delete via `DELETE /api/v1/models/{name}/embeddings`
+- The large model is never auto-recommended; it requires explicit selection

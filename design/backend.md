@@ -217,6 +217,12 @@ Hash-sharded object store. Interface: `put(key, path)`, `get_path(key)`, `delete
 ### CLIPService
 Singleton wrapping HuggingFace CLIP ViT-B/32. Lazy-loaded on first use. Methods: `encode_image(path) -> [float]`, `encode_text(query) -> [float]`, `batch_encode_images(paths)`.
 
+### ModelRegistryService
+Module (not a class): `backend/app/services/model_registry.py` — Static registry of all three ONNX model specs (names, HF repos, descriptions, hardware recommendations). Single source of truth used by the download service, API, and export/publish scripts.
+
+### ModelDownloadService
+`backend/app/services/model_download_service.py` — Downloads models from HuggingFace to `APP_DATA_DIR/models/{name}/` using atomic temp-dir→rename pattern. `version.json` is the completion marker. Exposes `is_model_downloaded()`, `get_version_info()`, `download_model()`, `get_all_model_statuses()`.
+
 ### QdrantService
 Embedded Qdrant vector DB client (local mode, no Docker). Manages the `battlemap_images` collection. Thread-safe via `threading.RLock`. Methods: `add_image_embedding`, `search_similar`, `delete_image_embedding`, `batch_add_embeddings`.
 
@@ -269,7 +275,8 @@ All config via `backend/app/config.py` using `pydantic-settings`. Reads from `.e
 - `store_images_dir` / `store_thumbnails_dir` — object store base directories
 - `staging_dir` — temp directory for import uploads
 - `qdrant_path` — Qdrant embedded local storage directory
-- `embedding_model` — selects model subdirectory under `backend/models/`
+- `EMBEDDING_MODEL` env var — operator override for active model name (`small`/`medium`/`large`); bypasses DB setting entirely
+- Active model otherwise resolved from DB `app_settings.active_model` key (set via `POST /api/v1/models/active`)
 - `inference_device` — ONNX Runtime execution provider (`auto`/`cpu`/`cuda`/`directml`/`coreml`)
 - `max_job_workers` — concurrent background job threads
 - `scheduler_enabled` — periodic maintenance (backup, staging cleanup)
@@ -281,6 +288,7 @@ All config via `backend/app/config.py` using `pydantic-settings`. Reads from `.e
 2. On startup: create DB engine, run `init_db()` (create tables), run `seed_tag_categories()` (upsert vocabulary)
 3. Run `cleanup_stale_staging()` and `mark_interrupted_jobs()` to recover from unclean shutdowns
 4. Begin CLIP model background load (non-blocking, loads in a background thread)
+4b. If no model is present in APP_DATA_DIR, CLIPService enters an error state; frontend shows ModelSetupScreen overlay (web mode) blocking access until a model is downloaded.
 5. Start JobRunner (background thread pool), start Scheduler (periodic tasks)
 6. Start event loop heartbeat diagnostics (monitors asyncio event loop health)
 7. Store DB engine in `app.state.db_engine` for dependency injection

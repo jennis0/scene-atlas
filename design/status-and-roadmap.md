@@ -1,6 +1,6 @@
 # Scene Atlas — Status and Roadmap
 
-**Last updated:** 2026-03-14
+**Last updated:** 2026-03-15
 
 ## What Scene Atlas Does
 
@@ -34,7 +34,8 @@ Scene Atlas is a tool for viewing and searching large collections of tabletop RP
 | Settings UI | `frontend/src/components/SettingsPanel.tsx`, `backend/app/api/settings.py` | Auto-save on blur, 6 configurable settings |
 | Activity dock | `frontend/src/components/ActivityDock.tsx` | Real-time import progress, connection status |
 | Video support | Throughout pipeline | First-frame extraction, media_type field |
-| Multi-model ONNX inference | `backend/app/services/clip_service.py`, `backend/models/` | Manifest-driven model registry; CLIP ViT-B/32 (512d), SigLIP2-Base (768d), SigLIP2-SO400M (1152d); FP16 ONNX; SentencePiece tokenizer support |
+| Multi-model ONNX inference | `backend/app/services/clip_service.py`, `backend/app/services/model_registry.py` | HF-hosted model registry; CLIP ViT-B/32 (512d), SigLIP2-Base (768d), SigLIP2-SO400M (1152d); FP16 ONNX; SentencePiece tokenizer support |
+| HuggingFace model download & management | `backend/app/services/model_registry.py`, `backend/app/services/model_download_service.py`, `backend/app/api/models.py`, `frontend/src/components/setup/ModelSetupScreen.tsx` | HF-hosted ONNX downloads to APP_DATA_DIR/models/; atomic download with version.json completion marker; POST /active switches model + triggers re-embed; first-boot overlay (web mode); AI Model settings section |
 | GPU acceleration | `backend/app/services/clip_service.py` | CUDA → DirectML → CoreML → CPU provider chain; DirectML session recreation on failure, CPU fallback |
 | Electron desktop app | `electron/src/main.ts` | Sidecar lifecycle, borderless titlebar, config storage |
 | Backup system | `backend/pipeline/maintenance.py` | Automated daily backups with weekly rotation |
@@ -70,7 +71,7 @@ Scene Atlas is a tool for viewing and searching large collections of tabletop RP
 | React Router 6 → 7 (low risk, only one route) | — | Low |
 | lucide-react 0.307 → 0.577 (icon renames) | — | Low |
 | Electron session-level CSP narrowing | — | Low |
-| GitHub Actions Node.js 24 upgrade | — | Medium (deadline: 2026-06-02) |
+| GitHub Actions Node.js 26 upgrade | — | Medium (deadline: 2027-04-30) |
 
 ---
 
@@ -99,7 +100,7 @@ For detailed architecture, see:
 1. Must build and run on Windows, Linux, and macOS
 2. Three deployment modes must behave identically (Electron, server, dev)
 3. When `AUTH_TOKEN` is not configured, app must behave as before (backwards compat)
-4. CLIP model loaded in background — doesn't block startup
+4. CLIP model loaded in background — doesn't block startup; if no model has been downloaded yet the service enters an error state and the frontend blocks with a setup screen until a model is selected and downloaded
 5. Per-image error isolation — one bad image doesn't fail the batch
 6. All state changes go through `transition_job_status()` for consistency
 7. Switching embedding models creates a new Qdrant collection — run `rebuild_all_embeddings()` after model changes
