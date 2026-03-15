@@ -1,9 +1,42 @@
-import { useCallback, forwardRef, useImperativeHandle } from 'react'
+import { useCallback, forwardRef, useImperativeHandle, useState, useEffect } from 'react'
 import { AlertCircle } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { SettingRow } from '@/components/settings/SettingRow'
 import { useSettingsDraft } from '@/hooks/useSettingsDraft'
 import type { AppSettings } from '@/types'
+
+interface StoragePathRowProps {
+  label: string
+  description: string
+  current: string | null
+  pending: string | null
+  onBrowse: () => void
+  requiresRestart?: boolean
+}
+
+function StoragePathRow({ label, description, current, pending, onBrowse, requiresRestart }: StoragePathRowProps) {
+  const display = pending ?? current ?? '—'
+  const changed = pending != null
+  return (
+    <SettingRow label={label} description={description} requiresRestart={requiresRestart}>
+      <div className="flex items-center gap-2">
+        <span
+          className={`max-w-[180px] truncate text-xs font-mono ${changed ? 'text-primary' : 'text-muted-foreground'}`}
+          title={display}
+        >
+          {display}
+        </span>
+        <button
+          type="button"
+          onClick={onBrowse}
+          className="shrink-0 rounded border border-border/50 px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+        >
+          Browse
+        </button>
+      </div>
+    </SettingRow>
+  )
+}
 
 export interface SettingsTabContentRef {
   save: () => Promise<void>
@@ -31,6 +64,38 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
       }),
       [save, isDirty],
     )
+
+    const isElectron = typeof window !== 'undefined' && !!window.electronAPI
+    const [appDataDir, setAppDataDir] = useState<string | null>(null)
+    const [imageLibraryDir, setImageLibraryDir] = useState<string | null>(null)
+    const [pendingAppDataDir, setPendingAppDataDir] = useState<string | null>(null)
+    const [pendingImageLibraryDir, setPendingImageLibraryDir] = useState<string | null>(null)
+
+    useEffect(() => {
+      if (dialogOpen && isElectron) {
+        window.electronAPI!.getAppDataDir().then(setAppDataDir)
+        window.electronAPI!.getImageLibraryDir().then(setImageLibraryDir)
+      }
+    }, [dialogOpen, isElectron])
+
+    const handleChooseAppDataDir = async () => {
+      const chosen = await window.electronAPI?.chooseAppDataDir()
+      if (chosen && chosen !== appDataDir) setPendingAppDataDir(chosen)
+    }
+
+    const handleChooseImageLibraryDir = async () => {
+      const chosen = await window.electronAPI?.chooseImageLibraryDir()
+      if (chosen && chosen !== imageLibraryDir) setPendingImageLibraryDir(chosen)
+    }
+
+    const handleApplyStorageChange = () => {
+      if (!appDataDir || !imageLibraryDir) return  // IPC hasn't loaded yet; wait
+      window.electronAPI?.changeStorageDirs(
+        pendingAppDataDir ?? appDataDir,
+        pendingImageLibraryDir ?? imageLibraryDir,
+      )
+      // changeStorageDirs saves config and calls app.relaunch() — no return
+    }
 
     // Helper to get current value (draft takes precedence over server settings)
     const val = useCallback(
@@ -89,6 +154,48 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
         {/* Content (hidden during load/error) */}
         {!isLoading && !isError && (
           <div className="space-y-4">
+            {/* ── Storage Locations (Electron only) ───────────────────────────── */}
+            {isElectron && (
+              <section className="space-y-3">
+                <p className="section-label mb-3">Storage Locations</p>
+
+                <StoragePathRow
+                  label="App data location"
+                  description="Database, thumbnails & search index. SSD recommended."
+                  current={appDataDir}
+                  pending={pendingAppDataDir}
+                  onBrowse={handleChooseAppDataDir}
+                  requiresRestart
+                />
+
+                <StoragePathRow
+                  label="Image library location"
+                  description="Original images and backups. Any drive including external storage."
+                  current={imageLibraryDir}
+                  pending={pendingImageLibraryDir}
+                  onBrowse={handleChooseImageLibraryDir}
+                  requiresRestart
+                />
+
+                {(pendingAppDataDir || pendingImageLibraryDir) && (
+                  <div className="space-y-2 rounded border border-amber-500/20 bg-amber-500/5 p-3">
+                    <p className="text-xs text-muted-foreground">
+                      Changing a path does not move your files. Move them manually before restarting.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleApplyStorageChange}
+                      className="text-xs font-medium text-primary hover:underline"
+                    >
+                      Restart Now to Apply
+                    </button>
+                  </div>
+                )}
+
+                <div className="border-t border-border/30" />
+              </section>
+            )}
+
             {/* ── General ─────────────────────────────────────────────────────── */}
             <section className="space-y-3">
               <p className="section-label mb-3">General</p>
@@ -207,6 +314,27 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                   />
                   <span className="w-8 shrink-0 text-xs text-muted-foreground">MB</span>
                 </div>
+              </SettingRow>
+
+              <SettingRow
+                label="Convert imports to WebP"
+                description="Reduces file size 20–40% with no quality loss. Applies to new imports only."
+              >
+                <button
+                  type="button"
+                  onClick={() => setField('convert_to_webp', !val('convert_to_webp'))}
+                  aria-label="Toggle WebP conversion"
+                  aria-pressed={val('convert_to_webp') as boolean}
+                  className={`h-6 w-11 rounded-full transition-colors flex items-center px-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 ${
+                    val('convert_to_webp') ? 'bg-primary' : 'bg-secondary border border-border/50'
+                  }`}
+                >
+                  <div
+                    className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                      val('convert_to_webp') ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
               </SettingRow>
 
               <div className="border-t border-border/30" />

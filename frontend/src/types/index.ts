@@ -476,6 +476,9 @@ export interface AppSettings {
   max_import_files: number
   max_import_total_size: number
 
+  // Import options
+  convert_to_webp: boolean
+
   // Job runner (takes effect on next restart)
   max_job_workers: number
   scheduler_enabled: boolean
