@@ -367,18 +367,22 @@ function ImportJobCard({
         {/* Progress bar */}
         <div className="flex items-center gap-2 mt-[7px]">
           <div className="flex-1 h-[3px] rounded-full bg-border/30 overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-700 ease-out ${
-                job.status === 'failed'
-                  ? 'bg-destructive/55'
-                  : isTerminal
-                    ? 'bg-primary/45'
-                    : 'bg-primary/70'
-              }`}
-              style={{ width: `${Math.round(progressRatio * 100)}%` }}
-            />
+            {job.status === 'uploading' && progressRatio === 0 ? (
+              <div className="h-full w-full bg-primary/40 animate-pulse" />
+            ) : (
+              <div
+                className={`h-full rounded-full transition-all duration-700 ease-out ${
+                  job.status === 'failed'
+                    ? 'bg-destructive/55'
+                    : isTerminal
+                      ? 'bg-primary/45'
+                      : 'bg-primary/70'
+                }`}
+                style={{ width: `${Math.round(progressRatio * 100)}%` }}
+              />
+            )}
           </div>
-          {job.totalFiles > 0 && (
+          {job.totalFiles > 0 && progressRatio > 0 && (
             <span className="text-[10px] text-muted-foreground/55 tabular-nums shrink-0">
               {job.processedFiles}/{job.totalFiles}
             </span>
@@ -532,14 +536,17 @@ function JobStatusIcon({ status }: { status: BackgroundJob['status'] }) {
 
 function ImportStatusText({ job }: { job: ActiveImportJob }) {
   switch (job.status) {
-    case 'uploading':
+    case 'uploading': {
+      // When actual file upload progress is available, show the detailed count
+      const hasUploadProgress = job.totalFiles > 0 && job.processedFiles > 0
       return (
         <span>
-          {job.totalFiles > 0
+          {hasUploadProgress
             ? `Uploading ${job.processedFiles} of ${job.totalFiles} file${job.totalFiles !== 1 ? 's' : ''}`
-            : 'Uploading…'}
+            : job.uploadPhase ?? 'Uploading…'}
         </span>
       )
+    }
     case 'staging':
       return (
         <span>

@@ -58,6 +58,8 @@ export interface ActiveImportJob {
   failedFiles: number
   /** Number of job-level warnings (upload skips, Qdrant failures, etc.). */
   warningCount: number
+  /** Upload phase label from the dialog (e.g. "Validating… 3/10", "Analysing…"). */
+  uploadPhase?: string
 }
 
 export interface UseActiveImportsReturn {
@@ -210,6 +212,7 @@ function localToActiveJob(entry: ImportJobIndexEntry): ActiveImportJob {
     localOnly: true,
     failedFiles: 0,
     warningCount: 0,
+    uploadPhase: entry.uploadPhase,
   }
 }
 
@@ -253,9 +256,14 @@ function mergeJobs(
         existing.totalGroups = entry.totalGroups
       }
       // Supplement upload progress from localStorage (backend doesn't track upload progress)
-      if (existing.status === 'uploading' && entry.uploadFilesTotal) {
-        existing.totalFiles = entry.uploadFilesTotal
-        existing.processedFiles = entry.uploadFilesUploaded ?? 0
+      if (existing.status === 'uploading') {
+        if (entry.uploadFilesTotal) {
+          existing.totalFiles = entry.uploadFilesTotal
+          existing.processedFiles = entry.uploadFilesUploaded ?? 0
+        }
+        if (entry.uploadPhase) {
+          existing.uploadPhase = entry.uploadPhase
+        }
       }
     } else {
       // Only in localStorage (not yet confirmed to backend)

@@ -1,6 +1,11 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { filterByMagicBytes } from '@/lib/mimeCheck'
-import { removeImportState, updateUploadProgress, clearUploadProgress } from '@/lib/importStorage'
+import {
+  removeImportState,
+  updateUploadProgress,
+  updateUploadPhase,
+  clearUploadProgress,
+} from '@/lib/importStorage'
 import { importApi } from '@/lib/api'
 import { resolveApiUrl } from '@/lib/apiBase'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
@@ -162,15 +167,21 @@ export function useImportUpload({
 
         if (imageFiles.length > 0) {
           setUploadPhase(`Validating\u2026 0/${imageFiles.length}`)
+          updateUploadPhase(earlyJobId, `Validating\u2026 0/${imageFiles.length}`)
           const { hashFiles } = await import('@/lib/hashFile')
           const hashed = await hashFiles(
             imageFiles,
             (_file, i) => imageRelPaths[i],
-            (p) => setUploadPhase(`Validating\u2026 ${p.current}/${p.total}`),
+            (p) => {
+              const phase = `Validating\u2026 ${p.current}/${p.total}`
+              setUploadPhase(phase)
+              updateUploadPhase(earlyJobId, phase)
+            },
           )
 
           // ── Phase 2: Pre-flight duplicate check ────────────────
           setUploadPhase('Checking for duplicates\u2026')
+          updateUploadPhase(earlyJobId, 'Checking for duplicates\u2026')
           const checkItems = hashed.map((h) => ({
             relative_path: h.relativePath,
             filename: h.file.name,
@@ -213,11 +224,12 @@ export function useImportUpload({
           const startTime = Date.now()
 
           const uploadCount = uploadFiles.length
-          setUploadPhase(
+          const uploadPhaseLabel =
             skipCount > 0
               ? `Uploading ${uploadCount} new file${uploadCount !== 1 ? 's' : ''} (${skipCount} duplicate${skipCount !== 1 ? 's' : ''} skipped)\u2026`
-              : `Uploading ${uploadCount} file${uploadCount !== 1 ? 's' : ''}\u2026`,
-          )
+              : `Uploading ${uploadCount} file${uploadCount !== 1 ? 's' : ''}\u2026`
+          setUploadPhase(uploadPhaseLabel)
+          updateUploadPhase(earlyJobId, uploadPhaseLabel)
 
           let bytesUploadedSoFar = 0
           let filesUploadedSoFar = 0
@@ -304,6 +316,7 @@ export function useImportUpload({
         // ── Phase 4: Analyse all staged files ─────────────────────
         clearUploadProgress(earlyJobId)
         setUploadPhase('Analysing\u2026')
+        updateUploadPhase(earlyJobId, 'Analysing\u2026')
         setUploadProgress(null)
         const response: ImportUploadResponse = await importApi.analyse(
           earlyJobId,
@@ -339,6 +352,7 @@ export function useImportUpload({
         setUploading(false)
         setUploadPhase(null)
         setUploadProgress(null)
+        if (jobIdForCancel) updateUploadPhase(jobIdForCancel, null)
       }
     },
     // defaultImageType intentionally included — changing it between upload sessions is valid

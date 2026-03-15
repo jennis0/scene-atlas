@@ -40,6 +40,8 @@ export interface ImportJobIndexEntry {
   uploadFilesUploaded?: number
   uploadBytesTotal?: number
   uploadBytesUploaded?: number
+  /** Current upload phase label shown in the dialog (e.g. "Validating… 3/10"). */
+  uploadPhase?: string
 }
 
 export interface ImportJobsIndex {
@@ -260,6 +262,25 @@ export function updateUploadProgress(
   }
 }
 
+/** Update the upload phase label in the index entry (lightweight — no full save). */
+export function updateUploadPhase(jobId: string, phase: string | null): void {
+  try {
+    const raw = localStorage.getItem(INDEX_KEY)
+    if (!raw) return
+    const index: ImportJobsIndex = JSON.parse(raw)
+    const entry = index.jobs.find((j) => j.jobId === jobId)
+    if (!entry) return
+    if (phase) {
+      entry.uploadPhase = phase
+    } else {
+      delete entry.uploadPhase
+    }
+    localStorage.setItem(INDEX_KEY, JSON.stringify(index))
+  } catch {
+    // ignore
+  }
+}
+
 /** Clear upload progress fields from the index entry. */
 export function clearUploadProgress(jobId: string): void {
   try {
@@ -272,6 +293,7 @@ export function clearUploadProgress(jobId: string): void {
     delete entry.uploadFilesUploaded
     delete entry.uploadBytesTotal
     delete entry.uploadBytesUploaded
+    delete entry.uploadPhase
     localStorage.setItem(INDEX_KEY, JSON.stringify(index))
   } catch {
     // ignore
