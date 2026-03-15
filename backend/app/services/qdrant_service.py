@@ -249,6 +249,7 @@ class QdrantService:
             logger.warning(
                 "Failed to delete Qdrant collection '%s'", collection_name, exc_info=True
             )
+            raise
 
     def close(self):
         """Close the underlying client."""
@@ -279,14 +280,20 @@ def reload_qdrant_service(collection_name: str) -> None:
     """Re-create the QdrantService singleton with a new collection name.
 
     Called after a model switch to point Qdrant at the new model's collection.
+    Holds _init_lock to prevent races with concurrent callers and closes the
+    old service before replacing it to avoid file-handle leaks.
     """
     global _qdrant_service
-    new_service = QdrantService(
-        path=settings.qdrant_path,
-        collection_name=collection_name,
-        vector_size=settings.qdrant_vector_size,
-    )
-    _qdrant_service = new_service
+    with _init_lock:
+        old_service = _qdrant_service
+        new_service = QdrantService(
+            path=settings.qdrant_path,
+            collection_name=collection_name,
+            vector_size=settings.qdrant_vector_size,
+        )
+        _qdrant_service = new_service
+        if old_service is not None:
+            old_service.close()
     logger.info("Qdrant service reloaded for collection '%s'", collection_name)
 
 
