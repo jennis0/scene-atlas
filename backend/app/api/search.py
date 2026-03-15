@@ -274,8 +274,8 @@ def search_images(
         return ImageSearchResponse(total=total, limit=limit, offset=offset, images=results)
 
     # --- Hybrid search: FTS5, alias expansion, and CLIP semantic ---
-    SEMANTIC_THRESHOLD = 0.15
-    SEMANTIC_ONLY_THRESHOLD = 0.15
+    SEMANTIC_THRESHOLD = 0.0
+    SEMANTIC_ONLY_THRESHOLD = 0.0
     RRF_K = 60  # standard dampening constant for Reciprocal Rank Fusion
     RRF_TEXT_WEIGHT = 1.1  # text ranks weighted vs semantic 1×
     RRF_ALIAS_WEIGHT = 0.5
@@ -542,7 +542,7 @@ def search_groups(
     )
 
     # Hybrid search
-    SEMANTIC_THRESHOLD, SEMANTIC_ONLY_THRESHOLD, RRF_K = 0.15, 0.15, 60
+    SEMANTIC_THRESHOLD, SEMANTIC_ONLY_THRESHOLD, RRF_K = 0.0, 0.0, 60
     RRF_TEXT_WEIGHT, RRF_ALIAS_WEIGHT = 1.1, 0.5
     candidate_pool = max(limit * 20, 1000)
 
