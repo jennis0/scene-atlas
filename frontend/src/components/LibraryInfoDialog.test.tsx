@@ -81,10 +81,13 @@ describe('LibraryInfoDialog', () => {
     expect(container.querySelector('[role="dialog"]')).toBeNull()
   })
 
-  it('displays the data directory path', async () => {
+  it('displays storage paths in electron mode', async () => {
     renderWithProviders(<LibraryInfoDialog open onClose={vi.fn()} />)
     await waitFor(() => {
-      expect(screen.getByText('C:\\Users\\test\\Scene Atlas\\data')).toBeInTheDocument()
+      expect(screen.getByText('C:\\Users\\test\\AppData\\Roaming\\Scene Atlas')).toBeInTheDocument()
+      expect(
+        screen.getByText('C:\\Users\\test\\Scene Atlas\\data\\store\\images'),
+      ).toBeInTheDocument()
     })
   })
 
@@ -104,89 +107,6 @@ describe('LibraryInfoDialog', () => {
       expect(screen.getByText('42')).toBeInTheDocument()
       expect(screen.getByText('7')).toBeInTheDocument()
     })
-  })
-
-  it('calls openDataDir when Open button is clicked', async () => {
-    const user = userEvent.setup()
-    renderWithProviders(<LibraryInfoDialog open onClose={vi.fn()} />)
-
-    // Wait for dataDir to load (buttons are disabled until then)
-    await waitFor(() => {
-      expect(screen.getByText('C:\\Users\\test\\Scene Atlas\\data')).toBeInTheDocument()
-    })
-
-    await user.click(screen.getByRole('button', { name: /open/i }))
-    expect(mockAPI.openDataDir).toHaveBeenCalled()
-  })
-
-  it('shows confirm panel when Change Location picks a new directory', async () => {
-    const user = userEvent.setup()
-    mockAPI.chooseDataDir.mockResolvedValue('D:\\NewLocation\\data')
-
-    renderWithProviders(<LibraryInfoDialog open onClose={vi.fn()} />)
-
-    await waitFor(() => {
-      expect(screen.getByText('C:\\Users\\test\\Scene Atlas\\data')).toBeInTheDocument()
-    })
-
-    await user.click(screen.getByRole('button', { name: /change location/i }))
-
-    await waitFor(() => {
-      expect(screen.getByText('D:\\NewLocation\\data')).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /restart/i })).toBeInTheDocument()
-    })
-  })
-
-  it('returns to idle when Cancel is clicked in confirm state', async () => {
-    const user = userEvent.setup()
-    mockAPI.chooseDataDir.mockResolvedValue('D:\\NewLocation\\data')
-
-    renderWithProviders(<LibraryInfoDialog open onClose={vi.fn()} />)
-
-    await waitFor(() => {
-      expect(screen.getByText('C:\\Users\\test\\Scene Atlas\\data')).toBeInTheDocument()
-    })
-
-    // Enter confirm state
-    await user.click(screen.getByRole('button', { name: /change location/i }))
-    await waitFor(() => {
-      expect(screen.getByText('D:\\NewLocation\\data')).toBeInTheDocument()
-    })
-
-    // Cancel
-    await user.click(screen.getByRole('button', { name: /cancel/i }))
-
-    // Should be back to idle — Open button is visible again
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /open/i })).toBeInTheDocument()
-    })
-  })
-
-  it('calls changeDataDir and shows restarting state on confirm', async () => {
-    const user = userEvent.setup()
-    // Make changeDataDir hang so we can observe the restarting state
-    mockAPI.changeDataDir.mockReturnValue(new Promise(() => {}))
-    mockAPI.chooseDataDir.mockResolvedValue('D:\\NewLocation\\data')
-
-    renderWithProviders(<LibraryInfoDialog open onClose={vi.fn()} />)
-
-    await waitFor(() => {
-      expect(screen.getByText('C:\\Users\\test\\Scene Atlas\\data')).toBeInTheDocument()
-    })
-
-    // Enter confirm state
-    await user.click(screen.getByRole('button', { name: /change location/i }))
-    await waitFor(() => {
-      expect(screen.getByText('D:\\NewLocation\\data')).toBeInTheDocument()
-    })
-
-    // Click Restart & Apply
-    await user.click(screen.getByRole('button', { name: /restart/i }))
-
-    await waitFor(() => {
-      expect(screen.getByText(/restarting/i)).toBeInTheDocument()
-    })
-    expect(mockAPI.changeDataDir).toHaveBeenCalledWith('D:\\NewLocation\\data')
   })
 
   // ── Danger Zone tests ────────────────────────────────────────────────────

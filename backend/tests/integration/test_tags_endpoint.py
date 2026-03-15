@@ -58,6 +58,14 @@ def seeded_image_with_tags(test_client, tmp_db):
     db = SessionLocal()
 
     img = _make_image(db, "TaggedMap", "tagged_map.jpg")
+    # Ensure TagCategory rows exist (endpoints look up categories by name)
+    for cat_name, values in (
+        ("lighting", '[{"value": "night", "aliases": []}]'),
+        ("terrain", '[{"value": "forest", "aliases": []}]'),
+    ):
+        if not db.query(TagCategory).filter(TagCategory.name == cat_name).first():
+            db.add(TagCategory(name=cat_name, display_order=0, common_values=values))
+    db.flush()
     tag1 = Tag(image_id=img.id, category="lighting", value="night", confidence=1.0, source="manual")
     tag2 = Tag(image_id=img.id, category="terrain", value="forest", confidence=0.9, source="auto")
     db.add_all([tag1, tag2])
