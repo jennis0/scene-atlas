@@ -37,7 +37,12 @@ def _preload_nvidia_cuda_libs() -> None:
     function explicitly loads them with ctypes so they are resident in the process
     before onnxruntime's CUDA provider DSO is opened.
     """
-    nvidia_packages = ["nvidia.cublas", "nvidia.cudnn"]
+    nvidia_packages = [
+        "nvidia.cublas",       # libcublasLt.so.12, libcublas.so.12
+        "nvidia.cudnn",        # libcudnn.so.9
+        "nvidia.cufft",        # libcufft.so.11
+        "nvidia.cuda_runtime", # libcudart.so.12
+    ]
     for pkg in nvidia_packages:
         spec = importlib.util.find_spec(pkg)
         if spec is None or not spec.submodule_search_locations:
