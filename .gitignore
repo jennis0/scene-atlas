@@ -120,3 +120,4 @@ scripts/results/
 # Scraped evaluation data (copyrighted images, not for redistribution)
 eval/data/dndbeyond/
 eval/data/czepeku/
+.worktrees/
