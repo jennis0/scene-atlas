@@ -79,13 +79,14 @@ This document records all significant architectural decisions for the Scene Atla
 
 **Context:** We need to extract meaningful tags from battlemap filenames. Hardcoded tag patterns are brittle and hard to extend.
 
-**Decision:** Tag categories and their vocabularies are stored in the `TagCategory` table and seeded at startup. Each entry can be a plain string or an object with aliases: `{"value": "rain", "aliases": ["rainy", "raining"]}`. The `ImageParser` loads these from DB to build its vocabulary lookup.
+**Decision:** Tag categories and their vocabularies are stored in the `TagCategory` table and seeded at startup from a canonical JSON file (`backend/app/data/tag_vocabulary.json`). Each entry can be a plain string or an object with aliases: `{"value": "rain", "aliases": ["rainy", "raining"]}`. The `ImageParser` loads these from DB to build its vocabulary lookup.
 
 **Consequences:**
-- Adding new tag words only requires updating the seed data (or eventually a UI)
+- Adding new tag words requires updating the JSON vocabulary file (or using the Tag Management UI)
 - Aliases resolve to canonical values (e.g. "rainy" → "rain")
-- Tags are categorized (lighting, season, weather, terrain, etc.) enabling faceted filtering
+- Tags are categorized (lighting, season, weather, environment, features, state, theme, population, perspective, style) enabling faceted filtering
 - Filter logic: OR within same category, AND across categories
+- Genre packs (Common, Fantasy, Sci-Fi, Cyberpunk, Horror, Historical) allow selective vocabulary import via Settings
 
 ---
 

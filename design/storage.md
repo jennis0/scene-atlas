@@ -53,8 +53,8 @@ image_groups (table name: variant_groups)
 tags
   id              INTEGER PK
   image_id        INTEGER FK → images.id (CASCADE DELETE)
-  category        TEXT NOT NULL        -- e.g. "lighting", "season", "terrain"
-  value           TEXT NOT NULL        -- e.g. "night", "winter", "forest"
+  category        TEXT NOT NULL        -- e.g. "lighting", "environment", "features"
+  value           TEXT NOT NULL        -- e.g. "night", "forest", "tavern"
   confidence      FLOAT DEFAULT 1.0   -- 0.0–1.0
   source          TEXT DEFAULT "manual" -- "auto" or "manual"
   created_at      DATETIME
@@ -130,7 +130,7 @@ Several DB columns retain their original names for backward compatibility (avoid
 
 ### Seed Data
 
-**Tag categories:** `seed_tag_categories()` runs at first boot and inserts 10 categories with vocabulary words (lighting, season, weather, state, theme, population, terrain, floor, perspective, quality). Once categories exist, it's a no-op so user edits are preserved.
+**Tag categories:** `seed_tag_categories()` runs at first boot and inserts 10 categories with vocabulary words (lighting, season, weather, environment, features, state, theme, population, perspective, style). The canonical vocabulary is stored in `backend/app/data/tag_vocabulary.json` with ~149 tags and ~220 aliases across 6 genre packs (Common, Fantasy, Sci-Fi, Cyberpunk, Horror, Historical). Once categories exist, it's a no-op so user edits are preserved. Users can import additional genre packs via Settings → Tag Packs.
 
 **App settings:** `seed_default_settings()` runs at first boot and inserts defaults for grid detection, color extraction, ingestion performance, import limits, and job runner configuration.
 
