@@ -407,6 +407,33 @@ reviews CI logs on green builds.
 
 ---
 
+## 12. Upgrade GitHub Actions to Node.js 24 versions
+
+**Priority: Medium**
+**Effort: Small (1 hour + CI testing)**
+**Deadline:** 2026-06-02 (GitHub forces Node.js 24 after this date)
+**Files:** `.github/workflows/ci.yml`
+
+### Problem
+
+All GitHub Actions in the CI pipeline use versions that run on Node.js 20, which GitHub
+is deprecating. After 2026-06-02, actions will be forced to run on Node.js 24.
+
+### Fix
+
+Upgrade all actions to their latest major versions:
+- `actions/checkout` v4 → v6
+- `actions/setup-node` v4 → v6
+- `actions/setup-python` v5 → v6
+- `astral-sh/setup-uv` v4 → v7
+- `actions/upload-artifact` v4 → v7
+- `actions/cache` v4 → v5
+
+Major version bumps may have breaking changes in inputs/outputs — test each job
+after upgrading.
+
+---
+
 ## Priority Summary
 
 | # | Item | Priority | Effort |

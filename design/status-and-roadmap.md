@@ -70,6 +70,7 @@ Scene Atlas is a tool for viewing and searching large collections of tabletop RP
 | React Router 6 → 7 (low risk, only one route) | — | Low |
 | lucide-react 0.307 → 0.577 (icon renames) | — | Low |
 | Electron session-level CSP narrowing | — | Low |
+| GitHub Actions Node.js 24 upgrade | — | Medium (deadline: 2026-06-02) |
 
 ---
 
