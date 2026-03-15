@@ -227,8 +227,8 @@ class CLIPService:
         # over the global INFERENCE_DEVICE setting (used by scripts that pass
         # --device directly).
         inference_device = device if device is not None else _settings.inference_device
-        providers = resolve_providers(inference_device)
-        sess_opts = get_session_options(providers)
+        gpu_providers = resolve_providers(inference_device)
+        cpu_providers = ["CPUExecutionProvider"]
 
         vision_file = manifest.get("vision_encoder", "clip_vision_encoder.onnx")
         text_file = manifest.get("text_encoder", "clip_text_encoder.onnx")
@@ -237,27 +237,40 @@ class CLIPService:
         self._text_model_path = str(models_dir / text_file)
         self._inference_count = 0
 
-        self._vision_session, vision_providers = create_session_with_fallback(
-            models_dir / vision_file, providers, sess_opts
+        # INT8 quantised encoders have no CUDA kernels — all quantised ops fall
+        # back to CPU, generating expensive PCIe memcpy nodes at every boundary.
+        # Force CPU for int8 encoders; use the configured GPU provider for fp16.
+        vision_quant = manifest.get("vision_quant", "fp16")
+        text_quant = manifest.get("text_quant", "fp16")
+        vision_providers_req = gpu_providers if vision_quant != "int8" else cpu_providers
+        text_providers_req = gpu_providers if text_quant != "int8" else cpu_providers
+
+        self._vision_session, vision_actual = create_session_with_fallback(
+            models_dir / vision_file,
+            vision_providers_req,
+            get_session_options(vision_providers_req),
         )
-        self._text_session, text_providers = create_session_with_fallback(
-            models_dir / text_file, providers, sess_opts
+        self._text_session, text_actual = create_session_with_fallback(
+            models_dir / text_file,
+            text_providers_req,
+            get_session_options(text_providers_req),
         )
 
-        # Use the most conservative provider for downstream decisions:
-        # if either session fell back to CPU, treat the whole service as CPU.
-        if vision_providers != text_providers:
-            self._active_providers = ["CPUExecutionProvider"]
-            logger.warning(
-                "Vision and text sessions using different providers "
-                "(%s vs %s); treating as CPU for safety",
-                vision_providers[0],
-                text_providers[0],
-            )
-        else:
-            self._active_providers = vision_providers
+        # Per-session provider tracking — used by _run_with_fallback and DML recreation.
+        # _active_providers exposes the vision provider as the meaningful GPU indicator.
+        self._session_providers: dict[str, list[str]] = {
+            "_vision_session": vision_actual,
+            "_text_session": text_actual,
+        }
+        self._active_providers = vision_actual
 
-        logger.info("ONNX providers: %s", self._active_providers)
+        logger.info(
+            "ONNX providers — vision (%s): %s, text (%s): %s",
+            vision_quant,
+            vision_actual[0],
+            text_quant,
+            text_actual[0],
+        )
 
         # Tokenizer — branch on type (huggingface fast tokenizer vs sentencepiece)
         tokenizer_type = manifest.get("tokenizer_type", "huggingface")
@@ -354,7 +367,8 @@ class CLIPService:
         item_count : int
             Number of items in this inference (1 for single, batch size for batch).
         """
-        if self._active_providers[0] != "DmlExecutionProvider":
+        session_providers = self._session_providers[session_attr]
+        if session_providers[0] != "DmlExecutionProvider":
             return
         self._inference_count += item_count
         if self._inference_count < _DML_SESSION_RECREATION_INTERVAL:
@@ -364,11 +378,11 @@ class CLIPService:
             session_attr,
             self._inference_count,
         )
-        providers = self._active_providers
-        sess_opts = get_session_options(providers)
-        new_session, actual = create_session_with_fallback(model_path, providers, sess_opts)
+        sess_opts = get_session_options(session_providers)
+        new_session, actual = create_session_with_fallback(model_path, session_providers, sess_opts)
         setattr(self, session_attr, new_session)
-        self._active_providers = actual
+        self._session_providers[session_attr] = actual
+        self._active_providers = self._session_providers["_vision_session"]
         self._inference_count = 0
 
     def _run_with_fallback(
@@ -383,18 +397,20 @@ class CLIPService:
         try:
             return session.run(output_names, feed)
         except Exception as exc:
-            if not is_gpu_provider(self._active_providers):
+            session_providers = self._session_providers[session_attr]
+            if not is_gpu_provider(session_providers):
                 raise
             logger.warning(
                 "GPU inference failed (%s), falling back to CPU: %s",
-                self._active_providers[0],
+                session_providers[0],
                 exc,
             )
             cpu_providers = ["CPUExecutionProvider"]
             cpu_opts = get_session_options(cpu_providers)
             new_session = ort.InferenceSession(model_path, cpu_opts, providers=cpu_providers)
             setattr(self, session_attr, new_session)
-            self._active_providers = cpu_providers
+            self._session_providers[session_attr] = cpu_providers
+            self._active_providers = self._session_providers["_vision_session"]
             self._inference_count = 0
             return new_session.run(output_names, feed)
 

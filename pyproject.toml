@@ -27,20 +27,19 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-cpu = ["onnxruntime>=1.16.0,<2.0"]
+cpu = ["onnxruntime>=1.16.0,<2.0", "torch>=2.1.0,<3.0"]
 gpu-cuda = [
-    "onnxruntime-gpu>=1.16.0,<2.0"
+    "onnxruntime-gpu>=1.16.0,<2.0",
+    "torch>=2.1.0,<3.0",
 ]
 gpu-directml = ["onnxruntime-directml>=1.16.0,<2.0"]
 dev = [
-    "scene-atlas[cpu]",   # Default ONNX runtime for dev
     "ruff>=0.1.0",
     "pytest>=7.4.0",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=5.0.0",
     "httpx>=0.26.0",
     "pyinstaller",
-    "torch>=2.1.0,<3.0",
     "transformers>=4.36.0,<5.0",
     "onnx>=1.14.0,<2.0",   # ONNX export + quantisation tools (dev only)
     "tqdm>=4.60.0",
@@ -136,11 +135,19 @@ conflicts = [
 ]
 
 [tool.uv.sources]
-torch = [{ index = "pytorch-cpu" }]
+torch = [
+    { index = "pytorch-cuda", extra = "gpu-cuda" },
+    { index = "pytorch-cpu", extra = "cpu" },
+]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url  = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cuda"
+url  = "https://download.pytorch.org/whl/cu124"
 explicit = true
 
 [dependency-groups]

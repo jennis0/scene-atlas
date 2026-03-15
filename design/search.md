@@ -137,7 +137,8 @@ Multiple ONNX vision-language models are available under `backend/models/`. The 
 |-----------|-------|---------------|-------|
 | `clip-vit-b-32` | CLIP ViT-B/32 (laion2B) | 512 | Default, fastest |
 | `siglip2-base` | SigLIP2 Base | 768 | Better semantic quality |
-| `siglip2-so400m` | SigLIP2 SO400M | 1152 | Largest, most accurate |
+| `siglip2-large` | SigLIP2 SO400M | 1152 | Better quality, GPU recommended |
+| `siglip2-giant` | SigLIP2 Giant | 1536 | Best quality, opt-in |
 
 Each model directory contains:
 - `manifest.json` — model parameters (embedding dim, image size, normalization, tokenizer config, ONNX filenames)

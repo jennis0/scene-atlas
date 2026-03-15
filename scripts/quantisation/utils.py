@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
 import random
 import re
@@ -32,7 +33,7 @@ PASS_THRESHOLDS = {
     "int8_mean": 0.005,
 }
 
-IMAGE_EXTENSIONS = ("*.jpg", "*.jpeg", "*.png", "*.webp")
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
 # ── Image collection ────────────────────────────────────────────────────────
@@ -45,18 +46,22 @@ def collect_images(
 ) -> list[Path]:
     """Sample real images from *image_dir* deterministically.
 
-    Filters out macOS resource-fork artefacts (``__MACOSX``, ``._`` prefixes).
+    Uses a single os.walk traversal rather than one rglob per extension to
+    minimise NFS round-trips.  Filters out macOS resource-fork artefacts
+    (``__MACOSX`` directories, ``._`` filename prefixes).
     """
     if not image_dir.exists():
         raise FileNotFoundError(f"Image directory does not exist: {image_dir}")
 
     images: list[Path] = []
-    for ext in IMAGE_EXTENSIONS:
-        images.extend(
-            p
-            for p in image_dir.rglob(ext)
-            if "__MACOSX" not in str(p) and not p.name.startswith("._")
-        )
+    for dirpath, dirnames, filenames in os.walk(image_dir):
+        # Prune macOS resource-fork directories in-place so os.walk skips them
+        dirnames[:] = [d for d in dirnames if d != "__MACOSX"]
+        for name in filenames:
+            if name.startswith("._"):
+                continue
+            if Path(name).suffix.lower() in IMAGE_EXTENSIONS:
+                images.append(Path(dirpath) / name)
 
     if not images:
         raise FileNotFoundError(f"No images found in {image_dir}")
@@ -284,8 +289,10 @@ def quantise_encoder(
 
     # Pre-process to a named file to avoid Windows temp file issues
     preprocessed = output_path.parent / f"_pre_{output_path.name}"
+    print(f"    Pre-processing {fp32_path.stem}...")
     quant_pre_process(str(fp32_path), str(preprocessed), skip_symbolic_shape=True)
 
+    print(f"    Quantising {fp32_path.stem} ({weight_type}, {'per-channel' if per_channel else 'per-tensor'})...")
     quantize_dynamic(
         model_input=str(preprocessed),
         model_output=str(output_path),
@@ -452,6 +459,18 @@ def print_results_table(results: list[ExperimentResult]) -> None:
 # ── CLI helpers ──────────────────────────────────────────────────────────────
 
 
+def _detect_device() -> str:
+    """Return 'cuda' if a CUDA GPU is available, otherwise 'cpu'."""
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return "cuda"
+    except ImportError:
+        pass
+    return "cpu"
+
+
 def add_common_args(parser: argparse.ArgumentParser) -> None:
     """Add standard CLI arguments shared by all ablation scripts."""
     parser.add_argument(
@@ -481,7 +500,7 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--device",
         type=str,
-        default="cpu",
+        default=_detect_device(),
         choices=["cpu", "cuda", "directml", "coreml"],
-        help="Inference device for ONNX + torch (default: cpu)",
+        help="Inference device for ONNX + torch (default: auto-detected)",
     )

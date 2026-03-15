@@ -155,14 +155,42 @@ Excluding late layers has zero effect. Excluding 1–5 early layers barely helps
 
 **Recommendation:** Always check vision and text encoders separately for each model family. Don't assume CLIP patterns apply to SigLIP2.
 
+### Larger SigLIP2 Models (large / giant)
+
+The ablation script uses an adaptive layer sweep depth based on actual model depth:
+
+```python
+max_sweep = min(n_vision_layers // 2 + 2, n_vision_layers)
+```
+
+This is necessary because the existing base sweep (`min(9, n_layers)`) would significantly
+under-sweep deeper models:
+
+| Model | Vision layers | Sweep depth |
+|-------|--------------|-------------|
+| base | 12 | 8 |
+| large (so400m) | 27 | 15 |
+| giant | ~40 (TBC) | ~22 |
+
+The base ablation found a sharp "layer-6 cliff" at exactly half the model depth (6 of 12
+layers). Sweeping to half-depth ensures the same cliff will be caught at any scale.
+
+**Device note:** These models are too large (~4.5 GB and ~7.5 GB) for practical CPU
+inference. The ablation script auto-detects CUDA and defaults to GPU when available.
+The `quantize_dynamic` call itself always runs on CPU (ORT constraint), but torch
+reference inference and ONNX quality measurement run on GPU.
+
+**Results to be filled in after ablation runs.**
+
 ### Model Family Differences
 
 **Quantisation strategy differs by family:**
 - **CLIP:** fp16 vision + int8 text with first 3 layers + projection exclusion. CLIP vision *does* quantise cleanly to int8 (max diff ~0.004), but the export pipeline uses fp16 vision for consistency across families. If model size is critical, CLIP int8 vision is viable — re-run the CLIP ablation to confirm.
 - **SigLIP2-base:** fp16 vision (int8 is unrecoverable — see layer-6 cliff above) + int8 text with first 1 layer + projection exclusion (safety margin — max diff 0.0097 without exclusion may degrade at scale)
-- **SigLIP2-so400m:** fp16 vision + fp16 text (no int8 study yet)
+- **SigLIP2-large (so400m):** fp16 vision + fp16 text (no int8 study yet — run `ablation_siglip2 --model large`)
+- **SigLIP2-giant:** fp16 vision + fp16 text (no int8 study yet — run `ablation_siglip2 --model giant`)
 
-The `quantise_encoder_int8()` function in `export_model_onnx.py` is family-aware — it uses `find_layer_nodes()` from `scripts/quantisation/utils.py` to identify exclusion nodes. Per the model registry: CLIP excludes first 3 layers + projection, SigLIP2-base excludes first 1 layer + projection, SigLIP2-so400m uses fp16 text (no int8). The `quant_pre_process` Windows workaround is applied before calling `quantize_dynamic`.
+The `quantise_encoder_int8()` function in `export_model_onnx.py` is family-aware — it uses `find_layer_nodes()` from `scripts/quantisation/utils.py` to identify exclusion nodes. Per the model registry: CLIP excludes first 3 layers + projection, SigLIP2-base excludes first 1 layer + projection, SigLIP2-large and SigLIP2-giant use fp16 text (no int8 study yet). The `quant_pre_process` Windows workaround is applied before calling `quantize_dynamic`.
 
 **Image preprocessing differs:**
 - **CLIP:** `shortest_edge_then_crop` with `bicubic` interpolation
@@ -180,8 +208,13 @@ When optimising a new model, run experiments in this order:
 
 ```bash
 # 1. Run ablation (requires real images — cannot be skipped)
-uv run python -m scripts.quantisation.ablation_siglip2 --image-dir /path/to/images
 uv run python -m scripts.quantisation.ablation_clip --image-dir /path/to/images
+uv run python -m scripts.quantisation.ablation_siglip2 --model base --image-dir /path/to/images
+uv run python -m scripts.quantisation.ablation_siglip2 --model large --image-dir /path/to/images
+uv run python -m scripts.quantisation.ablation_siglip2 --model giant --image-dir /path/to/images
+# Note: large/giant require fp32 ONNX files — export first if needed:
+#   uv run python scripts/models/export_model_onnx.py siglip2-large
+#   uv run python scripts/models/export_model_onnx.py siglip2-giant
 
 # 2. Update MODEL_REGISTRY in export_model_onnx.py based on ablation findings
 

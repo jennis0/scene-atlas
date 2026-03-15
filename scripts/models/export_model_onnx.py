@@ -43,21 +43,21 @@ from transformers import AutoConfig, AutoModel, AutoProcessor
 
 MODEL_REGISTRY: list[dict] = [
     {
-        "name": "clip-vit-b-32",
+        "name": "small",
         "model_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
         "vision_quant": "fp16",
         "text_quant": "int8",
         "text_int8_exclude_layers": 3,
     },
     {
-        "name": "siglip2-base",
+        "name": "medium",
         "model_id": "google/siglip2-base-patch16-224",
         "vision_quant": "fp16",
         "text_quant": "int8",
         "text_int8_exclude_layers": 1,
     },
     {
-        "name": "siglip2-so400m",
+        "name": "large",
         "model_id": "google/siglip2-so400m-patch14-384",
         "vision_quant": "fp16",
         "text_quant": "fp16",
@@ -234,7 +234,8 @@ def export_vision(model, family: str, image_size: int, output_dir: Path) -> Path
         wrapper = SigLIP2VisionONNX(model)
     wrapper.eval()
 
-    dummy_input = torch.randn(1, 3, image_size, image_size)
+    device = next(wrapper.parameters()).device
+    dummy_input = torch.randn(1, 3, image_size, image_size, device=device)
     out_path = output_dir / ENCODER_NAMES["vision"]
 
     torch.onnx.export(
@@ -259,8 +260,9 @@ def export_text(model, family: str, context_length: int, output_dir: Path) -> Pa
         wrapper = SigLIP2TextONNX(model)
     wrapper.eval()
 
-    dummy_ids = torch.zeros(1, context_length, dtype=torch.long)
-    dummy_mask = torch.ones(1, context_length, dtype=torch.long)
+    device = next(wrapper.parameters()).device
+    dummy_ids = torch.zeros(1, context_length, dtype=torch.long, device=device)
+    dummy_mask = torch.ones(1, context_length, dtype=torch.long, device=device)
     out_path = output_dir / ENCODER_NAMES["text"]
 
     torch.onnx.export(
@@ -871,6 +873,8 @@ def export_model(
 
     # Extract manifest
     manifest = extract_manifest(model, processor, model_id, family)
+    manifest["vision_quant"] = vision_quant
+    manifest["text_quant"] = text_quant
     image_size = manifest["image_size"]
     context_length = manifest["tokenizer_max_length"]
 

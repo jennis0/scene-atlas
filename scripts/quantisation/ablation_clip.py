@@ -53,6 +53,40 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 FP32_DIR = SCRIPT_DIR.parent.parent / "backend" / "models" / "clip-vit-b-32" / "fp32"
 
 
+# ── FP32 ONNX bootstrap ─────────────────────────────────────────────────────
+
+
+def _export_fp32_if_missing(model, processor, fp32_dir: Path) -> None:
+    """Export fp32 ONNX encoders from the already-loaded model if not present.
+
+    The ablation script needs fp32 ONNX files as the base for int8 quantisation
+    experiments.  Rather than requiring the user to run export_model_onnx.py
+    first, we generate them here from the model that's already in memory.
+    """
+    vision_path = fp32_dir / "clip_vision_encoder.onnx"
+    text_path = fp32_dir / "clip_text_encoder.onnx"
+    if vision_path.exists() and text_path.exists():
+        return
+
+    from scripts.models.export_model_onnx import export_text, export_vision
+
+    img_proc = processor.image_processor
+    size_cfg = img_proc.size
+    if isinstance(size_cfg, dict):
+        image_size = size_cfg.get("shortest_edge", size_cfg.get("height", 224))
+    else:
+        image_size = int(size_cfg)
+    context_length = 77  # CLIP ViT-B/32 context length
+
+    fp32_dir.mkdir(parents=True, exist_ok=True)
+    print(f"\nFP32 ONNX not found — exporting from loaded model to {fp32_dir}...")
+    print(f"  Exporting vision encoder (image_size={image_size})...")
+    export_vision(model, "clip", image_size, fp32_dir)
+    print(f"  Exporting text encoder (context_length={context_length})...")
+    export_text(model, "clip", context_length, fp32_dir)
+    print("  FP32 export complete.")
+
+
 # ── Embedding computation ───────────────────────────────────────────────────
 
 
@@ -116,13 +150,18 @@ def get_onnx_embeddings(
     images: list[Path],
     texts: list[str],
     processor,
-    device: str = "cpu",
+    vision_device: str = "cpu",
+    text_device: str = "cpu",
 ) -> tuple[list[np.ndarray], list[np.ndarray]]:
-    """Compute ONNX embeddings using production-matching session options."""
+    """Compute ONNX embeddings using production-matching session options.
+
+    vision_device / text_device are set per-experiment: fp16 encoders can use
+    GPU; int8 encoders must use CPU (no CUDA kernels exist for quantised ops).
+    """
     PILImage.MAX_IMAGE_PIXELS = 300_000_000
 
-    vision_sess = create_ort_session(onnx_dir / "clip_vision_encoder.onnx", device=device)
-    text_sess = create_ort_session(onnx_dir / "clip_text_encoder.onnx", device=device)
+    vision_sess = create_ort_session(onnx_dir / "clip_vision_encoder.onnx", device=vision_device)
+    text_sess = create_ort_session(onnx_dir / "clip_text_encoder.onnx", device=text_device)
 
     image_embs: list[np.ndarray] = []
     for p in images:
@@ -172,6 +211,9 @@ def run_ablation(args: argparse.Namespace) -> None:
     model.eval()
     model.to(torch_dev)
     processor = AutoProcessor.from_pretrained(MODEL_ID, local_files_only=True)
+
+    # Ensure fp32 ONNX files exist — export from the loaded model if not
+    _export_fp32_if_missing(model, processor, FP32_DIR)
 
     # Collect test data
     all_images = collect_images(args.image_dir, args.max_images, args.seed)
@@ -311,8 +353,6 @@ def run_ablation(args: argparse.Namespace) -> None:
         print(f"Running {len(experiments)} experiments...")
         print(f"{'=' * 80}")
 
-        fp16_dir = FP32_DIR.parent / "fp16"
-
         results: list[ExperimentResult] = []
         for i, exp in enumerate(experiments):
             exp_dir = Path(tmp) / f"exp_{i}"
@@ -322,12 +362,12 @@ def run_ablation(args: argparse.Namespace) -> None:
 
             # Vision encoder
             if exp["vision"] == "fp16":
-                # Hybrid mode — copy fp16 vision encoder
-                import shutil
+                # Hybrid mode — quantise vision to fp16 from fp32
+                from scripts.models.export_model_onnx import quantise_encoder_fp16
 
-                shutil.copy2(
-                    str(fp16_dir / "clip_vision_encoder.onnx"),
-                    str(exp_dir / "clip_vision_encoder.onnx"),
+                quantise_encoder_fp16(
+                    FP32_DIR / "clip_vision_encoder.onnx",
+                    exp_dir / "clip_vision_encoder.onnx",
                 )
             else:
                 quantise_encoder(
@@ -343,9 +383,15 @@ def run_ablation(args: argparse.Namespace) -> None:
                 **exp["text"],
             )
 
-            # Measure embeddings
+            # fp16 vision can use GPU; int8 must use CPU (no CUDA kernels)
+            vision_device = args.device if exp["vision"] == "fp16" else "cpu"
             onnx_img_embs, onnx_txt_embs = get_onnx_embeddings(
-                exp_dir, all_images, TEXT_QUERIES, processor, args.device
+                exp_dir,
+                all_images,
+                TEXT_QUERIES,
+                processor,
+                vision_device=vision_device,
+                text_device="cpu",
             )
 
             img_diffs = cosine_diffs(torch_img_embs, onnx_img_embs)
