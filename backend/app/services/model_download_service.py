@@ -43,6 +43,22 @@ def is_model_downloaded(name: str) -> bool:
     return (get_model_dir(name) / "version.json").exists()
 
 
+def get_collection_name(name: str) -> str:
+    """Return the Qdrant collection name for a model.
+
+    Includes the first 8 chars of the HF commit SHA so that re-downloading an
+    updated model produces a new, distinct collection name — making stale
+    embeddings from the old version visible and deletable in the UI.
+
+    Falls back to ``embeddings_{name}`` when the model hasn't been downloaded yet.
+    """
+    version_info = get_version_info(name)
+    if version_info and version_info.get("hf_commit_sha"):
+        sha = version_info["hf_commit_sha"][:8]
+        return f"embeddings_{name}_{sha}"
+    return f"embeddings_{name}"
+
+
 def get_all_model_statuses() -> list[dict]:
     """Return status dicts for all registered models."""
     from backend.app.services.model_registry import MODELS

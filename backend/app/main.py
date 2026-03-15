@@ -144,7 +144,7 @@ async def lifespan(app: FastAPI):
                     "Auto-triggering rebuild.",
                     db_count,
                     qdrant_count,
-                    settings.qdrant_collection_name,
+                    qdrant.collection_name,
                 )
                 runner.submit(rebuild_all_embeddings, name="Rebuild embeddings", force=True)
             else:
@@ -152,7 +152,7 @@ async def lifespan(app: FastAPI):
                     "Embedding check OK: %d images, %d embeddings in '%s'",
                     db_count,
                     qdrant_count,
-                    settings.qdrant_collection_name,
+                    qdrant.collection_name,
                 )
         except Exception:
             logger.debug("Startup embedding check skipped (not critical)", exc_info=True)

@@ -36,14 +36,42 @@ class QdrantService:
         self.ensure_collection()
 
     def ensure_collection(self):
-        """Ensure the collection exists, create if not."""
+        """Ensure the collection exists with the correct vector size.
+
+        If the collection already exists but was created with a different vector
+        size (e.g. a previous model was active), it is dropped and recreated so
+        that upserts and searches don't fail with shape-mismatch errors.
+        """
         with self._lock:
             try:
                 collections = self.client.get_collections().collections
                 collection_names = [c.name for c in collections]
 
+                if self.collection_name in collection_names:
+                    info = self.client.get_collection(self.collection_name)
+                    existing_size = info.config.params.vectors.size
+                    if existing_size != self._vector_size:
+                        logger.warning(
+                            "Collection %s has vector size %d but model expects %d — recreating",
+                            self.collection_name,
+                            existing_size,
+                            self._vector_size,
+                        )
+                        self.client.delete_collection(self.collection_name)
+                        collection_names = []  # force creation below
+                    else:
+                        logger.info(
+                            "Collection %s already exists (size=%d)",
+                            self.collection_name,
+                            existing_size,
+                        )
+
                 if self.collection_name not in collection_names:
-                    logger.info("Creating Qdrant collection: %s", self.collection_name)
+                    logger.info(
+                        "Creating Qdrant collection: %s (size=%d)",
+                        self.collection_name,
+                        self._vector_size,
+                    )
                     self.client.create_collection(
                         collection_name=self.collection_name,
                         vectors_config=VectorParams(
@@ -52,8 +80,6 @@ class QdrantService:
                         ),
                     )
                     logger.info("Collection %s created successfully", self.collection_name)
-                else:
-                    logger.info("Collection %s already exists", self.collection_name)
             except Exception as e:
                 logger.error("Error ensuring collection exists: %s", e)
                 raise
@@ -277,12 +303,13 @@ def get_qdrant_service() -> QdrantService:
     with _init_lock:
         if _qdrant_service is None:
             from .clip_service import get_effective_model_name
+            from .model_download_service import get_collection_name
             from .model_registry import get_model
 
             model_name = get_effective_model_name()
             model_meta = get_model(model_name) if model_name else None
             collection_name = (
-                f"embeddings_{model_name}" if model_name else settings.qdrant_collection_name
+                get_collection_name(model_name) if model_name else settings.qdrant_collection_name
             )
             vector_size = model_meta["embedding_dim"] if model_meta else settings.qdrant_vector_size
             _qdrant_service = QdrantService(

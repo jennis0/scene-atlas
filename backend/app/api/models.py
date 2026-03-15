@@ -17,6 +17,7 @@ from ..services.job_runner import get_job_runner
 from ..services.model_download_service import (
     download_model,
     get_all_model_statuses,
+    get_collection_name,
     is_model_downloaded,
 )
 from ..services.model_registry import (
@@ -111,10 +112,9 @@ def _download_and_activate(name: str, progress_fn=None) -> None:
         reload_clip_service()
         wait_for_clip_ready()
 
-        collection_name = f"embeddings_{name}"
         model_meta = get_model(name)
         embedding_dim = model_meta["embedding_dim"] if model_meta else None
-        reload_qdrant_service(collection_name, vector_size=embedding_dim)
+        reload_qdrant_service(get_collection_name(name), vector_size=embedding_dim)
 
         if progress_fn:
             progress_fn(steps - 1, steps, "Re-building embeddings...")
@@ -214,7 +214,7 @@ def get_embeddings_stats(name: str) -> EmbeddingStatsResponse:
     if get_model(name) is None:
         raise HTTPException(status_code=404, detail=f"Model '{name}' not found")
 
-    collection_name = f"embeddings_{name}"
+    collection_name = get_collection_name(name)
     qdrant = get_qdrant_service()
 
     try:
@@ -247,7 +247,7 @@ def delete_embeddings(name: str) -> None:
 
     qdrant = get_qdrant_service()
     try:
-        qdrant.delete_collection_by_name(f"embeddings_{name}")
+        qdrant.delete_collection_by_name(get_collection_name(name))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
