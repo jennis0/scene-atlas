@@ -1,0 +1,273 @@
+{
+  "version": 1,
+  "packs": {
+    "common": {
+      "label": "Common",
+      "description": "Core tags for any genre"
+    },
+    "fantasy": {
+      "label": "Fantasy",
+      "description": "Medieval fantasy settings"
+    },
+    "scifi": {
+      "label": "Sci-Fi",
+      "description": "Science fiction settings"
+    },
+    "cyberpunk": {
+      "label": "Cyberpunk",
+      "description": "Dystopian neon-lit settings"
+    },
+    "horror": {
+      "label": "Horror",
+      "description": "Dark and unsettling settings"
+    },
+    "historical": {
+      "label": "Historical",
+      "description": "Real-world historical periods"
+    }
+  },
+  "categories": [
+    {
+      "name": "lighting",
+      "description": "Time of day and lighting conditions",
+      "color": "amber",
+      "icon": "sun",
+      "display_order": 0,
+      "tags": [
+        { "value": "day", "aliases": ["daytime", "daylight"], "packs": ["common"] },
+        { "value": "night", "aliases": ["nighttime", "nightfall"], "packs": ["common"] },
+        { "value": "dusk", "aliases": [], "packs": ["common"] },
+        { "value": "dawn", "aliases": ["sunrise"], "packs": ["common"] },
+        { "value": "twilight", "aliases": [], "packs": ["common"] },
+        { "value": "dark", "aliases": ["darkness", "shadowy", "shadowed"], "packs": ["common"] },
+        { "value": "sunset", "aliases": [], "packs": ["common"] },
+        { "value": "lit", "aliases": ["illuminated", "well-lit", "bright"], "packs": ["common"] },
+        { "value": "unlit", "aliases": [], "packs": ["common"] },
+        { "value": "neon", "aliases": ["neon-lit"], "packs": ["cyberpunk"] },
+        { "value": "moonlit", "aliases": ["moonlight"], "packs": ["common"] }
+      ]
+    },
+    {
+      "name": "season",
+      "description": "Seasonal variations",
+      "color": "orange",
+      "icon": "leaf",
+      "display_order": 1,
+      "tags": [
+        { "value": "spring", "aliases": ["springtime"], "packs": ["common"] },
+        { "value": "summer", "aliases": ["summertime"], "packs": ["common"] },
+        { "value": "autumn", "aliases": ["fall", "autumnal"], "packs": ["common"] },
+        { "value": "winter", "aliases": ["wintertime", "wintry"], "packs": ["common"] }
+      ]
+    },
+    {
+      "name": "weather",
+      "description": "Weather and atmospheric conditions",
+      "color": "sky",
+      "icon": "cloud",
+      "display_order": 2,
+      "tags": [
+        { "value": "rain", "aliases": ["rainy", "raining", "rainfall"], "packs": ["common"] },
+        { "value": "snow", "aliases": ["snowy", "snowing", "snowfall"], "packs": ["common"] },
+        { "value": "fog", "aliases": ["foggy"], "packs": ["common"] },
+        { "value": "storm", "aliases": ["stormy", "thunderstorm", "lightning", "thunder"], "packs": ["common"] },
+        { "value": "mist", "aliases": ["misty"], "packs": ["common"] },
+        { "value": "sandstorm", "aliases": ["dust-storm", "duststorm"], "packs": ["common"] },
+        { "value": "blizzard", "aliases": [], "packs": ["common"] }
+      ]
+    },
+    {
+      "name": "environment",
+      "description": "Broad setting or biome type",
+      "color": "emerald",
+      "icon": "trees",
+      "display_order": 3,
+      "tags": [
+        { "value": "forest", "aliases": ["woods", "woodland"], "packs": ["common"] },
+        { "value": "desert", "aliases": ["dunes", "sandy"], "packs": ["common"] },
+        { "value": "ocean", "aliases": ["sea", "open-water"], "packs": ["common"] },
+        { "value": "cave", "aliases": ["cavern", "grotto"], "packs": ["common"] },
+        { "value": "mountain", "aliases": ["mountains", "peaks", "mountainous"], "packs": ["common"] },
+        { "value": "swamp", "aliases": ["marsh", "bog", "bayou", "wetland", "marshland"], "packs": ["common"] },
+        { "value": "urban", "aliases": ["city", "town", "cityscape"], "packs": ["common"] },
+        { "value": "underground", "aliases": ["subterranean"], "packs": ["common"] },
+        { "value": "interior", "aliases": ["indoor", "indoors", "inside"], "packs": ["common"] },
+        { "value": "space", "aliases": ["outer-space", "cosmos"], "packs": ["scifi"] },
+        { "value": "jungle", "aliases": ["tropical", "rainforest"], "packs": ["common"] },
+        { "value": "coast", "aliases": ["coastal", "beach", "shore", "shoreline"], "packs": ["common"] },
+        { "value": "plains", "aliases": ["grassland", "meadow", "prairie", "field", "steppe"], "packs": ["common"] },
+        { "value": "tundra", "aliases": ["arctic", "frozen-waste"], "packs": ["common"] },
+        { "value": "wasteland", "aliases": ["wastes", "barren"], "packs": ["scifi", "horror"] },
+        { "value": "river", "aliases": ["riverside", "riverbank"], "packs": ["common"] },
+        { "value": "lake", "aliases": ["lakeside", "lakeshore"], "packs": ["common"] },
+        { "value": "island", "aliases": ["isle"], "packs": ["common"] },
+        { "value": "volcano", "aliases": ["volcanic", "lava"], "packs": ["common"] },
+        { "value": "canyon", "aliases": ["gorge", "ravine", "chasm"], "packs": ["common"] },
+        { "value": "underwater", "aliases": ["undersea", "subaquatic"], "packs": ["common"] },
+        { "value": "farmland", "aliases": ["farm", "pastoral", "ranch"], "packs": ["common"] },
+        { "value": "village", "aliases": ["hamlet", "settlement"], "packs": ["common"] }
+      ]
+    },
+    {
+      "name": "features",
+      "description": "Specific structures and landmarks",
+      "color": "stone",
+      "icon": "castle",
+      "display_order": 4,
+      "tags": [
+        { "value": "temple", "aliases": ["shrine", "sanctuary"], "packs": ["common"] },
+        { "value": "bridge", "aliases": ["bridges"], "packs": ["common"] },
+        { "value": "tavern", "aliases": ["inn", "pub"], "packs": ["common"] },
+        { "value": "castle", "aliases": ["fortress", "citadel", "stronghold"], "packs": ["fantasy"] },
+        { "value": "tower", "aliases": ["spire", "minaret"], "packs": ["common"] },
+        { "value": "dungeon", "aliases": ["jail", "prison", "cells"], "packs": ["fantasy"] },
+        { "value": "camp", "aliases": ["campsite", "encampment"], "packs": ["common"] },
+        { "value": "road", "aliases": ["path", "trail", "track"], "packs": ["common"] },
+        { "value": "ruins", "aliases": ["ruin", "rubble"], "packs": ["common"] },
+        { "value": "palace", "aliases": ["manor", "mansion", "estate"], "packs": ["common"] },
+        { "value": "ship", "aliases": ["vessel", "galleon", "frigate"], "packs": ["common"] },
+        { "value": "dock", "aliases": ["pier", "wharf", "jetty"], "packs": ["common"] },
+        { "value": "market", "aliases": ["bazaar", "marketplace", "stall"], "packs": ["common"] },
+        { "value": "arena", "aliases": ["colosseum", "amphitheater"], "packs": ["common"] },
+        { "value": "gate", "aliases": ["gateway", "portcullis", "archway"], "packs": ["common"] },
+        { "value": "cliff", "aliases": ["ledge", "precipice", "bluff"], "packs": ["common"] },
+        { "value": "street", "aliases": ["avenue", "boulevard"], "packs": ["common"] },
+        { "value": "monument", "aliases": ["statue", "obelisk", "memorial"], "packs": ["common"] },
+        { "value": "church", "aliases": ["chapel", "cathedral", "basilica"], "packs": ["common"] },
+        { "value": "library", "aliases": ["archive", "study"], "packs": ["common"] },
+        { "value": "forge", "aliases": ["smithy", "foundry"], "packs": ["fantasy"] },
+        { "value": "mine", "aliases": ["quarry", "excavation"], "packs": ["common"] },
+        { "value": "wall", "aliases": ["rampart", "battlement", "fortification"], "packs": ["common"] },
+        { "value": "staircase", "aliases": ["stairs", "stairway"], "packs": ["common"] },
+        { "value": "waterfall", "aliases": ["falls"], "packs": ["common"] },
+        { "value": "portal", "aliases": ["rift", "wormhole", "teleporter"], "packs": ["fantasy", "scifi"] },
+        { "value": "well", "aliases": ["fountain"], "packs": ["common"] },
+        { "value": "throne", "aliases": ["throne-room"], "packs": ["fantasy"] },
+        { "value": "barracks", "aliases": ["bunkhouse"], "packs": ["common"] },
+        { "value": "warehouse", "aliases": ["storage", "depot"], "packs": ["common"] },
+        { "value": "alley", "aliases": ["alleyway", "back-street"], "packs": ["common"] },
+        { "value": "crypt", "aliases": ["tomb", "mausoleum", "sepulcher"], "packs": ["fantasy", "horror"] },
+        { "value": "altar", "aliases": ["sacrificial-altar"], "packs": ["fantasy", "horror"] },
+        { "value": "laboratory", "aliases": ["lab"], "packs": ["scifi", "horror"] },
+        { "value": "station", "aliases": ["space-station", "outpost"], "packs": ["scifi"] },
+        { "value": "starship", "aliases": ["spaceship", "spacecraft"], "packs": ["scifi"] },
+        { "value": "harbor", "aliases": ["harbour", "port"], "packs": ["common"] },
+        { "value": "graveyard", "aliases": ["cemetery", "burial-ground", "boneyard"], "packs": ["horror"] },
+        { "value": "sewer", "aliases": ["sewers", "drainage"], "packs": ["common"] },
+        { "value": "catacomb", "aliases": ["catacombs", "ossuary"], "packs": ["horror"] },
+        { "value": "garden", "aliases": ["gardens", "greenhouse"], "packs": ["common"] },
+        { "value": "rooftop", "aliases": ["rooftops"], "packs": ["common", "cyberpunk"] },
+        { "value": "reactor", "aliases": ["power-core", "generator"], "packs": ["scifi"] },
+        { "value": "airlock", "aliases": [], "packs": ["scifi"] },
+        { "value": "terminal", "aliases": ["console", "computer"], "packs": ["scifi", "cyberpunk"] },
+        { "value": "hangar", "aliases": ["landing-pad"], "packs": ["scifi"] },
+        { "value": "corridor", "aliases": ["hallway", "passage", "passageway"], "packs": ["common"] }
+      ]
+    },
+    {
+      "name": "state",
+      "description": "Condition or state of the scene",
+      "color": "red",
+      "icon": "flame",
+      "display_order": 5,
+      "tags": [
+        { "value": "ruined", "aliases": ["crumbling"], "packs": ["common"] },
+        { "value": "bloody", "aliases": ["blood", "bloodbath", "gore", "gory", "bloodied"], "packs": ["common"] },
+        { "value": "burned", "aliases": ["burnt", "scorched", "charred", "burning", "fire"], "packs": ["common"] },
+        { "value": "abandoned", "aliases": ["forsaken", "desolate"], "packs": ["common"] },
+        { "value": "overgrown", "aliases": ["vine-covered", "reclaimed", "mossy", "moss"], "packs": ["common"] },
+        { "value": "flooded", "aliases": ["submerged", "waterlogged", "flood"], "packs": ["common"] },
+        { "value": "frozen", "aliases": ["icy", "frost", "frosty", "ice"], "packs": ["common"] },
+        { "value": "polluted", "aliases": ["toxic", "contaminated", "irradiated", "pollution", "radiation"], "packs": ["scifi", "horror"] },
+        { "value": "corrupted", "aliases": ["tainted", "blighted", "corruption"], "packs": ["fantasy", "horror"] },
+        { "value": "haunted", "aliases": ["ghostly", "spectral", "ghost"], "packs": ["horror"] },
+        { "value": "cursed", "aliases": ["accursed", "hexed", "curse"], "packs": ["fantasy", "horror"] },
+        { "value": "infested", "aliases": ["swarming", "infestation"], "packs": ["horror"] },
+        { "value": "decayed", "aliases": ["rotting", "decomposed", "decrepit", "decay", "rot"], "packs": ["horror"] },
+        { "value": "derelict", "aliases": ["wrecked", "wreckage"], "packs": ["scifi"] },
+        { "value": "fortified", "aliases": ["barricaded", "reinforced"], "packs": ["common"] },
+        { "value": "siege", "aliases": ["besieged", "under-siege", "sieged"], "packs": ["common"] },
+        { "value": "destroyed", "aliases": ["devastated", "obliterated", "destruction"], "packs": ["common"] }
+      ]
+    },
+    {
+      "name": "theme",
+      "description": "Flavour, genre, and cultural setting",
+      "color": "purple",
+      "icon": "sparkles",
+      "display_order": 6,
+      "tags": [
+        { "value": "fey", "aliases": ["feywild", "fairy", "faerie"], "packs": ["fantasy"] },
+        { "value": "shadow", "aliases": ["shadowfell"], "packs": ["fantasy"] },
+        { "value": "underdark", "aliases": ["deep-dark"], "packs": ["fantasy"] },
+        { "value": "astral", "aliases": ["astral-plane", "astral-sea"], "packs": ["fantasy"] },
+        { "value": "ethereal", "aliases": ["ethereal-plane"], "packs": ["fantasy"] },
+        { "value": "infernal", "aliases": ["hell", "hellish", "diabolic", "nine-hells"], "packs": ["fantasy"] },
+        { "value": "celestial", "aliases": ["heaven", "heavenly", "divine", "angelic"], "packs": ["fantasy"] },
+        { "value": "pirate", "aliases": ["nautical", "buccaneer"], "packs": ["fantasy"] },
+        { "value": "norse", "aliases": ["viking", "nordic", "valhalla"], "packs": ["historical"] },
+        { "value": "egyptian", "aliases": ["pharaoh", "ancient-egypt"], "packs": ["historical"] },
+        { "value": "gothic", "aliases": ["victorian-gothic"], "packs": ["horror"] },
+        { "value": "eldritch", "aliases": ["cosmic-horror", "cthulhu", "lovecraftian"], "packs": ["horror"] },
+        { "value": "cyberpunk", "aliases": ["cyber", "neon-noir"], "packs": ["cyberpunk"] },
+        { "value": "steampunk", "aliases": ["clockwork", "steam-powered"], "packs": ["scifi"] },
+        { "value": "post-apocalyptic", "aliases": ["post-apoc", "apocalypse", "apocalyptic"], "packs": ["scifi", "horror"] },
+        { "value": "arcane", "aliases": ["mystic", "mystical"], "packs": ["fantasy"] },
+        { "value": "holy", "aliases": ["sacred", "blessed", "consecrated"], "packs": ["fantasy"] },
+        { "value": "demonic", "aliases": ["abyssal", "fiendish"], "packs": ["fantasy", "horror"] },
+        { "value": "undead", "aliases": ["necromantic", "necrotic"], "packs": ["fantasy", "horror"] },
+        { "value": "occult", "aliases": ["witchcraft", "ritual", "dark-magic"], "packs": ["horror"] },
+        { "value": "alien", "aliases": ["extraterrestrial", "xeno"], "packs": ["scifi"] },
+        { "value": "futuristic", "aliases": ["sci-fi", "science-fiction"], "packs": ["scifi"] },
+        { "value": "classical", "aliases": ["roman", "greco-roman", "ancient-greek"], "packs": ["historical"] },
+        { "value": "japanese", "aliases": ["samurai", "shogun", "feudal-japan"], "packs": ["historical"] },
+        { "value": "arabian", "aliases": ["persian", "1001-nights", "middle-eastern"], "packs": ["historical"] },
+        { "value": "chinese", "aliases": ["wuxia"], "packs": ["historical"] },
+        { "value": "western", "aliases": ["wild-west", "cowboy"], "packs": ["historical"] },
+        { "value": "festive", "aliases": ["holiday", "christmas", "yuletide"], "packs": ["common"] },
+        { "value": "medieval", "aliases": ["dark-ages", "middle-ages"], "packs": ["fantasy", "historical"] }
+      ]
+    },
+    {
+      "name": "population",
+      "description": "Occupancy and activity level",
+      "color": "cyan",
+      "icon": "users",
+      "display_order": 7,
+      "tags": [
+        { "value": "empty", "aliases": ["propless"], "packs": ["common"] },
+        { "value": "furnished", "aliases": [], "packs": ["common"] },
+        { "value": "populated", "aliases": [], "packs": ["common"] },
+        { "value": "battle", "aliases": [], "packs": ["common"] }
+      ]
+    },
+    {
+      "name": "perspective",
+      "description": "Viewing angle",
+      "color": "violet",
+      "icon": "eye",
+      "display_order": 8,
+      "tags": [
+        { "value": "top-down", "aliases": [], "packs": ["common"] },
+        { "value": "isometric", "aliases": [], "packs": ["common"] },
+        { "value": "side-view", "aliases": [], "packs": ["common"] }
+      ]
+    },
+    {
+      "name": "style",
+      "description": "Artistic style and rendering",
+      "color": "rose",
+      "icon": "pen",
+      "display_order": 9,
+      "tags": [
+        { "value": "line-art", "aliases": ["lineart"], "packs": ["common"] },
+        { "value": "colored", "aliases": ["colour", "color"], "packs": ["common"] },
+        { "value": "rendered", "aliases": ["3d", "3d-rendered"], "packs": ["common"] },
+        { "value": "sketch", "aliases": ["sketched"], "packs": ["common"] },
+        { "value": "painted", "aliases": ["painterly", "watercolor", "watercolour"], "packs": ["common"] },
+        { "value": "pixel-art", "aliases": ["pixelart", "pixel"], "packs": ["common"] },
+        { "value": "photorealistic", "aliases": ["photorealism", "realistic"], "packs": ["common"] }
+      ]
+    }
+  ]
+}

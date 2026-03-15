@@ -107,7 +107,8 @@ e2e/blob-report/
 .ignore/
 .claude/
 .worktrees/
-data/
+/data/
+!backend/app/data/
 .worktrees/
 
 # Stress test generated files

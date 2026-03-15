@@ -382,6 +382,29 @@ def get_tag_statistics(db: Session = Depends(get_db)):
     return {"total_tags": db.query(Tag).count(), "categories": category_stats}
 
 
+# ── Tag Packs ─────────────────────────────────────────────────────────────────
+
+
+@router.get("/packs")
+def list_tag_packs(db: Session = Depends(get_db)):
+    """List available tag packs with import status."""
+    from ..services.tag_packs import get_pack_status
+
+    return get_pack_status(db)
+
+
+@router.post("/packs/{pack_name}/import")
+def import_tag_pack(pack_name: str, db: Session = Depends(get_db)):
+    """Import/merge a tag pack into the database vocabulary."""
+    from ..services.tag_packs import import_tag_pack as do_import
+
+    try:
+        result = do_import(db, pack_name)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return result
+
+
 # ── Bulk Retag ────────────────────────────────────────────────────────────────
 
 

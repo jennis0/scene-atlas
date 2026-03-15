@@ -1,5 +1,5 @@
 import { api } from './_client'
-import type { Tag, TagCategory, TagValue, TagStats } from '@/types'
+import type { Tag, TagCategory, TagPack, TagValue, TagStats } from '@/types'
 
 export const tagApi = {
   // ── Category CRUD ──────────────────────────────────────────────────────
@@ -111,6 +111,20 @@ export const tagApi = {
 
   retagAll: async (): Promise<{ job_id: string; message: string }> => {
     const { data } = await api.post('/tags/retag-all')
+    return data
+  },
+
+  // ── Tag Packs ─────────────────────────────────────────────────────────
+
+  getTagPacks: async (): Promise<TagPack[]> => {
+    const { data } = await api.get<TagPack[]>('/tags/packs')
+    return data
+  },
+
+  importTagPack: async (
+    packName: string,
+  ): Promise<{ categories_created: number; tags_added: number; tags_existing: number }> => {
+    const { data } = await api.post(`/tags/packs/${packName}/import`)
     return data
   },
 }
