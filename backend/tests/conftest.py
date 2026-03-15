@@ -210,7 +210,7 @@ def mock_heavy_services(monkeypatch):
     )
 
     # Mock thumbnails at the source module
-    def mock_generate_thumbnails(image_path, storage_key_stem):
+    def mock_generate_thumbnails(image_path, storage_key_stem, use_webp=False):
         # Open image to get real dimensions (needed for DB save)
         from PIL import Image as PILImage
 

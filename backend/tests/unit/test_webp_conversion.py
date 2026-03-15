@@ -1,9 +1,13 @@
-"""Unit tests for WebP conversion helper."""
+"""Unit tests for WebP conversion helper and prepare_single_image integration."""
 
+import hashlib
 from pathlib import Path
+from unittest.mock import patch
 
+import pytest
 from PIL import Image as PILImage
 
+from backend.pipeline.pipeline_config import PipelineConfig
 from backend.pipeline.tasks.webp_conversion import convert_to_webp, should_skip_conversion
 
 
@@ -120,3 +124,124 @@ class TestConvertToWebP:
         result = convert_to_webp(src)
         with PILImage.open(result) as out:
             assert out.mode == "RGB"
+
+
+@pytest.fixture
+def webp_cfg():
+    return PipelineConfig(use_webp=True, enable_image_grid_detection=False)
+
+
+class TestPrepareWithWebP:
+    def test_stored_key_ends_in_webp(self, tmp_path, webp_cfg):
+        from backend.app.services.image_store import ImageStore
+        from backend.pipeline.prepare import prepare_single_image
+
+        src = tmp_path / "map.png"
+        PILImage.new("RGB", (100, 80)).save(str(src))
+
+        image_store = ImageStore(tmp_path / "store")
+        thumb_store = ImageStore(tmp_path / "thumbs")
+
+        with (
+            patch("backend.pipeline.prepare.get_image_store", return_value=image_store),
+            patch(
+                "backend.pipeline.tasks.image_processing.get_thumbnail_store",
+                return_value=thumb_store,
+            ),
+            patch("backend.pipeline.prepare.pipeline_db"),
+        ):
+            result = prepare_single_image(
+                str(src),
+                metadata={
+                    "group_name": "Test",
+                    "author": None,
+                    "name": "Test",
+                    "subgroup": None,
+                    "image_type": "battlemap",
+                    "relative_path": "map.png",
+                    "import_job_id": "job",
+                    "content_hash": None,
+                },
+                pipeline_config=webp_cfg,
+            )
+
+        assert result["status"] == "success"
+        assert result["image_data"]["storage_key"].endswith(".webp")
+        if result["image_data"]["thumbnail_key"]:
+            assert result["image_data"]["thumbnail_key"].endswith(".webp")
+
+    def test_precomputed_hash_discarded_on_conversion(self, tmp_path, webp_cfg):
+        from backend.app.services.image_store import ImageStore
+        from backend.pipeline.prepare import prepare_single_image
+
+        src = tmp_path / "map.jpg"
+        PILImage.new("RGB", (100, 80)).save(str(src), format="JPEG")
+
+        with open(src, "rb") as f:
+            original_hash = hashlib.sha256(f.read()).hexdigest()
+
+        image_store = ImageStore(tmp_path / "store")
+        thumb_store = ImageStore(tmp_path / "thumbs")
+
+        with (
+            patch("backend.pipeline.prepare.get_image_store", return_value=image_store),
+            patch(
+                "backend.pipeline.tasks.image_processing.get_thumbnail_store",
+                return_value=thumb_store,
+            ),
+            patch("backend.pipeline.prepare.pipeline_db"),
+        ):
+            result = prepare_single_image(
+                str(src),
+                metadata={
+                    "group_name": "Test",
+                    "author": None,
+                    "name": "Test",
+                    "subgroup": None,
+                    "image_type": "battlemap",
+                    "relative_path": "map.jpg",
+                    "import_job_id": "job",
+                    "content_hash": original_hash,  # Pre-computed from original
+                },
+                pipeline_config=webp_cfg,
+            )
+
+        stored_hash = result["image_data"]["content_hash"]
+        assert stored_hash != original_hash, "Hash must be recomputed from WebP, not original"
+
+    def test_colors_extracted_after_webp_conversion(self, tmp_path, webp_cfg):
+        """Regression: _extract_colors must use image_path_obj (converted), not image_path (deleted)."""
+        from backend.app.services.image_store import ImageStore
+        from backend.pipeline.prepare import prepare_single_image
+
+        src = tmp_path / "map.png"
+        PILImage.new("RGB", (100, 80), color=(200, 100, 50)).save(str(src))
+
+        image_store = ImageStore(tmp_path / "store")
+        thumb_store = ImageStore(tmp_path / "thumbs")
+
+        with (
+            patch("backend.pipeline.prepare.get_image_store", return_value=image_store),
+            patch(
+                "backend.pipeline.tasks.image_processing.get_thumbnail_store",
+                return_value=thumb_store,
+            ),
+            patch("backend.pipeline.prepare.pipeline_db"),
+        ):
+            result = prepare_single_image(
+                str(src),
+                metadata={
+                    "group_name": "Test",
+                    "author": None,
+                    "name": "Test",
+                    "subgroup": None,
+                    "image_type": "battlemap",
+                    "relative_path": "map.png",
+                    "import_job_id": "job",
+                    "content_hash": None,
+                },
+                pipeline_config=webp_cfg,
+            )
+
+        assert result["status"] == "success"
+        assert isinstance(result["image_data"]["colors"], list)
