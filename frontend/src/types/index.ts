@@ -118,6 +118,15 @@ export interface TagValue {
   count: number
 }
 
+export interface TagPack {
+  name: string
+  label: string
+  description: string
+  tag_count: number
+  imported: boolean
+  new_tags: number
+}
+
 export interface TagStats {
   total_tags: number
   categories: Record<

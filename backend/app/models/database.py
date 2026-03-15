@@ -437,177 +437,28 @@ def seed_tag_categories(session):
     Only runs when the tag_categories table is completely empty (first boot).
     Once categories exist, this is a no-op so user edits are preserved.
 
-    Each common_values entry can be:
-    - A plain string: used as both lookup word and canonical value
-    - An object: {"value": "rain", "aliases": ["rainy", "raining"]}
-      Aliases are alternative words that map to the canonical value.
-
+    Reads the canonical vocabulary from backend/app/data/tag_vocabulary.json.
     The ImageParser loads these to build its tag vocabulary.
     """
     existing_count = session.query(TagCategory).count()
     if existing_count > 0:
         return
 
-    categories = [
-        {
-            "name": "lighting",
-            "description": "Time of day and lighting conditions",
-            "color": "amber",
-            "display_order": 0,
-            "common_values": json.dumps(
-                [
-                    "night",
-                    "day",
-                    "dusk",
-                    "dawn",
-                    "twilight",
-                    {"value": "dark", "aliases": ["darkness"]},
-                    "sunset",
-                    "lit",
-                    "unlit",
-                ]
-            ),
-        },
-        {
-            "name": "season",
-            "description": "Seasonal variations",
-            "color": "orange",
-            "display_order": 1,
-            "common_values": json.dumps(
-                [
-                    "spring",
-                    "summer",
-                    "winter",
-                    {"value": "autumn", "aliases": ["fall"]},
-                ]
-            ),
-        },
-        {
-            "name": "weather",
-            "description": "Weather conditions",
-            "color": "sky",
-            "display_order": 2,
-            "common_values": json.dumps(
-                [
-                    {"value": "rain", "aliases": ["rainy", "raining"]},
-                    {"value": "snow", "aliases": ["snowy", "snowing"]},
-                    {"value": "fog", "aliases": ["foggy"]},
-                    {"value": "storm", "aliases": ["stormy"]},
-                    {"value": "mist", "aliases": ["misty"]},
-                ]
-            ),
-        },
-        {
-            "name": "state",
-            "description": "Condition or state of the map",
-            "color": "red",
-            "display_order": 3,
-            "common_values": json.dumps(
-                [
-                    {"value": "bloody", "aliases": ["blood", "bloodbath"]},
-                    {"value": "ruined", "aliases": ["ruins", "ruin"]},
-                    {"value": "burned", "aliases": ["burnt", "fire"]},
-                    "abandoned",
-                    "overgrown",
-                    "flooded",
-                    {"value": "frozen", "aliases": ["icy"]},
-                    "polluted",
-                ]
-            ),
-        },
-        {
-            "name": "theme",
-            "description": "Thematic variations",
-            "color": "purple",
-            "display_order": 4,
-            "common_values": json.dumps(
-                [
-                    {"value": "fey", "aliases": ["feywild"]},
-                    {"value": "shadow", "aliases": ["shadowfell"]},
-                    "underdark",
-                    "pirate",
-                    "astral",
-                    "ethereal",
-                ]
-            ),
-        },
-        {
-            "name": "population",
-            "description": "Occupancy state",
-            "color": "cyan",
-            "display_order": 5,
-            "common_values": json.dumps(
-                [
-                    {"value": "empty", "aliases": ["propless"]},
-                    "furnished",
-                    "populated",
-                    "battle",
-                ]
-            ),
-        },
-        {
-            "name": "terrain",
-            "description": "Terrain and environment type",
-            "color": "emerald",
-            "display_order": 6,
-            "common_values": json.dumps(
-                [
-                    "forest",
-                    "cave",
-                    "river",
-                    "bridge",
-                    "camp",
-                    "temple",
-                    "village",
-                    "island",
-                    "dungeon",
-                    "road",
-                    "mountain",
-                    "swamp",
-                    "ocean",
-                    "tavern",
-                    "castle",
-                    "rock",
-                    "tree",
-                    "desert",
-                    "lake",
-                    "tower",
-                    "ruins",
-                ]
-            ),
-        },
-        {
-            "name": "floor",
-            "description": "Building level or floor",
-            "color": "stone",
-            "display_order": 7,
-            "common_values": json.dumps(
-                [
-                    "roof",
-                    "basement",
-                    "interior",
-                    {"value": "ground", "aliases": ["ground floor"]},
-                ]
-            ),
-        },
-        {
-            "name": "perspective",
-            "description": "Viewing angle",
-            "color": "violet",
-            "display_order": 8,
-            "common_values": json.dumps(["top-down", "isometric", "side-view"]),
-        },
-        {
-            "name": "quality",
-            "description": "Artistic style and quality",
-            "color": "rose",
-            "display_order": 9,
-            "common_values": json.dumps(["line-art", "colored", "rendered", "sketch"]),
-        },
-    ]
+    from backend.app.data.vocabulary import build_common_values_json, load_vocabulary
 
-    for cat_data in categories:
-        session.add(TagCategory(**cat_data))
+    vocab = load_vocabulary()
+
+    for cat_data in vocab["categories"]:
+        session.add(
+            TagCategory(
+                name=cat_data["name"],
+                description=cat_data["description"],
+                color=cat_data["color"],
+                icon=cat_data.get("icon"),
+                display_order=cat_data["display_order"],
+                common_values=build_common_values_json(cat_data["tags"]),
+            )
+        )
 
     session.commit()
 

@@ -206,6 +206,8 @@ Extract a shared `parse_tag_vocab_entries(values: list) -> dict[str, str]` funct
 `backend/app/services/image_parser.py` (or a new `tag_vocab.py`), and have `fts_service.py`
 import and call it.
 
+**Note:** The `backend/app/data/vocabulary.py` loader now handles JSON→DB format conversion for seeding and pack imports, but the DB-side `common_values` parsing in `image_parser.py` and `fts_service.py` remains duplicated.
+
 ---
 
 ## 6. N+1 queries in `get_active_imports`

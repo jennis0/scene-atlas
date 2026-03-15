@@ -215,14 +215,15 @@ The colour identity (hue) stays the same — red is always red, teal is always t
 | Category | Colour family |
 |----------|--------------|
 | lighting | amber |
-| weather | sky |
 | season | orange |
-| terrain | emerald |
-| biome | green |
-| environment | teal |
-| structure | stone |
-| feature | violet |
-| mood | rose |
+| weather | sky |
+| environment | emerald |
+| features | stone |
+| state | red |
+| theme | purple |
+| population | cyan |
+| perspective | violet |
+| style | rose |
 | (unknown) | zinc |
 
 ### Tag pill rendering
