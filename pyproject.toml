@@ -27,7 +27,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-cpu = ["onnxruntime>=1.16.0,<2.0", "torch>=2.1.0,<3.0"]
+cpu = ["torch>=2.1.0,<3.0"]
 gpu-cuda = [
     "onnxruntime-gpu>=1.16.0,<2.0",
     "torch>=2.1.0,<3.0",
@@ -126,11 +126,25 @@ exclude_lines = [
 ]
 
 [tool.uv]
+# cpu-runtime is a default dependency group (see [dependency-groups] below).
+# It installs onnxruntime automatically so `uv sync` and `uv sync --extra dev`
+# give you a working CPU inference setup without extra flags.
+#
+# GPU users must opt out of the default group and into a GPU extra:
+#   uv sync --extra gpu-cuda   --no-group cpu-runtime
+#   uv sync --extra gpu-directml --no-group cpu-runtime
+default-groups = ["dev", "cpu-runtime"]
 conflicts = [
+    # onnxruntime vs onnxruntime-gpu vs onnxruntime-directml
+    [
+        { group = "cpu-runtime" },
+        { extra = "gpu-cuda" },
+        { extra = "gpu-directml" },
+    ],
+    # torch CPU index vs torch CUDA index
     [
         { extra = "cpu" },
         { extra = "gpu-cuda" },
-        { extra = "gpu-directml" },
     ],
 ]
 
@@ -151,6 +165,9 @@ url  = "https://download.pytorch.org/whl/cu124"
 explicit = true
 
 [dependency-groups]
+cpu-runtime = [
+    "onnxruntime>=1.16.0,<2.0",  # CPU inference (default); GPU users: --no-group cpu-runtime
+]
 dev = [
     "ipywidgets>=8.1.8",
     "matplotlib>=3.10.8",
