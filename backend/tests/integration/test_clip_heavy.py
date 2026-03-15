@@ -11,12 +11,26 @@ Or run everything including heavy:
 
 Requires ONNX models to be exported first:
 
-    uv run python scripts/export_model_onnx.py clip-vit-b-32
+    uv run python -m scripts.models.export_model_onnx small
+    uv run python -m scripts.models.export_model_onnx medium
+    uv run python -m scripts.models.export_model_onnx large
 """
 
+from pathlib import Path
+
+import numpy as np
 import pytest
 
 pytestmark = pytest.mark.heavy
+
+# Expected properties per model, derived from their manifests.
+_MODEL_SPECS = {
+    "small": {"embedding_dim": 512, "vision_quant": "fp16", "text_quant": "int8"},
+    "medium": {"embedding_dim": 768, "vision_quant": "fp16", "text_quant": "int8"},
+    "large": {"embedding_dim": 1152, "vision_quant": "fp16", "text_quant": "fp16"},
+}
+
+_MODELS_ROOT = Path(__file__).parent.parent.parent / "models"
 
 
 @pytest.fixture(scope="session")
@@ -136,3 +150,86 @@ class TestCLIPEmbeddingGenerationReal:
         embeddings = batch_generate_clip_embeddings(paths, batch_size=2)
         assert len(embeddings) == 3
         assert all(len(e) == clip_service.embedding_dim for e in embeddings)
+
+
+# ---------------------------------------------------------------------------
+# Per-model tests — one fixture instance per named model
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(
+    scope="module",
+    params=list(_MODEL_SPECS.keys()),
+    ids=list(_MODEL_SPECS.keys()),
+)
+def named_model_service(request):
+    """Load each named model (small/medium/large) once per module."""
+    from backend.app.services.clip_service import CLIPService
+
+    model_name = request.param
+    models_dir = _MODELS_ROOT / model_name
+    if not models_dir.exists():
+        pytest.skip(f"Model '{model_name}' not found at {models_dir}")
+    return model_name, CLIPService(models_dir=models_dir, device="cpu")
+
+
+class TestNamedModels:
+    """Smoke-test each exported model: correct dims, quant metadata, basic inference."""
+
+    def test_embedding_dim(self, named_model_service):
+        model_name, svc = named_model_service
+        expected = _MODEL_SPECS[model_name]["embedding_dim"]
+        assert svc.embedding_dim == expected, (
+            f"{model_name}: expected dim {expected}, got {svc.embedding_dim}"
+        )
+
+    def test_manifest_quant_fields(self, named_model_service):
+        model_name, svc = named_model_service
+        spec = _MODEL_SPECS[model_name]
+        assert svc._manifest.get("vision_quant") == spec["vision_quant"], (
+            f"{model_name}: wrong vision_quant"
+        )
+        assert svc._manifest.get("text_quant") == spec["text_quant"], (
+            f"{model_name}: wrong text_quant"
+        )
+
+    def test_encode_text_shape(self, named_model_service):
+        model_name, svc = named_model_service
+        emb = svc.encode_text("a moonlit dungeon corridor")
+        assert len(emb) == _MODEL_SPECS[model_name]["embedding_dim"]
+
+    def test_encode_image_shape(self, named_model_service, make_test_image, tmp_path):
+        model_name, svc = named_model_service
+        img = tmp_path / f"{model_name}_test.jpg"
+        make_test_image(img, width=120, height=120, color=(80, 140, 200))
+        emb = svc.encode_image(img)
+        assert len(emb) == _MODEL_SPECS[model_name]["embedding_dim"]
+
+    def test_text_image_embeddings_are_unit_vectors(
+        self, named_model_service, make_test_image, tmp_path
+    ):
+        """Embeddings should be L2-normalised (norm ≈ 1)."""
+        model_name, svc = named_model_service
+        img = tmp_path / f"{model_name}_norm.jpg"
+        make_test_image(img, width=100, height=100)
+        text_emb = np.array(svc.encode_text("forest"))
+        img_emb = np.array(svc.encode_image(img))
+        assert abs(np.linalg.norm(text_emb) - 1.0) < 0.01, (
+            f"{model_name}: text embedding not unit-normalised"
+        )
+        assert abs(np.linalg.norm(img_emb) - 1.0) < 0.01, (
+            f"{model_name}: image embedding not unit-normalised"
+        )
+
+    def test_provider_routing(self, named_model_service):
+        """int8 text encoder must never run on a GPU provider; fp16 vision should match active providers."""
+        model_name, svc = named_model_service
+        spec = _MODEL_SPECS[model_name]
+        text_providers = svc._session_providers["_text_session"]
+        vision_providers = svc._session_providers["_vision_session"]
+        if spec["text_quant"] == "int8":
+            assert text_providers == ["CPUExecutionProvider"], (
+                f"{model_name}: int8 text encoder should be on CPU, got {text_providers}"
+            )
+        # vision is always fp16 — provider depends on hardware, just check it's set
+        assert len(vision_providers) > 0, f"{model_name}: vision provider list is empty"
