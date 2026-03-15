@@ -41,14 +41,24 @@ export interface SidecarHandle {
  */
 export function spawnSidecar(
   port: number,
-  dataDir: string,
+  appDataDir: string,
+  imageLibraryDir: string,
+  convertToWebp: boolean,
   onReady: (port: number) => void,
   onLog: (line: string) => void,
 ): ChildProcess {
   const sidecarPath = getSidecarPath()
-  const child = spawn(sidecarPath, ['--port', String(port), '--data-dir', dataDir], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
+  const child = spawn(
+    sidecarPath,
+    ['--port', String(port), '--app-data-dir', appDataDir, '--image-library-dir', imageLibraryDir],
+    {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        CONVERT_TO_WEBP: convertToWebp ? '1' : '0',
+      },
+    },
+  )
 
   let buffer = ''
   child.stdout?.on('data', (chunk: Buffer) => {
