@@ -99,14 +99,6 @@ export function useActiveImports(): UseActiveImportsReturn {
         consecutiveFailuresRef.current = 0
         setConnectionLost((prev) => (prev ? false : prev))
         const merged = mergeJobs(localIndex.jobs, response.jobs)
-        // Auto-dismiss jobs that failed before any groups were confirmed (upload/hashing failures).
-        // The user already saw the error in the ImportDialog; showing it in the dock is just noise.
-        for (const job of merged) {
-          if (job.status === 'failed' && job.totalGroups === 0 && !dismissed.has(job.jobId)) {
-            saveDismissedJob(job.jobId)
-            dismissedIdsRef.current.add(job.jobId)
-          }
-        }
         setJobs(merged.filter((j) => !dismissedIdsRef.current.has(j.jobId)))
         // Prune dismissed IDs whose jobs are no longer tracked by the backend,
         // then sync the in-memory ref so it doesn't accumulate stale IDs.
