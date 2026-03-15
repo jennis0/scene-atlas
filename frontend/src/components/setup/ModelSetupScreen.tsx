@@ -22,7 +22,7 @@ export function ModelSetupScreen({ onComplete }: ModelSetupScreenProps) {
   const [selectedModel, setSelectedModel] = useState<string>('')
   const [jobId, setJobId] = useState<string | null>(null)
   const [progressMessage, setProgressMessage] = useState<string>('Starting…')
-  const [jobStatus, setJobStatus] = useState<string>('')
+  const [progressPct, setProgressPct] = useState<number | null>(null)
   const [errorMessage, setErrorMessage] = useState<string>('')
 
   useEffect(() => {
@@ -47,7 +47,7 @@ export function ModelSetupScreen({ onComplete }: ModelSetupScreenProps) {
       try {
         const job = await jobApi.get(jobId)
         if (job.progress) setProgressMessage(job.progress)
-        setJobStatus(job.status)
+        if (job.progress_pct != null) setProgressPct(job.progress_pct)
         if (job.status === 'completed') {
           clearInterval(interval)
           onComplete()
@@ -128,12 +128,19 @@ export function ModelSetupScreen({ onComplete }: ModelSetupScreenProps) {
         <div className="max-w-sm text-center space-y-4">
           <p className="font-semibold">Setting up AI model…</p>
           <p className="text-sm text-muted-foreground">{progressMessage}</p>
-          {jobStatus && (
-            <p className="text-xs text-muted-foreground capitalize">Status: {jobStatus}</p>
-          )}
           <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
-            <div className="h-full bg-primary rounded-full animate-pulse w-2/3" />
+            {progressPct != null && progressPct > 0 ? (
+              <div
+                className="h-full bg-primary rounded-full transition-all duration-500"
+                style={{ width: `${progressPct}%` }}
+              />
+            ) : (
+              <div className="h-full bg-primary rounded-full animate-pulse w-1/3" />
+            )}
           </div>
+          {progressPct != null && progressPct > 0 && (
+            <p className="text-xs text-muted-foreground">{progressPct}%</p>
+          )}
         </div>
       </div>
     )
