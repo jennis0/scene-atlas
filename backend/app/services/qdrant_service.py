@@ -231,6 +231,25 @@ class QdrantService:
             logger.info("Qdrant storage backed up to %s", dest)
             return dest
 
+    def delete_collection_by_name(self, collection_name: str) -> None:
+        """Delete a Qdrant collection by name.
+
+        Raises ValueError if collection_name matches the active collection,
+        since deleting the active collection would break semantic search.
+        """
+        if collection_name == self.collection_name:
+            raise ValueError(
+                f"Cannot delete the active embedding collection '{collection_name}'. "
+                "Switch to a different model first."
+            )
+        try:
+            self.client.delete_collection(collection_name)
+            logger.info("Deleted Qdrant collection '%s'", collection_name)
+        except Exception:
+            logger.warning(
+                "Failed to delete Qdrant collection '%s'", collection_name, exc_info=True
+            )
+
     def close(self):
         """Close the underlying client."""
         with self._lock:
@@ -254,6 +273,21 @@ def get_qdrant_service() -> QdrantService:
         if _qdrant_service is None:
             _qdrant_service = QdrantService()
     return _qdrant_service
+
+
+def reload_qdrant_service(collection_name: str) -> None:
+    """Re-create the QdrantService singleton with a new collection name.
+
+    Called after a model switch to point Qdrant at the new model's collection.
+    """
+    global _qdrant_service
+    new_service = QdrantService(
+        path=settings.qdrant_path,
+        collection_name=collection_name,
+        vector_size=settings.qdrant_vector_size,
+    )
+    _qdrant_service = new_service
+    logger.info("Qdrant service reloaded for collection '%s'", collection_name)
 
 
 def shutdown_qdrant_service() -> None:
