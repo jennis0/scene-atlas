@@ -84,7 +84,6 @@ class Settings(BaseSettings):
     # Rate limiting — per-IP via slowapi.  Set RATE_LIMIT_ENABLED=false to disable.
     # When behind a reverse proxy, ensure it overwrites X-Forwarded-For (not appends)
     # so rate limiting keys on the real client IP.  See design/security.md.
-    rate_limit_upload: str = "20/minute"
     rate_limit_expensive: str = "2/minute"
     rate_limit_destructive: str = "1/minute"
     rate_limit_enabled: bool = True

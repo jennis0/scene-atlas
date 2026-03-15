@@ -52,12 +52,13 @@ All endpoints are currently public. Network-level isolation is required until se
 
 **Status**: DONE (Phase 2)
 
-Rate limiting implemented via `slowapi` with three tiers:
-- **upload** (20/min): `POST /imports/{job_id}/upload-batch`
+Rate limiting implemented via `slowapi` with two tiers:
 - **expensive** (2/min): `POST /search/rebuild-embeddings`, `GET /export/library`, `PATCH /settings/`, `POST /tags/retag-all`, `POST /images/backfill-grids`
 - **destructive** (1/min): `DELETE /system/library`, `POST /system/tags/reset`
 
-Configurable via `RATE_LIMIT_UPLOAD`, `RATE_LIMIT_EXPENSIVE`, `RATE_LIMIT_DESTRUCTIVE` env vars. Disable entirely with `RATE_LIMIT_ENABLED=false`.
+Upload-batch is intentionally NOT rate-limited — it's already gated by admission control (`acquire_heavy_op` semaphore) and requires an active import job. Rate limiting caused silent import failures because the frontend treats 429 as a fatal client error.
+
+Configurable via `RATE_LIMIT_EXPENSIVE`, `RATE_LIMIT_DESTRUCTIVE` env vars. Disable entirely with `RATE_LIMIT_ENABLED=false`.
 
 **Reverse proxy requirement**: The proxy MUST overwrite (not append to) `X-Forwarded-For` so rate limiting keys on the real client IP. If the proxy appends, an attacker can spoof the header to get unlimited fresh rate limit buckets.
 
