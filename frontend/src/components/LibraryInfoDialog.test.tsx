@@ -11,6 +11,10 @@ function makeMockElectronAPI() {
     onBackendReady: vi.fn(),
     onBackendError: vi.fn(),
     getDataDir: vi.fn().mockResolvedValue('C:\\Users\\test\\Scene Atlas\\data'),
+    getAppDataDir: vi.fn().mockResolvedValue('C:\\Users\\test\\AppData\\Roaming\\Scene Atlas'),
+    getImageLibraryDir: vi
+      .fn()
+      .mockResolvedValue('C:\\Users\\test\\Scene Atlas\\data\\store\\images'),
     openDataDir: vi.fn().mockResolvedValue(undefined),
     chooseDataDir: vi.fn().mockResolvedValue(null),
     changeDataDir: vi.fn().mockResolvedValue(undefined),
