@@ -29,11 +29,7 @@ dependencies = [
 [project.optional-dependencies]
 cpu = ["onnxruntime>=1.16.0,<2.0"]
 gpu-cuda = [
-    "onnxruntime-gpu>=1.16.0,<2.0",
-    "nvidia-cublas-cu12",        # libcublasLt.so.12, libcublas.so.12
-    "nvidia-cudnn-cu12",         # libcudnn.so.9
-    "nvidia-cufft-cu12",         # libcufft.so.11
-    "nvidia-cuda-runtime-cu12",  # libcudart.so.12
+    "onnxruntime-gpu>=1.16.0,<2.0"
 ]
 gpu-directml = ["onnxruntime-directml>=1.16.0,<2.0"]
 dev = [

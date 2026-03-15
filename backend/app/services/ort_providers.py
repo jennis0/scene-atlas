@@ -16,7 +16,6 @@ See ``design/gpu-acceleration.md`` for rationale.
 from __future__ import annotations
 
 import ctypes
-import importlib.util
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -26,39 +25,26 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-
-def _preload_nvidia_cuda_libs() -> None:
-    """Preload CUDA 12 shared libraries from nvidia pip packages if present.
-
-    onnxruntime-gpu is compiled against CUDA 12 but the system may have a newer
-    CUDA toolkit (e.g. 13.x) that doesn't provide libcublasLt.so.12.  Installing
-    ``nvidia-cublas-cu12`` and ``nvidia-cudnn-cu12`` supplies those libraries as
-    Python packages, but the dynamic linker won't find them automatically.  This
-    function explicitly loads them with ctypes so they are resident in the process
-    before onnxruntime's CUDA provider DSO is opened.
-    """
-    nvidia_packages = [
-        "nvidia.cublas",       # libcublasLt.so.12, libcublas.so.12
-        "nvidia.cudnn",        # libcudnn.so.9
-        "nvidia.cufft",        # libcufft.so.11
-        "nvidia.cuda_runtime", # libcudart.so.12
-    ]
-    for pkg in nvidia_packages:
-        spec = importlib.util.find_spec(pkg)
-        if spec is None or not spec.submodule_search_locations:
-            continue
-        lib_dir = Path(next(iter(spec.submodule_search_locations))) / "lib"
-        if not lib_dir.is_dir():
-            continue
-        for so_file in sorted(lib_dir.glob("*.so.*")):
-            try:
-                ctypes.CDLL(str(so_file))
-                logger.debug("Preloaded %s", so_file.name)
-            except OSError as exc:
-                logger.debug("Could not preload %s: %s", so_file.name, exc)
+# CUDA 12 shared libraries that onnxruntime-gpu requires at runtime.
+_CUDA_REQUIRED_LIBS = [
+    "libcudart.so.12",
+    "libcublas.so.12",
+    "libcublasLt.so.12",
+    "libcufft.so.11",
+    "libcudnn.so.9",
+]
 
 
-_preload_nvidia_cuda_libs()
+def _check_cuda_libs() -> list[str]:
+    """Return names of CUDA shared libraries that cannot be loaded."""
+    missing = []
+    for lib in _CUDA_REQUIRED_LIBS:
+        try:
+            ctypes.CDLL(lib)
+        except OSError:
+            missing.append(lib)
+    return missing
+
 
 # Provider name → friendly label for log messages
 _GPU_PROVIDERS = {
@@ -227,6 +213,16 @@ def create_session_with_fallback(
             Path(model_path).name,
             exc,
         )
+
+        if primary == "CUDAExecutionProvider":
+            missing = _check_cuda_libs()
+            if missing:
+                logger.warning(
+                    "Missing CUDA libraries: %s. "
+                    "Install the CUDA 12 toolkit or runtime: "
+                    "https://developer.nvidia.com/cuda-12-toolkit",
+                    ", ".join(missing),
+                )
 
         cpu_providers = ["CPUExecutionProvider"]
         cpu_opts = get_session_options(cpu_providers)
