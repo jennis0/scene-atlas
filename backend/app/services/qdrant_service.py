@@ -266,22 +266,42 @@ _init_lock = threading.Lock()
 
 
 def get_qdrant_service() -> QdrantService:
-    """Return the global QdrantService singleton (created on first call)."""
+    """Return the global QdrantService singleton (created on first call).
+
+    Uses the active model's embedding dimension so the collection is created
+    with the correct vector size regardless of the settings default.
+    """
     global _qdrant_service
     if _qdrant_service is not None:
         return _qdrant_service
     with _init_lock:
         if _qdrant_service is None:
-            _qdrant_service = QdrantService()
+            from .clip_service import get_effective_model_name
+            from .model_registry import get_model
+
+            model_name = get_effective_model_name()
+            model_meta = get_model(model_name) if model_name else None
+            collection_name = (
+                f"embeddings_{model_name}" if model_name else settings.qdrant_collection_name
+            )
+            vector_size = model_meta["embedding_dim"] if model_meta else settings.qdrant_vector_size
+            _qdrant_service = QdrantService(
+                path=settings.qdrant_path,
+                collection_name=collection_name,
+                vector_size=vector_size,
+            )
     return _qdrant_service
 
 
-def reload_qdrant_service(collection_name: str) -> None:
+def reload_qdrant_service(collection_name: str, vector_size: int | None = None) -> None:
     """Re-create the QdrantService singleton with a new collection name.
 
     Called after a model switch to point Qdrant at the new model's collection.
     Holds _init_lock to prevent races with concurrent callers and closes the
     old service before replacing it to avoid file-handle leaks.
+
+    vector_size must be provided when the new model's embedding dimension differs
+    from settings.qdrant_vector_size (e.g. switching from small/512 to medium/768).
     """
     global _qdrant_service
     with _init_lock:
@@ -292,7 +312,7 @@ def reload_qdrant_service(collection_name: str) -> None:
         _qdrant_service = QdrantService(
             path=settings.qdrant_path,
             collection_name=collection_name,
-            vector_size=settings.qdrant_vector_size,
+            vector_size=vector_size or settings.qdrant_vector_size,
         )
     logger.info("Qdrant service reloaded for collection '%s'", collection_name)
 

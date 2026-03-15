@@ -22,6 +22,7 @@ MODELS: list[dict] = [
         "approx_size_mb": 250,
         # Export/quantisation parameters (used by export_model_onnx.py)
         "model_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
+        "embedding_dim": 512,
         "vision_quant": "fp16",
         "text_quant": "int8",
         "text_int8_exclude_layers": 3,
@@ -35,6 +36,7 @@ MODELS: list[dict] = [
         "recommended_hardware": "any",
         "approx_size_mb": 500,
         "model_id": "google/siglip2-base-patch16-224",
+        "embedding_dim": 768,
         "vision_quant": "fp16",
         "text_quant": "int8",
         "text_int8_exclude_layers": 1,
@@ -48,6 +50,7 @@ MODELS: list[dict] = [
         "recommended_hardware": "gpu",
         "approx_size_mb": 1000,
         "model_id": "google/siglip2-so400m-patch14-384",
+        "embedding_dim": 1152,
         "vision_quant": "fp16",
         "text_quant": "fp16",
         "text_int8_exclude_layers": 0,

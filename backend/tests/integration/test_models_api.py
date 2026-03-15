@@ -142,6 +142,10 @@ class TestSetActiveModel:
             "backend.app.api.models.get_effective_model_name",
             lambda: "small",
         )
+        monkeypatch.setattr(
+            "backend.app.api.models.is_model_downloaded",
+            lambda name: True,
+        )
         resp = test_client.post(
             "/api/v1/models/active",
             json={"model_name": "small"},

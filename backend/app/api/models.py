@@ -112,7 +112,9 @@ def _download_and_activate(name: str, progress_fn=None) -> None:
         wait_for_clip_ready()
 
         collection_name = f"embeddings_{name}"
-        reload_qdrant_service(collection_name)
+        model_meta = get_model(name)
+        embedding_dim = model_meta["embedding_dim"] if model_meta else None
+        reload_qdrant_service(collection_name, vector_size=embedding_dim)
 
         if progress_fn:
             progress_fn(steps - 1, steps, "Re-building embeddings...")
