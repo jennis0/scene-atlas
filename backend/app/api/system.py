@@ -54,8 +54,9 @@ def system_info(db: Session = Depends(get_db)):
     images_bytes = _dir_size(settings.store_images_dir)
     thumbnails_bytes = _dir_size(settings.store_thumbnails_dir)
     qdrant_bytes = _dir_size(settings.qdrant_path)
-    db_bytes = settings.db_path.stat().st_size if settings.db_path.exists() else 0
-    total_bytes = _dir_size(settings.data_dir)
+    db_path = settings.app_data_dir / "battlemap.db"
+    db_bytes = db_path.stat().st_size if db_path.exists() else 0
+    total_bytes = _dir_size(settings.app_data_dir) + _dir_size(settings.image_library_dir)
 
     result = {
         "mode": settings.app_mode,
@@ -70,10 +71,11 @@ def system_info(db: Session = Depends(get_db)):
             "group_count": group_count,
         },
     }
-    # Only expose filesystem path in desktop mode — avoid leaking
+    # Only expose filesystem paths in desktop mode — avoid leaking
     # internal server structure when running behind a reverse proxy.
     if settings.app_mode == "app":
-        result["storage_path"] = str(settings.data_dir)
+        result["app_data_path"] = str(settings.app_data_dir)
+        result["image_library_path"] = str(settings.image_library_dir)
     return result
 
 

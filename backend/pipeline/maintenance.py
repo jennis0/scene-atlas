@@ -36,7 +36,7 @@ def backup_sqlite(backup_dir: Path, db_path: Path | None = None) -> Path:
     """
     logger = logging.getLogger(__name__)
     if db_path is None:
-        db_path = settings.db_path
+        db_path = settings.app_data_dir / "battlemap.db"
     backup_path = backup_dir / db_path.name
     backup_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -123,7 +123,7 @@ def backup_database() -> dict:
     """Full backup: SQLite snapshot + Qdrant snapshot + rotation."""
     logger = logging.getLogger(__name__)
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-    backups_root = settings.data_dir / "backups"
+    backups_root = settings.backups_dir
     backup_dir = backups_root / timestamp
 
     db_backup = backup_sqlite(backup_dir)

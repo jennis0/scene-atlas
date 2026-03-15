@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
     # Configure logging first so all startup messages go to our handlers.
-    setup_logging(settings.data_dir, debug=settings.debug)
+    setup_logging(settings.app_data_dir, debug=settings.debug)
 
     # Startup
     logger.info("Starting %s v%s", settings.app_name, settings.app_version)
@@ -420,7 +420,7 @@ if __name__ == "__main__":
 
     # Set env vars so Settings() picks them up (must happen before re-import)
     if args.data_dir:
-        os.environ["DATA_DIR"] = args.data_dir
+        os.environ["APP_DATA_DIR"] = args.data_dir
     if args.port:
         os.environ["API_PORT"] = str(args.port)
 

@@ -2,7 +2,7 @@
 
 Sets environment variables BEFORE importing any backend.app modules,
 because importing config.py immediately constructs Settings() and
-computes all derived paths from data_dir.
+computes all derived paths from app_data_dir / image_library_dir.
 
 Includes crash supervision: if uvicorn crashes, it restarts with
 exponential backoff. Gives up after 10 crashes in 5 minutes and exits
@@ -27,7 +27,7 @@ def main():
     args = parser.parse_args()
 
     # Must set env vars before any backend.app import triggers Settings()
-    os.environ["DATA_DIR"] = args.data_dir
+    os.environ["APP_DATA_DIR"] = args.data_dir
     os.environ["API_PORT"] = str(args.port)
     os.environ["API_HOST"] = "127.0.0.1"
     os.environ["APP_MODE"] = "app"
