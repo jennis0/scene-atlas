@@ -14,7 +14,14 @@ interface StoragePathRowProps {
   requiresRestart?: boolean
 }
 
-function StoragePathRow({ label, description, current, pending, onBrowse, requiresRestart }: StoragePathRowProps) {
+function StoragePathRow({
+  label,
+  description,
+  current,
+  pending,
+  onBrowse,
+  requiresRestart,
+}: StoragePathRowProps) {
   const display = pending ?? current ?? '—'
   const changed = pending != null
   return (
@@ -89,7 +96,7 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
     }
 
     const handleApplyStorageChange = () => {
-      if (!appDataDir || !imageLibraryDir) return  // IPC hasn't loaded yet; wait
+      if (!appDataDir || !imageLibraryDir) return // IPC hasn't loaded yet; wait
       window.electronAPI?.changeStorageDirs(
         pendingAppDataDir ?? appDataDir,
         pendingImageLibraryDir ?? imageLibraryDir,
@@ -180,7 +187,8 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                 {(pendingAppDataDir || pendingImageLibraryDir) && (
                   <div className="space-y-2 rounded border border-amber-500/20 bg-amber-500/5 p-3">
                     <p className="text-xs text-muted-foreground">
-                      Changing a path does not move your files. Move them manually before restarting.
+                      Changing a path does not move your files. Move them manually before
+                      restarting.
                     </p>
                     <button
                       type="button"

@@ -1,14 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
-import {
-  RotateCcw,
-  X,
-  Trash2,
-  Loader2,
-  Download,
-  BookOpen,
-  Settings2,
-} from 'lucide-react'
+import { RotateCcw, X, Trash2, Loader2, Download, BookOpen, Settings2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -329,10 +321,16 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
                 <div className="space-y-1">
                   <p className="section-label">Storage</p>
                   <div className="space-y-0.5">
-                    <p className="text-xs text-muted-foreground">App data: <span className="font-mono">{appDataDir ?? '—'}</span></p>
-                    <p className="text-xs text-muted-foreground">Images: <span className="font-mono">{imageLibraryDir ?? '—'}</span></p>
+                    <p className="text-xs text-muted-foreground">
+                      App data: <span className="font-mono">{appDataDir ?? '—'}</span>
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Images: <span className="font-mono">{imageLibraryDir ?? '—'}</span>
+                    </p>
                   </div>
-                  <p className="text-xs text-muted-foreground/60">To change, go to Settings → Storage Locations.</p>
+                  <p className="text-xs text-muted-foreground/60">
+                    To change, go to Settings → Storage Locations.
+                  </p>
                 </div>
               )}
 
