@@ -449,6 +449,9 @@ export interface ParsedTagVocab {
 // ── App Settings ──────────────────────────────────────────────────────────────
 
 export interface AppSettings {
+  // AI model selection: "" = auto-detect; "small" | "medium" | "large" once set
+  active_model: string
+
   // Grid detection (image analysis)
   enable_image_grid_detection: boolean
   grid_min_cell_px: number
