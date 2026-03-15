@@ -139,6 +139,37 @@ class TestDownloadModel:
             with pytest.raises(ModelDownloadError, match="HuggingFace|connect"):
                 download_model("small")
 
+    def test_raises_on_connection_error_during_download(self, tmp_path, monkeypatch):
+        """ConnectionError raised by snapshot_download (Phase 2) should raise ModelDownloadError.
+
+        This exercises the _raise_download_error() ConnectionError branch, which is distinct
+        from the existing test that patches model_info (Phase 1) to raise ConnectionError.
+        """
+        monkeypatch.setattr(
+            "backend.app.services.model_download_service._settings",
+            _make_settings(tmp_path),
+        )
+
+        import requests
+
+        mock_info = MagicMock()
+        mock_info.sha = "abc123"
+
+        with (
+            patch("huggingface_hub.model_info", return_value=mock_info),
+            patch(
+                "huggingface_hub.snapshot_download",
+                side_effect=requests.exceptions.ConnectionError("Connection refused"),
+            ),
+        ):
+            from backend.app.services.model_download_service import (
+                ModelDownloadError,
+                download_model,
+            )
+
+            with pytest.raises(ModelDownloadError, match="HuggingFace|connect"):
+                download_model("small")
+
     def test_writes_version_json_after_success(self, tmp_path, monkeypatch):
         """version.json is the completion marker — written after all required files."""
         monkeypatch.setattr(

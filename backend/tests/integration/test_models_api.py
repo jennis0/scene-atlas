@@ -114,9 +114,19 @@ class TestDeleteEmbeddings:
             "backend.app.api.models.get_effective_model_name",
             lambda: "small",
         )
+
+        deleted_collections = []
+
+        mock_qdrant = MagicMock()
+        mock_qdrant.delete_collection_by_name = lambda name: deleted_collections.append(name)
+        monkeypatch.setattr(
+            "backend.app.api.models.get_qdrant_service",
+            lambda: mock_qdrant,
+        )
+
         resp = test_client.delete("/api/v1/models/large/embeddings")
-        # Qdrant is mocked in conftest; delete_collection_by_name is a no-op
         assert resp.status_code == 204
+        assert "embeddings_large" in deleted_collections
 
 
 class TestSetActiveModel:
@@ -161,6 +171,10 @@ class TestSetActiveModel:
         data = resp.json()
         assert "job_id" in data
         assert data["job_id"] == "activate-job-id"
+
+        # Verify that _download_and_activate (not _download_only) was submitted
+        submitted_fn = mock_runner.submit.call_args[0][0]
+        assert submitted_fn.__name__ == "_download_and_activate"
 
     def test_set_active_model_missing_body_returns_422(self, test_client):
         resp = test_client.post("/api/v1/models/active", json={})

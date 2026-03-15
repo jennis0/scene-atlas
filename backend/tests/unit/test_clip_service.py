@@ -69,37 +69,42 @@ class TestGetEffectiveModelName:
 
 
 class TestReloadClipService:
-    def test_noop_when_already_loading(self):
-        """If _clip_ready is clear (reload in progress), reload_clip_service returns current thread."""
+    def test_noop_when_already_loading(self, monkeypatch):
+        """If _clip_ready is clear (reload in progress), reload_clip_service:
+        - returns threading.current_thread() (no-op sentinel)
+        - does NOT call start_clip_background_load
+        """
         import backend.app.services.clip_service as clip_mod
 
-        # Save original state
-        orig_event_is_set = clip_mod._clip_ready.is_set()
+        # Simulate a reload already in progress: clear the ready event so the
+        # "already loading" branch is taken.
+        clip_mod._clip_ready.clear()
+
+        # Patch wait() so it doesn't block (simulates the in-progress reload
+        # completing instantly from the caller's perspective).
+        monkeypatch.setattr(clip_mod._clip_ready, "wait", lambda timeout=None: None)
+
+        # Track whether start_clip_background_load is called.
+        started = []
+        monkeypatch.setattr(
+            clip_mod,
+            "start_clip_background_load",
+            lambda: started.append(True) or threading.Thread(target=lambda: None),
+        )
 
         try:
-            # Simulate reload in progress: clear the ready event
-            clip_mod._clip_ready.clear()
+            from backend.app.services.clip_service import reload_clip_service
 
-            # A second call while the event is cleared should return current_thread
-            # but since the wait() would block, we simulate the scenario:
-            # We patch _clip_ready.wait to be a no-op so the test doesn't hang.
-            original_wait = clip_mod._clip_ready.wait
-            clip_mod._clip_ready.wait = lambda timeout=None: None
-
-            try:
-                from backend.app.services.clip_service import reload_clip_service
-
-                result = reload_clip_service()
-                # The no-op path returns threading.current_thread()
-                assert result is threading.current_thread()
-            finally:
-                clip_mod._clip_ready.wait = original_wait
+            result = reload_clip_service()
+            # The "already loading" branch returns threading.current_thread()
+            assert result is threading.current_thread()
+            # No new background thread should have been started
+            assert started == [], (
+                "start_clip_background_load should NOT be called when already loading"
+            )
         finally:
-            # Restore event to original state
-            if orig_event_is_set:
-                clip_mod._clip_ready.set()
-            else:
-                clip_mod._clip_ready.clear()
+            # Restore ready event so other tests are not affected
+            clip_mod._clip_ready.set()
 
     def test_reload_clip_service_is_callable(self):
         from backend.app.services.clip_service import reload_clip_service
