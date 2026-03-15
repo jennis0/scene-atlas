@@ -221,7 +221,7 @@ def get_embeddings_stats(name: str) -> EmbeddingStatsResponse:
         info = qdrant.client.get_collection(collection_name=collection_name)
         return EmbeddingStatsResponse(
             collection_name=collection_name,
-            vectors_count=info.vectors_count or 0,
+            vectors_count=info.points_count or 0,
             exists=True,
         )
     except Exception:
