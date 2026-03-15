@@ -17,6 +17,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
 
 from .api import export, groups, images, imports, jobs, search, system, tags
+from .api import models as models_api
 from .api import settings as settings_api
 from .api.rate_limits import limiter
 from .config import settings
@@ -326,6 +327,7 @@ app.include_router(jobs.router, prefix=f"{settings.api_prefix}/jobs", tags=["job
 app.include_router(export.router, prefix=f"{settings.api_prefix}/export", tags=["export"])
 app.include_router(system.router, prefix=f"{settings.api_prefix}/system", tags=["system"])
 app.include_router(settings_api.router, prefix=f"{settings.api_prefix}/settings", tags=["settings"])
+app.include_router(models_api.router, prefix=f"{settings.api_prefix}/models", tags=["models"])
 
 
 @app.get("/")
