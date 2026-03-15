@@ -264,7 +264,7 @@ def set_active_model(
             detail=f"Unknown model '{model_name}'. Valid names: {MODEL_NAMES}",
         )
 
-    if model_name == get_effective_model_name():
+    if model_name == get_effective_model_name() and is_model_downloaded(model_name):
         return ActiveModelResponse(status="already_active", job_id=None)
 
     # Persist the active model to DB directly (bypass update_settings to avoid side-effects)
