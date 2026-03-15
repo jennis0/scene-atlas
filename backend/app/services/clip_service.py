@@ -652,6 +652,15 @@ def get_clip_service() -> CLIPService:
     return _clip_service
 
 
+def wait_for_clip_ready() -> None:
+    """Block until the CLIPService has finished loading (or failed).
+
+    Safe to call from any thread, including JobRunner worker threads.
+    Use this instead of joining the thread returned by reload_clip_service().
+    """
+    _clip_ready.wait()
+
+
 def reload_clip_service() -> threading.Thread:
     """Reload the CLIPService singleton with the currently active model.
 

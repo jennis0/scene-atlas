@@ -62,6 +62,13 @@ GPU_PROVIDERS: frozenset[str] = frozenset(
     {"CUDAExecutionProvider", "DmlExecutionProvider", "CoreMLExecutionProvider"}
 )
 
+# Ordered priority list for selecting the best GPU provider to report
+GPU_PROVIDER_PRIORITY: list[str] = [
+    "CUDAExecutionProvider",
+    "DmlExecutionProvider",
+    "CoreMLExecutionProvider",
+]
+
 # Human-readable labels for GPU providers shown in setup UI
 GPU_PROVIDER_LABELS: dict[str, str] = {
     "CUDAExecutionProvider": "NVIDIA GPU (CUDA)",

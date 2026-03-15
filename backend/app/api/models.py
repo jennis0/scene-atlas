@@ -8,14 +8,24 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..models.database import AppSetting
-from ..services.clip_service import get_effective_model_name, reload_clip_service
+from ..services.clip_service import (
+    get_effective_model_name,
+    reload_clip_service,
+    wait_for_clip_ready,
+)
 from ..services.job_runner import get_job_runner
 from ..services.model_download_service import (
     download_model,
     get_all_model_statuses,
     is_model_downloaded,
 )
-from ..services.model_registry import GPU_PROVIDERS, MODEL_NAMES, get_default_model, get_model
+from ..services.model_registry import (
+    GPU_PROVIDER_PRIORITY,
+    GPU_PROVIDERS,
+    MODEL_NAMES,
+    get_default_model,
+    get_model,
+)
 from ..services.qdrant_service import get_qdrant_service, reload_qdrant_service
 from .dependencies import get_db
 
@@ -78,33 +88,45 @@ def _download_only(name: str, progress_fn=None) -> None:
 
 
 def _download_and_activate(name: str, progress_fn=None) -> None:
-    """Sequenced job: download (if needed) → reload clip → reload qdrant → re-embed."""
-    from backend.pipeline.write_new_embeddings import rebuild_all_embeddings
+    """Sequenced job: download (if needed) → reload clip → reload qdrant → re-embed.
 
-    steps = 3 if not is_model_downloaded(name) else 2
+    If this job fails, active_model in the DB will point to `name` but the model
+    will not be loaded. The frontend should check job status and offer a retry.
+    """
+    try:
+        from backend.pipeline.write_new_embeddings import rebuild_all_embeddings
 
-    if not is_model_downloaded(name):
+        steps = 3 if not is_model_downloaded(name) else 2
+
+        if not is_model_downloaded(name):
+            if progress_fn:
+                progress_fn(0, steps, "Downloading model...")
+            download_model(
+                name,
+                progress_fn=lambda c, t, m: progress_fn(c, t * steps, m) if progress_fn else None,
+            )
+
         if progress_fn:
-            progress_fn(0, steps, "Downloading model...")
-        download_model(
+            progress_fn(steps - 2, steps, "Loading model...")
+        reload_clip_service()
+        wait_for_clip_ready()
+
+        collection_name = f"embeddings_{name}"
+        reload_qdrant_service(collection_name)
+
+        if progress_fn:
+            progress_fn(steps - 1, steps, "Re-building embeddings...")
+        rebuild_all_embeddings(force=True)
+
+        if progress_fn:
+            progress_fn(steps, steps, "Done")
+    except Exception:
+        logger.exception(
+            "Model activation failed for '%s'. DB active_model may be out of sync. "
+            "Retry via POST /api/v1/models/active to recover.",
             name,
-            progress_fn=lambda c, t, m: progress_fn(c, t * steps, m) if progress_fn else None,
         )
-
-    if progress_fn:
-        progress_fn(steps - 2, steps, "Loading model...")
-    thread = reload_clip_service()
-    thread.join()  # block until CLIPService is ready
-
-    collection_name = f"embeddings_{name}"
-    reload_qdrant_service(collection_name)
-
-    if progress_fn:
-        progress_fn(steps - 1, steps, "Re-building embeddings...")
-    rebuild_all_embeddings(force=True)
-
-    if progress_fn:
-        progress_fn(steps, steps, "Done")
+        raise  # re-raise so JobRunner marks job as failed
 
 
 # ---------------------------------------------------------------------------
@@ -146,9 +168,10 @@ def get_setup_status() -> SetupStatusResponse:
     has_gpu = any(p in GPU_PROVIDERS for p in providers)
 
     # Find the best GPU provider
+    providers_set = set(providers)
     gpu_provider: str | None = None
-    for candidate in ["CUDAExecutionProvider", "DmlExecutionProvider", "CoreMLExecutionProvider"]:
-        if candidate in providers:
+    for candidate in GPU_PROVIDER_PRIORITY:
+        if candidate in providers_set:
             gpu_provider = candidate
             break
 
@@ -169,18 +192,18 @@ def get_setup_status() -> SetupStatusResponse:
     )
 
 
-@router.post("/{name}/download")
-def download_model_endpoint(name: str) -> dict:
+@router.post("/{name}/download", response_model=ActiveModelResponse)
+def download_model_endpoint(name: str) -> ActiveModelResponse:
     """Trigger a background download job for the named model."""
     if get_model(name) is None:
         raise HTTPException(status_code=404, detail=f"Model '{name}' not found")
 
     if is_model_downloaded(name):
-        return {"job_id": None, "status": "already_downloaded"}
+        return ActiveModelResponse(job_id=None, status="already_downloaded")
 
     runner = get_job_runner()
     job_id = runner.submit(_download_only, name, name=f"Download model: {name}")
-    return {"job_id": job_id, "status": "downloading"}
+    return ActiveModelResponse(job_id=job_id, status="downloading")
 
 
 @router.get("/{name}/embeddings", response_model=EmbeddingStatsResponse)
