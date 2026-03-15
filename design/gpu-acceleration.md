@@ -35,6 +35,33 @@ Installation:
 
 **Important:** A bare `uv sync` (no extras) does not install any onnxruntime variant. The application will fail at startup with a clear `ImportError` explaining which extra to install.
 
+### CUDA Prerequisites (Linux)
+
+`onnxruntime-gpu` requires **both** the CUDA 12 toolkit **and** cuDNN 9 installed at the system level. The CUDA toolkit alone is not sufficient — cuDNN is a separate package.
+
+```bash
+# Ubuntu / Debian — add NVIDIA repo if not already present
+# Replace ubuntu2404 with your distro version (ubuntu2204, ubuntu2004, etc.)
+wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+sudo dpkg -i cuda-keyring_1.1-1_all.deb
+sudo apt update
+
+# Install cuDNN 9 for CUDA 12
+sudo apt install libcudnn9-cuda-12
+
+# Verify
+ldconfig -p | grep libcudnn
+# Should show: libcudnn.so.9 => /usr/lib/x86_64-linux-gnu/libcudnn.so.9
+```
+
+Required system libraries (all must be resolvable via `ldconfig`):
+- `libcudart.so.12` — CUDA runtime (from `cuda-toolkit-12-*`)
+- `libcublas.so.12` / `libcublasLt.so.12` — cuBLAS (from `libcublas-12-*`)
+- `libcufft.so.11` — cuFFT (from `libcufft-12-*`)
+- `libcudnn.so.9` — cuDNN (from `libcudnn9-cuda-12`)
+
+If any are missing, onnxruntime will silently fall back to CPU. The application logs which libraries are missing when this happens.
+
 ### Provider Priority
 
 1. **CUDAExecutionProvider** — NVIDIA GPUs (requires `onnxruntime-gpu`)
@@ -112,7 +139,7 @@ The `--device` CLI flag controls both ONNX provider and torch device in ablation
 - CPU remains the default — no breaking changes
 - GPU users install the appropriate onnxruntime variant and set `INFERENCE_DEVICE`
 - CoreML is opportunistic (no guarantee, no extra dependencies)
-- Linux Electron has no GPU build (CUDA requires user toolkit install)
+- Linux Electron has no GPU build (CUDA requires user toolkit + cuDNN install)
 - TensorRT excluded (engine building overhead, overkill for these model sizes)
 
 ## Migration
