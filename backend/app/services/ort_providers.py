@@ -217,12 +217,19 @@ def create_session_with_fallback(
         if primary == "CUDAExecutionProvider":
             missing = _check_cuda_libs()
             if missing:
-                logger.warning(
-                    "Missing CUDA libraries: %s. "
-                    "Install the CUDA 12 toolkit or runtime: "
-                    "https://developer.nvidia.com/cuda-12-toolkit",
-                    ", ".join(missing),
-                )
+                hints = ["Missing CUDA libraries: %s."]
+                if any("cudnn" in lib for lib in missing):
+                    hints.append(
+                        "cuDNN 9 is required but not installed. "
+                        "On Ubuntu/Debian: sudo apt install libcudnn9-cuda-12"
+                    )
+                if any("cublas" in lib or "cufft" in lib or "cudart" in lib for lib in missing):
+                    hints.append(
+                        "Install the CUDA 12 toolkit: "
+                        "https://developer.nvidia.com/cuda-12-toolkit"
+                    )
+                hints.append("See design/gpu-acceleration.md for full prerequisites.")
+                logger.warning(" ".join(hints), ", ".join(missing))
 
         cpu_providers = ["CPUExecutionProvider"]
         cpu_opts = get_session_options(cpu_providers)

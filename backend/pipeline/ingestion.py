@@ -30,6 +30,7 @@ from backend.app.services import (
     get_thumbnail_store,
 )
 from backend.app.services.fts_service import fts_rebuild
+from backend.app.services.job_runner import is_shutting_down
 from backend.app.services.prepare_pool import get_prepare_pool
 from backend.app.services.staging import (
     load_file_map as _load_file_map,
@@ -304,6 +305,10 @@ def bulk_image_ingestion(
 
         # Process in batches
         for batch_start in range(0, len(image_paths), batch_size):
+            if is_shutting_down():
+                logger.info("Shutdown requested, aborting bulk ingestion")
+                break
+
             batch = image_paths[batch_start : batch_start + batch_size]
             logger.info(
                 "Processing batch %s (%s images, %s/%s)",
@@ -523,6 +528,17 @@ def _run_group(
 
     try:
         for batch_start in range(0, len(valid_files), batch_size):
+            # Check for shutdown between batches so Ctrl+C exits promptly
+            if is_shutting_down():
+                remaining = len(valid_files) - processed - failed
+                logger.info(
+                    "[%s] shutdown requested, aborting with %s images remaining",
+                    group_name,
+                    remaining,
+                )
+                failed += remaining
+                break
+
             batch = valid_files[batch_start : batch_start + batch_size]
             logger.info(
                 "[%s] batch %s (%s images, %s/%s)",
@@ -826,6 +842,10 @@ def process_import_job(
 
     try:
         for group in groups:
+            if is_shutting_down():
+                logger.info("Shutdown requested, skipping remaining groups for job %s", job_id)
+                break
+
             group_job_id = group["group_job_id"]
             author = group["author"]
             group_name = group["group_name"]
