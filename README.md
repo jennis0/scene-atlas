@@ -40,7 +40,7 @@ No Docker required — Qdrant runs in embedded local mode within the Python proc
 
 ```bash
 # Python dependencies (dev tools + CPU onnxruntime)
-uv sync --extra dev --extra cpu-dev
+uv sync --extra dev --extra cpu
 
 # Frontend dependencies
 cd frontend && npm ci && cd ..
@@ -59,7 +59,7 @@ uv sync --extra gpu                        # NVIDIA GPU (requires CUDA toolkit +
 uv sync --extra gpu-directml               # DirectX 12 GPU (Windows only)
 ```
 
-For development with model export capabilities (torch), use the `-dev` variants:
+For model export/re-quantization (requires torch), use the `-dev` variants instead:
 
 ```bash
 uv sync --extra dev --extra cpu-dev        # CPU + dev tools + torch
