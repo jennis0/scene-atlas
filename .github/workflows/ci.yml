@@ -137,12 +137,12 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev --extra cpu
 
-      - name: Cache ONNX models
+      - name: Cache ONNX models (small)
         id: cache-onnx
         uses: actions/cache@v4
         with:
-          path: backend/models/clip-vit-b-32
-          key: onnx-models-${{ hashFiles('scripts/models/export_model_onnx.py', 'backend/app/config.py') }}
+          path: backend/models/small
+          key: onnx-models-small-${{ hashFiles('scripts/models/export_model_onnx.py', 'backend/app/config.py') }}
 
       - name: Cache HuggingFace models
         if: steps.cache-onnx.outputs.cache-hit != 'true'
@@ -153,9 +153,11 @@ jobs:
           restore-keys: |
             huggingface-clip-
 
-      - name: Export ONNX models
+      - name: Export ONNX models (small)
         if: steps.cache-onnx.outputs.cache-hit != 'true'
         run: uv run python scripts/models/setup_models.py
+        env:
+          EMBEDDING_MODEL: small
 
       - name: Run unit tests with coverage
         # Tolerate exit 134 (SIGABRT): native C++ libs (torch, qdrant) can
@@ -171,6 +173,8 @@ jobs:
           --cov-report=term-missing
           --cov-report=xml:coverage-backend.xml
           || test $? -eq 134
+        env:
+          EMBEDDING_MODEL: small
 
       - name: Upload backend coverage
         uses: actions/upload-artifact@v4
