@@ -46,16 +46,10 @@ def is_model_downloaded(name: str) -> bool:
 def get_collection_name(name: str) -> str:
     """Return the Qdrant collection name for a model.
 
-    Includes the first 8 chars of the HF commit SHA so that re-downloading an
-    updated model produces a new, distinct collection name — making stale
-    embeddings from the old version visible and deletable in the UI.
-
-    Falls back to ``embeddings_{name}`` when the model hasn't been downloaded yet.
+    Currently uses the plain model name.  A future version may incorporate the
+    HF commit SHA so that re-downloading an updated model produces a distinct
+    collection — but this requires a migration strategy for existing installs.
     """
-    version_info = get_version_info(name)
-    if version_info and version_info.get("hf_commit_sha"):
-        sha = version_info["hf_commit_sha"][:8]
-        return f"embeddings_{name}_{sha}"
     return f"embeddings_{name}"
 
 

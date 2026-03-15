@@ -28,9 +28,31 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-cpu = ["torch>=2.1.0,<3.0"]
-gpu-cuda = [
-    "onnxruntime-gpu>=1.16.0,<2.0",
+# Runtime extras — pick exactly one:
+#   uv sync --extra cpu                     (CPU inference)
+#   uv sync --extra gpu                     (NVIDIA CUDA inference)
+#   uv sync --extra gpu-directml            (DirectX 12 inference, Windows)
+# Dev extras — adds torch for model export scripts:
+#   uv sync --extra cpu-dev --extra dev     (CPU + dev tools)
+#   uv sync --extra gpu-dev --extra dev     (CUDA + dev tools)
+#
+# NOTE: onnxruntime-gpu 1.20+ is a plugin that ships only native .so files
+# and requires the base onnxruntime package — but as of 1.24.3 the ABI is
+# broken (undefined symbol: Provider_GetHost). Pin gpu extras to <1.20 where
+# onnxruntime-gpu is a standalone package that includes the Python API.
+# Re-evaluate after Microsoft fixes the split-package model.
+cpu = [
+    "onnxruntime>=1.16.0,<2.0",  # CPU-only; any ORT version works
+]
+cpu-dev = [
+    "onnxruntime>=1.16.0,<2.0",
+    "torch>=2.1.0,<3.0",
+]
+gpu = [
+    "onnxruntime-gpu>=1.16.0,<1.20",
+]
+gpu-dev = [
+    "onnxruntime-gpu>=1.16.0,<1.20",
     "torch>=2.1.0,<3.0",
 ]
 gpu-directml = ["onnxruntime-directml>=1.16.0,<2.0"]
@@ -46,6 +68,10 @@ dev = [
     "tqdm>=4.60.0",
     "pip-audit>=2.7.0",    # CI: Python CVE scanning
     "bandit>=1.7.0",       # CI: Python SAST
+    "ipywidgets>=8.1.8",
+    "matplotlib>=3.10.8",
+    "huggingface-hub[hf-xet]>=0.20.0", # Publish ONNX models to HF Hub
+    "onnxscript>=0.6.0",      # Required by torch.onnx.export (newer torch versions)
 ]
 
 [build-system]
@@ -127,32 +153,22 @@ exclude_lines = [
 ]
 
 [tool.uv]
-# cpu-runtime is a default dependency group (see [dependency-groups] below).
-# It installs onnxruntime automatically so `uv sync` and `uv sync --extra dev`
-# give you a working CPU inference setup without extra flags.
-#
-# GPU users must opt out of the default group and into a GPU extra:
-#   uv sync --extra gpu-cuda   --no-group cpu-runtime
-#   uv sync --extra gpu-directml --no-group cpu-runtime
-default-groups = ["dev", "cpu-runtime"]
+# Pick one runtime variant. cpu/cpu-dev conflict with gpu/gpu-dev/gpu-directml.
+# cpu and cpu-dev can't coexist (torch source index differs from default).
 conflicts = [
-    # onnxruntime vs onnxruntime-gpu vs onnxruntime-directml
-    [
-        { group = "cpu-runtime" },
-        { extra = "gpu-cuda" },
-        { extra = "gpu-directml" },
-    ],
-    # torch CPU index vs torch CUDA index
     [
         { extra = "cpu" },
-        { extra = "gpu-cuda" },
+        { extra = "cpu-dev" },
+        { extra = "gpu" },
+        { extra = "gpu-dev" },
+        { extra = "gpu-directml" },
     ],
 ]
 
 [tool.uv.sources]
 torch = [
-    { index = "pytorch-cuda", extra = "gpu-cuda" },
-    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pytorch-cuda", extra = "gpu-dev" },
+    { index = "pytorch-cpu", extra = "cpu-dev" },
 ]
 
 [[tool.uv.index]]
@@ -165,14 +181,3 @@ name = "pytorch-cuda"
 url  = "https://download.pytorch.org/whl/cu124"
 explicit = true
 
-[dependency-groups]
-cpu-runtime = [
-    "onnxruntime>=1.16.0,<2.0",  # CPU inference (default); GPU users: --no-group cpu-runtime
-]
-dev = [
-    "ipywidgets>=8.1.8",
-    "matplotlib>=3.10.8",
-    "huggingface-hub[hf-xet]>=0.20.0", # Publish ONNX models to HF Hub
-    "onnx>=1.14.0,<2.0",      # ONNX export + quantisation tools
-    "onnxscript>=0.6.0",      # Required by torch.onnx.export (newer torch versions)
-]
