@@ -572,6 +572,9 @@ class AppSettings(BaseModel):
     max_job_workers: int = 2
     scheduler_enabled: bool = True
 
+    # Model selection (managed via POST /api/v1/models/active — not in AppSettingsPatch)
+    active_model: str = ""  # "" = auto-detect at startup; "small"|"medium"|"large" once set
+
 
 class AppSettingsPatch(BaseModel):
     """Partial update for app settings — only include fields you want to change."""
