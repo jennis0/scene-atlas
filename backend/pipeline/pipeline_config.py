@@ -45,6 +45,9 @@ class PipelineConfig:
     ingestion_batch_size: int = 16
     max_concurrent_prepare: int = 4
 
+    # Import processing
+    use_webp: bool = False
+
     @classmethod
     def from_app_settings(cls, s) -> PipelineConfig:
         """Create a PipelineConfig from an AppSettings instance."""
@@ -62,6 +65,7 @@ class PipelineConfig:
             color_kmeans_n_init=s.color_kmeans_n_init,
             ingestion_batch_size=s.ingestion_batch_size,
             max_concurrent_prepare=s.max_concurrent_prepare,
+            use_webp=s.convert_to_webp,
         )
 
 

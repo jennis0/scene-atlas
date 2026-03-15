@@ -572,6 +572,11 @@ class AppSettings(BaseModel):
     max_job_workers: int = 2
     scheduler_enabled: bool = True
 
+    # Import processing
+    convert_to_webp: bool = True
+    webp_lossless: bool = True
+    webp_quality: int = Field(95, ge=0, le=100)
+
 
 class AppSettingsPatch(BaseModel):
     """Partial update for app settings — only include fields you want to change."""
@@ -597,3 +602,6 @@ class AppSettingsPatch(BaseModel):
     max_import_total_size: int | None = None
     max_job_workers: int | None = None
     scheduler_enabled: bool | None = None
+    convert_to_webp: bool | None = None
+    webp_lossless: bool | None = None
+    webp_quality: int | None = Field(None, ge=0, le=100)

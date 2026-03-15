@@ -233,6 +233,22 @@ def prepare_single_image(
         storage_key_stem = uuid.uuid4().hex[:12]
         ext = image_path_obj.suffix.lower()
         storage_key = f"{storage_key_stem}{ext}"
+
+        # --- Optional WebP conversion (before copying to store) ---
+        # Must happen before image_store.put() so the stored file is WebP.
+        # Must happen before _compute_file_hash() so the hash matches stored content.
+        _use_webp = pipeline_config.use_webp if pipeline_config is not None else False
+        if _use_webp:
+            from backend.pipeline.tasks.webp_conversion import convert_to_webp as _convert_webp
+
+            _converted = _convert_webp(image_path_obj)
+            if _converted != image_path_obj:
+                # Conversion happened — update all path/key/hash references
+                image_path_obj = _converted
+                ext = ".webp"
+                storage_key = f"{storage_key_stem}{ext}"
+                content_hash = None  # Discard pre-computed hash; _compute_file_hash runs below
+
         image_store.put(storage_key, image_path_obj)
 
         # Compute content hash if not already known
@@ -261,17 +277,19 @@ def prepare_single_image(
             frame_img.save(str(frame_path), format="JPEG", quality=95)
             frame_img.close()
 
-            thumbnail_result = _gen_thumbs(str(frame_path), storage_key_stem)
+            thumbnail_result = _gen_thumbs(str(frame_path), storage_key_stem, use_webp=False)
             thumbnail_keys = thumbnail_result["keys"]
             stage = "colors"
             colors = _extract_colors(str(frame_path), pipeline_config=pipeline_config)
             width, height = get_video_dimensions(image_path_obj)
             clip_image_path = str(frame_path)  # keep alive for CLIP in _process_batch
         else:
-            thumbnail_result = _gen_thumbs(image_path, storage_key_stem)
+            thumbnail_result = _gen_thumbs(
+                str(image_path_obj), storage_key_stem, use_webp=_use_webp
+            )
             thumbnail_keys = thumbnail_result["keys"]
             stage = "colors"
-            colors = _extract_colors(image_path, pipeline_config=pipeline_config)
+            colors = _extract_colors(str(image_path_obj), pipeline_config=pipeline_config)
             width, height = thumbnail_result["dimensions"]
             clip_image_path = None
 
@@ -309,12 +327,12 @@ def prepare_single_image(
             if gridded is None:
                 # No filename hint — detect presence + size
                 grid_result = _detect_grid(
-                    image_path, width, height, size_only=False, pipeline_config=_cfg
+                    str(image_path_obj), width, height, size_only=False, pipeline_config=_cfg
                 )
             elif gridded is True and grid_width is None:
                 # Filename says gridded but no dimensions — detect size only
                 grid_result = _detect_grid(
-                    image_path, width, height, size_only=True, pipeline_config=_cfg
+                    str(image_path_obj), width, height, size_only=True, pipeline_config=_cfg
                 )
             else:
                 grid_result = None

@@ -11,7 +11,7 @@ Schema changes are managed by **Alembic** migrations in `backend/alembic/version
 
 ## SQLite Database
 
-**Location:** `data/battlemap.db`
+**Location:** `{APP_DATA_DIR}/battlemap.db`
 
 ### Schema
 
@@ -136,7 +136,7 @@ Several DB columns retain their original names for backward compatibility (avoid
 
 ## Qdrant Vector Store
 
-**Mode:** Embedded local (`QdrantClient(path="data/qdrant_local")`) — no separate server process
+**Mode:** Embedded local (`QdrantClient(path="{APP_DATA_DIR}/qdrant_local")`) — no separate server process
 **Collection:** `battlemap_images`
 **Vector size:** 512 (CLIP ViT-B/32 projection dimension)
 **Distance metric:** Cosine similarity
@@ -150,16 +150,21 @@ Qdrant is the source of truth for semantic similarity. SQLite is the source of t
 
 ## Filesystem — ImageStore
 
-**Images:** `data/store/images/`
-**Thumbnails:** `data/store/thumbnails/`
-**Staging (imports):** `data/staging/{job_id}/`
+The application uses two storage roots, allowing images and application data to live on separate volumes:
+
+- **`APP_DATA_DIR`** — fast storage: SQLite database, Qdrant index, thumbnails, staging area, config. Typically on the system drive.
+- **`IMAGE_LIBRARY_DIR`** — cold storage: original image files and backups. Can be on a large external or network drive.
+
+**Images (originals):** `{IMAGE_LIBRARY_DIR}/a1/b2/...` (flat root — the library dir itself is the image store root)
+**Thumbnails:** `{APP_DATA_DIR}/store/thumbnails/`
+**Staging (imports):** `{APP_DATA_DIR}/staging/{job_id}/`
 
 ### Sharding Scheme
 
 Files are stored using a 2-level hash shard based on the key's hex characters:
 ```
 key: "a1b2c3d4e5f6.jpg"
-path: data/store/images/a1/b2/a1b2c3d4e5f6.jpg
+path: {IMAGE_LIBRARY_DIR}/a1/b2/a1b2c3d4e5f6.jpg
 ```
 
 This keeps any directory under ~256 entries.
@@ -172,11 +177,13 @@ This keeps any directory under ~256 entries.
 The filesystem is a dumb blob store. The DB's `storage_key` and `thumbnail_key` fields are the authoritative references. If a file exists in the store but has no DB entry, it's orphaned. If a DB entry's key points to a missing file, the image is broken.
 
 ### Staging Directory
-Import uploads are saved to `data/staging/{job_id}/` using a UUID-flat-file structure — each uploaded file is stored with a UUID-based filename (e.g. `a1b2c3d4.jpg`) rather than the user-supplied path. A `.file_map.json` sidecar maps original relative paths to staging filenames, allowing group detection and the frontend to use original paths as logical identifiers while eliminating path traversal risks (see [security.md](security.md)). After processing, staging files are consumed by `process_single_image` which copies them into the ImageStore. Staging directories should be cleaned up after all groups in a job are processed.
+Import uploads are saved to `{APP_DATA_DIR}/staging/{job_id}/` using a UUID-flat-file structure — each uploaded file is stored with a UUID-based filename (e.g. `a1b2c3d4.jpg`) rather than the user-supplied path. A `.file_map.json` sidecar maps original relative paths to staging filenames, allowing group detection and the frontend to use original paths as logical identifiers while eliminating path traversal risks (see [security.md](security.md)). After processing, staging files are consumed by `process_single_image` which copies them into the ImageStore. Staging directories should be cleaned up after all groups in a job are processed.
 
 ## Backups
 
-**Location:** `data/backups/{timestamp}/`
+**Location:** `{IMAGE_LIBRARY_DIR}/backups/{timestamp}/`
+
+On migration from a single-root installation, the existing images at `{old_dataDir}/store/images/` become `IMAGE_LIBRARY_DIR` (i.e. the old image root is promoted to the library root directly, rather than wrapping it in another directory).
 **Contents:** SQLite snapshot + Qdrant snapshot
 **Schedule:** Every 24 hours (via Scheduler)
 **Rotation:** 7 daily + 4 weekly backups retained

@@ -24,56 +24,48 @@ class Settings(BaseSettings):
     # 'server' when running standalone via uvicorn.  Set via APP_MODE env var.
     app_mode: Literal["app", "server"] = "server"
 
-    # Paths
-    base_dir: Path = Path(__file__).parent.parent.parent
-    data_dir: Path = base_dir / "data"
-    store_images_dir: Path = data_dir / "store" / "images"  # Object store for images
-    store_thumbnails_dir: Path = data_dir / "store" / "thumbnails"  # Object store for thumbnails
-    config_dir: Path = base_dir / "config"
+    # Storage roots — set via APP_DATA_DIR and IMAGE_LIBRARY_DIR env vars
+    app_data_dir: Path = Path(__file__).parent.parent.parent / "data"
+    image_library_dir: Path = Path(__file__).parent.parent.parent / "images"
 
-    # Database
-    database_url: str = "sqlite:///./data/battlemap.db"
+    # Whether to validate that roots exist on startup.
+    # Set to True in production entry points (entry.py).  False by default so
+    # that tests and dev runs don't require pre-created directories.
+    validate_roots: bool = False
 
-    @property
-    def db_path(self) -> Path:
-        """Path to the SQLite file, derived from database_url."""
-        url = self.database_url
-        if url.startswith("sqlite:///"):
-            p = Path(url[len("sqlite:///") :])
-            return p if p.is_absolute() else self.base_dir / p
-        raise ValueError(f"Cannot derive db_path from non-SQLite URL: {url}")
+    # Derived paths — recomputed unconditionally in __init__ from the roots above.
+    # Declared here as fields so type-checkers and callers can read them as attributes.
+    store_thumbnails_dir: Path = (
+        Path(__file__).parent.parent.parent / "data" / "store" / "thumbnails"
+    )
+    staging_dir: Path = Path(__file__).parent.parent.parent / "data" / "staging"
+    qdrant_path: Path = Path(__file__).parent.parent.parent / "data" / "qdrant_local"
+    config_dir: Path = Path(__file__).parent.parent.parent / "data" / "config"
+    store_images_dir: Path = Path(__file__).parent.parent.parent / "images"
+    backups_dir: Path = Path(__file__).parent.parent.parent / "images" / "backups"
 
-    # Qdrant (embedded local mode)
-    qdrant_path: Path = data_dir / "qdrant_local"
-    qdrant_vector_size: int = 512  # Overwritten from manifest.embedding_dim at startup
-
-    # Embedding model — selects which subdirectory under backend/models/
-    # Set via EMBEDDING_MODEL env var to switch models in dev.
+    # Qdrant
+    qdrant_vector_size: int = 512
     embedding_model: str = "clip-vit-b-32"
-
-    # Inference device: auto/cpu/cuda/directml/coreml
-    # "auto" probes for the best available GPU provider and falls back to CPU.
-    # See design/gpu-acceleration.md for details.
     inference_device: str = "auto"
 
     @property
     def qdrant_collection_name(self) -> str:
-        """Collection name scoped to the active embedding model."""
         return f"embeddings_{self.embedding_model}"
 
-    # ── Service constants (env-backed, not in AppSettings DB) ─────────────────
-    # Change via env var + restart. Suitable for operator/developer tuning.
-    clip_text_cache_max: int = 256  # LRU cache size for text embeddings
-    color_cache_ttl_seconds: float = 60.0  # Color index TTL in seconds
-    job_retention_seconds: int = 3600  # How long to keep completed job records
+    # database_url is computed from app_data_dir in __init__.
+    # Declared as a plain field (not @property) so that test fixtures can
+    # assign settings.database_url = str(engine.url) without AttributeError.
+    database_url: str = ""
+
+    # ── Service constants ──────────────────────────────────────────────────────
+    clip_text_cache_max: int = 256
+    color_cache_ttl_seconds: float = 60.0
+    job_retention_seconds: int = 3600
 
     # Image Processing
-    thumbnail_sizes: list[tuple[int, int]] = [
-        (150, 150),  # Small thumbnail
-        (400, 400),  # Medium thumbnail
-        (800, 800),  # Large thumbnail
-    ]
-    max_image_size: int = 10 * 1024 * 1024  # 10MB
+    thumbnail_sizes: list[tuple[int, int]] = [(150, 150), (400, 400), (800, 800)]
+    max_image_size: int = 10 * 1024 * 1024
     supported_formats: list[str] = [".jpg", ".jpeg", ".png", ".webp"]
     supported_video_formats: list[str] = [".mp4", ".webm"]
 
@@ -81,9 +73,7 @@ class Settings(BaseSettings):
     def all_supported_formats(self) -> list[str]:
         return self.supported_formats + self.supported_video_formats
 
-    # Rate limiting — per-IP via slowapi.  Set RATE_LIMIT_ENABLED=false to disable.
-    # When behind a reverse proxy, ensure it overwrites X-Forwarded-For (not appends)
-    # so rate limiting keys on the real client IP.  See design/security.md.
+    # Rate limiting
     rate_limit_expensive: str = "2/minute"
     rate_limit_destructive: str = "1/minute"
     rate_limit_enabled: bool = True
@@ -98,33 +88,44 @@ class Settings(BaseSettings):
         "http://localhost:8000",
     ]
 
-    # Import staging directory
-    staging_dir: Path = data_dir / "staging"
-
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+
         # Migration aid: warn if the old CLIP_DEVICE env var is set
         if os.environ.get("CLIP_DEVICE"):
             logging.getLogger(__name__).warning(
                 "CLIP_DEVICE env var is deprecated and ignored. "
                 "Use INFERENCE_DEVICE instead (auto/cpu/cuda/directml/coreml)."
             )
-        # Recompute derived paths when data_dir was overridden (e.g. via DATA_DIR env var
-        # for desktop/sidecar mode). Class-level defaults are computed at definition time
-        # from the original base_dir, so they won't reflect an overridden data_dir.
-        _default_data = Path(__file__).parent.parent.parent / "data"
-        if self.data_dir != _default_data:
-            self.store_images_dir = self.data_dir / "store" / "images"
-            self.store_thumbnails_dir = self.data_dir / "store" / "thumbnails"
-            self.staging_dir = self.data_dir / "staging"
-            self.qdrant_path = self.data_dir / "qdrant_local"
-            self.database_url = f"sqlite:///{self.data_dir / 'battlemap.db'}"
-        # Ensure directories exist
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.store_images_dir.mkdir(parents=True, exist_ok=True)
+
+        # Unconditionally recompute all derived paths from the roots.
+        # Class-level field defaults are computed at class-definition time using
+        # literal Path(__file__) chains and will NOT reflect overridden root values.
+        self.store_thumbnails_dir = self.app_data_dir / "store" / "thumbnails"
+        self.staging_dir = self.app_data_dir / "staging"
+        self.qdrant_path = self.app_data_dir / "qdrant_local"
+        self.config_dir = self.app_data_dir / "config"
+        self.store_images_dir = self.image_library_dir
+        self.backups_dir = self.image_library_dir / "backups"
+        self.database_url = f"sqlite:///{self.app_data_dir / 'battlemap.db'}"
+
+        # Validate roots exist if requested (set True in production entry points)
+        if self.validate_roots:
+            if not self.app_data_dir.exists():
+                raise ValueError(
+                    f"APP_DATA_DIR does not exist: {self.app_data_dir}. "
+                    "Create it before starting the backend."
+                )
+            if not self.image_library_dir.exists():
+                raise ValueError(
+                    f"IMAGE_LIBRARY_DIR does not exist: {self.image_library_dir}. "
+                    "Create it before starting the backend."
+                )
+
+        # Create expected subdirectories within the roots (not the roots themselves).
         self.store_thumbnails_dir.mkdir(parents=True, exist_ok=True)
-        self.config_dir.mkdir(parents=True, exist_ok=True)
         self.staging_dir.mkdir(parents=True, exist_ok=True)
+        self.config_dir.mkdir(parents=True, exist_ok=True)
         self.qdrant_path.mkdir(parents=True, exist_ok=True)
 
 

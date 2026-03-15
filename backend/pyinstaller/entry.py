@@ -2,7 +2,7 @@
 
 Sets environment variables BEFORE importing any backend.app modules,
 because importing config.py immediately constructs Settings() and
-computes all derived paths from data_dir.
+computes all derived paths from app_data_dir / image_library_dir.
 
 Includes crash supervision: if uvicorn crashes, it restarts with
 exponential backoff. Gives up after 10 crashes in 5 minutes and exits
@@ -23,20 +23,44 @@ MAX_BACKOFF = 30
 def main():
     parser = argparse.ArgumentParser(description="Scene Atlas backend (packaged)")
     parser.add_argument("--port", type=int, required=True, help="Port to bind to")
-    parser.add_argument("--data-dir", type=str, required=True, help="Data directory path")
+    parser.add_argument(
+        "--app-data-dir",
+        type=str,
+        required=True,
+        help="App data directory (fast storage: DB, index, thumbnails)",
+    )
+    parser.add_argument(
+        "--image-library-dir",
+        type=str,
+        required=True,
+        help="Image library directory (cold storage: originals, backups)",
+    )
     args = parser.parse_args()
 
+    # Validate roots exist before importing any backend modules.
+    # (Settings.__init__ also validates when validate_roots=True, but we
+    # check here first so the error appears before any heavy imports.)
+    from pathlib import Path
+
+    for label, dirpath in [
+        ("APP_DATA_DIR", args.app_data_dir),
+        ("IMAGE_LIBRARY_DIR", args.image_library_dir),
+    ]:
+        if not Path(dirpath).exists():
+            print(f"ERROR: {label} does not exist: {dirpath}", file=sys.stderr)
+            sys.exit(1)
+
     # Must set env vars before any backend.app import triggers Settings()
-    os.environ["DATA_DIR"] = args.data_dir
+    os.environ["APP_DATA_DIR"] = args.app_data_dir
+    os.environ["IMAGE_LIBRARY_DIR"] = args.image_library_dir
+    os.environ["VALIDATE_ROOTS"] = "1"  # Settings() will raise if roots don't exist
     os.environ["API_PORT"] = str(args.port)
     os.environ["API_HOST"] = "127.0.0.1"
     os.environ["APP_MODE"] = "app"
 
-    from pathlib import Path
-
     from backend.app.logging_config import setup_logging
 
-    setup_logging(Path(args.data_dir))
+    setup_logging(Path(args.app_data_dir))
 
     logger = logging.getLogger(__name__)
 

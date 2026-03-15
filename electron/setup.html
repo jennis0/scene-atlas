@@ -13,11 +13,13 @@
     :root {
       --bg:          #0e1118;
       --surface:     #161c28;
+      --surface2:    #1c2231;
       --border:      #1e2736;
       --primary:     #d4a853;
-      --primary-dim: rgba(212, 168, 83, 0.15);
+      --primary-dim: rgba(212, 168, 83, 0.10);
       --fg:          #ede8dc;
       --fg-muted:    rgba(237, 232, 220, 0.45);
+      --fg-subtle:   rgba(237, 232, 220, 0.28);
       --radius:      6px;
     }
 
@@ -26,111 +28,91 @@
       background: var(--bg);
       color: var(--fg);
       font-family: 'Figtree', system-ui, sans-serif;
-      /* dot-grid — matches the main app body */
       background-image: radial-gradient(circle, rgba(237,232,220,0.04) 1px, transparent 1px);
       background-size: 28px 28px;
       -webkit-font-smoothing: antialiased;
     }
 
-    /* amber rule across the top */
     body::before {
       content: '';
-      position: fixed;
-      top: 0; left: 0; right: 0;
-      height: 1px;
+      position: fixed; top: 0; left: 0; right: 0; height: 1px;
       background: linear-gradient(90deg,
-        transparent 0%,
-        rgba(212,168,83,0.5) 15%,
-        #d4a853 50%,
-        rgba(212,168,83,0.5) 85%,
-        transparent 100%);
+        transparent 0%, rgba(212,168,83,0.5) 15%,
+        #d4a853 50%, rgba(212,168,83,0.5) 85%, transparent 100%);
       z-index: 100;
     }
 
     .page {
       min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
       padding: 2rem;
       -webkit-app-region: drag;
     }
 
     .card {
-      width: 100%;
-      max-width: 520px;
+      width: 100%; max-width: 520px;
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 2.5rem;
-      display: flex;
-      flex-direction: column;
-      gap: 2rem;
+      padding: 2rem 2.5rem;
+      display: flex; flex-direction: column;
+      gap: 1.25rem;
     }
 
+    /* ── Header — unchanged from existing setup.html ── */
     .header {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 0.75rem;
+      display: flex; flex-direction: column;
+      align-items: center; gap: 0.625rem;
       text-align: center;
     }
 
-    .compass {
-      width: 48px;
-      height: 48px;
-      color: var(--primary);
-      opacity: 0.8;
-    }
+    .compass { width: 40px; height: 40px; color: var(--primary); opacity: 0.8; }
 
     h1 {
       font-family: 'Cinzel', Georgia, serif;
-      font-size: 1.5rem;
-      font-weight: 500;
-      letter-spacing: 0.15em;
-      color: var(--fg);
+      font-size: 1.5rem; font-weight: 500; letter-spacing: 0.15em;
     }
 
     .divider {
-      width: 80px;
-      height: 1px;
+      width: 80px; height: 1px;
       background: linear-gradient(90deg, transparent, var(--primary), transparent);
-      margin: 0 auto;
     }
 
-    .description {
+    /* Welcome body — 0.875rem matches existing setup.html .description */
+    .welcome-body {
       font-size: 0.875rem;
       color: var(--fg-muted);
       line-height: 1.6;
-      text-align: center;
+      margin-top: 0.125rem;
     }
 
-    .description strong {
-      color: var(--fg);
-      font-weight: 500;
-    }
-
-    .field {
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-    }
-
-    label {
-      font-size: 0.75rem;
-      font-weight: 500;
+    /* ── Field label — matches setup.html `label` pattern but bumped to 0.8125rem
+          (existing: 0.75rem 500 uppercase tracking-0.08em --fg-muted)
+          Change: size up to 0.8125rem, weight 600, color to --fg for more presence ── */
+    .field-label {
+      font-size: 0.8125rem;
+      font-weight: 600;
       letter-spacing: 0.08em;
       text-transform: uppercase;
+      color: var(--fg);
+      margin-bottom: 0.35rem;
+    }
+
+    /* Field hint — 0.75rem matches setup.html .note / app text-xs */
+    .field-hint {
+      font-size: 0.75rem;
       color: var(--fg-muted);
+      line-height: 1.6;
+      margin-bottom: 0.5rem;
     }
 
-    .dir-row {
-      display: flex;
-      gap: 0.5rem;
-    }
+    .field-hint strong { color: var(--fg); font-weight: 500; }
 
-    #dirDisplay {
+    .dir-row { display: flex; gap: 0.5rem; }
+
+    /* dir-display — identical to existing setup.html #dirDisplay */
+    .dir-display {
       flex: 1;
       background: var(--bg);
       border: 1px solid var(--border);
@@ -139,65 +121,90 @@
       font-size: 0.8125rem;
       font-family: 'Courier New', monospace;
       color: var(--fg);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      direction: rtl; /* shows the end of long paths */
-      text-align: left;
-      cursor: default;
-    }
-
-    button, input, .dir-row, .card {
-      -webkit-app-region: no-drag;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      direction: rtl; text-align: left;
     }
 
     button {
-      cursor: pointer;
-      border: none;
+      cursor: pointer; border: none;
       border-radius: var(--radius);
       font-family: 'Figtree', system-ui, sans-serif;
-      font-size: 0.875rem;
-      font-weight: 500;
-      transition: opacity 0.15s, background 0.15s;
+      font-size: 0.875rem; font-weight: 500;
+      transition: opacity 0.15s, background 0.15s, color 0.15s, border-color 0.15s;
     }
 
-    #browseBtn {
+    /* Browse button — identical to existing setup.html #browseBtn */
+    .browse-btn {
       background: transparent;
       border: 1px solid var(--border);
       color: var(--fg-muted);
       padding: 0.625rem 1rem;
       white-space: nowrap;
     }
-    #browseBtn:hover { color: var(--fg); border-color: var(--fg-muted); }
+    .browse-btn:hover { color: var(--fg); border-color: var(--fg-muted); }
 
-    #startBtn {
+    .separator { height: 1px; background: var(--border); opacity: 0.4; }
+
+    /* ── WebP toggle ── */
+    .toggle-row {
+      display: flex; align-items: center;
+      justify-content: space-between; gap: 1.5rem;
+      padding: 0.875rem 1rem;
+      background: var(--primary-dim);
+      border: 1px solid rgba(212, 168, 83, 0.15);
+      border-radius: var(--radius);
+    }
+
+    /* Toggle label — same 0.8125rem uppercase pattern as field-label */
+    .toggle-label {
+      font-size: 0.8125rem; font-weight: 600;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--fg); margin-bottom: 0.25rem;
+    }
+
+    /* Toggle hint — 0.75rem matches field-hint / .note */
+    .toggle-hint { font-size: 0.75rem; color: var(--fg-muted); line-height: 1.5; }
+
+    .toggle-control { display: flex; flex-direction: column; align-items: center; gap: 3px; flex-shrink: 0; }
+
+    .toggle-switch {
+      width: 44px; height: 24px; border-radius: 12px;
+      background: var(--primary); position: relative; cursor: pointer; border: none;
+    }
+    .toggle-switch::after {
+      content: ''; position: absolute; right: 3px; top: 3px;
+      width: 18px; height: 18px; background: #0e1118; border-radius: 50%;
+    }
+    .toggle-switch.off { background: var(--surface2); border: 1px solid var(--border); }
+    .toggle-switch.off::after { right: auto; left: 3px; background: var(--fg-subtle); }
+
+    .toggle-state {
+      font-size: 0.625rem; font-weight: 600;
+      letter-spacing: 0.06em; text-transform: uppercase; color: var(--primary);
+    }
+
+    /* Start button — identical to existing setup.html #startBtn */
+    .start-btn {
       width: 100%;
-      background: var(--primary);
-      color: #0e1118;
+      background: var(--primary); color: #0e1118;
       padding: 0.75rem 1.5rem;
-      font-size: 0.9375rem;
-      letter-spacing: 0.03em;
+      font-size: 0.9375rem; letter-spacing: 0.03em;
     }
-    #startBtn:hover { opacity: 0.88; }
-    #startBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .start-btn:hover { opacity: 0.88; }
 
-    .note {
-      font-size: 0.75rem;
-      color: var(--fg-muted);
-      line-height: 1.5;
-    }
+    /* Note — 0.75rem matches existing setup.html .note */
+    .note { font-size: 0.75rem; color: var(--fg-muted); text-align: center; line-height: 1.5; }
 
-    .note a {
-      color: var(--primary);
-      text-decoration: none;
+    button, input, .dir-row, .card {
+      -webkit-app-region: no-drag;
     }
   </style>
 </head>
 <body>
   <div class="page">
     <div class="card">
+
       <div class="header">
-        <!-- Compass SVG (lucide compass) -->
         <svg class="compass" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
              fill="none" stroke="currentColor" stroke-width="1.2"
              stroke-linecap="round" stroke-linejoin="round">
@@ -206,57 +213,103 @@
         </svg>
         <h1>Scene Atlas</h1>
         <div class="divider"></div>
+        <p class="welcome-body">
+          Welcome. Let&rsquo;s choose where your library will live &mdash;
+          you can change these at any time in Settings.
+        </p>
       </div>
 
-      <p class="description">
-        Choose where Scene Atlas will store your <strong>image library</strong>.
-        This includes your battlemaps, thumbnails, and search index.<br /><br />
-        Pick a location with plenty of free space — large collections
-        can reach <strong>tens of gigabytes</strong>.
-      </p>
-
-      <div class="field">
-        <label>Library location</label>
+      <div>
+        <p class="field-label">App data location</p>
+        <p class="field-hint">
+          Database, thumbnails and search index.
+          <strong>SSD recommended</strong> &mdash; accessed constantly while the app runs.
+          Allow at least 2&thinsp;GB free (your default max import size).
+        </p>
         <div class="dir-row">
-          <div id="dirDisplay" title="">Loading…</div>
-          <button id="browseBtn">Browse…</button>
+          <div class="dir-display" id="app-data-dir">Loading&hellip;</div>
+          <button class="browse-btn" id="browse-app-data">Browse&hellip;</button>
         </div>
-        <p class="note">You can change this later in Settings.</p>
       </div>
 
-      <button id="startBtn" disabled>Get Started</button>
+      <div class="separator"></div>
+
+      <div>
+        <p class="field-label">Image library location</p>
+        <p class="field-hint">
+          Your original image files. Any drive works &mdash; external storage and NAS are fine here.
+        </p>
+        <div class="dir-row">
+          <div class="dir-display" id="image-library-dir">Loading&hellip;</div>
+          <button class="browse-btn" id="browse-image-library">Browse&hellip;</button>
+        </div>
+      </div>
+
+      <div class="separator"></div>
+
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label">Convert images to WebP</div>
+          <div class="toggle-hint">Saves 20&ndash;40% storage with no quality loss (lossless). Originals are not kept.</div>
+        </div>
+        <div class="toggle-control">
+          <button class="toggle-switch" title="Toggle WebP conversion"></button>
+          <span class="toggle-state">On</span>
+        </div>
+      </div>
+
+      <button class="start-btn">Get Started</button>
+
+      <p class="note">These settings can be changed later in Settings.</p>
+
     </div>
   </div>
 
   <script>
-    let chosenDir = null
+    let appDataDir = ''
+    let imageLibraryDir = ''
+    let convertToWebp = true  // default on
 
-    async function init() {
-      const defaultDir = await window.setupAPI.getDefaultDir()
-      setDir(defaultDir)
-    }
-
-    function setDir(dir) {
-      chosenDir = dir
-      const el = document.getElementById('dirDisplay')
-      el.textContent = dir
-      el.title = dir
-      document.getElementById('startBtn').disabled = false
-    }
-
-    document.getElementById('browseBtn').addEventListener('click', async () => {
-      const dir = await window.setupAPI.chooseDirectory()
-      if (dir) setDir(dir)
+    // Populate default dirs on load
+    window.setupAPI.getDefaultDirs().then(function(dirs) {
+      appDataDir = dirs.appDataDir
+      imageLibraryDir = dirs.imageLibraryDir
+      document.getElementById('app-data-dir').textContent = appDataDir
+      document.getElementById('image-library-dir').textContent = imageLibraryDir
     })
 
-    document.getElementById('startBtn').addEventListener('click', () => {
-      if (!chosenDir) return
-      document.getElementById('startBtn').disabled = true
-      document.getElementById('startBtn').textContent = 'Starting…'
-      window.setupAPI.complete(chosenDir)
+    document.getElementById('browse-app-data').addEventListener('click', async function() {
+      const chosen = await window.setupAPI.chooseDirectory()
+      if (chosen) {
+        appDataDir = chosen
+        document.getElementById('app-data-dir').textContent = chosen
+      }
     })
 
-    init()
+    document.getElementById('browse-image-library').addEventListener('click', async function() {
+      const chosen = await window.setupAPI.chooseDirectory()
+      if (chosen) {
+        imageLibraryDir = chosen
+        document.getElementById('image-library-dir').textContent = chosen
+      }
+    })
+
+    // WebP toggle
+    const toggleBtn = document.querySelector('.toggle-switch')
+    const toggleState = document.querySelector('.toggle-state')
+
+    toggleBtn.addEventListener('click', function() {
+      convertToWebp = !convertToWebp
+      toggleBtn.classList.toggle('off', !convertToWebp)
+      toggleState.textContent = convertToWebp ? 'On' : 'Off'
+      toggleState.style.color = convertToWebp ? 'var(--primary)' : 'var(--fg-muted)'
+    })
+
+    // Get Started
+    document.querySelector('.start-btn').addEventListener('click', function() {
+      if (!appDataDir || !imageLibraryDir) return
+      window.setupAPI.complete(appDataDir, imageLibraryDir, convertToWebp)
+    })
   </script>
 </body>
 </html>

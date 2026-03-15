@@ -1,12 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('setupAPI', {
-  getDefaultDir: (): Promise<string> =>
-    ipcRenderer.invoke('setup:get-default-dir'),
+  getDefaultDirs: (): Promise<{ appDataDir: string; imageLibraryDir: string }> =>
+    ipcRenderer.invoke('setup:get-default-dirs'),
 
   chooseDirectory: (): Promise<string | null> =>
     ipcRenderer.invoke('setup:choose-directory'),
 
-  complete: (dataDir: string): void =>
-    ipcRenderer.send('setup:complete', dataDir),
+  complete: (appDataDir: string, imageLibraryDir: string, convertToWebp: boolean): void =>
+    ipcRenderer.send('setup:complete', appDataDir, imageLibraryDir, convertToWebp),
 })

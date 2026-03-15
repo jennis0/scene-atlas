@@ -33,17 +33,18 @@ Scene Atlas ships as a desktop app using Electron. The Electron shell handles wi
 app.whenReady()
   → loadConfig()
   → config exists?
-     ├── YES → launchApp(dataDir)
+     ├── YES → launchApp(appDataDir, imageLibraryDir, convertToWebp)
      │         → createMainWindow()
      │         → isDev?
      │         │   ├── YES → send 'backend-ready' with port 8000 (dev server)
-     │         │   └── NO  → findFreePort() → spawnSidecar(port, dataDir)
+     │         │   └── NO  → findFreePort()
+     │         │              → spawnSidecar(port, appDataDir, imageLibraryDir, convertToWebp)
      │         │              → sidecar prints SCENE_ATLAS_READY
      │         │              → send 'backend-ready' to renderer
      │         └── renderer shows DesktopGate → polls /health → Gallery
      └── NO  → showSetupWindow()
-              → user picks data directory
-              → setup:complete IPC → saveConfig → launchApp(dataDir)
+              → user picks appDataDir, imageLibraryDir, convertToWebp
+              → setup:complete IPC → saveConfig → launchApp(appDataDir, imageLibraryDir, convertToWebp)
 ```
 
 ## IPC Channels
@@ -52,9 +53,9 @@ app.whenReady()
 
 | Channel | Direction | Purpose |
 |---------|-----------|---------|
-| `setup:get-default-dir` | renderer → main | Returns default data path (`Documents/Scene Atlas/data`) |
-| `setup:choose-directory` | renderer → main | Opens native folder picker |
-| `setup:complete` | renderer → main | Saves config, closes setup, launches app |
+| `setup:get-default-dirs` | renderer → main | Returns `{ appDataDir, imageLibraryDir }` defaults (`Documents/Scene Atlas/data` and `Documents/Scene Atlas/images`) |
+| `setup:choose-directory` | renderer → main | Opens native folder picker, returns single selected path |
+| `setup:complete` | renderer → main | Saves config (appDataDir, imageLibraryDir, convertToWebp), closes setup, launches app |
 
 ### Main Window (via `electronAPI`)
 
@@ -62,10 +63,11 @@ app.whenReady()
 |---------|-----------|---------|
 | `backend-ready` | main → renderer | Delivers backend port number once sidecar is ready |
 | `backend-error` | main → renderer | Delivers error message if sidecar crashes |
-| `system:get-data-dir` | renderer → main | Returns current data directory path |
-| `system:open-data-dir` | renderer → main | Opens data directory in OS file explorer |
-| `system:choose-data-dir` | renderer → main | Opens native folder picker for new location |
-| `system:change-data-dir` | renderer → main | Saves new path, relaunches app |
+| `system:get-app-data-dir` | renderer → main | Returns current app data directory path |
+| `system:get-image-library-dir` | renderer → main | Returns current image library directory path |
+| `system:choose-app-data-dir` | renderer → main | Opens native folder picker for new app data location |
+| `system:choose-image-library-dir` | renderer → main | Opens native folder picker for new image library location |
+| `system:change-storage-dirs` | renderer → main | Saves new paths (newAppDataDir, newImageLibraryDir), relaunches app |
 | `fs:read-directory` | renderer → main | Recursively walks a folder, returns relative + absolute paths |
 | `fs:read-file-bytes` | renderer → main | Reads file as `Uint8Array` (for hashing and upload) |
 
@@ -78,10 +80,11 @@ window.electronAPI = {
   platform: string,                          // 'darwin' | 'win32' | 'linux'
   onBackendReady: (cb) => void,              // one-shot listener
   onBackendError: (cb) => void,              // one-shot listener
-  getDataDir: () => Promise<string | null>,
-  openDataDir: () => Promise<void>,
-  chooseDataDir: () => Promise<string | null>,
-  changeDataDir: (path) => Promise<void>,
+  getAppDataDir: () => Promise<string | null>,
+  getImageLibraryDir: () => Promise<string | null>,
+  chooseAppDataDir: () => Promise<string | null>,
+  chooseImageLibraryDir: () => Promise<string | null>,
+  changeStorageDirs: (appDataDir, imageLibraryDir) => Promise<void>,
   readDirectory: (path) => Promise<Array<{relativePath, absolutePath}>>,
   readFileBytes: (path) => Promise<{data: Uint8Array}>,
 }
@@ -90,7 +93,7 @@ window.electronAPI = {
 ## Sidecar Lifecycle
 
 1. **Port discovery** — `findFreePort()` binds TCP port 0, reads OS-assigned port, closes socket
-2. **Spawn** — `spawn(sidecarPath, ['--port', port, '--data-dir', dataDir])` with piped stdio
+2. **Spawn** — `spawn(sidecarPath, ['--port', port, '--app-data-dir', appDataDir, '--image-library-dir', imageLibraryDir], { env: { CONVERT_TO_WEBP: '1' | '0' } })` with piped stdio
 3. **Ready signal** — Main process scans stdout for `SCENE_ATLAS_READY`; when found, sends `backend-ready` IPC to renderer
 4. **Logging** — All stdout/stderr written to `{userData}/backend.log` with timestamps
 5. **Crash handling** — On non-zero exit, sends `backend-error` IPC with last 10 lines of output
@@ -125,9 +128,12 @@ The frontend reserves top padding for the window controls drag region.
 
 | Item | Location |
 |------|----------|
-| App config | `{userData}/scene-atlas-config.json` — stores `{ dataDir: string }` |
+| App config | `{userData}/scene-atlas-config.json` — stores `{ appDataDir: string, imageLibraryDir: string, convertToWebp: boolean }` |
 | Backend log | `{userData}/backend.log` — sidecar stdout/stderr |
-| Default data dir | `{Documents}/Scene Atlas/data` |
+| Default app data dir | `{Documents}/Scene Atlas/data` |
+| Default image library dir | `{Documents}/Scene Atlas/images` |
+
+**Migration:** If an existing config contains only `dataDir` (legacy single-root format), it is automatically migrated: `appDataDir ← dataDir`, `imageLibraryDir ← dataDir/store/images`, `convertToWebp ← true`. The migrated config is persisted immediately.
 
 `userData` is the OS-standard app data path (e.g. `%APPDATA%/Scene Atlas` on Windows, `~/Library/Application Support/Scene Atlas` on macOS).
 

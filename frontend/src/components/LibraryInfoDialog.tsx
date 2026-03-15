@@ -1,10 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import {
-  FolderOpen,
-  FolderInput,
   RotateCcw,
-  ArrowRight,
   X,
   Trash2,
   Loader2,
@@ -46,7 +43,6 @@ export interface LibraryInfoDialogProps {
   onClose: () => void
 }
 
-type LocationPhase = 'idle' | 'confirming' | 'restarting'
 type Tab = 'library' | 'settings'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -128,11 +124,10 @@ function StorageBar({ storage }: { storage: SystemInfo['storage'] }) {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
-  const isElectron = !!window.electronAPI
+  const isElectron = typeof window !== 'undefined' && !!window.electronAPI
   const queryClient = useQueryClient()
-  const [locationPhase, setLocationPhase] = useState<LocationPhase>('idle')
-  const [pendingDir, setPendingDir] = useState<string | null>(null)
-  const [dataDir, setDataDir] = useState<string | null>(null)
+  const [appDataDir, setAppDataDir] = useState<string | null>(null)
+  const [imageLibraryDir, setImageLibraryDir] = useState<string | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [confirmingResetTags, setConfirmingResetTags] = useState(false)
   const [exportingLibrary, setExportingLibrary] = useState(false)
@@ -151,7 +146,8 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
 
   useEffect(() => {
     if (open && window.electronAPI) {
-      window.electronAPI.getDataDir().then(setDataDir)
+      window.electronAPI.getAppDataDir().then(setAppDataDir)
+      window.electronAPI.getImageLibraryDir().then(setImageLibraryDir)
     }
   }, [open])
 
@@ -182,27 +178,6 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.systemInfo })
     },
   })
-
-  const handleOpenInExplorer = () => window.electronAPI?.openDataDir()
-
-  const handleChooseDir = async () => {
-    const chosen = await window.electronAPI?.chooseDataDir()
-    if (chosen && chosen !== dataDir) {
-      setPendingDir(chosen)
-      setLocationPhase('confirming')
-    }
-  }
-
-  const handleConfirmChange = async () => {
-    if (!pendingDir) return
-    setLocationPhase('restarting')
-    await window.electronAPI?.changeDataDir(pendingDir)
-  }
-
-  const handleCancelChange = () => {
-    setPendingDir(null)
-    setLocationPhase('idle')
-  }
 
   const handleExportLibrary = async () => {
     setExportingLibrary(true)
@@ -252,8 +227,6 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
 
       onClose()
       setTimeout(() => {
-        setLocationPhase('idle')
-        setPendingDir(null)
         setActiveTab('library') // Reset to library tab
       }, 200)
     }
@@ -351,96 +324,16 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
                 </div>
               )}
 
-              {/* ── Library location (Electron only) ──────────────── */}
+              {/* ── Storage paths (Electron only) ─────────────────── */}
               {isElectron && (
-                <section>
-                  <p className="section-label mb-2">Library Location</p>
-
-                  {locationPhase === 'restarting' ? (
-                    <div className="flex items-center gap-2.5 py-2">
-                      <RotateCcw className="h-3.5 w-3.5 animate-spin shrink-0 text-primary" />
-                      <span className="text-sm text-muted-foreground">Restarting Scene Atlas…</span>
-                    </div>
-                  ) : locationPhase === 'confirming' && pendingDir ? (
-                    <div className="space-y-3">
-                      <div className="rounded-md border border-border bg-secondary/40 p-3 space-y-2.5">
-                        <div className="space-y-1">
-                          <span className="section-label">Current</span>
-                          <p className="text-sm text-muted-foreground break-all leading-relaxed">
-                            {dataDir ?? '—'}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <ArrowRight className="h-3 w-3 shrink-0 text-primary/50" />
-                          <div className="h-px flex-1 border-t border-dashed border-border" />
-                        </div>
-                        <div className="space-y-1">
-                          <span className="text-[10px] font-semibold text-primary/70 uppercase tracking-[0.1em]">
-                            New
-                          </span>
-                          <p className="text-sm text-primary break-all leading-relaxed">
-                            {pendingDir}
-                          </p>
-                        </div>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        Scene Atlas will restart to apply the new location.
-                      </p>
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={handleCancelChange}
-                          className="flex-1 h-8"
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={handleConfirmChange}
-                          className="flex-1 h-8 text-primary border-primary/40 hover:bg-primary/10"
-                        >
-                          Restart &amp; Apply
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-2.5">
-                      <div className="rounded-md border border-border bg-secondary/40 px-3 py-2.5 min-h-[2.5rem] flex items-center">
-                        {dataDir ? (
-                          <p className="text-sm text-foreground/80 break-all leading-relaxed">
-                            {dataDir}
-                          </p>
-                        ) : (
-                          <Shimmer className="h-3 w-3/4" />
-                        )}
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={handleOpenInExplorer}
-                          disabled={!dataDir}
-                          className="gap-1.5 h-8"
-                        >
-                          <FolderOpen className="h-3.5 w-3.5" />
-                          Open
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={handleChooseDir}
-                          disabled={!dataDir}
-                          className="gap-1.5 h-8"
-                        >
-                          <FolderInput className="h-3.5 w-3.5" />
-                          Change Location
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </section>
+                <div className="space-y-1">
+                  <p className="section-label">Storage</p>
+                  <div className="space-y-0.5">
+                    <p className="text-xs text-muted-foreground">App data: <span className="font-mono">{appDataDir ?? '—'}</span></p>
+                    <p className="text-xs text-muted-foreground">Images: <span className="font-mono">{imageLibraryDir ?? '—'}</span></p>
+                  </div>
+                  <p className="text-xs text-muted-foreground/60">To change, go to Settings → Storage Locations.</p>
+                </div>
               )}
 
               {/* ── Divider ───────────────────────────────────────── */}

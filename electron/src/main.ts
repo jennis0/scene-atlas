@@ -3,12 +3,14 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { ChildProcess } from 'child_process'
 import { findFreePort, spawnSidecar } from './sidecar'
-import { getDefaultDataDir, loadConfig, saveConfig } from './config'
+import { getDefaultDirs, loadConfig, saveConfig } from './config'
 
 let mainWindow: BrowserWindow | null = null
 let setupWindow: BrowserWindow | null = null
 let sidecarProcess: ChildProcess | null = null
-let currentDataDir: string | null = null
+let currentAppDataDir: string | null = null
+let currentImageLibraryDir: string | null = null
+let currentConvertToWebp: boolean = true
 
 const isDev = !app.isPackaged
 const isMac = process.platform === 'darwin'
@@ -41,54 +43,68 @@ function enableDevToolsShortcut(win: BrowserWindow): void {
   })
 }
 
-// ── IPC handlers for the setup window ──────────────────────────────────────
+// ── Setup window IPC ────────────────────────────────────────────────────────
 
-ipcMain.handle('setup:get-default-dir', () => getDefaultDataDir())
+ipcMain.handle('setup:get-default-dirs', () => getDefaultDirs())
 
 ipcMain.handle('setup:choose-directory', async () => {
   const result = await dialog.showOpenDialog(setupWindow!, {
-    title: 'Choose Library Location',
-    defaultPath: getDefaultDataDir(),
+    title: 'Choose Folder',
     properties: ['openDirectory', 'createDirectory'],
     buttonLabel: 'Select Folder',
   })
   return result.canceled ? null : result.filePaths[0]
 })
 
-ipcMain.on('setup:complete', (_event, dataDir: string) => {
-  fs.mkdirSync(dataDir, { recursive: true })
-  saveConfig({ dataDir })
+ipcMain.on('setup:complete', (_event, appDataDir: string, imageLibraryDir: string, convertToWebp: boolean) => {
+  // Create both roots before launching the backend (backend validates they exist)
+  fs.mkdirSync(appDataDir, { recursive: true })
+  fs.mkdirSync(imageLibraryDir, { recursive: true })
+  saveConfig({ appDataDir, imageLibraryDir, convertToWebp })
   setupWindow?.close()
   setupWindow = null
-  launchApp(dataDir)
+  launchApp(appDataDir, imageLibraryDir, convertToWebp)
 })
 
-// ── IPC handlers for the system settings panel ──────────────────────────────
+// ── System settings IPC ─────────────────────────────────────────────────────
 
-ipcMain.handle('system:get-data-dir', () => currentDataDir)
+ipcMain.handle('system:get-app-data-dir', () => currentAppDataDir)
+ipcMain.handle('system:get-image-library-dir', () => currentImageLibraryDir)
 
-ipcMain.handle('system:open-data-dir', async () => {
-  if (!currentDataDir) return
-  await shell.openPath(currentDataDir)
-})
-
-ipcMain.handle('system:choose-data-dir', async () => {
+ipcMain.handle('system:choose-app-data-dir', async () => {
   const result = await dialog.showOpenDialog(mainWindow!, {
-    title: 'Choose Library Location',
-    defaultPath: currentDataDir ?? getDefaultDataDir(),
+    title: 'Choose App Data Location',
+    defaultPath: currentAppDataDir ?? getDefaultDirs().appDataDir,
     properties: ['openDirectory', 'createDirectory'],
     buttonLabel: 'Select Folder',
   })
   return result.canceled ? null : result.filePaths[0]
 })
 
-ipcMain.handle('system:change-data-dir', (_event, newDataDir: string) => {
-  fs.mkdirSync(newDataDir, { recursive: true })
-  saveConfig({ dataDir: newDataDir })
-  // Relaunch with the new data directory
-  app.relaunch()
-  app.exit(0)
+ipcMain.handle('system:choose-image-library-dir', async () => {
+  const result = await dialog.showOpenDialog(mainWindow!, {
+    title: 'Choose Image Library Location',
+    defaultPath: currentImageLibraryDir ?? getDefaultDirs().imageLibraryDir,
+    properties: ['openDirectory', 'createDirectory'],
+    buttonLabel: 'Select Folder',
+  })
+  return result.canceled ? null : result.filePaths[0]
 })
+
+// Saves new paths to config and restarts.
+// Called only when user explicitly clicks "Restart Now" in the Settings UI.
+ipcMain.handle(
+  'system:change-storage-dirs',
+  (_event, newAppDataDir: string, newImageLibraryDir: string) => {
+    saveConfig({
+      appDataDir: newAppDataDir,
+      imageLibraryDir: newImageLibraryDir,
+      convertToWebp: currentConvertToWebp,
+    })
+    app.relaunch()
+    app.exit(0)
+  },
+)
 
 // ── IPC handlers for renderer file system access ─────────────────────────────
 
@@ -205,8 +221,10 @@ function createMainWindow(): BrowserWindow {
 
 // ── App launch (after setup is done or skipped) ─────────────────────────────
 
-async function launchApp(dataDir: string): Promise<void> {
-  currentDataDir = dataDir
+async function launchApp(appDataDir: string, imageLibraryDir: string, convertToWebp: boolean): Promise<void> {
+  currentAppDataDir = appDataDir
+  currentImageLibraryDir = imageLibraryDir
+  currentConvertToWebp = convertToWebp
   mainWindow = createMainWindow()
 
   if (isDev) {
@@ -229,14 +247,15 @@ async function launchApp(dataDir: string): Promise<void> {
     return
   }
 
-  fs.mkdirSync(dataDir, { recursive: true })
+  fs.mkdirSync(appDataDir, { recursive: true })
+  fs.mkdirSync(imageLibraryDir, { recursive: true })
 
   // Log file for sidecar output — helps diagnose startup crashes
   const logPath = path.join(app.getPath('userData'), 'backend.log')
   const logStream = fs.createWriteStream(logPath, { flags: 'a' })
   logStream.write(`\n--- Scene Atlas started ${new Date().toISOString()} ---\n`)
-  logStream.write(`port=${port} data=${dataDir}\n`)
-  console.log(`[electron] Spawning backend on port ${port}, data=${dataDir}`)
+  logStream.write(`port=${port} appData=${appDataDir} imageLibrary=${imageLibraryDir}\n`)
+  console.log(`[electron] Spawning backend on port ${port}, appData=${appDataDir}, imageLibrary=${imageLibraryDir}`)
   console.log(`[electron] Sidecar log: ${logPath}`)
 
   // Collect recent output lines so we can show them in the error dialog
@@ -250,7 +269,9 @@ async function launchApp(dataDir: string): Promise<void> {
 
   const child = spawnSidecar(
     port,
-    dataDir,
+    appDataDir,
+    imageLibraryDir,
+    convertToWebp,
     (readyPort) => {
       console.log(`[electron] Backend ready on port ${readyPort}`)
       mainWindow?.webContents.send('backend-ready', readyPort)
@@ -279,7 +300,7 @@ async function launchApp(dataDir: string): Promise<void> {
 app.whenReady().then(() => {
   const config = loadConfig()
   if (config) {
-    launchApp(config.dataDir)
+    launchApp(config.appDataDir, config.imageLibraryDir, config.convertToWebp)
   } else {
     showSetupWindow()
   }
@@ -291,10 +312,13 @@ app.on('window-all-closed', () => {
 })
 
 app.on('activate', () => {
-  if (mainWindow === null && setupWindow === null) {
+  if (BrowserWindow.getAllWindows().length === 0) {
     const config = loadConfig()
-    if (config) launchApp(config.dataDir)
-    else showSetupWindow()
+    if (config) {
+      launchApp(config.appDataDir, config.imageLibraryDir, config.convertToWebp)
+    } else {
+      showSetupWindow()
+    }
   }
 })
 

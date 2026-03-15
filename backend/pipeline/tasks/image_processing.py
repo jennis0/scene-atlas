@@ -9,7 +9,7 @@ from backend.app.config import settings
 from backend.app.services import get_thumbnail_store
 
 
-def generate_thumbnails(image_path: str, storage_key_stem: str) -> dict:
+def generate_thumbnails(image_path: str, storage_key_stem: str, use_webp: bool = False) -> dict:
     """Generate thumbnails at different sizes and store via ImageStore.
 
     Also returns original image dimensions to avoid a separate PIL open.
@@ -17,38 +17,57 @@ def generate_thumbnails(image_path: str, storage_key_stem: str) -> dict:
     Args:
         image_path: Path to the original image file (as string for serialization)
         storage_key_stem: UUID stem for naming thumbnails (e.g., "a1b2c3d4e5f6")
+        use_webp: If True, save thumbnails as WebP instead of JPEG.
 
     Returns:
         Dict with 'keys' (size name -> storage key) and 'dimensions' (width, height)
     """
     logger = logging.getLogger(__name__)
     try:
-        image_path = Path(image_path)
+        image_path_obj = Path(image_path)
         thumbnail_store = get_thumbnail_store()
         thumbnail_keys = {}
+        ext = "webp" if use_webp else "jpg"
 
-        with Image.open(image_path) as orig:
-            with orig.convert("RGB") as image:
-                dimensions = image.size  # (width, height) - capture before thumbnailing
+        with Image.open(image_path_obj) as orig:
+            # Mode conversion for thumbnail generation.
+            # For WebP: preserve RGBA/LA alpha; convert palette and other modes.
+            # For JPEG: always convert to RGB (JPEG has no alpha).
+            if use_webp:
+                if orig.mode == "P":
+                    image = orig.convert("RGBA" if "transparency" in orig.info else "RGB")
+                elif orig.mode in ("RGBA", "LA"):
+                    image = orig  # keep alpha
+                elif orig.mode != "RGB":
+                    image = orig.convert("RGB")
+                else:
+                    image = orig
+            else:
+                image = orig.convert("RGB")
 
-                for idx, (width, height) in enumerate(settings.thumbnail_sizes):
-                    # Generate storage key for this thumbnail
-                    thumb_key = f"{storage_key_stem}_{width}x{height}.jpg"
+            dimensions = image.size  # (width, height) — capture before thumbnailing
 
-                    # Save to a temp file, then put into store
-                    thumb_path = thumbnail_store.get_path(thumb_key)
-                    thumb_path.parent.mkdir(parents=True, exist_ok=True)
+            for idx, (width, height) in enumerate(settings.thumbnail_sizes):
+                thumb_key = f"{storage_key_stem}_{width}x{height}.{ext}"
+                thumb_path = thumbnail_store.get_path(thumb_key)
+                thumb_path.parent.mkdir(parents=True, exist_ok=True)
 
-                    # Copy, resize, save, then immediately close to free memory
-                    thumb = image.copy()
-                    thumb.thumbnail((width, height), Image.Resampling.LANCZOS)
+                thumb = image.copy()
+                thumb.thumbnail((width, height), Image.Resampling.LANCZOS)
+
+                if use_webp:
+                    thumb.save(thumb_path, format="WEBP", lossless=False, quality=90)
+                else:
                     thumb.save(thumb_path, quality=85, optimize=True)
-                    thumb.close()
+                thumb.close()
 
-                    size_name = ["small", "medium", "large"][idx] if idx < 3 else f"size_{idx}"
-                    thumbnail_keys[size_name] = thumb_key
+                size_name = ["small", "medium", "large"][idx] if idx < 3 else f"size_{idx}"
+                thumbnail_keys[size_name] = thumb_key
+                logger.debug("Generated %s thumbnail: %s", size_name, thumb_key)
 
-                    logger.debug("Generated %s thumbnail: %s", size_name, thumb_key)
+            # Close the converted image if it's a different object from orig
+            if image is not orig:
+                image.close()
 
         return {"keys": thumbnail_keys, "dimensions": dimensions}
 
