@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from datetime import datetime
 
 from sqlalchemy import (
@@ -656,6 +657,10 @@ def seed_default_settings(session):
         # Job runner — resource-aware default
         "max_job_workers": resource_defaults["max_job_workers"],
         "scheduler_enabled": True,
+        # Import processing — initial value read from env so setup wizard choice is honoured
+        "convert_to_webp": bool(int(os.environ.get("CONVERT_TO_WEBP", "1"))),
+        "webp_lossless": True,
+        "webp_quality": 95,
     }
 
     for key, value in defaults.items():
