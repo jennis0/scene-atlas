@@ -9,17 +9,17 @@ Outputs ONNX graphs + tokenizer files + manifest.json to backend/models/<name>/.
 
 Usage:
     # Export a specific model by name:
-    uv run python scripts/export_model_onnx.py clip-vit-b-32
-    uv run python scripts/export_model_onnx.py siglip2-base
+    uv run python scripts/models/export_model_onnx.py clip-vit-b-32
+    uv run python scripts/models/export_model_onnx.py siglip2-base
 
     # Export all registered models:
-    uv run python scripts/export_model_onnx.py --all
+    uv run python scripts/models/export_model_onnx.py --all
 
     # Export with quality evaluation (recommended for production):
-    uv run python scripts/export_model_onnx.py clip-vit-b-32 --image-dir /path/to/images
+    uv run python scripts/models/export_model_onnx.py clip-vit-b-32 --image-dir /path/to/images
 
     # List available models:
-    uv run python scripts/export_model_onnx.py --list
+    uv run python scripts/models/export_model_onnx.py --list
 """
 
 import argparse

@@ -308,25 +308,6 @@ class TagCategoryResponse(TagCategoryBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-class IngestionRequest(BaseModel):
-    """Request to trigger image ingestion."""
-
-    source_dirs: list[str] = Field(..., min_length=1)
-    force_reprocess: bool = False
-
-
-class IngestionStatus(BaseModel):
-    """Status of an ingestion job."""
-
-    flow_run_id: str
-    status: str
-    total_images: int | None = None
-    processed_images: int | None = None
-    failed_images: int | None = None
-    started_at: datetime | None = None
-    completed_at: datetime | None = None
-
-
 class DuplicateInfo(BaseModel):
     """Info about an existing image that matches the uploaded file's content hash."""
 

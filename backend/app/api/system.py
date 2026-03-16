@@ -144,16 +144,28 @@ def _purge_library(
 
 @router.delete("/library")
 @limiter.limit(lambda: settings.rate_limit_destructive)
-def delete_library(request: Request):
+def delete_library(request: Request, db: Session = Depends(get_db)):
     """Purge the entire library (images, metadata, vectors, files).
 
     Submits a background job and returns immediately with a job ID.
+    Refuses to run if any import jobs are currently active.
     """
     from ..services.job_runner import get_job_runner
 
     runner = get_job_runner()
     if runner.has_active_job("Purge library"):
         raise HTTPException(status_code=409, detail="Library purge already in progress")
+
+    active_imports = (
+        db.query(ImportJob).filter(ImportJob.status.in_(("uploading", "staging", "active"))).count()
+    )
+    if active_imports:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot purge library while {active_imports} import(s) are in progress. "
+            "Cancel or wait for them to finish first.",
+        )
+
     job_id = runner.submit(
         _purge_library,
         request.app.state.db_engine,
