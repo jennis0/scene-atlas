@@ -24,7 +24,7 @@ analyse_upload                  bulk_image_ingestion
     │   (concurrent via ThreadPool)      │
     │                                    │
     ▼                                    │
-  [user reviews & edits metadata]        │
+  [auto-confirm]                          │
     │                                    │
     ▼                                    ▼
 process_import_group             ┌────────────────────────────┐
@@ -58,7 +58,7 @@ process_single_image (thin wrapper for one-off use)
 
 ### `analyse_upload`
 
-Parses and groups uploaded files for the preview UI. Called synchronously by the upload endpoint via `JobRunner.run_sync()`.
+Parses and groups uploaded files for the preview UI. Called via `asyncio.to_thread(analyse_upload, ...)`.
 
 **Parameters:**
 - `staging_dir: str` — path to staging directory
@@ -159,7 +159,7 @@ Processes multiple images through CLIP in a single batch forward pass using `CLI
 
 Saves multiple images to SQLite in a single session/transaction using shared `_save_image_to_db()` helper.
 
-**Batch failure isolation:** If the batch DB transaction fails (e.g. constraint violation from a concurrent duplicate insert), the error is caught per-image rather than aborting the entire group. Each image that fails the DB save is recorded with a `db_save` stage error in `ImportGroupJob.file_errors`, and processing continues for the remaining images. This prevents a single bad image from killing an entire import group.
+**Batch failure isolation:** If the batch DB transaction fails (e.g. constraint violation from a concurrent duplicate insert), the error is caught per-batch (the entire batch transaction either commits or rolls back). Each image in a failed batch is recorded with a `db_save` stage error in `ImportGroupJob.file_errors`, and processing continues for the remaining batches. This prevents a single bad batch from killing an entire import group.
 
 **Per-batch CLIP failure isolation:** If batch CLIP embedding generation fails, all images in that batch are marked as failed, but other batches in the same group continue processing independently. This ensures a transient CLIP error (e.g. OOM on a large batch) does not abort the entire import group.
 
@@ -264,4 +264,4 @@ When an image fails during ingest, errors are classified into user-friendly mess
 Staging directories (`data/staging/{job_id}/`) are created on upload and include a `.thumbs/` subdirectory for preview thumbnails. They are cleaned up by:
 - The periodic `cleanup_staging` scheduler task (every 6h, removes dirs older than 24h)
 - The `expire_stale_jobs` scheduler task (every 6h, cleans staging for expired jobs)
-- `POST /cancel` and `POST /finalize` endpoints
+- `POST /cancel` endpoint and `_finalize_import_job()` pipeline function

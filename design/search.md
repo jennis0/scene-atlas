@@ -168,12 +168,12 @@ Qdrant runs **in-process** (embedded mode, no Docker). Thread-safe: writes seria
 
 - **Collection:** `embeddings_{EMBEDDING_MODEL}` (model-scoped)
 - **Distance metric:** Cosine similarity
-- **Score threshold:** 0.15 (both hybrid and semantic-only modes)
-- **Candidate pool:** `limit × 3` for hybrid, same for semantic-only
+- **Score threshold:** model-dependent (configured per model in the model registry via `get_semantic_threshold()`)
+- **Candidate pool:** Image search: text candidates = limit×10, semantic candidates = limit×3. Group search: max(limit×20, 1000) for all candidate types.
 
 ### Query Flow
 
-1. `clip_service.encode_text(query)` → 512-dim normalised vector
+1. `clip_service.encode_text(query)` → N-dim normalised vector (depends on active model; see model table above)
 2. `qdrant_service.search_similar(embedding, limit, threshold)` → `[{image_id, score}]`
 
 ### Vector Population & Maintenance
@@ -224,7 +224,7 @@ score(image) = Σ  weight_i / (K + rank_i)
 
 Images only contribute to lists they appear in. The merged score determines final ordering when `sort_by=relevance`.
 
-**Client-side scores:** The API returns raw CLIP cosine similarity scores (not RRF scores) in the `scores` dict. The frontend's relevance slider filters on absolute CLIP similarity for consistency across queries.
+**Client-side scores:** The API returns RRF merged scores (not raw CLIP scores) in the `scores` dict. The frontend relevance slider filters on these RRF scores (typical range 0–0.05).
 
 ## SQL Filters
 

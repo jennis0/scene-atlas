@@ -38,7 +38,6 @@ images
   content_hash    TEXT(64)            -- SHA-256 hex digest for deduplication
   search_text     TEXT                -- Pre-tokenized text for FTS5 (CamelCase-split)
   thumbnail_key   TEXT                -- Key into thumbnail store
-  job_warnings    TEXT                -- JSON: upload skips and pipeline warnings (migration 017)
   created_at      DATETIME
   updated_at      DATETIME
 
@@ -84,6 +83,7 @@ import_jobs
   total_files     INTEGER DEFAULT 0
   total_file_size INTEGER DEFAULT 0   -- Accumulated bytes across all upload batches
   error_message   TEXT
+  job_warnings    TEXT                -- JSON: upload skips and pipeline warnings (migration 017)
   analysis_result TEXT                 -- JSON: full analysis output for preview reconnection
   created_at      DATETIME
   updated_at      DATETIME
@@ -137,8 +137,8 @@ Several DB columns retain their original names for backward compatibility (avoid
 ## Qdrant Vector Store
 
 **Mode:** Embedded local (`QdrantClient(path="{APP_DATA_DIR}/qdrant_local")`) — no separate server process
-**Collection:** `battlemap_images`
-**Vector size:** 512 (CLIP ViT-B/32 projection dimension)
+**Collection:** `embeddings_{model_name}` (e.g. `embeddings_small`) — collection is model-scoped; switching models creates a new collection
+**Vector size:** Varies by model: 512 (small/CLIP), 768 (medium/SigLIP2-base), 1152 (large/SigLIP2-so400m)
 **Distance metric:** Cosine similarity
 
 Each point in Qdrant:
@@ -146,7 +146,7 @@ Each point in Qdrant:
 - **Vector:** 512-dim CLIP embedding (normalized)
 - **Payload:** `{image_id, filename, author, base_name}`
 
-Qdrant is the source of truth for semantic similarity. SQLite is the source of truth for all other metadata. They are linked by `image_id`.
+Qdrant is the semantic search index (not the source of truth — SQLite is authoritative; Qdrant can be rebuilt from stored embeddings). They are linked by `image_id`.
 
 ## Filesystem — ImageStore
 
@@ -170,7 +170,7 @@ path: {IMAGE_LIBRARY_DIR}/a1/b2/a1b2c3d4e5f6.jpg
 This keeps any directory under ~256 entries.
 
 ### Key Generation
-- Images: `uuid.uuid4().hex[:12] + extension` → e.g. `"a1b2c3d4e5f6.jpg"`
+- Images: `uuid.uuid4().hex + extension` → e.g. `"a1b2c3d4e5f67890abcdef1234567890.jpg"` (full 32-char hex)
 - Thumbnails: `{same_stem}_400x400.jpg` (or other size suffix)
 
 ### Important: DB Is the Source of Truth
