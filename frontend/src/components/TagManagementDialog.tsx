@@ -437,6 +437,7 @@ function CategoryEditor({
     if (description.trim() !== (category.description ?? '')) {
       updateMut.mutate({ description: description.trim() || undefined })
     }
+    hasUnsavedDescRef.current = false
   }
 
   // Save unsaved description on unmount (dialog close or category switch)
@@ -446,12 +447,28 @@ function CategoryEditor({
   const categoryDescRef = useRef(category.description ?? '')
   categoryDescRef.current = category.description ?? ''
 
+  // Track whether the user has made edits that haven't been saved yet
+  const hasUnsavedDescRef = useRef(false)
+
+  // Keep the category name ref in sync so cleanup uses the current value
+  const categoryNameRef = useRef(category.name)
+  categoryNameRef.current = category.name
+
+  // Mark description as dirty when user edits it
+  const handleDescChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setDescription(e.target.value)
+    hasUnsavedDescRef.current = true
+  }
+
   useEffect(() => {
     return () => {
+      if (!hasUnsavedDescRef.current) return
       const current = descriptionRef.current.trim()
       const original = categoryDescRef.current
       if (current !== original) {
-        updateMut.mutate({ description: current || undefined })
+        tagApi.updateCategory(categoryNameRef.current, {
+          description: current || undefined,
+        })
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -621,7 +638,7 @@ function CategoryEditor({
         <div style={{ marginTop: 8 }}>
           <textarea
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={handleDescChange}
             onBlur={handleDescSave}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {

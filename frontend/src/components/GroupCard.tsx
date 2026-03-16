@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { MoreHorizontal, Pencil, Merge, Trash2, Layers, FolderDown } from 'lucide-react'
+import { toast } from 'sonner'
+import axios from 'axios'
 import { getThumbnailUrl, getGroupDownloadUrl } from '@/lib/api'
+import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { VideoIndicator } from '@/components/ui/video-indicator'
 import {
   DropdownMenu,
@@ -36,8 +39,8 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
     if (!groupId || downloading) return
     setDownloading(true)
     try {
-      const resp = await fetch(getGroupDownloadUrl(groupId))
-      const blob = await resp.blob()
+      const resp = await axios.get(getGroupDownloadUrl(groupId), { responseType: 'blob' })
+      const blob = resp.data as Blob
       const objectUrl = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = objectUrl
@@ -47,7 +50,7 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
       document.body.removeChild(a)
       URL.revokeObjectURL(objectUrl)
     } catch (err) {
-      console.error('Group download failed', err)
+      toast.error(getApiErrorMessage(err, 'Group download failed'))
     } finally {
       setDownloading(false)
     }
