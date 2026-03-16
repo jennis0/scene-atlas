@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import { toast } from 'sonner'
 import { tagApi, imageApi, importApi } from '@/lib/api'
 import { getApiErrorMessage, isConflictError } from '@/lib/getErrorMessage'
 import { parseTagVocabulary } from '@/components/import/types'
@@ -465,6 +466,7 @@ export function useImportState(
       }
       if (!succeeded) {
         const errorMessage = getApiErrorMessage(lastErr, 'Failed to start processing')
+        toast.error('Import failed to start', { description: errorMessage })
         try {
           await importApi.fail(jobId, errorMessage)
         } catch {
