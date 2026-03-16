@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -45,8 +45,17 @@ async def lifespan(app: FastAPI):
     logger.info("Starting %s v%s", settings.app_name, settings.app_version)
 
     # Initialize database
-    engine = get_engine(settings.database_url)
-    init_db(engine)
+    try:
+        engine = get_engine(settings.database_url)
+        init_db(engine)
+    except Exception:
+        db_path = settings.database_url.replace("sqlite:///", "")
+        logger.critical(
+            "STARTUP ERROR: Could not initialize database at %s. "
+            "Check that the directory exists and is writable.",
+            db_path,
+        )
+        raise
     logger.info("Database initialized")
 
     # Seed tag categories + backfill search_text for FTS5
@@ -56,7 +65,11 @@ async def lifespan(app: FastAPI):
         seed_tag_categories(session)
         logger.info("Tag categories seeded")
 
-        seed_default_settings(session)
+        try:
+            seed_default_settings(session)
+        except Exception:
+            logger.critical("STARTUP ERROR: Could not seed default settings.")
+            raise
         logger.info("App settings seeded")
 
         from .services.fts_service import backfill_search_text
@@ -331,13 +344,111 @@ app.include_router(models_api.router, prefix=f"{settings.api_prefix}/models", ta
 
 
 @app.get("/")
-async def root():
-    """Root endpoint."""
+async def root(request: Request):
+    """Root endpoint.
+
+    In server mode, returns an HTML status page when the client requests
+    text/html (e.g. a browser).  Otherwise returns the existing JSON response.
+    """
+    accept = request.headers.get("accept", "")
+    if settings.app_mode == "server" and "text/html" in accept:
+        return await _server_status_page(request)
     return {
         "app": settings.app_name,
         "version": settings.app_version,
         "status": "running",
     }
+
+
+async def _server_status_page(request: Request) -> HTMLResponse:
+    """Build a self-contained HTML status page for server mode.
+
+    Derives a simple healthy/needs-attention status from the /health
+    subsystem checks without exposing any sensitive details.
+    """
+    # Run the same logic as /health to determine overall status
+    all_ok = True
+    try:
+        with request.app.state.db_engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception:
+        all_ok = False
+
+    try:
+        from .services.qdrant_service import get_qdrant_service
+
+        info = get_qdrant_service().get_collection_info()
+        if not info:
+            all_ok = False
+    except Exception:
+        all_ok = False
+
+    from .services.clip_service import _clip_error, _clip_ready
+
+    if _clip_ready.is_set() and _clip_error is not None:
+        all_ok = False
+
+    if all_ok:
+        status_text = "All systems operational"
+        indicator_color = "#4caf50"
+    else:
+        status_text = "Some systems need attention"
+        indicator_color = "#ff9800"
+
+    html = f"""\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Scene Atlas</title>
+<style>
+*,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
+body{{
+  min-height:100vh;display:flex;align-items:center;justify-content:center;
+  background:#0e1118;color:#ede8dc;
+  font-family:system-ui,-apple-system,sans-serif;
+  background-image:radial-gradient(circle,rgba(237,232,220,0.04) 1px,transparent 1px);
+  background-size:28px 28px;
+}}
+.card{{
+  max-width:440px;width:100%;
+  background:#161c28;border:1px solid #1e2736;border-radius:8px;
+  padding:2.5rem;text-align:center;
+}}
+h1{{font-size:1.5rem;letter-spacing:0.15em;margin-bottom:0.5rem;font-weight:500}}
+.divider{{
+  width:80px;height:1px;margin:0.75rem auto;
+  background:linear-gradient(90deg,transparent,#d4a853,transparent);
+}}
+.status{{
+  display:inline-flex;align-items:center;gap:0.5rem;
+  margin:1.25rem 0;font-size:0.9375rem;
+}}
+.dot{{
+  width:10px;height:10px;border-radius:50%;
+  background:{indicator_color};
+  box-shadow:0 0 6px {indicator_color}80;
+}}
+.hint{{font-size:0.8125rem;color:rgba(237,232,220,0.45);line-height:1.6;margin-top:1rem}}
+.api-hint{{
+  margin-top:1.25rem;font-size:0.75rem;
+  color:rgba(237,232,220,0.3);
+  font-family:'Courier New',monospace;
+}}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Scene Atlas</h1>
+  <div class="divider"></div>
+  <div class="status"><span class="dot"></span>{status_text}</div>
+  <p class="hint">Visit the frontend application to get started.</p>
+  <p class="api-hint">For API access, use the /api/v1/ endpoint prefix</p>
+</div>
+</body>
+</html>"""
+    return HTMLResponse(content=html)
 
 
 @app.exception_handler(Exception)

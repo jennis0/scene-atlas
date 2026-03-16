@@ -441,6 +441,23 @@ async def upload_batch(
 
     app_settings = get_app_settings(db)
 
+    # Pre-flight: check physical disk space before writing files
+    try:
+        disk_usage = shutil.disk_usage(staging_dir)
+        available_mb = disk_usage.free // (1024 * 1024)
+        # Estimate incoming batch size from Content-Length or sum of file sizes
+        estimated_bytes = sum(f.size or 0 for f in files)
+        if estimated_bytes > 0 and estimated_bytes > disk_usage.free:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Insufficient disk space. Only {available_mb} MB free on the storage drive.",
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        # disk_usage can fail on some platforms/mount points — don't block uploads
+        logger.debug("Could not check disk space for staging dir", exc_info=True)
+
     if len(files) > app_settings.max_import_files:
         raise HTTPException(
             status_code=413,

@@ -1,5 +1,6 @@
 """Unit tests for backend.app.services.model_download_service."""
 
+import errno
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -249,6 +250,142 @@ class TestDownloadModel:
         # version.json must NOT exist after a failed download
         model_dir = get_model_dir("small")
         assert not (model_dir / "version.json").exists()
+
+
+class TestCheckDiskSpace:
+    def test_returns_ok_when_enough_space(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "backend.app.services.model_download_service._settings",
+            _make_settings(tmp_path),
+        )
+        # Mock disk_usage to report plenty of free space (10 GB)
+        mock_usage = MagicMock()
+        mock_usage.free = 10 * 1024 * 1024 * 1024  # 10 GB
+        with patch("shutil.disk_usage", return_value=mock_usage):
+            from backend.app.services.model_download_service import check_disk_space
+
+            ok, needed_mb, available_mb = check_disk_space("small")
+        assert ok is True
+        assert needed_mb > 0
+        assert available_mb > needed_mb
+
+    def test_returns_not_ok_when_low_space(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "backend.app.services.model_download_service._settings",
+            _make_settings(tmp_path),
+        )
+        # Mock disk_usage to report only 10 MB free (not enough for any model)
+        mock_usage = MagicMock()
+        mock_usage.free = 10 * 1024 * 1024  # 10 MB
+        with patch("shutil.disk_usage", return_value=mock_usage):
+            from backend.app.services.model_download_service import check_disk_space
+
+            ok, needed_mb, available_mb = check_disk_space("small")
+        assert ok is False
+        assert available_mb == 10
+        assert needed_mb > available_mb
+
+    def test_raises_on_unknown_model(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "backend.app.services.model_download_service._settings",
+            _make_settings(tmp_path),
+        )
+        from backend.app.services.model_download_service import (
+            ModelDownloadError,
+            check_disk_space,
+        )
+
+        with pytest.raises(ModelDownloadError, match="Unknown model"):
+            check_disk_space("nonexistent_model")
+
+    def test_applies_multiplier(self, tmp_path, monkeypatch):
+        """Needed MB should be approx_size_mb * 1.5."""
+        monkeypatch.setattr(
+            "backend.app.services.model_download_service._settings",
+            _make_settings(tmp_path),
+        )
+        mock_usage = MagicMock()
+        mock_usage.free = 100 * 1024 * 1024 * 1024
+        with patch("shutil.disk_usage", return_value=mock_usage):
+            from backend.app.services.model_download_service import check_disk_space
+
+            _, needed_mb, _ = check_disk_space("small")
+        # small model is 250 MB, multiplied by 1.5 = 375 MB
+        assert needed_mb == 375
+
+
+class TestDownloadModelDiskSpacePreCheck:
+    def test_raises_on_insufficient_disk_space(self, tmp_path, monkeypatch):
+        """download_model() should fail early if disk space is insufficient."""
+        monkeypatch.setattr(
+            "backend.app.services.model_download_service._settings",
+            _make_settings(tmp_path),
+        )
+        mock_usage = MagicMock()
+        mock_usage.free = 10 * 1024 * 1024  # 10 MB — too little
+        with patch("shutil.disk_usage", return_value=mock_usage):
+            from backend.app.services.model_download_service import (
+                ModelDownloadError,
+                download_model,
+            )
+
+            with pytest.raises(ModelDownloadError, match="Insufficient disk space"):
+                download_model("small")
+
+
+class TestRaiseDownloadErrorMapping:
+    """Tests for specific error type mappings in _raise_download_error."""
+
+    def test_timeout_error_gives_user_friendly_message(self):
+        import requests
+
+        from backend.app.services.model_download_service import (
+            ModelDownloadError,
+            _raise_download_error,
+        )
+
+        with pytest.raises(ModelDownloadError, match="timed out"):
+            _raise_download_error(requests.exceptions.Timeout("timed out"), "repo/test")
+
+    def test_connection_error_gives_user_friendly_message(self):
+        import requests
+
+        from backend.app.services.model_download_service import (
+            ModelDownloadError,
+            _raise_download_error,
+        )
+
+        with pytest.raises(ModelDownloadError, match="Could not connect"):
+            _raise_download_error(requests.exceptions.ConnectionError("refused"), "repo/test")
+
+    def test_permission_error_gives_user_friendly_message(self):
+        from backend.app.services.model_download_service import (
+            ModelDownloadError,
+            _raise_download_error,
+        )
+
+        with pytest.raises(ModelDownloadError, match="permissions"):
+            _raise_download_error(PermissionError("denied"), "repo/test")
+
+    def test_enospc_gives_disk_space_message(self):
+        from backend.app.services.model_download_service import (
+            ModelDownloadError,
+            _raise_download_error,
+        )
+
+        exc = OSError(errno.ENOSPC, "No space left on device")
+        with pytest.raises(ModelDownloadError, match="disk space"):
+            _raise_download_error(exc, "repo/test")
+
+    def test_generic_oserror_gives_filesystem_message(self):
+        from backend.app.services.model_download_service import (
+            ModelDownloadError,
+            _raise_download_error,
+        )
+
+        exc = OSError(errno.EIO, "I/O error")
+        with pytest.raises(ModelDownloadError, match="File system error"):
+            _raise_download_error(exc, "repo/test")
 
 
 # ---------------------------------------------------------------------------

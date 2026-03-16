@@ -8,6 +8,32 @@ interface LoadingScreenProps {
   errorDetail?: string
 }
 
+/**
+ * Parse a raw backend error string into a user-friendly summary + detail.
+ *
+ * When the raw string contains a Python traceback, the last line is
+ * extracted as the summary (it typically contains the exception message)
+ * and the full traceback is preserved as detail. Otherwise the raw
+ * string is returned as both summary and detail.
+ */
+function parseBackendError(raw: string): { summary: string; detail: string } {
+  const tracebackMarker = 'Traceback (most recent call last)'
+  if (raw.includes(tracebackMarker)) {
+    const lines = raw.trimEnd().split('\n')
+    // Walk backward to find the last non-empty line (the exception)
+    let summary = raw
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim()
+      if (line) {
+        summary = line
+        break
+      }
+    }
+    return { summary, detail: raw }
+  }
+  return { summary: raw, detail: raw }
+}
+
 function AnimatedDots() {
   const [count, setCount] = useState(1)
   useEffect(() => {
@@ -129,23 +155,37 @@ export function LoadingScreen({
           </p>
 
           {/* Error detail toggle */}
-          {isError && errorDetail && (
-            <div
-              className={`flex flex-col items-center gap-2 max-w-sm ${isApp ? 'no-drag-region' : ''}`}
-            >
-              <button
-                onClick={() => setShowDetail((v) => !v)}
-                className="font-mono text-[10px] tracking-wider text-muted-foreground/50 hover:text-muted-foreground/80 transition-colors"
-              >
-                {showDetail ? '▲ hide details' : '▼ show details'}
-              </button>
-              {showDetail && (
-                <pre className="mt-1 max-h-40 w-full overflow-y-auto rounded border border-border/30 bg-muted/20 p-3 font-mono text-[10px] leading-relaxed text-muted-foreground/70 whitespace-pre-wrap break-all">
-                  {errorDetail}
-                </pre>
-              )}
-            </div>
-          )}
+          {isError &&
+            errorDetail &&
+            (() => {
+              const { summary, detail } = parseBackendError(errorDetail)
+              const hasTraceback = detail !== summary
+              return (
+                <div
+                  className={`flex flex-col items-center gap-2 max-w-sm ${isApp ? 'no-drag-region' : ''}`}
+                >
+                  {hasTraceback && (
+                    <p
+                      className="font-mono text-[11px] tracking-wider text-center"
+                      style={{ color: red(0.85) }}
+                    >
+                      {summary}
+                    </p>
+                  )}
+                  <button
+                    onClick={() => setShowDetail((v) => !v)}
+                    className="font-mono text-[10px] tracking-wider text-muted-foreground/50 hover:text-muted-foreground/80 transition-colors"
+                  >
+                    {showDetail ? '▲ hide details' : '▼ show details'}
+                  </button>
+                  {showDetail && (
+                    <pre className="mt-1 max-h-40 w-full overflow-y-auto rounded border border-border/30 bg-muted/20 p-3 font-mono text-[10px] leading-relaxed text-muted-foreground/70 whitespace-pre-wrap break-all">
+                      {detail}
+                    </pre>
+                  )}
+                </div>
+              )
+            })()}
 
           {/* First-run hint */}
           {!isError && (

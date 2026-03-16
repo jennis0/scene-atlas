@@ -56,14 +56,28 @@ ipcMain.handle('setup:choose-directory', async () => {
   return result.canceled ? null : result.filePaths[0]
 })
 
-ipcMain.on('setup:complete', (_event, appDataDir: string, imageLibraryDir: string, convertToWebp: boolean) => {
+ipcMain.handle('setup:complete', async (_event, appDataDir: string, imageLibraryDir: string, convertToWebp: boolean) => {
   // Create both roots before launching the backend (backend validates they exist)
   fs.mkdirSync(appDataDir, { recursive: true })
   fs.mkdirSync(imageLibraryDir, { recursive: true })
+
+  // Writability check: write and delete a temp file in each directory
+  for (const dir of [appDataDir, imageLibraryDir]) {
+    const testFile = path.join(dir, `.write-test-${Date.now()}`)
+    try {
+      fs.writeFileSync(testFile, 'test')
+      fs.unlinkSync(testFile)
+    } catch (err) {
+      const label = dir === appDataDir ? 'App data directory' : 'Image library directory'
+      return { error: `${label} is not writable: ${dir}\n${(err as Error).message}` }
+    }
+  }
+
   saveConfig({ appDataDir, imageLibraryDir, convertToWebp })
   setupWindow?.close()
   setupWindow = null
   launchApp(appDataDir, imageLibraryDir, convertToWebp)
+  return { error: null }
 })
 
 // ── System settings IPC ─────────────────────────────────────────────────────
