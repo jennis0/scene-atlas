@@ -40,6 +40,7 @@ import {
 } from '@/lib/constants'
 import { SORT_OPTIONS } from '@/hooks/useGallerySearch'
 import type { UseGallerySearchReturn } from '@/hooks/useGallerySearch'
+import type { EmbeddingStatus } from '@/hooks/useEmbeddingStatus'
 import type { ImageTypeFilter } from '@/components/import/fileFilter'
 
 // ---------------------------------------------------------------------------
@@ -57,6 +58,8 @@ export interface GalleryHeaderProps {
   search: UseGallerySearchReturn & {
     editAllLoading?: boolean
   }
+  embeddingStatus: EmbeddingStatus
+  embeddingError?: string
   onOpenImport: () => void
   onOpenTagManagement: () => void
   onOpenSystemInfo: () => void
@@ -70,6 +73,8 @@ export interface GalleryHeaderProps {
 
 export function GalleryHeader({
   search,
+  embeddingStatus,
+  embeddingError,
   onOpenImport,
   onOpenTagManagement,
   onOpenSystemInfo,
@@ -214,7 +219,17 @@ export function GalleryHeader({
             </Button>
             {/* Spacer */}
             <div className="w-4 shrink-0" />
-            <Button size="sm" onClick={onOpenImport} title="Import images" className="gap-1.5">
+            <Button
+              size="sm"
+              onClick={onOpenImport}
+              disabled={embeddingStatus === 'loading'}
+              title={
+                embeddingStatus === 'loading'
+                  ? 'Waiting for AI model to finish loading\u2026'
+                  : 'Import images'
+              }
+              className="gap-1.5"
+            >
               <Upload className="h-3.5 w-3.5" />
               Import
             </Button>
@@ -264,6 +279,22 @@ export function GalleryHeader({
               {isSearching ? 'Searching\u2026' : 'Search'}
             </Button>
           </form>
+
+          {/* Embedding status badge */}
+          {embeddingStatus === 'loading' && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 shrink-0">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              AI search loading&hellip;
+            </span>
+          )}
+          {embeddingStatus === 'error' && (
+            <span
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 shrink-0 cursor-help"
+              title={embeddingError ?? 'Unknown error'}
+            >
+              AI search unavailable
+            </span>
+          )}
 
           <GalleryFilterPanel
             filters={filters}
