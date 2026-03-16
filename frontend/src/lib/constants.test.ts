@@ -11,18 +11,20 @@ describe('relevanceToPercent', () => {
   })
 
   it('maps midpoint to 50%', () => {
-    expect(relevanceToPercent(0.3)).toBe(50)
+    const mid = (RELEVANCE_MIN + RELEVANCE_MAX) / 2
+    expect(relevanceToPercent(mid)).toBe(50)
   })
 
   it('maps quarter point to 25%', () => {
-    expect(relevanceToPercent(0.2)).toBe(25)
+    const quarter = RELEVANCE_MIN + (RELEVANCE_MAX - RELEVANCE_MIN) * 0.25
+    expect(relevanceToPercent(quarter)).toBe(25)
   })
 
   it('does not clamp values below min', () => {
-    expect(relevanceToPercent(0.0)).toBe(-25)
+    expect(relevanceToPercent(RELEVANCE_MIN - RELEVANCE_MAX)).toBeLessThan(0)
   })
 
   it('does not clamp values above max', () => {
-    expect(relevanceToPercent(0.9)).toBe(200)
+    expect(relevanceToPercent(RELEVANCE_MAX * 2)).toBeGreaterThan(100)
   })
 })

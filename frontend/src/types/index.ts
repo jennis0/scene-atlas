@@ -95,7 +95,7 @@ export interface SearchResult {
   images: Image[]
   limit: number
   offset: number
-  scores?: Record<number, number> // image_id -> semantic score
+  scores?: Record<number, number> // image_id -> RRF relevance score
 }
 
 export type ViewMode = 'individual' | 'grouped'

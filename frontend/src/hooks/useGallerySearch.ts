@@ -156,17 +156,22 @@ export function useGallerySearch(): UseGallerySearchReturn {
   const [sortKey, setSortKey] = useState(loadSortKey)
   const [sortBy, sortDir] = parseSortKey(sortKey)
 
-  // Relevance threshold -- slider value, applied client-side against returned scores
+  // Relevance threshold -- slider value, applied client-side against RRF scores.
+  // v3 migration: scores switched from raw semantic (0.1–0.5 range) to RRF
+  // (0–0.05 range). Old stored values would blank the gallery.
   const [minScore, setMinScoreState] = useState(() => {
-    const stored = localStorage.getItem('gallery-relevance')
-    return stored ? parseFloat(stored) : 0.2
+    const stored = localStorage.getItem('gallery-relevance-v3')
+    if (stored) return parseFloat(stored)
+    localStorage.removeItem('gallery-relevance-v2')
+    localStorage.removeItem('gallery-relevance')
+    return 0
   })
   const relevanceSaveRef = useRef<ReturnType<typeof setTimeout>>()
   const setMinScore = useCallback((value: number) => {
     setMinScoreState(value)
     clearTimeout(relevanceSaveRef.current)
     relevanceSaveRef.current = setTimeout(() => {
-      localStorage.setItem('gallery-relevance', String(value))
+      localStorage.setItem('gallery-relevance-v3', String(value))
     }, 300)
   }, [])
 
@@ -282,7 +287,8 @@ export function useGallerySearch(): UseGallerySearchReturn {
   })
 
   // Group search (grouped view)
-  const groupQuery = useGroupSearch(groupSearchParams, minScore)
+  // Skip score filtering in text-only mode (scores are 0.0, not null)
+  const groupQuery = useGroupSearch(groupSearchParams, isTextOnly ? 0 : minScore)
   const isSearchingGroups = groupQuery.isLoading
 
   // Track previous minScore for debounce direction detection

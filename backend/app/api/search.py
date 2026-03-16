@@ -373,10 +373,10 @@ def search_images(
     total = len(filtered_images)
     results = filtered_images[offset : offset + limit]
 
-    # Return semantic similarity scores for client-side relevance filtering.
-    # RRF scores are used only for ordering; the slider filters on absolute
-    # CLIP cosine similarity so the threshold is consistent across queries.
-    returned_scores = {img.id: semantic_scores.get(img.id, 0.0) for img in results}
+    # Return RRF merged scores for client-side relevance filtering.
+    # RRF incorporates text + semantic relevance so text-matched results
+    # survive the slider even when their raw semantic score is low.
+    returned_scores = {img.id: merged_scores.get(img.id, 0.0) for img in results}
 
     return ImageSearchResponse(
         total=total,
@@ -656,7 +656,7 @@ def search_groups(
                 total_scenes=group.image_count,
                 matching_scenes=len(images_in_group),
                 best_score=max(
-                    (semantic_scores.get(img.id, 0.0) for img, _ in images_in_group),
+                    (merged_scores.get(img.id, 0.0) for img, _ in images_in_group),
                     default=0.0,
                 ),
                 # In-scope images for Edit All; non-matching group members will be marked outOfScope in dialog
