@@ -290,6 +290,9 @@ export function useGallerySearch(): UseGallerySearchReturn {
   // Skip score filtering in text-only mode (scores are 0.0, not null)
   const groupQuery = useGroupSearch(groupSearchParams, isTextOnly ? 0 : minScore)
   const isSearchingGroups = groupQuery.isLoading
+  // Destructure reset so the useEffect below depends on a stable function, not the
+  // full groupQuery object (which is a new reference every render).
+  const { reset: resetGroupQuery } = groupQuery
 
   // Track previous minScore for debounce direction detection
   const prevScoreRef = useRef(minScore)
@@ -317,7 +320,7 @@ export function useGallerySearch(): UseGallerySearchReturn {
 
       // Set new debounce timer to reset pagination and refetch
       debounceTimerRef.current = setTimeout(() => {
-        groupQuery.reset()
+        resetGroupQuery()
         debounceTimerRef.current = undefined
       }, 400)
     }
@@ -331,7 +334,7 @@ export function useGallerySearch(): UseGallerySearchReturn {
         clearTimeout(debounceTimerRef.current)
       }
     }
-  }, [minScore, viewMode, submittedQuery, groupQuery])
+  }, [minScore, viewMode, submittedQuery, resetGroupQuery])
 
   const isSearching = viewMode === 'individual' ? isSearchingImages : isSearchingGroups
 

@@ -60,6 +60,12 @@ export function Gallery() {
     ],
   )
 
+  // Memoize seedImages so useEditGroupLoad doesn't re-fire on every render
+  const seedImages = useMemo(
+    () => (search.viewMode === 'grouped' ? dialogs.editAllSeedImages : search.displayImages),
+    [search.viewMode, dialogs.editAllSeedImages, search.displayImages],
+  )
+
   const activeImports = useActiveImports()
   const backgroundJobs = useBackgroundJobs()
   const sentinelRef = useRef<HTMLDivElement>(null)
@@ -311,9 +317,7 @@ export function Gallery() {
 
         {/* Mass-edit dialog -- all images in current search results */}
         <EditGroupDialog
-          seedImages={
-            search.viewMode === 'grouped' ? dialogs.editAllSeedImages : search.displayImages
-          }
+          seedImages={seedImages}
           open={dialogs.showMassEdit}
           onClose={() => {
             dialogs.setShowMassEdit(false)

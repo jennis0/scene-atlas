@@ -90,9 +90,9 @@ export function ImageViewer({
   const lastProcessedIdRef = useRef<number | null>(null)
 
   // ── Local UI state ────────────────────────────────────────────────────────
-  const [sceneSearch, setVariantSearch] = useState('')
+  const [sceneSearch, setSceneSearch] = useState('')
   const [sceneTypeFilter, setSceneTypeFilter] = useState<ImageTypeFilter>('all')
-  const [sceneFilters, setVariantFilters] = useState<ActiveFilter[]>([])
+  const [sceneFilters, setSceneFilters] = useState<ActiveFilter[]>([])
   const [filterPopoverOpen, setFilterPopoverOpen] = useState(false)
   const [editingName, setEditingName] = useState(false)
   const [nameDraft, setNameDraft] = useState(image.name)
@@ -118,9 +118,9 @@ export function ImageViewer({
     setNameDraft(src.name)
     setEditingName(false)
     setEditingSV(false)
-    setVariantSearch('')
+    setSceneSearch('')
     setSceneTypeFilter('all')
-    setVariantFilters([])
+    setSceneFilters([])
     if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0
     // image.id is the correct dep — displayImage/image body is intentionally not tracked here
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -754,7 +754,7 @@ export function ImageViewer({
                     <Input
                       inputSize="sm"
                       value={sceneSearch}
-                      onChange={(e) => setVariantSearch(e.target.value)}
+                      onChange={(e) => setSceneSearch(e.target.value)}
                       placeholder="Filter…"
                       className={`pl-6 ${
                         sceneSearch || sceneTypeFilter !== 'all' ? 'pr-6' : 'pr-2'
@@ -763,7 +763,7 @@ export function ImageViewer({
                     {(sceneSearch || sceneTypeFilter !== 'all') && (
                       <button
                         onClick={() => {
-                          setVariantSearch('')
+                          setSceneSearch('')
                           setSceneTypeFilter('all')
                         }}
                         className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
@@ -832,7 +832,7 @@ export function ImageViewer({
                         <FilterMenuContent
                           groups={sceneFilterGroups}
                           activeFilters={sceneFilters}
-                          onFiltersChange={setVariantFilters}
+                          onFiltersChange={setSceneFilters}
                         />
                       </PopoverContent>
                     )}
@@ -842,7 +842,7 @@ export function ImageViewer({
                 {/* Active filter chips */}
                 {hasActiveFilters && (
                   <div className="px-4 pb-2">
-                    <FilterChipList filters={sceneFilters} onFiltersChange={setVariantFilters} />
+                    <FilterChipList filters={sceneFilters} onFiltersChange={setSceneFilters} />
                   </div>
                 )}
               </div>
