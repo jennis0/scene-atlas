@@ -46,7 +46,9 @@ export async function seedTestData(imageDir: string): Promise<void> {
   const { job_id: jobId } = (await initRes.json()) as { job_id: string };
   console.log(`[seed] Job created: ${jobId}`);
 
-  // 2. Collect all image files
+  // 2. Collect all image files and assign mixed image types.
+  //    The first 2 images are seeded as "scene" so that scene-type
+  //    filter tests have data; the rest default to "battlemap".
   const files = collectFiles(imageDir);
   if (files.length === 0) throw new Error(`No images found in ${imageDir}`);
   console.log(`[seed] Step 2: Found ${files.length} image(s) in ${imageDir}`);
@@ -96,7 +98,7 @@ export async function seedTestData(imageDir: string): Promise<void> {
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ manifest: [], image_type: "battlemap" }),
+      body: JSON.stringify({ manifest: [] }),
     },
   );
   if (!analyseRes.ok) {
@@ -114,18 +116,25 @@ export async function seedTestData(imageDir: string): Promise<void> {
 
   // 5. Build confirm-all payload from the analysis
   console.log("[seed] Step 5: Confirming all groups...");
+  // Assign mixed image types: first 2 files across all groups are "scene",
+  // the rest are "battlemap". This ensures scene-type filter tests have data.
+  let fileIndex = 0;
   const confirmGroups = analyseData.groups.map((group) => ({
     author: group.author || "TestArtist",
     group_name: group.group_name,
-    files: group.files.map((f) => ({
-      relative_path: f.relative_path,
-      name: f.name,
-      image_type: f.image_type,
-      gridded: f.gridded,
-      subgroup: f.subgroup,
-      content_hash: f.content_hash,
-      tags: f.detected_tags || [],
-    })),
+    files: group.files.map((f) => {
+      const imageType = fileIndex < 2 ? "scene" : "battlemap";
+      fileIndex++;
+      return {
+        relative_path: f.relative_path,
+        name: f.name,
+        image_type: imageType,
+        gridded: f.gridded,
+        subgroup: f.subgroup,
+        content_hash: f.content_hash,
+        tags: f.detected_tags || [],
+      };
+    }),
     remaining_groups: [],
   }));
 
