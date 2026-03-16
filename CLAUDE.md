@@ -28,8 +28,8 @@ IMPORTANT: It must be possible to build on both windows and linux and run on Win
 - After developing a feature, ensure you update the tests, add any news tests that would be useful, run all linting and formatting, and commit them with a useful commit message
 
 # How to run
-- To run backend: uv run backend.app.main:app
-- To run tests: uv run pytest
+- To run backend: `uv run python scripts/start.py` (development with auto-restart) or `uv run uvicorn backend.app.main:app --reload` (direct)
+- To run tests: `uv run python -m pytest`
 - Always use UV for running the python code
 
 # How to Manage the Code

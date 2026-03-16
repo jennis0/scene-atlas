@@ -14,7 +14,7 @@ uploading → staging → active → completed/failed
 | Status | Meaning | Set by |
 |--------|---------|--------|
 | `uploading` | Files being uploaded to staging | `POST /init` |
-| `staging` | Analysis complete, groups being auto-confirmed | `POST /upload` |
+| `staging` | Analysis complete, groups being auto-confirmed | `POST /analyse` |
 | `active` | At least one group currently processing | `transition_job_status()` |
 | `completed` | All groups done successfully | `transition_job_status()` |
 | `failed` | All groups done, at least one failure | `transition_job_status()` |
@@ -28,7 +28,7 @@ Terminal statuses: `completed`, `failed`, `cancelled`, `expired`, `broken`. Once
 `broken` is a pseudo-terminal status applied at server startup by `mark_interrupted_jobs()` in `maintenance.py`. Any job in `uploading`, `staging`, or `active` at the time the server starts was interrupted mid-flight and cannot be resumed. These are transitioned to `broken` so the ActivityDock can show them as unrecoverable and the user can dismiss them.
 
 - `broken` is NOT a normal state machine transition — it is set directly by `mark_interrupted_jobs()`, bypassing `transition_job_status()`.
-- The frontend maps `broken` to the `done` dialog state and shows an `AlertCircle` icon (same as `failed`).
+- The frontend maps `broken` to the `done` dialog state and shows an `AlertTriangle` icon (same as `failed`).
 - `ImportSummaryDialog` is shown for `broken` and `failed` jobs so users can inspect what went wrong before dismissing.
 
 ### `/fail` endpoint
@@ -37,7 +37,6 @@ Terminal statuses: `completed`, `failed`, `cancelled`, `expired`, `broken`. Once
 
 Used by the frontend in place of `/cancel` when an upload or analysis error occurs — semantically more accurate since the user did not request cancellation; the job failed.
 
-- If `/fail` is unavailable (e.g. network error during the call itself), the frontend falls back to `/cancel` to ensure staging cleanup still occurs.
 - `error_message` is surfaced via `ImportJobSummary.error_message` and shown in `ImportSummaryDialog`.
 
 ## Key Design Decisions
@@ -93,7 +92,7 @@ Note: `'preview'` is a transient internal dialog state — the auto-confirm useE
 | Status | Icon | Counts as "active" (spinner on FAB) |
 |--------|------|-------------------------------------|
 | `uploading` | Upload (pulsing) | Yes |
-| `staging` | Clock | No |
+| `staging` | Clock | No (Note: `useActiveImports` hook includes staging in `hasActive` but ActivityDock pill excludes it from the active count) |
 | `active` / `running` | Loader (spinning) | Yes |
 | `completed` | Check | No |
 | `failed` | Alert circle | No |

@@ -13,7 +13,7 @@ Gallery → [Import button] → ImportDialog opens
   → Select files or folder (or .zip)
   → Files uploaded to staging in batches (init → upload-batch ×N → analyse)
   → Backend analyses files, groups into image groups, generates preview thumbnails
-  → Empty authors defaulted to "Unknown"
+  → Empty authors defaulted to "Unknown" (frontend-only default — the backend accepts null/empty author)
   → Auto-confirm all groups via POST /confirm-all (no user review step)
   → Dialog shows processing state (per-group spinners)
   → User can close dialog → ActivityDock tracks progress
@@ -51,7 +51,7 @@ Accepts `multipart/form-data`:
 
 The frontend splits files into batches (≤20 files, ≤100 MB each) and sends them sequentially. Each batch uses Axios `onUploadProgress` for byte-level progress feedback, which drives the progress bar in the UI. On network or 5xx errors, up to 2 retries are made with exponential backoff.
 
-**On failure:** The frontend calls `POST /{job_id}/fail` with an `error_message` to mark the job as `failed` (semantically accurate — not a user cancellation). If `/fail` itself is unavailable, the frontend falls back to `POST /{job_id}/cancel` to ensure staging cleanup still occurs. The staging TTL handles any remaining cleanup.
+**On failure:** The frontend calls `POST /{job_id}/fail` with an `error_message` to mark the job as `failed` (semantically accurate — not a user cancellation). The staging TTL handles any remaining cleanup.
 
 ### Phase 3: Analyse
 
@@ -65,7 +65,7 @@ Accepts JSON body:
 1. Validate job exists and is in `uploading` state
 2. Walk staging directory to discover all saved files
 3. Merge discovered paths with manifest entries
-4. Run `analyse_upload` synchronously via `JobRunner.run_sync()`
+4. Run `analyse_upload` via `asyncio.to_thread(analyse_upload, ...)`
    - Runs `ImageParser.group_files()` on all paths
    - Generates preview thumbnails (120x120 JPEG) into `data/staging/{job_id}/.thumbs/`
 5. Update `ImportJob` row: status → `staging`, store `analysis_result`
@@ -105,7 +105,7 @@ Accepts JSON body:
 
 Serves pre-generated thumbnails for the import preview UI.
 
-- Looks up thumbnail in `.thumbs/` subdir of staging (converts `relative_path` slashes to `__`, uses stem + `.jpg`)
+- Looks up thumbnail in `.thumbs/` subdir of staging (uses UUID-based staging key: `Path(staging_key).stem + ".jpg"`)
 - Path traversal guard: resolved path must be within staging directory
 - Falls back to serving the original staged file if thumbnail is missing
 - Returns `FileResponse` with `image/jpeg` content type
@@ -251,7 +251,7 @@ POST /init → job created (uploading)
 POST /upload-batch ×N → files staged
 POST /analyse → analyse_upload (sync) → ImportUploadResponse (staging)
   → useImportState auto-confirm effect fires
-  → Empty authors filled as "Unknown"
+  → Empty authors filled as "Unknown" (frontend-only default — the backend accepts null/empty author)
   → POST /confirm-all → all groups submitted at once
   → process_import_job runs async via JobRunner
   → transition_job_status() → active → completed
@@ -266,3 +266,4 @@ Staging directories (`data/staging/{job_id}/`) are created on upload and include
 - The periodic `cleanup_staging` scheduler task (every 6h, removes dirs older than 24h)
 - The `expire_stale_jobs` scheduler task (every 6h, cleans staging for expired jobs)
 - `POST /cancel` endpoint (removes staging dir)
+- `_finalize_import_job()` pipeline function (cleans staging after all groups processed)
