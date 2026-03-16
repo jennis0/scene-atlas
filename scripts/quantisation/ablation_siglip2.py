@@ -11,7 +11,7 @@ AutoProcessor handles SigLIP2 correctly (direct_resize, bilinear).  Text
 is lowercased to match production SentencePiece behaviour.
 
 Ablation results are *relative* (config vs config).  For production-
-representative numbers, use ``scripts/export_model_onnx.py --image-dir``
+representative numbers, use ``scripts/models/export_model_onnx.py --image-dir``
 which exercises the full ``CLIPService`` preprocessing pipeline.
 
 Usage:

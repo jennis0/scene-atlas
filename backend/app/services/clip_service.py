@@ -1,7 +1,7 @@
 """Embedding model service for generating image and text embeddings.
 
 Uses ONNX Runtime for inference with quantised models (CLIP, SigLIP2, etc.).
-The ONNX models are exported using ``scripts/export_model_onnx.py``
+The ONNX models are exported using ``scripts/models/export_model_onnx.py``
 and bundled into the sidecar.
 
 Model-specific parameters (image size, normalization, tokenizer config,
