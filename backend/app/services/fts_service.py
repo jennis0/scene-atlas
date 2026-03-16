@@ -3,6 +3,7 @@
 import json
 import logging
 import re
+import threading
 import time
 
 from sqlalchemy import text
@@ -20,6 +21,7 @@ _alias_vocab: dict[str, str] | None = None  # alias_or_canonical -> canonical
 _alias_reverse: dict[str, set[str]] | None = None  # canonical -> {aliases}
 _alias_vocab_loaded_at: float = 0.0
 _ALIAS_TTL = 300.0  # 5 minutes
+_alias_lock = threading.Lock()
 
 
 def _load_alias_vocab(db: Session) -> tuple[dict[str, str], dict[str, set[str]]]:
@@ -56,13 +58,14 @@ def get_alias_vocab(db: Session) -> tuple[dict[str, str], dict[str, set[str]]]:
     """Return cached alias vocab, refreshing if TTL expired."""
     global _alias_vocab, _alias_reverse, _alias_vocab_loaded_at
 
-    now = time.monotonic()
-    if _alias_vocab is not None and (now - _alias_vocab_loaded_at) < _ALIAS_TTL:
-        return _alias_vocab, _alias_reverse  # type: ignore[return-value]
+    with _alias_lock:
+        now = time.monotonic()
+        if _alias_vocab is not None and (now - _alias_vocab_loaded_at) < _ALIAS_TTL:
+            return _alias_vocab, _alias_reverse  # type: ignore[return-value]
 
-    _alias_vocab, _alias_reverse = _load_alias_vocab(db)
-    _alias_vocab_loaded_at = now
-    return _alias_vocab, _alias_reverse
+        _alias_vocab, _alias_reverse = _load_alias_vocab(db)
+        _alias_vocab_loaded_at = now
+        return _alias_vocab, _alias_reverse
 
 
 def get_alias_expansions(query: str, db: Session) -> list[str]:
@@ -100,7 +103,8 @@ def get_alias_expansions(query: str, db: Session) -> list[str]:
 def invalidate_alias_cache() -> None:
     """Force reload of alias vocab on next use (call after tag category changes)."""
     global _alias_vocab_loaded_at
-    _alias_vocab_loaded_at = 0.0
+    with _alias_lock:
+        _alias_vocab_loaded_at = 0.0
 
 
 # ---------------------------------------------------------------------------
