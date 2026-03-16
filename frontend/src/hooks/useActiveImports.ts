@@ -69,6 +69,8 @@ export interface UseActiveImportsReturn {
   connectionLost: boolean
   refresh: () => void
   dismissJob: (jobId: string) => void
+  /** Dismiss a terminal job that needs backend cleanup (broken/failed). */
+  dismissWithCleanup: (jobId: string) => Promise<void>
   cancelJob: (jobId: string) => Promise<void>
   /** Fired once each time a job transitions to 'completed', with the completed job. */
   onJobCompleted: (cb: (job: ActiveImportJob) => void) => () => void
@@ -165,6 +167,19 @@ export function useActiveImports(): UseActiveImportsReturn {
     setJobs((prev) => prev.filter((j) => j.jobId !== jobId))
   }, [])
 
+  /** Dismiss a terminal job that needs backend cleanup (broken/failed). */
+  const dismissWithCleanup = useCallback(
+    async (jobId: string) => {
+      try {
+        await importApi.cancel(jobId)
+      } catch {
+        /* best effort — job may already be cleaned up */
+      }
+      dismissJob(jobId)
+    },
+    [dismissJob],
+  )
+
   const cancelJob = useCallback(async (jobId: string) => {
     const job = jobsRef.current.find((j) => j.jobId === jobId)
     if (!job?.localOnly) {
@@ -186,7 +201,16 @@ export function useActiveImports(): UseActiveImportsReturn {
       j.status === 'running',
   )
 
-  return { jobs, hasActive, connectionLost, refresh, dismissJob, cancelJob, onJobCompleted }
+  return {
+    jobs,
+    hasActive,
+    connectionLost,
+    refresh,
+    dismissJob,
+    dismissWithCleanup,
+    cancelJob,
+    onJobCompleted,
+  }
 }
 
 function localToActiveJob(entry: ImportJobIndexEntry): ActiveImportJob {

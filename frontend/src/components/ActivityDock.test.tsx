@@ -18,6 +18,7 @@ const baseProps = {
   hasActiveJobs: false,
   onOpenJob: vi.fn(),
   onDismissJob: vi.fn(),
+  onDismissWithCleanup: vi.fn().mockResolvedValue(undefined),
   onCancelJob: vi.fn(),
   onRefresh: vi.fn(),
 }
