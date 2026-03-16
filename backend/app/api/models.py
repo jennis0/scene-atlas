@@ -15,6 +15,7 @@ from ..services.clip_service import (
 )
 from ..services.job_runner import get_job_runner
 from ..services.model_download_service import (
+    check_disk_space,
     download_model,
     get_all_model_statuses,
     get_collection_name,
@@ -203,6 +204,17 @@ def download_model_endpoint(name: str) -> ActiveModelResponse:
     if is_model_downloaded(name):
         return ActiveModelResponse(job_id=None, status="already_downloaded")
 
+    # Pre-flight: check disk space before downloading
+    ok, needed_mb, available_mb = check_disk_space(name)
+    if not ok:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Insufficient disk space. Need approximately {needed_mb} MB "
+                f"but only {available_mb} MB free."
+            ),
+        )
+
     runner = get_job_runner()
     job_id = runner.submit(_download_only, name, name=f"Download model: {name}")
     return ActiveModelResponse(job_id=job_id, status="downloading")
@@ -268,6 +280,18 @@ def set_active_model(
 
     if model_name == get_effective_model_name() and is_model_downloaded(model_name):
         return ActiveModelResponse(status="already_active", job_id=None)
+
+    # Pre-flight: check disk space before downloading
+    if not is_model_downloaded(model_name):
+        ok, needed_mb, available_mb = check_disk_space(model_name)
+        if not ok:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Insufficient disk space. Need approximately {needed_mb} MB "
+                    f"but only {available_mb} MB free."
+                ),
+            )
 
     # Persist the active model to DB directly (bypass update_settings to avoid side-effects)
     db.merge(AppSetting(key="active_model", value_json=json.dumps(model_name)))

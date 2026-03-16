@@ -183,3 +183,55 @@ class TestSetActiveModel:
     def test_set_active_model_missing_body_returns_422(self, test_client):
         resp = test_client.post("/api/v1/models/active", json={})
         assert resp.status_code == 422
+
+    def test_set_active_model_insufficient_disk_space_returns_409(self, test_client, monkeypatch):
+        monkeypatch.setattr(
+            "backend.app.api.models.get_effective_model_name",
+            lambda: "medium",
+        )
+        monkeypatch.setattr(
+            "backend.app.api.models.is_model_downloaded",
+            lambda name: False,
+        )
+        monkeypatch.setattr(
+            "backend.app.api.models.check_disk_space",
+            lambda name: (False, 375, 10),
+        )
+        resp = test_client.post(
+            "/api/v1/models/active",
+            json={"model_name": "small"},
+        )
+        assert resp.status_code == 409
+        assert "disk space" in resp.json()["detail"].lower()
+
+
+class TestDownloadModelDiskSpaceCheck:
+    def test_download_insufficient_disk_space_returns_409(self, test_client, monkeypatch):
+        monkeypatch.setattr(
+            "backend.app.api.models.is_model_downloaded",
+            lambda name: False,
+        )
+        monkeypatch.setattr(
+            "backend.app.api.models.check_disk_space",
+            lambda name: (False, 375, 10),
+        )
+        resp = test_client.post("/api/v1/models/small/download")
+        assert resp.status_code == 409
+        assert "disk space" in resp.json()["detail"].lower()
+
+    def test_download_sufficient_disk_space_proceeds(self, test_client, monkeypatch):
+        monkeypatch.setattr(
+            "backend.app.api.models.is_model_downloaded",
+            lambda name: False,
+        )
+        monkeypatch.setattr(
+            "backend.app.api.models.check_disk_space",
+            lambda name: (True, 375, 10000),
+        )
+        mock_runner = MagicMock()
+        mock_runner.submit.return_value = "job-abc"
+        monkeypatch.setattr("backend.app.api.models.get_job_runner", lambda: mock_runner)
+
+        resp = test_client.post("/api/v1/models/small/download")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "downloading"

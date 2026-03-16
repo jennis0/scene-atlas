@@ -609,7 +609,10 @@ def _load_clip() -> None:
     except Exception as exc:
         with _clip_lock:
             _clip_error = exc
-        logger.exception("Embedding model load failed")
+        logger.exception(
+            "STARTUP ERROR: Embedding model load failed. "
+            "The app will run but search-by-description will not work until the model is available."
+        )
     finally:
         _clip_ready.set()  # Always unblock waiters, even on failure
 

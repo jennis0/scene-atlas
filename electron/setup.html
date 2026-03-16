@@ -192,6 +192,19 @@
     }
     .start-btn:hover { opacity: 0.88; }
 
+    /* Setup error — shown below Get Started when directory writability fails */
+    .setup-error {
+      font-size: 0.8125rem;
+      color: #e57373;
+      background: rgba(229, 115, 115, 0.08);
+      border: 1px solid rgba(229, 115, 115, 0.25);
+      border-radius: var(--radius);
+      padding: 0.625rem 0.75rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
     /* Note — 0.75rem matches existing setup.html .note */
     .note { font-size: 0.75rem; color: var(--fg-muted); text-align: center; line-height: 1.5; }
 
@@ -260,6 +273,8 @@
 
       <button class="start-btn">Get Started</button>
 
+      <p class="setup-error" id="setup-error" style="display:none;"></p>
+
       <p class="note">These settings can be changed later in Settings.</p>
 
     </div>
@@ -306,9 +321,15 @@
     })
 
     // Get Started
-    document.querySelector('.start-btn').addEventListener('click', function() {
+    const errorEl = document.getElementById('setup-error')
+    document.querySelector('.start-btn').addEventListener('click', async function() {
       if (!appDataDir || !imageLibraryDir) return
-      window.setupAPI.complete(appDataDir, imageLibraryDir, convertToWebp)
+      errorEl.style.display = 'none'
+      const result = await window.setupAPI.complete(appDataDir, imageLibraryDir, convertToWebp)
+      if (result && result.error) {
+        errorEl.textContent = result.error
+        errorEl.style.display = 'block'
+      }
     })
   </script>
 </body>

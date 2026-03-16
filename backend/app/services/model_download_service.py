@@ -4,6 +4,7 @@ Downloads to DATA_DIR/models/{name}/ using an atomic temp-dir → rename pattern
 version.json is the completion marker (written last, checked by is_model_downloaded).
 """
 
+import errno
 import json
 import logging
 import shutil
@@ -15,6 +16,9 @@ from backend.app.config import settings as _settings
 from backend.app.services.model_registry import MODEL_BY_NAME, get_model
 
 logger = logging.getLogger(__name__)
+
+# Multiplier applied to model size to account for temp download + final copy
+_DISK_SPACE_MULTIPLIER = 1.5
 
 
 class ModelDownloadError(Exception):
@@ -51,6 +55,32 @@ def get_collection_name(name: str) -> str:
     collection — but this requires a migration strategy for existing installs.
     """
     return f"embeddings_{name}"
+
+
+def check_disk_space(model_name: str) -> tuple[bool, int, int]:
+    """Check whether there is enough disk space to download a model.
+
+    Uses ``shutil.disk_usage()`` on the models directory and the model's
+    ``approx_size_mb`` from the registry, applying a 1.5x safety multiplier
+    to account for the temp download directory plus the final copy.
+
+    Returns
+    -------
+    (ok, needed_mb, available_mb)
+        *ok* is True when available space exceeds the requirement.
+    """
+    entry = get_model(model_name)
+    if entry is None:
+        raise ModelDownloadError(
+            f"Unknown model '{model_name}'. Valid names: {list(MODEL_BY_NAME)}"
+        )
+
+    needed_mb = int(entry["approx_size_mb"] * _DISK_SPACE_MULTIPLIER)
+    models_dir = _settings.app_data_dir / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+    usage = shutil.disk_usage(models_dir)
+    available_mb = int(usage.free / (1024 * 1024))
+    return (available_mb >= needed_mb, needed_mb, available_mb)
 
 
 def get_all_model_statuses() -> list[dict]:
@@ -95,6 +125,14 @@ def download_model(name: str, progress_fn=None) -> dict:
     entry = get_model(name)
     if entry is None:
         raise ModelDownloadError(f"Unknown model '{name}'. Valid names: {list(MODEL_BY_NAME)}")
+
+    # Pre-flight: check disk space before attempting download
+    ok, needed_mb, available_mb = check_disk_space(name)
+    if not ok:
+        raise ModelDownloadError(
+            f"Insufficient disk space to download model '{name}'. "
+            f"Need approximately {needed_mb} MB but only {available_mb} MB free."
+        )
 
     repo_id = entry["hf_repo"]
     model_dir = get_model_dir(name)
@@ -172,13 +210,28 @@ def download_model(name: str, progress_fn=None) -> dict:
 def _raise_download_error(exc: Exception, repo_id: str) -> NoReturn:
     """Convert various HuggingFace/network exceptions into ModelDownloadError."""
     exc_str = str(exc)
+
+    # ── Timeout errors (check before generic ConnectionError) ──
     try:
         import requests
 
+        if isinstance(exc, requests.exceptions.Timeout):
+            raise ModelDownloadError(
+                "Download timed out. Check your internet connection and try again."
+            ) from exc
         if isinstance(exc, requests.exceptions.ConnectionError):
             raise ModelDownloadError(
-                f"Could not connect to HuggingFace to download '{repo_id}'. "
-                "Check your internet connection."
+                "Could not connect to download server. Check your internet connection."
+            ) from exc
+    except ImportError:
+        pass
+
+    try:
+        import urllib3.exceptions
+
+        if isinstance(exc, urllib3.exceptions.TimeoutError):
+            raise ModelDownloadError(
+                "Download timed out. Check your internet connection and try again."
             ) from exc
     except ImportError:
         pass
@@ -193,6 +246,19 @@ def _raise_download_error(exc: Exception, repo_id: str) -> NoReturn:
     except ImportError:
         pass
 
+    # ── Permission errors ──
+    if isinstance(exc, PermissionError):
+        raise ModelDownloadError(
+            "Cannot write to the models directory. Check file permissions."
+        ) from exc
+
+    # ── Disk-space errors ──
+    if isinstance(exc, OSError) and exc.errno == errno.ENOSPC:
+        raise ModelDownloadError(
+            "Not enough disk space to download the model. Free up space and try again."
+        ) from exc
+
+    # ── Generic OS errors ──
     if isinstance(exc, OSError):
         raise ModelDownloadError(
             f"File system error while downloading '{repo_id}': {exc_str}"

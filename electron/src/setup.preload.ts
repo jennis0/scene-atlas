@@ -7,6 +7,6 @@ contextBridge.exposeInMainWorld('setupAPI', {
   chooseDirectory: (): Promise<string | null> =>
     ipcRenderer.invoke('setup:choose-directory'),
 
-  complete: (appDataDir: string, imageLibraryDir: string, convertToWebp: boolean): void =>
-    ipcRenderer.send('setup:complete', appDataDir, imageLibraryDir, convertToWebp),
+  complete: (appDataDir: string, imageLibraryDir: string, convertToWebp: boolean): Promise<{ error: string | null }> =>
+    ipcRenderer.invoke('setup:complete', appDataDir, imageLibraryDir, convertToWebp),
 })
