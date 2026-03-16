@@ -175,6 +175,8 @@ export function useActiveImports(): UseActiveImportsReturn {
       }
     }
     removeImportState(jobId)
+    dismissedIdsRef.current.add(jobId)
+    saveDismissedJob(jobId)
     setJobs((prev) => prev.filter((j) => j.jobId !== jobId))
   }, [])
 
