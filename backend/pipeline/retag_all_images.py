@@ -33,15 +33,28 @@ def _build_parser(db):
 
 
 def retag_batch(image_ids: list[int], parser: ImageParser) -> dict:
-    """Retag a batch of images."""
+    """Delete auto tags for a batch of images and regenerate them atomically.
+
+    The delete + re-tag for each batch is committed in a single transaction so
+    that a crash mid-retag only loses tags for the current batch rather than
+    the entire library.
+    """
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)
     db = SessionLocal()
 
     tags_created = 0
+    tags_deleted = 0
     errors = 0
 
     try:
+        # Delete auto tags for THIS batch only (atomic with re-tag below)
+        tags_deleted = (
+            db.query(Tag)
+            .filter(Tag.image_id.in_(image_ids), Tag.source == "auto")
+            .delete(synchronize_session=False)
+        )
+
         images = db.query(Image).filter(Image.id.in_(image_ids)).all()
         for image in images:
             try:
@@ -74,22 +87,22 @@ def retag_batch(image_ids: list[int], parser: ImageParser) -> dict:
     finally:
         db.close()
 
-    return {"tags_created": tags_created, "errors": errors}
+    return {"tags_created": tags_created, "tags_deleted": tags_deleted, "errors": errors}
 
 
 def retag_all_images(progress_fn=None):
-    """Delete all auto tags and regenerate them from filenames."""
+    """Delete auto tags per batch and regenerate them from filenames.
+
+    Each batch atomically deletes its auto tags and re-creates them in a
+    single transaction.  If the process crashes mid-retag, only the current
+    batch loses its auto tags — all other batches remain intact.
+    """
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)
     db = SessionLocal()
 
     try:
         parser = _build_parser(db)
-
-        # Delete all auto tags in one go
-        deleted = db.query(Tag).filter(Tag.source == "auto").delete()
-        db.commit()
-        print(f"Deleted {deleted} auto-assigned tag(s).")
 
         # Collect all image IDs
         all_ids = [row[0] for row in db.query(Image.id).order_by(Image.id).all()]
@@ -101,21 +114,25 @@ def retag_all_images(progress_fn=None):
 
     if total == 0:
         print("Nothing to retag")
-        return {"total": 0, "tags_created": 0, "errors": 0}
+        return {"total": 0, "tags_created": 0, "tags_deleted": 0, "errors": 0}
 
-    # Process in batches
-    totals = {"tags_created": 0, "errors": 0}
+    # Process in batches — each batch atomically deletes + re-creates auto tags
+    totals = {"tags_created": 0, "tags_deleted": 0, "errors": 0}
     for i in range(0, total, BATCH_SIZE):
         batch_ids = all_ids[i : i + BATCH_SIZE]
         result = retag_batch(batch_ids, parser)
         totals["tags_created"] += result["tags_created"]
+        totals["tags_deleted"] += result["tags_deleted"]
         totals["errors"] += result["errors"]
         processed = min(i + BATCH_SIZE, total)
         print(f"  Processed {processed}/{total}")
         if progress_fn:
             progress_fn(processed, total, f"Processed {processed}/{total}")
 
-    print(f"Done. Created {totals['tags_created']} new auto tag(s) across {total} image(s).")
+    print(
+        f"Done. Deleted {totals['tags_deleted']} and created {totals['tags_created']} "
+        f"auto tag(s) across {total} image(s)."
+    )
     return {"total": total, **totals}
 
 
