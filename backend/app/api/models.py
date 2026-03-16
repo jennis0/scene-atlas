@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..models.database import AppSetting
+from ..services import clip_service as _clip_module
 from ..services.clip_service import (
     get_effective_model_name,
     reload_clip_service,
@@ -76,6 +77,11 @@ class ActiveModelRequest(BaseModel):
 class ActiveModelResponse(BaseModel):
     status: str
     job_id: str | None
+
+
+class EmbeddingStatusResponse(BaseModel):
+    status: str  # "loading" | "ready" | "error"
+    error: str | None
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +165,21 @@ def list_models() -> ModelListResponse:
         )
 
     return ModelListResponse(models=model_infos)
+
+
+@router.get("/embedding-status", response_model=EmbeddingStatusResponse)
+def get_embedding_status() -> EmbeddingStatusResponse:
+    """Return the current status of the embedding model (CLIP service).
+
+    - "loading": model is still initialising in the background
+    - "ready": model is loaded and available for inference
+    - "error": model failed to load
+    """
+    if _clip_module._clip_service is not None:
+        return EmbeddingStatusResponse(status="ready", error=None)
+    if _clip_module._clip_error is not None:
+        return EmbeddingStatusResponse(status="error", error=str(_clip_module._clip_error))
+    return EmbeddingStatusResponse(status="loading", error=None)
 
 
 @router.get("/setup-status", response_model=SetupStatusResponse)

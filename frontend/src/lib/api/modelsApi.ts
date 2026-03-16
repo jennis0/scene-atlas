@@ -58,4 +58,11 @@ export const modelsApi = {
   deleteEmbeddings: async (name: string): Promise<void> => {
     await api.delete(`/models/${name}/embeddings`)
   },
+
+  embeddingStatus: async (): Promise<{ status: string; error: string | null }> => {
+    const { data } = await api.get<{ status: string; error: string | null }>(
+      '/models/embedding-status',
+    )
+    return data
+  },
 }

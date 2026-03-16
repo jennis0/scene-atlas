@@ -19,6 +19,7 @@ import { ImportSummaryDialog } from '@/components/ImportSummaryDialog'
 import { GalleryHeader } from '@/components/GalleryHeader'
 import { useGallerySearch } from '@/hooks/useGallerySearch'
 import { useGalleryDialogs } from '@/hooks/useGalleryDialogs'
+import { useEmbeddingStatus } from '@/hooks/useEmbeddingStatus'
 import { useActiveImports } from '@/hooks/useActiveImports'
 import { useBackgroundJobs } from '@/hooks/useBackgroundJobs'
 import { Button } from '@/components/ui/button'
@@ -60,6 +61,7 @@ export function Gallery() {
     ],
   )
 
+  const embedding = useEmbeddingStatus()
   const activeImports = useActiveImports()
   const backgroundJobs = useBackgroundJobs()
   const sentinelRef = useRef<HTMLDivElement>(null)
@@ -144,6 +146,8 @@ export function Gallery() {
       {/* Header */}
       <GalleryHeader
         search={{ ...search, editAllLoading: dialogs.editAllLoading }}
+        embeddingStatus={embedding.status}
+        embeddingError={embedding.error}
         onOpenImport={() => dialogs.openImportDialog()}
         onOpenTagManagement={() => dialogs.setShowTagManagement(true)}
         onOpenSystemInfo={() => dialogs.setShowSystemInfo(true)}
