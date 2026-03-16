@@ -319,12 +319,12 @@ def mark_interrupted_jobs(db=None) -> int:
                 job.id,
                 job.status,
             )
-            # Mark running child groups as failed
+            # Mark running/pending child groups as failed
             affected = (
                 db.query(ImportGroupJob)
                 .filter(
                     ImportGroupJob.job_id == job.id,
-                    ImportGroupJob.status == "running",
+                    ImportGroupJob.status.in_(("running", "pending")),
                 )
                 .update(
                     {"status": "failed", "completed_at": now},
@@ -333,7 +333,9 @@ def mark_interrupted_jobs(db=None) -> int:
             )
             if affected:
                 logger.warning(
-                    "  Marked %d running group job(s) as failed for job %s", affected, job.id
+                    "  Marked %d running/pending group job(s) as failed for job %s",
+                    affected,
+                    job.id,
                 )
             job.status = "broken"
             job.error_message = "Server was restarted before this import could complete"

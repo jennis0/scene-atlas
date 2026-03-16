@@ -399,13 +399,26 @@ class TestCancelImport:
 
 
 class TestCancelImportGroup:
-    def test_cancel_running_group(self, seeded_running_job):
-        client, job_id, grp_id = seeded_running_job
-        resp = client.post(f"/api/v1/imports/{job_id}/groups/{grp_id}/cancel")
+    def test_cancel_pending_group(self, test_client, tmp_db):
+        """Only pending groups can be cancelled."""
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        _make_job(db, "jobpendgrp", status="active", total_files=2)
+        _make_group_job(db, "jobpendgrp", "grp_pend", status="pending", total=2)
+        db.commit()
+        db.close()
+
+        resp = test_client.post("/api/v1/imports/jobpendgrp/groups/grp_pend/cancel")
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "cancelled"
-        assert data["group_id"] == grp_id
+        assert data["group_id"] == "grp_pend"
+
+    def test_cancel_running_group_returns_400(self, seeded_running_job):
+        """Running groups cannot be cancelled (pipeline is actively processing)."""
+        client, job_id, grp_id = seeded_running_job
+        resp = client.post(f"/api/v1/imports/{job_id}/groups/{grp_id}/cancel")
+        assert resp.status_code == 400
 
     def test_cancel_group_404_for_missing(self, seeded_running_job):
         client, job_id, _ = seeded_running_job
@@ -423,6 +436,86 @@ class TestCancelImportGroup:
 
         resp = client.post(f"/api/v1/imports/{job_id}/groups/{grp_id}/cancel")
         assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Confirm-all: groups start as pending, submit failure rolls back
+# ---------------------------------------------------------------------------
+
+
+class TestConfirmAllGroupStatus:
+    def test_confirm_submit_failure_sets_job_failed(
+        self, test_client, tmp_db, tmp_path, monkeypatch
+    ):
+        """If runner.submit() raises, the parent job should be set to 'failed'."""
+        from unittest.mock import MagicMock
+
+        from backend.app import config
+
+        staging_root = tmp_path / "staging"
+        staging_root.mkdir(exist_ok=True)
+        monkeypatch.setattr(config.settings, "staging_dir", staging_root)
+
+        _, SessionLocal = tmp_db
+        db = SessionLocal()
+        _make_job(db, "job_submit_fail", status="staging", total_files=1)
+        db.commit()
+        db.close()
+
+        # Create staging directory with a fake file and file map
+        import json
+
+        staging_dir = staging_root / "job_submit_fail"
+        staging_dir.mkdir(parents=True)
+        (staging_dir / "aaaa0001.jpg").write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 100)
+        (staging_dir / ".file_map.json").write_text(json.dumps({"test.jpg": "aaaa0001.jpg"}))
+
+        # Mock runner.submit to raise RuntimeError
+        mock_runner = MagicMock()
+        mock_runner.submit.side_effect = RuntimeError("thread pool shutdown")
+        monkeypatch.setattr(
+            "backend.app.api.imports.get_job_runner",
+            lambda: mock_runner,
+        )
+
+        # Mock pipeline imports that confirm_all_groups tries to load
+        monkeypatch.setattr(
+            "backend.pipeline.ingestion.process_import_job",
+            lambda *a, **kw: None,
+        )
+
+        resp = test_client.post(
+            "/api/v1/imports/job_submit_fail/confirm-all",
+            json={
+                "groups": [
+                    {
+                        "group_name": "TestGroup",
+                        "author": "Author",
+                        "files": [
+                            {
+                                "relative_path": "test.jpg",
+                                "filename": "test.jpg",
+                                "image_type": "battlemap",
+                                "detected_tags": [],
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+        assert resp.status_code == 503
+
+        # Verify parent job is marked as failed in DB
+        db = SessionLocal()
+        job = db.query(ImportJob).filter(ImportJob.id == "job_submit_fail").first()
+        assert job.status == "failed"
+        assert job.error_message == "Failed to submit processing job"
+        # Verify no group jobs were committed (rollback happened)
+        group_jobs = (
+            db.query(ImportGroupJob).filter(ImportGroupJob.job_id == "job_submit_fail").all()
+        )
+        assert len(group_jobs) == 0
+        db.close()
 
 
 # ---------------------------------------------------------------------------
