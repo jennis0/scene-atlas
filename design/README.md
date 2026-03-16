@@ -29,6 +29,8 @@ How individual features and subsystems are designed.
 | [import-state-machine.md](import-state-machine.md) | Import state machine -- 7 statuses, transitions, frontend mapping |
 | [group-view.md](group-view.md) | Group view -- hero+mosaic card layout for browsing by image group |
 | [dialog-focus-management.md](dialog-focus-management.md) | Focus management across dialog and modal components |
+| [hf-model-management.md](hf-model-management.md) | HuggingFace model download, switching, and GPU detection |
+| [2026-03-15-split-storage-webp-setup-design.md](2026-03-15-split-storage-webp-setup-design.md) | Split storage and WebP conversion design |
 
 ## Standards and Decisions
 
@@ -36,10 +38,11 @@ Design decisions, visual standards, and security posture.
 
 | File | Description |
 |------|-------------|
-| [decisions.md](decisions.md) | **Architecture Decision Log** -- numbered record of all major design decisions (ADRs 001-015) |
+| [decisions.md](decisions.md) | **Architecture Decision Log** -- numbered record of all major design decisions (ADRs 001-017) |
 | [visual-language.md](visual-language.md) | Visual design system -- tokens, typography, components, patterns |
 | [security.md](security.md) | Security evaluation for hosted deployment mode |
 | [testing.md](testing.md) | Testing strategy -- CI/CD tiers, coverage targets, test conventions |
+| [onnx-int8-quantisation.md](onnx-int8-quantisation.md) | ONNX INT8 quantisation methodology and results |
 
 ## Status and Backlog
 
@@ -49,7 +52,15 @@ What's done, what's in progress, and what's known to be incomplete.
 |------|-------------|
 | [status-and-roadmap.md](status-and-roadmap.md) | **Single source of truth** -- feature inventory, in-progress work, backlog |
 | [technical-debt.md](technical-debt.md) | Code quality improvements with specific file paths and fix guidance |
-| [e2e-todo.md](e2e-todo.md) | E2E test expansion plan -- 85 remaining tests across 7 spec files |
+| [e2e-todo.md](e2e-todo.md) | E2E test expansion plan -- 31 remaining tests across 6 categories |
+
+## Historical
+
+Superseded documents kept for reference.
+
+| File | Description |
+|------|-------------|
+| [gpu-acceleration-handover.md](gpu-acceleration-handover.md) | *Historical:* pre-implementation GPU plan (now superseded by [gpu-acceleration.md](gpu-acceleration.md)) |
 
 ## System Overview
 

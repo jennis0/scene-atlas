@@ -1,6 +1,6 @@
 # E2E Test Expansion — Todo List
 
-Status: ~35 tests across 10 spec files. Real test images (encrypted, Git LFS) replace procedural generation.
+Status: 37 tests across 10 spec files. ~31 remaining tests planned. Real test images (encrypted, Git LFS).
 
 ## Completed
 

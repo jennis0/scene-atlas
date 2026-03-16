@@ -7,8 +7,8 @@ Scene Atlas supports three deployment modes. All modes must build on Windows and
 ### Prerequisites
 
 - **Python 3.12+** with [uv](https://docs.astral.sh/uv/) for dependency management
-- **Node.js 18+** with npm
-- ONNX models: `uv run python scripts/models/setup_models.py` (downloads CLIP model and quantises it)
+- **Node.js 20+** with npm
+- ONNX models: `uv run python scripts/models/setup_models.py` (downloads the embedding model from HuggingFace)
 
 ### Running Locally
 
@@ -62,14 +62,13 @@ All config via environment variables or `.env` file. Key settings:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `DATABASE_URL` | `sqlite:///./data/battlemap.db` | SQLite database path |
-| `STORE_IMAGES_DIR` | `data/store/images` | Image storage directory |
-| `STORE_THUMBNAILS_DIR` | `data/store/thumbnails` | Thumbnail storage directory |
-| `STAGING_DIR` | `data/staging` | Import staging directory |
-| `QDRANT_PATH` | `data/qdrant_local` | Qdrant embedded storage |
+| `APP_DATA_DIR` | `data/` | Primary config directory (DB, Qdrant, staging, backups) |
+| `IMAGE_LIBRARY_DIR` | `data/store/` | Image library root (images + thumbnails stored here) |
 | `AUTH_TOKEN` | (unset) | Optional bearer token for API auth |
 | `CORS_ORIGINS` | `localhost:3000,5173,8000` | Allowed CORS origins |
 | `APP_MODE` | `auto` | Force mode: `server`, `electron`, `auto` |
+
+Other paths (`DATABASE_URL`, `QDRANT_PATH`, `STAGING_DIR`, etc.) are derived from `APP_DATA_DIR` and `IMAGE_LIBRARY_DIR` by default. Override individual paths only if you need a non-standard layout.
 
 See `.env.example` for the full list.
 

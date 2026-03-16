@@ -98,24 +98,29 @@ Playwright tests validate critical user flows in a real browser against the full
 - Located in `e2e/` at project root (not inside `frontend/`) -- tests exercise the full stack
 - Dual webServer config: Playwright starts both backend and frontend automatically
 - Real CLIP model (no mocking) -- loads in a background thread, server responds immediately
-- Test data seeded via the import API using programmatically generated images (6 images, 2 groups)
+- Test data seeded via the import API using real encrypted fixture images (decrypted at runtime from Git LFS)
 - Serial execution (`workers: 1`) -- tests share backend state
 - Chromium only in CI; Firefox/WebKit available locally via `--project` flag
 
 **Key files:**
 - `e2e/playwright.config.ts` -- Dual webServer, serial execution, CI/local reporter config
-- `e2e/fixtures/base.ts` -- Worker-scoped auto fixture that generates images and seeds via API
-- `e2e/helpers/seed.ts` -- Uploads images via `POST /imports/upload`, confirms, polls until done
-- `scripts/generate_e2e_images.py` -- Creates 6 minimal test JPEGs (same PIL pattern as conftest.py)
+- `e2e/fixtures/base.ts` -- Worker-scoped auto fixture that decrypts real images and seeds via API
+- `e2e/helpers/seed.ts` -- Uploads images via import API, confirms all groups, polls until done
+- `e2e/helpers/decrypt-fixtures.ts` -- Decrypts `e2e-images.zip.enc` (Git LFS) for CI and local dev
 
 **`reuseExistingServer`:** Locally, if you already have the backend and frontend running, Playwright reuses them -- no cold-start overhead. In CI, Playwright starts both servers fresh.
 
-**Test coverage (15 tests across 5 files):**
+**Test coverage (37 tests across 10 files):**
 - `smoke.spec.ts` -- Health check, page load, seeded data visible
 - `gallery.spec.ts` -- Image count, type tabs, view toggle, sort dropdown
+- `gallery-deep.spec.ts` -- Text-only search, semantic search, filters, clear all, empty state, grouped view
 - `search.spec.ts` -- Text search, clear, semantic prefix with relevance slider
-- `image-viewer.spec.ts` -- Open/close modal, keyboard navigation
+- `image-viewer.spec.ts` -- Open/close modal, keyboard navigation, delete navigation
 - `import.spec.ts` -- Dialog open, file upload via file chooser
+- `upload-flow.spec.ts` -- Upload, search, semantic search, author filter, metadata viewer
+- `import-deep.spec.ts` -- Upload controls, type toggle, file upload processing
+- `edit-group.spec.ts` -- Context menu open, group images/metadata, escape close
+- `activity-dock.spec.ts` -- Dock pill after import, expanding dock shows job cards
 
 ## Test File Structure
 
@@ -168,15 +173,24 @@ e2e/                                  # Playwright E2E tests (full stack, real b
 ├── playwright.config.ts              # Dual webServer (backend + frontend)
 ├── tsconfig.json
 ├── fixtures/
-│   └── base.ts                       # Worker-scoped seed fixture (uploads via API)
+│   ├── base.ts                       # Worker-scoped seed fixture (decrypts + seeds via API)
+│   └── e2e-images.zip.enc           # Encrypted real test images (Git LFS)
 ├── helpers/
+│   ├── actions.ts                    # Reusable test helpers (gallery, import, search, filter)
+│   ├── config.ts                     # Backend URL config
+│   ├── decrypt-fixtures.ts           # Decrypt encrypted fixture archive
 │   └── seed.ts                       # API-based data seeding orchestration
 └── tests/
-    ├── smoke.spec.ts                 # Health check, page load
+    ├── smoke.spec.ts                 # Health check, page load, seeded data
     ├── gallery.spec.ts               # Image display, type tabs, view toggle, sort
+    ├── gallery-deep.spec.ts          # Text-only search, semantic, filters, grouped view
     ├── search.spec.ts                # Text search, semantic prefix, clear
-    ├── image-viewer.spec.ts          # Modal open/close, keyboard nav
-    └── import.spec.ts                # Upload -> preview flow
+    ├── image-viewer.spec.ts          # Modal open/close, keyboard nav, delete nav
+    ├── import.spec.ts                # Upload dialog, file upload preview
+    ├── upload-flow.spec.ts           # Upload, search, filter, metadata viewer
+    ├── import-deep.spec.ts           # Upload controls, type toggle, processing
+    ├── edit-group.spec.ts            # Context menu, group metadata, escape close
+    └── activity-dock.spec.ts         # Dock pill, expanding job cards
 
 frontend/src/
 ├── components/
