@@ -48,7 +48,7 @@ Scene Atlas is a tool for viewing and searching large collections of tabletop RP
 | Memory-aware concurrency | `backend/app/resource_detector.py` | psutil-based defaults at first boot; 500 MB per worker, 2 GB reserve |
 | Automated labelling | `scripts/labelling/` | Sampling, grid labelling, three-description format, UUID anonymization, quality guardrails |
 | CI hardening | `.github/workflows/ci.yml`, `.husky/pre-push` | Pre-push hook; unit tests on Ubuntu + Windows + macOS; integration tests on PRs; Dependabot |
-| E2E test infrastructure | `e2e/` | Real encrypted fixture images (Git LFS); reusable action helpers; ~35 tests across 10 spec files |
+| E2E test infrastructure | `e2e/` | Real encrypted fixture images (Git LFS); reusable action helpers; 37 tests across 10 spec files |
 
 ### In Progress (On Branches)
 
@@ -61,7 +61,7 @@ Scene Atlas is a tool for viewing and searching large collections of tabletop RP
 | Item | Tracked In | Priority |
 |------|-----------|----------|
 | Session-based auth (Phase 3) | [security.md](security.md) | High |
-| E2E test expansion (~42 remaining tests) | [e2e-todo.md](e2e-todo.md) | P1-P3 |
+| E2E test expansion (~31 remaining tests) | [e2e-todo.md](e2e-todo.md) | P1-P3 |
 | Code quality improvements (11 items) | [technical-debt.md](technical-debt.md) | Medium |
 | Filename in analyse-step error responses | — | Low |
 | Real Qdrant in integration tests | — | Low |
