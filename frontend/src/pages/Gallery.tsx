@@ -1,7 +1,7 @@
 import { useEffect, useRef, Suspense, lazy, useMemo } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Upload, Mountain, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { searchApi } from '@/lib/api'
 import { invalidateGalleryQueries } from '@/lib/queryKeys'
 import type { SeedImage } from '@/types'
@@ -16,6 +16,7 @@ import { MergeGroupPicker } from '@/components/MergeGroupPicker'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { LibraryInfoDialog } from '@/components/LibraryInfoDialog'
 import { ImportSummaryDialog } from '@/components/ImportSummaryDialog'
+import { EmptyLibraryWelcome } from '@/components/EmptyLibraryWelcome'
 import { GalleryHeader } from '@/components/GalleryHeader'
 import { useGallerySearch } from '@/hooks/useGallerySearch'
 import { useGalleryDialogs } from '@/hooks/useGalleryDialogs'
@@ -164,6 +165,11 @@ export function Gallery() {
           <div className="flex h-full items-center justify-center">
             <p className="text-muted-foreground">Searching&hellip;</p>
           </div>
+        ) : !search.hasActiveSearch && (search.facets?.total_images ?? 0) === 0 ? (
+          <EmptyLibraryWelcome
+            embeddingReady={embedding.status === 'ready'}
+            onImport={() => dialogs.openImportDialog()}
+          />
         ) : (
             search.viewMode === 'grouped'
               ? search.imageGroups.length === 0
@@ -171,51 +177,29 @@ export function Gallery() {
           ) ? (
           <div className="flex h-full items-center justify-center">
             <div className="text-center max-w-md">
-              {!search.hasActiveSearch && (search.facets?.total_images ?? 0) === 0 ? (
-                <>
-                  <Mountain className="h-10 w-10 text-muted-foreground/30 mx-auto mb-4" />
-                  <p className="text-muted-foreground mb-1">Your library is empty</p>
-                  <p className="text-sm text-muted-foreground/70 mb-5">
-                    Import some battlemaps and scenes to get started.
-                  </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-primary border-primary/40 hover:bg-primary/10"
-                    onClick={() => dialogs.openImportDialog()}
-                  >
-                    <Upload className="h-3.5 w-3.5 mr-1.5" />
-                    Import
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <p className="text-muted-foreground mb-2">
-                    {search.hasActiveSearch
-                      ? search.viewMode === 'grouped'
-                        ? 'No groups match your search'
-                        : 'No images match your search'
-                      : search.viewMode === 'grouped'
-                        ? 'No groups available'
-                        : 'No images available'}
-                  </p>
-                  {search.isSemantic && (
-                    <p className="text-sm text-muted-foreground">
-                      Try: &quot;abandoned mine with crystals&quot; or &quot;winter forest
-                      temple&quot;
-                    </p>
-                  )}
-                  {search.minScore > 0 && (
-                    <p className="text-sm text-muted-foreground">
-                      Lower the relevance threshold to see more results.
-                    </p>
-                  )}
-                  {search.hasActiveSearch && (
-                    <Button variant="outline" size="sm" onClick={search.clearAll} className="mt-4">
-                      Clear search
-                    </Button>
-                  )}
-                </>
+              <p className="text-muted-foreground mb-2">
+                {search.hasActiveSearch
+                  ? search.viewMode === 'grouped'
+                    ? 'No groups match your search'
+                    : 'No images match your search'
+                  : search.viewMode === 'grouped'
+                    ? 'No groups available'
+                    : 'No images available'}
+              </p>
+              {search.isSemantic && (
+                <p className="text-sm text-muted-foreground">
+                  Try: &quot;abandoned mine with crystals&quot; or &quot;winter forest temple&quot;
+                </p>
+              )}
+              {search.minScore > 0 && (
+                <p className="text-sm text-muted-foreground">
+                  Lower the relevance threshold to see more results.
+                </p>
+              )}
+              {search.hasActiveSearch && (
+                <Button variant="outline" size="sm" onClick={search.clearAll} className="mt-4">
+                  Clear search
+                </Button>
               )}
             </div>
           </div>
