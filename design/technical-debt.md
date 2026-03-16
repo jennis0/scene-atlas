@@ -450,3 +450,5 @@ after upgrading.
 | 9 | Five COUNT queries in `/facets` | Medium | Small |
 | 5 | Tag vocabulary parsing deduplication | Low | Medium |
 | 10 | N+1 Qdrant reuse calls | Low | Small |
+| 11 | Remove `continue-on-error` from CI security scanning | Medium | Small |
+| 12 | Upgrade GitHub Actions to Node.js 24 versions | Medium | Small |

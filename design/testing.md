@@ -12,10 +12,12 @@ The test suite covers the ingestion pipeline end-to-end: parsing, pipeline funct
 
 ```
 Tier 1 -- Pre-commit (local):  lint-staged (ruff + eslint + prettier on staged files)
-Tier 2 -- Every push & PR:     lint + format + unit tests + frontend tests + build
-Tier 3 -- Push to main:        + integration tests + heavy tests (CLIP) + E2E (Playwright) + coverage
+Tier 2 -- Every push & PR:     lint + format + unit tests + frontend tests + build + backend-integration + frontend-coverage
+Tier 3 -- Push to main:        + heavy tests (CLIP) + E2E (Playwright)
 Tier 4 -- Version tags (v*):   gate check + multi-platform electron build + release
 ```
+
+**Note:** `backend-integration` and `frontend-coverage` run on every push (Tier 2), not just on main. A `backend-unit-cross-platform` job also runs on every push, executing unit tests on Windows and macOS in addition to Linux.
 
 ### GitHub Actions Workflows
 

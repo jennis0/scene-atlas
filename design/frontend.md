@@ -121,7 +121,7 @@ frontend/src/
 │   ├── useImportProgressPolling.ts   # Import progress tracking for live review
 │   └── useSettingsDraft.ts    # Settings UI draft state management
 ├── lib/
-│   ├── api.ts                 # Axios instance + all API functions
+│   ├── api/                   # Modular API client directory (_client.ts, per-domain modules like imageApi.ts, searchApi.ts, etc., and index.ts barrel export)
 │   ├── apiBase.ts             # Dynamic base URL (Electron port negotiation)
 │   ├── appMode.ts             # App mode detection utilities
 │   ├── categoryIcons.ts       # Tag category → Lucide icon mapping
@@ -202,7 +202,7 @@ Category list with colored dots. Category editor with name, description, Tailwin
 ### useImageGrouping (`hooks/useImageGrouping.ts`)
 React hook that transforms a flat `Image[]` into `ImageGroup[]`. Handles bucketing by `group_id`, hero selection (score-based for semantic search, positional otherwise), mosaic image selection, tag aggregation, and cross-referencing `allImages` for true group scene counts.
 
-## API Client (`lib/api.ts`)
+## API Client (`lib/api/`)
 
 Axios instance with:
 - Base URL: dynamic — `/api/v1` in browser (proxied by Vite in dev), `http://localhost:{port}/api/v1` in Electron (port from backend-ready IPC)
@@ -215,9 +215,9 @@ Key API groups:
 - `importApi` — init, upload, confirm, confirmAll, status, analysis, finalize, cancel, active, checkHashes
 - `groupApi` — get, edit, delete, merge, moveImages, download
 - `jobApi` — list, get
-- `exportApi` — library export
 - `systemApi` — info, deleteLibrary, resetTags
 - `settingsApi` — get, patch
+- `modelsApi` — setup status, list models, set active, download, delete embeddings
 
 **searchApi.groups()** — Grouped search with pagination
 - Returns pre-grouped results with image IDs and semantic scores
