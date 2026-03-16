@@ -1,5 +1,5 @@
 import { useCallback, forwardRef, useImperativeHandle, useState, useEffect } from 'react'
-import { AlertCircle, Check, Download } from 'lucide-react'
+import { AlertCircle, Check } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Input } from '@/components/ui/input'
@@ -9,7 +9,8 @@ import { modelsApi } from '@/lib/api/modelsApi'
 import { importApi } from '@/lib/api'
 import { HARDWARE_BADGE } from '@/lib/modelConstants'
 import { tagApi } from '@/lib/api/tagApi'
-import type { AppSettings, TagPack } from '@/types'
+import { TagPackCard } from '@/components/setup/TagPackCard'
+import type { AppSettings } from '@/types'
 
 interface StoragePathRowProps {
   label: string
@@ -111,62 +112,6 @@ function TagPacksSection({ dialogOpen }: { dialogOpen: boolean }) {
   )
 }
 
-function TagPackCard({
-  pack,
-  onImport,
-  isImporting,
-}: {
-  pack: TagPack
-  onImport: () => void
-  isImporting: boolean
-}) {
-  return (
-    <div
-      className={`flex items-center justify-between gap-2 rounded border px-3 py-2.5 transition-colors ${
-        pack.imported
-          ? 'border-border/30 bg-muted/20'
-          : 'border-border/50 bg-card hover:border-border'
-      }`}
-    >
-      <div className="min-w-0">
-        <p className="text-xs font-medium truncate">{pack.label}</p>
-        <p className="text-[10px] text-muted-foreground truncate">{pack.description}</p>
-        <p className="text-[10px] text-muted-foreground/60 mt-0.5">
-          {pack.tag_count} tags
-          {!pack.imported && pack.new_tags > 0 && (
-            <span className="text-primary/70"> &middot; {pack.new_tags} new</span>
-          )}
-        </p>
-      </div>
-      <button
-        type="button"
-        disabled={pack.imported || isImporting}
-        onClick={onImport}
-        aria-label={`Import ${pack.label} tag pack`}
-        className={`shrink-0 flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 ${
-          pack.imported
-            ? 'text-emerald-500/70 cursor-default'
-            : 'border border-border/50 text-muted-foreground hover:text-foreground hover:border-border disabled:opacity-50'
-        }`}
-      >
-        {pack.imported ? (
-          <>
-            <Check className="h-3 w-3" />
-            <span>Added</span>
-          </>
-        ) : isImporting ? (
-          <span>Importing…</span>
-        ) : (
-          <>
-            <Download className="h-3 w-3" />
-            <span>Import</span>
-          </>
-        )}
-      </button>
-    </div>
-  )
-}
-
 export interface SettingsTabContentRef {
   save: () => Promise<void>
   isDirty: boolean
@@ -202,8 +147,7 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
       try {
         const response = await importApi.active()
         const active = response.jobs.filter(
-          (j) =>
-            j.status === 'uploading' || j.status === 'staging' || j.status === 'active',
+          (j) => j.status === 'uploading' || j.status === 'staging' || j.status === 'active',
         ).length
         setActiveImportCount(active)
       } catch {
@@ -227,12 +171,9 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
         if (activeImportCount > 0) {
           const response = await importApi.active()
           const activeJobs = response.jobs.filter(
-            (j) =>
-              j.status === 'uploading' || j.status === 'staging' || j.status === 'active',
+            (j) => j.status === 'uploading' || j.status === 'staging' || j.status === 'active',
           )
-          await Promise.allSettled(
-            activeJobs.map((j) => importApi.cancel(j.job_id)),
-          )
+          await Promise.allSettled(activeJobs.map((j) => importApi.cancel(j.job_id)))
         }
         return modelsApi.setActiveModel(modelName)
       },
@@ -244,9 +185,7 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
         setActiveImportCount(0)
       },
       onError: (err) => {
-        toast.error(
-          err instanceof Error ? err.message : 'Failed to switch model.',
-        )
+        toast.error(err instanceof Error ? err.message : 'Failed to switch model.')
       },
     })
 
@@ -494,8 +433,7 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                   {activeImportCount > 0 && (
                     <p className="text-destructive font-medium">
                       This will cancel {activeImportCount} in-progress import
-                      {activeImportCount > 1 ? 's' : ''} and delete their partially imported
-                      images.
+                      {activeImportCount > 1 ? 's' : ''} and delete their partially imported images.
                     </p>
                   )}
                   <div className="flex gap-2">

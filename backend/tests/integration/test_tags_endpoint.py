@@ -456,3 +456,49 @@ class TestTagStatistics:
         categories = resp.json()["categories"]
         assert "lighting" in categories
         assert categories["lighting"]["total_tags"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/tags/packs/import-multiple
+# ---------------------------------------------------------------------------
+
+
+class TestImportMultipleTagPacks:
+    def test_import_multiple_returns_200(self, test_client, tmp_db):
+        # Clear categories so packs have something to import
+        engine, SessionLocal = tmp_db
+        db = SessionLocal()
+        db.query(TagCategory).delete()
+        db.commit()
+        db.close()
+
+        resp = test_client.post(
+            "/api/v1/tags/packs/import-multiple",
+            json={"packs": ["common", "fantasy"]},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "common" in data["imported"]
+        assert "fantasy" in data["imported"]
+        assert data["errors"] == []
+
+    def test_import_multiple_empty_list(self, test_client):
+        resp = test_client.post(
+            "/api/v1/tags/packs/import-multiple",
+            json={"packs": []},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["imported"] == []
+        assert data["errors"] == []
+
+    def test_import_multiple_with_invalid_pack(self, test_client):
+        resp = test_client.post(
+            "/api/v1/tags/packs/import-multiple",
+            json={"packs": ["common", "nonexistent_pack"]},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "common" in data["imported"]
+        assert len(data["errors"]) == 1
+        assert "nonexistent_pack" in data["errors"][0]

@@ -2,6 +2,7 @@
 
 import json
 import logging
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -59,6 +60,7 @@ class ModelListResponse(BaseModel):
 
 class SetupStatusResponse(BaseModel):
     needs_model: bool
+    needs_tag_packs: bool
     recommended: str
     has_gpu: bool
     gpu_provider: str | None
@@ -183,7 +185,7 @@ def get_embedding_status() -> EmbeddingStatusResponse:
 
 
 @router.get("/setup-status", response_model=SetupStatusResponse)
-def get_setup_status() -> SetupStatusResponse:
+def get_setup_status(db: Session = Depends(get_db)) -> SetupStatusResponse:
     """Return setup status: whether a model is needed and GPU detection results."""
     from ..services.ort_providers import resolve_providers
 
@@ -207,8 +209,13 @@ def get_setup_status() -> SetupStatusResponse:
 
     recommended = get_default_model(has_gpu)
 
+    # Tag packs are needed if setup has never been completed
+    setup_completed = db.query(AppSetting).filter(AppSetting.key == "setup_completed_at").first()
+    needs_tag_packs = setup_completed is None
+
     return SetupStatusResponse(
         needs_model=needs_model,
+        needs_tag_packs=needs_tag_packs,
         recommended=recommended,
         has_gpu=has_gpu,
         gpu_provider=gpu_provider,
@@ -315,3 +322,16 @@ def set_active_model(
 
     status = "rebuilding" if already_downloaded else "downloading"
     return ActiveModelResponse(status=status, job_id=job_id)
+
+
+@router.post("/setup-complete", status_code=200)
+def mark_setup_complete(db: Session = Depends(get_db)) -> dict:
+    """Mark the initial setup wizard as completed.
+
+    Creates an AppSetting with key ``setup_completed_at`` so the setup
+    wizard is not shown again on subsequent visits.
+    """
+    now_iso = datetime.now(UTC).isoformat()
+    db.merge(AppSetting(key="setup_completed_at", value_json=json.dumps(now_iso)))
+    db.commit()
+    return {"status": "ok", "setup_completed_at": now_iso}

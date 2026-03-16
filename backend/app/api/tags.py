@@ -3,6 +3,7 @@
 import json
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session, subqueryload
 
@@ -385,12 +386,44 @@ def get_tag_statistics(db: Session = Depends(get_db)):
 # ── Tag Packs ─────────────────────────────────────────────────────────────────
 
 
+class ImportMultipleRequest(BaseModel):
+    packs: list[str]
+
+
+class ImportMultipleResponse(BaseModel):
+    imported: list[str]
+    errors: list[str]
+
+
 @router.get("/packs")
 def list_tag_packs(db: Session = Depends(get_db)):
     """List available tag packs with import status."""
     from ..services.tag_packs import get_pack_status
 
     return get_pack_status(db)
+
+
+@router.post("/packs/import-multiple", response_model=ImportMultipleResponse)
+def import_multiple_tag_packs(
+    body: ImportMultipleRequest, db: Session = Depends(get_db)
+) -> ImportMultipleResponse:
+    """Import multiple tag packs in a single request.
+
+    Used by the setup wizard to batch-import user-selected genre packs.
+    """
+    from ..services.tag_packs import import_tag_pack as do_import
+
+    imported: list[str] = []
+    errors: list[str] = []
+
+    for pack_name in body.packs:
+        try:
+            do_import(db, pack_name)
+            imported.append(pack_name)
+        except Exception as exc:
+            errors.append(f"{pack_name}: {exc}")
+
+    return ImportMultipleResponse(imported=imported, errors=errors)
 
 
 @router.post("/packs/{pack_name}/import")

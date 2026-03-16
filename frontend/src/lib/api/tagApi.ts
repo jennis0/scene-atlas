@@ -127,4 +127,14 @@ export const tagApi = {
     const { data } = await api.post(`/tags/packs/${packName}/import`)
     return data
   },
+
+  importMultipleTagPacks: async (
+    packNames: string[],
+  ): Promise<{ imported: string[]; errors: string[] }> => {
+    const { data } = await api.post<{ imported: string[]; errors: string[] }>(
+      '/tags/packs/import-multiple',
+      { packs: packNames },
+    )
+    return data
+  },
 }

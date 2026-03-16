@@ -48,8 +48,21 @@ class TestSetupStatus:
 
     def test_setup_status_has_required_fields(self, test_client):
         data = test_client.get("/api/v1/models/setup-status").json()
-        for field in ("needs_model", "recommended", "has_gpu", "gpu_provider"):
+        for field in ("needs_model", "needs_tag_packs", "recommended", "has_gpu", "gpu_provider"):
             assert field in data
+
+    def test_setup_status_needs_tag_packs_true_before_setup_complete(self, test_client):
+        data = test_client.get("/api/v1/models/setup-status").json()
+        assert data["needs_tag_packs"] is True
+
+    def test_setup_status_needs_tag_packs_false_after_setup_complete(self, test_client):
+        # Mark setup as complete
+        resp = test_client.post("/api/v1/models/setup-complete")
+        assert resp.status_code == 200
+
+        # Now check setup status
+        data = test_client.get("/api/v1/models/setup-status").json()
+        assert data["needs_tag_packs"] is False
 
     def test_setup_status_recommended_is_valid_name(self, test_client):
         data = test_client.get("/api/v1/models/setup-status").json()
@@ -183,3 +196,25 @@ class TestSetActiveModel:
     def test_set_active_model_missing_body_returns_422(self, test_client):
         resp = test_client.post("/api/v1/models/active", json={})
         assert resp.status_code == 422
+
+
+class TestSetupComplete:
+    def test_setup_complete_returns_200(self, test_client):
+        resp = test_client.post("/api/v1/models/setup-complete")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert "setup_completed_at" in data
+
+    def test_setup_complete_is_idempotent(self, test_client):
+        resp1 = test_client.post("/api/v1/models/setup-complete")
+        assert resp1.status_code == 200
+        ts1 = resp1.json()["setup_completed_at"]
+
+        resp2 = test_client.post("/api/v1/models/setup-complete")
+        assert resp2.status_code == 200
+        ts2 = resp2.json()["setup_completed_at"]
+
+        # Both should succeed; the second call updates the timestamp
+        assert ts1 is not None
+        assert ts2 is not None
