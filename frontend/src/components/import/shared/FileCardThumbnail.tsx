@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { EditableFileState } from '@/types'
 import { ZoomIn } from 'lucide-react'
 import { VideoIndicator } from '@/components/ui/video-indicator'
@@ -23,6 +24,7 @@ export function FileCardThumbnail({
   hideCheckbox,
   onOpenLightbox,
 }: FileCardThumbnailProps) {
+  const [imgError, setImgError] = useState(false)
   const cls = small ? 'w-20' : 'w-[140px]'
   const filter = dimmed ? 'grayscale(0.6)' : undefined
 
@@ -38,22 +40,17 @@ export function FileCardThumbnail({
           preload="metadata"
           className="absolute inset-0 w-full h-full object-cover pointer-events-none"
         />
+      ) : imgError ? (
+        <span className="absolute inset-0 flex items-center justify-center text-[10px] text-muted-foreground/40 font-medium text-center px-1">
+          No preview
+        </span>
       ) : (
         <img
           src={previewUrl}
           alt={file.filename}
           loading="lazy"
           className="absolute inset-0 w-full h-full object-cover pointer-events-none transition-transform duration-300 group-hover/card:scale-[1.04]"
-          onError={(e) => {
-            const el = e.target as HTMLImageElement
-            el.style.display = 'none'
-            el.parentElement!.classList.add('flex', 'items-center', 'justify-center')
-            const placeholder = document.createElement('span')
-            placeholder.className =
-              'text-[10px] text-muted-foreground/40 font-medium text-center px-1'
-            placeholder.textContent = 'No preview'
-            el.parentElement!.appendChild(placeholder)
-          }}
+          onError={() => setImgError(true)}
         />
       )}
       {/* Video indicator — bottom-left to avoid checkbox overlap */}
