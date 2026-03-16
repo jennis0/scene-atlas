@@ -16,7 +16,10 @@ import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { SceneTile } from '@/components/SceneTile'
 import { SubgroupDropdown } from '@/components/SubgroupDropdown'
+import { toast } from 'sonner'
+import { api } from '@/lib/api/_client'
 import { imageApi, tagApi, getImageUrl, getGroupDownloadUrl } from '@/lib/api'
+import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { MAX_NAME_LENGTH } from '@/lib/constants'
 import { QUERY_KEYS, invalidateGalleryQueries } from '@/lib/queryKeys'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -165,6 +168,9 @@ export function ImageViewer({
       onImageChange?.(updated)
       setEditingName(false)
     },
+    onError: (err) => {
+      toast.error(getApiErrorMessage(err, 'Failed to rename image'))
+    },
   })
 
   const patchMutation = useMutation({
@@ -176,17 +182,26 @@ export function ImageViewer({
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.search })
       onImageChange?.(updated)
     },
+    onError: (err) => {
+      toast.error(getApiErrorMessage(err, 'Failed to update image'))
+    },
   })
 
   const addTagMutation = useMutation({
     mutationFn: ({ category, value }: { category: string; value: string }) =>
       tagApi.addToImage(image.id, { category, value }),
     onSuccess: invalidateImage,
+    onError: (err) => {
+      toast.error(getApiErrorMessage(err, 'Failed to add tag'))
+    },
   })
 
   const removeTagMutation = useMutation({
     mutationFn: (tagId: number) => tagApi.removeTag(tagId),
     onSuccess: invalidateImage,
+    onError: (err) => {
+      toast.error(getApiErrorMessage(err, 'Failed to remove tag'))
+    },
   })
 
   const deleteMutation = useMutation({
@@ -356,8 +371,8 @@ export function ImageViewer({
   const handleDownload = async () => {
     setDownloading(true)
     try {
-      const resp = await fetch(getImageUrl(img))
-      const blob = await resp.blob()
+      const resp = await api.get(getImageUrl(img), { responseType: 'blob' })
+      const blob = resp.data as Blob
       const objectUrl = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = objectUrl
@@ -367,7 +382,7 @@ export function ImageViewer({
       document.body.removeChild(a)
       URL.revokeObjectURL(objectUrl)
     } catch (err) {
-      console.error('Download failed', err)
+      toast.error(getApiErrorMessage(err, 'Download failed'))
     } finally {
       setDownloading(false)
     }
@@ -377,8 +392,8 @@ export function ImageViewer({
     if (!img.group_id) return
     setDownloadingGroup(true)
     try {
-      const resp = await fetch(getGroupDownloadUrl(img.group_id))
-      const blob = await resp.blob()
+      const resp = await api.get(getGroupDownloadUrl(img.group_id), { responseType: 'blob' })
+      const blob = resp.data as Blob
       const objectUrl = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = objectUrl
@@ -388,7 +403,7 @@ export function ImageViewer({
       document.body.removeChild(a)
       URL.revokeObjectURL(objectUrl)
     } catch (err) {
-      console.error('Group download failed', err)
+      toast.error(getApiErrorMessage(err, 'Group download failed'))
     } finally {
       setDownloadingGroup(false)
     }
