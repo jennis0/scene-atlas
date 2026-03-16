@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { toast } from 'sonner'
 import { importApi } from '@/lib/api'
 import { ACTIVE_POLL_INTERVAL_MS } from '@/lib/constants'
 import {
@@ -173,7 +174,9 @@ export function useActiveImports(): UseActiveImportsReturn {
       try {
         await importApi.cancel(jobId)
       } catch {
-        /* best effort — job may already be cleaned up */
+        toast.error('Cleanup failed', {
+          description: 'Could not clean up imported files on the backend.',
+        })
       }
       dismissJob(jobId)
     },
@@ -186,7 +189,10 @@ export function useActiveImports(): UseActiveImportsReturn {
       try {
         await importApi.cancel(jobId)
       } catch {
-        /* ignore errors */
+        toast.error('Failed to cancel import', {
+          description: 'The backend could not cancel this job. Try again later.',
+        })
+        return
       }
     }
     removeImportState(jobId)

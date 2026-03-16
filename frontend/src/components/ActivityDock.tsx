@@ -14,6 +14,7 @@ import {
   Cog,
   WifiOff,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { importApi } from '@/lib/api'
 import type { ActiveImportJob } from '@/hooks/useActiveImports'
 import type { BackgroundJob } from '@/types'
@@ -86,6 +87,10 @@ export function ActivityDock({
     try {
       await importApi.cleanup()
       onRefresh()
+    } catch {
+      toast.error('Failed to clear history', {
+        description: 'Could not clean up completed imports on the backend.',
+      })
     } finally {
       setCleaning(false)
     }
