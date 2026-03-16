@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { tagApi, imageApi, importApi } from '@/lib/api'
-import { getApiErrorMessage } from '@/lib/getErrorMessage'
+import { getApiErrorMessage, isConflictError } from '@/lib/getErrorMessage'
 import { parseTagVocabulary } from '@/components/import/types'
 import { EMPTY_FILTER, applyFileFilter } from '@/components/import/fileFilter'
 import type { FileFilter } from '@/components/import/fileFilter'
@@ -455,6 +455,11 @@ export function useImportState(
           succeeded = true
           break
         } catch (retryErr) {
+          if (isConflictError(retryErr)) {
+            // confirm-all already succeeded on a previous attempt
+            succeeded = true
+            break
+          }
           lastErr = retryErr
         }
       }

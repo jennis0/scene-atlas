@@ -27,3 +27,8 @@ export function getApiErrorMessage(err: unknown, fallback = 'An error occurred')
 export function isNotFoundError(err: unknown): boolean {
   return err instanceof AxiosError && err.response?.status === 404
 }
+
+/** Returns true when the error is an HTTP 409 Conflict response. */
+export function isConflictError(err: unknown): boolean {
+  return err instanceof AxiosError && err.response?.status === 409
+}
