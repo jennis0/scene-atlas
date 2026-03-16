@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { api } from '@/lib/api/_client'
+import axios from 'axios'
 import { systemApi, getLibraryExportUrl } from '@/lib/api'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { QUERY_KEYS, invalidateTagQueries } from '@/lib/queryKeys'
@@ -162,6 +162,10 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
       setConfirmingDelete(false)
       purgeJob.track(data.job_id)
     },
+    onError: (err) => {
+      setConfirmingDelete(false)
+      toast.error(getApiErrorMessage(err, 'Failed to delete library'))
+    },
   })
 
   const resetTagsMut = useMutation({
@@ -176,7 +180,7 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
   const handleExportLibrary = async () => {
     setExportingLibrary(true)
     try {
-      const resp = await api.get(getLibraryExportUrl(), { responseType: 'blob' })
+      const resp = await axios.get(getLibraryExportUrl(), { responseType: 'blob', timeout: 300_000 })
       const blob = resp.data as Blob
       const objectUrl = URL.createObjectURL(blob)
       const a = document.createElement('a')

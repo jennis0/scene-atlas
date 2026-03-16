@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { MoreHorizontal, Pencil, Merge, Trash2, Layers, FolderDown } from 'lucide-react'
 import { toast } from 'sonner'
-import { api } from '@/lib/api/_client'
+import axios from 'axios'
 import { getThumbnailUrl, getGroupDownloadUrl } from '@/lib/api'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { VideoIndicator } from '@/components/ui/video-indicator'
@@ -39,7 +39,7 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
     if (!groupId || downloading) return
     setDownloading(true)
     try {
-      const resp = await api.get(getGroupDownloadUrl(groupId), { responseType: 'blob' })
+      const resp = await axios.get(getGroupDownloadUrl(groupId), { responseType: 'blob' })
       const blob = resp.data as Blob
       const objectUrl = URL.createObjectURL(blob)
       const a = document.createElement('a')

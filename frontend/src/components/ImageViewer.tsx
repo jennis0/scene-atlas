@@ -16,8 +16,8 @@ import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { SceneTile } from '@/components/SceneTile'
 import { SubgroupDropdown } from '@/components/SubgroupDropdown'
+import axios from 'axios'
 import { toast } from 'sonner'
-import { api } from '@/lib/api/_client'
 import { imageApi, tagApi, getImageUrl, getGroupDownloadUrl } from '@/lib/api'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { MAX_NAME_LENGTH } from '@/lib/constants'
@@ -371,7 +371,7 @@ export function ImageViewer({
   const handleDownload = async () => {
     setDownloading(true)
     try {
-      const resp = await api.get(getImageUrl(img), { responseType: 'blob' })
+      const resp = await axios.get(getImageUrl(img), { responseType: 'blob' })
       const blob = resp.data as Blob
       const objectUrl = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -392,7 +392,7 @@ export function ImageViewer({
     if (!img.group_id) return
     setDownloadingGroup(true)
     try {
-      const resp = await api.get(getGroupDownloadUrl(img.group_id), { responseType: 'blob' })
+      const resp = await axios.get(getGroupDownloadUrl(img.group_id), { responseType: 'blob' })
       const blob = resp.data as Blob
       const objectUrl = URL.createObjectURL(blob)
       const a = document.createElement('a')
