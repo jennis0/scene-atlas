@@ -301,6 +301,53 @@ class TestSearchNoQuery:
 # ---------------------------------------------------------------------------
 
 
+class TestSearchScoresAreRRF:
+    """Verify returned scores are RRF merged scores, not raw CLIP cosine similarity."""
+
+    def test_text_search_scores_in_rrf_range(self, library):
+        """Text-only search scores must be RRF values (0.0-0.05), not raw CLIP (0.1-0.5+).
+
+        RRF with K=60: best possible single-signal score = 1.1/60 ≈ 0.0183.
+        Max 3-signal score = (1.0 + 1.1 + 0.5)/60 ≈ 0.0433.
+        Raw CLIP cosine scores would be 0.1-0.5+.
+        """
+        client, ids = library
+        resp = client.get("/api/v1/search/", params={"query": "forest", "text_only": "true"})
+        assert resp.status_code == 200
+        data = resp.json()
+        scores = data.get("scores", {})
+
+        # Must have scores for returned images
+        assert len(scores) > 0
+
+        for img_id_str, score in scores.items():
+            # RRF scores are small: max possible ≈ 0.0433 per signal combo
+            # Raw CLIP cosine scores would be >> 0.05
+            assert score <= 0.10, (
+                f"Score {score} for image {img_id_str} is too large for RRF "
+                "(expected < 0.10, raw CLIP scores are 0.1-0.5+)"
+            )
+            assert score >= 0.0, f"Score {score} should be non-negative"
+
+    def test_scores_dict_keys_match_returned_images(self, library):
+        """The scores dict should have an entry for every returned image."""
+        client, ids = library
+        resp = client.get("/api/v1/search/", params={"query": "forest", "text_only": "true"})
+        data = resp.json()
+        scores = data.get("scores", {})
+        returned_ids = {str(img["id"]) for img in data["images"]}
+        score_ids = set(scores.keys())
+        assert score_ids == returned_ids
+
+    def test_no_query_scores_are_absent(self, library):
+        """Without a query (browse mode), scores should be None/absent."""
+        client, ids = library
+        resp = client.get("/api/v1/search/")
+        data = resp.json()
+        # In browse mode, no relevance scoring is performed
+        assert data.get("scores") is None
+
+
 class TestSearchTextOnly:
     def test_text_search_finds_by_name(self, library):
         client, ids = library
