@@ -21,10 +21,12 @@ describe('relevanceToPercent', () => {
   })
 
   it('does not clamp values below min', () => {
+    // Below min should produce negative percentages
     expect(relevanceToPercent(RELEVANCE_MIN - RELEVANCE_MAX)).toBeLessThan(0)
   })
 
   it('does not clamp values above max', () => {
+    // Above max should produce >100%
     expect(relevanceToPercent(RELEVANCE_MAX * 2)).toBeGreaterThan(100)
   })
 })
