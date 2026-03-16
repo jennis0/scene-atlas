@@ -36,7 +36,7 @@ Design decisions, visual standards, and security posture.
 
 | File | Description |
 |------|-------------|
-| [decisions.md](decisions.md) | **Architecture Decision Log** -- numbered record of all major design decisions (ADRs 001-015) |
+| [decisions.md](decisions.md) | **Architecture Decision Log** -- numbered record of all major design decisions (ADRs 001-017) |
 | [visual-language.md](visual-language.md) | Visual design system -- tokens, typography, components, patterns |
 | [security.md](security.md) | Security evaluation for hosted deployment mode |
 | [testing.md](testing.md) | Testing strategy -- CI/CD tiers, coverage targets, test conventions |

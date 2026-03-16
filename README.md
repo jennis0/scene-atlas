@@ -236,6 +236,6 @@ Drops and recreates the SQLite database. All image metadata will be lost. Image 
 
 Key docs:
 - [design/status-and-roadmap.md](design/status-and-roadmap.md) — feature inventory, in-progress work, backlog
-- [design/decisions.md](design/decisions.md) — all architecture decision records (ADRs 001-015)
+- [design/decisions.md](design/decisions.md) — all architecture decision records (ADRs 001-017)
 - [docs/building.md](docs/building.md) — build/deploy/run for all three deployment modes
 - [docs/testing.md](docs/testing.md) — running tests, E2E setup, stress testing

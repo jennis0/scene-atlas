@@ -91,7 +91,7 @@ For detailed architecture, see:
 - [ingestion.md](ingestion.md) — Pipeline architecture
 - [search.md](search.md) — Search architecture (FTS5, semantic, RRF, phrase matching, multi-model)
 - [gpu-acceleration.md](gpu-acceleration.md) — GPU provider chain, DirectML maintenance notes
-- [decisions.md](decisions.md) — All Architecture Decision Records (ADRs 001-015)
+- [decisions.md](decisions.md) — All Architecture Decision Records (ADRs 001-017)
 
 ---
 
