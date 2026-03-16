@@ -407,17 +407,19 @@ def sweep_orphaned_store_files() -> dict:
             for row in db.query(Image.thumbnail_key).filter(Image.thumbnail_key.isnot(None)).all()
         }
 
-    # Walk ImageStore looking for files with no DB row
+    # Walk ImageStore looking for files with no DB row.
+    # Use relative_to(base_dir) so the key includes subdirectory components
+    # (e.g. "a1/b2c3d4.jpg") matching how storage_key values are stored in the DB.
     image_store = get_image_store()
     if image_store.base_dir.exists():
         for file_path in image_store.base_dir.rglob("*"):
             if not file_path.is_file():
                 continue
-            key = file_path.name
+            key = str(file_path.relative_to(image_store.base_dir))
             if key not in image_keys:
                 logger.warning(
                     "Orphaned ImageStore file (no DB row): %s",
-                    file_path.relative_to(image_store.base_dir),
+                    key,
                 )
                 orphaned_images += 1
 
@@ -427,11 +429,11 @@ def sweep_orphaned_store_files() -> dict:
         for file_path in thumbnail_store.base_dir.rglob("*"):
             if not file_path.is_file():
                 continue
-            key = file_path.name
+            key = str(file_path.relative_to(thumbnail_store.base_dir))
             if key not in thumbnail_keys:
                 logger.warning(
                     "Orphaned ThumbnailStore file (no DB row): %s",
-                    file_path.relative_to(thumbnail_store.base_dir),
+                    key,
                 )
                 orphaned_thumbnails += 1
 
