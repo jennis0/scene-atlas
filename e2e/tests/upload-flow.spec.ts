@@ -44,12 +44,13 @@ test.describe("Upload & Gallery Interactions", () => {
       timeout: 5_000,
     });
 
-    // Wait for upload to finish — dock shows "ready to review" when staging completes
+    // Wait for processing to start — auto-confirm means jobs skip staging
+    // and go straight to active/running, showing "Processing…" or "X of Y images processed"
     await expect(
       page
         .getByTestId("import-job-card")
         .first()
-        .getByText(/ready to review/i),
+        .getByText(/processing|images processed/i),
     ).toBeVisible({ timeout: 120_000 });
   });
 
