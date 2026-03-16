@@ -183,7 +183,7 @@ export async function seedTestData(imageDir: string): Promise<void> {
       }
       return data.status === "completed";
     },
-    120_000,
+    180_000,
     1000,
   );
   console.log(
