@@ -59,9 +59,12 @@ class ColorIndex:
 
     def _ensure_loaded(self, db: Session) -> None:
         with self._lock:
-            loaded_at = self._loaded_at
-        if not self._cache or (time.monotonic() - loaded_at) > _settings.color_cache_ttl_seconds:
-            self._refresh(db)
+            if (
+                self._cache
+                and (time.monotonic() - self._loaded_at) <= _settings.color_cache_ttl_seconds
+            ):
+                return
+        self._refresh(db)
 
     def find_images_by_color(
         self,
