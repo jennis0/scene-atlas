@@ -14,8 +14,8 @@ SCENARIO_REGISTRY is a list of (name, fn, default_time_estimate, quick_time_esti
 tuples imported by run.py.
 
 IMPORTANT — parallel-change constraint:
-The /confirm (single-group) endpoint and /finalize endpoint are being removed
-by a parallel branch.  This file MUST NOT use them.  Only /confirm-all is used.
+The /confirm (single-group) endpoint and /finalize endpoint have been removed.
+This file MUST NOT use them.  Only /confirm-all is used.
 """
 
 from __future__ import annotations
@@ -534,7 +534,7 @@ async def cancellation_chaos(
     (c) Cancel in active state (immediately after confirm-all, while processing)
     (d) Cancel after completion (expects 409 or error response)
 
-    Does NOT test cancellation from awaiting_input (state being removed).
+    Does NOT test cancellation from awaiting_input (state was removed in migration 018).
 
     Pass: appropriate status codes, all jobs reach terminal state.
     """
@@ -1276,7 +1276,7 @@ async def scheduler_interference(
     - No active jobs are incorrectly expired
     - All jobs reach terminal state
 
-    Note: expire_stale_jobs no longer targets awaiting_input (being removed).
+    Note: expire_stale_jobs no longer targets awaiting_input (removed in migration 018).
 
     Pass: all jobs complete, no jobs expired prematurely.
     """

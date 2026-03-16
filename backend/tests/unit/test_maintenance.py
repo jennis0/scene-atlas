@@ -273,11 +273,6 @@ class TestMarkInterruptedJobs:
         db_session.commit()
         assert db_session.query(ImportJob).filter_by(id="j1").first().status == "broken"
 
-    def test_awaiting_input_unchanged(self, db_session):
-        _make_import_job(db_session, "j1", "awaiting_input")
-        mark_interrupted_jobs(db_session)
-        assert db_session.query(ImportJob).filter_by(id="j1").first().status == "awaiting_input"
-
     def test_completed_job_unchanged(self, db_session):
         _make_import_job(db_session, "j1", "completed")
         mark_interrupted_jobs(db_session)
@@ -299,7 +294,7 @@ class TestMarkInterruptedJobs:
 
     def test_no_interrupted_jobs_returns_zero(self, db_session):
         _make_import_job(db_session, "j1", "completed")
-        _make_import_job(db_session, "j2", "awaiting_input")
+        _make_import_job(db_session, "j2", "completed")
         count = mark_interrupted_jobs(db_session)
         assert count == 0
 
