@@ -19,7 +19,7 @@ A tool for managing, searching, and exploring large collections of tabletop RPG 
 | Layer | Technology |
 |---|---|
 | Backend API | FastAPI + SQLAlchemy (SQLite) |
-| Semantic search | CLIP ViT-B/32 → Qdrant (embedded local) |
+| Semantic search | CLIP / SigLIP2 (multi-model via ONNX Runtime) → Qdrant (embedded local) |
 | Full-text search | SQLite FTS5 with Porter stemmer |
 | Background jobs | In-process ThreadPoolExecutor + async scheduler |
 | Frontend | React 18 + TypeScript + Vite + Tailwind + Radix UI |
@@ -211,7 +211,7 @@ Release builds are automated via GitHub Actions on `v*` tags — push a tag like
 ## Troubleshooting
 
 **CLIP model slow to load:**
-On first start, the ONNX CLIP model (~289 MB FP16) is set up via `scripts/models/setup_models.py`. Subsequent starts use the local cache.
+On first start, an ONNX embedding model is downloaded from HuggingFace. Model sizes vary by selection: small ~250 MB, medium ~500 MB, large ~1 GB. Subsequent starts use the local cache.
 
 **Import fails silently:**
 Check the API log for errors:

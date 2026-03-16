@@ -65,6 +65,7 @@ This document records all significant architectural decisions for the Scene Atla
 **Decision:** Use OpenAI's CLIP ViT-B/32 model (via HuggingFace transformers). Images are encoded to 512-dim vectors at ingest time; text queries are encoded at search time. Both project into the same embedding space.
 
 **Consequences:**
+- **Update:** Model sizes have changed. See ADR-014/016/017 for the current multi-model architecture (250 MB -- 1 GB ONNX files).
 - Model is ~600MB, loaded once at startup (lazy singleton via `get_clip_service()`)
 - Runs on CPU by default; `inference_device` setting supports GPU acceleration (CUDA, DirectML, CoreML) — see `design/gpu-acceleration.md`
 - Each image ingest generates one embedding; stored in Qdrant
@@ -321,6 +322,7 @@ Pipeline functions in `backend/pipeline/` are now plain Python functions — no 
 | int8    | 0.039756       | 0.363677      | 145.6 MB   |
 
 **Consequences:**
+- **Update (2026-03):** The 'bundled models' consequence was superseded by ADR-017, which moved to HuggingFace-hosted model downloads.
 - Sidecar drops from ~768 MB to ~350 MB (estimated, with fp16 models + onnxruntime)
 - No first-run HuggingFace download (models are bundled)
 - ONNX models must be re-exported when changing the base model (`scripts/models/export_model_onnx.py`)

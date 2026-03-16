@@ -1,3 +1,6 @@
+> **Status: Historical — Implemented**
+> This was a pre-implementation planning document. The GPU acceleration work described here has been completed. See `design/gpu-acceleration.md` for the current architecture.
+
 # GPU Acceleration Implementation Handover
 
 > This document is a complete handover for implementing optional GPU acceleration in Scene Atlas. It contains the implementation plan, critical context about the codebase, pitfalls discovered during review, and explicit warnings about things that will break if done wrong.

@@ -204,6 +204,17 @@ Returns `GroupSearchResponse` with paginated groups. Supports two modes:
 | GET | `/` | Get app settings |
 | PATCH | `/` | Update app settings |
 
+### Models (`/models`)
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/setup-status` | First-time setup status (GPU detection, recommended model) |
+| GET | `/` | List available models with download status |
+| POST | `/active` | Set active embedding model (triggers download + re-embed job) |
+| POST | `/{name}/download` | Download a model without activating it |
+| DELETE | `/{name}/embeddings` | Delete a model's stale embeddings |
+| GET | `/embedding-status` | CLIP service loading status |
+| POST | `/setup-complete` | Mark first-time setup done |
+
 ### Health
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -215,7 +226,7 @@ Returns `GroupSearchResponse` with paginated groups. Supports two modes:
 Hash-sharded object store. Interface: `put(key, path)`, `get_path(key)`, `delete(key)`, `exists(key)`. Two instances: one for images, one for thumbnails. See [storage.md](storage.md).
 
 ### CLIPService
-Singleton wrapping HuggingFace CLIP ViT-B/32. Lazy-loaded on first use. Methods: `encode_image(path) -> [float]`, `encode_text(query) -> [float]`, `batch_encode_images(paths)`.
+Multi-model embedding service (CLIP ViT-B/32, SigLIP2-base, SigLIP2-so400m) via ONNX Runtime. Lazy-loaded on first use. Methods: `encode_image(path) -> [float]`, `encode_text(query) -> [float]`, `batch_encode_images(paths)`.
 
 ### ModelRegistryService
 Module (not a class): `backend/app/services/model_registry.py` — Static registry of all three ONNX model specs (names, HF repos, descriptions, hardware recommendations). Single source of truth used by the download service, API, and export/publish scripts.
@@ -278,8 +289,8 @@ All config via `backend/app/config.py` using `pydantic-settings`. Reads from `.e
 - `EMBEDDING_MODEL` env var — operator override for active model name (`small`/`medium`/`large`); bypasses DB setting entirely
 - Active model otherwise resolved from DB `app_settings.active_model` key (set via `POST /api/v1/models/active`)
 - `inference_device` — ONNX Runtime execution provider (`auto`/`cpu`/`cuda`/`directml`/`coreml`)
-- `max_job_workers` — concurrent background job threads
-- `scheduler_enabled` — periodic maintenance (backup, staging cleanup)
+- `max_job_workers` — concurrent background job threads (runtime setting, DB-backed via `AppSettings`, not an env var)
+- `scheduler_enabled` — periodic maintenance (runtime setting, DB-backed via `AppSettings`, not an env var)
 - `cors_origins` — allowed origins (localhost:3000, localhost:5173)
 
 ## Startup Sequence

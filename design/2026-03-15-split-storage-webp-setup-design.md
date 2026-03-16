@@ -192,9 +192,9 @@ Remove: `setup:get-default-dir` (singular) → replaced by `setup:get-default-di
 | `system:get-image-library-dir` | renderer → main | Returns current `imageLibraryDir` |
 | `system:choose-app-data-dir` | renderer → main | Opens folder picker |
 | `system:choose-image-library-dir` | renderer → main | Opens folder picker |
-| `system:change-storage-dirs` | renderer → main | Saves new paths; does NOT restart automatically |
+| `system:change-storage-dirs` | renderer → main | Saves new paths; calls `app.relaunch()` + `app.exit(0)` for immediate restart |
 
-`system:change-storage-dirs` saves the new values to config and returns success. It does **not** call `app.relaunch()` — the UI shows a "Restart Now" button after the user has had the opportunity to move files manually. This differs from the old `system:change-data-dir` which relaunched immediately.
+`system:change-storage-dirs` saves the new values to config and calls `app.relaunch()` + `app.exit(0)` for an immediate restart. The deferred restart model originally described here was not implemented; the actual behaviour matches the old `system:change-data-dir` approach of relaunching immediately.
 
 Remove: `system:get-data-dir`, `system:open-data-dir`, `system:change-data-dir`.
 
