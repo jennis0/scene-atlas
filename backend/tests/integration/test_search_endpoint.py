@@ -690,6 +690,58 @@ class TestGroupsEndpointBrowse:
             assert group["matching_scenes"] == group["total_scenes"]
 
 
+class TestGroupsBrowseFilters:
+    """Browse-mode filter coverage: filters that apply via image subqueries."""
+
+    def test_gridded_filter_returns_only_gridded_groups(self, grouped_library):
+        """GET /search/groups?gridded=true (no query) only returns groups with gridded images."""
+        client, ids = grouped_library
+        resp = client.get("/api/v1/search/groups", params={"gridded": True})
+        assert resp.status_code == 200
+        data = resp.json()
+        group_names = {g["base_name"] for g in data["groups"]}
+        # Forest Variants has gridded=True images, Dungeon/Tavern have gridded=False/None
+        assert "Forest Variants" in group_names
+        assert "Dungeon Variants" not in group_names
+        assert "Tavern" not in group_names
+
+    def test_gridded_false_filter(self, grouped_library):
+        """GET /search/groups?gridded=false only returns groups with non-gridded images."""
+        client, ids = grouped_library
+        resp = client.get("/api/v1/search/groups", params={"gridded": False})
+        assert resp.status_code == 200
+        group_names = {g["base_name"] for g in resp.json()["groups"]}
+        assert "Dungeon Variants" in group_names
+        assert "Forest Variants" not in group_names
+
+    def test_tag_filter_in_browse_mode(self, grouped_library):
+        """Tag filter in browse mode should return only groups with tagged images."""
+        client, ids = grouped_library
+        resp = client.get("/api/v1/search/groups", params={"tags": ["season:winter"]})
+        assert resp.status_code == 200
+        group_names = {g["base_name"] for g in resp.json()["groups"]}
+        assert "Forest Variants" in group_names
+        # Dungeon and Tavern have no season tags
+        assert "Dungeon Variants" not in group_names
+
+    def test_media_type_filter_in_browse_mode(self, grouped_library):
+        """Media type filter in browse mode should filter groups by member media type."""
+        client, ids = grouped_library
+        # All seeded images have media_type="image" (default)
+        resp = client.get("/api/v1/search/groups", params={"media_types": ["video"]})
+        assert resp.status_code == 200
+        # No groups should match since none contain video
+        assert resp.json()["total_groups"] == 0
+
+    def test_grid_type_filter_in_browse_mode(self, grouped_library):
+        """Grid type filter in browse mode should filter groups."""
+        client, ids = grouped_library
+        # None of the seeded images have grid_type set
+        resp = client.get("/api/v1/search/groups", params={"grid_type": "hex"})
+        assert resp.status_code == 200
+        assert resp.json()["total_groups"] == 0
+
+
 class TestGroupsEndpointSearch:
     """Search mode: query present, groups ranked by best_score."""
 

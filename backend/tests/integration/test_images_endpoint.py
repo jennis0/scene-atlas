@@ -136,11 +136,47 @@ class TestPatchImage:
         assert data["gridded"] is True
         assert data["grid_width"] == 30
 
+    def test_set_gridded_false_clears_grid_fields(self, images_db):
+        """Setting gridded=False clears grid_width, grid_height, grid_type."""
+        client, ids = images_db
+        # img1 already has gridded=True, grid_width=20, grid_height=15
+        resp = client.patch(
+            f"/api/v1/images/{ids['img1']}",
+            json={"gridded": False},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["gridded"] is False
+        assert data["grid_width"] is None
+        assert data["grid_height"] is None
+        assert data["grid_type"] is None
+
+    def test_set_gridded_false_with_explicit_grid_fields_preserves_them(self, images_db):
+        """Setting gridded=False but explicitly providing grid fields keeps them."""
+        client, ids = images_db
+        resp = client.patch(
+            f"/api/v1/images/{ids['img1']}",
+            json={"gridded": False, "grid_width": 10},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["gridded"] is False
+        assert data["grid_width"] == 10
+        # grid_height and grid_type were not in patch, so they get cleared
+        assert data["grid_height"] is None
+        assert data["grid_type"] is None
+
     def test_update_image_type(self, images_db):
         client, ids = images_db
         resp = client.patch(f"/api/v1/images/{ids['img1']}", json={"image_type": "scene"})
         assert resp.status_code == 200
         assert resp.json()["image_type"] == "scene"
+
+    def test_invalid_image_type_returns_422(self, images_db):
+        """PATCH with an invalid image_type should return 422."""
+        client, ids = images_db
+        resp = client.patch(f"/api/v1/images/{ids['img1']}", json={"image_type": "invalid"})
+        assert resp.status_code == 422
 
     def test_nonexistent_404(self, images_db):
         client, _ = images_db

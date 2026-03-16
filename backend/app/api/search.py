@@ -423,8 +423,6 @@ def search_groups(
       - Sort groups by best_score DESC
       - total_groups reflects groups found in search results (may be lower bound on very large diverse libraries)
     """
-    from sqlalchemy import and_, or_
-
     # --- Browse mode (no query) ---
     if not query:
         # Count total groups matching filter at group level
@@ -440,6 +438,74 @@ def search_groups(
         if image_types:
             subquery = db.query(Image.group_id).filter(Image.image_type.in_(image_types)).distinct()
             group_query = group_query.filter(ImageGroup.id.in_(subquery))
+
+        # Media type filter
+        if media_types:
+            subquery = db.query(Image.group_id).filter(Image.media_type.in_(media_types)).distinct()
+            group_query = group_query.filter(ImageGroup.id.in_(subquery))
+
+        # Grid filters
+        if gridded_unknown:
+            subquery = db.query(Image.group_id).filter(Image.gridded.is_(None)).distinct()
+            group_query = group_query.filter(ImageGroup.id.in_(subquery))
+        elif gridded is not None:
+            subquery = db.query(Image.group_id).filter(Image.gridded == gridded).distinct()
+            group_query = group_query.filter(ImageGroup.id.in_(subquery))
+
+        if grid_type is not None:
+            subquery = db.query(Image.group_id).filter(Image.grid_type == grid_type).distinct()
+            group_query = group_query.filter(ImageGroup.id.in_(subquery))
+
+        # Tag filters: OR within same category, AND across categories
+        if tags:
+            from collections import defaultdict
+
+            tags_by_category: dict = defaultdict(list)
+            for tag_filter in tags:
+                if ":" in tag_filter:
+                    cat, val = tag_filter.split(":", 1)
+                    tags_by_category[cat].append(val)
+            for category, values in tags_by_category.items():
+                category_filter = or_(
+                    *[and_(Tag.category == category, Tag.value == value) for value in values]
+                )
+                matching_image_ids = db.query(Tag.image_id).filter(category_filter).distinct()
+                matching_group_ids = (
+                    db.query(Image.group_id).filter(Image.id.in_(matching_image_ids)).distinct()
+                )
+                group_query = group_query.filter(ImageGroup.id.in_(matching_group_ids))
+
+        # Exclude tag filters
+        if exclude_tags:
+            for tag_filter in exclude_tags:
+                if ":" in tag_filter:
+                    cat, val = tag_filter.split(":", 1)
+                    excluded_image_ids = (
+                        db.query(Tag.image_id)
+                        .filter(and_(Tag.category == cat, Tag.value == val))
+                        .subquery()
+                    )
+                    # Exclude groups where ALL images have the excluded tag
+                    # (keep groups that have at least one image without it)
+                    groups_with_non_excluded = (
+                        db.query(Image.group_id)
+                        .filter(~Image.id.in_(excluded_image_ids))
+                        .distinct()
+                    )
+                    group_query = group_query.filter(ImageGroup.id.in_(groups_with_non_excluded))
+
+        # Color filter
+        if colors:
+            from ..services.color_search import color_index
+
+            matching_ids = color_index.find_images_by_colors(db, colors)
+            if matching_ids:
+                matching_group_ids = (
+                    db.query(Image.group_id).filter(Image.id.in_(matching_ids)).distinct()
+                )
+                group_query = group_query.filter(ImageGroup.id.in_(matching_group_ids))
+            else:
+                group_query = group_query.filter(ImageGroup.id == -1)  # No matches
 
         total_groups = group_query.count()
 

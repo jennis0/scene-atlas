@@ -669,7 +669,7 @@ async def confirm_all_groups(
             total_files=len(valid_files),
             processed_files=0,
             failed_files=0,
-            status="running",
+            status="pending",
         )
         db.add(group_job)
 
@@ -688,7 +688,7 @@ async def confirm_all_groups(
                 total_files=len(valid_files),
                 processed_files=0,
                 failed_files=0,
-                status="running",
+                status="pending",
             )
         )
 
@@ -701,14 +701,29 @@ async def confirm_all_groups(
     _pipeline_config = PipelineConfig.from_app_settings(get_app_settings(db))
 
     runner = get_job_runner()
-    runner.submit(
-        process_import_job,
-        job_id=job_id,
-        staging_dir=str(staging_dir),
-        groups=groups_payload,
-        pipeline_config=_pipeline_config,
-        name=f"Import job: {job_id[:8]}",
-    )
+    try:
+        runner.submit(
+            process_import_job,
+            job_id=job_id,
+            staging_dir=str(staging_dir),
+            groups=groups_payload,
+            pipeline_config=_pipeline_config,
+            name=f"Import job: {job_id[:8]}",
+        )
+    except Exception:
+        logger.exception("Failed to submit import job %s to runner", job_id)
+        db.rollback()
+        job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
+        if job:
+            job.status = "failed"
+            job.error_message = "Failed to submit processing job"
+            job.completed_at = datetime.now(UTC).replace(tzinfo=None)
+            job.updated_at = datetime.now(UTC).replace(tzinfo=None)
+            db.commit()
+        raise HTTPException(
+            status_code=503,
+            detail="Failed to submit processing job",
+        ) from None
 
     job.status = "active"
     job.updated_at = datetime.now(UTC).replace(tzinfo=None)
@@ -718,7 +733,7 @@ async def confirm_all_groups(
 
     return ImportJobResponse(
         job_id=job.id,
-        status="active",
+        status=job.status,
         groups=group_statuses,
         created_at=job.created_at,
         completed_at=None,
@@ -1054,7 +1069,7 @@ def cancel_import_group(
     )
     if not group_job:
         raise HTTPException(status_code=404, detail="Group not found")
-    if group_job.status not in ("pending", "running"):
+    if group_job.status != "pending":
         raise HTTPException(
             status_code=400,
             detail=f"Group in '{group_job.status}' state cannot be cancelled",
