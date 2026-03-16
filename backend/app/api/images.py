@@ -1,6 +1,7 @@
 """Images API endpoints."""
 
 import logging
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
@@ -26,7 +27,7 @@ class ImagePatch(BaseModel):
     grid_width: int | None = None
     grid_height: int | None = None
     grid_type: str | None = None
-    image_type: str | None = None
+    image_type: Literal["battlemap", "scene"] | None = None
 
 
 router = APIRouter()
@@ -63,7 +64,16 @@ def patch_image(image_id: int, patch: ImagePatch, db: Session = Depends(get_db))
     image = db.query(Image).filter(Image.id == image_id).first()
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
-    for field, value in patch.model_dump(exclude_unset=True).items():
+    updates = patch.model_dump(exclude_unset=True)
+
+    # When gridded is explicitly set to False, clear grid fields unless
+    # they are explicitly included in the patch payload.
+    if updates.get("gridded") is False:
+        for grid_field in ("grid_width", "grid_height", "grid_type"):
+            if grid_field not in updates:
+                updates[grid_field] = None
+
+    for field, value in updates.items():
         setattr(image, field, value)
     db.commit()
     db.refresh(image)
