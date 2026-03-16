@@ -57,7 +57,10 @@ export function useImportProgressPolling({
 
       setRunningGroups(running)
       setFailedGroups(failed)
-      setAllDone(running.length === 0)
+      const allTerminal =
+        status.groups.length > 0 &&
+        status.groups.every((g) => ['completed', 'failed', 'cancelled'].includes(g.status))
+      setAllDone(allTerminal)
     } catch {
       setPollError(true)
     }
