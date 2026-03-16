@@ -210,10 +210,7 @@ calls `onComplete` to dismiss itself and render the gallery.
 downloaded. On a fresh install with no DB entry, this means no model is downloaded at
 all.
 
-**Electron mode:** A setup wizard step is stubbed in `resource_detector.py`. It is not
-yet wired into the Electron wizard flow — it is intended to be merged with the
-split-storage setup wizard described in
-`design/2026-03-15-split-storage-webp-setup-design.md`.
+**Electron mode:** Model selection wizard is implemented as `ModelSetupScreen.tsx` (web/server mode). Electron integration uses the Electron setup window.
 
 ---
 
@@ -253,8 +250,7 @@ future update checks — compare the stored SHA against the latest HF commit SHA
 repo. No auto-update is currently planned; this would require a polling mechanism and a
 UI affordance to trigger re-download.
 
-**Electron wizard integration:** The model selection step is stubbed in
-`resource_detector.py`. When the split-storage wizard (see
+**Electron wizard integration:** Model selection wizard is implemented as `ModelSetupScreen.tsx` (web/server mode). Electron integration uses the Electron setup window. When the split-storage wizard (see
 `design/2026-03-15-split-storage-webp-setup-design.md`) is implemented, the model step
 should be merged into it as a single coherent first-run experience for Electron users.
 
