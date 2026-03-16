@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Upload, Loader2, Check, X, AlertCircle } from 'lucide-react'
+import { Upload, Loader2, Check, X, AlertCircle, Ban } from 'lucide-react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { useImportState } from '@/hooks/useImportState'
 import { removeImportState } from '@/lib/importStorage'
@@ -28,6 +28,7 @@ function GroupStatusRow({ group }: { group: EditableGroupState }) {
         {status === 'running' && <Loader2 className="h-4 w-4 text-primary animate-spin" />}
         {status === 'completed' && <Check className="h-4 w-4 text-green-500" />}
         {status === 'failed' && <AlertCircle className="h-4 w-4 text-destructive" />}
+        {status === 'cancelled' && <Ban className="h-4 w-4 text-muted-foreground" />}
         {status === 'pending' && <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" />}
       </div>
       <div className="flex-1 min-w-0">
@@ -39,7 +40,9 @@ function GroupStatusRow({ group }: { group: EditableGroupState }) {
           ? `${processed} / ${total}`
           : status === 'failed'
             ? `${failed} failed`
-            : `${processed} / ${total}`}
+            : status === 'cancelled'
+              ? 'Cancelled'
+              : `${processed} / ${total}`}
       </div>
     </div>
   )
