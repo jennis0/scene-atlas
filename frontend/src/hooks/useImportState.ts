@@ -432,12 +432,12 @@ export function useImportState(
         jobId,
         toSubmit.map(({ author, group_name, files }) => ({ author, group_name, files })),
       )
-      for (const { i, group_name } of toSubmit) {
-        const matchedGroup = response.groups.find((gs) => gs.group_name === group_name)
-        if (matchedGroup?.group_job_id) {
-          updateGroup(i, { group_job_id: matchedGroup.group_job_id })
+      toSubmit.forEach(({ i }, idx) => {
+        const gs = response.groups[idx]
+        if (gs?.group_job_id) {
+          updateGroup(i, { group_job_id: gs.group_job_id })
         }
-      }
+      })
       setTimeout(saveNow, 100)
     }
 
