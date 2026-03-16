@@ -420,6 +420,7 @@ export interface ImportJobSummary {
   completed_groups: number
   failed_groups: number
   running_groups: number
+  pending_groups?: number
   total_files: number
   processed_files: number
   created_at: string

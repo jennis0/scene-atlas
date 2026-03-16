@@ -40,6 +40,7 @@ export interface ActiveImportJob {
   completedGroups: number
   failedGroups: number
   runningGroups: number
+  pendingGroups: number
   totalFiles: number
   processedFiles: number
   createdAt: string
@@ -133,7 +134,8 @@ export function useActiveImports(): UseActiveImportsReturn {
         j.status === 'running' ||
         j.status === 'active' ||
         j.status === 'uploading' ||
-        j.runningGroups > 0,
+        j.runningGroups > 0 ||
+        j.pendingGroups > 0,
     )
     if (!hasRunning) return
     const interval = setInterval(refresh, ACTIVE_POLL_INTERVAL_MS)
@@ -228,6 +230,7 @@ function localToActiveJob(entry: ImportJobIndexEntry): ActiveImportJob {
     completedGroups: entry.completedGroups,
     failedGroups: entry.failedGroups,
     runningGroups: entry.hasRunningGroups ? 1 : 0,
+    pendingGroups: 0,
     totalFiles: entry.uploadFilesTotal ?? 0,
     processedFiles: entry.uploadFilesUploaded ?? 0,
     createdAt: entry.createdAt,
@@ -247,6 +250,7 @@ function backendToActiveJob(summary: ImportJobSummary): ActiveImportJob {
     completedGroups: summary.completed_groups,
     failedGroups: summary.failed_groups,
     runningGroups: summary.running_groups,
+    pendingGroups: summary.pending_groups ?? 0,
     totalFiles: summary.total_files,
     processedFiles: summary.processed_files,
     createdAt: summary.created_at,

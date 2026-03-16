@@ -66,7 +66,8 @@ export function ActivityDock({
       j.status === 'uploading' ||
       j.status === 'active' ||
       j.status === 'running' ||
-      j.runningGroups > 0,
+      j.runningGroups > 0 ||
+      j.pendingGroups > 0,
   ).length
   const activeJobCount = backgroundJobs.filter(
     (j) => j.status === 'queued' || j.status === 'running',

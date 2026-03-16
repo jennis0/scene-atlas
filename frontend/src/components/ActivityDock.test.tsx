@@ -31,6 +31,7 @@ const runningImport: ActiveImportJob = {
   completedGroups: 3,
   failedGroups: 0,
   runningGroups: 2,
+  pendingGroups: 3,
   totalFiles: 24,
   processedFiles: 9,
   createdAt: new Date().toISOString(),
