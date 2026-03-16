@@ -395,6 +395,7 @@ export function Gallery() {
           // file data) is ephemeral and can't be restored in a new dialog.
         }}
         onDismissJob={activeImports.dismissJob}
+        onDismissWithCleanup={activeImports.dismissWithCleanup}
         onCancelJob={activeImports.cancelJob}
         onRefresh={activeImports.refresh}
       />

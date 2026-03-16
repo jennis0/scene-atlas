@@ -14,6 +14,7 @@ import {
   Cog,
   WifiOff,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { importApi } from '@/lib/api'
 import type { ActiveImportJob } from '@/hooks/useActiveImports'
 import type { BackgroundJob } from '@/types'
@@ -27,6 +28,8 @@ interface ActivityDockProps {
   hasActiveJobs: boolean
   onOpenJob: (jobId: string) => void
   onDismissJob: (jobId: string) => void
+  /** Dismiss a broken/failed job with backend cleanup (calls cancel then dismiss). */
+  onDismissWithCleanup: (jobId: string) => Promise<void>
   onCancelJob: (jobId: string) => void
   onRefresh: () => void
 }
@@ -39,6 +42,7 @@ export function ActivityDock({
   hasActiveJobs: _hasActiveJobs,
   onOpenJob,
   onDismissJob,
+  onDismissWithCleanup,
   onCancelJob,
   onRefresh,
 }: ActivityDockProps) {
@@ -62,7 +66,8 @@ export function ActivityDock({
       j.status === 'uploading' ||
       j.status === 'active' ||
       j.status === 'running' ||
-      j.runningGroups > 0,
+      j.runningGroups > 0 ||
+      j.pendingGroups > 0,
   ).length
   const activeJobCount = backgroundJobs.filter(
     (j) => j.status === 'queued' || j.status === 'running',
@@ -83,6 +88,10 @@ export function ActivityDock({
     try {
       await importApi.cleanup()
       onRefresh()
+    } catch {
+      toast.error('Failed to clear history', {
+        description: 'Could not clean up completed imports on the backend.',
+      })
     } finally {
       setCleaning(false)
     }
@@ -210,6 +219,7 @@ export function ActivityDock({
                 job={job}
                 onOpen={() => onOpenJob(job.jobId)}
                 onDismiss={() => onDismissJob(job.jobId)}
+                onDismissWithCleanup={() => onDismissWithCleanup(job.jobId)}
                 onCancel={() => onCancelJob(job.jobId)}
               />
             ))}
@@ -255,11 +265,13 @@ function ImportJobCard({
   job,
   onOpen,
   onDismiss,
+  onDismissWithCleanup,
   onCancel,
 }: {
   job: ActiveImportJob
   onOpen: () => void
   onDismiss: () => void
+  onDismissWithCleanup: () => void
   onCancel: () => void
 }) {
   const [confirmingCancel, setConfirmingCancel] = useState(false)
@@ -270,15 +282,12 @@ function ImportJobCard({
     job.status === 'cancelled' ||
     job.status === 'expired' ||
     job.status === 'broken'
-  // Completed imports require review; broken/failed require cancel for cleanup
-  const canDismiss =
-    isTerminal && job.status !== 'completed' && job.status !== 'broken' && job.status !== 'failed'
+  // All terminal jobs can be dismissed
+  const canDismiss = isTerminal
+  // Broken/failed need cleanup confirmation; completed/cancelled/expired are immediate
+  const needsCleanup = job.status === 'broken' || job.status === 'failed'
   const canCancel =
-    job.status === 'uploading' ||
-    job.status === 'staging' ||
-    job.status === 'active' ||
-    job.status === 'broken' ||
-    job.status === 'failed'
+    job.status === 'uploading' || job.status === 'staging' || job.status === 'active'
   const progressRatio = job.totalFiles > 0 ? job.processedFiles / job.totalFiles : 0
 
   const handleCancelClick = (e: React.MouseEvent) => {
@@ -287,6 +296,16 @@ function ImportJobCard({
       setConfirmingCancel(true)
     } else {
       onCancel()
+    }
+  }
+
+  const handleDismissClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (needsCleanup) {
+      // broken/failed jobs need confirmation since cleanup calls cancel
+      setConfirmingCancel(true)
+    } else {
+      onDismiss()
     }
   }
 
@@ -319,10 +338,7 @@ function ImportJobCard({
           </span>
           {canDismiss && !confirmingCancel && (
             <button
-              onClick={(e) => {
-                e.stopPropagation()
-                onDismiss()
-              }}
+              onClick={handleDismissClick}
               className="opacity-0 group-hover/job:opacity-100 shrink-0
                 h-5 w-5 rounded flex items-center justify-center
                 text-muted-foreground/30 hover:text-foreground hover:bg-secondary transition-all"
@@ -334,9 +350,8 @@ function ImportJobCard({
           {canCancel && !confirmingCancel && (
             <button
               onClick={handleCancelClick}
-              className={`shrink-0 h-5 w-5 rounded flex items-center justify-center
-                text-muted-foreground/30 hover:text-destructive hover:bg-destructive/10 transition-all
-                ${job.status === 'failed' || job.status === 'broken' ? '' : 'opacity-0 group-hover/job:opacity-100'}`}
+              className="opacity-0 group-hover/job:opacity-100 shrink-0 h-5 w-5 rounded flex items-center justify-center
+                text-muted-foreground/30 hover:text-destructive hover:bg-destructive/10 transition-all"
               title="Cancel"
             >
               <X className="h-3 w-3" />
@@ -347,7 +362,11 @@ function ImportJobCard({
               <span className="text-[10px] text-destructive/80">Delete imported?</span>
               <button
                 onClick={() => {
-                  onCancel()
+                  if (needsCleanup) {
+                    onDismissWithCleanup()
+                  } else {
+                    onCancel()
+                  }
                   setConfirmingCancel(false)
                 }}
                 className="text-[10px] px-1.5 py-0.5 rounded bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
@@ -565,7 +584,7 @@ function ImportStatusText({ job }: { job: ActiveImportJob }) {
         </span>
       )
     case 'completed':
-      return <span className="text-amber-600 dark:text-amber-400 font-medium">Review import ›</span>
+      return <span className="text-amber-600 dark:text-amber-400 font-medium">Ready to review</span>
     case 'failed':
       return (
         <span className="text-destructive/65">

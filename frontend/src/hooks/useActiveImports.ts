@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { toast } from 'sonner'
 import { importApi } from '@/lib/api'
 import { ACTIVE_POLL_INTERVAL_MS } from '@/lib/constants'
 import {
@@ -39,6 +40,7 @@ export interface ActiveImportJob {
   completedGroups: number
   failedGroups: number
   runningGroups: number
+  pendingGroups: number
   totalFiles: number
   processedFiles: number
   createdAt: string
@@ -69,6 +71,8 @@ export interface UseActiveImportsReturn {
   connectionLost: boolean
   refresh: () => void
   dismissJob: (jobId: string) => void
+  /** Dismiss a terminal job that needs backend cleanup (broken/failed). */
+  dismissWithCleanup: (jobId: string) => Promise<void>
   cancelJob: (jobId: string) => Promise<void>
   /** Fired once each time a job transitions to 'completed', with the completed job. */
   onJobCompleted: (cb: (job: ActiveImportJob) => void) => () => void
@@ -130,7 +134,8 @@ export function useActiveImports(): UseActiveImportsReturn {
         j.status === 'running' ||
         j.status === 'active' ||
         j.status === 'uploading' ||
-        j.runningGroups > 0,
+        j.runningGroups > 0 ||
+        j.pendingGroups > 0,
     )
     if (!hasRunning) return
     const interval = setInterval(refresh, ACTIVE_POLL_INTERVAL_MS)
@@ -165,13 +170,31 @@ export function useActiveImports(): UseActiveImportsReturn {
     setJobs((prev) => prev.filter((j) => j.jobId !== jobId))
   }, [])
 
+  /** Dismiss a terminal job that needs backend cleanup (broken/failed). */
+  const dismissWithCleanup = useCallback(
+    async (jobId: string) => {
+      try {
+        await importApi.cancel(jobId)
+      } catch {
+        toast.error('Cleanup failed', {
+          description: 'Could not clean up imported files on the backend.',
+        })
+      }
+      dismissJob(jobId)
+    },
+    [dismissJob],
+  )
+
   const cancelJob = useCallback(async (jobId: string) => {
     const job = jobsRef.current.find((j) => j.jobId === jobId)
     if (!job?.localOnly) {
       try {
         await importApi.cancel(jobId)
       } catch {
-        /* ignore errors */
+        toast.error('Failed to cancel import', {
+          description: 'The backend could not cancel this job. Try again later.',
+        })
+        return
       }
     }
     removeImportState(jobId)
@@ -188,7 +211,16 @@ export function useActiveImports(): UseActiveImportsReturn {
       j.status === 'running',
   )
 
-  return { jobs, hasActive, connectionLost, refresh, dismissJob, cancelJob, onJobCompleted }
+  return {
+    jobs,
+    hasActive,
+    connectionLost,
+    refresh,
+    dismissJob,
+    dismissWithCleanup,
+    cancelJob,
+    onJobCompleted,
+  }
 }
 
 function localToActiveJob(entry: ImportJobIndexEntry): ActiveImportJob {
@@ -200,6 +232,7 @@ function localToActiveJob(entry: ImportJobIndexEntry): ActiveImportJob {
     completedGroups: entry.completedGroups,
     failedGroups: entry.failedGroups,
     runningGroups: entry.hasRunningGroups ? 1 : 0,
+    pendingGroups: 0,
     totalFiles: entry.uploadFilesTotal ?? 0,
     processedFiles: entry.uploadFilesUploaded ?? 0,
     createdAt: entry.createdAt,
@@ -219,6 +252,7 @@ function backendToActiveJob(summary: ImportJobSummary): ActiveImportJob {
     completedGroups: summary.completed_groups,
     failedGroups: summary.failed_groups,
     runningGroups: summary.running_groups,
+    pendingGroups: summary.pending_groups ?? 0,
     totalFiles: summary.total_files,
     processedFiles: summary.processed_files,
     createdAt: summary.created_at,

@@ -24,7 +24,7 @@ export function relevanceToPercent(minScore: number): number {
 // ── Import workflow timings ──────────────────────────────────────────────────
 export const POLL_INTERVAL_MS = 2_000
 export const ACTIVE_POLL_INTERVAL_MS = 10_000
-export const AUTO_SAVE_INTERVAL_MS = 60_000
+export const AUTO_SAVE_INTERVAL_MS = 15_000
 export const SAVED_INDICATOR_DURATION_MS = 1_500
 export const IMPORT_STORAGE_EXPIRY_MS = 24 * 60 * 60 * 1_000 // 24 hours
 

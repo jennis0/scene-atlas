@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import { toast } from 'sonner'
 import { tagApi, imageApi, importApi } from '@/lib/api'
-import { getApiErrorMessage } from '@/lib/getErrorMessage'
+import { getApiErrorMessage, isConflictError } from '@/lib/getErrorMessage'
 import { parseTagVocabulary } from '@/components/import/types'
 import { EMPTY_FILTER, applyFileFilter } from '@/components/import/fileFilter'
 import type { FileFilter } from '@/components/import/fileFilter'
@@ -432,12 +433,12 @@ export function useImportState(
         jobId,
         toSubmit.map(({ author, group_name, files }) => ({ author, group_name, files })),
       )
-      for (const { groupId, group_name } of toSubmit) {
-        const matchedGroup = response.groups.find((gs) => gs.group_name === group_name)
-        if (matchedGroup?.group_job_id) {
-          updateGroup(groupId, { group_job_id: matchedGroup.group_job_id })
+      toSubmit.forEach(({ groupId }, idx) => {
+        const gs = response.groups[idx]
+        if (gs?.group_job_id) {
+          updateGroup(groupId, { group_job_id: gs.group_job_id })
         }
-      }
+      })
       setTimeout(saveNow, 100)
     }
 
@@ -455,11 +456,17 @@ export function useImportState(
           succeeded = true
           break
         } catch (retryErr) {
+          if (isConflictError(retryErr)) {
+            // confirm-all already succeeded on a previous attempt
+            succeeded = true
+            break
+          }
           lastErr = retryErr
         }
       }
       if (!succeeded) {
         const errorMessage = getApiErrorMessage(lastErr, 'Failed to start processing')
+        toast.error('Import failed to start', { description: errorMessage })
         try {
           await importApi.fail(jobId, errorMessage)
         } catch {

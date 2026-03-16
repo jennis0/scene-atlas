@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { SettingRow } from '@/components/settings/SettingRow'
 import { useSettingsDraft } from '@/hooks/useSettingsDraft'
 import { modelsApi } from '@/lib/api/modelsApi'
+import { importApi } from '@/lib/api'
 import { HARDWARE_BADGE } from '@/lib/modelConstants'
 import { tagApi } from '@/lib/api/tagApi'
 import type { AppSettings, TagPack } from '@/types'
@@ -185,11 +186,30 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
 
     // Pending model switch (requires confirmation)
     const [pendingModel, setPendingModel] = useState<string | null>(null)
+    const [activeImportCount, setActiveImportCount] = useState(0)
 
     // Reset pending model when dialog closes to avoid stale confirmation state
     useEffect(() => {
-      if (!dialogOpen) setPendingModel(null)
+      if (!dialogOpen) {
+        setPendingModel(null)
+        setActiveImportCount(0)
+      }
     }, [dialogOpen])
+
+    // Check for active imports when user selects a model to switch to
+    const handleModelSelect = useCallback(async (modelName: string) => {
+      setPendingModel(modelName)
+      try {
+        const response = await importApi.active()
+        const active = response.jobs.filter(
+          (j) =>
+            j.status === 'uploading' || j.status === 'staging' || j.status === 'active',
+        ).length
+        setActiveImportCount(active)
+      } catch {
+        setActiveImportCount(0)
+      }
+    }, [])
 
     const {
       data: modelsData,
@@ -202,15 +222,31 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
     })
 
     const switchModelMutation = useMutation({
-      mutationFn: (modelName: string) => modelsApi.setActiveModel(modelName),
+      mutationFn: async (modelName: string) => {
+        // Cancel active imports first if any exist
+        if (activeImportCount > 0) {
+          const response = await importApi.active()
+          const activeJobs = response.jobs.filter(
+            (j) =>
+              j.status === 'uploading' || j.status === 'staging' || j.status === 'active',
+          )
+          await Promise.allSettled(
+            activeJobs.map((j) => importApi.cancel(j.job_id)),
+          )
+        }
+        return modelsApi.setActiveModel(modelName)
+      },
       onSuccess: () => {
         toast.info('Model switch started. This may take a while.')
         queryClient.invalidateQueries({ queryKey: ['models'] })
         queryClient.invalidateQueries({ queryKey: ['appSettings'] })
         setPendingModel(null)
+        setActiveImportCount(0)
       },
-      onError: () => {
-        toast.error('Failed to switch model.')
+      onError: (err) => {
+        toast.error(
+          err instanceof Error ? err.message : 'Failed to switch model.',
+        )
       },
     })
 
@@ -399,7 +435,7 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                           if (isPending) {
                             switchModelMutation.mutate(model.name)
                           } else {
-                            setPendingModel(model.name)
+                            handleModelSelect(model.name)
                           }
                         }}
                         className={`relative text-left rounded-lg border p-3 space-y-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
@@ -449,10 +485,19 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
 
               {/* Pending switch confirmation banner */}
               {pendingModel && (
-                <div className="rounded-md border border-border bg-muted/50 p-3 text-xs space-y-2">
+                <div
+                  className={`rounded-md border p-3 text-xs space-y-2 ${activeImportCount > 0 ? 'border-destructive/50 bg-destructive/10' : 'border-border bg-muted/50'}`}
+                >
                   <p className="text-muted-foreground">
                     Switching models will re-process all images. This can take a while.
                   </p>
+                  {activeImportCount > 0 && (
+                    <p className="text-destructive font-medium">
+                      This will cancel {activeImportCount} in-progress import
+                      {activeImportCount > 1 ? 's' : ''} and delete their partially imported
+                      images.
+                    </p>
+                  )}
                   <div className="flex gap-2">
                     <button
                       type="button"

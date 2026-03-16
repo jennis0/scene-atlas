@@ -485,6 +485,7 @@ class ImportJobSummary(BaseModel):
     completed_groups: int = 0
     failed_groups: int = 0
     running_groups: int = 0
+    pending_groups: int = 0
     total_files: int = 0
     processed_files: int = 0
     created_at: datetime
