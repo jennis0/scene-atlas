@@ -7,6 +7,7 @@ import {
   clearUploadProgress,
 } from '@/lib/importStorage'
 import { importApi } from '@/lib/api'
+import { settingsApi } from '@/lib/api/settingsApi'
 import { resolveApiUrl } from '@/lib/apiBase'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { humanizeFilename } from '@/components/import/types'
@@ -127,6 +128,25 @@ export function useImportUpload({
             `All files exceed the ${MAX_FILE_SIZE_MB}MB size limit. Please use smaller files.`,
           )
           return
+        }
+
+        // ── Phase 0.2: Total size check against server limit ──────
+        // Check total size before creating a job or uploading anything.
+        // The backend also enforces this, but checking early avoids wasted
+        // upload time and bandwidth.
+        const totalBytes = sizeLimitedPairs.reduce((sum, p) => sum + p.file.size, 0)
+        try {
+          const settings = await settingsApi.get()
+          if (totalBytes > settings.max_import_total_size) {
+            const totalMB = Math.round(totalBytes / (1024 * 1024))
+            const limitMB = Math.round(settings.max_import_total_size / (1024 * 1024))
+            setUploadError(
+              `Selected files total ${totalMB} MB, which exceeds the ${limitMB} MB upload limit. Remove some files or increase the limit in Settings.`,
+            )
+            return
+          }
+        } catch {
+          // Settings fetch failed — let the backend enforce the limit instead
         }
 
         // ── Phase 0.5: Create backend job immediately ───────────
