@@ -7,6 +7,7 @@ import {
   removeImportState,
 } from '@/lib/importStorage'
 import { importApi } from '@/lib/api'
+import { isNotFoundError } from '@/lib/getErrorMessage'
 import { findGroupStatus } from '@/lib/mergeGroupStatus'
 import { mapAnalysisToEditable } from './useImportUpload'
 import { backendStatusToDialogState } from './useImportPolling'
@@ -68,8 +69,11 @@ function fetchAndRestoreFromBackend(
         setState('done')
       }
     })
-    .catch(() => {
-      removeImportState(reconnectJobId)
+    .catch((err) => {
+      if (isNotFoundError(err)) {
+        removeImportState(reconnectJobId)
+      }
+      // Transient error — leave localStorage intact for retry
     })
 }
 
