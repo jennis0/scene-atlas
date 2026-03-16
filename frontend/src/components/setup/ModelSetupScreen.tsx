@@ -1,10 +1,13 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { modelsApi, type ModelInfo, type SetupStatus } from '@/lib/api/modelsApi'
 import { jobApi } from '@/lib/api/jobApi'
 import { HARDWARE_BADGE } from '@/lib/modelConstants'
+import { TagPackSetupStep } from '@/components/setup/TagPackSetupStep'
 
 interface ModelSetupScreenProps {
   onComplete: () => void
+  /** When true, skip the model selection step (model already configured). */
+  skipModel?: boolean
 }
 
 const GPU_PROVIDER_LABELS: Record<string, string> = {
@@ -13,17 +16,18 @@ const GPU_PROVIDER_LABELS: Record<string, string> = {
   CoreMLExecutionProvider: 'Apple GPU (Core ML)',
 }
 
-type Phase = 'loading' | 'select' | 'submitting' | 'progress' | 'error'
+type Phase = 'loading' | 'select' | 'submitting' | 'tag-packs' | 'progress' | 'error'
 
-export function ModelSetupScreen({ onComplete }: ModelSetupScreenProps) {
+export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupScreenProps) {
   const [phase, setPhase] = useState<Phase>('loading')
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null)
   const [models, setModels] = useState<ModelInfo[]>([])
   const [selectedModel, setSelectedModel] = useState<string>('')
   const [jobId, setJobId] = useState<string | null>(null)
-  const [progressMessage, setProgressMessage] = useState<string>('Starting…')
+  const [progressMessage, setProgressMessage] = useState<string>('Starting...')
   const [progressPct, setProgressPct] = useState<number | null>(null)
   const [errorMessage, setErrorMessage] = useState<string>('')
+  const [modelComplete, setModelComplete] = useState(skipModel)
 
   useEffect(() => {
     Promise.all([modelsApi.setupStatus(), modelsApi.list()])
@@ -31,17 +35,24 @@ export function ModelSetupScreen({ onComplete }: ModelSetupScreenProps) {
         setSetupStatus(status)
         setModels(list.models)
         setSelectedModel(status.recommended)
-        setPhase('select')
+        if (skipModel) {
+          // Model already configured — go straight to tag packs
+          setModelComplete(true)
+          setPhase('tag-packs')
+        } else {
+          setPhase('select')
+        }
       })
       .catch((err) => {
         setErrorMessage(err?.message ?? 'Failed to load model information.')
         setPhase('error')
       })
-  }, [])
+  }, [skipModel])
 
-  // Poll job when in progress phase
+  // Poll job when model download is in flight (during tag-packs or progress phase)
   useEffect(() => {
-    if (phase !== 'progress' || !jobId) return
+    if (!jobId || modelComplete) return
+    if (phase !== 'tag-packs' && phase !== 'progress') return
 
     const interval = setInterval(async () => {
       try {
@@ -50,7 +61,7 @@ export function ModelSetupScreen({ onComplete }: ModelSetupScreenProps) {
         if (job.progress_pct != null) setProgressPct(job.progress_pct)
         if (job.status === 'completed') {
           clearInterval(interval)
-          onComplete()
+          setModelComplete(true)
         } else if (job.status === 'failed') {
           clearInterval(interval)
           setErrorMessage(job.error ?? 'Model activation failed.')
@@ -62,7 +73,16 @@ export function ModelSetupScreen({ onComplete }: ModelSetupScreenProps) {
     }, 2000)
 
     return () => clearInterval(interval)
-  }, [phase, jobId, onComplete])
+  }, [phase, jobId, modelComplete])
+
+  const handleSetupFinished = useCallback(async () => {
+    try {
+      await modelsApi.setupComplete()
+    } catch {
+      // Best-effort — don't block the user
+    }
+    onComplete()
+  }, [onComplete])
 
   const handleGetStarted = async () => {
     setPhase('submitting')
@@ -70,10 +90,12 @@ export function ModelSetupScreen({ onComplete }: ModelSetupScreenProps) {
       const result = await modelsApi.setActiveModel(selectedModel)
       if (result.job_id) {
         setJobId(result.job_id)
-        setPhase('progress')
+        // Go straight to tag packs while model downloads in background
+        setPhase('tag-packs')
       } else {
-        // No async job — already done
-        onComplete()
+        // No async job — model already active, skip to tag packs
+        setModelComplete(true)
+        setPhase('tag-packs')
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to activate model.'
@@ -85,7 +107,7 @@ export function ModelSetupScreen({ onComplete }: ModelSetupScreenProps) {
   if (phase === 'loading') {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <p className="text-muted-foreground text-sm">Loading model information…</p>
+        <p className="text-muted-foreground text-sm">Loading model information...</p>
       </div>
     )
   }
@@ -122,11 +144,24 @@ export function ModelSetupScreen({ onComplete }: ModelSetupScreenProps) {
     )
   }
 
+  if (phase === 'tag-packs') {
+    return (
+      <TagPackSetupStep
+        modelProgressMessage={progressMessage}
+        modelProgressPct={progressPct}
+        modelComplete={modelComplete}
+        onComplete={handleSetupFinished}
+      />
+    )
+  }
+
+  // The 'progress' phase is now only used as a fallback if tag-packs
+  // somehow doesn't render (shouldn't happen in normal flow)
   if (phase === 'progress') {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="max-w-sm text-center space-y-4">
-          <p className="font-semibold">Setting up AI model…</p>
+          <p className="font-semibold">Setting up AI model...</p>
           <p className="text-sm text-muted-foreground">{progressMessage}</p>
           <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
             {progressPct != null && progressPct > 0 ? (
@@ -240,7 +275,7 @@ export function ModelSetupScreen({ onComplete }: ModelSetupScreenProps) {
             disabled={!selectedModel || phase === 'submitting'}
             className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {phase === 'submitting' ? 'Starting…' : 'Get Started'}
+            {phase === 'submitting' ? 'Starting...' : 'Get Started'}
           </button>
         </div>
       </div>

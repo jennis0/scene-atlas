@@ -8,8 +8,9 @@ import { modelsApi } from './lib/api/modelsApi'
 import { isServer } from './lib/appMode'
 
 function App() {
-  const [modelReady, setModelReady] = useState(!isServer)
+  const [setupReady, setSetupReady] = useState(!isServer)
   const [checkingSetup, setCheckingSetup] = useState(isServer)
+  const [skipModel, setSkipModel] = useState(false)
 
   useEffect(() => {
     if (!isServer) {
@@ -18,28 +19,35 @@ function App() {
     modelsApi
       .setupStatus()
       .then((status) => {
-        if (!status.needs_model) setModelReady(true)
+        const needsSetup = status.needs_model || status.needs_tag_packs
+        if (!needsSetup) {
+          setSetupReady(true)
+        } else {
+          // If model is already configured but tag packs are needed,
+          // tell the wizard to skip the model selection step.
+          setSkipModel(!status.needs_model)
+        }
         setCheckingSetup(false)
       })
       .catch(() => {
-        // If backend isn't up yet or check fails, assume model is ready (don't block the app)
-        setModelReady(true)
+        // If backend isn't up yet or check fails, assume setup is done (don't block the app)
+        setSetupReady(true)
         setCheckingSetup(false)
       })
   }, [])
 
-  const handleSetupComplete = useCallback(() => setModelReady(true), [])
+  const handleSetupComplete = useCallback(() => setSetupReady(true), [])
 
   if (checkingSetup) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <p className="text-muted-foreground text-sm">Loading…</p>
+        <p className="text-muted-foreground text-sm">Loading...</p>
       </div>
     )
   }
 
-  if (!modelReady) {
-    return <ModelSetupScreen onComplete={handleSetupComplete} />
+  if (!setupReady) {
+    return <ModelSetupScreen onComplete={handleSetupComplete} skipModel={skipModel} />
   }
 
   return (

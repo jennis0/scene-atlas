@@ -14,6 +14,7 @@ export interface ModelInfo {
 
 export interface SetupStatus {
   needs_model: boolean
+  needs_tag_packs: boolean
   recommended: string // "small" | "medium" | "large"
   has_gpu: boolean
   gpu_provider: string | null // e.g. "CUDAExecutionProvider" or null
@@ -57,5 +58,9 @@ export const modelsApi = {
 
   deleteEmbeddings: async (name: string): Promise<void> => {
     await api.delete(`/models/${name}/embeddings`)
+  },
+
+  setupComplete: async (): Promise<void> => {
+    await api.post('/models/setup-complete')
   },
 }
