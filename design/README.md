@@ -28,6 +28,8 @@ How individual features and subsystems are designed.
 | [parser.md](parser.md) | ImageParser -- filename parsing, tag extraction, image group detection |
 | [import-state-machine.md](import-state-machine.md) | Import state machine -- 7 statuses, transitions, frontend mapping |
 | [group-view.md](group-view.md) | Group view -- hero+mosaic card layout for browsing by image group |
+| [tag-packs.md](tag-packs.md) | Tag packs -- genre-specific vocabularies, import mechanics, settings integration |
+| [resource-management.md](resource-management.md) | Resource management -- detection, concurrency controls, memory monitoring |
 | [dialog-focus-management.md](dialog-focus-management.md) | Focus management across dialog and modal components |
 | [hf-model-management.md](hf-model-management.md) | HuggingFace model download, switching, and GPU detection |
 | [2026-03-15-split-storage-webp-setup-design.md](2026-03-15-split-storage-webp-setup-design.md) | Split storage and WebP conversion design |
