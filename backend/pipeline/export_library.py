@@ -52,8 +52,8 @@ def export_library(output_dir: str, progress_fn=None) -> dict:
     db = SessionLocal()
 
     try:
-        total = db.query(Image).count()
         all_ids = [row[0] for row in db.query(Image.id).order_by(Image.id).all()]
+        total = len(all_ids)
     finally:
         db.close()
 
