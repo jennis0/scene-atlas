@@ -287,7 +287,10 @@ function ImportJobCard({
   // Broken/failed need cleanup confirmation; completed/cancelled/expired are immediate
   const needsCleanup = job.status === 'broken' || job.status === 'failed'
   const canCancel =
-    job.status === 'uploading' || job.status === 'staging' || job.status === 'active'
+    job.status === 'uploading' ||
+    job.status === 'staging' ||
+    job.status === 'active' ||
+    job.status === 'running'
   const progressRatio = job.totalFiles > 0 ? job.processedFiles / job.totalFiles : 0
 
   const handleCancelClick = (e: React.MouseEvent) => {

@@ -102,11 +102,30 @@ export function useActiveImports(): UseActiveImportsReturn {
       .then((response) => {
         consecutiveFailuresRef.current = 0
         setConnectionLost((prev) => (prev ? false : prev))
-        const merged = mergeJobs(localIndex.jobs, response.jobs)
+
+        // Prune orphaned localStorage entries — jobs the backend no longer
+        // tracks.  A 5-minute grace period prevents removing entries for
+        // in-flight uploads that haven't reached the backend yet.
+        const backendIds = new Set(response.jobs.map((j) => j.job_id))
+        const ORPHAN_GRACE_MS = 5 * 60 * 1000
+        const now = Date.now()
+        let pruned = false
+        for (const entry of localIndex.jobs) {
+          if (
+            !backendIds.has(entry.jobId) &&
+            now - new Date(entry.createdAt).getTime() > ORPHAN_GRACE_MS
+          ) {
+            removeImportState(entry.jobId)
+            pruned = true
+          }
+        }
+
+        const effectiveLocal = pruned ? loadImportJobsIndex().jobs : localIndex.jobs
+        const merged = mergeJobs(effectiveLocal, response.jobs)
         setJobs(merged.filter((j) => !dismissedIdsRef.current.has(j.jobId)))
         // Prune dismissed IDs whose jobs are no longer tracked by the backend,
         // then sync the in-memory ref so it doesn't accumulate stale IDs.
-        pruneDismissedJobs(new Set(response.jobs.map((j) => j.job_id)))
+        pruneDismissedJobs(backendIds)
         dismissedIdsRef.current = loadDismissedJobs()
       })
       .catch(() => {

@@ -136,4 +136,43 @@ describe('ActivityDock', () => {
     await user.click(screen.getByText('Activity'))
     expect(screen.getByText('Connection lost')).toBeInTheDocument()
   })
+
+  it('shows cancel button on running import jobs', async () => {
+    const onCancelJob = vi.fn()
+    const user = userEvent.setup()
+    renderWithProviders(
+      <ActivityDock {...baseProps} jobs={[runningImport]} hasActive onCancelJob={onCancelJob} />,
+    )
+    await user.click(screen.getByText('Activity'))
+    // Hover the card to reveal the cancel button
+    const card = screen.getByTestId('import-job-card')
+    await user.hover(card)
+    const cancelBtn = screen.getByTitle('Cancel')
+    expect(cancelBtn).toBeInTheDocument()
+  })
+
+  it('shows dismiss button on broken import jobs', async () => {
+    const brokenImport: ActiveImportJob = {
+      ...runningImport,
+      jobId: 'imp-broken',
+      status: 'broken',
+      runningGroups: 0,
+      pendingGroups: 0,
+      errorMessage: 'Server was restarted',
+    }
+    const onDismissWithCleanup = vi.fn().mockResolvedValue(undefined)
+    const user = userEvent.setup()
+    renderWithProviders(
+      <ActivityDock
+        {...baseProps}
+        jobs={[brokenImport]}
+        onDismissWithCleanup={onDismissWithCleanup}
+      />,
+    )
+    await user.click(screen.getByText('Activity'))
+    const card = screen.getByTestId('import-job-card')
+    await user.hover(card)
+    const dismissBtn = screen.getByTitle('Dismiss')
+    expect(dismissBtn).toBeInTheDocument()
+  })
 })
