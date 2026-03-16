@@ -235,9 +235,11 @@ def process_single_image(
                 "error": prepared.get("error", "Preparation failed"),
             }
 
-        # CLIP embedding (single image)
+        # CLIP embedding (single image) — use the prepared thumbnail/frame
+        # path rather than the raw original, matching batch processing logic.
         stage = "embedding"
-        embedding = generate_clip_embedding(image_path)
+        clip_path = prepared.get("clip_source_path") or image_path
+        embedding = generate_clip_embedding(clip_path)
 
         # Save to database
         stage = "db_save"
