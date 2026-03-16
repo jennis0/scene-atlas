@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { jobApi } from '@/lib/api'
+import { isNotFoundError } from '@/lib/getErrorMessage'
 import type { BackgroundJob } from '@/types'
 
 const DEFAULT_INTERVAL_MS = 2_000
@@ -74,8 +75,12 @@ export function useJobPolling(options?: UseJobPollingOptions): UseJobPollingResu
         if (data.status === 'completed' || data.status === 'failed') {
           return
         }
-      } catch {
-        // Ignore transient errors
+      } catch (err: unknown) {
+        if (isNotFoundError(err)) {
+          reset()
+          return
+        }
+        // Transient error — continue polling
       }
       if (active) {
         timer = window.setTimeout(poll, intervalMs)
