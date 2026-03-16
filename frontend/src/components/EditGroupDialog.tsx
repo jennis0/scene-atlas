@@ -675,11 +675,11 @@ export default function EditGroupDialog({
                       } else if (isAllTab) {
                         setGroups((prev) => prev.map((g) => ({ ...g, author: val })))
                       } else {
-                        updateGroup(activeTab, { author: val })
+                        updateGroup(activeGroupId, { author: val })
                       }
                     }}
                     onGroupNameChange={(val) =>
-                      !showsMultipleGroups && updateGroup(activeTab, { group_name: val })
+                      !showsMultipleGroups && updateGroup(activeGroupId, { group_name: val })
                     }
                     onBlur={() => {
                       if (isMultiSelect) {

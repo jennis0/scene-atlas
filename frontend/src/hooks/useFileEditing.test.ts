@@ -40,7 +40,7 @@ function makeGroup(overrides: Partial<EditableGroupState> = {}): EditableGroupSt
 // ── CRUD ──────────────────────────────────────────────────────────────────────
 
 describe('useFileEditing — CRUD', () => {
-  it('updateGroup updates group at index', () => {
+  it('updateGroup updates group by ID', () => {
     const { result } = renderHook(() => useFileEditing())
 
     act(() => {
@@ -48,7 +48,7 @@ describe('useFileEditing — CRUD', () => {
     })
 
     act(() => {
-      result.current.updateGroup(0, { author: 'Updated Author' })
+      result.current.updateGroup('group-1', { author: 'Updated Author' })
     })
 
     expect(result.current.groups[0].author).toBe('Updated Author')

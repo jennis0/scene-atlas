@@ -50,7 +50,7 @@ export interface UseImportStateReturn {
     allSameAuthor: string
   }
   editing: {
-    updateGroup: (index: number, updates: Partial<EditableGroupState>) => void
+    updateGroup: (groupId: string, updates: Partial<EditableGroupState>) => void
     updateFile: (
       groupIndex: number,
       relativePath: string,
@@ -411,31 +411,31 @@ export function useImportState(
     if (!jobId) return
     setState('processing')
     const toSubmit: {
-      i: number
+      groupId: string
       author: string
       group_name: string
       files: ImportConfirmFile[]
     }[] = []
-    groups.forEach((group, i) => {
+    groups.forEach((group) => {
       if (group.status !== 'pending' || group.skip) return
       const confirmFiles = buildConfirmFiles(group)
       if (confirmFiles.length === 0) {
-        updateGroup(i, { status: 'completed', processed: 0 })
+        updateGroup(group.id, { status: 'completed', processed: 0 })
         return
       }
-      toSubmit.push({ i, author: group.author, group_name: group.group_name, files: confirmFiles })
+      toSubmit.push({ groupId: group.id, author: group.author, group_name: group.group_name, files: confirmFiles })
     })
     if (toSubmit.length === 0) return
-    toSubmit.forEach(({ i }) => updateGroup(i, { status: 'running' }))
+    toSubmit.forEach(({ groupId }) => updateGroup(groupId, { status: 'running' }))
     const doConfirm = async () => {
       const response = await importApi.confirmAll(
         jobId,
         toSubmit.map(({ author, group_name, files }) => ({ author, group_name, files })),
       )
-      for (const { i, group_name } of toSubmit) {
+      for (const { groupId, group_name } of toSubmit) {
         const matchedGroup = response.groups.find((gs) => gs.group_name === group_name)
         if (matchedGroup?.group_job_id) {
-          updateGroup(i, { group_job_id: matchedGroup.group_job_id })
+          updateGroup(groupId, { group_job_id: matchedGroup.group_job_id })
         }
       }
       setTimeout(saveNow, 100)
@@ -465,7 +465,7 @@ export function useImportState(
         } catch {
           // Best effort
         }
-        toSubmit.forEach(({ i }) => updateGroup(i, { status: 'failed' }))
+        toSubmit.forEach(({ groupId }) => updateGroup(groupId, { status: 'failed' }))
         setState('done')
       }
     }

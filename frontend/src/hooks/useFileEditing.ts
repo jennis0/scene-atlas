@@ -30,7 +30,7 @@ export interface UseFileEditingReturn {
   setAuthorSuggestions: React.Dispatch<React.SetStateAction<string[]>>
 
   // CRUD
-  updateGroup: (index: number, updates: Partial<EditableGroupState>) => void
+  updateGroup: (groupId: string, updates: Partial<EditableGroupState>) => void
   updateFile: (
     groupIndex: number,
     relativePath: string,
@@ -135,8 +135,8 @@ export function useFileEditing({
 
   // ── CRUD ──────────────────────────────────────────────────────────
 
-  const updateGroup = (index: number, updates: Partial<EditableGroupState>) => {
-    setGroups((prev) => prev.map((g, i) => (i === index ? { ...g, ...updates } : g)))
+  const updateGroup = (groupId: string, updates: Partial<EditableGroupState>) => {
+    setGroups((prev) => prev.map((g) => (g.id === groupId ? { ...g, ...updates } : g)))
   }
 
   const updateFile = (
