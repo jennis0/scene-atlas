@@ -320,6 +320,12 @@ def set_active_model(
             "Cancel or wait for them to finish first.",
         )
 
+    # Guard: reject if a model activation job is already running
+    runner = get_job_runner()
+    existing_job_id = runner.get_active_job_id(f"Activate model: {model_name}")
+    if existing_job_id is not None:
+        return ActiveModelResponse(status="already_downloading", job_id=existing_job_id)
+
     # Pre-flight: check disk space before downloading
     if not is_model_downloaded(model_name):
         ok, needed_mb, available_mb = check_disk_space(model_name)
@@ -337,7 +343,6 @@ def set_active_model(
     db.commit()
 
     already_downloaded = is_model_downloaded(model_name)
-    runner = get_job_runner()
     job_id = runner.submit(
         _download_and_activate,
         model_name,

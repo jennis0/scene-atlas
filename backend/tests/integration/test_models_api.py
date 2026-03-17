@@ -178,6 +178,7 @@ class TestSetActiveModel:
         )
         mock_runner = MagicMock()
         mock_runner.submit.return_value = "activate-job-id"
+        mock_runner.get_active_job_id.return_value = None
         monkeypatch.setattr("backend.app.api.models.get_job_runner", lambda: mock_runner)
 
         resp = test_client.post(

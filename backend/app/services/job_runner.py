@@ -192,6 +192,14 @@ class JobRunner:
                 for rec in self._jobs.values()
             )
 
+    def get_active_job_id(self, name: str) -> str | None:
+        """Return the job ID of a queued/running job with the given name, or None."""
+        with self._lock:
+            for rec in self._jobs.values():
+                if rec.name == name and rec.status in ("queued", "running"):
+                    return rec.id
+            return None
+
     def run_sync(self, fn: Callable, *args: Any, timeout: float = 120, **kwargs: Any) -> Any:
         """Run a function in the thread pool and block until complete.
 
