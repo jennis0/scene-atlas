@@ -1,0 +1,15 @@
+services:
+  scene-atlas:
+    build:
+      context: .
+      args:
+        EXTRA: gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - INFERENCE_DEVICE=cuda

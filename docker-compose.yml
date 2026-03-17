@@ -1,0 +1,18 @@
+services:
+  scene-atlas:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - scene-atlas-data:/app/data
+      - scene-atlas-images:/app/images
+    environment:
+      - APP_DATA_DIR=/app/data
+      - IMAGE_LIBRARY_DIR=/app/images
+      - APP_MODE=server
+      - CORS_ORIGINS=["http://localhost:8000"]
+    restart: unless-stopped
+
+volumes:
+  scene-atlas-data:
+  scene-atlas-images:

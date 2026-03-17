@@ -7,10 +7,12 @@ import sys
 import threading
 import traceback
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -342,14 +344,31 @@ app.include_router(system.router, prefix=f"{settings.api_prefix}/system", tags=[
 app.include_router(settings_api.router, prefix=f"{settings.api_prefix}/settings", tags=["settings"])
 app.include_router(models_api.router, prefix=f"{settings.api_prefix}/models", tags=["models"])
 
+# ── SPA static file serving ─────────────────────────────────────────────────
+# When a built frontend exists (Docker / production), serve it from the backend.
+# The frontend build outputs to frontend/dist/ relative to the project root.
+# Must be mounted AFTER API routers so /api/v1/* routes take precedence.
+_FRONTEND_DIR = Path(__file__).parent.parent.parent / "frontend" / "dist"
+_spa_enabled = _FRONTEND_DIR.is_dir() and (_FRONTEND_DIR / "index.html").exists()
+
+if _spa_enabled:
+    logger.info("Serving frontend SPA from %s", _FRONTEND_DIR)
+    # Serve static assets (JS, CSS, images) under /assets/
+    app.mount("/assets", StaticFiles(directory=_FRONTEND_DIR / "assets"), name="frontend-assets")
+
 
 @app.get("/")
 async def root(request: Request):
     """Root endpoint.
 
-    In server mode, returns an HTML status page when the client requests
-    text/html (e.g. a browser).  Otherwise returns the existing JSON response.
+    When a built frontend is available, serves the SPA index.html for
+    browser requests.  In server mode without a frontend build, returns
+    an HTML status page.  Otherwise returns a JSON health summary.
     """
+    if _spa_enabled:
+        accept = request.headers.get("accept", "")
+        if "text/html" in accept:
+            return FileResponse(_FRONTEND_DIR / "index.html", media_type="text/html")
     accept = request.headers.get("accept", "")
     if settings.app_mode == "server" and "text/html" in accept:
         return await _server_status_page(request)
@@ -518,6 +537,23 @@ async def health(request: Request):
     checks["job_runner"] = get_job_runner().status
 
     return {"status": overall, "mode": settings.app_mode, "checks": checks}
+
+
+# ── SPA catch-all route ─────────────────────────────────────────────────────
+# Must be registered LAST so it doesn't shadow API routes or /health.
+# Serves index.html for any path not matched by an API endpoint, enabling
+# client-side routing (e.g. /gallery, /import).
+if _spa_enabled:
+
+    @app.get("/{full_path:path}")
+    async def spa_catch_all(request: Request, full_path: str):
+        """Serve the SPA index.html for client-side routes."""
+        # Let static files (favicon, manifest, etc.) in the frontend dist root
+        # be served directly if they exist.
+        candidate = _FRONTEND_DIR / full_path
+        if candidate.is_file() and ".." not in full_path:
+            return FileResponse(candidate)
+        return FileResponse(_FRONTEND_DIR / "index.html", media_type="text/html")
 
 
 if __name__ == "__main__":
