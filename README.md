@@ -68,6 +68,29 @@ uv sync --extra dev --extra gpu-dev        # CUDA + dev tools + torch
 
 A bare `uv sync` does **not** install onnxruntime — the app will fail at startup with a clear error.
 
+### Docker
+
+The simplest way to deploy Scene Atlas as a server:
+
+```bash
+# CPU (default)
+docker compose up -d
+
+# With NVIDIA GPU
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+```
+
+Data is stored in Docker volumes by default. To use a host directory for your images:
+
+```bash
+# Mount a local directory for the image library
+docker compose run -v /path/to/your/images:/app/images scene-atlas
+```
+
+Or edit `docker-compose.yml` to replace the named volume with a bind mount.
+
+The container exposes port 8000 and serves both the API and the frontend UI.
+
 ---
 
 ## Development
