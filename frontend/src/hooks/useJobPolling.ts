@@ -92,7 +92,7 @@ export function useJobPolling(options?: UseJobPollingOptions): UseJobPollingResu
       active = false
       clearTimeout(timer)
     }
-  }, [jobId, intervalMs])
+  }, [jobId, intervalMs, reset])
 
   const status = jobState?.status ?? null
   const isRunning = status === 'queued' || status === 'running'
