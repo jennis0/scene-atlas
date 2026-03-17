@@ -17,6 +17,8 @@ export function useEmbeddingStatus(): UseEmbeddingStatusReturn {
   const [error, setError] = useState<string | undefined>(undefined)
 
   useEffect(() => {
+    if (status !== 'loading') return
+
     let cancelled = false
 
     const check = async () => {
@@ -34,10 +36,7 @@ export function useEmbeddingStatus(): UseEmbeddingStatusReturn {
     // Initial check immediately
     check()
 
-    const interval = setInterval(() => {
-      if (status !== 'loading') return
-      check()
-    }, 3000)
+    const interval = setInterval(check, 3000)
 
     return () => {
       cancelled = true
