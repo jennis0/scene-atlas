@@ -164,7 +164,7 @@ class TestPrepareUsesOriginalFilename:
 
         assert result["status"] == "success"
         assert result["image_data"]["filename"] == original_filename
-        assert result["qdrant_metadata"]["filename"] == original_filename
+        assert result["vector_metadata"]["filename"] == original_filename
 
     def test_filename_falls_back_to_path_name_without_relative_path(self, tmp_path):
         """Without relative_path in metadata, filename should come from the

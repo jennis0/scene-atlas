@@ -57,7 +57,7 @@ OOM crashes occur when this is set too high. Dynamic default:
 ```python
 cpu = os.cpu_count() or 2
 ram_gb = psutil.virtual_memory().total / 1024**3
-# Reserve ~2 GB: CLIP ~300 MB, Qdrant, Python/uvicorn overhead.
+# Reserve ~2 GB: CLIP ~300 MB, LanceDB, Python/uvicorn overhead.
 # ~500 MB per prepare worker for large image decode + thumbnails.
 available_gb = max(0.5, ram_gb - 2.0)
 ram_cap = max(1, int(available_gb / 0.5))

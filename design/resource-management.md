@@ -16,7 +16,7 @@ The system uses three concurrency controls (admission semaphore, prepare pool, j
 ### Default Computation Formula
 
 ```
-available_gb = max(0.5, total_ram_gb - 2.0)     # reserve ~2 GB for CLIP, Qdrant, Python
+available_gb = max(0.5, total_ram_gb - 2.0)     # reserve ~2 GB for CLIP, LanceDB, Python
 ram_cap      = max(1, int(available_gb / 0.5))   # ~500 MB per prepare worker
 
 max_job_workers              = max(1, min(4, cpu // 2))

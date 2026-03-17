@@ -48,7 +48,7 @@ def is_model_downloaded(name: str) -> bool:
 
 
 def get_collection_name(name: str) -> str:
-    """Return the Qdrant collection name for a model.
+    """Return the LanceDB table name for a model.
 
     Currently uses the plain model name.  A future version may incorporate the
     HF commit SHA so that re-downloading an updated model produces a distinct

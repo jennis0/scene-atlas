@@ -23,7 +23,7 @@ Scene Atlas is a tool for viewing and searching large collections of tabletop RP
 | Image search (text + semantic) | `backend/app/api/search.py`, `frontend/src/hooks/useGallerySearch.ts` | FTS5 + CLIP with RRF ranking |
 | FTS phrase matching | `backend/app/services/fts_service.py` | Quoted phrases (`"forest shrine"`) use FTS5 native adjacent-word matching; excluded from alias expansion |
 | Grouped search endpoint | `backend/app/api/search.py` (`/groups`), `frontend/src/hooks/useGroupSearch.ts` | Dedicated endpoint with hero+mosaic, infinite scroll |
-| Import pipeline | `backend/pipeline/ingestion.py`, `frontend/src/hooks/useImportState.ts` | Batched: prepare → CLIP → DB → Qdrant |
+| Import pipeline | `backend/pipeline/ingestion.py`, `frontend/src/hooks/useImportState.ts` | Batched: prepare → CLIP → DB → LanceDB |
 | Group detection | `backend/app/services/image_parser.py` | Two-pass: folder-based + prefix-based |
 | Grid detection | `backend/app/services/grid_detector.py` | Automated for battlemaps |
 | Tag system | `backend/app/api/tags.py`, `frontend/src/components/TagManagementDialog.tsx` | Categories with aliases, custom colors/icons |
@@ -64,7 +64,7 @@ Scene Atlas is a tool for viewing and searching large collections of tabletop RP
 | E2E test expansion (~31 remaining tests) | [e2e-todo.md](e2e-todo.md) | P1-P3 |
 | Code quality improvements (11 items) | [technical-debt.md](technical-debt.md) | Medium |
 | Filename in analyse-step error responses | — | Low |
-| Real Qdrant in integration tests | — | Low |
+| Real LanceDB in integration tests | — | Low |
 | Tailwind CSS 3 → 4 (requires tailwind-merge v2→v3) | — | Low |
 | ESLint 8 → 10 (flat config migration) | — | Low |
 | React 18 → 19 (blocked by @dnd-kit compatibility) | — | Low |
@@ -77,17 +77,17 @@ Scene Atlas is a tool for viewing and searching large collections of tabletop RP
 
 ## Architecture Quick Reference
 
-- **Backend**: FastAPI + SQLite + Qdrant (embedded) + ONNX Runtime (CLIP / SigLIP2)
+- **Backend**: FastAPI + SQLite + LanceDB (disk-backed) + ONNX Runtime (CLIP / SigLIP2)
 - **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS + Radix UI + React Query
 - **Desktop**: Electron with PyInstaller sidecar
-- **Pipeline**: Batched ingestion (prepare → CLIP → DB → Qdrant) via in-process JobRunner
+- **Pipeline**: Batched ingestion (prepare → CLIP → DB → LanceDB) via in-process JobRunner
 - **Search**: Dual endpoints — flat `/search` and grouped `/search/groups` with RRF ranking; hybrid FTS5 + semantic + alias expansion
 - **State machine**: 7 import states (uploading → staging → active → completed/failed/cancelled/expired/broken). No confirmation step — groups auto-confirm.
 
 For detailed architecture, see:
 - [backend.md](backend.md) — API endpoints, services, config
 - [frontend.md](frontend.md) — Components, hooks, patterns
-- [storage.md](storage.md) — Database schema, Qdrant, file storage
+- [storage.md](storage.md) — Database schema, LanceDB, file storage
 - [ingestion.md](ingestion.md) — Pipeline architecture
 - [search.md](search.md) — Search architecture (FTS5, semantic, RRF, phrase matching, multi-model)
 - [gpu-acceleration.md](gpu-acceleration.md) — GPU provider chain, DirectML maintenance notes
@@ -103,4 +103,4 @@ For detailed architecture, see:
 4. CLIP model loaded in background — doesn't block startup; if no model has been downloaded yet the service enters an error state and the frontend blocks with a setup screen until a model is selected and downloaded
 5. Per-image error isolation — one bad image doesn't fail the batch
 6. All state changes go through `transition_job_status()` for consistency
-7. Switching embedding models creates a new Qdrant collection — run `rebuild_all_embeddings()` after model changes
+7. Switching embedding models creates a new LanceDB table — run `rebuild_all_embeddings()` after model changes

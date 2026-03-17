@@ -15,7 +15,7 @@ def safe_delete_image(db: Session, image: Image) -> None:
 
     Handles:
     - Ref counting: checks if other Image records share the same storage_key
-    - Qdrant cleanup: always deletes the per-image embedding point
+    - LanceDB cleanup: always deletes the per-image embedding point
     - Thumbnail cleanup: deletes ALL thumbnail sizes, not just medium
     - DB cascade: tags + colors are deleted via cascade
 
@@ -24,7 +24,7 @@ def safe_delete_image(db: Session, image: Image) -> None:
         image: The Image record to delete
     """
     from . import get_image_store, get_thumbnail_store
-    from .qdrant_service import get_qdrant_service
+    from .lancedb_service import get_lancedb_service
 
     storage_key = image.storage_key
     thumbnail_key = image.thumbnail_key
@@ -38,11 +38,11 @@ def safe_delete_image(db: Session, image: Image) -> None:
     # closing the race window that existed when counting before deletion.
     ref_count = db.query(Image).filter(Image.storage_key == storage_key).count()
 
-    # Always delete the per-image Qdrant point
+    # Always delete the per-image LanceDB point
     try:
-        get_qdrant_service().delete_image_embedding(image_id)
+        get_lancedb_service().delete_image_embedding(image_id)
     except Exception as e:
-        logger.warning("Failed to delete Qdrant embedding for image %s: %s", image_id, e)
+        logger.warning("Failed to delete LanceDB embedding for image %s: %s", image_id, e)
 
     # Only delete physical files if this was the last reference
     if ref_count == 0:
@@ -75,7 +75,7 @@ def cleanup_import_images(job_id: str, db: Session) -> int:
     Returns the count of Image rows deleted.
     """
     from . import get_image_store, get_thumbnail_store
-    from .qdrant_service import get_qdrant_service
+    from .lancedb_service import get_lancedb_service
 
     images = db.query(Image).filter(Image.import_job_id == job_id).all()
     if not images:
@@ -83,7 +83,7 @@ def cleanup_import_images(job_id: str, db: Session) -> int:
 
     image_store = get_image_store()
     thumbnail_store = get_thumbnail_store()
-    qdrant = get_qdrant_service()
+    svc = get_lancedb_service()
     deleted_count = 0
     image_ids_to_delete = []
     group_ids_to_check: set[int] = set()
@@ -112,9 +112,9 @@ def cleanup_import_images(job_id: str, db: Session) -> int:
 
     if image_ids_to_delete:
         try:
-            qdrant.delete_embeddings(image_ids_to_delete)
+            svc.delete_embeddings(image_ids_to_delete)
         except Exception:
-            logger.warning("Qdrant cleanup failed for job %s (non-fatal)", job_id, exc_info=True)
+            logger.warning("LanceDB cleanup failed for job %s (non-fatal)", job_id, exc_info=True)
 
     db.flush()
 

@@ -46,8 +46,8 @@ class TestFileErrorBackwardCompat:
         original = FileError(
             filename="img.png",
             relative_path="a/b/img.png",
-            reason="Qdrant failure",
-            stage="qdrant_save",
+            reason="Vector DB failure",
+            stage="vector_save",
             severity="warning",
         )
         json_str = original.model_dump_json()

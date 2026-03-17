@@ -39,18 +39,18 @@ class Settings(BaseSettings):
         Path(__file__).parent.parent.parent / "data" / "store" / "thumbnails"
     )
     staging_dir: Path = Path(__file__).parent.parent.parent / "data" / "staging"
-    qdrant_path: Path = Path(__file__).parent.parent.parent / "data" / "qdrant_local"
+    vector_db_path: Path = Path(__file__).parent.parent.parent / "data" / "lancedb"
     config_dir: Path = Path(__file__).parent.parent.parent / "data" / "config"
     store_images_dir: Path = Path(__file__).parent.parent.parent / "images"
     backups_dir: Path = Path(__file__).parent.parent.parent / "images" / "backups"
 
-    # Qdrant
-    qdrant_vector_size: int = 512
+    # Vector DB
+    vector_size: int = 512
     embedding_model: str = "clip-vit-b-32"
     inference_device: str = "auto"
 
     @property
-    def qdrant_collection_name(self) -> str:
+    def vector_collection_name(self) -> str:
         return f"embeddings_{self.embedding_model}"
 
     # database_url is computed from app_data_dir in __init__.
@@ -103,7 +103,7 @@ class Settings(BaseSettings):
         # literal Path(__file__) chains and will NOT reflect overridden root values.
         self.store_thumbnails_dir = self.app_data_dir / "store" / "thumbnails"
         self.staging_dir = self.app_data_dir / "staging"
-        self.qdrant_path = self.app_data_dir / "qdrant_local"
+        self.vector_db_path = self.app_data_dir / "lancedb"
         self.config_dir = self.app_data_dir / "config"
         self.store_images_dir = self.image_library_dir
         self.backups_dir = self.image_library_dir / "backups"
@@ -126,7 +126,7 @@ class Settings(BaseSettings):
         self.store_thumbnails_dir.mkdir(parents=True, exist_ok=True)
         self.staging_dir.mkdir(parents=True, exist_ok=True)
         self.config_dir.mkdir(parents=True, exist_ok=True)
-        self.qdrant_path.mkdir(parents=True, exist_ok=True)
+        self.vector_db_path.mkdir(parents=True, exist_ok=True)
 
 
 # Global settings instance

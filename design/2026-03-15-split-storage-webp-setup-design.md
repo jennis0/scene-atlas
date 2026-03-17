@@ -23,7 +23,7 @@ Replace the single `DATA_DIR` / `data_dir` with two independent roots. The `Sett
 
 | Env var | Default | Purpose |
 |---------|---------|---------|
-| `APP_DATA_DIR` | `{base_dir}/data` | Fast-access files (DB, Qdrant, thumbnails, staging, logs) |
+| `APP_DATA_DIR` | `{base_dir}/data` | Fast-access files (DB, LanceDB, thumbnails, staging, logs) |
 | `IMAGE_LIBRARY_DIR` | `{base_dir}/images` | Cold-storage files (originals, backups) |
 | `DATA_DIR` | *(removed)* | No longer used |
 
@@ -32,12 +32,12 @@ Replace the single `DATA_DIR` / `data_dir` with two independent roots. The `Sett
 | Path | Root | Notes |
 |------|------|-------|
 | `battlemap.db` | `APP_DATA_DIR` | — |
-| `qdrant_local/` | `APP_DATA_DIR` | — |
+| `lancedb/` | `APP_DATA_DIR` | — |
 | `store/thumbnails/` | `APP_DATA_DIR` | — |
 | `staging/` | `APP_DATA_DIR` | — |
 | `config/` | `APP_DATA_DIR` | Moved from `base_dir/config` |
 | *(images)* | `IMAGE_LIBRARY_DIR` | Hash-sharded directly under the root — no `store/images/` nesting |
-| `backups/` | `IMAGE_LIBRARY_DIR` | Large SQLite + Qdrant snapshots belong on cold storage |
+| `backups/` | `IMAGE_LIBRARY_DIR` | Large SQLite + LanceDB snapshots belong on cold storage |
 
 The image store flattens: `{IMAGE_LIBRARY_DIR}/a1/b2/a1b2c3d4e5f6.jpg` instead of `{DATA_DIR}/store/images/a1/b2/…`.
 
@@ -49,7 +49,7 @@ data_dir: Path
 store_images_dir: Path
 store_thumbnails_dir: Path
 staging_dir: Path
-qdrant_path: Path
+vector_db_path: Path
 database_url: str  # (now a computed property)
 
 # Add
@@ -59,7 +59,7 @@ image_library_dir: Path = base_dir / "images"
 # Computed from app_data_dir
 store_thumbnails_dir: Path  # = app_data_dir / "store" / "thumbnails"
 staging_dir: Path           # = app_data_dir / "staging"
-qdrant_path: Path           # = app_data_dir / "qdrant_local"
+vector_db_path: Path        # = app_data_dir / "lancedb"
 config_dir: Path            # = app_data_dir / "config"
 
 # Computed from image_library_dir
@@ -77,7 +77,7 @@ The `__init__` override pattern is preserved: if `app_data_dir` or `image_librar
 
 On startup, if either configured root directory does not exist, the backend **logs a clear error and raises** rather than silently creating an unexpected directory tree. The Electron main process surfaces this as a user-visible error dialog (see Section 3).
 
-Directory creation still runs for expected **subdirectories** within configured roots (thumbnails, staging, qdrant_local, config) — but not for the roots themselves. The roots are created by Electron's `setup:complete` handler (new installs) or are pre-existing (existing installs and server mode). In server mode, operators are expected to create and configure the roots before starting the backend.
+Directory creation still runs for expected **subdirectories** within configured roots (thumbnails, staging, lancedb, config) — but not for the roots themselves. The roots are created by Electron's `setup:complete` handler (new installs) or are pre-existing (existing installs and server mode). In server mode, operators are expected to create and configure the roots before starting the backend.
 
 ---
 

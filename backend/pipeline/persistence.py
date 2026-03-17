@@ -1,12 +1,12 @@
-"""Database and Qdrant persistence operations.
+"""Database and LanceDB persistence operations.
 
 Handles saving prepared image data to SQLite and semantic search index.
 
 Functions:
     batch_save_to_database         — Save multiple images in one transaction
     save_to_database               — Save single image to database
-    batch_save_to_qdrant           — Save multiple embeddings to Qdrant
-    save_to_qdrant                 — Save single embedding to Qdrant
+    batch_save_to_vector_db        — Save multiple embeddings to LanceDB
+    save_to_vector_db              — Save single embedding to LanceDB
     update_import_group_job_progress  — Update job progress and error tracking
     _save_image_to_db              — Internal: save one image with tags/colors
 """
@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from sqlalchemy.orm import Session
 
 from backend.app.models import Color, Image, ImageGroup, ImportGroupJob, Tag
-from backend.app.services import get_qdrant_service
+from backend.app.services import get_lancedb_service
 from backend.app.services.image_parser import build_search_text
 
 from .db import pipeline_db
@@ -128,20 +128,20 @@ def save_to_database(image_data: dict) -> int:
         raise
 
 
-def save_to_qdrant(image_id: int, embedding: list[float], metadata: dict) -> bool:
-    """Save embedding to Qdrant."""
+def save_to_vector_db(image_id: int, embedding: list[float], metadata: dict) -> bool:
+    """Save embedding to LanceDB."""
     logger = logging.getLogger(__name__)
     try:
-        success = get_qdrant_service().add_image_embedding(
+        success = get_lancedb_service().add_image_embedding(
             image_id=image_id,
             embedding=embedding,
             metadata=metadata,
         )
         if success:
-            logger.info("Saved embedding to Qdrant for image_id=%s", image_id)
+            logger.info("Saved embedding to LanceDB for image_id=%s", image_id)
         return success
     except Exception as e:
-        logger.error("Error saving to Qdrant: %s", e)
+        logger.error("Error saving to LanceDB: %s", e)
         raise
 
 
@@ -190,10 +190,10 @@ def batch_save_to_database(image_data_list: list[dict]) -> list[int]:
         raise
 
 
-def batch_save_to_qdrant(items: list[dict]) -> bool:
-    """Save multiple embeddings to Qdrant in one call.
+def batch_save_to_vector_db(items: list[dict]) -> bool:
+    """Save multiple embeddings to LanceDB in one call.
 
-    Qdrant is the semantic search index, not the source of truth.  A failure
+    LanceDB is the semantic search index, not the source of truth.  A failure
     here is non-fatal: images are already safely committed to SQLite and remain
     searchable via FTS/filters.  We log a warning and return False rather than
     raising so the ingestion pipeline does not roll back committed DB records.
@@ -206,13 +206,13 @@ def batch_save_to_qdrant(items: list[dict]) -> bool:
     """
     logger = logging.getLogger(__name__)
     try:
-        success = get_qdrant_service().batch_add_embeddings(items)
+        success = get_lancedb_service().batch_add_embeddings(items)
         if success:
-            logger.info("Batch saved %s embeddings to Qdrant", len(items))
+            logger.info("Batch saved %s embeddings to LanceDB", len(items))
         return success
     except Exception as e:
         logger.warning(
-            "Qdrant batch save failed (non-fatal — %s embeddings not indexed): %s", len(items), e
+            "LanceDB batch save failed (non-fatal — %s embeddings not indexed): %s", len(items), e
         )
         return False
 

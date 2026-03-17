@@ -6,7 +6,7 @@ For how to run tests, test file listings, and operational details, see [docs/tes
 
 The test suite covers the ingestion pipeline end-to-end: parsing, pipeline functions, API endpoints, and the critical metadata round-trip that ensures user edits survive to the database.
 
-**No infrastructure required.** All tests run without external services. Qdrant's `QdrantClient` is mocked at import time to prevent creating local DB files during tests.
+**No infrastructure required.** All tests run without external services. LanceDB is mocked at import time to prevent creating local DB files during tests.
 
 ## CI/CD Tiered Strategy
 
@@ -55,7 +55,7 @@ Each test gets a fresh SQLite DB via `tmp_db` fixture. The `test_client` fixture
 
 Use the `mock_heavy_services` fixture for any test that calls pipeline functions. It mocks:
 - `generate_clip_embedding` -> dummy 512-dim vector
-- `qdrant_service.add_image_embedding` -> returns True
+- `lancedb_service.add_image_embedding` -> returns True
 - `generate_thumbnails` -> returns key dict without writing files
 - `extract_dominant_colors` -> returns two dummy colors
 
@@ -97,5 +97,5 @@ monkeypatch.setattr("backend.app.config.settings.database_url", str(engine.url))
 
 ## Known quirks
 
-- **Qdrant mocking must happen before import.** `conftest.py` patches `qdrant_client.QdrantClient` before `backend.app.services` loads, because `QdrantService.__init__()` creates an embedded local DB on disk. The lazy singleton (`get_qdrant_service()`) defers creation, but the QdrantClient class still needs to be mocked before any test triggers it.
+- **LanceDB mocking must happen before import.** `conftest.py` patches `lancedb.connect` before `backend.app.services` loads, because `LanceDBService.__init__()` creates a disk-backed database on disk. The lazy singleton (`get_lancedb_service()`) defers creation, but the lancedb module still needs to be mocked before any test triggers it.
 - **TestClient lifespan override.** The FastAPI lifespan sets `app.state.db_engine` to production. Fixtures must override it **after** `TestClient.__enter__()`, not before.

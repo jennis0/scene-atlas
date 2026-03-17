@@ -53,7 +53,7 @@ def system_info(db: Session = Depends(get_db)):
 
     images_bytes = _dir_size(settings.store_images_dir)
     thumbnails_bytes = _dir_size(settings.store_thumbnails_dir)
-    qdrant_bytes = _dir_size(settings.qdrant_path)
+    vector_db_bytes = _dir_size(settings.vector_db_path)
     db_path = settings.app_data_dir / "battlemap.db"
     db_bytes = db_path.stat().st_size if db_path.exists() else 0
     total_bytes = _dir_size(settings.app_data_dir) + _dir_size(settings.image_library_dir)
@@ -62,7 +62,7 @@ def system_info(db: Session = Depends(get_db)):
         "mode": settings.app_mode,
         "storage": {
             "images_bytes": images_bytes + thumbnails_bytes,
-            "vectors_bytes": qdrant_bytes,
+            "vectors_bytes": vector_db_bytes,
             "metadata_bytes": db_bytes,
             "total_bytes": total_bytes,
         },
@@ -92,7 +92,7 @@ def _purge_library(
     while potentially gigabytes of files are removed.
     """
     from ..models import get_session_local
-    from ..services.qdrant_service import get_qdrant_service
+    from ..services.lancedb_service import get_lancedb_service
 
     SessionLocal = get_session_local(db_engine)
     db = SessionLocal()
@@ -133,9 +133,9 @@ def _purge_library(
             settings.store_thumbnails_dir.mkdir(parents=True, exist_ok=True)
 
         _step("Resetting vector index")
-        qdrant = get_qdrant_service()
-        qdrant.delete_collection()
-        qdrant.ensure_collection()
+        svc = get_lancedb_service()
+        svc.delete_collection()
+        svc.ensure_collection()
 
         return {"message": "Library purged successfully"}
     finally:

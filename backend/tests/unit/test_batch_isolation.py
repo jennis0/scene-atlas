@@ -21,18 +21,18 @@ def _make_prepared_result(filename: str, status: str = "success") -> dict:
             "storage_key": f"key_{filename}",
             "needs_review": True,
         },
-        "qdrant_metadata": {"author": "Test"},
+        "vector_metadata": {"author": "Test"},
         "embedding": [0.1] * 512,
     }
     return result
 
 
 class TestProcessBatchDbIsolation:
-    @patch("backend.pipeline.ingestion.batch_save_to_qdrant")
+    @patch("backend.pipeline.ingestion.batch_save_to_vector_db")
     @patch("backend.pipeline.ingestion.batch_save_to_database")
     @patch("backend.pipeline.ingestion.batch_generate_clip_embeddings")
     def test_db_failure_marks_images_failed_not_raises(
-        self, mock_clip, mock_db_save, mock_qdrant_save
+        self, mock_clip, mock_db_save, mock_vector_save
     ):
         """When batch_save_to_database throws, images are marked failed but no exception propagates."""
         prepared = [_make_prepared_result("a.jpg"), _make_prepared_result("b.jpg")]
@@ -48,14 +48,14 @@ class TestProcessBatchDbIsolation:
         assert batch_failed == 2
         assert all(r["status"] == "failed" for r in results)
         assert all("db_save" in r.get("error_info", {}).get("stage", "") for r in results)
-        # Qdrant should NOT be called when DB save failed
-        mock_qdrant_save.assert_not_called()
+        # Vector save should NOT be called when DB save failed
+        mock_vector_save.assert_not_called()
 
-    @patch("backend.pipeline.ingestion.batch_save_to_qdrant")
+    @patch("backend.pipeline.ingestion.batch_save_to_vector_db")
     @patch("backend.pipeline.ingestion.batch_save_to_database")
     @patch("backend.pipeline.ingestion.batch_generate_clip_embeddings")
-    def test_db_success_proceeds_normally(self, mock_clip, mock_db_save, mock_qdrant_save):
-        """Normal path: DB save succeeds, Qdrant save is called."""
+    def test_db_success_proceeds_normally(self, mock_clip, mock_db_save, mock_vector_save):
+        """Normal path: DB save succeeds, vector save is called."""
         prepared = [_make_prepared_result("a.jpg")]
 
         mock_clip.return_value = [[0.1] * 512]
@@ -66,4 +66,4 @@ class TestProcessBatchDbIsolation:
         assert batch_failed == 0
         assert results[0]["status"] == "success"
         assert results[0].get("image_id") == 42
-        mock_qdrant_save.assert_called_once()
+        mock_vector_save.assert_called_once()

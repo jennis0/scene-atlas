@@ -11,7 +11,7 @@ How each major subsystem works.
 | File | Description |
 |------|-------------|
 | [backend.md](backend.md) | Backend API server -- FastAPI, services, configuration, endpoints |
-| [storage.md](storage.md) | Data storage -- SQLite schema, Qdrant vectors, ImageStore filesystem, backups |
+| [storage.md](storage.md) | Data storage -- SQLite schema, LanceDB vectors, ImageStore filesystem, backups |
 | [concurrency-architecture.md](concurrency-architecture.md) | Concurrency model -- resource guards, threading, async, and locking patterns |
 | [electron.md](electron.md) | Electron desktop app -- windows, IPC, sidecar lifecycle, packaging |
 
@@ -87,11 +87,11 @@ Superseded documents kept for reference.
 +-------+----------+-------------+
         |          |
   +-----v-----+ +-v----------+ +--------------+
-  |  SQLite   | |  Qdrant    | |  ImageStore  |
-  | (metadata,| | (embedded  | |  (files,     |
-  |  tags,    | |  vectors)  | |  hash-shard) |
-  |  FTS5)    | +------------+ +--------------+
-  +-----------+
+  |  SQLite   | |  LanceDB   | |  ImageStore  |
+  | (metadata,| | (disk-     | |  (files,     |
+  |  tags,    | |  backed    | |  hash-shard) |
+  |  FTS5)    | |  vectors)  | +--------------+
+  +-----------+ +------------+
 ```
 
 ## Keeping These Docs Updated

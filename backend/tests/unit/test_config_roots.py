@@ -19,7 +19,7 @@ class TestConfigDefaults:
         s = Settings(app_data_dir=tmp_path / "data", image_library_dir=tmp_path / "images")
         assert s.store_thumbnails_dir == tmp_path / "data" / "store" / "thumbnails"
         assert s.staging_dir == tmp_path / "data" / "staging"
-        assert s.qdrant_path == tmp_path / "data" / "qdrant_local"
+        assert s.vector_db_path == tmp_path / "data" / "lancedb"
         assert s.config_dir == tmp_path / "data" / "config"
 
     def test_image_store_is_flat_under_image_library(self, tmp_path):
@@ -86,5 +86,5 @@ class TestStartupValidation:
         s = Settings(app_data_dir=tmp_path / "data", image_library_dir=tmp_path / "images")
         assert s.store_thumbnails_dir.exists()
         assert s.staging_dir.exists()
-        assert s.qdrant_path.exists()
+        assert s.vector_db_path.exists()
         assert s.config_dir.exists()

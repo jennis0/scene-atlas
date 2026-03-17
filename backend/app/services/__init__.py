@@ -3,7 +3,7 @@
 from .deletion_service import safe_delete_image
 from .image_parser import ImageParser
 from .image_store import ImageStore
-from .qdrant_service import QdrantService, get_qdrant_service
+from .lancedb_service import LanceDBService, get_lancedb_service
 
 # Lazy-initialized image stores (initialized after settings are loaded)
 _image_store = None
@@ -47,7 +47,7 @@ __all__ = [
     "ImageStore",
     "get_image_store",
     "get_thumbnail_store",
-    "QdrantService",
-    "get_qdrant_service",
+    "LanceDBService",
+    "get_lancedb_service",
     "safe_delete_image",
 ]

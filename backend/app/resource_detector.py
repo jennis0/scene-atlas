@@ -22,7 +22,7 @@ def compute_resource_defaults() -> dict[str, int]:
     cpu = os.cpu_count() or 2
     ram_gb = _psutil.virtual_memory().total / 1024**3 if _psutil else _FALLBACK_RAM_GB
 
-    # Reserve ~2 GB: CLIP ONNX ~300 MB, Qdrant, Python/uvicorn overhead.
+    # Reserve ~2 GB: CLIP ONNX ~300 MB, LanceDB, Python/uvicorn overhead.
     # ~500 MB per prepare worker for large image decode + thumbnails.
     available_gb = max(0.5, ram_gb - 2.0)
     ram_cap = max(1, int(available_gb / 0.5))

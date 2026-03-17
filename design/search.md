@@ -45,7 +45,7 @@ Frontend (GalleryHeader.tsx)
     │
     ├── [unless text_only]
     │   ├── clip_service.encode_text(query)
-    │   └── qdrant_service.search_similar(embedding)
+    │   └── lancedb_service.search_similar(embedding)
     │
     ├── Reciprocal Rank Fusion
     │   └── Merge text + alias + semantic ranked lists
@@ -153,10 +153,10 @@ Each model directory (whether in APP_DATA_DIR or backend/models/) contains:
 ### Model Configuration Flow
 
 At startup (`main.py`), the manifest is read to derive:
-1. `qdrant_vector_size` — set from `manifest.embedding_dim`
-2. `qdrant_collection_name` — scoped to model: `embeddings_{model_name}` (e.g. `embeddings_small`)
+1. `vector_size` — set from `manifest.embedding_dim`
+2. `vector_collection_name` — scoped to model: `embeddings_{model_name}` (e.g. `embeddings_small`)
 
-Switching models creates a new Qdrant collection — the old collection is preserved (not deleted). Run `rebuild_all_embeddings(force=True)` after switching to populate the new collection. The `POST /api/v1/models/active` endpoint handles the full switch sequence automatically.
+Switching models creates a new LanceDB table — the old table is preserved (not deleted). Run `rebuild_all_embeddings(force=True)` after switching to populate the new table. The `POST /api/v1/models/active` endpoint handles the full switch sequence automatically.
 
 ### Inference
 
@@ -164,47 +164,47 @@ ONNX Runtime with automatic provider selection: CUDA → DirectML → CoreML →
 
 ### Vector Database
 
-Qdrant runs **in-process** (embedded mode, no Docker). Thread-safe: writes serialised via `RLock`, reads lock-free.
+LanceDB runs **in-process** (disk-backed, memory-mapped, no Docker). Thread-safe: writes serialised via `RLock`, reads lock-free.
 
-- **Collection:** `embeddings_{EMBEDDING_MODEL}` (model-scoped)
-- **Distance metric:** Cosine similarity
+- **Table:** `embeddings_{EMBEDDING_MODEL}` (model-scoped)
+- **Distance metric:** Cosine distance (service converts to similarity by subtracting from 1.0)
 - **Score threshold:** model-dependent (configured per model in the model registry via `get_semantic_threshold()`)
 - **Candidate pool:** Image search: text candidates = limit×10, semantic candidates = limit×3. Group search: max(limit×20, 1000) for all candidate types.
 
 ### Query Flow
 
 1. `clip_service.encode_text(query)` → N-dim normalised vector (depends on active model; see model table above)
-2. `qdrant_service.search_similar(embedding, limit, threshold)` → `[{image_id, score}]`
+2. `lancedb_service.search_similar(embedding, limit, threshold)` → `[{image_id, score}]`
 
 ### Vector Population & Maintenance
 
-Qdrant is the **semantic search index, not the source of truth** — SQLite is authoritative. If Qdrant loses data, embeddings can be regenerated from images.
+LanceDB is the **semantic search index, not the source of truth** — SQLite is authoritative. If LanceDB loses data, embeddings can be regenerated from images.
 
 **Population during ingestion** (`backend/pipeline/ingestion.py`):
 1. `batch_generate_clip_embeddings(image_paths)` — CLIP encodes images in batched forward passes
-2. `batch_save_to_qdrant(items)` — upserts `{image_id, embedding, metadata}` points in a single call
-3. Each point stores payload: `image_id`, `filename`, `author`, `base_name`
+2. `batch_save_to_vector_db(items)` — upserts `{image_id, embedding, metadata}` rows in a single call
+3. Each row stores payload: `image_id`, `filename`, `author`, `base_name`
 
-**Single-image flow** (`save_to_qdrant` in `persistence.py`):
+**Single-image flow** (`save_to_vector_db` in `persistence.py`):
 - Used by `process_single_image()` for one-off additions
-- Calls `qdrant_service.add_image_embedding(image_id, embedding, metadata)`
+- Calls `lancedb_service.add_image_embedding(image_id, embedding, metadata)`
 
 **Deletion** (`backend/app/services/deletion_service.py`):
-- Single image: `qdrant_service.delete_image_embedding(image_id)`
-- Batch (failed import cleanup): `qdrant_service.delete_embeddings(image_ids)`
-- Cascade deletion removes the Qdrant point alongside SQLite row and filesystem files
+- Single image: `lancedb_service.delete_image_embedding(image_id)`
+- Batch (failed import cleanup): `lancedb_service.delete_embeddings(image_ids)`
+- Cascade deletion removes the LanceDB row alongside SQLite row and filesystem files
 
 **Desync detection** (`backend/pipeline/maintenance.py`):
-- Scheduled daily: compares `images` row count vs Qdrant `points_count`
+- Scheduled daily: compares `images` row count vs LanceDB row count
 - Logs warning if delta exceeds 10 images
 - Repair: run `write_new_embeddings` pipeline script
 
 **Full rebuild** (`backend/pipeline/write_new_embeddings.py`):
-- `rebuild_all_embeddings()` — deletes the entire Qdrant collection and regenerates all embeddings from stored images
+- `rebuild_all_embeddings()` — deletes the entire LanceDB table and regenerates all embeddings from stored images
 - Used after model changes or to repair desync
 
 **Backup:**
-- `qdrant_service.backup_storage(target_dir)` — copies the Qdrant storage directory (called by the scheduled backup task)
+- `lancedb_service.backup_storage(target_dir)` — copies the LanceDB storage directory (called by the scheduled backup task)
 
 ## Reciprocal Rank Fusion (RRF)
 
@@ -266,16 +266,16 @@ Three SQLite triggers keep `image_fts` in sync with the `images` table:
 | `backend/app/api/search.py` | Search API endpoints, RRF orchestration, filter building |
 | `backend/app/services/fts_service.py` | FTS5 query building, sanitization, alias expansion, index maintenance |
 | `backend/app/services/clip_service.py` | CLIP model loading, text/image encoding |
-| `backend/app/services/qdrant_service.py` | Qdrant embedded vector DB client |
+| `backend/app/services/lancedb_service.py` | LanceDB disk-backed vector DB client |
 | `backend/app/services/image_parser.py` | `build_search_text()`, filename/metadata parsing |
 | `backend/app/services/color_search.py` | LAB colour distance search |
 | `frontend/src/hooks/useGallerySearch.ts` | Search state management, prefix parsing |
 | `frontend/src/components/GalleryHeader.tsx` | Search input UI, mode indicator icon |
 | `frontend/src/lib/api/searchApi.ts` | API client for search endpoints |
-| `backend/pipeline/ingestion.py` | Embedding generation + Qdrant population during ingest |
-| `backend/pipeline/persistence.py` | `batch_save_to_qdrant()`, `save_to_qdrant()` |
-| `backend/pipeline/write_new_embeddings.py` | Full Qdrant rebuild from stored images |
-| `backend/pipeline/maintenance.py` | Scheduled desync detection (DB vs Qdrant count) |
-| `backend/app/services/deletion_service.py` | Cascade deletion (SQLite + Qdrant + filesystem) |
+| `backend/pipeline/ingestion.py` | Embedding generation + LanceDB population during ingest |
+| `backend/pipeline/persistence.py` | `batch_save_to_vector_db()`, `save_to_vector_db()` |
+| `backend/pipeline/write_new_embeddings.py` | Full LanceDB rebuild from stored images |
+| `backend/pipeline/maintenance.py` | Scheduled desync detection (DB vs LanceDB count) |
+| `backend/app/services/deletion_service.py` | Cascade deletion (SQLite + LanceDB + filesystem) |
 | `backend/alembic/versions/001_initial_schema.py` | FTS5 table + trigger creation |
 | `backend/alembic/versions/015_search_ranking.py` | Tokenizer upgrade (diacritics) |
