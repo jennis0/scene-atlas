@@ -182,6 +182,8 @@ def get_embedding_status() -> EmbeddingStatusResponse:
         return EmbeddingStatusResponse(status="ready", error=None)
     if _clip_module._clip_error is not None:
         return EmbeddingStatusResponse(status="error", error=str(_clip_module._clip_error))
+    # No service and no error: either still loading, or no model configured yet.
+    # Both cases show "loading" to the frontend — the setup wizard handles model selection.
     return EmbeddingStatusResponse(status="loading", error=None)
 
 

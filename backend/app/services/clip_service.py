@@ -141,7 +141,7 @@ def _load_manifest(models_dir: Path) -> dict:
         _validate_manifest(manifest, str(manifest_path))
         logger.info("Loaded model manifest: %s", manifest.get("model_id", "unknown"))
         return manifest
-    logger.warning("No manifest.json in %s — using CLIP ViT-B/32 fallback defaults", models_dir)
+    logger.info("No manifest.json in %s — using CLIP ViT-B/32 fallback defaults", models_dir)
     return copy.deepcopy(_FALLBACK_MANIFEST)
 
 
@@ -606,12 +606,23 @@ def _load_clip() -> None:
             _clip_service = service
             _active_model_name = service.model_name  # Record what was actually loaded
         logger.info("Embedding model ready")
+    except FileNotFoundError:
+        # No model downloaded yet — expected on first launch.
+        # The user will select and download a model via the setup wizard,
+        # which calls reload_clip_service() after download completes.
+        with _clip_lock:
+            _clip_error = None  # Not an error — just not configured yet
+        logger.info(
+            "No embedding model found — waiting for model setup. "
+            "Semantic search will be available after a model is downloaded."
+        )
     except Exception as exc:
         with _clip_lock:
             _clip_error = exc
-        logger.exception(
-            "STARTUP ERROR: Embedding model load failed. "
-            "The app will run but search-by-description will not work until the model is available."
+        logger.error(
+            "Embedding model load failed: %s. "
+            "The app will run but semantic search will not work until the model is available.",
+            exc,
         )
     finally:
         _clip_ready.set()  # Always unblock waiters, even on failure
