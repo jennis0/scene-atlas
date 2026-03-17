@@ -8,7 +8,7 @@
 Scene Atlas ships without bundled ONNX models. On first boot the user selects an
 embedding model, which is downloaded from HuggingFace and stored in `APP_DATA_DIR/models/`.
 The active model is persisted to the database and can be changed at any time; switching
-triggers a background job that reloads both the CLIP service and the Qdrant collection,
+triggers a background job that reloads both the CLIP service and the LanceDB table,
 then re-embeds all scenes.
 
 Three model sizes are offered, each exported as a pair of ONNX files (vision + text
@@ -126,8 +126,8 @@ without going through the models API.
    background load thread.
 3. `wait_for_clip_ready()` — blocks the job thread until the new model is loaded (or
    fails). Safe to call from any thread.
-4. `reload_qdrant_service(f"embeddings_{name}")` — closes the old QdrantService (freeing
-   file handles) and replaces the singleton with one pointed at the new collection.
+4. `reload_lancedb_service(f"embeddings_{name}")` — closes the old LanceDBService (freeing
+   file handles) and replaces the singleton with one pointed at the new table.
 5. `rebuild_all_embeddings(force=True)` — re-embeds all scenes using the new model.
    `force=True` is required because the embeddings pipeline normally skips scenes that
    already have embeddings; after a model switch the existing embeddings are for the old
@@ -139,19 +139,19 @@ name. The service will be in a degraded state until the user retries via
 
 ---
 
-## Qdrant Collections
+## LanceDB Tables
 
-Each model has its own Qdrant collection named `embeddings_{model_name}` (e.g.
+Each model has its own LanceDB table named `embeddings_{model_name}` (e.g.
 `embeddings_small`, `embeddings_medium`). This means stale embeddings from a previous
 model are preserved rather than deleted on switch — the user can inspect and clean them
 up explicitly.
 
-`QdrantService.delete_collection_by_name()` refuses to delete the currently active
-collection (raises `ValueError`). The API layer enforces the same guard, returning HTTP
+`LanceDBService.delete_table_by_name()` refuses to delete the currently active
+table (raises `ValueError`). The API layer enforces the same guard, returning HTTP
 409 if the caller tries to delete embeddings for the active model. The user must switch
 to a different model first.
 
-`reload_qdrant_service(collection_name)` holds `_init_lock` during the swap to prevent
+`reload_lancedb_service(table_name)` holds `_init_lock` during the swap to prevent
 races, closes the old service to avoid file-handle leaks, then replaces the global
 singleton.
 
@@ -191,7 +191,7 @@ All endpoints are under `/api/v1/models/`.
 | `GET` | `/setup-status` | GPU detection + whether a model download is needed |
 | `POST` | `/active` | Set the active model; triggers download + re-embed job |
 | `POST` | `/{name}/download` | Download a model without activating it |
-| `GET` | `/{name}/embeddings` | Qdrant collection stats for a model's embeddings |
+| `GET` | `/{name}/embeddings` | LanceDB table stats for a model's embeddings |
 | `DELETE` | `/{name}/embeddings` | Delete stale embeddings for a non-active model |
 
 `POST /active` and `POST /{name}/download` return `{ status, job_id }`. The caller
@@ -230,15 +230,15 @@ exported by `scripts/models/export_model_onnx.py` without a full HF download.
 
 ## Stale Embeddings
 
-When the user switches from model A to model B, the `embeddings_A` Qdrant collection is
+When the user switches from model A to model B, the `embeddings_A` LanceDB table is
 left intact. This uses disk space but avoids data loss in case the user switches back.
 
-To reclaim space the user can delete stale collections via
+To reclaim space the user can delete stale tables via
 `DELETE /api/v1/models/{name}/embeddings`. The UI surfaces this alongside per-model
 embedding stats (`GET /api/v1/models/{name}/embeddings`). The guard preventing deletion
-of the active collection is enforced at both the service layer and the API layer.
+of the active table is enforced at both the service layer and the API layer.
 
-If the user switches back to model A, the existing `embeddings_A` collection will be
+If the user switches back to model A, the existing `embeddings_A` table will be
 reused and re-embed will regenerate all vectors into it (with `force=True`).
 
 ---

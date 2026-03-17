@@ -60,9 +60,9 @@ class TestClassifyIngestError:
         result = classify_ingest_error(exc, stage="db_save")
         assert result["reason"] == "Failed to save image to database"
 
-    def test_qdrant_save_stage_fallback(self):
-        exc = RuntimeError("qdrant connection refused")
-        result = classify_ingest_error(exc, stage="qdrant_save")
+    def test_vector_save_stage_fallback(self):
+        exc = RuntimeError("vector db connection refused")
+        result = classify_ingest_error(exc, stage="vector_save")
         assert result["reason"] == "Failed to save image embedding to search index"
 
     def test_generic_fallback(self):
@@ -87,7 +87,7 @@ class TestClassifyIngestError:
             "grid_detection",
             "embedding",
             "db_save",
-            "qdrant_save",
+            "vector_save",
         ]:
             result = classify_ingest_error(exc, stage=stage)
             assert result["stage"] == stage

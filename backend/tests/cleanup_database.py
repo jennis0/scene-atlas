@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from backend.app.config import settings
 from backend.app.models import Base, get_engine, get_session_local
-from backend.app.services.qdrant_service import QdrantService
+from backend.app.services.lancedb_service import LanceDBService
 
 print("Cleaning up database...")
 
@@ -33,12 +33,12 @@ try:
 finally:
     session.close()
 
-# Clean up Qdrant collection
-qdrant = QdrantService()
-qdrant.delete_collection()
-print("[OK] Qdrant collection dropped")
+# Clean up LanceDB table
+svc = LanceDBService()
+svc.delete_collection()
+print("[OK] LanceDB table dropped")
 
-qdrant.ensure_collection()
-print("[OK] Qdrant collection recreated")
+svc.ensure_collection()
+print("[OK] LanceDB table recreated")
 
 print("\n=== Database cleaned and reset! ===")

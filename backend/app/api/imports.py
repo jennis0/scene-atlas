@@ -939,7 +939,7 @@ def cancel_import(job_id: str, db: Session = Depends(get_db)):
     Deletes:
     - Staging directory (unless groups are still running)
     - All Image rows created by this import (files on disk if not shared with
-      other imports, thumbnails, Qdrant embeddings)
+      other imports, thumbnails, LanceDB embeddings)
     - Now-empty ImageGroups created by this import
 
     Works for all non-completed states. Returns 409 for completed imports.
@@ -970,7 +970,7 @@ def cancel_import(job_id: str, db: Session = Depends(get_db)):
         g.status in {"completed", "failed", "cancelled"} for g in groups
     )
 
-    # Clean up imported images (files + DB rows + Qdrant vectors)
+    # Clean up imported images (files + DB rows + LanceDB vectors)
     deleted_images = _cleanup_import_images(job_id, db)
     logger.info("Deleted %d image(s) for cancelled import %s", deleted_images, job_id)
 

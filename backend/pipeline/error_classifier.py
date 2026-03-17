@@ -32,7 +32,7 @@ def classify_ingest_error(exc: Exception, stage: str) -> dict[str, str]:
     stage:
         Pipeline stage where the error occurred.  One of: ``parse``,
         ``copy``, ``thumbnails``, ``colors``, ``grid_detection``,
-        ``embedding``, ``db_save``, ``qdrant_save``.
+        ``embedding``, ``db_save``, ``vector_save``.
 
     Returns
     -------
@@ -81,7 +81,7 @@ def _classify(exc: Exception, stage: str) -> str:
     if stage == "db_save":
         return "Failed to save image to database"
 
-    if stage == "qdrant_save":
+    if stage == "vector_save":
         return "Failed to save image embedding to search index"
 
     # --- Generic fallback ---

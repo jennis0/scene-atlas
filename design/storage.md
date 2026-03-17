@@ -4,7 +4,7 @@
 
 The system uses three storage backends:
 1. **SQLite** — relational metadata (images, tags, colors, image groups, import jobs, settings)
-2. **Qdrant** — CLIP vector embeddings for semantic search
+2. **LanceDB** — CLIP vector embeddings for semantic search
 3. **Filesystem (ImageStore)** — image and thumbnail files
 
 Schema changes are managed by **Alembic** migrations in `backend/alembic/versions/`.
@@ -134,25 +134,25 @@ Several DB columns retain their original names for backward compatibility (avoid
 
 **App settings:** `seed_default_settings()` runs at first boot and inserts defaults for grid detection, color extraction, ingestion performance, import limits, and job runner configuration.
 
-## Qdrant Vector Store
+## LanceDB Vector Store
 
-**Mode:** Embedded local (`QdrantClient(path="{APP_DATA_DIR}/qdrant_local")`) — no separate server process
-**Collection:** `embeddings_{model_name}` (e.g. `embeddings_small`) — collection is model-scoped; switching models creates a new collection
+**Mode:** Disk-backed local (`lancedb.connect("{APP_DATA_DIR}/lancedb")`) — memory-mapped from disk, not loaded into Python heap, no separate server process
+**Table:** `embeddings_{model_name}` (e.g. `embeddings_small`) — table is model-scoped; switching models creates a new table
 **Vector size:** Varies by model: 512 (small/CLIP), 768 (medium/SigLIP2-base), 1152 (large/SigLIP2-so400m)
-**Distance metric:** Cosine similarity
+**Distance metric:** Cosine distance (service converts to similarity by subtracting from 1.0)
 
-Each point in Qdrant:
+Each row in LanceDB:
 - **ID:** `image_id` from SQLite (integer)
 - **Vector:** 512-dim CLIP embedding (normalized)
 - **Payload:** `{image_id, filename, author, base_name}`
 
-Qdrant is the semantic search index (not the source of truth — SQLite is authoritative; Qdrant can be rebuilt from stored embeddings). They are linked by `image_id`.
+LanceDB is the semantic search index (not the source of truth — SQLite is authoritative; LanceDB can be rebuilt from stored embeddings). They are linked by `image_id`.
 
 ## Filesystem — ImageStore
 
 The application uses two storage roots, allowing images and application data to live on separate volumes:
 
-- **`APP_DATA_DIR`** — fast storage: SQLite database, Qdrant index, thumbnails, staging area, config. Typically on the system drive.
+- **`APP_DATA_DIR`** — fast storage: SQLite database, LanceDB index, thumbnails, staging area, config. Typically on the system drive.
 - **`IMAGE_LIBRARY_DIR`** — cold storage: original image files and backups. Can be on a large external or network drive.
 
 **Images (originals):** `{IMAGE_LIBRARY_DIR}/a1/b2/...` (flat root — the library dir itself is the image store root)
@@ -184,7 +184,7 @@ Import uploads are saved to `{APP_DATA_DIR}/staging/{job_id}/` using a UUID-flat
 **Location:** `{IMAGE_LIBRARY_DIR}/backups/{timestamp}/`
 
 On migration from a single-root installation, the existing images at `{old_dataDir}/store/images/` become `IMAGE_LIBRARY_DIR` (i.e. the old image root is promoted to the library root directly, rather than wrapping it in another directory).
-**Contents:** SQLite snapshot + Qdrant snapshot
+**Contents:** SQLite snapshot + LanceDB snapshot
 **Schedule:** Every 24 hours (via Scheduler)
 **Rotation:** 7 daily + 4 weekly backups retained
 **Trigger:** `backend/pipeline/maintenance.py:backup_database()`

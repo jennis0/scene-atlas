@@ -1,8 +1,8 @@
 """Shared fixtures for the test suite.
 
-IMPORTANT: QdrantService uses a lazy singleton (get_qdrant_service()), but it
-still gets constructed on first call. We mock QdrantClient before any backend
-imports to prevent the embedded Qdrant DB from being created during tests.
+LanceDB is used as the vector database service. It does not create files on
+import, so no pre-import patching is needed. We mock get_lancedb_service()
+in fixtures where vector DB access is required.
 """
 
 from pathlib import Path
@@ -11,23 +11,6 @@ from unittest.mock import MagicMock
 import pytest
 from PIL import Image as PILImage
 
-# ---------------------------------------------------------------------------
-# Mock QdrantClient BEFORE any backend.app.services imports.
-# QdrantService.__init__ calls QdrantClient(path=...) which creates a local
-# DB on disk. We intercept QdrantClient to return a mock so no real DB is
-# created during tests.
-# ---------------------------------------------------------------------------
-_mock_qdrant_client_cls = MagicMock()
-_mock_qdrant_client_instance = MagicMock()
-_mock_qdrant_client_instance.get_collections.return_value = MagicMock(collections=[])
-_mock_qdrant_client_cls.return_value = _mock_qdrant_client_instance
-
-# Patch qdrant_client before it's imported by qdrant_service.py
-import qdrant_client as _qc  # noqa: E402
-
-_qc.QdrantClient = _mock_qdrant_client_cls
-
-# Now safe to import backend modules — QdrantService() will use the mock
 from backend.app.models import (  # noqa: E402
     get_engine,
     get_session_local,
@@ -90,7 +73,7 @@ def tmp_staging(tmp_path, make_test_image):
     """Staging directory with flat UUID-named files and .file_map.json.
 
     Mirrors the production layout where uploaded files are stored as UUID
-    filenames and a sidecar JSON maps relative_path → staging_key.
+    filenames and a sidecar JSON maps relative_path -> staging_key.
     """
     import json as _json
 
@@ -181,7 +164,7 @@ def test_client(tmp_db, tmp_path):
 
 @pytest.fixture
 def mock_heavy_services(monkeypatch):
-    """Mock CLIP + Qdrant + thumbnails so integration tests don't need real infrastructure.
+    """Mock CLIP + LanceDB + thumbnails so integration tests don't need real infrastructure.
 
     The batch pipeline calls task functions via .fn() from their source modules,
     so we mock at the source (backend.pipeline.tasks.*) not at the ingestion module level.
@@ -199,14 +182,14 @@ def mock_heavy_services(monkeypatch):
         lambda image_paths, **kwargs: [dummy_embedding] * len(image_paths),
     )
 
-    # Mock Qdrant (single + batch) — get_qdrant_service() returns a mock
-    mock_qdrant_svc = MagicMock()
-    mock_qdrant_svc.add_image_embedding.return_value = True
-    mock_qdrant_svc.batch_add_embeddings.return_value = True
-    mock_qdrant_svc.get_embedding.return_value = None
+    # Mock LanceDB (single + batch) -- get_lancedb_service() returns a mock
+    mock_lancedb_svc = MagicMock()
+    mock_lancedb_svc.add_image_embedding.return_value = True
+    mock_lancedb_svc.batch_add_embeddings.return_value = True
+    mock_lancedb_svc.get_embedding.return_value = None
     monkeypatch.setattr(
-        "backend.pipeline.ingestion.get_qdrant_service",
-        lambda: mock_qdrant_svc,
+        "backend.pipeline.ingestion.get_lancedb_service",
+        lambda: mock_lancedb_svc,
     )
 
     # Mock thumbnails at the source module

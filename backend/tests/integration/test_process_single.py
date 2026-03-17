@@ -4,7 +4,7 @@ Tests both modes:
 - With explicit metadata (web import path)
 - With source_dir (CLI import path, uses parser)
 
-Uses real DB + real filesystem. Mocks CLIP, Qdrant, thumbnails.
+Uses real DB + real filesystem. Mocks CLIP, LanceDB, thumbnails.
 """
 
 import pytest

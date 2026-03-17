@@ -1,7 +1,7 @@
 """Integration tests: process_import_group and process_import_job flows.
 
 Tests the batch pipeline end-to-end with real SQLite, real filesystem, and
-mocked heavy services (CLIP, Qdrant, thumbnails, color extraction).
+mocked heavy services (CLIP, LanceDB, thumbnails, color extraction).
 
 Covers:
 - Happy path: all files processed, DB records created

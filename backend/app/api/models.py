@@ -16,6 +16,7 @@ from ..services.clip_service import (
     wait_for_clip_ready,
 )
 from ..services.job_runner import get_job_runner
+from ..services.lancedb_service import get_lancedb_service, reload_lancedb_service
 from ..services.model_download_service import (
     check_disk_space,
     download_model,
@@ -30,7 +31,6 @@ from ..services.model_registry import (
     get_default_model,
     get_model,
 )
-from ..services.qdrant_service import get_qdrant_service, reload_qdrant_service
 from .dependencies import get_db
 
 logger = logging.getLogger(__name__)
@@ -98,7 +98,7 @@ def _download_only(name: str, progress_fn=None) -> None:
 
 
 def _download_and_activate(name: str, progress_fn=None) -> None:
-    """Sequenced job: download (if needed) → reload clip → reload qdrant → re-embed.
+    """Sequenced job: download (if needed) → reload clip → reload lancedb → re-embed.
 
     If this job fails, active_model in the DB will point to `name` but the model
     will not be loaded. The frontend should check job status and offer a retry.
@@ -123,7 +123,7 @@ def _download_and_activate(name: str, progress_fn=None) -> None:
 
         model_meta = get_model(name)
         embedding_dim = model_meta["embedding_dim"] if model_meta else None
-        reload_qdrant_service(get_collection_name(name), vector_size=embedding_dim)
+        reload_lancedb_service(get_collection_name(name), vector_size=embedding_dim)
 
         if progress_fn:
             progress_fn(steps - 1, steps, "Re-building embeddings...")
@@ -252,18 +252,24 @@ def download_model_endpoint(name: str) -> ActiveModelResponse:
 
 @router.get("/{name}/embeddings", response_model=EmbeddingStatsResponse)
 def get_embeddings_stats(name: str) -> EmbeddingStatsResponse:
-    """Return Qdrant collection stats for the named model's embedding collection."""
+    """Return LanceDB table stats for the named model's embedding collection."""
     if get_model(name) is None:
         raise HTTPException(status_code=404, detail=f"Model '{name}' not found")
 
     collection_name = get_collection_name(name)
-    qdrant = get_qdrant_service()
+    svc = get_lancedb_service()
 
     try:
-        info = qdrant.client.get_collection(collection_name=collection_name)
+        if collection_name not in svc.db.list_tables():
+            return EmbeddingStatsResponse(
+                collection_name=collection_name,
+                vectors_count=0,
+                exists=False,
+            )
+        table = svc.db.open_table(collection_name)
         return EmbeddingStatsResponse(
             collection_name=collection_name,
-            vectors_count=info.points_count or 0,
+            vectors_count=table.count_rows(),
             exists=True,
         )
     except Exception:
@@ -276,7 +282,7 @@ def get_embeddings_stats(name: str) -> EmbeddingStatsResponse:
 
 @router.delete("/{name}/embeddings", status_code=204)
 def delete_embeddings(name: str) -> None:
-    """Delete the Qdrant embedding collection for a non-active model."""
+    """Delete the LanceDB embedding table for a non-active model."""
     if get_model(name) is None:
         raise HTTPException(status_code=404, detail=f"Model '{name}' not found")
 
@@ -287,9 +293,9 @@ def delete_embeddings(name: str) -> None:
             detail=f"Cannot delete embeddings for the active model '{name}'. Switch models first.",
         )
 
-    qdrant = get_qdrant_service()
+    svc = get_lancedb_service()
     try:
-        qdrant.delete_collection_by_name(get_collection_name(name))
+        svc.delete_collection_by_name(get_collection_name(name))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

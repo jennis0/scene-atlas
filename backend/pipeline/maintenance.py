@@ -1,7 +1,7 @@
 """Maintenance tasks: database backup, staging cleanup, and stale job expiry.
 
 Functions:
-    backup_database     — Snapshot SQLite + Qdrant, rotate old backups. Runs daily.
+    backup_database     — Snapshot SQLite + LanceDB, rotate old backups. Runs daily.
     cleanup_staging     — Remove stale staging directories older than 24h. Runs every 6h.
     expire_stale_jobs   — Mark abandoned import jobs as expired. Runs every 6h.
 
@@ -48,21 +48,21 @@ def backup_sqlite(backup_dir: Path, db_path: Path | None = None) -> Path:
     return backup_path
 
 
-def backup_qdrant(backup_dir: Path) -> Path | None:
-    """Copy the embedded Qdrant storage directory for backup.
+def backup_vector_db(backup_dir: Path) -> Path | None:
+    """Copy the LanceDB storage directory for backup.
 
-    Returns the backup path on success, or None if Qdrant is not initialised.
+    Returns the backup path on success, or None if LanceDB is not initialised.
     Non-fatal: the overall backup still succeeds if only SQLite was backed up.
     """
     logger = logging.getLogger(__name__)
     try:
-        from backend.app.services.qdrant_service import get_qdrant_service
+        from backend.app.services.lancedb_service import get_lancedb_service
 
-        svc = get_qdrant_service()
+        svc = get_lancedb_service()
         backup_path = svc.backup_storage(backup_dir)
         return backup_path
     except Exception as e:
-        logger.warning("Qdrant backup failed: %s", e)
+        logger.warning("LanceDB backup failed: %s", e)
         return None
 
 
@@ -120,20 +120,20 @@ def rotate_backups(backups_root: Path, keep_daily: int = 7, keep_weekly: int = 4
 
 
 def backup_database() -> dict:
-    """Full backup: SQLite snapshot + Qdrant snapshot + rotation."""
+    """Full backup: SQLite snapshot + LanceDB snapshot + rotation."""
     logger = logging.getLogger(__name__)
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     backups_root = settings.backups_dir
     backup_dir = backups_root / timestamp
 
     db_backup = backup_sqlite(backup_dir)
-    qdrant_backup = backup_qdrant(backup_dir)
+    vector_backup = backup_vector_db(backup_dir)
     deleted = rotate_backups(backups_root)
 
     result = {
         "timestamp": timestamp,
         "db_backup": str(db_backup),
-        "qdrant_backup": str(qdrant_backup) if qdrant_backup else None,
+        "vector_backup": str(vector_backup) if vector_backup else None,
         "rotated": deleted,
     }
     logger.info("Backup complete: %s", result)
@@ -453,14 +453,14 @@ def sweep_orphaned_store_files() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Qdrant / DB desync detection (Option B)
+# Vector DB / DB desync detection
 # ---------------------------------------------------------------------------
 
 
-def check_qdrant_sync() -> dict:
-    """Compare DB image count against Qdrant point count and log any delta.
+def check_vector_db_sync() -> dict:
+    """Compare DB image count against LanceDB point count and log any delta.
 
-    Images that exist in the DB but have no Qdrant embedding are silently
+    Images that exist in the DB but have no LanceDB embedding are silently
     absent from semantic search results.  This check surfaces that problem
     without triggering expensive CLIP re-computation.
 
@@ -472,36 +472,36 @@ def check_qdrant_sync() -> dict:
     logger = logging.getLogger(__name__)
 
     from backend.app.models import Image
-    from backend.app.services.qdrant_service import get_qdrant_service
+    from backend.app.services.lancedb_service import get_lancedb_service
     from backend.pipeline.db import pipeline_db
 
     with pipeline_db() as db:
         db_count: int = db.query(Image).count()
 
     try:
-        qdrant_info = get_qdrant_service().get_collection_info()
-        qdrant_count: int = qdrant_info.get("points_count") or 0
+        vector_info = get_lancedb_service().get_collection_info()
+        vector_count: int = vector_info.get("points_count") or 0
     except Exception as e:
-        logger.warning("Qdrant sync check failed (Qdrant unavailable?): %s", e)
-        return {"db_count": db_count, "qdrant_count": None, "delta": None}
+        logger.warning("Vector DB sync check failed (LanceDB unavailable?): %s", e)
+        return {"db_count": db_count, "vector_count": None, "delta": None}
 
-    delta = db_count - qdrant_count
+    delta = db_count - vector_count
     if delta > 10:
         logger.warning(
-            "Qdrant/DB desync: %d image(s) in DB but only %d point(s) in Qdrant "
+            "Vector DB/DB desync: %d image(s) in DB but only %d point(s) in LanceDB "
             "(delta=%d). Run 'write_new_embeddings' to repair.",
             db_count,
-            qdrant_count,
+            vector_count,
             delta,
         )
     elif delta != 0:
         logger.info(
-            "Qdrant/DB minor delta: %d image(s) in DB, %d point(s) in Qdrant (delta=%d)",
+            "Vector DB/DB minor delta: %d image(s) in DB, %d point(s) in LanceDB (delta=%d)",
             db_count,
-            qdrant_count,
+            vector_count,
             delta,
         )
     else:
-        logger.info("Qdrant/DB in sync: %d image(s)", db_count)
+        logger.info("Vector DB/DB in sync: %d image(s)", db_count)
 
-    return {"db_count": db_count, "qdrant_count": qdrant_count, "delta": delta}
+    return {"db_count": db_count, "vector_count": vector_count, "delta": delta}

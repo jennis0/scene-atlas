@@ -130,11 +130,11 @@ class TestDeleteEmbeddings:
 
         deleted_collections = []
 
-        mock_qdrant = MagicMock()
-        mock_qdrant.delete_collection_by_name = lambda name: deleted_collections.append(name)
+        mock_lancedb = MagicMock()
+        mock_lancedb.delete_collection_by_name = lambda name: deleted_collections.append(name)
         monkeypatch.setattr(
-            "backend.app.api.models.get_qdrant_service",
-            lambda: mock_qdrant,
+            "backend.app.api.models.get_lancedb_service",
+            lambda: mock_lancedb,
         )
 
         resp = test_client.delete("/api/v1/models/large/embeddings")

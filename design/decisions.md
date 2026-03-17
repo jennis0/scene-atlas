@@ -22,20 +22,20 @@ This document records all significant architectural decisions for the Scene Atla
 
 ---
 
-## ADR-002: SQLite for relational data, Qdrant for vectors
+## ADR-002: SQLite for relational data, LanceDB for vectors
 
 **Date:** 2025-01 (initial design)
-**Status:** Accepted
+**Status:** Accepted (migrated from Qdrant to LanceDB, 2026-03)
 
 **Context:** We need relational storage for images, tags, image groups, and import jobs. We also need similarity search over CLIP embeddings.
 
-**Decision:** Use SQLite (via SQLAlchemy) for all relational data and Qdrant for vector embeddings. They are separate stores with `image_id` as the join key.
+**Decision:** Use SQLite (via SQLAlchemy) for all relational data and LanceDB for vector embeddings. They are separate stores with `image_id` as the join key. (Originally used Qdrant; migrated to LanceDB for simpler dependency management — LanceDB is a pure Python/Rust library with no separate server process.)
 
 **Consequences:**
 - SQLite is zero-config, single-file, good enough for a single-user desktop tool
-- Qdrant runs as an embedded local instance (no Docker required)
-- Semantic search queries Qdrant first (returns image IDs), then hydrates from SQLite
-- If Qdrant is down, text/filter search still works; only semantic search degrades
+- LanceDB runs as a disk-backed, memory-mapped local instance (no Docker or server process required)
+- Semantic search queries LanceDB first (returns image IDs), then hydrates from SQLite
+- If LanceDB is unavailable, text/filter search still works; only semantic search degrades
 
 ---
 
@@ -44,14 +44,14 @@ This document records all significant architectural decisions for the Scene Atla
 **Date:** 2025-01 (initial design)
 **Status:** Superseded by ADR-012
 
-**Context:** Image ingestion is a multi-step pipeline (parse metadata, copy to store, generate thumbnails, extract colors, generate CLIP embeddings, save to DB, save to Qdrant). We need observability, retries, and async execution.
+**Context:** Image ingestion is a multi-step pipeline (parse metadata, copy to store, generate thumbnails, extract colors, generate CLIP embeddings, save to DB, save to vector DB). We need observability, retries, and async execution.
 
 **Decision:** Use Prefect 3 with a Docker-hosted server (Postgres + Redis backend). Flows are defined in `backend/flows/` and can be run directly (for dev/CLI) or submitted as deployments (for async execution via workers).
 
 **Consequences:** *(historical — see ADR-012 for current architecture)*
 - `process_single_image` is a Prefect `@flow`; sub-steps are `@task`s with retry support
 - Prefect server provides a UI at `localhost:4200` for monitoring flow runs
-- Docker Compose runs: Prefect server, Prefect services, Prefect worker, Postgres, Redis, Qdrant
+- Docker Compose runs: Prefect server, Prefect services, Prefect worker, Postgres, Redis, vector DB
 
 ---
 
@@ -68,8 +68,8 @@ This document records all significant architectural decisions for the Scene Atla
 - **Update:** Model sizes have changed. See ADR-014/016/017 for the current multi-model architecture (250 MB -- 1 GB ONNX files).
 - Model is ~600MB, loaded once at startup (lazy singleton via `get_clip_service()`)
 - Runs on CPU by default; `inference_device` setting supports GPU acceleration (CUDA, DirectML, CoreML) — see `design/gpu-acceleration.md`
-- Each image ingest generates one embedding; stored in Qdrant
-- Cosine similarity is used for matching (configured in Qdrant collection)
+- Each image ingest generates one embedding; stored in LanceDB
+- Cosine similarity is used for matching (configured in LanceDB table)
 
 ---
 
@@ -174,11 +174,11 @@ This document records all significant architectural decisions for the Scene Atla
 **Date:** 2026-02
 **Status:** Accepted
 
-**Context:** The application stores irreplaceable user data (image metadata, tags, image groups, CLIP embeddings) across three stores: SQLite, the hash-sharded filesystem, and Qdrant. With no backup strategy, a disk failure or an accidental `reset_database.py` run means total data loss. Additionally, the original `init_db()` function used ad-hoc hand-rolled `ALTER TABLE` statements with no version tracking, making schema evolution fragile and difficult to reason about.
+**Context:** The application stores irreplaceable user data (image metadata, tags, image groups, CLIP embeddings) across three stores: SQLite, the hash-sharded filesystem, and LanceDB. With no backup strategy, a disk failure or an accidental `reset_database.py` run means total data loss. Additionally, the original `init_db()` function used ad-hoc hand-rolled `ALTER TABLE` statements with no version tracking, making schema evolution fragile and difficult to reason about.
 
 **Decision:** Two separate concerns addressed together:
 
-1. **Automated backups**: A `backup_database` function in `backend/pipeline/maintenance.py` creates a consistent SQLite snapshot (using the `sqlite3.backup()` API, not file copy) and a Qdrant snapshot. It rotates old backups: keep last 7 daily + 4 weekly. Scheduled every 24h via the Scheduler. A companion `cleanup_staging` function removes stale import staging directories (>24h old) every 6h.
+1. **Automated backups**: A `backup_database` function in `backend/pipeline/maintenance.py` creates a consistent SQLite snapshot (using the `sqlite3.backup()` API, not file copy) and a LanceDB backup. It rotates old backups: keep last 7 daily + 4 weekly. Scheduled every 24h via the Scheduler. A companion `cleanup_staging` function removes stale import staging directories (>24h old) every 6h.
 
 2. **Alembic for schema migrations**: The hand-rolled migration code in `init_db()` is replaced with Alembic. A single initial migration (`001_initial_schema.py`) captures the complete current schema including FTS5 virtual table and triggers. `init_db()` now detects whether the database is fresh (runs all migrations), pre-Alembic (stamps at head), or already Alembic-managed (runs pending migrations). Future schema changes are added as numbered Alembic migration files.
 
@@ -188,7 +188,7 @@ This document records all significant architectural decisions for the Scene Atla
 - Alembic: schema changes are versioned, reviewable, and revertable; `alembic upgrade head` is the canonical way to apply migrations
 - The `alembic.ini` at project root allows CLI use: `uv run alembic upgrade head`
 - Image store files are not backed up by the script — they are large, append-only blobs and the originals typically exist elsewhere; document this assumption
-- Qdrant embeddings can be regenerated from images via `write_new_embeddings` if the Qdrant snapshot is unavailable
+- LanceDB embeddings can be regenerated from images via `write_new_embeddings` if the LanceDB backup is unavailable
 
 ---
 
@@ -258,7 +258,7 @@ Pipeline functions in `backend/pipeline/` are now plain Python functions — no 
 **Consequences:**
 - Zero external infrastructure — no Docker, no Postgres, no Redis
 - Sub-second job start latency (direct function call vs. worker polling)
-- No cross-process serialization — functions share the FastAPI process's memory (CLIP model, DB engine, Qdrant client)
+- No cross-process serialization — functions share the FastAPI process's memory (CLIP model, DB engine, LanceDB connection)
 - Job status is in-memory only; lost on server restart (acceptable for a desktop tool)
 - Frontend Activity tray shows background job progress via polling `/api/v1/jobs/`
 - CLI scripts still work directly: `uv run python -m backend.pipeline.<script>`
@@ -376,13 +376,13 @@ Pipeline functions in `backend/pipeline/` are now plain Python functions — no 
 **Date:** 2026-03
 **Status:** Accepted
 
-**Context:** We want to support multiple embedding models (OpenCLIP, SigLIP2) with different preprocessing requirements, tokenizers, and embedding dimensions. We need easy model switching for dev/testing and model-scoped Qdrant collections.
+**Context:** We want to support multiple embedding models (OpenCLIP, SigLIP2) with different preprocessing requirements, tokenizers, and embedding dimensions. We need easy model switching for dev/testing and model-scoped LanceDB tables.
 
 **Decision:**
 - Ship a `manifest.json` alongside each model's ONNX files capturing all model-specific parameters (image size, normalization, interpolation, resize mode, tokenizer config, embedding dimension, EOS token ID)
 - CLIPService reads manifest at init and configures itself — no strategy pattern or plugin registry
-- Model-scoped Qdrant collections: `embeddings_{model_name}`, enabling instant switching without re-embedding
-- `qdrant_vector_size` is auto-derived from the manifest's `embedding_dim` at startup, before any Qdrant service is created — model identity flows through collection names, not dimension matching
+- Model-scoped LanceDB tables: `embeddings_{model_name}`, enabling instant switching without re-embedding
+- `vector_size` is auto-derived from the manifest's `embedding_dim` at startup, before any LanceDB service is created — model identity flows through table names, not dimension matching
 - sentencepiece added as production dependency (~1MB) for SigLIP2's tokenizer, with a thin wrapper that replicates HF tokenizer behaviour (including EOS token appending)
 - Own export script (`export_model_onnx.py`) for full control over quantisation and manifest generation
 - Manifest validation at load time catches missing/malformed fields early
@@ -393,11 +393,11 @@ Pipeline functions in `backend/pipeline/` are now plain Python functions — no 
 - JAX for ONNX export: requires jax2tf→tf2onnx (fragile, two conversion steps)
 - Pre-exported ONNX from onnx-community: less control over quantisation choices
 - tokenizer.json conversion for SigLIP2: fragile, may lose text lowercasing and EOS token behaviour
-- Dimension-based model compatibility checking: weak proxy — two models can share dimensions but produce incompatible embeddings; model identity is better encoded in collection names
+- Dimension-based model compatibility checking: weak proxy — two models can share dimensions but produce incompatible embeddings; model identity is better encoded in table names
 
 **Consequences:**
 - Adding a new model requires only: export script run + manifest generation
-- Model switch in dev: set `EMBEDDING_MODEL` env var, restart server; auto-rebuild triggers if collection is missing or has wrong count
+- Model switch in dev: set `EMBEDDING_MODEL` env var, restart server; auto-rebuild triggers if table is missing or has wrong count
 - All dev/build scripts (`setup_models.py`, `build_sidecar.py`, `export_model_onnx.py`, PyInstaller spec) respect `EMBEDDING_MODEL` env var
 - sentencepiece adds ~1MB to production dependency footprint
 - Models directory structure: `backend/models/{model-name}/` (flat: ONNX files + manifest.json + tokenizer/)
@@ -425,7 +425,7 @@ Key choices:
 
 5. **`active_model` not in `AppSettingsPatch`:** Switching the active model triggers a multi-step background job (download, service reload, re-embed). Routing it through the generic settings PATCH would obscure that intent and risk skipping the job. A dedicated `POST /api/v1/models/active` endpoint makes the side-effects explicit.
 
-6. **Model switch sequence:** `POST /active` submits `_download_and_activate` to JobRunner which sequences: download → `reload_clip_service()` → `wait_for_clip_ready()` → `reload_qdrant_service(f"embeddings_{name}")` → `rebuild_all_embeddings(force=True)`. `force=True` is required because the existing embeddings are for the old model and the skip-if-present guard must not fire.
+6. **Model switch sequence:** `POST /active` submits `_download_and_activate` to JobRunner which sequences: download → `reload_clip_service()` → `wait_for_clip_ready()` → `reload_lancedb_service(f"embeddings_{name}")` → `rebuild_all_embeddings(force=True)`. `force=True` is required because the existing embeddings are for the old model and the skip-if-present guard must not fire.
 
 7. **Model registry as single source of truth:** `backend/app/services/model_registry.py` contains all model specs (HF repos, descriptions, hardware recommendations, quantisation parameters). Export and publish scripts import from this module rather than maintaining their own inline registry.
 
@@ -435,5 +435,5 @@ Key choices:
 - Non-technical users can choose a model via the UI (or accept the hardware-aware default)
 - CI uses `huggingface_hub.snapshot_download` to fetch pre-built ONNX — no torch/transformers needed in CI
 - A fresh install with no model in `APP_DATA_DIR` starts the backend in a degraded state (CLIPService fails to load); web mode shows a blocking `ModelSetupScreen` overlay
-- Stale embeddings from previous models are preserved in named Qdrant collections (`embeddings_{name}`) — user can delete via `DELETE /api/v1/models/{name}/embeddings`
+- Stale embeddings from previous models are preserved in named LanceDB tables (`embeddings_{name}`) — user can delete via `DELETE /api/v1/models/{name}/embeddings`
 - The large model is never auto-recommended; it requires explicit selection

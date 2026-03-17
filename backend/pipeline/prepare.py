@@ -85,7 +85,7 @@ def prepare_single_image(
 ) -> dict:
     """Prepare a single image: parse metadata, copy to store, thumbnails, colors.
 
-    This task handles everything EXCEPT CLIP embedding and database/Qdrant saves,
+    This task handles everything EXCEPT CLIP embedding and database/LanceDB saves,
     which are batched separately for better throughput.
 
     Runs inline (not sub-tasks) for minimal overhead when submitted concurrently.
@@ -97,7 +97,7 @@ def prepare_single_image(
         parser: Pre-built ImageParser (avoids rebuilding per image in batch)
 
     Returns:
-        Dict with 'status', 'image_data', 'original_image_path', 'qdrant_metadata'
+        Dict with 'status', 'image_data', 'original_image_path', 'vector_metadata'
     """
     logger = logging.getLogger(__name__)
     image_path_obj = Path(image_path)
@@ -213,7 +213,7 @@ def prepare_single_image(
                 "import_job_id": import_job_id,
             }
 
-            qdrant_metadata = {
+            vector_metadata = {
                 "filename": original_filename,
                 "author": author,
                 "base_name": group_name,
@@ -223,7 +223,7 @@ def prepare_single_image(
                 "status": "success",
                 "image_data": image_data,
                 "original_image_path": image_path,
-                "qdrant_metadata": qdrant_metadata,
+                "vector_metadata": vector_metadata,
                 "reuse_embedding_from": reuse_embedding_from,
             }
 
@@ -371,7 +371,7 @@ def prepare_single_image(
             "import_job_id": import_job_id,
         }
 
-        qdrant_metadata = {
+        vector_metadata = {
             "filename": original_filename,
             "author": author,
             "base_name": group_name,
@@ -384,7 +384,7 @@ def prepare_single_image(
             "relative_path": relative_path,
             "clip_image_path": clip_image_path,  # None for images, temp frame path for videos (cleanup only)
             "clip_source_path": clip_source_path,  # thumbnail path for CLIP encoding (avoids full-res loads)
-            "qdrant_metadata": qdrant_metadata,
+            "vector_metadata": vector_metadata,
         }
 
     except Exception as e:

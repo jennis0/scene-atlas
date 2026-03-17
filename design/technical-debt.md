@@ -33,7 +33,7 @@ via deferred `from backend.app.api.imports import _cleanup_import_images` calls:
 
 This inverts the correct dependency direction: `api → pipeline/services`, not the reverse.
 The function has no HTTP-specific logic — it queries the DB for Image rows attached to a
-job, deletes their files from ImageStore and Qdrant, and removes the DB rows. It belongs
+job, deletes their files from ImageStore and LanceDB, and removes the DB rows. It belongs
 in a service module.
 
 ### Fix
@@ -352,7 +352,7 @@ rows = (
 
 ---
 
-## 10. N+1 Qdrant calls for reuse (dedup) images
+## 10. N+1 LanceDB calls for reuse (dedup) images
 
 **Priority: Low**
 **Effort: Small (30 minutes)**
@@ -360,26 +360,26 @@ rows = (
 
 ### Problem
 
-When a batch contains duplicate images (reuse path), their existing Qdrant embeddings
+When a batch contains duplicate images (reuse path), their existing LanceDB embeddings
 are retrieved one-at-a-time:
 
 ```python
 for prep in reuse_images:
     source_id = prep["reuse_embedding_from"]
-    embedding = get_qdrant_service().get_embedding(source_id)  # one RPC per image
+    embedding = get_lancedb_service().get_embedding(source_id)  # one query per image
 ```
 
-`QdrantClient.retrieve` accepts a list of IDs. For a batch of 20 duplicates this is 20
-serial round-trips.
+LanceDB supports batch lookups by ID. For a batch of 20 duplicates this is 20
+serial queries.
 
 ### Fix
 
-Add a `get_embeddings(ids: list[int]) -> dict[int, list[float]]` method to `QdrantService`
+Add a `get_embeddings(ids: list[int]) -> dict[int, list[float]]` method to `LanceDBService`
 and call it once per batch:
 
 ```python
 source_ids = [prep["reuse_embedding_from"] for prep in reuse_images]
-embeddings_by_id = get_qdrant_service().get_embeddings(source_ids)
+embeddings_by_id = get_lancedb_service().get_embeddings(source_ids)
 ```
 
 ---
@@ -449,6 +449,6 @@ after upgrading.
 | 8 | ColorIndex full-table load | Medium | Medium |
 | 9 | Five COUNT queries in `/facets` | Medium | Small |
 | 5 | Tag vocabulary parsing deduplication | Low | Medium |
-| 10 | N+1 Qdrant reuse calls | Low | Small |
+| 10 | N+1 LanceDB reuse calls | Low | Small |
 | 11 | Remove `continue-on-error` from CI security scanning | Medium | Small |
 | 12 | Upgrade GitHub Actions to Node.js 24 versions | Medium | Small |

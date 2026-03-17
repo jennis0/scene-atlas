@@ -2,10 +2,10 @@
 
 This is THE critical test for the import refactor. When a user edits metadata
 in the preview UI (adds a custom tag, overrides gridded, etc.), those edits
-must arrive in the database unchanged — the backend must NOT re-parse and
+must arrive in the database unchanged -- the backend must NOT re-parse and
 silently overwrite them.
 
-Requires: real DB (SQLite in tmp_path). Mocks: CLIP, Qdrant, thumbnails, ImageStore.
+Requires: real DB (SQLite in tmp_path). Mocks: CLIP, LanceDB, thumbnails, ImageStore.
 """
 
 import pytest

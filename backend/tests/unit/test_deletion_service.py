@@ -40,10 +40,10 @@ def stores(tmp_path):
 
 
 @pytest.fixture
-def mock_qdrant():
-    """Patch get_qdrant_service to return a mock with delete_image_embedding."""
+def mock_vector_db():
+    """Patch get_lancedb_service to return a mock with delete_image_embedding."""
     mock_svc = MagicMock()
-    with patch("backend.app.services.qdrant_service.get_qdrant_service", return_value=mock_svc):
+    with patch("backend.app.services.lancedb_service.get_lancedb_service", return_value=mock_svc):
         yield mock_svc.delete_image_embedding
 
 
@@ -66,7 +66,7 @@ def _patch_stores(monkeypatch, image_store: ImageStore, thumbnail_store: ImageSt
 class TestSafeDeleteImageFileCleanup:
     """Physical file deletion behaviour based on ref-counting."""
 
-    def test_unique_key_file_deleted(self, db_session, stores, monkeypatch, mock_qdrant):
+    def test_unique_key_file_deleted(self, db_session, stores, monkeypatch, mock_vector_db):
         """When no other image shares the storage_key the file is removed from disk."""
         image_store, thumbnail_store = stores
         _patch_stores(monkeypatch, image_store, thumbnail_store)
@@ -84,7 +84,7 @@ class TestSafeDeleteImageFileCleanup:
         assert not image_store.exists(storage_key)
 
     def test_shared_key_file_kept_after_first_delete(
-        self, db_session, stores, monkeypatch, mock_qdrant
+        self, db_session, stores, monkeypatch, mock_vector_db
     ):
         """When another image shares storage_key the file must NOT be deleted."""
         image_store, thumbnail_store = stores
@@ -105,7 +105,7 @@ class TestSafeDeleteImageFileCleanup:
         assert image_store.exists(storage_key)
 
     def test_shared_key_file_deleted_after_last_delete(
-        self, db_session, stores, monkeypatch, mock_qdrant
+        self, db_session, stores, monkeypatch, mock_vector_db
     ):
         """After both sharing images are deleted the file is removed."""
         image_store, thumbnail_store = stores
@@ -133,7 +133,7 @@ class TestSafeDeleteImageFileCleanup:
 class TestSafeDeleteImageThumbnails:
     """Thumbnail deletion — all three size variants must be removed."""
 
-    def test_all_thumbnail_sizes_deleted(self, db_session, stores, monkeypatch, mock_qdrant):
+    def test_all_thumbnail_sizes_deleted(self, db_session, stores, monkeypatch, mock_vector_db):
         """All three thumbnail sizes (150, 400, 800) are deleted when image is unique."""
         image_store, thumbnail_store = stores
         _patch_stores(monkeypatch, image_store, thumbnail_store)
@@ -156,7 +156,7 @@ class TestSafeDeleteImageThumbnails:
         for size in ["150x150", "400x400", "800x800"]:
             assert not thumbnail_store.exists(f"{thumb_stem}_{size}.jpg")
 
-    def test_missing_thumbnails_do_not_raise(self, db_session, stores, monkeypatch, mock_qdrant):
+    def test_missing_thumbnails_do_not_raise(self, db_session, stores, monkeypatch, mock_vector_db):
         """If thumbnail files are already gone, deletion must not raise an error."""
         image_store, thumbnail_store = stores
         _patch_stores(monkeypatch, image_store, thumbnail_store)
@@ -176,7 +176,7 @@ class TestSafeDeleteImageThumbnails:
         db_session.commit()
 
     def test_no_thumbnail_key_no_thumbnail_deletion(
-        self, db_session, stores, monkeypatch, mock_qdrant
+        self, db_session, stores, monkeypatch, mock_vector_db
     ):
         """If thumbnail_key is None the thumbnail store is never touched."""
         image_store, thumbnail_store = stores
@@ -197,7 +197,7 @@ class TestSafeDeleteImageThumbnails:
 class TestSafeDeleteImageDbCleanup:
     """DB record and associated tags/colors must be removed."""
 
-    def test_image_record_deleted(self, db_session, stores, monkeypatch, mock_qdrant):
+    def test_image_record_deleted(self, db_session, stores, monkeypatch, mock_vector_db):
         image_store, thumbnail_store = stores
         _patch_stores(monkeypatch, image_store, thumbnail_store)
         _seed_store(image_store, "d1d2d3.jpg")
@@ -212,7 +212,7 @@ class TestSafeDeleteImageDbCleanup:
 
         assert db_session.get(Image, img_id) is None
 
-    def test_associated_tags_deleted(self, db_session, stores, monkeypatch, mock_qdrant):
+    def test_associated_tags_deleted(self, db_session, stores, monkeypatch, mock_vector_db):
         """Tags associated with the deleted image must be removed via cascade."""
         image_store, thumbnail_store = stores
         _patch_stores(monkeypatch, image_store, thumbnail_store)
@@ -234,7 +234,7 @@ class TestSafeDeleteImageDbCleanup:
 
         assert db_session.get(Tag, tag_id) is None
 
-    def test_associated_colors_deleted(self, db_session, stores, monkeypatch, mock_qdrant):
+    def test_associated_colors_deleted(self, db_session, stores, monkeypatch, mock_vector_db):
         """Color rows associated with the deleted image must be removed via cascade."""
         image_store, thumbnail_store = stores
         _patch_stores(monkeypatch, image_store, thumbnail_store)
@@ -255,10 +255,10 @@ class TestSafeDeleteImageDbCleanup:
         assert db_session.get(Color, color_id) is None
 
 
-class TestSafeDeleteImageQdrant:
-    """Qdrant embedding must always be deleted, regardless of ref count."""
+class TestSafeDeleteImageVectorDb:
+    """Vector DB embedding must always be deleted, regardless of ref count."""
 
-    def test_qdrant_delete_called_once(self, db_session, stores, monkeypatch, mock_qdrant):
+    def test_vector_db_delete_called_once(self, db_session, stores, monkeypatch, mock_vector_db):
         image_store, thumbnail_store = stores
         _patch_stores(monkeypatch, image_store, thumbnail_store)
         _seed_store(image_store, "g1g2g3.jpg")
@@ -271,10 +271,10 @@ class TestSafeDeleteImageQdrant:
         safe_delete_image(db_session, img)
         db_session.commit()
 
-        mock_qdrant.assert_called_once_with(img_id)
+        mock_vector_db.assert_called_once_with(img_id)
 
-    def test_qdrant_delete_called_even_when_shared_key(
-        self, db_session, stores, monkeypatch, mock_qdrant
+    def test_vector_db_delete_called_even_when_shared_key(
+        self, db_session, stores, monkeypatch, mock_vector_db
     ):
         """Even if the storage file is kept (shared key), the embedding is removed."""
         image_store, thumbnail_store = stores
@@ -290,22 +290,24 @@ class TestSafeDeleteImageQdrant:
         safe_delete_image(db_session, img1)
         db_session.commit()
 
-        mock_qdrant.assert_called_once_with(img1_id)
+        mock_vector_db.assert_called_once_with(img1_id)
 
-    def test_qdrant_failure_does_not_raise(self, db_session, stores, monkeypatch):
-        """A Qdrant error during deletion must be swallowed (logged, not raised)."""
+    def test_vector_db_failure_does_not_raise(self, db_session, stores, monkeypatch):
+        """A vector DB error during deletion must be swallowed (logged, not raised)."""
         image_store, thumbnail_store = stores
         _patch_stores(monkeypatch, image_store, thumbnail_store)
         _seed_store(image_store, "i1i2i3.jpg")
 
         mock_svc = MagicMock()
-        mock_svc.delete_image_embedding.side_effect = RuntimeError("qdrant down")
-        with patch("backend.app.services.qdrant_service.get_qdrant_service", return_value=mock_svc):
+        mock_svc.delete_image_embedding.side_effect = RuntimeError("vector db down")
+        with patch(
+            "backend.app.services.lancedb_service.get_lancedb_service", return_value=mock_svc
+        ):
             img = _make_image("i1i2i3.jpg")
             db_session.add(img)
             db_session.commit()
 
-            # Must not raise despite Qdrant failure
+            # Must not raise despite vector DB failure
             safe_delete_image(db_session, img)
             db_session.commit()
 
@@ -369,7 +371,7 @@ class TestSafeDeleteImageStoreError:
     """Lines 55-56: image_store.delete() failure must be swallowed."""
 
     def test_image_store_delete_failure_does_not_raise(
-        self, db_session, stores, monkeypatch, mock_qdrant
+        self, db_session, stores, monkeypatch, mock_vector_db
     ):
         image_store, thumbnail_store = stores
         _patch_stores(monkeypatch, image_store, thumbnail_store)
@@ -399,11 +401,11 @@ class TestCleanupImportImages:
         """All Image rows for a job are deleted; count matches."""
         image_store, thumbnail_store = stores
         _patch_stores(monkeypatch, image_store, thumbnail_store)
-        mock_qdrant_svc = MagicMock()
-        mock_qdrant_svc.delete_embeddings = MagicMock()
+        mock_vector_db_svc = MagicMock()
+        mock_vector_db_svc.delete_embeddings = MagicMock()
         with patch(
-            "backend.app.services.qdrant_service.get_qdrant_service",
-            return_value=mock_qdrant_svc,
+            "backend.app.services.lancedb_service.get_lancedb_service",
+            return_value=mock_vector_db_svc,
         ):
             job = ImportJob(id="test-job-1", status="failed", source_label="test")
             img_a = _make_image("key-a.jpg", filename="a.jpg", name="A")
@@ -424,10 +426,10 @@ class TestCleanupImportImages:
         """Returns 0 and does nothing when no images exist for the job."""
         image_store, thumbnail_store = stores
         _patch_stores(monkeypatch, image_store, thumbnail_store)
-        mock_qdrant_svc = MagicMock()
+        mock_vector_db_svc = MagicMock()
         with patch(
-            "backend.app.services.qdrant_service.get_qdrant_service",
-            return_value=mock_qdrant_svc,
+            "backend.app.services.lancedb_service.get_lancedb_service",
+            return_value=mock_vector_db_svc,
         ):
             job = ImportJob(id="empty-job", status="failed", source_label="empty")
             db_session.add(job)
@@ -441,10 +443,10 @@ class TestCleanupImportImages:
         """Physical files are removed when no other image shares the storage key."""
         image_store, thumbnail_store = stores
         _patch_stores(monkeypatch, image_store, thumbnail_store)
-        mock_qdrant_svc = MagicMock()
+        mock_vector_db_svc = MagicMock()
         with patch(
-            "backend.app.services.qdrant_service.get_qdrant_service",
-            return_value=mock_qdrant_svc,
+            "backend.app.services.lancedb_service.get_lancedb_service",
+            return_value=mock_vector_db_svc,
         ):
             _seed_store(image_store, "unique-key.jpg")
             job = ImportJob(id="file-job", status="failed", source_label="test")
@@ -462,10 +464,10 @@ class TestCleanupImportImages:
         """cleanup_import_images removes all three thumbnail size variants, not just one."""
         image_store, thumbnail_store = stores
         _patch_stores(monkeypatch, image_store, thumbnail_store)
-        mock_qdrant_svc = MagicMock()
+        mock_vector_db_svc = MagicMock()
         with patch(
-            "backend.app.services.qdrant_service.get_qdrant_service",
-            return_value=mock_qdrant_svc,
+            "backend.app.services.lancedb_service.get_lancedb_service",
+            return_value=mock_vector_db_svc,
         ):
             stem = "tkey"
             thumb_key = f"{stem}_400x400.jpg"
@@ -485,24 +487,24 @@ class TestCleanupImportImages:
         for size in ["150x150", "400x400", "800x800"]:
             assert not thumbnail_store.exists(f"{stem}_{size}.jpg"), f"{size} thumbnail not deleted"
 
-    def test_qdrant_failure_does_not_raise(self, db_session, stores, monkeypatch):
-        """Qdrant errors during batch cleanup are swallowed."""
+    def test_vector_db_failure_does_not_raise(self, db_session, stores, monkeypatch):
+        """Vector DB errors during batch cleanup are swallowed."""
         image_store, thumbnail_store = stores
         _patch_stores(monkeypatch, image_store, thumbnail_store)
-        mock_qdrant_svc = MagicMock()
-        mock_qdrant_svc.delete_embeddings.side_effect = RuntimeError("qdrant down")
+        mock_vector_db_svc = MagicMock()
+        mock_vector_db_svc.delete_embeddings.side_effect = RuntimeError("vector db down")
         with patch(
-            "backend.app.services.qdrant_service.get_qdrant_service",
-            return_value=mock_qdrant_svc,
+            "backend.app.services.lancedb_service.get_lancedb_service",
+            return_value=mock_vector_db_svc,
         ):
-            job = ImportJob(id="qdrant-fail-job", status="failed", source_label="test")
-            img = _make_image("qfail.jpg", filename="qf.jpg", name="QF")
-            img.import_job_id = "qdrant-fail-job"
+            job = ImportJob(id="vector-fail-job", status="failed", source_label="test")
+            img = _make_image("vfail.jpg", filename="vf.jpg", name="VF")
+            img.import_job_id = "vector-fail-job"
             db_session.add_all([job, img])
             db_session.commit()
 
             # Must not raise
-            count = cleanup_import_images("qdrant-fail-job", db_session)
+            count = cleanup_import_images("vector-fail-job", db_session)
             db_session.commit()
 
         assert count == 1

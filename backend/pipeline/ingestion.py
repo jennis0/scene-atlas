@@ -2,7 +2,7 @@
 
 Coordinates batched image processing by delegating to specialized modules:
 - prepare.py: image preparation (parsing, thumbnails, colors, grid detection)
-- persistence.py: database and Qdrant saves
+- persistence.py: database and LanceDB saves
 
 Public API:
     process_import_group — Process one import group (batched pipeline)
@@ -26,7 +26,7 @@ from backend.app.models import (
 from backend.app.process_utils import get_rss_mb
 from backend.app.services import (
     get_image_store,
-    get_qdrant_service,
+    get_lancedb_service,
     get_thumbnail_store,
 )
 from backend.app.services.fts_service import fts_rebuild
@@ -40,9 +40,9 @@ from .db import pipeline_db
 from .error_classifier import classify_ingest_error
 from .persistence import (
     batch_save_to_database,
-    batch_save_to_qdrant,
+    batch_save_to_vector_db,
     save_to_database,
-    save_to_qdrant,
+    save_to_vector_db,
     update_import_group_job_progress,
 )
 from .pipeline_config import PipelineConfig, load_pipeline_config
@@ -62,11 +62,11 @@ from .tasks.embedding_generation import (
 def _process_batch(
     prepared_results: list[dict],
 ) -> tuple[list[dict], int, list[dict]]:
-    """Process a batch of prepared images: CLIP embed, DB save, Qdrant save.
+    """Process a batch of prepared images: CLIP embed, DB save, LanceDB save.
 
     Handles two kinds of successful results:
     - New images: need CLIP embedding generation
-    - Reuse images: retrieve existing embedding from Qdrant (or fall back to
+    - Reuse images: retrieve existing embedding from LanceDB (or fall back to
       generating from the stored file if retrieval fails)
 
     Args:
@@ -74,7 +74,7 @@ def _process_batch(
 
     Returns:
         Tuple of (all_results including failures, count of batch failures,
-        list of warning dicts for non-fatal issues like Qdrant save failures)
+        list of warning dicts for non-fatal issues like LanceDB save failures)
     """
     logger = logging.getLogger(__name__)
     # Separate successes from failures
@@ -111,10 +111,10 @@ def _process_batch(
                 if prep.get("clip_image_path"):
                     Path(prep["clip_image_path"]).unlink(missing_ok=True)
 
-    # --- Reuse images: retrieve existing embeddings from Qdrant in one batch call ---
+    # --- Reuse images: retrieve existing embeddings from LanceDB in one batch call ---
     if reuse_images:
         source_ids = [prep["reuse_embedding_from"] for prep in reuse_images]
-        embeddings_by_id = get_qdrant_service().get_embeddings(source_ids)
+        embeddings_by_id = get_lancedb_service().get_embeddings(source_ids)
         for prep in reuse_images:
             source_id = prep["reuse_embedding_from"]
             embedding = embeddings_by_id.get(source_id)
@@ -173,26 +173,26 @@ def _process_batch(
                 batch_failed += 1
             all_successful = []
 
-    # Batch Qdrant save (only if DB save succeeded)
+    # Batch LanceDB save (only if DB save succeeded)
     warnings: list[dict] = []
     if all_successful and image_ids:
-        qdrant_items = [
+        vector_items = [
             {
                 "image_id": image_id,
                 "embedding": prep["embedding"],
-                "metadata": prep["qdrant_metadata"],
+                "metadata": prep["vector_metadata"],
             }
             for image_id, prep in zip(image_ids, all_successful, strict=True)
         ]
-        qdrant_ok = batch_save_to_qdrant(qdrant_items)
-        if not qdrant_ok:
+        vector_ok = batch_save_to_vector_db(vector_items)
+        if not vector_ok:
             for prep in all_successful:
                 warnings.append(
                     {
                         "filename": Path(prep.get("original_image_path", "unknown")).name,
                         "relative_path": prep.get("relative_path"),
                         "reason": "Saved but may not appear in semantic search until index is rebuilt",
-                        "stage": "qdrant_save",
+                        "stage": "vector_save",
                         "severity": "warning",
                     }
                 )
@@ -216,7 +216,7 @@ def process_single_image(
 ) -> dict:
     """Process a single image end-to-end.
 
-    Thin wrapper around prepare_single_image + single CLIP + single DB/Qdrant save.
+    Thin wrapper around prepare_single_image + single CLIP + single DB/LanceDB save.
     Used for one-off processing; batch flows use the batched pipeline directly.
     """
     logger = logging.getLogger(__name__)
@@ -245,12 +245,12 @@ def process_single_image(
         stage = "db_save"
         image_id = save_to_database(prepared["image_data"])
 
-        # Save to Qdrant
-        stage = "qdrant_save"
-        save_to_qdrant(
+        # Save to LanceDB
+        stage = "vector_save"
+        save_to_vector_db(
             image_id=image_id,
             embedding=embedding,
-            metadata=prepared["qdrant_metadata"],
+            metadata=prepared["vector_metadata"],
         )
 
         logger.info("Successfully processed image: %s", image_path_obj)
@@ -279,7 +279,7 @@ def bulk_image_ingestion(
     Images are processed in batches for maximum throughput:
     - prepare_single_image tasks run concurrently via .submit()
     - CLIP embeddings are generated in batch (vectorized forward pass)
-    - Database and Qdrant saves are batched into single transactions
+    - Database and LanceDB saves are batched into single transactions
     """
     logger = logging.getLogger(__name__)
     if pipeline_config is None:
@@ -334,7 +334,7 @@ def bulk_image_ingestion(
             ]
             prepared_results = _collect_futures(futures)
 
-            # Step 2-4: Batch CLIP → batch DB save → batch Qdrant save
+            # Step 2-4: Batch CLIP → batch DB save → batch LanceDB save
             batch_results, _, _warnings = _process_batch(prepared_results)
             successful += sum(1 for r in batch_results if r["status"] == "success")
             failed += sum(1 for r in batch_results if r["status"] != "success")
@@ -584,7 +584,7 @@ def _run_group(
             _t_prepare = time.monotonic() - _t0
             logger.info("[%s] prepare took %.1fs", group_name, _t_prepare)
 
-            # Batch CLIP → batch DB → batch Qdrant
+            # Batch CLIP → batch DB → batch LanceDB
             _t0 = time.monotonic()
             batch_results, _, batch_warnings = _process_batch(prepared_results)
             all_file_errors.extend(batch_warnings)

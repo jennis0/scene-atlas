@@ -434,7 +434,7 @@ class TestSearchSemanticFallback:
         assert ids["a2"] in returned_ids
 
     def test_empty_semantic_results_still_returns_text_results(self, library, monkeypatch):
-        """If Qdrant returns 0 semantic matches, text results still come through."""
+        """If vector DB returns 0 semantic matches, text results still come through."""
         client, ids = library
 
         from unittest.mock import MagicMock
@@ -443,9 +443,9 @@ class TestSearchSemanticFallback:
         mock_clip.encode_text.return_value = [0.0] * 768
         monkeypatch.setattr("backend.app.api.search.get_clip_service", lambda: mock_clip)
 
-        mock_qdrant = MagicMock()
-        mock_qdrant.search_similar.return_value = []  # 0 semantic results
-        monkeypatch.setattr("backend.app.api.search.get_qdrant_service", lambda: mock_qdrant)
+        mock_lancedb = MagicMock()
+        mock_lancedb.search_similar.return_value = []  # 0 semantic results
+        monkeypatch.setattr("backend.app.api.search.get_lancedb_service", lambda: mock_lancedb)
 
         resp = client.get("/api/v1/search/", params={"query": "forest"})
         assert resp.status_code == 200

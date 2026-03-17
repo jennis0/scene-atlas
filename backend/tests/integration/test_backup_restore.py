@@ -1,7 +1,7 @@
-"""Integration test: backup → corrupt → restore → verify data integrity.
+"""Integration test: backup -> corrupt -> restore -> verify data integrity.
 
 Tests that the backup_sqlite function produces a consistent, restorable
-snapshot. Does NOT require a running Qdrant instance (Qdrant snapshot creation
+snapshot. Does NOT require a running LanceDB instance (vector DB snapshot creation
 is skipped; that path is covered by the e2e suite which requires live infrastructure).
 
 Run with:

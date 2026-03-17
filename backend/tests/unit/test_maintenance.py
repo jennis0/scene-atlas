@@ -333,14 +333,14 @@ class TestMarkInterruptedJobs:
         db_session.flush()
 
         # Mock the stores that _cleanup_import_images uses (lazy imports
-        # from backend.app.services and backend.app.services.qdrant_service)
+        # from backend.app.services and backend.app.services.lancedb_service)
         mock_store = MagicMock()
         mock_store.delete.return_value = True
         monkeypatch.setattr("backend.app.services.get_image_store", lambda: mock_store)
         monkeypatch.setattr("backend.app.services.get_thumbnail_store", lambda: mock_store)
-        mock_qdrant = MagicMock()
+        mock_lancedb = MagicMock()
         monkeypatch.setattr(
-            "backend.app.services.qdrant_service.get_qdrant_service", lambda: mock_qdrant
+            "backend.app.services.lancedb_service.get_lancedb_service", lambda: mock_lancedb
         )
 
         mark_interrupted_jobs(db_session)

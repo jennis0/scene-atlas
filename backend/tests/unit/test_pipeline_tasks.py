@@ -1,7 +1,7 @@
 """Unit tests for pipeline task modules.
 
 Tests color_extraction, image_processing, grid_detection, and embedding_generation.
-Heavy infrastructure (CLIP, Qdrant) is mocked; real images are generated via fixtures.
+Heavy infrastructure (CLIP, LanceDB) is mocked; real images are generated via fixtures.
 """
 
 from unittest.mock import patch
@@ -334,78 +334,72 @@ class TestBatchGenerateClipEmbeddings:
 
 
 # ---------------------------------------------------------------------------
-# QdrantService.get_embeddings (batch retrieval)
+# LanceDBService.get_embeddings (batch retrieval)
 # ---------------------------------------------------------------------------
 
 
 class TestGetEmbeddingsBatch:
     def test_returns_dict_of_vectors(self):
-        """get_embeddings issues one retrieve call and returns id→vector mapping."""
+        """get_embeddings issues one query and returns image_id->vector mapping."""
         from unittest.mock import MagicMock
 
-        from backend.app.services.qdrant_service import QdrantService
+        from backend.app.services.lancedb_service import LanceDBService
 
-        svc = QdrantService.__new__(QdrantService)
+        svc = LanceDBService.__new__(LanceDBService)
         import threading
 
-        svc._lock = threading.Lock()
-        mock_client = MagicMock()
-        svc.client = mock_client
+        svc._lock = threading.RLock()
+        mock_table = MagicMock()
+        svc._table = mock_table
         svc.collection_name = "images"
 
-        point1 = MagicMock()
-        point1.id = 1
-        point1.vector = [0.1, 0.2]
-        point2 = MagicMock()
-        point2.id = 2
-        point2.vector = [0.3, 0.4]
-        mock_client.retrieve.return_value = [point1, point2]
+        # LanceDB get_embeddings uses _table.search().where().limit().to_list()
+        mock_table.search.return_value.where.return_value.limit.return_value.to_list.return_value = [
+            {"image_id": 1, "vector": [0.1, 0.2]},
+            {"image_id": 2, "vector": [0.3, 0.4]},
+        ]
 
         result = svc.get_embeddings([1, 2])
 
-        mock_client.retrieve.assert_called_once()
         assert result == {1: [0.1, 0.2], 2: [0.3, 0.4]}
 
     def test_empty_input_returns_empty_dict(self):
-        """get_embeddings([]) returns {} without calling Qdrant."""
+        """get_embeddings([]) returns {} without calling the vector DB."""
         from unittest.mock import MagicMock
 
-        from backend.app.services.qdrant_service import QdrantService
+        from backend.app.services.lancedb_service import LanceDBService
 
-        svc = QdrantService.__new__(QdrantService)
+        svc = LanceDBService.__new__(LanceDBService)
         import threading
 
-        svc._lock = threading.Lock()
-        mock_client = MagicMock()
-        svc.client = mock_client
+        svc._lock = threading.RLock()
+        mock_table = MagicMock()
+        svc._table = mock_table
         svc.collection_name = "images"
 
         result = svc.get_embeddings([])
 
-        mock_client.retrieve.assert_not_called()
+        mock_table.search.assert_not_called()
         assert result == {}
 
-    def test_missing_vector_excluded(self):
-        """Points with vector=None are excluded from the result."""
+    def test_missing_ids_excluded(self):
+        """IDs not found in the table are absent from the result."""
         from unittest.mock import MagicMock
 
-        from backend.app.services.qdrant_service import QdrantService
+        from backend.app.services.lancedb_service import LanceDBService
 
-        svc = QdrantService.__new__(QdrantService)
+        svc = LanceDBService.__new__(LanceDBService)
         import threading
 
-        svc._lock = threading.Lock()
-        mock_client = MagicMock()
-        svc.client = mock_client
+        svc._lock = threading.RLock()
+        mock_table = MagicMock()
+        svc._table = mock_table
         svc.collection_name = "images"
 
-        point1 = MagicMock()
-        point1.id = 1
-        point1.vector = [0.1, 0.2]
-        point2 = MagicMock()
-        point2.id = 2
-        point2.vector = None
-        mock_client.retrieve.return_value = [point1, point2]
+        # Only id=1 found; id=2 is missing from results
+        mock_table.search.return_value.where.return_value.limit.return_value.to_list.return_value = [
+            {"image_id": 1, "vector": [0.1, 0.2]},
+        ]
 
         result = svc.get_embeddings([1, 2])
 

@@ -1,11 +1,11 @@
-"""Regenerate all CLIP embeddings and write them to Qdrant.
+"""Regenerate all CLIP embeddings and write them to LanceDB.
 
 Reads every image from the database, encodes it with CLIP, and upserts the
-embedding into Qdrant.  The existing collection is deleted and recreated so
+embedding into LanceDB.  The existing collection is deleted and recreated so
 stale entries are cleaned up.
 
 Designed to run as a background job via the JobRunner (triggered from the API)
-so it shares the server's embedded Qdrant instance.
+so it shares the server's embedded LanceDB instance.
 """
 
 import logging
@@ -14,7 +14,7 @@ from backend.app.config import settings
 from backend.app.models import Image, get_engine, get_session_local
 from backend.app.services import get_image_store
 from backend.app.services.clip_service import get_clip_service
-from backend.app.services.qdrant_service import get_qdrant_service
+from backend.app.services.lancedb_service import get_lancedb_service
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ def rebuild_all_embeddings(progress_fn=None, *, force: bool = False) -> dict:
 
     Returns a summary dict with total/succeeded/failed counts.
     """
-    qdrant = get_qdrant_service()
+    svc = get_lancedb_service()
     clip_service = get_clip_service()
     image_store = get_image_store()
 
@@ -61,7 +61,7 @@ def rebuild_all_embeddings(progress_fn=None, *, force: bool = False) -> dict:
     # Skip rebuild if collection already populated (unless forced)
     if not force:
         try:
-            info = qdrant.get_collection_info()
+            info = svc.get_collection_info()
             existing_count = info.get("points_count", 0)
             if existing_count == total and total > 0:
                 logger.info(
@@ -75,21 +75,21 @@ def rebuild_all_embeddings(progress_fn=None, *, force: bool = False) -> dict:
             logger.debug("Could not check collection info, proceeding with rebuild")
 
     # Wipe and recreate the collection so stale entries are removed
-    logger.info("Recreating Qdrant collection...")
-    qdrant.delete_collection()
-    qdrant.ensure_collection()
+    logger.info("Recreating LanceDB collection...")
+    svc.delete_collection()
+    svc.ensure_collection()
 
     logger.info("Rebuilding embeddings for %s images...", total)
 
     succeeded = 0
     failed = 0
-    qdrant_batch_size = 100  # Write batch for Qdrant upserts
+    svc_batch_size = 100  # Write batch for LanceDB upserts
     encode_batch_size = 16  # GPU forward-pass batch for ONNX vision encoder
 
-    for i in range(0, total, qdrant_batch_size):
-        batch = image_dicts[i : i + qdrant_batch_size]
-        batch_num = i // qdrant_batch_size + 1
-        total_batches = (total + qdrant_batch_size - 1) // qdrant_batch_size
+    for i in range(0, total, svc_batch_size):
+        batch = image_dicts[i : i + svc_batch_size]
+        batch_num = i // svc_batch_size + 1
+        total_batches = (total + svc_batch_size - 1) // svc_batch_size
         logger.info("Batch %s/%s (%s images)", batch_num, total_batches, len(batch))
 
         # Resolve paths and filter out missing files
@@ -153,19 +153,17 @@ def rebuild_all_embeddings(progress_fn=None, *, force: bool = False) -> dict:
                         )
                         failed += 1
 
-        # Write batch to Qdrant
+        # Write batch to LanceDB
         if items:
-            ok = qdrant.batch_add_embeddings(items)
+            ok = svc.batch_add_embeddings(items)
             if ok:
                 succeeded += len(items)
             else:
                 failed += len(items)
-                logger.error("Batch %s Qdrant write failed", batch_num)
+                logger.error("Batch %s LanceDB write failed", batch_num)
 
         if progress_fn:
-            progress_fn(
-                min(i + qdrant_batch_size, total), total, f"Batch {batch_num}/{total_batches}"
-            )
+            progress_fn(min(i + svc_batch_size, total), total, f"Batch {batch_num}/{total_batches}")
 
     summary = {"total": total, "succeeded": succeeded, "failed": failed, "skipped": False}
     logger.info("Embedding rebuild complete: %s", summary)

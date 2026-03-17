@@ -24,7 +24,7 @@ class TestHealthEndpoint:
         data = test_client.get("/health").json()
         checks = data["checks"]
         assert "database" in checks
-        assert "qdrant" in checks
+        assert "vector_db" in checks
         assert "job_runner" in checks
 
 

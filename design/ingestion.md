@@ -2,7 +2,7 @@
 
 ## Overview
 
-The ingestion pipeline processes images from the filesystem into the system: parsing metadata, copying into the object store, generating thumbnails, extracting colors, generating CLIP embeddings, and saving everything to SQLite + Qdrant.
+The ingestion pipeline processes images from the filesystem into the system: parsing metadata, copying into the object store, generating thumbnails, extracting colors, generating CLIP embeddings, and saving everything to SQLite + LanceDB.
 
 All ingestion runs through functions defined in `backend/pipeline/ingestion.py`. Background execution is handled by the in-process `JobRunner` (ThreadPoolExecutor).
 
@@ -11,7 +11,7 @@ All ingestion runs through functions defined in `backend/pipeline/ingestion.py`.
 The pipeline uses a **batched stage architecture** for maximum throughput. Images are processed in configurable batches (default 16) where:
 - **Prepare stage** runs concurrently via `ThreadPoolExecutor` (thumbnails + colors per image)
 - **CLIP embedding** runs as a batch forward pass (vectorized, 3-5x faster than individual)
-- **Database and Qdrant saves** are batched into single transactions
+- **Database and LanceDB saves** are batched into single transactions
 
 ```
 Web Upload                              CLI
@@ -43,7 +43,7 @@ process_import_group             ┌──────────────�
                                  │  3. batch_save_to_database │
                                  │     (single transaction)   │
                                  │                            │
-                                 │  4. batch_save_to_qdrant   │
+                                 │  4. batch_save_to_vector_db│
                                  │     (single upsert call)   │
                                  └────────────────────────────┘
 
@@ -51,7 +51,7 @@ process_single_image (thin wrapper for one-off use)
     ├── prepare_single_image
     ├── generate_clip_embedding (single image)
     ├── save_to_database
-    └── save_to_qdrant
+    └── save_to_vector_db
 ```
 
 ## Functions
@@ -89,7 +89,7 @@ Processes a confirmed image group using the batched pipeline. Called async by th
    - Submits `prepare_single_image` concurrently for all images in the batch
    - Runs `batch_generate_clip_embeddings` on all successful preparations
    - Runs `batch_save_to_database` in a single transaction
-   - Runs `batch_save_to_qdrant` in a single upsert call
+   - Runs `batch_save_to_vector_db` in a single upsert call
    - Updates `ImportJob` progress after each batch
 
 **Returns:** `dict` with `{job_id, processed, failed, total}`
@@ -111,7 +111,7 @@ Processes one image end-to-end. Used for one-off processing; batch functions use
 1. `prepare_single_image` — parse, copy to store, thumbnails, colors
 2. `generate_clip_embedding` — single-image CLIP inference
 3. `save_to_database` — single-image DB save
-4. `save_to_qdrant` — single-image Qdrant save
+4. `save_to_vector_db` — single-image LanceDB save
 
 **Returns:** `{"status": "success"|"failed", "image_id": int, "filepath": str}`
 
@@ -126,7 +126,7 @@ Batch ingestion from one or more source directories (CLI entry point).
 
 ## Embedding Reuse
 
-When re-importing a file with the same content hash as an existing image, the pipeline retrieves the existing CLIP embedding from Qdrant instead of regenerating it. This avoids redundant CLIP inference for duplicate files. The existing embedding is looked up by `image_id` of the original image and copied to the new image's Qdrant point.
+When re-importing a file with the same content hash as an existing image, the pipeline retrieves the existing CLIP embedding from LanceDB instead of regenerating it. This avoids redundant CLIP inference for duplicate files. The existing embedding is looked up by `image_id` of the original image and copied to the new image's LanceDB row.
 
 ## Video Support
 
@@ -149,7 +149,7 @@ The main per-image preparation function. Handles everything except CLIP and save
 5. **Extract colors** — calls `extract_dominant_colors()` inline (K-means, n_init=3, 5000 pixel sample)
 6. **Grid detection** (optional) — calls `detect_grid_from_image()` inline when `enable_image_grid_detection=True`, battlemaps only, non-video. Uses hybrid constraint + autocorrelation algorithm. Only runs when filename-based detection left `gridded=None` (presence + size) or `gridded=True` with no dimensions (size only).
 
-Returns a dict with `image_data`, `original_image_path`, `qdrant_metadata`, and `status`.
+Returns a dict with `image_data`, `original_image_path`, `vector_metadata`, and `status`.
 
 ### `batch_generate_clip_embeddings`
 
@@ -163,9 +163,9 @@ Saves multiple images to SQLite in a single session/transaction using shared `_s
 
 **Per-batch CLIP failure isolation:** If batch CLIP embedding generation fails, all images in that batch are marked as failed, but other batches in the same group continue processing independently. This ensures a transient CLIP error (e.g. OOM on a large batch) does not abort the entire import group.
 
-### `batch_save_to_qdrant`
+### `batch_save_to_vector_db`
 
-Saves multiple embeddings to Qdrant in a single `batch_add_embeddings()` call.
+Saves multiple embeddings to LanceDB in a single `batch_add_embeddings()` call.
 
 ## Performance Configuration
 
@@ -173,7 +173,7 @@ Settings in `backend/app/config.py`:
 
 | Setting | Default | Purpose |
 |---------|---------|---------|
-| `ingestion_batch_size` | 16 | Images per batch for CLIP/DB/Qdrant operations |
+| `ingestion_batch_size` | 16 | Images per batch for CLIP/DB/LanceDB operations |
 | `max_concurrent_prepare` | 4 | Max concurrent `prepare_single_image` tasks (dynamically computed by `resource_detector.py` at first boot) |
 | `color_kmeans_n_init` | 3 | K-means random initializations |
 | `color_clustering_samples` | 5000 | Max pixels sampled for color extraction |
@@ -238,7 +238,7 @@ When an image fails during ingest, errors are classified into user-friendly mess
  "detail": "cannot identify image file 'foo.png'"}         # raw exception
 ```
 
-**Pipeline stages:** `parse`, `copy`, `thumbnails`, `colors`, `grid_detection`, `embedding`, `db_save`, `qdrant_save`
+**Pipeline stages:** `parse`, `copy`, `thumbnails`, `colors`, `grid_detection`, `embedding`, `db_save`, `vector_db_save`
 
 **Classification rules** (checked in order):
 | Exception / Pattern | Reason |
@@ -252,7 +252,7 @@ When an image fails during ingest, errors are classified into user-friendly mess
 | `MemoryError` | Image is too large to process (out of memory) |
 | Stage = `embedding` | Failed to generate image embedding |
 | Stage = `db_save` | Failed to save image to database |
-| Stage = `qdrant_save` | Failed to save image embedding to search index |
+| Stage = `vector_db_save` | Failed to save image embedding to search index |
 | Fallback | Processing failed during {stage} |
 
 **Storage:** Per-image errors are collected during `_run_group` and stored as a JSON list on `ImportGroupJob.file_errors` (Text column). Each entry has `filename`, `reason`, and `stage` keys.

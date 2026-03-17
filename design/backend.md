@@ -2,7 +2,7 @@
 
 ## Overview
 
-The backend is a **FastAPI** application serving a REST API for image management, search, and import. It connects to SQLite (relational data), Qdrant embedded (vector embeddings), and the filesystem (image/thumbnail storage). Background work runs in-process via a `JobRunner` (ThreadPoolExecutor) and periodic maintenance via a `Scheduler` (asyncio).
+The backend is a **FastAPI** application serving a REST API for image management, search, and import. It connects to SQLite (relational data), LanceDB (vector embeddings, disk-backed and memory-mapped), and the filesystem (image/thumbnail storage). Background work runs in-process via a `JobRunner` (ThreadPoolExecutor) and periodic maintenance via a `Scheduler` (asyncio).
 
 ## Directory Structure
 
@@ -23,13 +23,13 @@ backend/
 │   │   ├── clip_service.py      # CLIP model for embeddings
 │   │   ├── color_search.py      # Color-based image search (LAB distance)
 │   │   ├── ort_providers.py     # ONNX Runtime provider resolution + GPU fallback
-│   │   ├── deletion_service.py  # Cascade deletion (image + store + Qdrant)
+│   │   ├── deletion_service.py  # Cascade deletion (image + store + LanceDB)
 │   │   ├── fts_service.py       # SQLite FTS5 full-text search
 │   │   ├── grid_detector.py     # Image-based grid detection algorithm
 │   │   ├── image_parser.py      # Filename/path metadata parser
 │   │   ├── image_store.py       # Hash-sharded filesystem storage
 │   │   ├── job_runner.py        # Background job runner (ThreadPoolExecutor)
-│   │   ├── qdrant_service.py    # Qdrant embedded vector DB client
+│   │   ├── lancedb_service.py   # LanceDB disk-backed vector DB client
 │   │   ├── scheduler.py         # Periodic task scheduler (asyncio)
 │   │   ├── validation.py        # Input validation helpers
 │   │   └── video_utils.py       # Video frame extraction + dimensions
@@ -218,7 +218,7 @@ Returns `GroupSearchResponse` with paginated groups. Supports two modes:
 ### Health
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/health` | Deep health check (DB + Qdrant + job runner) |
+| GET | `/health` | Deep health check (DB + LanceDB + job runner) |
 
 ## Services
 
@@ -234,8 +234,8 @@ Module (not a class): `backend/app/services/model_registry.py` — Static regist
 ### ModelDownloadService
 `backend/app/services/model_download_service.py` — Downloads models from HuggingFace to `APP_DATA_DIR/models/{name}/` using atomic temp-dir→rename pattern. `version.json` is the completion marker. Exposes `is_model_downloaded()`, `get_version_info()`, `download_model()`, `get_all_model_statuses()`.
 
-### QdrantService
-Embedded Qdrant vector DB client (local mode, no Docker). Manages the `battlemap_images` collection. Thread-safe via `threading.RLock`. Methods: `add_image_embedding`, `search_similar`, `delete_image_embedding`, `batch_add_embeddings`.
+### LanceDBService
+Disk-backed LanceDB vector DB client (memory-mapped from disk, no Docker). Manages the `embeddings_{model_name}` table. Thread-safe via `threading.RLock`. Methods: `add_image_embedding`, `search_similar`, `delete_image_embedding`, `batch_add_embeddings`.
 
 ### ImageParser
 Filename/path parser with DB-driven tag vocabulary. See [parser.md](parser.md).
@@ -250,7 +250,7 @@ Color-based image search using CIE LAB distance. Finds images with dominant colo
 State machine for import job lifecycle. Validates transitions between the 7 import statuses (uploading → staging → active → completed/failed/cancelled/expired). See [import-state-machine.md](import-state-machine.md).
 
 ### DeletionService
-Cascade deletion of images — removes DB records, ImageStore files, thumbnails, and Qdrant embeddings in a single transaction.
+Cascade deletion of images — removes DB records, ImageStore files, thumbnails, and LanceDB embeddings in a single transaction.
 
 ### ValidationService
 Input validation helpers (file size, file type, path traversal prevention).
@@ -276,7 +276,7 @@ Lightweight asyncio-based periodic task scheduler. Registers maintenance tasks d
 - `cleanup_staging` — every 6h
 - `expire_stale_jobs` — every 6h
 - `sweep_orphaned_store_files` — every 24h
-- `check_qdrant_sync` — every 24h
+- `check_vector_db_sync` — every 24h
 
 ## Configuration
 
@@ -285,7 +285,7 @@ All config via `backend/app/config.py` using `pydantic-settings`. Reads from `.e
 - `database_url` — SQLite path (default: `sqlite:///./data/battlemap.db`)
 - `store_images_dir` / `store_thumbnails_dir` — object store base directories
 - `staging_dir` — temp directory for import uploads
-- `qdrant_path` — Qdrant embedded local storage directory
+- `vector_db_path` — LanceDB local storage directory
 - `EMBEDDING_MODEL` env var — operator override for active model name (`small`/`medium`/`large`); bypasses DB setting entirely
 - Active model otherwise resolved from DB `app_settings.active_model` key (set via `POST /api/v1/models/active`)
 - `inference_device` — ONNX Runtime execution provider (`auto`/`cpu`/`cuda`/`directml`/`coreml`)
@@ -312,12 +312,12 @@ API endpoints
   ├── SQLAlchemy (db session via Depends)
   ├── ImageStore / ThumbnailStore (file serving)
   ├── CLIPService (semantic search)
-  └── QdrantService (embedded vector search, thread-safe via RLock)
+  └── LanceDBService (vector search, thread-safe via RLock)
 
 Background jobs (via JobRunner)
   ├── SQLAlchemy (save_to_database)
   ├── ImageStore (copy files into store)
   ├── ImageParser (metadata extraction)
   ├── CLIPService (embedding generation)
-  └── QdrantService (save embeddings)
+  └── LanceDBService (save embeddings)
 ```

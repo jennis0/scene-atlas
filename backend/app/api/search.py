@@ -16,7 +16,7 @@ from ..models import (
     Tag,
 )
 from ..models.schemas import GroupSearchResponse, GroupSearchResult
-from ..services import get_clip_service, get_qdrant_service
+from ..services import get_clip_service, get_lancedb_service
 from ..services.clip_service import get_effective_model_name
 from ..services.fts_service import fts_search, fts_search_terms, get_alias_expansions
 from ..services.model_registry import get_semantic_threshold
@@ -304,12 +304,12 @@ def search_images(
         try:
             clip_service = get_clip_service()
             query_embedding = clip_service.encode_text(effective_query)
-            qdrant_results = get_qdrant_service().search_similar(
+            vector_results = get_lancedb_service().search_similar(
                 query_embedding=query_embedding,
                 limit=limit * 3,
                 score_threshold=model_threshold,
             )
-            semantic_scores = {r["image_id"]: r["score"] for r in qdrant_results}
+            semantic_scores = {r["image_id"]: r["score"] for r in vector_results}
         except Exception:
             logger.exception("Semantic search error")
             if semantic_only:
@@ -626,10 +626,10 @@ def search_groups(
     if not text_only:
         try:
             embedding = get_clip_service().encode_text(query)
-            qdrant_results = get_qdrant_service().search_similar(
+            vector_results = get_lancedb_service().search_similar(
                 embedding, limit=candidate_pool, score_threshold=model_threshold
             )
-            semantic_scores = {r["image_id"]: r["score"] for r in qdrant_results}
+            semantic_scores = {r["image_id"]: r["score"] for r in vector_results}
         except Exception:
             logger.exception("Semantic search error")
             if semantic_only:
@@ -745,7 +745,7 @@ def search_groups(
 def trigger_rebuild_embeddings(request: Request, force: bool = False):
     """Rebuild all embeddings (fire-and-forget background job).
 
-    Deletes and recreates the Qdrant collection, then re-encodes every image.
+    Deletes and recreates the LanceDB table, then re-encodes every image.
     Search will be unavailable while the rebuild is running.
     If force=False and collection is already populated, the rebuild is skipped.
     """
