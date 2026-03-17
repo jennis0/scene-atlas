@@ -2,8 +2,9 @@
 
 Uses lancedb.connect(path=...) for memory-mapped disk storage — no separate
 server process needed.  A threading.RLock serialises write operations (upsert,
-delete, table management).  Read operations (search, retrieve) run lock-free
-since LanceDB handles concurrent reads natively via memory-mapped files.
+delete, table management).  Read operations (search, retrieve) snapshot the
+table reference and are safe to call concurrently with writes, but will raise
+RuntimeError if called after close().
 """
 
 import logging
@@ -166,18 +167,25 @@ class LanceDBService:
         limit: int = 100,
         score_threshold: float | None = None,
     ) -> list[dict]:
-        """Search for similar images by embedding (lock-free, read-only).
+        """Search for similar images by embedding.
 
         LanceDB returns cosine *distance* (0 = identical, 2 = opposite).
         We convert to cosine *similarity* (1 - distance) so that higher
         scores mean more similar results (consistent with search expectations).
+
+        When score_threshold is set, results below the threshold are discarded
+        after retrieval.  This may return fewer than ``limit`` results — the
+        same semantics as Qdrant's score_threshold parameter.  Callers already
+        compensate by requesting inflated limits (e.g. limit * 3).
         """
+        table = self._table
+        if table is None:
+            raise RuntimeError("LanceDBService is closed")
         try:
-            results = self._table.search(query_embedding).metric("cosine").limit(limit).to_list()
+            results = table.search(query_embedding).metric("cosine").limit(limit).to_list()
 
             output = []
             for row in results:
-                # LanceDB's _distance is cosine distance; convert to similarity
                 score = 1.0 - row["_distance"]
                 if score_threshold is not None and score < score_threshold:
                     continue
@@ -225,9 +233,12 @@ class LanceDBService:
                 return False
 
     def get_embedding(self, image_id: int) -> list[float] | None:
-        """Retrieve a stored embedding vector for an image (lock-free, read-only)."""
+        """Retrieve a stored embedding vector for an image."""
+        table = self._table
+        if table is None:
+            raise RuntimeError("LanceDBService is closed")
         try:
-            results = self._table.search().where(f"id = {image_id}").limit(1).to_list()
+            results = table.search().where(f"id = {image_id}").limit(1).to_list()
             if results:
                 vec = results[0]["vector"]
                 return vec if isinstance(vec, list) else np.array(vec).tolist()
@@ -243,11 +254,12 @@ class LanceDBService:
         """
         if not image_ids:
             return {}
+        table = self._table
+        if table is None:
+            raise RuntimeError("LanceDBService is closed")
         try:
             ids_str = ", ".join(str(i) for i in image_ids)
-            results = (
-                self._table.search().where(f"id IN ({ids_str})").limit(len(image_ids)).to_list()
-            )
+            results = table.search().where(f"id IN ({ids_str})").limit(len(image_ids)).to_list()
             out = {}
             for row in results:
                 vec = row["vector"]
@@ -258,9 +270,12 @@ class LanceDBService:
             return {}
 
     def get_collection_info(self) -> dict:
-        """Get information about the collection (lock-free, read-only)."""
+        """Get information about the collection."""
+        table = self._table
+        if table is None:
+            raise RuntimeError("LanceDBService is closed")
         try:
-            count = self._table.count_rows()
+            count = table.count_rows()
             return {
                 "name": self.collection_name,
                 "points_count": count,
@@ -369,6 +384,7 @@ def reload_lancedb_service(collection_name: str, vector_size: int | None = None)
 def shutdown_lancedb_service() -> None:
     """Close and discard the global LanceDBService singleton."""
     global _lancedb_service
-    if _lancedb_service is not None:
-        _lancedb_service.close()
-        _lancedb_service = None
+    with _init_lock:
+        if _lancedb_service is not None:
+            _lancedb_service.close()
+            _lancedb_service = None

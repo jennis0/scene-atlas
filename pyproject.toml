@@ -24,7 +24,7 @@ dependencies = [
     "psutil>=5.9.0,<7.0",
     "slowapi>=0.1.9,<1.0",
     "huggingface-hub>=0.20.0",
-    "lancedb>=0.30.0",
+    "lancedb>=0.30.0,<1.0",
 ]
 
 [project.optional-dependencies]
