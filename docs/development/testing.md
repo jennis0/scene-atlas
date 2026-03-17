@@ -126,7 +126,7 @@ Playwright tests validate critical user flows in a real browser against the full
 
 ```
 backend/tests/
-├── conftest.py                    # Shared fixtures, Qdrant/CLIP mocking
+├── conftest.py                    # Shared fixtures, LanceDB/CLIP mocking
 ├── unit/                          # Pure logic, no DB, no filesystem side effects
 │   ├── test_parser.py             # ImageParser.parse() and group_files()
 │   ├── test_schemas.py            # Pydantic model validation and round-trips
@@ -135,7 +135,7 @@ backend/tests/
 │   ├── test_pipeline_tasks.py     # color_extraction, image_processing, grid_detection, embedding
 │   ├── test_video_utils.py        # verify_video_mime, extract_first_frame, get_video_dimensions
 │   ├── test_color_search.py       # HSL color distance, color index search
-│   ├── test_deletion_service.py   # safe_delete_image, file + DB + Qdrant cleanup
+│   ├── test_deletion_service.py   # safe_delete_image, file + DB + LanceDB cleanup
 │   ├── test_system_info.py        # dir_size utility
 │   ├── test_path_traversal.py     # Path traversal prevention
 │   ├── test_validation.py         # Input validation helpers
@@ -148,7 +148,7 @@ backend/tests/
 │   ├── test_ort_providers.py      # ONNX Runtime execution provider selection + fallback
 │   ├── test_manifest.py           # Model manifest loading and validation
 │   └── test_resource_detector.py  # compute_resource_defaults concurrency scaling
-├── integration/                   # Real SQLite DB, mocked CLIP/Qdrant
+├── integration/                   # Real SQLite DB, mocked CLIP/LanceDB
 │   ├── test_metadata_roundtrip.py # User edits survive to DB (highest priority)
 │   ├── test_analyse_upload.py     # analyse_upload (grouping + thumbnails)
 │   ├── test_process_single.py     # process_single_image (both modes)

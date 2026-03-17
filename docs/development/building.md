@@ -62,13 +62,13 @@ All config via environment variables or `.env` file. Key settings:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `APP_DATA_DIR` | `data/` | Primary config directory (DB, Qdrant, staging, backups) |
+| `APP_DATA_DIR` | `data/` | Primary config directory (DB, LanceDB, staging, backups) |
 | `IMAGE_LIBRARY_DIR` | `data/store/` | Image library root (images + thumbnails stored here) |
 | `AUTH_TOKEN` | (unset) | Optional bearer token for API auth |
 | `CORS_ORIGINS` | `localhost:3000,5173,8000` | Allowed CORS origins |
 | `APP_MODE` | `auto` | Force mode: `server`, `electron`, `auto` |
 
-Other paths (`DATABASE_URL`, `QDRANT_PATH`, `STAGING_DIR`, etc.) are derived from `APP_DATA_DIR` and `IMAGE_LIBRARY_DIR` by default. Override individual paths only if you need a non-standard layout.
+Other paths (`DATABASE_URL`, `VECTOR_DB_PATH`, `STAGING_DIR`, etc.) are derived from `APP_DATA_DIR` and `IMAGE_LIBRARY_DIR` by default. Override individual paths only if you need a non-standard layout.
 
 See `.env.example` for the full list.
 

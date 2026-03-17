@@ -1,6 +1,6 @@
 # Stress Testing the Import Pipeline
 
-The stress testing suite exercises the Scene Atlas import pipeline under concurrent load, adversarial input, and failure conditions.  It runs against a **real server** (not mocked), testing the actual SQLite WAL mode contention, Qdrant RLock behaviour, and the ThreadPoolExecutor job runner.
+The stress testing suite exercises the Scene Atlas import pipeline under concurrent load, adversarial input, and failure conditions.  It runs against a **real server** (not mocked), testing the actual SQLite WAL mode contention, LanceDB write serialisation, and the ThreadPoolExecutor job runner.
 
 ## Quick start
 
@@ -43,7 +43,7 @@ No new Python dependencies are required — `httpx` and `Pillow` are already dev
 
 Runs 100 coroutines (quick: 10) each doing a complete import: init → upload → analyse → confirm-all → poll.
 
-**What it catches:** SQLite WAL contention, Qdrant RLock bottleneck, ThreadPoolExecutor starvation, zombie jobs.
+**What it catches:** SQLite WAL contention, LanceDB write serialisation bottleneck, ThreadPoolExecutor starvation, zombie jobs.
 
 **Pass criteria:** All jobs reach a terminal state (`completed`, `failed`, or `cancelled`), zero HTTP 5xx responses.
 
