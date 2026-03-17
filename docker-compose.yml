@@ -1,18 +1,72 @@
+# Scene Atlas — Docker Compose
+#
+# Serves the API + frontend UI on a single port (default 8000).
+# The frontend is built into the Docker image and served by the backend.
+#
+# Usage:
+#   docker compose --profile cpu up -d       # CPU inference
+#   docker compose --profile gpu up -d       # NVIDIA GPU inference
+#
+# Configuration:
+#   Copy .env.example to .env and edit to customise. All variables below
+#   use ${VAR:-default} so .env overrides work without editing this file.
+#
+# Volumes:
+#   - scene-atlas-data (named volume) — database, vector index, thumbnails.
+#     Managed by the app; users should not need to touch this directly.
+#   - images (bind mount) — original image library. Defaults to ./images
+#     in the project root. Set IMAGE_DIR in .env to point elsewhere,
+#     e.g. IMAGE_DIR=/mnt/nas/battlemaps
+#
+# See README.md and .env.example for full configuration reference.
+
+x-common: &common
+  build:
+    context: .
+    network: host
+  ports:
+    - "${PORT:-8000}:8000"
+  volumes:
+    - scene-atlas-data:/app/data
+    - ${IMAGE_DIR:-./images}:/app/images
+  environment: &common-env
+    APP_DATA_DIR: /app/data
+    IMAGE_LIBRARY_DIR: /app/images
+    APP_MODE: server
+    CORS_ORIGINS: ${CORS_ORIGINS:-'["http://localhost:8000"]'}
+    INFERENCE_DEVICE: ${INFERENCE_DEVICE:-auto}
+    EMBEDDING_MODEL: ${EMBEDDING_MODEL:-clip-vit-b-32}
+    DEBUG: ${DEBUG:-false}
+  restart: unless-stopped
+
 services:
+  # CPU inference (default). Use: docker compose --profile cpu up -d
   scene-atlas:
-    build: .
-    ports:
-      - "8000:8000"
-    volumes:
-      - scene-atlas-data:/app/data
-      - scene-atlas-images:/app/images
+    <<: *common
+    profiles:
+      - cpu
+
+  # NVIDIA GPU inference. Use: docker compose --profile gpu up -d
+  # Requires: nvidia-container-toolkit installed on the host.
+  scene-atlas-gpu:
+    <<: *common
+    build:
+      context: .
+      network: host
+      args:
+        EXTRA: gpu
     environment:
-      - APP_DATA_DIR=/app/data
-      - IMAGE_LIBRARY_DIR=/app/images
-      - APP_MODE=server
-      - CORS_ORIGINS=["http://localhost:8000"]
-    restart: unless-stopped
+      <<: *common-env
+      INFERENCE_DEVICE: cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    profiles:
+      - gpu
 
 volumes:
   scene-atlas-data:
-  scene-atlas-images:

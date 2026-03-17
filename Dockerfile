@@ -1,9 +1,9 @@
 # ── Stage 1: Build frontend ──────────────────────────────────────────────────
-FROM node:22-alpine AS frontend-build
+FROM node:22-slim AS frontend-build
 
 WORKDIR /build/frontend
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+RUN NODE_OPTIONS="--max-old-space-size=512" npm ci --prefer-offline
 
 COPY frontend/ ./
 RUN npm run build

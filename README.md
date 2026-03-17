@@ -19,7 +19,7 @@ A tool for managing, searching, and exploring large collections of tabletop RPG 
 | Layer | Technology |
 |---|---|
 | Backend API | FastAPI + SQLAlchemy (SQLite) |
-| Semantic search | CLIP / SigLIP2 (multi-model via ONNX Runtime) → Qdrant (embedded local) |
+| Semantic search | CLIP / SigLIP2 (multi-model via ONNX Runtime) → LanceDB |
 | Full-text search | SQLite FTS5 with Porter stemmer |
 | Background jobs | In-process ThreadPoolExecutor + async scheduler |
 | Frontend | React 18 + TypeScript + Vite + Tailwind + Radix UI |
@@ -32,7 +32,7 @@ A tool for managing, searching, and exploring large collections of tabletop RPG 
 - **Python 3.12+** with [uv](https://docs.astral.sh/uv/)
 - **Node.js 20+** with npm
 
-No Docker required — Qdrant runs in embedded local mode within the Python process.
+No Docker required — vector search runs in-process via LanceDB.
 
 ---
 
@@ -68,28 +68,44 @@ uv sync --extra dev --extra gpu-dev        # CUDA + dev tools + torch
 
 A bare `uv sync` does **not** install onnxruntime — the app will fail at startup with a clear error.
 
+### Standalone server (no Docker)
+
+Build the frontend once, then run the backend directly. The backend auto-detects
+the built frontend and serves both the API and UI on a single port.
+
+```bash
+cd frontend && npm run build && cd ..
+uv run uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+```
+
+Configure via `.env` — see `.env.example` for available options.
+
 ### Docker
 
-The simplest way to deploy Scene Atlas as a server:
+The simplest way to deploy Scene Atlas as a server. The container builds the
+frontend into the image and serves both the API and UI on a single port.
 
 ```bash
-# CPU (default)
-docker compose up -d
+# CPU inference
+docker compose --profile cpu up -d
 
-# With NVIDIA GPU
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+# NVIDIA GPU inference (requires nvidia-container-toolkit)
+docker compose --profile gpu up -d
 ```
 
-Data is stored in Docker volumes by default. To use a host directory for your images:
+By default, images are bind-mounted from `./images` in the project root.
+To use a different directory, create a `.env` file:
 
 ```bash
-# Mount a local directory for the image library
-docker compose run -v /path/to/your/images:/app/images scene-atlas
+cp .env.example .env
+# Then edit .env:
+IMAGE_DIR=/path/to/your/battlemaps
+PORT=9000                          # change the host port (default 8000)
+CORS_ORIGINS=["https://maps.example.com"]  # for reverse-proxy setups
 ```
 
-Or edit `docker-compose.yml` to replace the named volume with a bind mount.
-
-The container exposes port 8000 and serves both the API and the frontend UI.
+App data (database, vector index, thumbnails) is stored in a named Docker
+volume (`scene-atlas-data`). See `.env.example` for all available options.
 
 ---
 
