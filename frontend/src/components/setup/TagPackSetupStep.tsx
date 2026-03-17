@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Check } from 'lucide-react'
+import { toast } from 'sonner'
 import { tagApi } from '@/lib/api/tagApi'
 import type { TagPack } from '@/types'
 
@@ -32,9 +33,12 @@ export function TagPackSetupStep({
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [importing, setImporting] = useState(false)
   const [importDone, setImportDone] = useState(false)
+  const [fetchError, setFetchError] = useState(false)
 
   // Fetch available tag packs on mount
-  useEffect(() => {
+  const fetchPacks = () => {
+    setLoading(true)
+    setFetchError(false)
     tagApi
       .getTagPacks()
       .then((data) => {
@@ -50,8 +54,13 @@ export function TagPackSetupStep({
         setLoading(false)
       })
       .catch(() => {
+        setFetchError(true)
         setLoading(false)
       })
+  }
+
+  useEffect(() => {
+    fetchPacks()
   }, [])
 
   const togglePack = (name: string) => {
@@ -77,7 +86,7 @@ export function TagPackSetupStep({
     try {
       await tagApi.importMultipleTagPacks(toImport)
     } catch {
-      // Best-effort — don't block setup if import fails
+      toast.error('Some tag packs failed to import. You can retry from Settings later.')
     }
     setImporting(false)
     setImportDone(true)
@@ -138,6 +147,22 @@ export function TagPackSetupStep({
             {[...Array(6)].map((_, i) => (
               <div key={i} className="h-20 bg-muted/40 rounded animate-pulse" />
             ))}
+          </div>
+        )}
+
+        {/* Fetch error */}
+        {fetchError && !loading && !packs && (
+          <div className="text-center space-y-3 py-6">
+            <p className="text-sm text-destructive">
+              Failed to load tag packs. Please check your connection and try again.
+            </p>
+            <button
+              type="button"
+              onClick={fetchPacks}
+              className="px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-muted transition-colors"
+            >
+              Retry
+            </button>
           </div>
         )}
 

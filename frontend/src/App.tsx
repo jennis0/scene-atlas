@@ -11,11 +11,14 @@ function App() {
   const [setupReady, setSetupReady] = useState(!isServer)
   const [checkingSetup, setCheckingSetup] = useState(isServer)
   const [skipModel, setSkipModel] = useState(false)
+  const [setupError, setSetupError] = useState(false)
 
-  useEffect(() => {
+  const checkSetupStatus = useCallback(() => {
     if (!isServer) {
       return
     }
+    setCheckingSetup(true)
+    setSetupError(false)
     modelsApi
       .setupStatus()
       .then((status) => {
@@ -30,11 +33,14 @@ function App() {
         setCheckingSetup(false)
       })
       .catch(() => {
-        // If backend isn't up yet or check fails, assume setup is done (don't block the app)
-        setSetupReady(true)
+        setSetupError(true)
         setCheckingSetup(false)
       })
   }, [])
+
+  useEffect(() => {
+    checkSetupStatus()
+  }, [checkSetupStatus])
 
   const handleSetupComplete = useCallback(() => setSetupReady(true), [])
 
@@ -42,6 +48,26 @@ function App() {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <p className="text-muted-foreground text-sm">Loading...</p>
+      </div>
+    )
+  }
+
+  if (setupError) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-6">
+        <div className="w-full max-w-md rounded-lg border border-border bg-card p-8 text-center space-y-4 shadow-sm">
+          <h2 className="text-lg font-semibold text-foreground">Unable to connect to Scene Atlas backend</h2>
+          <p className="text-sm text-muted-foreground">
+            The backend server may not be running or is unreachable. Please check your setup and try again.
+          </p>
+          <button
+            type="button"
+            onClick={checkSetupStatus}
+            className="px-5 py-2 rounded-lg bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
       </div>
     )
   }
