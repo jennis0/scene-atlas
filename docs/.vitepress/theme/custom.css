@@ -1,0 +1,276 @@
+/* ═══════════════════════════════════════════════════════════════
+   Scene Atlas — VitePress custom theme
+   Cartographic / archival aesthetic matching the main app.
+   Source of truth: frontend/src/index.css design tokens.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Fonts ─────────────────────────────────────────────────── */
+
+:root {
+  --vp-font-family-base: "Figtree", system-ui, sans-serif;
+  --vp-font-family-mono: "JetBrains Mono", Consolas, monospace;
+}
+
+/* Cinzel display serif for headings */
+.vp-doc h1,
+.vp-doc h2,
+.vp-doc h3 {
+  font-family: "Cinzel", Georgia, serif;
+}
+
+.VPHero .name {
+  font-family: "Cinzel", Georgia, serif !important;
+}
+
+/* ── Light mode (warm parchment) ───────────────────────────── */
+
+:root {
+  /* Surfaces */
+  --vp-c-bg: hsl(36, 28%, 91%);
+  --vp-c-bg-alt: hsl(36, 24%, 96%);
+  --vp-c-bg-elv: hsl(36, 26%, 94%);
+  --vp-c-bg-soft: hsl(36, 26%, 94%);
+
+  /* Text */
+  --vp-c-text-1: hsl(30, 12%, 15%);
+  --vp-c-text-2: hsl(30, 8%, 40%);
+  --vp-c-text-3: hsl(30, 6%, 55%);
+
+  /* Brand — amber darkened for light bg contrast */
+  --vp-c-brand-1: hsl(38, 60%, 45%);
+  --vp-c-brand-2: hsl(38, 55%, 40%);
+  --vp-c-brand-3: hsl(38, 65%, 50%);
+  --vp-c-brand-soft: hsla(38, 60%, 45%, 0.14);
+
+  /* Borders */
+  --vp-c-border: hsl(36, 14%, 78%);
+  --vp-c-divider: hsl(36, 14%, 82%);
+  --vp-c-gutter: hsl(36, 18%, 87%);
+
+  /* Overrides for specific component surfaces */
+  --vp-c-default-1: hsl(36, 18%, 87%);
+  --vp-c-default-2: hsl(36, 16%, 84%);
+  --vp-c-default-3: hsl(36, 14%, 80%);
+  --vp-c-default-soft: hsl(36, 16%, 90%);
+
+  --vp-sidebar-bg-color: hsl(36, 26%, 94%);
+
+  /* Code blocks */
+  --vp-code-block-bg: hsl(36, 18%, 87%);
+  --vp-code-bg: hsl(36, 18%, 87%);
+
+  /* Custom container tips — use amber */
+  --vp-custom-block-tip-border: hsl(38, 60%, 45%);
+  --vp-custom-block-tip-text: hsl(38, 55%, 35%);
+  --vp-custom-block-tip-bg: hsla(38, 60%, 45%, 0.08);
+  --vp-custom-block-tip-code-bg: hsla(38, 60%, 45%, 0.12);
+}
+
+/* ── Dark mode (deep navy cartographic) ────────────────────── */
+
+.dark {
+  /* Surfaces — from frontend tokens */
+  --vp-c-bg: hsl(222, 22%, 8%); /* #0e1118 */
+  --vp-c-bg-alt: hsl(220, 25%, 10%); /* #12171f popover */
+  --vp-c-bg-elv: hsl(222, 22%, 12%); /* #161c28 card */
+  --vp-c-bg-soft: hsl(222, 22%, 12%); /* card */
+
+  /* Text — warm parchment */
+  --vp-c-text-1: hsl(37, 27%, 89%); /* #ede8dc */
+  --vp-c-text-2: hsl(37, 8%, 55%);
+  --vp-c-text-3: hsl(37, 8%, 42%);
+
+  /* Brand — amber gold */
+  --vp-c-brand-1: hsl(38, 60%, 58%); /* #d4a853 */
+  --vp-c-brand-2: hsl(38, 55%, 52%);
+  --vp-c-brand-3: hsl(38, 65%, 64%);
+  --vp-c-brand-soft: hsla(38, 60%, 58%, 0.14);
+
+  /* Borders — subtle navy */
+  --vp-c-border: hsl(220, 18%, 19%); /* #222a38 */
+  --vp-c-divider: hsl(220, 18%, 16%);
+  --vp-c-gutter: hsl(222, 22%, 6%); /* deeper than bg */
+
+  /* Default palette (buttons, badges) */
+  --vp-c-default-1: hsl(222, 20%, 17%); /* secondary */
+  --vp-c-default-2: hsl(222, 20%, 15%); /* muted */
+  --vp-c-default-3: hsl(222, 22%, 12%);
+  --vp-c-default-soft: hsl(222, 20%, 15%);
+
+  --vp-sidebar-bg-color: hsl(220, 25%, 10%);
+
+  /* Code blocks — secondary surface */
+  --vp-code-block-bg: hsl(222, 20%, 15%);
+  --vp-code-bg: hsl(222, 20%, 15%);
+  --vp-code-color: hsl(37, 27%, 85%);
+
+  /* Custom container tips — amber */
+  --vp-custom-block-tip-border: hsl(38, 60%, 58%);
+  --vp-custom-block-tip-text: hsl(38, 50%, 70%);
+  --vp-custom-block-tip-bg: hsla(38, 60%, 58%, 0.08);
+  --vp-custom-block-tip-code-bg: hsla(38, 60%, 58%, 0.12);
+}
+
+/* ── Dot-grid background ───────────────────────────────────── */
+
+body {
+  background-image: radial-gradient(
+    circle,
+    hsla(37, 27%, 89%, 0.04) 1px,
+    transparent 1px
+  );
+  background-size: 28px 28px;
+}
+
+.dark body {
+  background-image: radial-gradient(
+    circle,
+    hsla(37, 27%, 89%, 0.04) 1px,
+    transparent 1px
+  );
+}
+
+:root body {
+  background-image: radial-gradient(
+    circle,
+    hsla(30, 12%, 15%, 0.04) 1px,
+    transparent 1px
+  );
+}
+
+/* ── Amber top stripe ──────────────────────────────────────── */
+
+body::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1.5px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    hsl(38, 60%, 58%) 15%,
+    hsl(38, 60%, 58%) 50%,
+    hsl(38, 60%, 58%) 85%,
+    transparent 100%
+  );
+  z-index: 1000;
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+/* ── Scrollbars ────────────────────────────────────────────── */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--vp-c-border) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--vp-c-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--vp-c-text-3);
+}
+
+/* ── Hero section ──────────────────────────────────────────── */
+
+.VPHero .name {
+  background: linear-gradient(
+    135deg,
+    hsl(38, 60%, 58%) 0%,
+    hsl(37, 27%, 89%) 100%
+  ) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+}
+
+.dark .VPHero .name {
+  background: linear-gradient(
+    135deg,
+    hsl(38, 60%, 58%) 0%,
+    hsl(37, 27%, 89%) 100%
+  ) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+}
+
+:root .VPHero .name {
+  background: linear-gradient(
+    135deg,
+    hsl(38, 60%, 40%) 0%,
+    hsl(30, 12%, 25%) 100%
+  ) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+}
+
+.VPHero .text {
+  font-family: "Cinzel", Georgia, serif;
+}
+
+/* ── Feature cards ─────────────────────────────────────────── */
+
+.VPFeature {
+  border-color: var(--vp-c-border) !important;
+  background-color: var(--vp-c-bg-soft) !important;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.VPFeature:hover {
+  border-color: hsla(38, 60%, 58%, 0.4) !important;
+}
+
+.dark .VPFeature {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+.dark .VPFeature:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+}
+
+/* Feature icon — amber tint */
+.VPFeature .icon {
+  color: var(--vp-c-brand-1);
+}
+
+/* ── Sidebar active link — amber ───────────────────────────── */
+
+.VPSidebar .is-active > .link > .text {
+  color: var(--vp-c-brand-1) !important;
+}
+
+/* ── Nav link active — amber ───────────────────────────────── */
+
+.VPNavBarMenuLink.active .text {
+  color: var(--vp-c-brand-1) !important;
+}
+
+/* ── Antialiasing (dark mode) ──────────────────────────────── */
+
+.dark {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Home page layout refinements ──────────────────────────── */
+
+.VPHome .VPFeatures {
+  max-width: 1152px;
+  margin: 0 auto;
+}
