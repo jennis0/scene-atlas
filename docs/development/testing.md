@@ -1,6 +1,6 @@
 # Running Tests
 
-For testing strategy, conventions, and guidelines on what to test, see [design/testing.md](../design/testing.md).
+For testing strategy, conventions, and guidelines on what to test, see [design/testing.md](../../design/testing.md).
 
 For stress testing the import pipeline, see [stress-testing.md](stress-testing.md).
 

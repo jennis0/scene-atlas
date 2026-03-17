@@ -2,7 +2,7 @@
 
 Architecture and design documentation for Scene Atlas. These documents describe how the system works, the decisions behind it, and what's known to be incomplete.
 
-For how to build, run, test, and deploy, see [docs/](../docs/).
+For how to build, run, test, and deploy, see [docs/development/](../docs/development/).
 
 ## System Architecture
 

@@ -121,3 +121,8 @@ scripts/results/
 eval/data/dndbeyond/
 eval/data/czepeku/
 .worktrees/
+
+# VitePress docs build
+docs/.vitepress/dist
+docs/.vitepress/cache
+docs/node_modules
