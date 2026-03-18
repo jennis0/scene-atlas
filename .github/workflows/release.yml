@@ -1,0 +1,345 @@
+name: Release
+
+# Manual-only release pipeline. Run this against main before tagging a release.
+# Stages: full test suite → E2E → multi-platform Electron builds → publish.
+#
+# Workflow:
+#   1. Merge PRs to main
+#   2. Trigger this workflow manually against main
+#   3. Wait for full tests + E2E + builds to pass
+#   4. Download and verify artifacts
+#   5. Re-run with publish=true and a version tag to create a GitHub Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish to GitHub Releases'
+        type: boolean
+        default: false
+      version:
+        description: 'Version to release (e.g. 0.5.0) — only used when publish is true'
+        type: string
+        required: false
+
+jobs:
+  # ── Stage 1: Full test suite ──────────────────────────────────────────────
+  test-backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+          enable-cache: true
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: uv sync --extra dev --extra cpu
+      - name: Backend lint
+        run: uv run ruff check backend/
+      - name: Backend format check
+        run: uv run ruff format --check backend/
+      - name: Backend unit tests
+        run: uv run python -m pytest backend/tests/unit/ -v
+      - name: Cache ONNX models (small)
+        id: cache-onnx
+        uses: actions/cache@v4
+        with:
+          path: data/models/small
+          key: onnx-models-small-${{ hashFiles('backend/app/services/model_registry.py') }}
+      - name: Download ONNX model
+        if: steps.cache-onnx.outputs.cache-hit != 'true'
+        run: uv run python scripts/models/setup_models.py
+        env:
+          EMBEDDING_MODEL: small
+      - name: Backend integration tests
+        run: >
+          uv run python -m pytest backend/tests/integration/ -v
+          || test $? -eq 134
+        env:
+          EMBEDDING_MODEL: small
+      - name: Backend heavy tests (real CLIP)
+        run: uv run python -m pytest -m heavy -v
+
+  test-frontend:
+    name: Frontend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: ESLint
+        working-directory: frontend
+        run: npx eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0
+      - name: Prettier check
+        working-directory: frontend
+        run: npx prettier --check src/
+      - name: TypeScript type check
+        working-directory: frontend
+        run: npx tsc --noEmit
+      - name: Unit tests with coverage
+        working-directory: frontend
+        run: npx vitest run --coverage
+      - name: Upload frontend coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-frontend
+          path: frontend/coverage/
+          retention-days: 14
+      - name: Production build
+        working-directory: frontend
+        run: npm run build
+
+  test-cross-platform:
+    name: Backend unit tests (${{ matrix.os }})
+    needs: [test-backend]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+          enable-cache: true
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: uv sync --extra dev --extra cpu
+      - name: Run unit tests
+        run: uv run python -m pytest backend/tests/unit/ -v
+
+  # ── Stage 2: E2E tests ───────────────────────────────────────────────────
+  e2e:
+    name: E2E tests (Playwright)
+    needs: [test-backend, test-frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+          enable-cache: true
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+      - name: Install Python dependencies
+        run: uv sync --extra dev --extra cpu
+      - name: Install root dependencies
+        run: npm ci
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            playwright-
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+      - name: Cache ONNX models
+        id: cache-onnx
+        uses: actions/cache@v4
+        with:
+          path: data/models/small
+          key: onnx-models-small-${{ hashFiles('backend/app/services/model_registry.py') }}
+      - name: Download ONNX model from HuggingFace
+        if: steps.cache-onnx.outputs.cache-hit != 'true'
+        run: uv run python scripts/models/setup_models.py
+      - name: Run E2E tests
+        run: npm run test:e2e
+        env:
+          CI: "true"
+          E2E_IMAGE_KEY: ${{ secrets.E2E_IMAGE_KEY }}
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: e2e/playwright-report/
+          retention-days: 14
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-results
+          path: e2e/test-results/
+          retention-days: 14
+
+  # ── Stage 3: Multi-platform Electron builds ───────────────────────────────
+  # GPU strategy per platform:
+  #   Windows: onnxruntime-directml (all DirectX 12 GPUs, ~20 MB overhead)
+  #   macOS:   onnxruntime (CoreML built-in on Apple Silicon, zero overhead)
+  #   Linux:   onnxruntime (CPU only — CUDA provider too large for desktop)
+  build:
+    needs: [e2e, test-cross-platform]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+            arch: x64
+            ort_extra: gpu-directml
+          - os: macos-latest
+            platform: macos
+            arch: arm64
+            ort_extra: cpu
+          - os: ubuntu-22.04
+            platform: linux
+            arch: x64
+            ort_extra: cpu
+
+    runs-on: ${{ matrix.os }}
+    name: Build ${{ matrix.platform }} (${{ matrix.arch }})
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Set version from input ──────────────────────────────────────────
+      - name: Set version
+        if: inputs.publish && inputs.version != ''
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          echo "VERSION=$RELEASE_VERSION" >> "$GITHUB_ENV"
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = process.env.RELEASE_VERSION;
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('frontend/package.json', 'utf8'));
+            pkg.version = process.env.RELEASE_VERSION;
+            fs.writeFileSync('frontend/package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+      # ── Python / uv setup ──────────────────────────────────────────────
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: 'latest'
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install Python dependencies
+        run: uv sync --extra dev --extra ${{ matrix.ort_extra }}
+
+      - name: Install PyInstaller
+        run: uv pip install pyinstaller
+
+      # ── Linux system dependencies ────────────────────────────────────────
+      - name: Install Linux system deps
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            librsvg2-dev \
+            patchelf \
+            libfuse2
+
+      # ONNX models are downloaded at runtime by the app (no build-time bundling)
+
+      # ── Build Python sidecar ─────────────────────────────────────────────
+      - name: Build sidecar
+        run: uv run python scripts/build/build_sidecar.py
+
+      # ── Node.js setup ────────────────────────────────────────────────────
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+
+      - name: Install root Node dependencies
+        run: npm ci
+
+      - name: Install frontend Node dependencies
+        run: npm ci
+        working-directory: frontend
+
+      # ── Build frontend ───────────────────────────────────────────────────
+      - name: Build frontend
+        run: npm run build
+        working-directory: frontend
+
+      # ── Compile Electron TypeScript ──────────────────────────────────────
+      - name: Compile Electron main process
+        run: npx tsc -p electron/tsconfig.json
+
+      # ── Build Electron app ───────────────────────────────────────────────
+      - name: Build Electron app (publish)
+        if: inputs.publish
+        env:
+          TARGET_PLATFORM: ${{ matrix.platform }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.MAC_CERT_P12 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
+        run: uv run python scripts/build/build_electron.py --skip-sidecar --skip-frontend --platform "$TARGET_PLATFORM" --publish
+
+      - name: Build Electron app (no publish)
+        if: ${{ !inputs.publish }}
+        env:
+          TARGET_PLATFORM: ${{ matrix.platform }}
+        shell: bash
+        run: uv run python scripts/build/build_electron.py --skip-sidecar --skip-frontend --platform "$TARGET_PLATFORM"
+
+      # ── Upload artifacts ─────────────────────────────────────────────────
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: scene-atlas-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            dist-electron/*.exe
+            dist-electron/*.msi
+            dist-electron/*.dmg
+            dist-electron/*.AppImage
+            dist-electron/*.deb
+          if-no-files-found: warn
+          retention-days: 30
