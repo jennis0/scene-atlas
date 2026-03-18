@@ -39,7 +39,9 @@ def main() -> None:
         sys.exit(1)
 
     if is_model_downloaded(_MODEL_NAME):
-        print(f"Model '{_MODEL_NAME}' already present at {get_model_dir(_MODEL_NAME)} — skipping download.")
+        print(
+            f"Model '{_MODEL_NAME}' already present at {get_model_dir(_MODEL_NAME)} — skipping download."
+        )
         return
 
     print(f"Downloading model '{_MODEL_NAME}' to {get_model_dir(_MODEL_NAME)} …")
