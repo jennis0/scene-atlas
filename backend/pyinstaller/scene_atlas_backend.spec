@@ -25,6 +25,9 @@ sys.path.insert(0, str(project_root))
 # ── tokenizers: lightweight Rust binary (used for CLIP text tokenization)
 tokenizers_datas, tokenizers_binaries, tokenizers_hiddenimports = collect_all('tokenizers')
 
+# ── lancedb: Rust-backed vector database with a large native extension (_lancedb.abi3.so/.pyd)
+lancedb_datas, lancedb_binaries, lancedb_hiddenimports = collect_all('lancedb')
+
 # ── onnxruntime: CLIP inference engine (replaces torch)
 ort_datas    = collect_data_files('onnxruntime')
 ort_binaries = collect_dynamic_libs('onnxruntime')
@@ -36,8 +39,8 @@ import re as _re
 a = Analysis(
     [str(project_root / 'backend' / 'pyinstaller' / 'entry.py')],
     pathex=[str(project_root)],
-    binaries=tokenizers_binaries + ort_binaries,
-    datas=tokenizers_datas + ort_datas + [
+    binaries=tokenizers_binaries + ort_binaries + lancedb_binaries,
+    datas=tokenizers_datas + ort_datas + lancedb_datas + [
         # Alembic migrations: alembic.ini + backend/alembic/ bundled into _MEIPASS root
         # database.py detects sys.frozen and reads from sys._MEIPASS instead of __file__
         (str(project_root / 'alembic.ini'),          '.'),
@@ -108,7 +111,7 @@ a = Analysis(
         'PIL',
         'PIL.Image',
         'yaml',
-    ] + tokenizers_hiddenimports,
+    ] + tokenizers_hiddenimports + lancedb_hiddenimports,
     excludes=[
         # GUI toolkits — not needed server-side
         'tkinter',
@@ -162,9 +165,9 @@ _CUDA_LIB_RE = _re.compile(
 )
 
 # .dist-info directories are package metadata — safe to strip at runtime
-# EXCEPT for onnxruntime packages: DirectML uses entry_points.txt for
-# plugin registration.  We always preserve onnxruntime .dist-info since
-# the Windows build ships with onnxruntime-directml.
+# EXCEPT for packages that read their own metadata at import time:
+#  - onnxruntime: DirectML uses entry_points.txt for plugin registration
+#  - lancedb: reads its version via importlib.metadata at import
 _DIST_INFO_RE = _re.compile(r'\.dist-info/')
 
 def _keep_entry(entry):
@@ -172,6 +175,8 @@ def _keep_entry(entry):
     if _DIST_INFO_RE.search(name):
         if 'onnxruntime' in name:
             pass  # keep — DirectML needs entry_points.txt
+        elif 'lancedb' in name:
+            pass  # keep — lancedb reads its own version via importlib.metadata at import
         else:
             return False
     if _CUDA_LIB_RE.search(name):
