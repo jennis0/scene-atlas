@@ -34,7 +34,7 @@ export default defineConfig({
       { text: "Development", link: "/development/building" },
       {
         text: "GitHub",
-        link: "https://github.com/joe-ennis/scene-atlas",
+        link: "https://github.com/jennis0/scene-atlas",
       },
     ],
 
@@ -93,7 +93,7 @@ export default defineConfig({
     socialLinks: [
       {
         icon: "github",
-        link: "https://github.com/joe-ennis/scene-atlas",
+        link: "https://github.com/jennis0/scene-atlas",
       },
     ],
   },

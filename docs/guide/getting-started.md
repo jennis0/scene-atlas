@@ -6,7 +6,7 @@ All three deployment options give you the same features. Pick the one that fits.
 
 Download, install, and run. No dependencies to manage.
 
-1. **Download** the installer from [GitHub Releases](https://github.com/joe-ennis/scene-atlas/releases):
+1. **Download** the installer from [GitHub Releases](https://github.com/jennis0/scene-atlas/releases):
    - Windows: `.exe` (NSIS installer)
    - macOS: `.dmg` (universal, Intel + Apple Silicon)
    - Linux: `.AppImage` or `.deb`
@@ -35,7 +35,7 @@ The app auto-selects an AI model based on your hardware. You can switch models l
 For self-hosting on a home server or NAS.
 
 ```bash
-git clone https://github.com/joe-ennis/scene-atlas.git
+git clone https://github.com/jennis0/scene-atlas.git
 cd scene-atlas
 
 # CPU inference

@@ -4,7 +4,7 @@ The desktop app bundles Scene Atlas into a single installer. It runs the backend
 
 ## Download
 
-Get the latest release from [GitHub Releases](https://github.com/joe-ennis/scene-atlas/releases).
+Get the latest release from [GitHub Releases](https://github.com/jennis0/scene-atlas/releases).
 
 | Platform | Format | Architectures | Gpu Support |
 |----------|--------|---------------|---|
@@ -25,9 +25,9 @@ Get the latest release from [GitHub Releases](https://github.com/joe-ennis/scene
 
 On first launch, Scene Atlas will:
 
-1. **Ask for a storage location** — choose where the app stores its data (database, thumbnails, search index). This is a dedicated directory managed by Scene Atlas, not your existing image folder. Your original files are copied into managed storage during import.
-2. **Download an AI model** — the default model (~250 MB) is downloaded from HuggingFace. Progress is shown in the UI.
-3. **Open the gallery** — once the model is ready, you can start importing images.
+1. **Ask for a storage location**:choose where the app stores its data (database, thumbnails, search index). This is a dedicated directory managed by Scene Atlas, not your existing image folder. Your original files are copied into managed storage during import.
+2. **Download an AI model**:the default model (~250 MB) is downloaded from HuggingFace. Progress is shown in the UI.
+3. **Open the gallery**:once the model is ready, you can start importing images.
 
 ## System Requirements
 
@@ -44,8 +44,8 @@ You can change the active model at any time in **Settings**. Images are automati
 
 | Model | Size | GPU needed? | Quality |
 |-------|------|-------------|---------|
-| **Small** | ~250 MB | No | Good — works well on CPU |
-| **Medium** | ~500 MB | Recommended | Better — noticeably more accurate but slower |
+| **Small** | ~250 MB | No | Good:works well on CPU |
+| **Medium** | ~500 MB | Recommended | Better:noticeably more accurate but slower |
 | **Large** | ~1 GB | Strongly recommended | Best search accuracy |
 
 The app auto-selects a model based on your hardware. See the [Configuration Reference](/deploy/configuration) for model details.

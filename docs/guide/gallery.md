@@ -18,14 +18,14 @@ Shows each group as a card with a hero image alongside a mosaic of additional va
 
 Good for browsing by scene concept and quickly seeing what variants are available.
 
-<!-- TODO: screenshot — flat vs grouped gallery comparison -->
+<!-- TODO: screenshot:flat vs grouped gallery comparison -->
 
 ## Sorting and Type Tabs
 
 **Sort options:**
-- **Relevance** — only available when a search query is active
-- **Name** — alphabetical
-- **Date** — most recently imported first
+- **Relevance**:only available when a search query is active
+- **Name**:alphabetical
+- **Date**:most recently imported first
 
 **Type tabs** let you filter the entire gallery to show all images, battlemaps only, or scenes only.
 

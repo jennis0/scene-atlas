@@ -10,7 +10,7 @@ Run Scene Atlas directly on your machine without Docker. Useful when Docker is u
 ## Installation
 
 ```bash
-git clone https://github.com/joe-ennis/scene-atlas.git
+git clone https://github.com/jennis0/scene-atlas.git
 cd scene-atlas
 
 # Install Python dependencies (pick one)

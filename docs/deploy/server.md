@@ -10,7 +10,7 @@ Run Scene Atlas as a self-hosted web server. A single container serves the API a
 ## Quick Start
 
 ```bash
-git clone https://github.com/joe-ennis/scene-atlas.git
+git clone https://github.com/jennis0/scene-atlas.git
 cd scene-atlas
 
 # CPU inference
@@ -55,7 +55,7 @@ DEBUG=false
 See the [Configuration Reference](/deploy/configuration) for all settings.
 
 ::: info Docker vs standalone variable names
-In Docker, use `IMAGE_DIR` in your `.env` — this sets the **host-side** bind mount path. Inside the container, it's mapped to `IMAGE_LIBRARY_DIR=/app/images`. In standalone (non-Docker) deployments, use `IMAGE_LIBRARY_DIR` directly.
+In Docker, use `IMAGE_DIR` in your `.env` to set the host-side bind mount path. Inside the container, it's mapped to `IMAGE_LIBRARY_DIR=/app/images`. In standalone (non-Docker) deployments, use `IMAGE_LIBRARY_DIR` directly.
 :::
 
 ## Volumes

@@ -23,12 +23,12 @@ Each tag belongs to a category with a distinctive colour. Tag pills show only th
 
 Tag packs are genre-specific vocabularies that pre-populate categories with common values and aliases:
 
-- **Common** — universal terms (lighting, seasons, weather)
-- **Fantasy** — dungeons, taverns, enchanted forests, castles
-- **Sci-Fi** — space stations, cyberpunk streets, alien landscapes
-- **Cyberpunk** — neon, corporate, street-level
-- **Horror** — crypts, haunted, blood, decay
-- **Historical** — medieval, roman, victorian
+- **Common**:universal terms (lighting, seasons, weather)
+- **Fantasy**:dungeons, taverns, enchanted forests, castles
+- **Sci-Fi**:space stations, cyberpunk streets, alien landscapes
+- **Cyberpunk**:neon, corporate, street-level
+- **Horror**:crypts, haunted, blood, decay
+- **Historical**:medieval, roman, victorian
 
 Install packs from **Settings > Tag Packs**. Importing a pack merges new values into existing categories without overwriting your custom tags.
 
