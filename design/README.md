@@ -32,7 +32,6 @@ How individual features and subsystems are designed.
 | [resource-management.md](resource-management.md) | Resource management -- detection, concurrency controls, memory monitoring |
 | [dialog-focus-management.md](dialog-focus-management.md) | Focus management across dialog and modal components |
 | [hf-model-management.md](hf-model-management.md) | HuggingFace model download, switching, and GPU detection |
-| [2026-03-15-split-storage-webp-setup-design.md](2026-03-15-split-storage-webp-setup-design.md) | Split storage and WebP conversion design |
 
 ## Standards and Decisions
 
@@ -54,15 +53,6 @@ What's done, what's in progress, and what's known to be incomplete.
 |------|-------------|
 | [status-and-roadmap.md](status-and-roadmap.md) | **Single source of truth** -- feature inventory, in-progress work, backlog |
 | [technical-debt.md](technical-debt.md) | Code quality improvements with specific file paths and fix guidance |
-| [e2e-todo.md](e2e-todo.md) | E2E test expansion plan -- 31 remaining tests across 6 categories |
-
-## Historical
-
-Superseded documents kept for reference.
-
-| File | Description |
-|------|-------------|
-| [gpu-acceleration-handover.md](gpu-acceleration-handover.md) | *Historical:* pre-implementation GPU plan (now superseded by [gpu-acceleration.md](gpu-acceleration.md)) |
 
 ## System Overview
 

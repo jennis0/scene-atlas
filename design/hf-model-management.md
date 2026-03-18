@@ -250,8 +250,7 @@ future update checks — compare the stored SHA against the latest HF commit SHA
 repo. No auto-update is currently planned; this would require a polling mechanism and a
 UI affordance to trigger re-download.
 
-**Electron wizard integration:** Model selection wizard is implemented as `ModelSetupScreen.tsx` (web/server mode). Electron integration uses the Electron setup window. When the split-storage wizard (see
-`design/2026-03-15-split-storage-webp-setup-design.md`) is implemented, the model step
+**Electron wizard integration:** Model selection wizard is implemented as `ModelSetupScreen.tsx` (web/server mode). Electron integration uses the Electron setup window. When the split-storage wizard is implemented, the model step
 should be merged into it as a single coherent first-run experience for Electron users.
 
 **Large model VRAM management:** The large model's ~1 GB footprint is flagged in the
