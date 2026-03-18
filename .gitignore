@@ -39,14 +39,8 @@ venv.bak/
 .DS_Store
 
 # Data directories
-data/images/
-data/thumbnails/
-data/store/
-data/staging/
-data/qdrant_local/
-data/*.db
-data/*.db-journal
-
+/data/
+!backend/app/data/
 test_data/*
 
 # Logs and runtime state
@@ -54,7 +48,7 @@ test_data/*
 logs/
 .pids/
 
-# Node.js (for frontend)
+# Node.js
 node_modules/
 npm-debug.log*
 yarn-debug.log*
@@ -87,7 +81,7 @@ frontend/coverage/
 # Jupyter Notebooks
 .ipynb_checkpoints
 
-# Model cache (CLIP models — stored at repo root ./models/ only)
+# Model cache
 .cache/
 /models/
 transformers_cache/
@@ -103,13 +97,6 @@ e2e/test-results/
 e2e/playwright-report/
 e2e/blob-report/
 
-.ignore/
-.claude/
-.worktrees/
-/data/
-!backend/app/data/
-.worktrees/
-
 # Stress test generated files
 stress_tests/.fixtures/
 stress_tests/results/
@@ -120,7 +107,22 @@ scripts/results/
 # Scraped evaluation data (copyrighted images, not for redistribution)
 eval/data/dndbeyond/
 eval/data/czepeku/
+
+# Internal development scripts (not part of the release)
+scripts/labelling/
+scripts/quantisation/
+scripts/benchmark_lancedb.py
+
+# Husky internals (regenerated on npm install)
+.husky/_/
+
+# Claude Code / worktrees
+.ignore/
+.claude/
 .worktrees/
+
+# Superpowers plans (internal)
+docs/superpowers/
 
 # VitePress docs build
 docs/.vitepress/dist
