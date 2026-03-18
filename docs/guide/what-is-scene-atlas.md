@@ -21,10 +21,11 @@ If you run tabletop RPGs, you probably have hundreds (or thousands) of scene ima
 - **Visual search** using AI embeddings that understand image content
 - **Hybrid search** combining keywords, visual similarity, and tag aliases
 - **Auto-grouping** of related variants by folder structure and naming patterns
-- **Tag system** with genre-specific packs (Fantasy, Sci-Fi, Horror, Cyberpunk, Historical) and alias-powered search expansion
+- **Customisable tags** with genre-specific starter packs (Fantasy, Sci-Fi, Horror, Cyberpunk, Historical), custom categories, and alias-powered search expansion
 - **Grid detection** for square and hex grids on battlemaps
 - **Colour search** by dominant colour (5 per image)
 - **Multiple AI model sizes** from CPU-friendly to high-accuracy
+- **Video support** for MP4 and WebM files (first frame extracted for search)
 - **Type-aware processing** where battlemaps get grid analysis and scenes skip it
 
 ## Scope

@@ -1,6 +1,6 @@
 # Tags & Filtering
 
-Tags are organised into colour-coded categories. Each category represents a different aspect of a scene (lighting, season, weather, environment, etc.) and powers both visual organisation in the gallery and search expansion.
+Tags are organised into colour-coded categories. Each category represents a different aspect of a scene (lighting, season, weather, environment, etc.) and powers both visual organisation and search expansion. The entire tag system is customisable: you can create your own categories, define your own values, and set up aliases that fit your collection.
 
 ## Categories
 

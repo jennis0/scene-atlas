@@ -115,7 +115,7 @@ cd electron && npm run build
 |------|----------|
 | App config | `{userData}/scene-atlas-config.json` |
 | Backend log | `{userData}/backend.log` |
-| Default data dir | `{Documents}/Scene Atlas/data` |
+| Default data dir | Chosen during first launch |
 
 `userData` is the OS-standard app data path (e.g. `%APPDATA%/Scene Atlas` on Windows, `~/Library/Application Support/Scene Atlas` on macOS, `~/.config/Scene Atlas` on Linux).
 

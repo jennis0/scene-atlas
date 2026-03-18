@@ -21,8 +21,8 @@ features:
     title: Smart Grouping
     details: Variant maps (day, night, snowy, gridless) are auto-grouped on import so you can browse by scene concept.
   - icon: <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z"/><path d="M7 7h.01"/></svg>
-    title: Rich Tag System
-    details: Genre-specific tag packs (fantasy, sci-fi, horror, historical) with aliases that expand your searches automatically.
+    title: Customisable Tags
+    details: Start with genre-specific packs (fantasy, sci-fi, horror, historical) or build your own. Aliases expand searches automatically.
   - icon: <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/><path d="M15 3v18"/></svg>
     title: Grid Detection
     details: Battlemaps are automatically analysed for square and hex grids. Grid dimensions are saved per scene.

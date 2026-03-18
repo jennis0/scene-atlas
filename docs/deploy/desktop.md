@@ -1,6 +1,6 @@
 # Desktop App
 
-The desktop app bundles Scene Atlas into a single installer. No Docker, no Python, no command line. It runs the backend as a sidecar process and opens a native window.
+The desktop app bundles Scene Atlas into a single installer. It runs the backend as a sidecar process and opens a native window.
 
 ## Download
 
@@ -33,7 +33,7 @@ On first launch, Scene Atlas will:
 
 | | Minimum | Recommended |
 |---|---------|-------------|
-| RAM | 8 GB free (with smaller imports) | 16 GB |
+| RAM | 8 GB | 16 GB |
 | App Data Disk | 2 GB + ~50% of your library size (for thumbnails, index, and converted copies) | SSD for faster indexing |
 | Image Data Disk | As much storage as is required for your image files! | This can be slower HDD without significant performance loss |
 | GPU | Not required | NVIDIA GPU (CUDA) for faster import processing |
@@ -52,12 +52,12 @@ The app auto-selects a model based on your hardware. See the [Configuration Refe
 
 ## GPU Acceleration
 
-Scene Atlas detects available GPU hardware automatically:
+Scene Atlas detects available GPU hardware automatically. You don't need an NVIDIA GPU:
 
-1. **CUDA** (NVIDIA GPUs) — fastest
-2. **DirectML** (Windows, any GPU) — broad compatibility
-3. **CoreML** (macOS, Apple Silicon)
-4. **CPU** — fallback, always available
+- **Windows:** DirectML works with any modern GPU (NVIDIA, AMD, Intel). CUDA is also supported for NVIDIA cards.
+- **macOS:** CoreML accelerates inference on Apple Silicon.
+- **Linux (desktop):** CPU inference. GPU support is available via Docker with NVIDIA CUDA.
+- **CPU** is always available as a fallback on all platforms.
 
 No manual configuration needed. To force a specific device, set `INFERENCE_DEVICE` in environment variables before launch.
 
@@ -67,7 +67,7 @@ No manual configuration needed. To force a specific device, set `INFERENCE_DEVIC
 |------|----------|
 | App configuration | `{userData}/scene-atlas-config.json` |
 | Backend log | `{userData}/backend.log` |
-| Default data directory | `{Documents}/Scene Atlas/data` |
+| Default data directory | Chosen during first launch |
 
 Where `{userData}` is:
 - **Windows:** `%APPDATA%/Scene Atlas`

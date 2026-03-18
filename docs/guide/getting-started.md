@@ -4,7 +4,7 @@ All three deployment options give you the same features. Pick the one that fits.
 
 ## Desktop App
 
-The fastest way to get started. No Docker, no command line.
+Download, install, and run. No dependencies to manage.
 
 1. **Download** the installer from [GitHub Releases](https://github.com/joe-ennis/scene-atlas/releases):
    - Windows: `.exe` (NSIS installer)
@@ -13,7 +13,7 @@ The fastest way to get started. No Docker, no command line.
 
 2. **Install and launch.** On first run, Scene Atlas downloads an AI model (~250 MB). This happens once.
 
-3. **Choose a storage location.** The app asks where to keep its data (database, thumbnails, search index). This is a dedicated directory that Scene Atlas manages internally. Your original images are never modified; they are copied into managed storage during import. A good default is `Documents/Scene Atlas`.
+3. **Choose a storage location.** The app asks where to keep its data (database, thumbnails, search index). This is a dedicated directory that Scene Atlas manages internally. Your original images are never modified; they are copied into managed storage during import.
 
 4. **Import your first images.** Click **Import**, drag in some files, and let processing run. See [Importing](/guide/importing) for details.
 
@@ -25,10 +25,10 @@ The app auto-selects an AI model based on your hardware. You can switch models l
 
 | | Minimum | Recommended |
 |---|---------|-------------|
-| RAM | 4 GB free (small model) | 8 GB free (medium/large models need more headroom) |
+| RAM | 8 GB | 16 GB |
 | App Data Disk | 2 GB + ~50% of your library size (for thumbnails, index, and converted copies) | SSD for faster indexing |
 | Image Data Disk | As much storage as is required for your image files! |  |
-| GPU | Not required | NVIDIA GPU for faster processing during import |
+| GPU | Not required | Any modern GPU speeds up import processing (NVIDIA, AMD, Intel on Windows; Apple Silicon on Mac) |
 
 ## Docker Server
 
