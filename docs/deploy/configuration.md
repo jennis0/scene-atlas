@@ -1,6 +1,6 @@
 # Configuration Reference
 
-Scene Atlas is configured through environment variables (or a `.env` file) and runtime settings accessible from the web UI.
+Scene Atlas is configured through environment variables (or a `.env` file) and runtime settings in the web UI.
 
 ## Environment Variables
 
@@ -19,8 +19,12 @@ Set these in your `.env` file, Docker Compose environment, or system environment
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `APP_DATA_DIR` | `./data` | Database, vector index, thumbnails, staging, backups |
-| `IMAGE_LIBRARY_DIR` | `./images` | Original image files (read by the app) |
-| `DATABASE_URL` | *(derived from APP_DATA_DIR)* | SQLite database path — override only for non-standard layouts |
+| `IMAGE_LIBRARY_DIR` | `./images` | Managed image storage (Scene Atlas writes its file structure here) |
+| `DATABASE_URL` | *(derived from APP_DATA_DIR)* | SQLite database path. Override only for non-standard layouts |
+
+::: info Docker deployments
+In Docker, use `IMAGE_DIR` in your `.env` to set the host-side bind mount path. Inside the container, this is mapped to `IMAGE_LIBRARY_DIR=/app/images`.
+:::
 
 ### CORS
 
@@ -38,7 +42,7 @@ Set these in your `.env` file, Docker Compose environment, or system environment
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `EMBEDDING_MODEL` | `clip-vit-b-32` | Active model subdirectory: `clip-vit-b-32` (small), `siglip2-base` (medium), `siglip2-so400m` (large) |
+| `EMBEDDING_MODEL` | *(auto-detected)* | Active model: `small`, `medium`, or `large`. If unset, auto-selects based on GPU availability |
 | `INFERENCE_DEVICE` | `auto` | Inference device: `auto`, `cpu`, `cuda`, `directml`, `coreml` |
 | `CLIP_TEXT_CACHE_MAX` | `256` | Max cached text embeddings (LRU cache) |
 
@@ -51,19 +55,19 @@ Set these in your `.env` file, Docker Compose environment, or system environment
 
 ## Runtime Settings (Web UI)
 
-These settings are accessible from **Settings** in the web UI and are stored in the database. Changes take effect immediately unless noted.
+These settings are accessible from **Settings** in the web UI and stored in the database. Changes take effect immediately unless noted.
 
 ### Import Processing
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Convert to WebP | On | Convert imported images to WebP for storage efficiency |
-| WebP lossless | On | Use lossless WebP compression |
-| WebP quality | 95 | Quality for lossy WebP (0–100, only used when lossless is off) |
+| Convert to WebP | On | Convert imported images to WebP |
+| WebP lossless | On | Use lossless compression (exact pixel copy, smaller file) |
+| WebP quality | 95 | Quality for lossy WebP (0-100, only applies when lossless is off) |
 | Max file size | 2 GB | Maximum size per uploaded file |
 | Max video file size | 2 GB | Maximum size per video file |
-| Max files per import | 1,000 | Maximum number of files in a single import |
-| Max total import size | 2 GB | Maximum total size of all files in a single import |
+| Max files per import | 1,000 | Maximum files in a single import |
+| Max total import size | 2 GB | Maximum total size per import |
 
 ### Grid Detection
 
@@ -73,41 +77,45 @@ These settings are accessible from **Settings** in the web UI and are stored in 
 | Grid min cell size | 32 px | Minimum grid cell size to detect |
 | Grid max cell size | 320 px | Maximum grid cell size to detect |
 | Grid detection max dimension | 20,000 px | Skip grid detection for images larger than this |
-| Grid presence threshold | 0.20 | Confidence threshold for detecting grid presence |
-| Grid size threshold | 0.15 | Confidence threshold for grid dimension detection |
+| Grid presence threshold | 0.20 | Confidence threshold for grid presence |
+| Grid size threshold | 0.15 | Confidence threshold for grid dimensions |
 | Grid period ratio threshold | 0.98 | Autocorrelation ratio for period detection |
-| Hex rotation confidence | 0.20 | Confidence penalty for hex grid rotation detection |
+| Hex rotation confidence | 0.20 | Confidence penalty for hex grid rotation |
 
 ### Colour Extraction
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Dominant colours | 5 | Number of dominant colours to extract per image |
-| Colour distance threshold | 0.35 | LAB colour distance threshold for search matching |
-| Clustering samples | 5,000 | Number of pixel samples for K-means clustering |
-| K-means initializations | 3 | Number of K-means restarts for stability |
+| Dominant colours | 5 | Colours extracted per image |
+| Colour distance threshold | 0.35 | LAB distance threshold for colour search matching |
+| Clustering samples | 5,000 | Pixel samples for colour clustering |
+| Clustering restarts | 3 | Number of clustering restarts for stability |
 
 ### Performance Tuning
 
 | Setting | Default | Description |
 |---------|---------|-------------|
 | Ingestion batch size | 16 | Images processed per batch during import |
-| Max concurrent prepare tasks | 8 | Parallel thumbnail/colour/grid workers (resource-aware) |
-| Max concurrent heavy requests | 4 | Parallel heavy API request limit (resource-aware) |
+| Max concurrent prepare tasks | 8 | Parallel thumbnail/colour/grid workers (auto-scaled to available CPU/RAM) |
+| Max concurrent heavy requests | 4 | Parallel heavy API request limit (auto-scaled) |
 | Max job workers | 2 | Background job thread pool size (requires restart) |
 | Scheduler enabled | On | Run automated backup and maintenance tasks |
 
-## Model Selection
+## Model Details
 
-The `EMBEDDING_MODEL` environment variable (or the Settings UI) controls which AI model is used for search:
+The `EMBEDDING_MODEL` variable (or the Settings UI) controls which AI model is used for search. The app downloads the selected model from HuggingFace on first use.
 
-| Value | Model | Dimensions | Notes |
-|-------|-------|-----------|-------|
-| `clip-vit-b-32` | CLIP ViT-B/32 | 512 | Default. CPU-friendly. Good quality. |
-| `siglip2-base` | SigLIP2-base | 768 | Better accuracy. GPU recommended. |
-| `siglip2-so400m` | SigLIP2-so400m | 1152 | Best accuracy. GPU strongly recommended. |
+| Value | Architecture | Embedding dimensions | Download size | Notes |
+|-------|-------------|---------------------|---------------|-------|
+| `small` | CLIP ViT-B/32 | 512 | ~250 MB | CPU-friendly. Good baseline quality |
+| `medium` | SigLIP2-base | 768 | ~500 MB | Better accuracy. Works on CPU, faster with GPU |
+| `large` | SigLIP2-so400m | 1152 | ~1 GB | Best accuracy. GPU strongly recommended |
 
-Changing the active model triggers automatic re-embedding of all images. This runs in the background and can take some time for large libraries.
+Changing the active model triggers automatic re-embedding of all images. This runs in the background and can take time for large libraries.
+
+## How Hybrid Search Ranking Works
+
+When a hybrid search runs, three independent result sets (keyword, semantic, alias) are merged using Reciprocal Rank Fusion (RRF). Each result gets a score of `1 / (k + rank)` from each strategy it appeared in, and scores are summed. This means an image that ranks well across multiple strategies is boosted to the top, without any single strategy dominating.
 
 ## Inference Device
 
@@ -115,7 +123,7 @@ The `INFERENCE_DEVICE` variable controls GPU acceleration:
 
 | Value | Behaviour |
 |-------|-----------|
-| `auto` | Try CUDA → DirectML → CoreML → CPU (default) |
+| `auto` | Try CUDA, then DirectML, then CoreML, then CPU (default) |
 | `cpu` | Force CPU-only inference |
 | `cuda` | Force NVIDIA CUDA (requires CUDA drivers) |
 | `directml` | Force DirectML (Windows, any GPU) |

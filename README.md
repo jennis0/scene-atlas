@@ -1,6 +1,6 @@
 # Scene Atlas
 
-A tool for managing, searching, and exploring large collections of tabletop RPG scenes — battlemaps, vistas, portraits, and encounter art.
+A self-hosted scene manager for tabletop RPG art. Search large collections of battlemaps, vistas, and encounter art by visual content.
 
 ## Features
 
@@ -93,14 +93,15 @@ docker compose --profile cpu up -d
 docker compose --profile gpu up -d
 ```
 
-By default, images are bind-mounted from `./images` in the project root.
-To use a different directory, create a `.env` file:
+By default, managed image storage is bind-mounted from `./images` in the project root.
+This is where Scene Atlas writes imported files — do not point it at your existing
+image collection. To change the host path, create a `.env` file:
 
 ```bash
 cp .env.example .env
 # Then edit .env:
-IMAGE_DIR=/path/to/your/battlemaps
-PORT=9000                          # change the host port (default 8000)
+IMAGE_DIR=/mnt/data/scene-atlas-images  # managed storage path
+PORT=9000                               # change the host port (default 8000)
 CORS_ORIGINS=["https://maps.example.com"]  # for reverse-proxy setups
 ```
 
@@ -198,8 +199,6 @@ cp .env.example .env
 |---|---|---|
 | `CORS_ORIGINS` | `["http://localhost:5173"]` | Add your LAN IP for remote access |
 | `INFERENCE_DEVICE` | `auto` | GPU acceleration: `auto`/`cpu`/`cuda`/`directml`/`coreml` |
-| `MAX_IMPORT_FILE_SIZE` | `52428800` (50 MB) | Per-file upload limit |
-| `MAX_IMPORT_TOTAL_SIZE` | `524288000` (500 MB) | Total upload size per import job |
 
 ---
 
@@ -213,7 +212,7 @@ uv run alembic upgrade head   # apply pending migrations manually
 
 **Backups** run on a scheduled interval and are written to `data/backups/{timestamp}/`:
 - `battlemap.db` — consistent SQLite snapshot
-- Qdrant snapshot
+- LanceDB vector index snapshot
 
 Rotation keeps 7 daily + 4 weekly snapshots.
 

@@ -1,37 +1,35 @@
 # What is Scene Atlas?
 
-Scene Atlas is a self-hosted, AI-powered scene manager for tabletop RPG art. It helps you search, organise, and browse large collections of battlemaps, encounter art, portraits, and vistas — using the actual visual content, not just filenames.
+Scene Atlas is a self-hosted scene manager for tabletop RPG art. It lets you import large collections of battlemaps, encounter art and vistas, then search them by visual content rather than filename.
 
 <!-- TODO: screenshot — gallery dark mode overview -->
 
 ## The Problem
 
-If you run tabletop RPGs, you probably have hundreds or thousands of scene images scattered across folders. Finding the right map for tonight's session means scrolling through directories, relying on filenames you can barely remember, or giving up and using the first vaguely-relevant result.
+If you run tabletop RPGs, you probably have hundreds (or thousands) of scene images in nested folders. Finding the right map mid-session means scrolling through directories, guessing at filenames, or settling for whatever's close enough.
 
 ## How Scene Atlas Helps
 
-**Import your collection** — drag and drop images or folders. Scene Atlas analyses each image: extracting tags from filenames, detecting grid patterns, identifying dominant colours, and generating AI embeddings that understand visual content.
+**Import your collection.** Drag and drop files, folders, or ZIPs into the web UI. During import, Scene Atlas extracts metadata from filenames, detects grid patterns on battlemaps, pulls out dominant colours, and generates embeddings that capture what each image looks like.
 
-**Search by description** — type "a dark cave with glowing mushrooms" and find maps that look like that, even if the filename is `cave_final_v3.jpg`. Hybrid search combines keyword matching, AI visual understanding, and tag aliases for the best results.
+**Search by description.** Type "a dark cave with glowing mushrooms" and get results that match visually, regardless of what the files are called. The search combines keyword matching, visual similarity, and tag alias expansion, then merges the ranked results so the best matches surface first.
 
-**Browse by concept** — related map variants (snowy, fey, summer versions of the same scene) are automatically grouped. A hero + mosaic gallery lets you browse by scene rather than by individual file.
+**Browse by concept.** Related map variants (snowy, fey, summer, gridded, gridless) are automatically grouped during import. The gallery shows groups as hero + mosaic cards so you can scan by scene rather than scrolling individual files.
 
 ## Key Capabilities
 
-- **Semantic search** — CLIP/SigLIP2 AI models understand image content visually
-- **Hybrid search** — combines full-text, semantic, and tag alias matching via Reciprocal Rank Fusion
-- **Auto-grouping** — detects related variants from folder structure and naming patterns
-- **Tag system** — genre-specific packs (Fantasy, Sci-Fi, Horror, and more) with alias-powered search
-- **Grid detection** — automatic square and hex grid detection for battlemaps
-- **Colour search** — find scenes by dominant colour (5 colours extracted per image)
-- **Multiple AI models** — small (CPU-friendly), medium, and large (GPU recommended)
-- **Type-aware** — battlemaps get grid detection; scenes skip it
+- **Visual search** using AI embeddings that understand image content
+- **Hybrid search** combining keywords, visual similarity, and tag aliases
+- **Auto-grouping** of related variants by folder structure and naming patterns
+- **Tag system** with genre-specific packs (Fantasy, Sci-Fi, Horror, Cyberpunk, Historical) and alias-powered search expansion
+- **Grid detection** for square and hex grids on battlemaps
+- **Colour search** by dominant colour (5 per image)
+- **Multiple AI model sizes** from CPU-friendly to high-accuracy
+- **Type-aware processing** where battlemaps get grid analysis and scenes skip it
 
-## What Scene Atlas is Not
+## Scope
 
-- **Not a virtual tabletop (VTT)** — it helps you find maps, not run sessions
-- **Not a cloud service** — everything runs on your hardware, your images never leave your machine
-- **Not a map maker** — it organises art you already have
+Scene Atlas organises art you already have. It is not a virtual tabletop, a map editor, or a cloud service. Everything runs locally on your hardware.
 
 ## Supported Platforms
 
@@ -43,4 +41,4 @@ If you run tabletop RPGs, you probably have hundreds or thousands of scene image
 
 ## Next Steps
 
-Ready to try it? Head to the [Installation guide](/guide/getting-started) to get started in under five minutes.
+Head to the [Installation guide](/guide/getting-started) to get running.

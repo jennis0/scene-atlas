@@ -1,6 +1,6 @@
-# Gallery Views
+# Gallery & Image Viewer
 
-The gallery is your primary way to browse and discover scenes in Scene Atlas. Two view modes serve different browsing needs, and a full-screen image viewer provides detailed scene information.
+The gallery is the main interface for browsing your collection. It has two view modes, sorting and filtering controls, and a full-screen image viewer.
 
 ## View Modes
 
@@ -8,39 +8,33 @@ Toggle between views using the segmented control in the gallery header.
 
 ### Flat Grid
 
-Shows every image as an individual card in a responsive grid. Each card displays:
-- Thumbnail image
-- Scene name and author overlaid with a gradient
-- Scene count badge (if part of a group)
+Shows every image as an individual card in a responsive grid. Cards display a thumbnail, scene name, author, and a badge if the image belongs to a group.
 
-Best for: scanning across your full library, finding specific individual images.
+Good for scanning your full library or finding a specific individual image.
 
 ### Grouped (Hero + Mosaic)
 
-Shows each group as a larger card with:
-- A hero image (60% width) showing the best-matching or first scene
-- A mosaic area (40% width) with 1–4 additional variants
-- Group name, author, scene count, and tag badges
+Shows each group as a larger card: a hero image (60% width) next to a mosaic of 1-4 additional variants. The card includes group name, author, scene count, and tag badges. A "+N more" overlay appears when there are more variants than fit.
 
-Best for: browsing by scene concept, seeing what variants exist at a glance.
+Good for browsing by scene concept and seeing what variants are available at a glance.
 
 <!-- TODO: screenshot — flat vs grouped gallery comparison -->
 
 ## Sorting and Type Tabs
 
 **Sort options:**
-- **Relevance** — available when a search query is active; ranked by hybrid search score
+- **Relevance** — only available when a search query is active
 - **Name** — alphabetical by group or image name
 - **Date** — most recently imported first
 
 **Type tabs:**
-- **All** — every image in your library
-- **Battlemaps** — only images with type "battlemap"
-- **Scenes** — only images with type "scene"
+- **All** — everything in your library
+- **Battlemaps** — images with type "battlemap"
+- **Scenes** — images with type "scene"
 
 ## Image Viewer
 
-Click any image or group card to open the full-screen image viewer.
+Click any image or group card to open the full-screen viewer.
 
 ### Canvas
 
@@ -48,21 +42,20 @@ The left side shows the full-resolution image on a dot-grid background. Navigate
 
 ### Sidebar
 
-The right sidebar (440px fixed width) is divided into two sections:
+The right sidebar has two sections:
 
 **Image Info** (fixed, always visible):
-- Group name (click to edit) in Cinzel display font
+- Group name (click to edit)
 - Author
 - Subgroup label (click to edit)
-- Grid toggle: Grid / Gridless / Unknown — with width × height inputs for gridded images
-- Dominant colour dots with dimensions and file size
+- Grid toggle: Gridded / Gridless / Unknown, with width x height inputs for gridded images
+- Dominant colour dots, dimensions, and file size
 - Tag pills with a + Tag picker
 
 **Variants** (scrollable):
 - All other images in the group, partitioned by subgroup
 - Search bar to filter within the group
 - Click any variant thumbnail to navigate to it
-- Filter button for tag-based filtering within the group
 
 ### Keyboard Navigation
 

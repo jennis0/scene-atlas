@@ -13,14 +13,11 @@ Scene Atlas supports three deployment modes. All modes must build on Windows and
 ### Running Locally
 
 ```bash
-# Backend (FastAPI, port 8000)
-uv run uvicorn backend.app.main:app --reload
+# Terminal 1: Backend (FastAPI, port 8000)
+uv run python scripts/start.py
 
-# Frontend (Vite dev server, port 5173, proxies /api -> :8000)
+# Terminal 2: Frontend (Vite dev server, port 5173, proxies /api -> :8000)
 cd frontend && npm install && npm run dev
-
-# Both via Makefile
-make dev
 ```
 
 The frontend Vite config proxies `/api` requests to the backend at `localhost:8000`.

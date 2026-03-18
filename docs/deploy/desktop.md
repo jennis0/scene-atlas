@@ -1,20 +1,21 @@
 # Desktop App
 
-The desktop app bundles Scene Atlas into a single installer — no Docker, no Python, no command line. It runs the full backend as a sidecar process and opens a native window.
+The desktop app bundles Scene Atlas into a single installer. No Docker, no Python, no command line. It runs the backend as a sidecar process and opens a native window.
 
 ## Download
 
-Download the latest release from [GitHub Releases](https://github.com/joe-ennis/scene-atlas/releases).
+Get the latest release from [GitHub Releases](https://github.com/joe-ennis/scene-atlas/releases).
 
-| Platform | Format | Architectures |
-|----------|--------|---------------|
-| Windows | NSIS installer (`.exe`) | x64 |
-| macOS | DMG (`.dmg`) | Universal (Intel + Apple Silicon) |
-| Linux | AppImage (`.AppImage`) + DEB (`.deb`) | x64 |
+| Platform | Format | Architectures | Gpu Support |
+|----------|--------|---------------|---|
+| Windows | NSIS installer (`.exe`) | x64 | Yes (DirectX12 GPU) |
+| macOS | DMG (`.dmg`) | Universal (Intel + Apple Silicon) | Yes on Applie Silicon |
+| Linux | AppImage (`.AppImage`) + DEB (`.deb`) | x64 | No |
+| Docker | Build Yourself | Windows/Mac/Linux | Yes (via CUDA) |
 
 ## Installation
 
-**Windows:** Run the installer. You can choose a custom install directory. A desktop shortcut and Start Menu entry are created automatically.
+**Windows:** Run the installer. A desktop shortcut and Start Menu entry are created automatically.
 
 **macOS:** Open the DMG and drag Scene Atlas to Applications.
 
@@ -24,35 +25,38 @@ Download the latest release from [GitHub Releases](https://github.com/joe-ennis/
 
 On first launch, Scene Atlas will:
 
-1. **Ask for your image directory** — the folder where your battlemap collection lives. Scene Atlas does not move or modify your original files.
-2. **Download an AI model** — the default small model (~250 MB) is downloaded from HuggingFace. Progress is shown in the UI.
+1. **Ask for a storage location** — choose where the app stores its data (database, thumbnails, search index). This is a dedicated directory managed by Scene Atlas, not your existing image folder. Your original files are copied into managed storage during import.
+2. **Download an AI model** — the default model (~250 MB) is downloaded from HuggingFace. Progress is shown in the UI.
 3. **Open the gallery** — once the model is ready, you can start importing images.
 
 ## System Requirements
 
 | | Minimum | Recommended |
 |---|---------|-------------|
-| RAM | 8 GB | 16 GB (medium/large models) |
-| Disk | 500 MB + image library | SSD recommended |
-| GPU | Not required | NVIDIA GPU (CUDA) for faster inference |
+| RAM | 8 GB free (with smaller imports) | 16 GB |
+| App Data Disk | 2 GB + ~50% of your library size (for thumbnails, index, and converted copies) | SSD for faster indexing |
+| Image Data Disk | As much storage as is required for your image files! | This can be slower HDD without significant performance loss |
+| GPU | Not required | NVIDIA GPU (CUDA) for faster import processing |
 
-## Choosing an AI Model
+## AI Models
 
 You can change the active model at any time in **Settings**. Images are automatically re-embedded when you switch.
 
-| Model | Size | GPU Required? | Quality |
-|-------|------|--------------|---------|
-| **Small** (CLIP ViT-B/32) | ~250 MB | No | Good — best for CPU-only |
-| **Medium** (SigLIP2-base) | ~500 MB | Recommended | Better — noticeably more accurate |
-| **Large** (SigLIP2-so400m) | ~1 GB | Strongly recommended | Best — highest search accuracy |
+| Model | Size | GPU needed? | Quality |
+|-------|------|-------------|---------|
+| **Small** | ~250 MB | No | Good — works well on CPU |
+| **Medium** | ~500 MB | Recommended | Better — noticeably more accurate but slower |
+| **Large** | ~1 GB | Strongly recommended | Best search accuracy |
+
+The app auto-selects a model based on your hardware. See the [Configuration Reference](/deploy/configuration) for model details.
 
 ## GPU Acceleration
 
-Scene Atlas automatically detects available GPU hardware and uses the best provider:
+Scene Atlas detects available GPU hardware automatically:
 
-1. **CUDA** (NVIDIA GPUs) — fastest option
+1. **CUDA** (NVIDIA GPUs) — fastest
 2. **DirectML** (Windows, any GPU) — broad compatibility
-3. **CoreML** (macOS) — Apple Silicon acceleration
+3. **CoreML** (macOS, Apple Silicon)
 4. **CPU** — fallback, always available
 
 No manual configuration needed. To force a specific device, set `INFERENCE_DEVICE` in environment variables before launch.
@@ -70,16 +74,16 @@ Where `{userData}` is:
 - **macOS:** `~/Library/Application Support/Scene Atlas`
 - **Linux:** `~/.config/Scene Atlas`
 
-The data directory contains the SQLite database, LanceDB vector index, thumbnails, and backups. Your original images stay where you pointed the app — they are never copied into the data directory.
+The data directory contains the SQLite database, LanceDB vector index, thumbnails, and backups.
 
 ## Auto-Updates
 
-The desktop app checks for updates via GitHub Releases. When a new version is available, you'll be prompted to download and install it. Updates preserve your data and settings.
+The app checks for updates via GitHub Releases. When a new version is available, you'll be prompted to download and install. Updates preserve your data and settings.
 
 ## Troubleshooting
 
-**App won't start:** Check `{userData}/backend.log` for errors. The most common cause is a port conflict — the backend runs on a local port that another process may be using.
+**App won't start:** Check `{userData}/backend.log` for errors. The most common cause is a port conflict with another process.
 
-**Model download fails:** Check your internet connection. The model is downloaded from HuggingFace (~250 MB–1 GB depending on model). You can retry from Settings.
+**Model download fails:** Check your internet connection. You can retry from Settings.
 
-**High memory usage:** The large AI model can use 2–4 GB of RAM. Switch to the small model in Settings if memory is constrained.
+**High memory usage:** The large model can use 2-4 GB of RAM. Switch to the small model in Settings if memory is tight.

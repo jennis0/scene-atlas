@@ -3,7 +3,7 @@ import { defineConfig } from "vitepress";
 export default defineConfig({
   title: "Scene Atlas",
   description:
-    "AI-powered scene manager for tabletop RPG art — search, organise, and deploy your battlemap collection",
+    "Self-hosted scene manager for tabletop RPG art — search and organise your battlemap collection",
 
   head: [
     ["meta", { name: "theme-color", content: "#0e1118" }],
@@ -30,6 +30,7 @@ export default defineConfig({
     nav: [
       { text: "Guide", link: "/guide/what-is-scene-atlas" },
       { text: "Deploy", link: "/deploy/desktop" },
+      { text: "Reference", link: "/deploy/configuration" },
       { text: "Development", link: "/development/building" },
       {
         text: "GitHub",
@@ -55,7 +56,7 @@ export default defineConfig({
           { text: "Searching", link: "/guide/searching" },
           { text: "Groups & Variants", link: "/guide/groups" },
           { text: "Tags & Filtering", link: "/guide/tags" },
-          { text: "Gallery Views", link: "/guide/gallery" },
+          { text: "Gallery & Image Viewer", link: "/guide/gallery" },
         ],
       },
       {
@@ -64,8 +65,13 @@ export default defineConfig({
           { text: "Desktop App", link: "/deploy/desktop" },
           { text: "Docker Server", link: "/deploy/server" },
           { text: "Standalone Server", link: "/deploy/standalone" },
+        ],
+      },
+      {
+        text: "Reference",
+        items: [
           {
-            text: "Configuration Reference",
+            text: "Configuration",
             link: "/deploy/configuration",
           },
         ],
@@ -94,8 +100,11 @@ export default defineConfig({
 
   appearance: "dark",
 
+  // Exclude internal planning docs from the public site
+  srcExclude: ["**/plans/**", "**/superpowers/**"],
+
   ignoreDeadLinks: [
-    // Pre-existing links in development/plans that point to backend source files
+    // Links in development docs that point to backend source files
     /\.\/backend\//,
     /\.\/\.\.\/\.\.\//,
   ],

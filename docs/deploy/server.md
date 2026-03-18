@@ -1,6 +1,6 @@
 # Docker Server
 
-Run Scene Atlas as a self-hosted web server using Docker. A single container serves both the API and the web UI on one port.
+Run Scene Atlas as a self-hosted web server. A single container serves the API and web UI on one port.
 
 ## Prerequisites
 
@@ -10,14 +10,10 @@ Run Scene Atlas as a self-hosted web server using Docker. A single container ser
 ## Quick Start
 
 ```bash
-# Clone the repository
 git clone https://github.com/joe-ennis/scene-atlas.git
 cd scene-atlas
 
-# Create your image directory (or use an existing one)
-mkdir -p images
-
-# Start with CPU inference
+# CPU inference
 docker compose --profile cpu up -d
 ```
 
@@ -33,33 +29,41 @@ The GPU profile sets `INFERENCE_DEVICE=cuda` and reserves one NVIDIA GPU.
 
 ## Configuration
 
-Create a `.env` file in the project root to customise settings:
+Create a `.env` file in the project root:
 
 ```bash
 # Port for the web UI and API
 PORT=8000
 
-# Path to your image library on the host
+# Host path for managed image storage (Scene Atlas writes its file structure here)
 IMAGE_DIR=./images
 
 # CORS origins (set to your domain if behind a reverse proxy)
 CORS_ORIGINS=["http://localhost:8000"]
 
-# AI model: clip-vit-b-32 (small), siglip2-base (medium), siglip2-so400m (large)
-EMBEDDING_MODEL=clip-vit-b-32
+# AI model size: small, medium, or large
+EMBEDDING_MODEL=small
 
 # Enable debug logging
 DEBUG=false
 ```
 
-See the [Configuration Reference](/deploy/configuration) for all available settings.
+::: warning
+`IMAGE_DIR` is where Scene Atlas stores imported images in its own file structure. Do not point it at your existing image collection. Import your images through the web UI instead.
+:::
+
+See the [Configuration Reference](/deploy/configuration) for all settings.
+
+::: info Docker vs standalone variable names
+In Docker, use `IMAGE_DIR` in your `.env` — this sets the **host-side** bind mount path. Inside the container, it's mapped to `IMAGE_LIBRARY_DIR=/app/images`. In standalone (non-Docker) deployments, use `IMAGE_LIBRARY_DIR` directly.
+:::
 
 ## Volumes
 
 | Volume | Type | Path in container | Purpose |
 |--------|------|-------------------|---------|
 | `scene-atlas-data` | Named | `/app/data` | Database, vector index, thumbnails, backups |
-| `images` | Bind mount | `/app/images` | Your image library (read by the app) |
+| `IMAGE_DIR` | Bind mount | `/app/images` | Managed image storage |
 
 ::: warning
 The named volume `scene-atlas-data` contains your database and search index. Back it up regularly, or rely on Scene Atlas's built-in automated backups.
@@ -67,7 +71,7 @@ The named volume `scene-atlas-data` contains your database and search index. Bac
 
 ## Reverse Proxy
 
-Scene Atlas serves everything on a single port, so reverse proxy setup is straightforward.
+Scene Atlas serves everything on a single port, so proxy setup is straightforward.
 
 ### Nginx
 
@@ -99,7 +103,7 @@ atlas.example.com {
 }
 ```
 
-After configuring your proxy, update `CORS_ORIGINS` to match your domain:
+After configuring your proxy, update `CORS_ORIGINS`:
 
 ```bash
 CORS_ORIGINS=["https://atlas.example.com"]
@@ -117,18 +121,17 @@ When set, all requests must include `Authorization: Bearer your-secret-token-her
 
 ## Backups
 
-Scene Atlas runs automated daily backups with a rotation policy:
-- **7 daily backups** retained
-- **4 weekly backups** retained
+Scene Atlas runs automated daily backups:
+- **7 daily** snapshots retained
+- **4 weekly** snapshots retained
 
-Backups include the SQLite database and LanceDB vector storage. They're stored inside the `scene-atlas-data` volume at `/app/data/backups/`.
+Backups include the SQLite database and LanceDB vector index. They're stored inside the `scene-atlas-data` volume at `/app/data/backups/`.
 
-To restore from a backup, stop the container, copy the backup database into the data volume, and restart. Alembic migrations are applied automatically on startup if the schema has changed.
+To restore: stop the container, copy the backup database into the data volume, and restart. Schema migrations are applied automatically on startup.
 
 ## Updating
 
 ```bash
-# Pull the latest image and recreate
 docker compose --profile cpu pull
 docker compose --profile cpu up -d
 ```
@@ -137,8 +140,8 @@ Your data volume and images are preserved across updates.
 
 ## Troubleshooting
 
-**Container won't start:** Check logs with `docker compose logs -f`. Common issues: port conflict, missing image directory, or GPU driver mismatch.
+**Container won't start:** Check logs with `docker compose logs -f`. Common causes: port conflict, missing image directory, GPU driver mismatch.
 
-**Slow AI inference:** If using the medium or large model without a GPU, inference will be slow. Switch to the small model or enable GPU acceleration.
+**Slow processing:** The medium and large models are slow without a GPU. Switch to the small model or add GPU acceleration.
 
-**Large uploads failing:** Ensure your reverse proxy allows large request bodies. The default max import size is 2 GB — Nginx's `client_max_body_size` must match or exceed this.
+**Large uploads failing:** Your reverse proxy must allow large request bodies. Nginx needs `client_max_body_size 2G;` (or higher) to match Scene Atlas's default import limit.
