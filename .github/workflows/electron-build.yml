@@ -58,6 +58,10 @@ jobs:
         run: npx vitest run
 
   # ── Multi-platform build ─────────────────────────────────────────────────
+  # One build per platform. GPU strategy per platform:
+  #   Windows: onnxruntime-directml (all DirectX 12 GPUs, ~20 MB overhead)
+  #   macOS:   onnxruntime (CoreML built-in on Apple Silicon, zero overhead)
+  #   Linux:   onnxruntime (CPU only — CUDA provider too large for desktop)
   build:
     needs: gate
     strategy:
@@ -67,22 +71,22 @@ jobs:
           - os: windows-latest
             platform: windows
             arch: x64
-          - os: windows-latest
-            platform: windows
-            arch: x64
-            gpu: directml
+            ort_extra: gpu-directml
           - os: macos-latest
             platform: macos
             arch: arm64
+            ort_extra: cpu
           - os: macos-13
             platform: macos
             arch: x64
+            ort_extra: cpu
           - os: ubuntu-22.04
             platform: linux
             arch: x64
+            ort_extra: cpu
 
     runs-on: ${{ matrix.os }}
-    name: ${{ matrix.platform }} (${{ matrix.arch }}${{ matrix.gpu && ', ' || '' }}${{ matrix.gpu || '' }})
+    name: ${{ matrix.platform }} (${{ matrix.arch }})
 
     steps:
       - name: Checkout
@@ -92,21 +96,23 @@ jobs:
       - name: Extract version from tag
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
+        env:
+          GIT_REF: ${{ github.ref }}
         run: |
-          VERSION="${GITHUB_REF#refs/tags/v}"
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          VERSION="${GIT_REF#refs/tags/v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           # Update root package.json version (used by electron-builder)
           node -e "
             const fs = require('fs');
             const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-            pkg.version = '$VERSION';
+            pkg.version = process.env.VERSION;
             fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
           # Update frontend package.json version
           node -e "
             const fs = require('fs');
             const pkg = JSON.parse(fs.readFileSync('frontend/package.json', 'utf8'));
-            pkg.version = '$VERSION';
+            pkg.version = process.env.VERSION;
             fs.writeFileSync('frontend/package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
 
@@ -120,12 +126,7 @@ jobs:
         run: uv python install 3.12
 
       - name: Install Python dependencies
-        run: |
-          if [ "${{ matrix.gpu }}" = "directml" ]; then
-            uv sync --extra dev --extra gpu-directml
-          else
-            uv sync --extra dev --extra cpu
-          fi
+        run: uv sync --extra dev --extra ${{ matrix.ort_extra }}
 
       - name: Install PyInstaller
         run: uv pip install pyinstaller
@@ -146,8 +147,6 @@ jobs:
 
       # ── Build Python sidecar ───────────────────────────────────────────
       - name: Build sidecar
-        env:
-          GPU_VARIANT: ${{ matrix.gpu || '' }}
         run: uv run python scripts/build/build_sidecar.py
 
       # ── Node.js setup ──────────────────────────────────────────────────
@@ -177,15 +176,11 @@ jobs:
         run: npx tsc -p electron/tsconfig.json
 
       # ── Build Electron app ─────────────────────────────────────────────
-      # GPU builds: build_electron.py reads GPU_VARIANT env var and passes
-      # --config electron-builder-gpu.yml to electron-builder automatically.
       - name: Build Electron app (publish)
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') || github.event.inputs.publish == 'true'
         env:
           TARGET_PLATFORM: ${{ matrix.platform }}
-          GPU_VARIANT: ${{ matrix.gpu || '' }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # macOS code signing (optional — set these secrets to enable signing)
           CSC_LINK: ${{ secrets.MAC_CERT_P12 }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -197,14 +192,13 @@ jobs:
         if: "!(github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) && github.event.inputs.publish != 'true'"
         env:
           TARGET_PLATFORM: ${{ matrix.platform }}
-          GPU_VARIANT: ${{ matrix.gpu || '' }}
         run: uv run python scripts/build/build_electron.py --skip-sidecar --skip-frontend --platform "$TARGET_PLATFORM"
 
       # ── Upload artifacts ───────────────────────────────────────────────
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: scene-atlas-${{ matrix.platform }}-${{ matrix.arch }}${{ matrix.gpu && '-gpu' || '' }}
+          name: scene-atlas-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
             dist-electron/*.exe
             dist-electron/*.msi

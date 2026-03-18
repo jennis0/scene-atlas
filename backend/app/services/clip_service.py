@@ -150,20 +150,19 @@ def _default_models_dir() -> Path:
 
     Search order:
     1. DATA_DIR/models/{name}/ — user data dir (HF downloads)
-    2. backend/models/{name}/ — dev fallback (local exports)
-    3. _MEIPASS/models/ — frozen PyInstaller sidecar (uses name from manifest)
-
-    In the frozen sidecar, a single bundled model is used regardless of name.
+    2. backend/models/{name}/ — dev fallback (local exports, non-frozen only)
     """
-    if getattr(sys, "frozen", False):
-        return Path(sys._MEIPASS) / "models"
     model_name = _get_active_model_name()
-    # 1. User data dir (HF downloads)
+    # 1. User data dir (HF downloads) — primary path for both frozen and dev
     data_models = _settings.app_data_dir / "models" / model_name
     if data_models.exists() and (data_models / "manifest.json").exists():
         return data_models
-    # 2. Dev fallback (local exports in backend/models/)
-    return Path(__file__).parent.parent.parent / "models" / model_name
+    # 2. Dev fallback (local exports in backend/models/) — not available in frozen builds
+    if not getattr(sys, "frozen", False):
+        return Path(__file__).parent.parent.parent / "models" / model_name
+    # Frozen build with no downloaded model — return the expected HF download path.
+    # The model setup screen will prompt the user to download before CLIP loads.
+    return data_models
 
 
 def _get_active_model_name() -> str:

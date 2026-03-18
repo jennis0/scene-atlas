@@ -1,6 +1,0 @@
-# GPU build overrides — merged on top of electron-builder.yml via --config flag.
-# Used automatically by build_electron.py when GPU_VARIANT env var is set.
-publish:
-  provider: github
-  releaseType: release
-  channel: gpu

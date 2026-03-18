@@ -122,7 +122,18 @@ The frontend reserves top padding for the window controls drag region.
 
 **Sidecar bundling:** The PyInstaller `--onedir` output (`backend/pyinstaller/dist/scene-atlas-backend/`) is copied into `resources/sidecar/` via `extraResources`. At runtime: `path.join(process.resourcesPath, 'sidecar', 'scene-atlas-backend[.exe]')`.
 
-**Auto-updates:** Configured to publish to GitHub Releases (`publish.provider: github`).
+**Models:** ONNX models are NOT bundled in the sidecar. They are downloaded from HuggingFace at runtime by `model_download_service`. On first boot, the `ModelSetupScreen` prompts the user to select and download a model. This requires an internet connection on first launch.
+
+**GPU strategy:** One build per platform — no separate GPU variants. GPU support is baked in by installing the right onnxruntime package at build time:
+| Platform | ORT Package | GPU Provider |
+|----------|------------|--------------|
+| Windows | `onnxruntime-directml` | DirectML (all DirectX 12 GPUs) |
+| macOS | `onnxruntime` | CoreML (Apple Silicon, built-in) |
+| Linux | `onnxruntime` | CPU only |
+
+The runtime code (`ort_providers.py`) auto-detects available providers and falls back to CPU gracefully.
+
+**Auto-updates:** Configured to publish to GitHub Releases (`publish.provider: github`). Single `latest` channel for all platforms.
 
 ## Config Storage
 

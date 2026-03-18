@@ -271,7 +271,13 @@ Drops and recreates the SQLite database. All image metadata will be lost. Image 
 | Directory | Contents |
 |---|---|
 | [design/](design/README.md) | Architecture, component design, decisions, visual standards, status and backlog |
-| [docs/](docs/) | How to build, test, deploy, and operate the system |
+| [docs/](docs/) | How to build, test, deploy, and operate the system (VitePress) |
+
+To browse the docs locally:
+
+```bash
+cd docs && npm install && npm run dev
+```
 
 Key docs:
 - [design/status-and-roadmap.md](design/status-and-roadmap.md) — feature inventory, in-progress work, backlog

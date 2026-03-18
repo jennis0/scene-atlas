@@ -35,7 +35,6 @@ x-common: &common
     APP_MODE: server
     CORS_ORIGINS: ${CORS_ORIGINS:-'["http://localhost:8000"]'}
     INFERENCE_DEVICE: ${INFERENCE_DEVICE:-auto}
-    EMBEDDING_MODEL: ${EMBEDDING_MODEL:-clip-vit-b-32}
     DEBUG: ${DEBUG:-false}
   restart: unless-stopped
 

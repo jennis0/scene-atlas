@@ -2454,7 +2454,7 @@ requires-dist = [
     { name = "huggingface-hub", specifier = ">=0.20.0" },
     { name = "huggingface-hub", extras = ["hf-xet"], marker = "extra == 'dev'", specifier = ">=0.20.0" },
     { name = "ipywidgets", marker = "extra == 'dev'", specifier = ">=8.1.8" },
-    { name = "lancedb", specifier = ">=0.30.0" },
+    { name = "lancedb", specifier = ">=0.30.0,<1.0" },
     { name = "matplotlib", marker = "extra == 'dev'", specifier = ">=3.10.8" },
     { name = "numpy", specifier = ">=1.26.0,<3.0" },
     { name = "onnx", marker = "extra == 'dev'", specifier = ">=1.14.0,<2.0" },
