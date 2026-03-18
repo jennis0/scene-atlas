@@ -180,7 +180,10 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
   const handleExportLibrary = async () => {
     setExportingLibrary(true)
     try {
-      const resp = await axios.get(getLibraryExportUrl(), { responseType: 'blob', timeout: 300_000 })
+      const resp = await axios.get(getLibraryExportUrl(), {
+        responseType: 'blob',
+        timeout: 300_000,
+      })
       const blob = resp.data as Blob
       const objectUrl = URL.createObjectURL(blob)
       const a = document.createElement('a')

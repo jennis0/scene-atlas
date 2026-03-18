@@ -424,7 +424,12 @@ export function useImportState(
         updateGroup(group.id, { status: 'completed', processed: 0 })
         return
       }
-      toSubmit.push({ groupId: group.id, author: group.author, group_name: group.group_name, files: confirmFiles })
+      toSubmit.push({
+        groupId: group.id,
+        author: group.author,
+        group_name: group.group_name,
+        files: confirmFiles,
+      })
     })
     if (toSubmit.length === 0) return
     toSubmit.forEach(({ groupId }) => updateGroup(groupId, { status: 'running' }))

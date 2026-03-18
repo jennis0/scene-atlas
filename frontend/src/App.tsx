@@ -56,9 +56,12 @@ function App() {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-6">
         <div className="w-full max-w-md rounded-lg border border-border bg-card p-8 text-center space-y-4 shadow-sm">
-          <h2 className="text-lg font-semibold text-foreground">Unable to connect to Scene Atlas backend</h2>
+          <h2 className="text-lg font-semibold text-foreground">
+            Unable to connect to Scene Atlas backend
+          </h2>
           <p className="text-sm text-muted-foreground">
-            The backend server may not be running or is unreachable. Please check your setup and try again.
+            The backend server may not be running or is unreachable. Please check your setup and try
+            again.
           </p>
           <button
             type="button"

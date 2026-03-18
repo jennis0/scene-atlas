@@ -44,7 +44,7 @@ function GroupStatusRow({ group }: { group: EditableGroupState }) {
               ? 'Cancelled'
               : status === 'pending'
                 ? 'Queued'
-              : `${processed} / ${total}`}
+                : `${processed} / ${total}`}
       </div>
     </div>
   )
