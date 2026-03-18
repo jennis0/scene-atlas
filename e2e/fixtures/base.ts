@@ -61,6 +61,17 @@ export const test = base.extend<object, { seedData: void }>({
         );
       }
 
+      // Mark setup as complete so the app skips the setup wizard
+      const setupRes = await fetch(
+        `${BACKEND_URL}/api/v1/models/setup-complete`,
+        { method: "POST" },
+      );
+      if (!setupRes.ok) {
+        console.warn(
+          `[fixture] Warning: failed to mark setup complete (${setupRes.status})`,
+        );
+      }
+
       await use();
     },
     { scope: "worker", auto: true, timeout: 600_000 },
