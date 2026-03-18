@@ -48,6 +48,7 @@ const completedImport: ActiveImportJob = {
   completedGroups: 4,
   totalGroups: 4,
   runningGroups: 0,
+  pendingGroups: 0,
 }
 
 const runningBgJob: BackgroundJob = {
