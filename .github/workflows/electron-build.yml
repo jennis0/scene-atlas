@@ -76,10 +76,6 @@ jobs:
             platform: macos
             arch: arm64
             ort_extra: cpu
-          - os: macos-13
-            platform: macos
-            arch: x64
-            ort_extra: cpu
           - os: ubuntu-22.04
             platform: linux
             arch: x64
