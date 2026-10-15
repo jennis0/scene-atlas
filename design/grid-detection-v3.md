@@ -1,7 +1,7 @@
 # Grid Detection v3: Research and Evaluation
 
-**Status:** research complete (2026-10-15); port not started.
-**Decision proposed:** replace `grid_detector.py` with v3 at all image sizes. This is not yet an ADR; write one when the port lands.
+**Status:** research complete (rounds 1–4, 2026-10-15); port not started.
+**Decision proposed (after round 4):** a hybrid. Use v3 for images of 1000 px or more and keep `grid_detector.py` for smaller images. This is not yet an ADR; write one when the port lands.
 **Prototype:** `grid_v3.py`, trained models, and the evaluation scripts. These are research code and are not tracked in git, matching the convention in `05b2234`. They are in `scripts/grid_research/` (see §6).
 
 This document records why the change is proposed, how it was measured, and what did not work. Read it before touching grid detection.
@@ -122,6 +122,63 @@ The round-2 advice to keep the current detector for small images rested on 8 ima
 
 Downscaled maps with 6–20 px cells aren't usable as VTT maps. Current's higher recall on them is mostly accidental: only about 20% of its hits are within ±1 tile.
 
+### Round 4 (cross-artist generalisation; shipped models)
+
+**Data.**
+- Twin pairs were mined from the user's whole library by header scan. Pairs had to have identical dimensions and match on one of these conventions:
+  - Czepeku `G_` / `GL_`;
+  - Grid / No Grid sibling folders;
+  - `_grid` / `_nogrid` and `GD` / `GL` suffixes;
+  - Dreadmaps `X_Grid` vs `X`.
+- That produced **2,278 twin-labelled images (about 1,180 clean pairs) from 28 creators**, up from 645 pairs and 6 creators.
+- The catalogue's `variant_links` and `pair_edges` contain essentially no gridded/gridless pairs.
+
+**Clean labels per creator.**
+- Clean rates were high for Czepeku, dww, Limithron and Dreadmaps, and low for Beneos (6%), Spellarena (36%) and Neutral Party (46%).
+- 10 creators have fewer than 10 pairs.
+
+**Method.**
+- **Sentinel:** 3 creators were locked away before any result was seen: angela_maps, mikwewa and dww, chosen with seed 20261015 from creators with 30–60 pairs.
+- **LOCO:** leave-one-creator-out over the other 25. Hyperparameters were fixed. The only choice made from LOCO was the training weighting, unweighted vs creator-balanced, decided by worst-creator F1.
+
+**LOCO results** (14 creators with 10 or more pairs):
+
+| | Worst-creator F1 | Median F1 |
+|---|---|---|
+| v3 (LR, balanced) | .462 | .924 |
+| current | .667 | .917 |
+| v2 | .444 | .903 |
+
+- **Selection margin:** the LR was chosen over the GBM on a single image of a 10-pair creator. The GBM had the better median (.931) and did better on Dreadmaps.
+- **Where v3 is worse than current:**
+  - forgotten_adventures: thin 1–2 px lines on 200 dpi maps, probably blurred away by the 2–4x reduced decode;
+  - Dreadmaps: few-cell rooms, plus false positives on plank floors;
+  - small margins on mad_cartographer, fablekit, neutral_party and dice_grimorium.
+- **Where v3 is clearly better:** spellarena, limithron, lost_trails and czepeku. It also has far fewer false positives on gridless maps.
+- **Under 1000 px, v3 loses** (P .61, R .37 vs current's .89, .57). This reverses round 3's small-map finding. Round 3's native small set was mostly Czepeku and leaned towards maps v3 finds easily. Round 4's is dominated by Dreadmaps Cora's Cabin. Treat small-map behaviour as creator-dependent and unresolved.
+- **Size-only exact** (967 gridded maps): v3 raw .915, v3 + sibling prior .948, current .869, v2 .862. The sibling prior's big win is Dreadmaps (.726 → 1.0), and it slightly hurts a few creators.
+
+**Sentinel, evaluated once:**
+
+| Method | F1 | Pairs |
+|---|---|---|
+| v3 | **.946** [.925, .971] | .893 |
+| current | .897 | .772 |
+| v2 | .932 | .866 |
+
+- v3 is at least as good as current on all three sentinel creators.
+- **Size-only on the sentinel:** current wins on dww's 8x8 geomorph tiles (.982 vs about .74, half/double errors). v3 wins on angela (.983 vs .879) and mikwewa (1.0 vs .861).
+
+**Hex.**
+- v3 made 1 false hex call across all LOCO creators, against 21 for current.
+- Hex recall is .99 on partyoftwo. Recall on other hex creators rests on 2–5 images, and faint caeora hex is still missed.
+
+**Shipped models.**
+- Refit on all 2,278 images with balanced weighting: presence LR (chosen), presence GBM (alternative) and hex LR.
+- They are exported to ONNX and, for the two LRs, to plain JSON (scaler means and scales, coefficients, intercept).
+- ONNX matches scikit-learn to within 3e-7 on every training sample, and the JSON LRs match exactly.
+- **The final models over-call small images** (27 false positives out of 39 small gridless maps in the smoke test), because the training now includes Cora's Cabin small twins. Routing small images to the current detector is therefore required.
+
 ### Things that did not help (do not retry without new evidence)
 
 - **Half/double count correction:** +0.009 on DEV, −0.008 on held-out.
@@ -131,13 +188,18 @@ Downscaled maps with 6–20 px cells aren't usable as VTT maps. Current's higher
 
 ## 5. Recommendation and follow-ups
 
-1. **Port v3 as the only detector**, at all sizes.
-   - Convert the GBM and logistic-regression models from pickle to **ONNX**. onnxruntime already ships for CLIP, and pickle breaks across scikit-learn versions.
+1. **Port v3 as a hybrid.**
+   - Use v3 for images of 1000 px or more; keep the current detector below that.
+   - Ship the **presence and hex logistic regressions as JSON**. Each is a standard scaler plus a handful of coefficients, so this needs neither ONNX nor pickle. The GBM is only marginally different, so the simpler model wins.
+   - Remove the half/double count fix.
    - Use the sibling prior in size-only mode.
-   - Build a regression suite from real crops.
-2. **Small follow-ups:**
-   - A full-length thin-line test for maps with few cells (≤5 per side, e.g. dww 3x3 geomorph tiles, DreadMaps Cora's Cabin rooms), where comb methods fail by construction.
-   - Retrain the classifier with small images included.
+   - Build a regression suite from the round 2–4 crops.
+2. **Follow-ups, in order of value:**
+   - **Thin lines on high-dpi maps** (forgotten_adventures). Choose the decode reduction from expected line width as well as cell size, or add a thin-line feature.
+   - **Few-cell maps** (dww geomorph tiles, Dreadmaps Cora's Cabin). Add a full-length thin-line test, and handle half/double errors on 8x8 tiles.
+   - **Periodic floors** (Dreadmaps planks). This is the remaining source of false positives.
+   - **Small images.** Revisit with a creator-balanced small-map set before removing the hybrid. Round 3 and round 4 disagree.
+   - **Hex.** More real hex creators are needed. Faint hex (caeora Avernus) is unsolved.
 3. **Do not chase:**
    - cells under about 20 px;
    - grids at or below about 0.2 line opacity, where every method misses about 85%.
@@ -148,9 +210,9 @@ Downscaled maps with 6–20 px cells aren't usable as VTT maps. Current's higher
 
 ## 6. Prototype location
 
-The code is in `scripts/grid_research/`, gitignored and local to the main checkout, with a README covering layout and caveats:
-- `gridalgo/grid_v3.py` and `v3_models.pkl`;
-- the round 1–3 evaluation scripts and results;
-- the crop and contact sheets.
+The code is in `scripts/grid_research/`, gitignored and local to the main checkout:
+- **Prototypes:** `gridalgo/grid_v3_final.py` (ONNX/JSON models, no pickle, half/double fix removed, optional `sibling_prior()`) and `gridalgo/grid_v3.py`.
+- **Shipped models:** `gridalgo/v3_final_models/`, containing `presence_lr.json`, `hex_lr.json`, the `*.onnx` exports and `meta.json`.
+- **Evaluation:** `gridval/` holds round 1, and `gridval/r2/`, `r3/` and `r4/` hold the later rounds. Round 4 includes `loco_results.json`, `final_r4.json`, `sentinel.json`, the mined `twins_r4.json` and the crop sheets.
 
-The scripts still contain absolute paths from the session scratchpad, and the copied images were deleted. Re-running anything needs path fixes and fresh read-only copies from the catalogue.
+The scripts still contain absolute paths from the session scratchpad, and the copied images were deleted. Re-running anything needs path fixes and fresh read-only copies from the library or catalogue.
