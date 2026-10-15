@@ -168,118 +168,21 @@ describe('useGalleryDialogs — handleNext / handlePrevious', () => {
   })
 })
 
-describe('useGalleryDialogs — openImportDialog', () => {
-  it('increments key and sets jobId to "new" by default', () => {
-    const { result } = renderHook(() => useGalleryDialogs([]), {
-      wrapper: createWrapper(),
-    })
-
-    const initialKey = result.current.importDialogKey
-
-    act(() => {
-      result.current.openImportDialog()
-    })
-
-    expect(result.current.importDialogKey).toBe(initialKey + 1)
-    expect(result.current.importDialogJobId).toBe('new')
+describe('useGalleryDialogs — import dialog', () => {
+  it('opens a new import by default', () => {
+    const { result } = renderHook(() => useGalleryDialogs([]), { wrapper: createWrapper() })
+    act(() => result.current.openImport())
+    expect(result.current.importDialog).toEqual({ open: true, jobId: null })
   })
 
-  it('increments key and sets specific jobId when provided', () => {
-    const { result } = renderHook(() => useGalleryDialogs([]), {
-      wrapper: createWrapper(),
-    })
-
-    const initialKey = result.current.importDialogKey
-
-    act(() => {
-      result.current.openImportDialog('job-123')
-    })
-
-    expect(result.current.importDialogKey).toBe(initialKey + 1)
-    expect(result.current.importDialogJobId).toBe('job-123')
-  })
-
-  it('increments key each time it is called', () => {
-    const { result } = renderHook(() => useGalleryDialogs([]), {
-      wrapper: createWrapper(),
-    })
-
-    const initialKey = result.current.importDialogKey
-
-    act(() => {
-      result.current.openImportDialog()
-    })
-    act(() => {
-      result.current.openImportDialog()
-    })
-    act(() => {
-      result.current.openImportDialog()
-    })
-
-    expect(result.current.importDialogKey).toBe(initialKey + 3)
-  })
-
-  it('skips key increment when reopening the same mounted job', () => {
-    const { result } = renderHook(() => useGalleryDialogs([]), {
-      wrapper: createWrapper(),
-    })
-
-    // Simulate ImportDialog reporting its internal jobId
-    act(() => {
-      result.current.setMountedImportJob('job-456')
-    })
-
-    const keyBefore = result.current.importDialogKey
-
-    // Reopen the same job — should NOT increment key
-    act(() => {
-      result.current.openImportDialog('job-456')
-    })
-
-    expect(result.current.importDialogKey).toBe(keyBefore)
-    expect(result.current.importDialogJobId).toBe('job-456')
-  })
-
-  it('increments key when opening a different job than the mounted one', () => {
-    const { result } = renderHook(() => useGalleryDialogs([]), {
-      wrapper: createWrapper(),
-    })
-
-    act(() => {
-      result.current.setMountedImportJob('job-456')
-    })
-
-    const keyBefore = result.current.importDialogKey
-
-    // Open a different job — should increment key
-    act(() => {
-      result.current.openImportDialog('job-789')
-    })
-
-    expect(result.current.importDialogKey).toBe(keyBefore + 1)
-    expect(result.current.importDialogJobId).toBe('job-789')
-  })
-
-  it('always increments key for "new" imports even if a job is mounted', () => {
-    const { result } = renderHook(() => useGalleryDialogs([]), {
-      wrapper: createWrapper(),
-    })
-
-    act(() => {
-      result.current.setMountedImportJob('job-456')
-    })
-
-    const keyBefore = result.current.importDialogKey
-
-    act(() => {
-      result.current.openImportDialog() // 'new'
-    })
-
-    expect(result.current.importDialogKey).toBe(keyBefore + 1)
-    expect(result.current.importDialogJobId).toBe('new')
+  it('opens an existing import and closes without forgetting it', () => {
+    const { result } = renderHook(() => useGalleryDialogs([]), { wrapper: createWrapper() })
+    act(() => result.current.openImport('job-123'))
+    expect(result.current.importDialog).toEqual({ open: true, jobId: 'job-123' })
+    act(() => result.current.closeImport())
+    expect(result.current.importDialog).toEqual({ open: false, jobId: 'job-123' })
   })
 })
-
 describe('useGalleryDialogs — handleGroupDeleteConfirm', () => {
   it('calls groupApi.delete and clears deleteConfirmGroup on success', async () => {
     vi.mocked(groupApi.delete).mockResolvedValueOnce(undefined)

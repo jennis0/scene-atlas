@@ -626,7 +626,7 @@ Large feature; worktree branch `worktree-ingest-redesign`. **The branch is not m
 - **`e2e/helpers/seed.ts` and `stress_tests/`** still use the old API (Phase 6).
 - **Library purge deletes `backups/`.** This predates the redesign: backups live inside the image library folder, and the purge removes that whole folder. It needs a separate decision.
 
-### Phase 3 status (in progress)
+### Phase 3 status (done)
 
 **Step 1, `ImportManager`: done.** It lives in `frontend/src/lib/import/`:
 
@@ -649,7 +649,39 @@ Large feature; worktree branch `worktree-ingest-redesign`. **The branch is not m
 - **Poller:** 1 s while anything is active, 5 s when the tab is hidden, 30 s when idle, with exponential backoff on errors. One failure shows the connection as `degraded`, three as `lost`. Concurrent refreshes are coalesced.
 - **Notifications:** `onJobFinished` fires when a job moves from active/paused to completed/cancelled (for toasts).
 
-**Steps 2 (views) and 3 (wiring and deletions)** are next.
+**Steps 2 and 3 (views, wiring, deletions): done.** The views are in `frontend/src/components/imports/`:
+
+| File | Responsibility |
+|---|---|
+| `ImportDialog.tsx` | Start view (type choice, drop or choose folder/files) and progress view: a two-layer meter (received vs processed), notices for system pause, lost connection, interrupted upload with resume, and local upload failures with retry; the group ledger; Pause/Resume/Cancel. |
+| `ImportReportDialog.tsx` | Groups / Problems (by reason, Retry) / Already in library (Import as new copies) / Skipped. Only non-empty sections are shown. Undo import (confirmed), Dismiss, Review in editor. |
+| `GroupLedger.tsx` | Virtualised ruled ledger. Group names in Cinzel, mono counts, an amber hairline per row; rows open the group editor. |
+| `ImportJobRow.tsx` | Activity dock row. Dismiss needs no confirmation because it never deletes anything. |
+| `ImportFrame.tsx` | Shared dialog chrome, notices and the confirm overlay |
+| `format.ts`, `pickFiles.ts` | Shared wording and file-pick helpers |
+
+**Changes beyond the plan:**
+
+- **EditGroupDialog's live import-review mode is removed** (its `importJobId` prop, poller and spinner stubs). The report's ledger opens single groups, and "Review in editor" opens every group the import created through the existing `groupIds` mode. The editor's button now says "Done", not "Confirm Import".
+- **The model-switch settings no longer cancel imports.** They say imports will pause and carry on. Previously they cancelled active imports and deleted their images.
+- **The gallery refreshes as images land**, throttled to every 4 s, instead of only when a job finishes. Every finished import gets a toast with a "View report" action, a warning variant when files failed.
+- **`ImportManager` grew:**
+  - `watchJob` (reference-counted per-group detail, re-fetched only when the summary poll changed);
+  - `retryFailedUploads` (re-send without re-picking);
+  - `listItems` (so views never call the HTTP client directly).
+- **Removed:**
+  - **Hooks:** the six old import hooks.
+  - **Libraries:** `importStorage`, `hashFile`, `mimeCheck`, `mergeGroupStatus`, the old `importApi`.
+  - **Components:** `ImportDialog` (old), `ImportSummaryDialog`, `ImportUploadPane`, `ImportDonePane`, `ImportFileCard`, `ImportFileToolbar`, FileCard's dead import-preview fallback and duplicate badge.
+  - **Types and constants:** the old import types and upload constants.
+  - **Electron:** the `fs:read-directory`/`fs:read-file-bytes` IPC and preload API, and the dead `File.path` drop fallback.
+- **Tests:** component tests for the dock, dialog and report against a real `ImportManager` over a fake client (`src/test/importFakes.ts`).
+- **Visual check:** each state was screenshotted in dark and light themes via a throwaway preview page (not committed).
+
+**Not verified here:**
+- An end-to-end run against a live backend.
+- The Electron TypeScript build: there are no root `node_modules` in this environment, and the change is deletion-only.
+- `e2e/` and `stress_tests/` still target the old API (Phase 6).
 
 ---
 

@@ -418,15 +418,21 @@ Trigger: `text-muted-foreground hover:text-primary`
 Dropdown: `bg-card border-border shadow-2xl shadow-black/40`
 
 ### ActivityDock (`frontend/src/components/ActivityDock.tsx`)
-Floating bottom-right card for viewing background job status.
-
-**Collapsed pill:** `bg-card/95 backdrop-blur-sm border border-border/40 rounded-full shadow-lg shadow-black/40`. Hover: `bg-secondary hover:-translate-y-px`. Shows Loader2 (spinning) when active, Package when idle. Active count badge uses the solid tier.
-
-**Expanded card:** `w-[320px] max-h-[min(520px,65vh)] bg-card rounded-xl border border-border/30 shadow-2xl shadow-black/60`. Amber stripe at top. Header follows panel header pattern (Cinzel title + amber rule). Footer uses `bg-popover`.
-
-**Job cards:** `rounded-md border-border/30 bg-secondary/20 hover:bg-secondary/40`. Terminal: `opacity-75 hover:opacity-100`. Progress: 3px track.
-
+Floating bottom-right card for imports (from the ImportManager) and background jobs.
+**Collapsed pill:** `bg-card/95 backdrop-blur-sm border border-border/40 rounded-full shadow-lg shadow-black/40`. Hover: `bg-secondary hover:-translate-y-px`. Shows Loader2 (spinning) when active, PauseCircle when imports are system-paused, WifiOff when offline, Package when idle. Active count badge uses the solid tier.
+**Expanded card:** `w-[320px] max-h-[min(520px,65vh)] bg-card rounded-xl border border-border/30 shadow-2xl shadow-black/60`. Amber stripe at top. Header follows panel header pattern (Cinzel title + amber rule). A tinted amber notice row explains a system pause, with "Try again".
+**Import rows (`components/imports/ImportJobRow.tsx`):** `rounded-md border-border/30 bg-secondary/20 hover:bg-secondary/40`. Finished: `opacity-80 hover:opacity-100`. Progress: 3px track. Status text stays muted; failures are signalled by the icon, not by colouring the whole line. Hover reveals Pause/Resume, or Dismiss once finished (no confirm: dismiss never deletes).
 **Visibility:** Hidden when no jobs exist. No auto-expand — user clicks pill to open.
+
+### Import ledger (`components/imports/GroupLedger.tsx`)
+The import's groups as ruled rows that fill in as images land:
+- Group name `font-display text-[13.5px]`, author `text-[11px] text-muted-foreground`, counts `font-mono text-[10.5px] tabular-nums` in the right margin (`done/total`, failed count in `text-destructive`).
+- One hairline per row: track `h-px bg-border/40`, fill `bg-primary/80` while open, `bg-primary/35` when finished.
+- Clickable rows (groups with imported images) extend 8px into the gutter by position and use `hover:bg-muted/30`.
+- Virtualised: a folder can plan thousands of groups.
+
+### Import notices (`components/imports/ImportFrame.tsx`)
+One-line notices inside import dialogs: `rounded-lg border px-3 py-2.5`, attention `border-primary/25 bg-primary/[0.06]` (amber icon), problem `border-destructive/30 bg-destructive/[0.07]` (red icon). Actions go on a row beneath the text, never squeezed beside it.
 
 ---
 

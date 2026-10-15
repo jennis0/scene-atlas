@@ -6,7 +6,8 @@ import { Input } from '@/components/ui/input'
 import { SettingRow } from '@/components/settings/SettingRow'
 import { useSettingsDraft } from '@/hooks/useSettingsDraft'
 import { modelsApi } from '@/lib/api/modelsApi'
-import { importApi } from '@/lib/api'
+import { useImportManagerSnapshot } from '@/lib/import/useImports'
+import { isFinished } from '@/components/imports/format'
 import { HARDWARE_BADGE } from '@/lib/modelConstants'
 import { tagApi } from '@/lib/api/tagApi'
 import { TagPackCard } from '@/components/setup/TagPackCard'
@@ -131,28 +132,19 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
 
     // Pending model switch (requires confirmation)
     const [pendingModel, setPendingModel] = useState<string | null>(null)
-    const [activeImportCount, setActiveImportCount] = useState(0)
+    // Imports keep going across a model switch: the server pauses them while
+    // the model changes, then they carry on. Just say so.
+    const activeImportCount = useImportManagerSnapshot().jobs.filter((j) => !isFinished(j)).length
 
     // Reset pending model when dialog closes to avoid stale confirmation state
     useEffect(() => {
       if (!dialogOpen) {
         setPendingModel(null)
-        setActiveImportCount(0)
       }
     }, [dialogOpen])
 
-    // Check for active imports when user selects a model to switch to
-    const handleModelSelect = useCallback(async (modelName: string) => {
+    const handleModelSelect = useCallback((modelName: string) => {
       setPendingModel(modelName)
-      try {
-        const response = await importApi.active()
-        const active = response.jobs.filter(
-          (j) => j.status === 'uploading' || j.status === 'staging' || j.status === 'active',
-        ).length
-        setActiveImportCount(active)
-      } catch {
-        setActiveImportCount(0)
-      }
     }, [])
 
     const {
@@ -166,23 +158,12 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
     })
 
     const switchModelMutation = useMutation({
-      mutationFn: async (modelName: string) => {
-        // Cancel active imports first if any exist
-        if (activeImportCount > 0) {
-          const response = await importApi.active()
-          const activeJobs = response.jobs.filter(
-            (j) => j.status === 'uploading' || j.status === 'staging' || j.status === 'active',
-          )
-          await Promise.allSettled(activeJobs.map((j) => importApi.cancel(j.job_id)))
-        }
-        return modelsApi.setActiveModel(modelName)
-      },
+      mutationFn: (modelName: string) => modelsApi.setActiveModel(modelName),
       onSuccess: () => {
         toast.info('Model switch started. This may take a while.')
         queryClient.invalidateQueries({ queryKey: ['models'] })
         queryClient.invalidateQueries({ queryKey: ['appSettings'] })
         setPendingModel(null)
-        setActiveImportCount(0)
       },
       onError: (err) => {
         toast.error(err instanceof Error ? err.message : 'Failed to switch model.')
@@ -424,16 +405,14 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
 
               {/* Pending switch confirmation banner */}
               {pendingModel && (
-                <div
-                  className={`rounded-md border p-3 text-xs space-y-2 ${activeImportCount > 0 ? 'border-destructive/50 bg-destructive/10' : 'border-border bg-muted/50'}`}
-                >
+                <div className="rounded-md border p-3 text-xs space-y-2 border-border bg-muted/50">
                   <p className="text-muted-foreground">
                     Switching models will re-process all images. This can take a while.
                   </p>
                   {activeImportCount > 0 && (
-                    <p className="text-destructive font-medium">
-                      This will cancel {activeImportCount} in-progress import
-                      {activeImportCount > 1 ? 's' : ''} and delete their partially imported images.
+                    <p className="text-muted-foreground">
+                      {activeImportCount === 1 ? 'The import' : `The ${activeImportCount} imports`}{' '}
+                      in progress will pause while the model changes, then carry on.
                     </p>
                   )}
                   <div className="flex gap-2">

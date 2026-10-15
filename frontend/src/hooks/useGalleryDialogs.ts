@@ -19,9 +19,9 @@ export interface UseGalleryDialogsReturn {
   editGroupId: number | null
   setEditGroupId: (id: number | null) => void
 
-  // Live import review dialog (active or completed job)
-  importLiveJobId: string | null
-  setImportLiveJobId: (id: string | null) => void
+  // Group editor over every group an import created (from the import report)
+  reviewGroupIds: number[] | null
+  setReviewGroupIds: (ids: number[] | null) => void
 
   // Mass edit dialog
   showMassEdit: boolean
@@ -37,12 +37,15 @@ export interface UseGalleryDialogsReturn {
   mergeSourceGroup: ImageGroup | null
   setMergeSourceGroup: (group: ImageGroup | null) => void
 
-  // Import dialog
-  importDialogJobId: string | null
-  setImportDialogJobId: (id: string | null) => void
-  importDialogKey: number
-  openImportDialog: (jobId?: string, options?: { noRemount?: boolean }) => void
-  setMountedImportJob: (id: string | null) => void
+  // Import dialog: a new import (jobId null) or an existing one. All import
+  // state lives in the ImportManager, so opening and closing is free.
+  importDialog: { open: boolean; jobId: string | null }
+  openImport: (jobId?: string | null) => void
+  closeImport: () => void
+
+  // Import report
+  reportJobId: string | null
+  setReportJobId: (id: string | null) => void
 
   // Tag management dialog
   showTagManagement: boolean
@@ -51,10 +54,6 @@ export interface UseGalleryDialogsReturn {
   // System info dialog
   showSystemInfo: boolean
   setShowSystemInfo: (show: boolean) => void
-
-  // Import summary dialog (failed/broken jobs)
-  importSummaryJobId: string | null
-  setImportSummaryJobId: (id: string | null) => void
 
   // Edit all (mass edit) seed images and loading state
   editAllSeedImages: SeedImage[]
@@ -79,8 +78,8 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
   // Edit group dialog
   const [editGroupId, setEditGroupId] = useState<number | null>(null)
 
-  // Live import review dialog (active or completed job)
-  const [importLiveJobId, setImportLiveJobId] = useState<string | null>(null)
+  // Group editor over an import's groups
+  const [reviewGroupIds, setReviewGroupIds] = useState<number[] | null>(null)
 
   // Mass edit dialog
   const [showMassEdit, setShowMassEdit] = useState(false)
@@ -94,23 +93,18 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
   const [mergeSourceGroup, setMergeSourceGroup] = useState<ImageGroup | null>(null)
   const [deleting, setDeleting] = useState(false)
 
-  // Import dialog state: null = closed, 'new' = fresh import, '{jobId}' = reconnect
-  const [importDialogJobId, setImportDialogJobId] = useState<string | null>(null)
-  const [importDialogKey, setImportDialogKey] = useState(0)
-
-  // Tracks the job ID of the currently mounted ImportDialog instance.
-  // Persists even when dialog is hidden (importDialogJobId=null) so we can
-  // re-show without remounting and destroying in-progress uploads.
-  const mountedImportJobRef = useRef<string | null>(null)
+  // Import dialog and report
+  const [importDialog, setImportDialog] = useState<{ open: boolean; jobId: string | null }>({
+    open: false,
+    jobId: null,
+  })
+  const [reportJobId, setReportJobId] = useState<string | null>(null)
 
   // Tag management dialog
   const [showTagManagement, setShowTagManagement] = useState(false)
 
   // System info dialog
   const [showSystemInfo, setShowSystemInfo] = useState(false)
-
-  // Import summary dialog (failed/broken jobs)
-  const [importSummaryJobId, setImportSummaryJobId] = useState<string | null>(null)
 
   // Keep a stable reference to displayImages for navigation handlers
   const displayImagesRef = useRef(displayImages)
@@ -148,24 +142,12 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
     }
   }, [deleteConfirmGroup, invalidateGallery])
 
-  const openImportDialog = useCallback((jobId?: string, options?: { noRemount?: boolean }) => {
-    const target = jobId ?? 'new'
-    if (target !== 'new' && target === mountedImportJobRef.current) {
-      // Same job already mounted — just re-show without remounting.
-      // This preserves in-progress uploads and other component state.
-      setImportDialogJobId(target)
-      return
-    }
-    // Caller can opt out of remounting (e.g. for uploading jobs where
-    // upload state can't be restored from scratch).
-    if (options?.noRemount) return
-    setImportDialogKey((k) => k + 1)
-    setImportDialogJobId(target)
+  const openImport = useCallback((jobId: string | null = null) => {
+    setImportDialog({ open: true, jobId })
   }, [])
 
-  // Called by ImportDialog when its internal jobId changes (e.g. after init)
-  const setMountedImportJob = useCallback((id: string | null) => {
-    mountedImportJobRef.current = id
+  const closeImport = useCallback(() => {
+    setImportDialog((prev) => ({ ...prev, open: false }))
   }, [])
 
   return {
@@ -179,9 +161,9 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
     editGroupId,
     setEditGroupId,
 
-    // Live import review dialog
-    importLiveJobId,
-    setImportLiveJobId,
+    // Group editor over an import's groups
+    reviewGroupIds,
+    setReviewGroupIds,
 
     // Mass edit dialog
     showMassEdit,
@@ -203,12 +185,12 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
     mergeSourceGroup,
     setMergeSourceGroup,
 
-    // Import dialog
-    importDialogJobId,
-    setImportDialogJobId,
-    importDialogKey,
-    openImportDialog,
-    setMountedImportJob,
+    // Import dialog and report
+    importDialog,
+    openImport,
+    closeImport,
+    reportJobId,
+    setReportJobId,
 
     // Tag management dialog
     showTagManagement,
@@ -217,10 +199,6 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
     // System info dialog
     showSystemInfo,
     setShowSystemInfo,
-
-    // Import summary dialog (failed/broken jobs)
-    importSummaryJobId,
-    setImportSummaryJobId,
 
     // Query invalidation
     invalidateGallery,

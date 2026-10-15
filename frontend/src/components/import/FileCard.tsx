@@ -1,9 +1,7 @@
 import { useState } from 'react'
-import { X, Pencil, Plus, Copy } from 'lucide-react'
+import { X, Pencil, Plus } from 'lucide-react'
 import type { EditableFileState, TagData } from '@/types'
-import { resolveApiUrl } from '@/lib/apiBase'
 import { MAX_NAME_LENGTH } from '@/lib/constants'
-import { importPreviewUrl } from '@/lib/importStorage'
 import { TagPicker } from './TagPicker'
 import { GridToggle } from './GridToggle'
 import { GridSizeInput } from './GridSizeInput'
@@ -17,7 +15,6 @@ import { SubgroupRow } from './shared/SubgroupRow'
 
 interface FileCardProps {
   file: EditableFileState
-  jobId: string
   vocab: ParsedTagVocab[]
   existingSubgroups: string[]
   selected: boolean
@@ -29,7 +26,6 @@ interface FileCardProps {
 
 export function FileCard({
   file,
-  jobId,
   vocab,
   existingSubgroups,
   selected,
@@ -44,7 +40,7 @@ export function FileCard({
   const [lightboxOpen, setLightboxOpen] = useState(false)
 
   const isVideo = file.media_type === 'video'
-  const previewUrl = file.previewUrl ?? resolveApiUrl(importPreviewUrl(jobId, file.relative_path))
+  const previewUrl = file.previewUrl ?? ''
   const useVideoThumb = isVideo && !!file.previewUrl?.startsWith('blob:')
 
   const handleCardClick = (e: React.MouseEvent) => {
@@ -129,7 +125,7 @@ export function FileCard({
           selected
             ? 'border-primary/50 bg-card shadow-[0_0_0_1px_rgba(212,168,83,0.2),0_4px_12px_rgba(212,168,83,0.08)]'
             : 'border-border/40 bg-card hover:border-border/70'
-        } ${file.duplicate_action === 'skip' ? 'opacity-40' : ''}`}
+        }`}
         onClick={handleCardClick}
       >
         {/* Thumbnail */}
@@ -209,33 +205,6 @@ export function FileCard({
           >
             {file.filename}
           </div>
-
-          {/* Duplicate badge (if applicable) */}
-          {file.duplicate_of && (
-            <div className="flex items-center gap-2 mb-1">
-              <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-400">
-                <Copy className="h-2.5 w-2.5" />
-                Dup: <span className="font-medium">{file.duplicate_of.name || 'existing'}</span>
-              </span>
-              {!disabled && (
-                <button
-                  data-no-select=""
-                  onClick={() =>
-                    onUpdate({
-                      duplicate_action: file.duplicate_action === 'skip' ? 'import' : 'skip',
-                    })
-                  }
-                  className={`text-[10px] rounded border px-1.5 py-0.5 transition-colors ${
-                    file.duplicate_action === 'skip'
-                      ? 'border-amber-500/30 text-amber-400/80 hover:bg-amber-500/10'
-                      : 'border-primary/40 text-primary bg-primary/10'
-                  }`}
-                >
-                  {file.duplicate_action === 'skip' ? 'Skipping' : 'Import as new'}
-                </button>
-              )}
-            </div>
-          )}
 
           {/* Property rows */}
           <div className="flex flex-col gap-1">

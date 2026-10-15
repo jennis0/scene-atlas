@@ -1,55 +1,17 @@
-import { describe, it, expect, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/renderWithProviders'
-import { ActivityDock } from './ActivityDock'
-import type { ActiveImportJob } from '@/hooks/useActiveImports'
+import {
+  counts,
+  idleQueue,
+  installFakeImportManager,
+  jobSummary,
+  uninstallFakeImportManager,
+} from '@/test/importFakes'
+import type { ImportManager } from '@/lib/import/ImportManager'
 import type { BackgroundJob } from '@/types'
-
-vi.mock('@/lib/api', () => ({
-  importApi: { cleanup: vi.fn().mockResolvedValue(undefined) },
-}))
-
-const baseProps = {
-  jobs: [] as ActiveImportJob[],
-  hasActive: false,
-  connectionLost: false,
-  backgroundJobs: [] as BackgroundJob[],
-  hasActiveJobs: false,
-  onOpenJob: vi.fn(),
-  onDismissJob: vi.fn(),
-  onDismissWithCleanup: vi.fn().mockResolvedValue(undefined),
-  onCancelJob: vi.fn(),
-  onRefresh: vi.fn(),
-}
-
-const runningImport: ActiveImportJob = {
-  jobId: 'imp-1',
-  label: 'Dark Forest Maps',
-  status: 'running',
-  totalGroups: 8,
-  completedGroups: 3,
-  failedGroups: 0,
-  runningGroups: 2,
-  pendingGroups: 3,
-  totalFiles: 24,
-  processedFiles: 9,
-  createdAt: new Date().toISOString(),
-  localOnly: false,
-  failedFiles: 0,
-  warningCount: 0,
-}
-
-const completedImport: ActiveImportJob = {
-  ...runningImport,
-  jobId: 'imp-2',
-  label: 'Coastal Ruins',
-  status: 'completed',
-  completedGroups: 4,
-  totalGroups: 4,
-  runningGroups: 0,
-  pendingGroups: 0,
-}
+import { ActivityDock } from './ActivityDock'
 
 const runningBgJob: BackgroundJob = {
   id: 'bg-1',
@@ -64,116 +26,114 @@ const runningBgJob: BackgroundJob = {
   error: null,
 }
 
+let manager: ImportManager | undefined
+afterEach(() => {
+  if (manager) uninstallFakeImportManager(manager)
+  manager = undefined
+})
+
 describe('ActivityDock', () => {
-  it('renders nothing when no jobs exist', () => {
-    const { container } = renderWithProviders(<ActivityDock {...baseProps} />)
+  it('renders nothing when there are no imports or jobs', async () => {
+    ;({ manager } = await installFakeImportManager())
+    const { container } = renderWithProviders(
+      <ActivityDock backgroundJobs={[]} onOpenImport={vi.fn()} />,
+    )
     expect(container.firstChild).toBeNull()
   })
 
-  it('shows pill with Activity text when jobs exist', () => {
-    renderWithProviders(<ActivityDock {...baseProps} jobs={[runningImport]} hasActive />)
-    expect(screen.getByText('Activity')).toBeInTheDocument()
+  it('counts running imports and background jobs on the pill', async () => {
+    ;({ manager } = await installFakeImportManager({
+      jobs: [
+        jobSummary({ counts: counts({ ready: 2, done: 1 }) }),
+        jobSummary({ id: 'j2', status: 'completed' }),
+      ],
+    }))
+    renderWithProviders(<ActivityDock backgroundJobs={[runningBgJob]} onOpenImport={vi.fn()} />)
+    expect(screen.getByTestId('activity-dock-pill')).toHaveTextContent('2')
   })
 
-  it('shows active count badge on pill', () => {
-    renderWithProviders(
-      <ActivityDock
-        {...baseProps}
-        jobs={[runningImport]}
-        hasActive
-        backgroundJobs={[runningBgJob]}
-        hasActiveJobs
-      />,
+  it('lists imports with a status line and opens them', async () => {
+    ;({ manager } = await installFakeImportManager({
+      jobs: [jobSummary({ counts: counts({ processing: 2, done: 3 }) })],
+    }))
+    const onOpenImport = vi.fn()
+    renderWithProviders(<ActivityDock backgroundJobs={[]} onOpenImport={onOpenImport} />)
+    await userEvent.click(screen.getByTestId('activity-dock-pill'))
+    const row = screen.getByTestId('import-job-card')
+    expect(row).toHaveTextContent('Forest Pack')
+    expect(row).toHaveTextContent('3 of 5 files processed')
+    await userEvent.click(screen.getByText('Forest Pack'))
+    expect(onOpenImport).toHaveBeenCalledWith('job1')
+  })
+
+  it('dismisses a finished import without asking', async () => {
+    let client
+    ;({ manager, client } = await installFakeImportManager({
+      jobs: [jobSummary({ status: 'completed', counts: counts({ done: 4, failed: 1 }) })],
+    }))
+    renderWithProviders(<ActivityDock backgroundJobs={[]} onOpenImport={vi.fn()} />)
+    await userEvent.click(screen.getByTestId('activity-dock-pill'))
+    expect(screen.getByTestId('import-job-card')).toHaveTextContent('4 imported, 1 failed')
+    await userEvent.click(screen.getByTitle('Dismiss'))
+    expect(client!.action).toHaveBeenCalledWith('job1', 'dismiss')
+  })
+
+  it('pauses a running import from its row', async () => {
+    let client
+    ;({ manager, client } = await installFakeImportManager({
+      jobs: [jobSummary({ counts: counts({ ready: 1 }) })],
+    }))
+    renderWithProviders(<ActivityDock backgroundJobs={[]} onOpenImport={vi.fn()} />)
+    await userEvent.click(screen.getByTestId('activity-dock-pill'))
+    await userEvent.click(screen.getByTitle('Pause'))
+    expect(client!.action).toHaveBeenCalledWith('job1', 'pause')
+  })
+
+  it('explains a system pause and retries on request', async () => {
+    let client
+    ;({ manager, client } = await installFakeImportManager({
+      jobs: [jobSummary({ counts: counts({ ready: 1 }) })],
+      queue: {
+        ...idleQueue,
+        system_paused: true,
+        reason: 'Not enough free disk space on the image library drive',
+      },
+    }))
+    renderWithProviders(<ActivityDock backgroundJobs={[]} onOpenImport={vi.fn()} />)
+    await userEvent.click(screen.getByTestId('activity-dock-pill'))
+    expect(screen.getByText(/Not enough free disk space/)).toBeInTheDocument()
+    await userEvent.click(screen.getByText('Try again'))
+    expect(client!.probeQueue).toHaveBeenCalled()
+  })
+
+  it('flags an interrupted upload', async () => {
+    ;({ manager } = await installFakeImportManager({
+      jobs: [
+        jobSummary({ upload_interrupted: true, counts: counts({ awaiting_bytes: 7, done: 3 }) }),
+      ],
+    }))
+    renderWithProviders(<ActivityDock backgroundJobs={[]} onOpenImport={vi.fn()} />)
+    await userEvent.click(screen.getByTestId('activity-dock-pill'))
+    expect(screen.getByTestId('import-job-card')).toHaveTextContent('Upload interrupted')
+  })
+
+  it('shows offline when the server is unreachable', async () => {
+    let client
+    ;({ manager, client } = await installFakeImportManager({ jobs: [jobSummary()] }))
+    client!.list.mockRejectedValue(
+      Object.assign(new Error('Network Error'), { code: 'ERR_NETWORK' }),
     )
-    // 1 running import + 1 running background = 2
-    expect(screen.getByText('2')).toBeInTheDocument()
+    await manager.refresh()
+    await manager.refresh()
+    await manager.refresh()
+    renderWithProviders(<ActivityDock backgroundJobs={[]} onOpenImport={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText('Offline')).toBeInTheDocument())
   })
 
-  it('hides badge when only terminal jobs exist', () => {
-    renderWithProviders(<ActivityDock {...baseProps} jobs={[completedImport]} />)
-    expect(screen.getByText('Activity')).toBeInTheDocument()
-    expect(screen.queryByText('1')).not.toBeInTheDocument()
-  })
-
-  it('expands on pill click to show card', async () => {
-    const user = userEvent.setup()
-    renderWithProviders(<ActivityDock {...baseProps} jobs={[runningImport]} hasActive />)
-    await user.click(screen.getByText('Activity'))
-    expect(screen.getByText('Dark Forest Maps')).toBeInTheDocument()
-  })
-
-  it('shows background job names in expanded card', async () => {
-    const user = userEvent.setup()
-    renderWithProviders(
-      <ActivityDock {...baseProps} backgroundJobs={[runningBgJob]} hasActiveJobs />,
-    )
-    await user.click(screen.getByText('Activity'))
+  it('still shows background jobs', async () => {
+    ;({ manager } = await installFakeImportManager())
+    renderWithProviders(<ActivityDock backgroundJobs={[runningBgJob]} onOpenImport={vi.fn()} />)
+    await userEvent.click(screen.getByTestId('activity-dock-pill'))
     expect(screen.getByText('Regenerate Auto-Tags')).toBeInTheDocument()
-  })
-
-  it('calls onOpenJob when clicking import card', async () => {
-    const onOpenJob = vi.fn()
-    const user = userEvent.setup()
-    renderWithProviders(
-      <ActivityDock {...baseProps} jobs={[runningImport]} hasActive onOpenJob={onOpenJob} />,
-    )
-    await user.click(screen.getByText('Activity'))
-    await user.click(screen.getByText('Dark Forest Maps'))
-    expect(onOpenJob).toHaveBeenCalledWith('imp-1')
-  })
-
-  it('shows Offline label on collapsed pill when connectionLost', () => {
-    renderWithProviders(
-      <ActivityDock {...baseProps} jobs={[runningImport]} hasActive connectionLost />,
-    )
-    expect(screen.getByText('Offline')).toBeInTheDocument()
-  })
-
-  it('shows Connection lost indicator in expanded header when connectionLost', async () => {
-    const user = userEvent.setup()
-    renderWithProviders(
-      <ActivityDock {...baseProps} jobs={[runningImport]} hasActive connectionLost />,
-    )
-    await user.click(screen.getByText('Activity'))
-    expect(screen.getByText('Connection lost')).toBeInTheDocument()
-  })
-
-  it('shows cancel button on running import jobs', async () => {
-    const onCancelJob = vi.fn()
-    const user = userEvent.setup()
-    renderWithProviders(
-      <ActivityDock {...baseProps} jobs={[runningImport]} hasActive onCancelJob={onCancelJob} />,
-    )
-    await user.click(screen.getByText('Activity'))
-    // Hover the card to reveal the cancel button
-    const card = screen.getByTestId('import-job-card')
-    await user.hover(card)
-    const cancelBtn = screen.getByTitle('Cancel')
-    expect(cancelBtn).toBeInTheDocument()
-  })
-
-  it('shows dismiss button on broken import jobs', async () => {
-    const brokenImport: ActiveImportJob = {
-      ...runningImport,
-      jobId: 'imp-broken',
-      status: 'broken',
-      runningGroups: 0,
-      pendingGroups: 0,
-      errorMessage: 'Server was restarted',
-    }
-    const onDismissWithCleanup = vi.fn().mockResolvedValue(undefined)
-    const user = userEvent.setup()
-    renderWithProviders(
-      <ActivityDock
-        {...baseProps}
-        jobs={[brokenImport]}
-        onDismissWithCleanup={onDismissWithCleanup}
-      />,
-    )
-    await user.click(screen.getByText('Activity'))
-    const card = screen.getByTestId('import-job-card')
-    await user.hover(card)
-    const dismissBtn = screen.getByTitle('Dismiss')
-    expect(dismissBtn).toBeInTheDocument()
   })
 })

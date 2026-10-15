@@ -48,9 +48,8 @@ async function traverseEntry(
  *
  * Strategy:
  * 1. Try FileSystemEntry API (webkitGetAsEntry) — supports folder traversal in
- *    standard browsers and most Electron builds.
- * 2. Fall back to dataTransfer.files — always works in Electron for native OS
- *    file drops where webkitGetAsEntry() returns null.
+ *    standard browsers and Electron.
+ * 2. Fall back to dataTransfer.files (top-level files only).
  *
  * IMPORTANT: DataTransfer entries must be extracted synchronously before any
  * awaits — the DataTransfer object is invalidated after the event handler returns.
@@ -74,35 +73,7 @@ export async function collectFilesFromDataTransfer(
     return results
   }
 
-  // Fallback: Electron native OS drops — webkitGetAsEntry() returns null but
-  // dataTransfer.files is always populated. File objects in Electron have a
-  // native `path` property. For directory drops (size=0, type=''), we use IPC
-  // to traverse the directory and read each file's bytes.
-  const electronAPI = window.electronAPI
-  if (electronAPI?.readDirectory && electronAPI?.readFileBytes) {
-    const results: Array<{ file: File; relativePath: string }> = []
-    for (const dropped of Array.from(dataTransfer.files)) {
-      const nativePath = (dropped as File & { path?: string }).path
-      if (nativePath && dropped.size === 0 && dropped.type === '') {
-        // Likely a directory — traverse it via IPC
-        const entries = await electronAPI.readDirectory(nativePath)
-        for (const entry of entries) {
-          const { data } = await electronAPI.readFileBytes(entry.absolutePath)
-          const filename = entry.relativePath.split('/').pop() ?? entry.relativePath
-          // .slice() copies into a concrete ArrayBuffer (required by the File constructor)
-          results.push({
-            file: new File([data.slice()], filename),
-            relativePath: entry.relativePath,
-          })
-        }
-      } else {
-        // Regular file — already have a complete File object
-        results.push({ file: dropped, relativePath: dropped.name })
-      }
-    }
-    return results
-  }
-
+  // Fallback (e.g. native OS drops where entries are unavailable): top-level files only.
   return Array.from(dataTransfer.files).map((file) => ({
     file,
     relativePath: file.name,

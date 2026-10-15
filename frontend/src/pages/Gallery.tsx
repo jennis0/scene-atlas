@@ -8,20 +8,22 @@ import type { SeedImage } from '@/types'
 import { ImageGrid } from '@/components/ImageGrid'
 import { GroupGrid } from '@/components/GroupGrid'
 import { ImageViewer } from '@/components/ImageViewer'
-import { ImportDialog } from '@/components/ImportDialog'
+import { ImportDialog } from '@/components/imports/ImportDialog'
+import { ImportReportDialog } from '@/components/imports/ImportReportDialog'
+import { isFinished, outcomeText } from '@/components/imports/format'
 import { ActivityDock } from '@/components/ActivityDock'
 const EditGroupDialog = lazy(() => import('@/components/EditGroupDialog'))
 import { TagManagementDialog } from '@/components/TagManagementDialog'
 import { MergeGroupPicker } from '@/components/MergeGroupPicker'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { LibraryInfoDialog } from '@/components/LibraryInfoDialog'
-import { ImportSummaryDialog } from '@/components/ImportSummaryDialog'
 import { EmptyLibraryWelcome } from '@/components/EmptyLibraryWelcome'
 import { GalleryHeader } from '@/components/GalleryHeader'
 import { useGallerySearch } from '@/hooks/useGallerySearch'
 import { useGalleryDialogs } from '@/hooks/useGalleryDialogs'
 import { useEmbeddingStatus } from '@/hooks/useEmbeddingStatus'
-import { useActiveImports } from '@/hooks/useActiveImports'
+import { getImportManager } from '@/lib/import/ImportManager'
+import { useImportManagerSnapshot, useImportPollingLifecycle } from '@/lib/import/useImports'
 import { useBackgroundJobs } from '@/hooks/useBackgroundJobs'
 import { Button } from '@/components/ui/button'
 
@@ -69,8 +71,9 @@ export function Gallery() {
   )
 
   const embedding = useEmbeddingStatus()
-  const activeImports = useActiveImports()
   const backgroundJobs = useBackgroundJobs()
+  useImportPollingLifecycle()
+  const importSnapshot = useImportManagerSnapshot()
   const sentinelRef = useRef<HTMLDivElement>(null)
 
   // Infinite scroll sentinel for grouped view
@@ -91,28 +94,46 @@ export function Gallery() {
     return () => observer.disconnect()
   }, [search])
 
-  // Invalidate gallery queries and show review toast whenever a background import finishes
+  // Images appear in the gallery as they're imported: refresh at most every few
+  // seconds while the imported count grows.
+  const importedTotal = importSnapshot.jobs.reduce((sum, j) => sum + j.counts.done, 0)
+  const lastRefreshRef = useRef({ total: importedTotal, at: 0 })
   useEffect(() => {
-    return activeImports.onJobCompleted((job) => {
+    const last = lastRefreshRef.current
+    if (importedTotal === last.total) return
+    const wait = Math.max(0, 4000 - (Date.now() - last.at))
+    const timer = setTimeout(() => {
+      lastRefreshRef.current = { total: importedTotal, at: Date.now() }
       invalidateGalleryQueries(queryClient)
+    }, wait)
+    return () => clearTimeout(timer)
+  }, [importedTotal, queryClient])
 
-      const groupCount = job.totalGroups
-      const fileCount = job.totalFiles
-      const description =
-        groupCount === 1
-          ? `${fileCount} image${fileCount !== 1 ? 's' : ''} imported`
-          : `${groupCount} groups, ${fileCount} image${fileCount !== 1 ? 's' : ''} imported`
-
-      toast.success('Import complete', {
-        description,
-        duration: 8000,
-        action: {
-          label: 'Review',
-          onClick: () => dialogs.setImportLiveJobId(job.jobId),
-        },
-      })
+  // Tell the user when an import finishes, including when files had problems.
+  useEffect(() => {
+    return getImportManager().onJobFinished((job) => {
+      invalidateGalleryQueries(queryClient)
+      if (job.status === 'cancelled') return
+      const action = { label: 'View report', onClick: () => dialogs.setReportJobId(job.id) }
+      const description = outcomeText(job.counts)
+      if (job.counts.failed > 0) {
+        toast.warning(`${job.label ?? 'Import'} finished with problems`, {
+          description,
+          duration: 10000,
+          action,
+        })
+      } else {
+        toast.success(`${job.label ?? 'Import'} finished`, { description, duration: 8000, action })
+      }
     })
-  }, [activeImports, queryClient, dialogs])
+  }, [queryClient, dialogs])
+
+  // The dock opens a running import's progress, or a finished import's report.
+  const openImportFromDock = (jobId: string) => {
+    const job = importSnapshot.jobs.find((j) => j.id === jobId)
+    if (job && isFinished(job)) dialogs.setReportJobId(jobId)
+    else dialogs.openImport(jobId)
+  }
 
   const handleOpenMassEdit = async () => {
     // Guard against multiple concurrent requests
@@ -155,7 +176,7 @@ export function Gallery() {
         search={{ ...search, editAllLoading: dialogs.editAllLoading }}
         embeddingStatus={embedding.status}
         embeddingError={embedding.error}
-        onOpenImport={() => dialogs.openImportDialog()}
+        onOpenImport={() => dialogs.openImport()}
         onOpenTagManagement={() => dialogs.setShowTagManagement(true)}
         onOpenSystemInfo={() => dialogs.setShowSystemInfo(true)}
         onOpenMassEdit={handleOpenMassEdit}
@@ -174,7 +195,7 @@ export function Gallery() {
         ) : !search.hasActiveSearch && (search.facets?.total_images ?? 0) === 0 ? (
           <EmptyLibraryWelcome
             embeddingReady={embedding.status === 'ready'}
-            onImport={() => dialogs.openImportDialog()}
+            onImport={() => dialogs.openImport()}
           />
         ) : (
             search.viewMode === 'grouped'
@@ -288,19 +309,12 @@ export function Gallery() {
           }}
         />
 
-        {/* Live import-review dialog -- opened by clicking an active or completed job in the tray */}
+        {/* Group editor over every group an import created (from the import report) */}
         <EditGroupDialog
-          importJobId={dialogs.importLiveJobId ?? undefined}
-          open={dialogs.importLiveJobId !== null}
-          onClose={() => dialogs.setImportLiveJobId(null)}
-          onSave={(reviewedImportJobId) => {
-            // onClose() already cleared importLiveJobId — don't set it to null here.
-            // importJobId is passed directly from handleDone so we don't need a ref.
-            dialogs.invalidateGallery()
-            if (reviewedImportJobId) {
-              activeImports.dismissJob(reviewedImportJobId)
-            }
-          }}
+          groupIds={dialogs.reviewGroupIds ?? undefined}
+          open={dialogs.reviewGroupIds !== null}
+          onClose={() => dialogs.setReviewGroupIds(null)}
+          onSave={() => dialogs.invalidateGallery()}
         />
 
         {/* Mass-edit dialog -- all images in current search results */}
@@ -318,21 +332,35 @@ export function Gallery() {
         />
       </Suspense>
 
-      {/* Import dialog -- key forces remount so each open starts fresh */}
+      {/* Import dialog: start a new import, or follow one in progress */}
       <ImportDialog
-        key={dialogs.importDialogKey}
-        open={dialogs.importDialogJobId !== null}
-        reconnectJobId={
-          dialogs.importDialogJobId === 'new' ? undefined : (dialogs.importDialogJobId ?? undefined)
-        }
-        onOpenChange={(open) => {
-          if (!open) {
-            dialogs.setImportDialogJobId(null)
-            activeImports.refresh()
-          }
+        jobId={dialogs.importDialog.jobId}
+        open={dialogs.importDialog.open}
+        onClose={dialogs.closeImport}
+        onStarted={(jobId) => dialogs.openImport(jobId)}
+        onOpenReport={(jobId) => {
+          dialogs.closeImport()
+          dialogs.setReportJobId(jobId)
         }}
-        onActiveChange={() => activeImports.refresh()}
-        onJobIdChange={dialogs.setMountedImportJob}
+        onOpenGroup={(groupId) => {
+          dialogs.closeImport()
+          dialogs.setEditGroupId(groupId)
+        }}
+      />
+
+      <ImportReportDialog
+        jobId={dialogs.reportJobId}
+        open={dialogs.reportJobId !== null}
+        onClose={() => dialogs.setReportJobId(null)}
+        onOpenGroup={(groupId) => {
+          dialogs.setReportJobId(null)
+          dialogs.setEditGroupId(groupId)
+        }}
+        onReviewGroups={(groupIds) => {
+          dialogs.setReportJobId(null)
+          dialogs.setReviewGroupIds(groupIds)
+        }}
+        onUndone={() => dialogs.invalidateGallery()}
       />
 
       <TagManagementDialog
@@ -345,48 +373,8 @@ export function Gallery() {
         onClose={() => dialogs.setShowSystemInfo(false)}
       />
 
-      {/* Import summary dialog -- opened by clicking a failed/broken job in the tray */}
-      <ImportSummaryDialog
-        jobId={dialogs.importSummaryJobId}
-        open={dialogs.importSummaryJobId !== null}
-        onClose={() => dialogs.setImportSummaryJobId(null)}
-        onCancel={(jobId) => {
-          activeImports.cancelJob(jobId)
-          dialogs.setImportSummaryJobId(null)
-        }}
-      />
-
       {/* Activity dock -- bottom-right floating panel showing all jobs */}
-      <ActivityDock
-        jobs={activeImports.jobs}
-        hasActive={activeImports.hasActive}
-        connectionLost={activeImports.connectionLost}
-        backgroundJobs={backgroundJobs.jobs}
-        hasActiveJobs={backgroundJobs.hasActive}
-        onOpenJob={(jobId) => {
-          const job = activeImports.jobs.find((j) => j.jobId === jobId)
-          if (job?.status === 'failed' || job?.status === 'broken') {
-            // Failed/broken jobs open the import summary dialog
-            dialogs.setImportSummaryJobId(jobId)
-          } else if (
-            job?.status === 'completed' ||
-            job?.status === 'active' ||
-            job?.status === 'running'
-          ) {
-            // Active and completed jobs open EditGroupDialog in live-review mode
-            dialogs.setImportLiveJobId(jobId)
-          } else if (job?.status === 'staging') {
-            dialogs.openImportDialog(jobId)
-          }
-          // 'uploading' jobs are not clickable — upload progress is shown
-          // directly in the ActivityDock card. The upload state (XHR handles,
-          // file data) is ephemeral and can't be restored in a new dialog.
-        }}
-        onDismissJob={activeImports.dismissJob}
-        onDismissWithCleanup={activeImports.dismissWithCleanup}
-        onCancelJob={activeImports.cancelJob}
-        onRefresh={activeImports.refresh}
-      />
+      <ActivityDock backgroundJobs={backgroundJobs.jobs} onOpenImport={openImportFromDock} />
 
       {/* Delete group confirmation */}
       <ConfirmDialog

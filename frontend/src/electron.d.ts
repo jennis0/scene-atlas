@@ -16,10 +16,6 @@ interface ElectronAPI {
   chooseImageLibraryDir(): Promise<string | null>
   /** Saves config and restarts the app. Call only when user confirms file-move intent. */
   changeStorageDirs(appDataDir: string, imageLibraryDir: string): Promise<void>
-
-  // Filesystem access for drag-and-drop folder traversal
-  readDirectory(dirPath: string): Promise<Array<{ relativePath: string; absolutePath: string }>>
-  readFileBytes(absolutePath: string): Promise<{ data: Uint8Array }>
 }
 
 declare global {

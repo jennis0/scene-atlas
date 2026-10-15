@@ -1,53 +1,37 @@
-import { useState, useEffect } from 'react'
+/**
+ * Floating activity dock: imports (from the ImportManager) and background jobs
+ * (model downloads, rebuilds). Hidden when there's nothing to show.
+ */
+
+import { useEffect, useState } from 'react'
 import {
-  AlertTriangle,
+  AlertCircle,
+  Check,
+  ChevronDown,
+  Clock,
+  Cog,
   Loader2,
   Package,
-  ChevronDown,
-  Trash2,
-  X,
-  Check,
-  AlertCircle,
-  Clock,
-  Ban,
-  Upload,
-  Cog,
+  PauseCircle,
   WifiOff,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { importApi } from '@/lib/api'
-import type { ActiveImportJob } from '@/hooks/useActiveImports'
+import { getImportManager } from '@/lib/import/ImportManager'
+import { useImportManagerSnapshot } from '@/lib/import/useImports'
+import { ImportJobRow } from '@/components/imports/ImportJobRow'
+import { isFinished } from '@/components/imports/format'
 import type { BackgroundJob } from '@/types'
 
 interface ActivityDockProps {
-  jobs: ActiveImportJob[]
-  hasActive: boolean
-  /** True when 3+ consecutive poll failures indicate the backend is unreachable. */
-  connectionLost: boolean
   backgroundJobs: BackgroundJob[]
-  hasActiveJobs: boolean
-  onOpenJob: (jobId: string) => void
-  onDismissJob: (jobId: string) => void
-  /** Dismiss a broken/failed job with backend cleanup (calls cancel then dismiss). */
-  onDismissWithCleanup: (jobId: string) => Promise<void>
-  onCancelJob: (jobId: string) => void
-  onRefresh: () => void
+  /** Open an import: its progress while running, its report once finished. */
+  onOpenImport: (jobId: string) => void
 }
 
-export function ActivityDock({
-  jobs,
-  hasActive: _hasActive,
-  connectionLost,
-  backgroundJobs,
-  hasActiveJobs: _hasActiveJobs,
-  onOpenJob,
-  onDismissJob,
-  onDismissWithCleanup,
-  onCancelJob,
-  onRefresh,
-}: ActivityDockProps) {
+export function ActivityDock({ backgroundJobs, onOpenImport }: ActivityDockProps) {
   const [expanded, setExpanded] = useState(false)
-  const [cleaning, setCleaning] = useState(false)
+  const manager = getImportManager()
+  const { jobs, uploads, connection, queue } = useImportManagerSnapshot()
 
   useEffect(() => {
     if (!expanded) return
@@ -58,43 +42,20 @@ export function ActivityDock({
     return () => window.removeEventListener('keydown', handleKey)
   }, [expanded])
 
-  const hasAnything = jobs.length > 0 || backgroundJobs.length > 0
-  if (!hasAnything) return null
+  if (jobs.length === 0 && backgroundJobs.length === 0) return null
 
-  const activeImportCount = jobs.filter(
-    (j) =>
-      j.status === 'uploading' ||
-      j.status === 'active' ||
-      j.status === 'running' ||
-      j.runningGroups > 0 ||
-      j.pendingGroups > 0,
-  ).length
+  const activeImportCount = jobs.filter((j) => !isFinished(j)).length
   const activeJobCount = backgroundJobs.filter(
     (j) => j.status === 'queued' || j.status === 'running',
   ).length
   const totalActiveCount = activeImportCount + activeJobCount
-  const terminalCount =
-    jobs.filter(
-      (j) =>
-        j.status === 'completed' ||
-        j.status === 'failed' ||
-        j.status === 'cancelled' ||
-        j.status === 'broken',
-    ).length +
-    backgroundJobs.filter((j) => j.status === 'completed' || j.status === 'failed').length
+  const connectionLost = connection === 'lost'
+  const systemPaused = !!queue?.system_paused && activeImportCount > 0
 
-  const handleClearHistory = async () => {
-    setCleaning(true)
-    try {
-      await importApi.cleanup()
-      onRefresh()
-    } catch {
-      toast.error('Failed to clear history', {
-        description: 'Could not clean up completed imports on the backend.',
-      })
-    } finally {
-      setCleaning(false)
-    }
+  const act = (action: () => Promise<unknown>) => {
+    action().catch(() =>
+      toast.error("That didn't work", { description: 'The server could not be reached.' }),
+    )
   }
 
   if (!expanded) {
@@ -110,24 +71,29 @@ export function ActivityDock({
           transition-all duration-200
           hover:bg-secondary hover:border-border/60
           hover:shadow-xl hover:shadow-black/50
-          hover:-translate-y-px"
+          hover:-translate-y-px
+          focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
         title={
           connectionLost
-            ? 'Connection lost — backend unreachable'
-            : totalActiveCount > 0
-              ? `${totalActiveCount} active task${totalActiveCount !== 1 ? 's' : ''}`
-              : 'Activity'
+            ? "Can't reach Scene Atlas"
+            : systemPaused
+              ? `Imports paused: ${queue?.reason}`
+              : totalActiveCount > 0
+                ? `${totalActiveCount} running`
+                : 'Activity'
         }
       >
         {connectionLost ? (
-          <WifiOff className="h-4 w-4 text-amber-500/80" />
+          <WifiOff className="h-4 w-4 text-primary/80" />
+        ) : systemPaused ? (
+          <PauseCircle className="h-4 w-4 text-primary" />
         ) : totalActiveCount > 0 ? (
           <Loader2 className="h-4 w-4 text-primary animate-spin" />
         ) : (
           <Package className="h-4 w-4 text-primary" />
         )}
         <span className="text-[12px] font-medium text-muted-foreground">Activity</span>
-        {connectionLost && <span className="text-[10px] text-amber-500/70">Offline</span>}
+        {connectionLost && <span className="text-[10px] text-primary/70">Offline</span>}
         {!connectionLost && totalActiveCount > 0 && (
           <span
             className="min-w-[18px] h-[18px] flex items-center justify-center
@@ -153,10 +119,8 @@ export function ActivityDock({
             shadow-2xl shadow-black/60 overflow-hidden"
           style={{ maxHeight: 'min(520px, 65vh)' }}
         >
-          {/* Amber stripe */}
           <div className="h-0.5 shrink-0 bg-gradient-to-r from-transparent to-primary/70" />
 
-          {/* Header */}
           <div className="px-3.5 pt-2.5 shrink-0">
             <div className="flex items-center justify-between">
               <div className="flex flex-col">
@@ -166,92 +130,72 @@ export function ActivityDock({
                   </span>
                   {totalActiveCount > 0 && (
                     <span className="inline-flex items-center px-1.5 py-px rounded-full bg-primary/15 text-[10px] font-medium text-primary tabular-nums">
-                      {totalActiveCount} active
+                      {totalActiveCount} running
                     </span>
                   )}
                   {connectionLost && (
-                    <span className="inline-flex items-center gap-1 text-[10px] text-amber-500/70">
+                    <span className="inline-flex items-center gap-1 text-[10px] text-primary/70">
                       <WifiOff className="h-3 w-3" />
-                      Connection lost
+                      Offline
                     </span>
                   )}
                 </div>
                 <div className="mt-[3px] h-px w-7 bg-gradient-to-r from-primary to-transparent" />
               </div>
-              <div className="flex items-center gap-0.5">
-                {terminalCount > 0 && (
-                  <button
-                    onClick={handleClearHistory}
-                    disabled={cleaning}
-                    className="h-7 w-7 rounded flex items-center justify-center
-                      text-muted-foreground hover:text-destructive hover:bg-destructive/10
-                      transition-colors disabled:opacity-30"
-                    title="Clear completed"
-                  >
-                    {cleaning ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-3.5 w-3.5" />
-                    )}
-                  </button>
-                )}
-                <button
-                  onClick={() => setExpanded(false)}
-                  className="h-7 w-7 rounded flex items-center justify-center
-                    text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-                  title="Collapse"
-                >
-                  <ChevronDown className="h-3.5 w-3.5" />
-                </button>
-              </div>
+              <button
+                onClick={() => setExpanded(false)}
+                className="h-7 w-7 rounded flex items-center justify-center
+                  text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors
+                  focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+                title="Collapse"
+              >
+                <ChevronDown className="h-3.5 w-3.5" />
+              </button>
             </div>
           </div>
 
-          {/* Divider */}
+          {systemPaused && (
+            <div className="mx-3.5 mt-2 flex items-start gap-2 rounded-md border border-primary/25 bg-primary/[0.06] px-2.5 py-2">
+              <PauseCircle className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
+              <p className="flex-1 text-[11px] leading-snug text-foreground">
+                Imports paused: {queue?.reason}
+              </p>
+              <button
+                onClick={() => act(() => manager.retrySystemPause())}
+                className="text-[11px] text-primary hover:underline shrink-0"
+              >
+                Try again
+              </button>
+            </div>
+          )}
+
           <div className="mx-3.5 mt-2 h-px bg-border/40 shrink-0" />
 
-          {/* Scrollable job list */}
           <div className="flex-1 min-h-0 overflow-y-auto py-2 px-2 space-y-1.5">
-            {/* Import jobs */}
             {jobs.map((job) => (
-              <ImportJobCard
-                key={job.jobId}
+              <ImportJobRow
+                key={job.id}
                 job={job}
-                onOpen={() => onOpenJob(job.jobId)}
-                onDismiss={() => onDismissJob(job.jobId)}
-                onDismissWithCleanup={() => onDismissWithCleanup(job.jobId)}
-                onCancel={() => onCancelJob(job.jobId)}
+                upload={uploads[job.id]}
+                onOpen={() => {
+                  setExpanded(false)
+                  onOpenImport(job.id)
+                }}
+                onPause={() => act(() => manager.pause(job.id))}
+                onResume={() => act(() => manager.resume(job.id))}
+                onDismiss={() => act(() => manager.dismiss(job.id))}
               />
             ))}
 
-            {/* Section divider — only when both import and background jobs exist */}
             {jobs.length > 0 && backgroundJobs.length > 0 && (
-              <div className="flex items-center gap-2 pt-1.5 pb-0.5">
-                <div className="h-px flex-1 bg-border/30" />
-                <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/40 shrink-0">
-                  Jobs
-                </span>
+              <div className="flex items-center gap-2 pt-1.5 pb-0.5" aria-hidden>
                 <div className="h-px flex-1 bg-border/30" />
               </div>
             )}
 
-            {/* Background jobs */}
             {backgroundJobs.map((job) => (
               <BackgroundJobCard key={job.id} job={job} />
             ))}
-          </div>
-
-          {/* Footer */}
-          <div
-            className="px-3.5 py-[7px] border-t border-border/30 shrink-0 flex items-center justify-between"
-            style={{ background: 'hsl(var(--popover))' }}
-          >
-            <span className="text-[10.5px] text-muted-foreground/50 italic">
-              Click imports to open dialog
-            </span>
-            <span className="text-[10.5px] text-muted-foreground/40 tabular-nums">
-              {jobs.length + backgroundJobs.length} jobs
-            </span>
           </div>
         </div>
       </div>
@@ -259,166 +203,7 @@ export function ActivityDock({
   )
 }
 
-/* ─── Sub-components ─────────────────────────────────────────────── */
-
-function ImportJobCard({
-  job,
-  onOpen,
-  onDismiss,
-  onDismissWithCleanup,
-  onCancel,
-}: {
-  job: ActiveImportJob
-  onOpen: () => void
-  onDismiss: () => void
-  onDismissWithCleanup: () => void
-  onCancel: () => void
-}) {
-  const [confirmingCancel, setConfirmingCancel] = useState(false)
-
-  const isTerminal =
-    job.status === 'completed' ||
-    job.status === 'failed' ||
-    job.status === 'cancelled' ||
-    job.status === 'expired' ||
-    job.status === 'broken'
-  // All terminal jobs can be dismissed
-  const canDismiss = isTerminal
-  // Broken/failed need cleanup confirmation; completed/cancelled/expired are immediate
-  const needsCleanup = job.status === 'broken' || job.status === 'failed'
-  const canCancel =
-    job.status === 'uploading' ||
-    job.status === 'staging' ||
-    job.status === 'active' ||
-    job.status === 'running'
-  const progressRatio = job.totalFiles > 0 ? job.processedFiles / job.totalFiles : 0
-
-  const handleCancelClick = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (job.processedFiles > 0) {
-      setConfirmingCancel(true)
-    } else {
-      onCancel()
-    }
-  }
-
-  const handleDismissClick = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (needsCleanup) {
-      // broken/failed jobs need confirmation since cleanup calls cancel
-      setConfirmingCancel(true)
-    } else {
-      onDismiss()
-    }
-  }
-
-  return (
-    <div
-      data-testid="import-job-card"
-      className={`group/job rounded-md border transition-colors cursor-pointer ${
-        isTerminal
-          ? 'border-border/15 bg-muted/10 opacity-75 hover:opacity-100'
-          : 'border-border/30 bg-secondary/20 hover:bg-secondary/40 hover:border-border/50'
-      }`}
-      onClick={onOpen}
-    >
-      <div className="px-2.5 py-2">
-        {/* Top row */}
-        <div className="flex items-start gap-[7px]">
-          <ImportStatusIcon status={job.status} />
-          <span
-            className={`w-0 flex-grow min-w-0 text-[12px] font-medium truncate leading-tight ${
-              isTerminal ? 'text-muted-foreground' : 'text-foreground'
-            }`}
-            title={job.label}
-          >
-            {job.label}
-            {!isTerminal && (
-              <span className="ml-1.5 text-muted-foreground/25 text-[13px] transition-all group-hover/job:text-primary/60 group-hover/job:ml-2">
-                ›
-              </span>
-            )}
-          </span>
-          {canDismiss && !confirmingCancel && (
-            <button
-              onClick={handleDismissClick}
-              className="opacity-0 group-hover/job:opacity-100 shrink-0
-                h-5 w-5 rounded flex items-center justify-center
-                text-muted-foreground/30 hover:text-foreground hover:bg-secondary transition-all"
-              title="Dismiss"
-            >
-              <X className="h-3 w-3" />
-            </button>
-          )}
-          {canCancel && !confirmingCancel && (
-            <button
-              onClick={handleCancelClick}
-              className="opacity-0 group-hover/job:opacity-100 shrink-0 h-5 w-5 rounded flex items-center justify-center
-                text-muted-foreground/30 hover:text-destructive hover:bg-destructive/10 transition-all"
-              title="Cancel"
-            >
-              <X className="h-3 w-3" />
-            </button>
-          )}
-          {confirmingCancel && (
-            <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-              <span className="text-[10px] text-destructive/80">Delete imported?</span>
-              <button
-                onClick={() => {
-                  if (needsCleanup) {
-                    onDismissWithCleanup()
-                  } else {
-                    onCancel()
-                  }
-                  setConfirmingCancel(false)
-                }}
-                className="text-[10px] px-1.5 py-0.5 rounded bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
-              >
-                Yes
-              </button>
-              <button
-                onClick={() => setConfirmingCancel(false)}
-                className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground hover:bg-secondary/80 transition-colors"
-              >
-                No
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Progress bar */}
-        <div className="flex items-center gap-2 mt-[7px]">
-          <div className="flex-1 h-[3px] rounded-full bg-border/30 overflow-hidden">
-            {job.status === 'uploading' && progressRatio === 0 ? (
-              <div className="h-full w-full bg-primary/40 animate-pulse" />
-            ) : (
-              <div
-                className={`h-full rounded-full transition-all duration-700 ease-out ${
-                  job.status === 'failed'
-                    ? 'bg-destructive/55'
-                    : isTerminal
-                      ? 'bg-primary/45'
-                      : 'bg-primary/70'
-                }`}
-                style={{ width: `${Math.round(progressRatio * 100)}%` }}
-              />
-            )}
-          </div>
-          {job.totalFiles > 0 && progressRatio > 0 && (
-            <span className="text-[10px] text-muted-foreground/55 tabular-nums shrink-0">
-              {job.processedFiles}/{job.totalFiles}
-            </span>
-          )}
-        </div>
-
-        {/* Status summary */}
-        <div className="mt-1 text-[10px] text-muted-foreground/45 leading-tight">
-          <ImportStatusText job={job} />
-        </div>
-      </div>
-    </div>
-  )
-}
+/* ─── Background jobs ─────────────────────────────────────────────── */
 
 function BackgroundJobCard({ job }: { job: BackgroundJob }) {
   const [expanded, setExpanded] = useState(false)
@@ -520,28 +305,6 @@ function BackgroundJobCard({ job }: { job: BackgroundJob }) {
 
 /* ─── Status icons & helpers ─────────────────────────────────────── */
 
-function ImportStatusIcon({ status }: { status: ActiveImportJob['status'] }) {
-  switch (status) {
-    case 'uploading':
-      return <Upload className="h-3.5 w-3.5 text-primary animate-pulse shrink-0 mt-0.5" />
-    case 'running':
-    case 'active':
-      return <Loader2 className="h-3.5 w-3.5 text-primary animate-spin shrink-0 mt-0.5" />
-    case 'completed':
-      return <Check className="h-3.5 w-3.5 text-primary/60 shrink-0 mt-0.5" />
-    case 'failed':
-      return <AlertCircle className="h-3.5 w-3.5 text-destructive/70 shrink-0 mt-0.5" />
-    case 'cancelled':
-      return <Ban className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 mt-0.5" />
-    case 'broken':
-      return <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
-    case 'expired':
-    case 'staging':
-    default:
-      return <Clock className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0 mt-0.5" />
-  }
-}
-
 function JobStatusIcon({ status }: { status: BackgroundJob['status'] }) {
   switch (status) {
     case 'running':
@@ -553,60 +316,6 @@ function JobStatusIcon({ status }: { status: BackgroundJob['status'] }) {
     case 'queued':
     default:
       return <Clock className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0 mt-0.5" />
-  }
-}
-
-function ImportStatusText({ job }: { job: ActiveImportJob }) {
-  switch (job.status) {
-    case 'uploading': {
-      // When actual file upload progress is available, show the detailed count
-      const hasUploadProgress = job.totalFiles > 0 && job.processedFiles > 0
-      return (
-        <span>
-          {hasUploadProgress
-            ? `Uploading ${job.processedFiles} of ${job.totalFiles} file${job.totalFiles !== 1 ? 's' : ''}`
-            : (job.uploadPhase ?? 'Uploading…')}
-        </span>
-      )
-    }
-    case 'staging':
-      return (
-        <span>
-          {job.totalFiles > 0
-            ? `${job.totalFiles} image${job.totalFiles !== 1 ? 's' : ''} ready to review`
-            : 'Ready to review'}
-        </span>
-      )
-    case 'running':
-    case 'active':
-      return (
-        <span>
-          {job.processedFiles > 0
-            ? `${job.processedFiles} of ${job.totalFiles} images processed`
-            : 'Processing…'}
-        </span>
-      )
-    case 'completed':
-      return <span className="text-amber-600 dark:text-amber-400 font-medium">Ready to review</span>
-    case 'failed':
-      return (
-        <span className="text-destructive/65">
-          {job.failedGroups} group{job.failedGroups !== 1 ? 's' : ''} failed
-          {job.processedFiles > 0 ? `, ${job.processedFiles} images processed` : ''}
-        </span>
-      )
-    case 'cancelled':
-      return <span>Cancelled</span>
-    case 'expired':
-      return <span>Expired</span>
-    case 'broken':
-      return (
-        <span className="text-amber-600 dark:text-amber-400">
-          Interrupted — server was restarted
-        </span>
-      )
-    default:
-      return null
   }
 }
 

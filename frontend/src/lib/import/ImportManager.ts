@@ -22,7 +22,10 @@ import { createHasher, type Hasher } from './hasher'
 import type {
   ImageType,
   ImportItem,
+  ImportItemPage,
+  ImportJobDetail,
   ImportJobSummary,
+  ItemState,
   ManifestFile,
   PickedFile,
   QueueStatus,
@@ -70,6 +73,8 @@ export interface ImportManagerSnapshot {
   queue: QueueStatus | null
   connection: ConnectionState
   uploads: Record<string, LocalUpload>
+  /** Per-group detail for jobs a view is watching (see ``watchJob``). */
+  details: Record<string, ImportJobDetail>
   /** True once the first job list has arrived. */
   loaded: boolean
 }
@@ -199,11 +204,16 @@ export class ImportManager {
     queue: null,
     connection: 'ok',
     uploads: {},
+    details: {},
     loaded: false,
   }
   private listeners = new Set<Listener>()
   private finishedListeners = new Set<FinishedListener>()
   private runs = new Map<string, UploadRun>()
+  /** Files this tab gave up on, kept so "Try again" works without re-picking. */
+  private failedFiles = new Map<string, PendingFile[]>()
+  /** Jobs whose detail a mounted view needs, with a reference count. */
+  private watched = new Map<string, number>()
 
   private etag: string | null = null
   private pollTimer: ReturnType<typeof setTimeout> | null = null
@@ -424,13 +434,33 @@ export class ImportManager {
       }
     }
 
+    this.startUploadRun(jobId, pending, label)
+    return { matched: pending.length, missing: awaiting.length - pending.length }
+  }
+
+  /** Try again to send the files this tab gave up on (no re-picking needed). */
+  retryFailedUploads(jobId: string): number {
+    const pending = this.failedFiles.get(jobId) ?? []
+    if (!pending.length || this.isUploading(jobId)) return 0
+    this.failedFiles.delete(jobId)
+    this.startUploadRun(jobId, pending)
+    return pending.length
+  }
+
+  private isUploading(jobId: string): boolean {
+    const phase = this.snapshot.uploads[jobId]?.phase
+    return phase !== undefined && ACTIVE_PHASES.has(phase)
+  }
+
+  /** Upload already-described files for a sealed job (resume and retry). */
+  private startUploadRun(jobId: string, pending: PendingFile[], label?: string): void {
     const existing = this.snapshot.jobs.find((j) => j.id === jobId)
     this.set({
       uploads: {
         ...this.snapshot.uploads,
         [jobId]: {
           jobId,
-          label: label ?? existing?.label ?? 'Import',
+          label: label ?? this.snapshot.uploads[jobId]?.label ?? existing?.label ?? 'Import',
           phase: 'uploading',
           totalFiles: pending.length,
           sentFiles: 0,
@@ -442,6 +472,7 @@ export class ImportManager {
         },
       },
     })
+    this.syncUnloadGuard()
     const run = this.newRun(jobId)
     run.settled = (async () => {
       try {
@@ -453,7 +484,6 @@ export class ImportManager {
         void this.refresh()
       }
     })()
-    return { matched: pending.length, missing: awaiting.length - pending.length }
   }
 
   // --- uploading -------------------------------------------------------------
@@ -594,6 +624,7 @@ export class ImportManager {
 
   private recordFailure(jobId: string, pending: PendingFile, run: UploadRun, reason: string): void {
     run.inflightBytes.delete(pending.itemId)
+    this.failedFiles.set(jobId, [...(this.failedFiles.get(jobId) ?? []), pending])
     const upload = this.snapshot.uploads[jobId]
     this.updateUpload(jobId, {
       failures: [...upload.failures, { relativePath: pending.relativePath, reason }],
@@ -722,11 +753,57 @@ export class ImportManager {
   }
 
   private forgetUpload(jobId: string): void {
+    this.failedFiles.delete(jobId)
     if (!(jobId in this.snapshot.uploads)) return
     const uploads = { ...this.snapshot.uploads }
     delete uploads[jobId]
     this.set({ uploads })
     this.syncUnloadGuard()
+  }
+
+  /** A page of one job's items (for the report); not cached. */
+  listItems(
+    jobId: string,
+    params: { state?: ItemState[]; after?: number; limit?: number },
+  ): Promise<ImportItemPage> {
+    return this.client.items(jobId, params)
+  }
+
+  // --- job detail ------------------------------------------------------------
+
+  /**
+   * Keep ``snapshot.details[jobId]`` fresh while the returned function hasn't
+   * been called. Detail is re-fetched only when the summary poll reports a
+   * change, so an idle open dialog costs nothing.
+   */
+  watchJob(jobId: string): () => void {
+    this.watched.set(jobId, (this.watched.get(jobId) ?? 0) + 1)
+    if (this.watched.get(jobId) === 1) void this.fetchDetail(jobId)
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      const count = (this.watched.get(jobId) ?? 1) - 1
+      if (count > 0) {
+        this.watched.set(jobId, count)
+        return
+      }
+      this.watched.delete(jobId)
+      const details = { ...this.snapshot.details }
+      delete details[jobId]
+      this.set({ details })
+    }
+  }
+
+  private async fetchDetail(jobId: string): Promise<void> {
+    try {
+      const detail = await this.client.get(jobId)
+      if (this.watched.has(jobId)) {
+        this.set({ details: { ...this.snapshot.details, [jobId]: detail } })
+      }
+    } catch {
+      // Gone (undone elsewhere) or unreachable; the summary poll reports which.
+    }
   }
 
   // --- polling ---------------------------------------------------------------
@@ -789,6 +866,7 @@ export class ImportManager {
       }
       const previous = new Map(this.snapshot.jobs.map((j) => [j.id, j.status]))
       this.set({ jobs: data.jobs, queue: data.queue, connection: 'ok', loaded: true })
+      await Promise.all([...this.watched.keys()].map((jobId) => this.fetchDetail(jobId)))
       for (const job of data.jobs) {
         const before = previous.get(job.id)
         if (before && OPEN_STATUSES.has(before) && !OPEN_STATUSES.has(job.status)) {
@@ -854,4 +932,9 @@ let instance: ImportManager | null = null
 export function getImportManager(): ImportManager {
   instance ??= new ImportManager()
   return instance
+}
+
+/** Replace the app-wide manager (tests). Pass null to reset. */
+export function setImportManager(manager: ImportManager | null): void {
+  instance = manager
 }

@@ -621,3 +621,81 @@ describe('actions', () => {
     expect(client.itemAction).toHaveBeenNthCalledWith(2, 'job1', 'import-as-copy', undefined)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Watching job detail and retrying local failures
+// ---------------------------------------------------------------------------
+
+describe('watchJob', () => {
+  const detail = (version: number) => ({ ...summary('job1'), groups: [], version })
+
+  it('fetches detail on watch and after changed polls only', async () => {
+    const calls: Calls = []
+    let version = 1
+    const get = vi.fn(async () => detail(version))
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce({ data: null, etag: 'W/"1"' })
+      .mockResolvedValueOnce({
+        data: { jobs: [summary('job1')], queue, version: 2 },
+        etag: 'W/"2"',
+      })
+    const { manager } = track(makeManager(fakeClient(calls, { get, list })))
+
+    const release = manager.watchJob('job1')
+    await vi.waitFor(() => expect(manager.getSnapshot().details.job1).toBeDefined())
+    expect(get).toHaveBeenCalledTimes(1)
+
+    await manager.refresh() // 304: nothing changed, no detail fetch
+    expect(get).toHaveBeenCalledTimes(1)
+    version = 2
+    await manager.refresh() // changed: detail re-fetched
+    expect(get).toHaveBeenCalledTimes(2)
+
+    release()
+    expect(manager.getSnapshot().details.job1).toBeUndefined()
+  })
+
+  it('is reference counted', async () => {
+    const calls: Calls = []
+    const get = vi.fn(async () => detail(1))
+    const { manager } = track(makeManager(fakeClient(calls, { get })))
+    const a = manager.watchJob('job1')
+    const b = manager.watchJob('job1')
+    await vi.waitFor(() => expect(manager.getSnapshot().details.job1).toBeDefined())
+    expect(get).toHaveBeenCalledTimes(1)
+    a()
+    a() // releasing twice is harmless
+    expect(manager.getSnapshot().details.job1).toBeDefined()
+    b()
+    expect(manager.getSnapshot().details.job1).toBeUndefined()
+  })
+})
+
+describe('retryFailedUploads', () => {
+  it('re-sends files this tab gave up on', async () => {
+    const calls: Calls = []
+    let rejectFirst = true
+    const client = fakeClient(calls, {
+      uploadContent: vi.fn(async (_j: string, itemId: number) => {
+        if (itemId === 1 && rejectFirst) throw httpError(413, 'Too large')
+        return { item_id: itemId, state: 'ready', error_reason: null, duplicate_of_image_id: null }
+      }),
+    })
+    const { manager } = track(makeManager(client))
+    const jobId = await manager.startImport([picked('P/a.png'), picked('P/b.png')])
+    await manager.whenSettled(jobId)
+    expect(manager.getSnapshot().uploads[jobId].failures).toHaveLength(1)
+
+    rejectFirst = false
+    expect(manager.retryFailedUploads(jobId)).toBe(1)
+    await manager.whenSettled(jobId)
+    expect(manager.getSnapshot().uploads[jobId]).toMatchObject({
+      phase: 'finished',
+      failures: [],
+      sentFiles: 1,
+      totalFiles: 1,
+    })
+    expect(manager.retryFailedUploads(jobId)).toBe(0) // nothing left to retry
+  })
+})
