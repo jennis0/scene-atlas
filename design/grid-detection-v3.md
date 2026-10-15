@@ -2,7 +2,7 @@
 
 **Status:** research complete (2026-10-15); port not started.
 **Decision proposed:** replace `grid_detector.py` with v3 at all image sizes. This is not yet an ADR; write one when the port lands.
-**Prototype:** `grid_v3.py`, trained models, and the evaluation scripts. These are research code and are not tracked in git, matching the convention in `05b2234`. Their location is noted at the end of this document.
+**Prototype:** `grid_v3.py`, trained models, and the evaluation scripts. These are research code and are not tracked in git, matching the convention in `05b2234`. They are in `scripts/grid_research/` (see §6).
 
 This document records why the change is proposed, how it was measured, and what did not work. Read it before touching grid detection.
 
@@ -148,8 +148,9 @@ Downscaled maps with 6–20 px cells aren't usable as VTT maps. Current's higher
 
 ## 6. Prototype location
 
-The research code is untracked (see the status line), and the location has not been settled yet. It lived in the session scratchpad:
-- `gridalgo/grid_v2.py`, `gridalgo/grid_v3.py`, `gridalgo/v3_models.pkl`
-- `gridval/` (round-1 scripts), `gridval/r2/`, `gridval/r3/` (scripts, results JSON and CSVs, crop sheets)
+The code is in `scripts/grid_research/`, gitignored and local to the main checkout, with a README covering layout and caveats:
+- `gridalgo/grid_v3.py` and `v3_models.pkl`;
+- the round 1–3 evaluation scripts and results;
+- the crop and contact sheets.
 
-Update this section when it moves.
+The scripts still contain absolute paths from the session scratchpad, and the copied images were deleted. Re-running anything needs path fixes and fresh read-only copies from the catalogue.
