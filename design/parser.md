@@ -26,7 +26,10 @@ Given a relative path like `czepeku/Island Fort/Gridded/IslandFort_Night_Rain_30
 
 ### 1. Author Detection
 - Default: `parts[0]` (first folder in relative path)
-- Override: `byAuthor` pattern in filename (e.g. `byJohnSmith` → `"JohnSmith"`)
+- Override: `byAuthor` pattern in filename (e.g. `byJohnSmith` → `"JohnSmith"`, `ArenabyUpsetti` → `"Upsetti"`, `byZachari43` → `"Zachari43"`). The author must start with a capital and stops before a further `by<Capital>`. `_author_from_stem` rejects a candidate when:
+  - it is a junk/filler word (`StoneCircleByTheWater`);
+  - the "by" ends an ordinary word in `_by_words` (`RubyGhost`, `BabyRhinos`).
+  Lowercase continuations never match (`Abyssal`, `Labyrinth`, `bystedt`). Before 2026-10 these produced authors like "ssal" and "rinth" on 200+ real files.
 
 ### 2. Grid Detection (battlemaps only)
 
@@ -68,7 +71,9 @@ The parser interprets path structure as: `author / [generic...] / group / [subgr
 **Logic:**
 1. Skip consecutive generic folders after `parts[0]` (author)
 2. First non-generic folder = image group → `group_from_folder = True`
-3. Remaining intermediate folders = subgroups
+3. Remaining intermediate folders = subgroups, with two adjustments:
+   - Leading folders that clean to the group name are dropped. Packs often nest a copy of their own folder (`Pack [30x40] - $5 Rewards/Pack [30x40] - $5 Rewards/Gridless`).
+   - Each remaining folder is lightly cleaned by `_clean_subgroup`, which removes only dimensions, pricing and the brackets they leave empty. Grid words and numbering are kept, because they are meaningful subgroup labels.
 4. If ALL intermediate folders are generic → top folder IS the group (cleaned of dimensions/tier info), author = None
 5. If group name resolves to a generic folder name or "Unknown" → fall back to filename stem (split at first separator) → `group_from_folder = False`
 
@@ -104,6 +109,7 @@ Removals (in order):
 8. Platform markers: `FVTT`, `Roll20`, `R20`, `VTT`
 9. `Maps` (plural only — singular `Map` preserved)
 10. Grid state: `Gridded`, `Gridless`, `No Grid`, `GL`, `GD`
+10a. Brackets left empty by the removals above: `Pack - $5 Rewards (Gridless)` → `Pack` rather than `Pack - ()`. Brackets that still have content, such as `[various]`, are kept.
 11. Leading numbering: `07. Swamps` → `Swamps`
 12. Author prefix (concatenated word matching)
 13. Repeated word sequences

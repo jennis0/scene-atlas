@@ -709,7 +709,7 @@ The setup: a real backend (small model, isolated data and library directories) a
 
 **Observations, not yet acted on:**
 - **Progress moves in batch-sized steps.** Up to 16 items commit together, so large maps advance the count in jumps of about 16 every few seconds. A "processing" segment on the meter would make it feel smoother.
-- **A pre-existing name-parser bug** (`ImageParser.parse`, unchanged by this work): `Abyssal Fall [various] - $5 Rewards (Gridless)/…` produces the group "Abyssal Fall [various] - ()" with author "ssal". "Ages of the Vale Pt.1 [27x39] - $5 Rewards (Gridless)" similarly produces "Ages of the Vale Pt.1 - ()".
+- **A pre-existing name-parser bug, since fixed:** a group came out as "Abyssal Fall [various] - ()" with author "ssal". The fix was checked against 179k real paths; see `design/parser.md`.
 - **`backend/tests/unit/test_quantisation_utils.py` fails to import in a fresh checkout or worktree**, because `05b2234` untracked `scripts/quantisation/` but kept its test.
 
 ---
