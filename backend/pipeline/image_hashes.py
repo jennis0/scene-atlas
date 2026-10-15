@@ -39,23 +39,42 @@ def _oriented(image: Image.Image) -> Image.Image:
     return image if orientation in (None, 1) else ImageOps.exif_transpose(image)
 
 
+_ALPHA_MODES = frozenset({"RGBA", "LA", "PA", "RGBa", "La"})
+
+
+def _canonical_rgba_bytes(strip: Image.Image) -> bytes:
+    """RGBA bytes with colour zeroed wherever alpha is 0.
+
+    The colour under a fully transparent pixel is invisible, and encoders don't
+    preserve it (libwebp rewrites it unless ``exact=True``), so it must not take
+    part in the hash.
+    """
+    pixels = np.array(strip)  # writable copy, H×W×4
+    pixels[pixels[..., 3] == 0, :3] = 0
+    return pixels.tobytes()
+
+
 def pixel_hash(image: Image.Image) -> str:
     """Hash of the image's canonical pixels: EXIF orientation applied, RGBA, metadata ignored.
 
     Identical pixels give identical hashes regardless of container format,
-    compression level or metadata. Any pixel difference (including a lossy
-    re-encode) gives a different hash, so this tier can't false-positive.
+    compression level or metadata. Any visible pixel difference (including a
+    lossy re-encode) gives a different hash, so this tier can't false-positive.
+
+    SHA-256 rather than BLAKE2: with SHA-NI it hashed ~2× faster in the Phase 0
+    benchmark.
     """
     oriented = _oriented(image)
     width, height = oriented.size
-    h = hashlib.blake2b(digest_size=32)
-    h.update(f"rgba:{width}x{height};".encode())
+    may_have_alpha = oriented.mode in _ALPHA_MODES or "transparency" in oriented.info
+    h = hashlib.sha256()
+    h.update(f"rgba-v1:{width}x{height};".encode())
     for top in range(0, height, _PIXEL_STRIP_ROWS):
         bottom = min(top + _PIXEL_STRIP_ROWS, height)
         strip = oriented.crop((0, top, width, bottom))
         if strip.mode != "RGBA":
             strip = strip.convert("RGBA")
-        h.update(strip.tobytes())
+        h.update(_canonical_rgba_bytes(strip) if may_have_alpha else strip.tobytes())
     return h.hexdigest()
 
 

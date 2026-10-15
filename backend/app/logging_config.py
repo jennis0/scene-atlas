@@ -62,12 +62,16 @@ def setup_logging(data_dir: Path, *, debug: bool = False) -> None:
     # log file rather than going to stderr and being silently lost.
     logging.captureWarnings(True)
 
-    # PIL DecompressionBombWarning: large battlemaps (100M+ px) trigger this.
-    # Convert to an error so the pipeline catches it, classifies it, and logs
-    # it with full context (which file, which stage) rather than a bare stderr line.
+    # PIL DecompressionBombWarning: raised above Image.MAX_IMAGE_PIXELS. Raise the
+    # limit to settings.max_image_pixels (Pillow's default rejects many real
+    # battlemaps), then convert the warning to an error so the pipeline catches
+    # it, classifies it, and logs it with full context rather than a bare stderr line.
     try:
         from PIL import Image
 
+        from .config import settings
+
+        Image.MAX_IMAGE_PIXELS = settings.max_image_pixels
         warnings.filterwarnings("error", category=Image.DecompressionBombWarning)
     except ImportError:
         pass  # PIL not installed yet (e.g. during fresh env setup)

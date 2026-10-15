@@ -243,7 +243,7 @@ def test_group_merges_into_existing_gallery_group(env):
         assert db.query(ImageGroup).count() == 1
 
 
-def test_manifest_validation_fails_unsupported_and_oversized(env):
+def test_manifest_validation(env):
     with env.SessionLocal() as db:
         job = create_job(db)
         items = add_manifest_items(
@@ -253,12 +253,16 @@ def test_manifest_validation_fails_unsupported_and_oversized(env):
                 ManifestEntry("Notes/readme.txt", size=10),
                 ManifestEntry("Big/Map/huge.png", size=10_000),
                 ManifestEntry("Ok/Map/ok.png", size=10),
+                ManifestEntry("Ok/Map/._ok.png", size=4),
+                ManifestEntry("__MACOSX/Ok/Map/ok.png", size=4),
+                ManifestEntry("Ok/Map/.DS_Store", size=4),
             ],
             max_file_size=1_000,
         )
         db.commit()
         reasons = {i.relative_path: (i.state, i.error_reason) for i in items}
-    assert reasons["Notes/readme.txt"] == (st.FAILED, "Unsupported file type")
+    assert len(items) == 3  # OS junk ignored entirely
+    assert reasons["Notes/readme.txt"] == (st.SKIPPED, "Not a supported image, video or archive")
     assert reasons["Big/Map/huge.png"] == (st.FAILED, "File is larger than the import size limit")
     assert reasons["Ok/Map/ok.png"] == (st.AWAITING_BYTES, None)
 

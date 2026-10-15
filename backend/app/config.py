@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     # Image Processing
     thumbnail_sizes: list[tuple[int, int]] = [(150, 150), (400, 400), (800, 800)]
     max_image_size: int = 10 * 1024 * 1024
+    # Largest image (in pixels) Pillow will decode; beyond this it's treated as a
+    # decompression bomb. Pillow's default (~89.5 Mpx) rejects ~2% of real battlemap
+    # libraries; the largest observed maps are ~760 Mpx (~1.7 GB RSS to process).
+    max_image_pixels: int = 1_000_000_000
     supported_formats: list[str] = [".jpg", ".jpeg", ".png", ".webp"]
     supported_video_formats: list[str] = [".mp4", ".webm"]
 

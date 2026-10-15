@@ -118,6 +118,19 @@ def kind_for_path(relative_path: str) -> str | None:
     return None
 
 
+_JUNK_NAMES = frozenset({".ds_store", "thumbs.db", "desktop.ini"})
+
+
+def is_os_junk(relative_path: str) -> bool:
+    """macOS/Windows metadata files that are never images (AppleDouble ``._*``, ``__MACOSX``).
+
+    About 15% of image-extension files in a real library are AppleDouble junk.
+    """
+    parts = PurePosixPath(relative_path).parts
+    name = parts[-1] if parts else ""
+    return "__MACOSX" in parts or name.startswith("._") or name.lower() in _JUNK_NAMES
+
+
 def normalise_relative_path(relative_path: str) -> str:
     """Canonical display path: forward slashes, no leading slash or ./ segments.
 
@@ -167,9 +180,13 @@ def add_manifest_items(
 ) -> list[ImportItem]:
     """Create one item per manifest entry.
 
-    Unsupported or oversized files become ``failed`` items with a reason, so they
-    show up in the report rather than vanishing. Duplicate paths within the call
-    are ignored; across calls the unique constraint rejects them.
+    - OS junk (``._*``, ``__MACOSX``, ``.DS_Store``...) is ignored entirely.
+    - Other unsupported files become ``skipped`` items ("not an image"), visible
+      in the report but not counted as errors.
+    - Oversized files become ``failed`` items: the user expected them imported.
+
+    Duplicate paths within the call are ignored; across calls the unique
+    constraint rejects them.
     """
     if job.planned_at is not None:
         raise ManifestSealedError(job.id)
@@ -178,7 +195,7 @@ def add_manifest_items(
     seen: set[str] = set()
     for entry in entries:
         path = normalise_relative_path(entry.relative_path)
-        if not path or path in seen:
+        if not path or path in seen or is_os_junk(path):
             continue
         seen.add(path)
         item = ImportItem(
@@ -192,7 +209,9 @@ def add_manifest_items(
             state=st.AWAITING_BYTES,
         )
         if kind_for_path(path) is None:
-            _fail_validation(item, "Unsupported file type")
+            item.state = st.next_item_state(item.state, ItemEvent.SKIP)
+            item.error_stage = "validate"
+            item.error_reason = "Not a supported image, video or archive"
         elif max_file_size is not None and entry.size is not None and entry.size > max_file_size:
             _fail_validation(item, "File is larger than the import size limit")
         db.add(item)

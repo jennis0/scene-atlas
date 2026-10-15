@@ -46,6 +46,23 @@ class TestPixelHash:
         img.save(tmp_path / "a.webp", lossless=True)
         assert pixel_hash(_reopen(tmp_path / "a.png")) == pixel_hash(_reopen(tmp_path / "a.webp"))
 
+    def test_transparent_png_matches_its_lossless_webp(self, tmp_path):
+        """Regression (Phase 0): libwebp rewrites colour under alpha=0 by default."""
+        rgba = _map_like().convert("RGBA")
+        pixels = np.array(rgba)
+        pixels[:60, :, 3] = 0  # transparent band with arbitrary colour underneath
+        pixels[:60, :, :3] = 200
+        img = Image.fromarray(pixels, "RGBA")
+        img.save(tmp_path / "a.png")
+        img.save(tmp_path / "a.webp", lossless=True)  # exact=False: colour under alpha=0 changes
+        assert pixel_hash(_reopen(tmp_path / "a.png")) == pixel_hash(_reopen(tmp_path / "a.webp"))
+
+    def test_colour_under_transparency_is_ignored(self):
+        a = np.zeros((10, 10, 4), dtype=np.uint8)
+        b = a.copy()
+        b[..., :3] = 123  # different invisible colour
+        assert pixel_hash(Image.fromarray(a, "RGBA")) == pixel_hash(Image.fromarray(b, "RGBA"))
+
     def test_compression_and_metadata_dont_matter(self, tmp_path):
         img = _map_like()
         img.save(tmp_path / "a.png", compress_level=1)

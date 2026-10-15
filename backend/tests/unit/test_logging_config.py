@@ -111,6 +111,17 @@ class TestSetupLogging:
         root = logging.getLogger()
         assert root.level == logging.DEBUG
 
+    def test_raises_pillow_pixel_limit(self, tmp_path, monkeypatch):
+        """Large battlemaps (Pillow's default rejects >89.5 Mpx) must be decodable."""
+        from PIL import Image
+
+        from backend.app.config import settings
+
+        monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", Image.MAX_IMAGE_PIXELS)
+        setup_logging(tmp_path)
+        assert Image.MAX_IMAGE_PIXELS == settings.max_image_pixels
+        assert settings.max_image_pixels >= 760_000_000
+
     def test_idempotent(self, tmp_path):
         """Calling setup_logging twice does not add duplicate handlers."""
         setup_logging(tmp_path)

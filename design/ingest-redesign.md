@@ -218,7 +218,7 @@ The goal is that a file is either fully in the library or not at all, and that c
      - The only library-drive I/O is the one unavoidable write of each original, which happens once wherever the temp file lives.
      - Doing that write during prepare keeps it parallel with CPU work and outside the SQLite write lock.
      - The alternatives are worse. Copying from the fast drive at commit would hold the write lock for seconds per batch on an HDD. Copying after commit would make rows visible before their files exist, and a crash would leave rows without files.
-   - **Throughput expectation:** ingest should be CPU-bound (decode, grid detection, embedding). At an average of about 4 MB per image, 10–25 images/s means 40–100 MB/s of writes, which is near HDD sequential limits only at the top end.
+   - **Throughput (measured in Phase 0):** ingest is CPU-bound. The redesigned pipeline is estimated at about 5 images/s on 4 cores and about 10 on 8 with the small model (3.3 and 6.7 with the medium model). That needs 23–45 MB/s of library writes, well within HDD sequential speed.
      - Concurrent writes from the prepare pool could cause seek thrash on an HDD. The mitigation, if Phase 0 shows it, is a single library-writer thread that serialises the temp writes into one sequential stream.
      - Phase 0 measures this with the library on an HDD.
 2. **Embed:** batch the embeddings.
@@ -267,7 +267,7 @@ Three tiers. Only tiers that can't produce a false positive act automatically.
 | Tier | Hash | Computed | Catches | Action |
 |---|---|---|---|---|
 | 1. Bytes | SHA-256 of the original bytes (`source_hash`), plus `stored_hash` | Client (hint, before upload) and server (authoritative, while streaming to staging) | The identical file, or a re-imported export | **Auto-skip.** If the client hash matches, bytes are never sent. |
-| 2. Pixels | Hash of the canonical decoded pixels: EXIF orientation applied, converted to RGBA, metadata ignored. `blake2b` from the stdlib; switch to `xxhash` if benchmarks show it matters. | Worker, from the decode it already does | The same image re-saved: PNG ↔ lossless WebP, different compression, edited metadata | **Auto-skip at commit** |
+| 2. Pixels | SHA-256 of the canonical decoded pixels: EXIF orientation applied, converted to RGBA, colour zeroed under fully transparent pixels, metadata ignored. Hashed in strips to bound memory. | Worker, from the decode it already does | The same image re-saved: PNG ↔ lossless WebP, different compression, edited metadata | **Auto-skip at commit** |
 | 3. Perceptual | 64-bit DCT pHash (or dHash) via OpenCV/numpy (no new dependency) | Worker, from the thumbnail-sized decode | Lossy re-encodes, resized copies, VTT-compressed vs full-res, gridded vs gridless | **Never skip.** The item is `done` with `similar_to_image_id` set, shown as "Possible duplicate of X". Actions: Keep both (default) or Remove this one. ("Replace the existing image" is deferred.) |
 
 Rationale for not auto-skipping on pHash: battlemap variants differ by thin grid lines or small props, which a pHash discards, so even a strict threshold would drop exactly the variants groups exist to hold.
@@ -423,6 +423,10 @@ The scheduler runs each task once at startup as well as on its interval, so shor
 
 - **`convert_to_webp` defaults to off** from Phase 1.
 - Phase 5 replaces it with a server config option: `stored_format` ∈ `original` (default) | `webp` | `jpeg` | `png`, plus `stored_quality` (and lossless for WebP).
+- **Phase 0 findings that constrain Phase 5:**
+  - Lossless WebP makes JPEGs about **3.1× larger** (25 of 28 sampled) and shrinks PNGs to about 0.59×. It costs about 11 s of CPU for a 20 Mpx map, roughly 13× the rest of the pipeline.
+  - Lossy q90 gives 0.56× for JPEG and 0.15× for PNG at about 0.1 s/Mpx.
+  - So: never offer lossless conversion for lossy sources, always encode WebP with `exact=True`, and skip conversion for images wider or taller than 16,383 px (WebP's limit, about 0.3% of the library).
 - Conversion only ever operates on worker-owned temp copies, never on staged originals or any user path.
 - `source_hash` and `pixel_hash` are always computed from the source; `stored_hash` from the output.
 
@@ -487,6 +491,39 @@ Large feature; worktree branch `worktree-ingest-redesign`. **The branch is not m
 | **5. Conversion config** | `stored_format`/`stored_quality` server config, `stored_hash`. | Tests |
 | **6. E2E and docs** | E2E failure-injection specs. Fold this document into `import-state-machine.md`, `web-import.md`, `ingestion.md` and `storage.md`; update `backend.md`, `frontend.md`, `security.md` (rate limits) and `status-and-roadmap.md`. | Docs describe the shipped system; this file removed or reduced to a pointer |
 
+### Phase 0 results (2026-10-15)
+
+**Setup:** 384 maps sampled from the real library (stratified by size, including the largest at up to 761 Mpx). Ryzen 9 5900X under WSL2, single process at nice 19 while the machine was busy. CPU time is the primary metric. Raw data and scripts were kept outside the repo.
+
+| Stage, library-weighted mean CPU ms per image | Current pipeline | Redesign |
+|---|---|---|
+| Decodes per image | 3 (PIL, cv2 colour, cv2 gray) | 1 (plus grid's grayscale read) |
+| Thumbnails | 430 | 89 (cascade from decoded image) |
+| Colours | 232 | ~84 less (from the 800px thumbnail) |
+| Grid detection (battlemaps) | 398 | 398, **the largest stage (34%)** |
+| Pixel hash (strips) | – | 111 |
+| pHash | – | ~1 (from a thumbnail) |
+| Embedding, small / medium model | 102 / 474 | same |
+| **Total, small model** | **~1,150** | **~830 → about 5 img/s on 4 cores, 10 on 8** |
+
+**Decisions taken from the results:**
+
+1. **Claim and commit batch stays at 16.** On CPU, embedding batch size barely matters for the small model and larger batches are worse for medium. If the embed batch is ever split from the claim batch, use 4–8 on CPU.
+2. **Pixel hash:**
+   - Kept, using the strip implementation, which costs about 0.7× a decode.
+   - Switched to SHA-256 (about 2× faster than BLAKE2 with SHA-NI).
+   - **Fixed:** colour under fully transparent pixels is now zeroed before hashing. libwebp rewrites it by default, which made 8 of 12 transparent PNGs fail to match their own lossless WebP.
+3. **Pixel limit.** `Image.MAX_IMAGE_PIXELS` was Pillow's default (89.5 Mpx), promoted to an error, which **rejected about 2% of the real library (about 1,000 maps)**. It is now `settings.max_image_pixels`, default 1 Gpx.
+4. **OS junk.** 15% of image-extension files in the library are AppleDouble (`._*`, `__MACOSX`). The manifest now ignores OS junk. Other unsupported files become `skipped`, not `failed`.
+5. **WebP:** see §10.
+6. **Disk:** not measured; the session couldn't run Windows tools. Ingest needs only 23–45 MB/s, so the single library-writer mitigation stays optional.
+
+**Follow-ups, not yet scheduled:**
+
+- **Grid detection** dominates and runs at full resolution up to 20k px. Evaluate a lower `grid_detection_max_dim` (6–8k px) against recorded results before changing it.
+- **Memory-aware admission** for the prepare pool, e.g. a cap on concurrent megapixels. A 761 Mpx map peaks at about 1.7 GB RSS.
+- **pHash** puts gridded/gridless pairs at 0–2 bits apart and unrelated images at ≥20. Phase 4 must suppress or group "possible duplicate" flags within the same import group and between sibling grid/no-grid folders, or about 9k images will flag.
+
 ### Phase 1 status (done)
 
 **Where the code lives:**
@@ -519,7 +556,7 @@ Large feature; worktree branch `worktree-ingest-redesign`. **The branch is not m
 - **Maintenance deletes staged files of `done` items.** They're normally removed right after the commit, but a crash in between leaves them behind.
 - **Undo** must use `import_groups.image_group_id` and `merged_into_existing` to decide which gallery groups to delete. The current `cleanup_import_images` uses `ImportGroupJob.created_group_id`.
 - **The import report** must handle items whose `image_id` points at an image the user has since deleted. SQLite foreign keys aren't enforced.
-- **MemoryError back-off to batch size 1** is not implemented; MemoryError is retried as transient. Add it if Phase 0 shows real OOMs.
+- **MemoryError back-off to batch size 1** is not implemented; MemoryError is retried as transient. Superseded by the memory-aware admission follow-up in the Phase 0 results.
 
 ---
 
