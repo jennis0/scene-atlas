@@ -1,7 +1,11 @@
 # Grid Detection v3: Research and Evaluation
 
-**Status:** research complete (rounds 1–4, 2026-10-15); port not started.
-**Decision proposed (after round 4):** a hybrid. Use v3 for images of 1000 px or more and keep `grid_detector.py` for smaller images. This is not yet an ADR; write one when the port lands.
+**Status:** research complete (rounds 1–5, 2026-10-15); port not started.
+**Decision proposed (after round 5):** a hybrid.
+- Use **full-resolution** v3 (GBM presence model, ONNX) for images of 1000 px or more.
+- Keep `grid_detector.py` for smaller images.
+
+This is not yet an ADR; write one when the port lands.
 **Prototype:** `grid_v3.py`, trained models, and the evaluation scripts. These are research code and are not tracked in git, matching the convention in `05b2234`. They are in `scripts/grid_research/` (see §6).
 
 This document records why the change is proposed, how it was measured, and what did not work. Read it before touching grid detection.
@@ -179,6 +183,73 @@ Downscaled maps with 6–20 px cells aren't usable as VTT maps. Current's higher
 - ONNX matches scikit-learn to within 3e-7 on every training sample, and the JSON LRs match exactly.
 - **The final models over-call small images** (27 false positives out of 39 small gridless maps in the smoke test), because the training now includes Cora's Cabin small twins. Routing small images to the current detector is therefore required.
 
+### Round 5 (full-resolution analysis)
+
+**Why.** The 2–4x reduced decode blurred the 1–2 px lines on 200 dpi maps, which explains forgotten_adventures. On one Forgotten Adventures map, full resolution:
+- tripled the comb score;
+- raised z from 2.1 to 8.4;
+- fixed the tile count.
+
+**Change.**
+- Analysis now defaults to f=1 with no cap.
+- The `factor` feature is removed (27 presence features), because it pushed full-resolution inputs out of the training distribution.
+- `max_analysis_dim` is an optional setting, defaulting to None.
+
+**LOCO** over all 28 creators; there is no fresh sentinel, since round 4's sentinel was spent:
+
+| Config | Worst-creator F1 | Median | Pooled |
+|---|---|---|---|
+| GBM unweighted (chosen by the pre-registered rule) | **.685** (Dreadmaps) | **.944** | .932 |
+| Round-4 features, round-4 pick | .462 | .93 | .920 |
+| current | .667 | .913 | — |
+| v2 | .444 | .917 | — |
+
+- **Gains:** forgotten_adventures .462 → .75, and czepeku, tomcartos, fablekit, dww, angela_maps and Dreadmaps all improve.
+- **Losses:** dice_grimorium (.914 → .878) and mad_cartographer (5 pairs).
+- **Fine textures:** net false positives fall from 75 to 59. The new ones (big floor tiles, stone seams) are genuinely gridless texture.
+- **Still worse than current:** forgotten_adventures (4 very dark maps missed), Dreadmaps (few-cell rooms and planks), dice_grimorium, neutral_party, mad_cartographer.
+- **Size-only exact** (1,116 maps): v3 raw .922, with the sibling prior .945, current .875. dww still favours current (.98 vs .78).
+- **Under 1000 px:** v3 F1 .59 vs current .69, so the hybrid stays.
+
+**Cost at f=1** (ΔRSS above the interpreter; CPU per image):
+
+| Longest side | CPU median / max | ΔRSS median / max |
+|---|---|---|
+| 2000–4000 px | 0.28 / 0.89 s | 47 / 86 MB |
+| 6000–8000 px | 0.81 / 2.2 s | 152 / 380 MB |
+| 8000–12000 px | 1.2 / 3.5 s | 211 / 672 MB |
+| Over 16000 px (Runeport 761 Mpx) | 10 / 28 s | 802 / 1,713 MB |
+
+**Budget formula** for the ingest MemoryBudget: analysis MB ≈ A + B·Mpx, multiplied by a safety factor. The format must be sniffed; progressive JPEG is identified by the SOF2 marker.
+
+| Format | A (MB) | B (MB/Mpx) | Safety factor |
+|---|---|---|---|
+| Baseline JPEG | 42 | 2.0 | 1.8 |
+| Progressive JPEG | 38 | 5.9 | 1.15 |
+| PNG | 37 | 1.8 | 1.2 |
+| WebP | 24 | 3.8 | 1.5 (only 5 data points) |
+
+`MemoryBudget.reserve` caps an oversized reservation at capacity and runs it alone, so a single huge progressive JPEG can still exceed the budget in real memory. The ingest decode planning (`plan_decode`) already faces the same issue.
+
+**Lowering `grid_analysis_max_dim` reduces accuracy, not just CPU:**
+
+| Setting | Pooled F1 | forgotten_adventures F1 |
+|---|---|---|
+| default | .932 | .75 |
+| 8192 | .932 | .75 |
+| 4096 | .928 | .18 |
+| 2048 | .894 | 0 |
+
+- **It also does not bound memory** for progressive JPEG, PNG or WebP. Those are decoded whole whatever the setting, about 610 MB maximum at 2048. It is effectively a CPU knob for baseline JPEG.
+- **Rejected remedy:** training on a reduced copy of each large image improves the lowered settings but lowers default worst-creator F1 by .026, beyond the pre-registered .01 limit, so it was not adopted.
+
+**Shipped models.**
+- Presence GBM and hex LR, refit on all 2,278 images, exported to ONNX. Max |Δp| against scikit-learn is ≤ 3e-7, with zero decision mismatches.
+- The presence LR is also exported as JSON, as a fallback.
+- The end-to-end smoke test on images read from `/mnt/d` matched the stored-feature decisions on every image.
+
+**Labels.** Twin direction comes from filenames. An audit found 2 swapped Dreadmaps pairs (`_Grid` without a grid) out of 256.
+
 ### Things that did not help (do not retry without new evidence)
 
 - **Half/double count correction:** +0.009 on DEV, −0.008 on held-out.
@@ -189,13 +260,15 @@ Downscaled maps with 6–20 px cells aren't usable as VTT maps. Current's higher
 ## 5. Recommendation and follow-ups
 
 1. **Port v3 as a hybrid.**
-   - Use v3 for images of 1000 px or more; keep the current detector below that.
-   - Ship the **presence and hex logistic regressions as JSON**. Each is a standard scaler plus a handful of coefficients, so this needs neither ONNX nor pickle. The GBM is only marginally different, so the simpler model wins.
+   - Use full-resolution v3 for images of 1000 px or more; keep the current detector below that.
+   - Ship the round-5 **GBM presence model and hex LR as ONNX**, run by the onnxruntime the app already ships. The presence LR JSON is a fallback only.
+   - Add a `grid_analysis_max_dim` setting, defaulting to None, and document it as **accuracy-reducing**: thin-line high-dpi maps fail at 4096 or below.
+   - Reserve detector memory with the per-format budget formula (§4, round 5).
    - Remove the half/double count fix.
    - Use the sibling prior in size-only mode.
-   - Build a regression suite from the round 2–4 crops.
+   - Build a regression suite from the round 2–5 crops.
 2. **Follow-ups, in order of value:**
-   - **Thin lines on high-dpi maps** (forgotten_adventures). Choose the decode reduction from expected line width as well as cell size, or add a thin-line feature.
+   - **Thin lines on very dark high-dpi maps.** Full resolution fixed most forgotten_adventures misses; 4 dark maps remain, and a thin-line or local-contrast feature may close the gap.
    - **Few-cell maps** (dww geomorph tiles, Dreadmaps Cora's Cabin). Add a full-length thin-line test, and handle half/double errors on 8x8 tiles.
    - **Periodic floors** (Dreadmaps planks). This is the remaining source of false positives.
    - **Small images.** Revisit with a creator-balanced small-map set before removing the hybrid. Round 3 and round 4 disagree.
@@ -211,8 +284,8 @@ Downscaled maps with 6–20 px cells aren't usable as VTT maps. Current's higher
 ## 6. Prototype location
 
 The code is in `scripts/grid_research/`, gitignored and local to the main checkout:
-- **Prototypes:** `gridalgo/grid_v3_final.py` (ONNX/JSON models, no pickle, half/double fix removed, optional `sibling_prior()`) and `gridalgo/grid_v3.py`.
-- **Shipped models:** `gridalgo/v3_final_models/`, containing `presence_lr.json`, `hex_lr.json`, the `*.onnx` exports and `meta.json`.
-- **Evaluation:** `gridval/` holds round 1, and `gridval/r2/`, `r3/` and `r4/` hold the later rounds. Round 4 includes `loco_results.json`, `final_r4.json`, `sentinel.json`, the mined `twins_r4.json` and the crop sheets.
+- **Port this:** `gridalgo/grid_v3_fullres.py` (full resolution, `max_analysis_dim` parameter, ONNX models, no `factor`, no half/double fix, optional `sibling_prior()`), with its models in `gridalgo/v3_fullres_models/`.
+- **Superseded:** `gridalgo/grid_v3_final.py` with `v3_final_models/` (round 4), and `grid_v3.py` (round 2).
+- **Evaluation:** `gridval/` holds round 1, and `gridval/r2/` to `r5/` hold the later rounds. Round 4 includes `loco_results.json`, `final_r4.json`, `sentinel.json`, the mined `twins_r4.json` and the crop sheets.
 
 The scripts still contain absolute paths from the session scratchpad, and the copied images were deleted. Re-running anything needs path fixes and fresh read-only copies from the library or catalogue.
