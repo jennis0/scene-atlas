@@ -679,9 +679,38 @@ Large feature; worktree branch `worktree-ingest-redesign`. **The branch is not m
 - **Visual check:** each state was screenshotted in dark and light themes via a throwaway preview page (not committed).
 
 **Not verified here:**
-- An end-to-end run against a live backend.
 - The Electron TypeScript build: there are no root `node_modules` in this environment, and the change is deletion-only.
 - `e2e/` and `stress_tests/` still target the old API (Phase 6).
+
+### Live end-to-end run (2026-10-15)
+
+The setup: a real backend (small model, isolated data and library directories) and the Vite dev server, driven by Playwright through the real UI. The test data was copied read-only from the user's library. The scripts were throwaway and are not committed; Phase 6 should turn the scenarios into `e2e/` tests.
+
+**Scenario A: a folder with awkward cases.** The 48-file folder contained 42 maps, an in-folder copy, a zip holding 3 copies, a truncated JPEG, a `notes.txt` and a `._` AppleDouble file.
+- It finished in 11.5 s: 42 done, 4 duplicates (bytes tier), 1 failed ("File content doesn't match its type"), 1 skipped, and the junk file ignored.
+- 8 groups were created.
+- Report tabs, gallery and dock were all correct, with no console errors.
+- When the same bytes appear both loose and in a zip, which copy wins is arbitrary. That is acceptable: the loser is reported as a duplicate either way.
+
+**Scenario B: crash recovery.** 30 Czepeku maps (126 MB) were imported, and the backend was SIGKILLed while 12–13 items were `processing`.
+- After restart, the queue was ready in 6–7 s. The in-flight items went back to `ready` (attempt 2), and the job completed about 4 s later.
+- The final state was 27 done and 3 duplicates. The duplicates are genuine: the same files exist in two packs in the real library.
+- An integrity check found DB rows = stored files = vectors = 69, with 3 thumbnails each, no `.incoming` leftovers, no orphans and no duplicate content hashes.
+- Staging keeps only the duplicates' bytes, for 7 days, as designed (§9).
+
+**Undo:** run three times against the real store (42 and 27 images). Each run removed every row, file, thumbnail and vector.
+
+**Bugs found and fixed:**
+- **A stale system pause after the model loaded.** "Waiting for the AI model" persisted for about 60 s. Fixed with `IngestWorker._next_wait` and `probe_now()` once the model is ready.
+- **The dialog froze mid-import.** The poller kept its 30 s idle timer after an import started; only explicit refreshes updated the UI. `refresh()` now pulls the armed timer forward (`pullPollForward`).
+- **"Offline" lasted up to 30 s after the server came back.** Poll backoff now has its own 5 s cap (`pollRetryCapMs`).
+- **A finished group read "3/6" when 3 files were already in the library.** Rows now count against importable files (total − duplicate − skipped) and show "N in library".
+- **Toasts:** they rendered light-on-dark and covered the open dialog's footer. They now follow the theme, and no toast appears for a job whose dialog is open.
+
+**Observations, not yet acted on:**
+- **Progress moves in batch-sized steps.** Up to 16 items commit together, so large maps advance the count in jumps of about 16 every few seconds. A "processing" segment on the meter would make it feel smoother.
+- **A pre-existing name-parser bug** (`ImageParser.parse`, unchanged by this work): `Abyssal Fall [various] - $5 Rewards (Gridless)/…` produces the group "Abyssal Fall [various] - ()" with author "ssal". "Ages of the Vale Pt.1 [27x39] - $5 Rewards (Gridless)" similarly produces "Ages of the Vale Pt.1 - ()".
+- **`backend/tests/unit/test_quantisation_utils.py` fails to import in a fresh checkout or worktree**, because `05b2234` untracked `scripts/quantisation/` but kept its test.
 
 ---
 
