@@ -518,10 +518,28 @@ Large feature; worktree branch `worktree-ingest-redesign`. **The branch is not m
 5. **WebP:** see §10.
 6. **Disk:** not measured; the session couldn't run Windows tools. Ingest needs only 23–45 MB/s, so the single library-writer mitigation stays optional.
 
+**Memory per image (done, 2026-10-15).** The old pipeline decoded every image in full three times, at 4 bytes/px in Pillow, which is about 3 GB for a 760 Mpx map. Now:
+
+- **Reduced-scale JPEG decode.** JPEGs over `settings.pixel_hash_max_pixels` (default 100 Mpx) are decoded at reduced scale with `Image.draft` (libjpeg DCT scaling). Everything downstream except the pixel hash needs ≤800 px.
+  - These images skip tier 2. Tier 1 (bytes) still applies.
+  - PNG and WebP can't be decoded at reduced scale by Pillow, so they are always decoded in full.
+- **Reduced-scale grid read.** Grid detection reads with `cv2.IMREAD_REDUCED_GRAYSCALE_{2,4,8}` when the cap allows. The results are identical to a full read at the same cap (unit-tested).
+- **Memory budget.** `MemoryBudget` (`backend/app/services/memory_budget.py`) reserves each image's estimated peak, from the header alone, before decoding.
+  - Capacity: half of RAM beyond a 2 GiB reserve, or `settings.ingest_memory_budget_mb`.
+  - An image bigger than the whole budget runs alone.
+- **Measured** peak RSS of the whole prepare step on a 400 Mpx JPEG:
+
+  | Configuration | Peak RSS | CPU |
+  |---|---|---|
+  | Grid detection off | 279 MB (mostly interpreter and libraries) | 2.1 s |
+  | Grid at a 20k cap | 2,244 MB | 15.3 s |
+  | Grid at an 8k cap | 558 MB | 2.5 s |
+
+  **The grid cap is now the dominant memory and CPU lever.**
+
 **Follow-ups, not yet scheduled:**
 
-- **Grid detection** dominates and runs at full resolution up to 20k px. Evaluate a lower `grid_detection_max_dim` (6–8k px) against recorded results before changing it.
-- **Memory-aware admission** for the prepare pool, e.g. a cap on concurrent megapixels. A 761 Mpx map peaks at about 1.7 GB RSS.
+- **Grid cap:** lower `grid_detection_max_dim` once the real-library accuracy check confirms it's safe. On synthetic grids, sizing is lost when the scaled cell falls near the detector's scaled `max_cell_px` bound, which is existing detector behaviour.
 - **pHash** puts gridded/gridless pairs at 0–2 bits apart and unrelated images at ≥20. Phase 4 must suppress or group "possible duplicate" flags within the same import group and between sibling grid/no-grid folders, or about 9k images will flag.
 
 ### Phase 1 status (done)

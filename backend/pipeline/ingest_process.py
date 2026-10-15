@@ -22,6 +22,7 @@ from pathlib import Path
 
 from PIL import Image as PILImage
 
+from backend.app.config import settings
 from backend.app.models import Color, Image, ImageGroup, ImportGroup, ImportItem, Tag
 from backend.app.services import (
     get_image_store,
@@ -31,6 +32,7 @@ from backend.app.services import (
 from backend.app.services import ingest_state as st
 from backend.app.services.image_parser import build_search_text
 from backend.app.services.ingest_state import ItemEvent
+from backend.app.services.memory_budget import get_memory_budget
 
 from .error_classifier import KIND_SYSTEM, classify_ingest_error
 from .image_hashes import file_sha256, perceptual_hash, pixel_hash
@@ -129,12 +131,62 @@ def _detect_grid(item: ClaimedItem, staged: Path, width: int, height: int, cfg) 
     return grid
 
 
+@dataclass(frozen=True)
+class DecodePlan:
+    """How an image will be decoded, and the memory to reserve for it."""
+
+    width: int
+    height: int
+    full_decode: bool  # False: JPEG decoded at reduced scale, no pixel hash
+    peak_bytes: int
+
+
+# Pillow holds RGB(A) at 4 bytes/px; the extra quarter covers thumbnails and strips.
+_DECODE_BYTES_PER_PIXEL = 5
+# Grayscale read plus Canny/FFT/rotation working arrays in grid detection
+# (measured: ~2 GB above baseline for a 400 Mpx read).
+_GRID_BYTES_PER_PIXEL = 5
+_VIDEO_PEAK_BYTES = 256 * 1024 * 1024
+
+
+def _grid_read_pixels(width: int, height: int, cfg: PipelineConfig) -> int:
+    """Pixels grid detection will materialise (it reads at reduced scale when the cap allows)."""
+    longest = max(width, height)
+    for factor in (8, 4, 2):
+        if longest / factor >= cfg.grid_detection_max_dim:
+            return (width // factor) * (height // factor)
+    return width * height
+
+
+def plan_decode(staged: Path, item: ClaimedItem, cfg: PipelineConfig) -> DecodePlan:
+    """Read only the header and decide how to decode (design §5.3, Phase 0 follow-ups).
+
+    JPEGs over ``settings.pixel_hash_max_pixels`` are decoded at reduced scale
+    (libjpeg DCT scaling), which caps their memory at tens of megabytes; every
+    downstream stage except the pixel hash only needs an 800 px image. Other
+    formats can't be decoded at reduced scale by Pillow and are decoded in full.
+    """
+    if item.kind == "video":
+        return DecodePlan(0, 0, False, _VIDEO_PEAK_BYTES)
+    with PILImage.open(staged) as header:
+        width, height = header.size
+        image_format = header.format
+    pixels = width * height
+    full_decode = not (image_format == "JPEG" and pixels > settings.pixel_hash_max_pixels)
+    decoded_pixels = pixels if full_decode else max(pixels // 64, 800 * 800)
+    peak = decoded_pixels * _DECODE_BYTES_PER_PIXEL
+    if item.image_type == "battlemap" and cfg.enable_image_grid_detection:
+        peak = max(peak, _grid_read_pixels(width, height, cfg) * _GRID_BYTES_PER_PIXEL)
+    return DecodePlan(width, height, full_decode, peak)
+
+
 def prepare_item(item: ClaimedItem, cfg: PipelineConfig) -> PreparedItem | ItemFailure:
     """Everything except embedding and saving. Runs on the prepare pool.
 
-    Decodes the image once for the pixel hash and thumbnails. Colours and the
-    perceptual hash come from the large thumbnail; only grid detection re-reads
-    the full-resolution file.
+    Reserves the image's estimated peak memory from the shared budget, then
+    decodes once (in full, or at reduced scale for huge JPEGs) for the pixel hash
+    and thumbnails. Colours and the perceptual hash come from the large
+    thumbnail; only grid detection re-reads the file.
     """
     staged = staged_path(item.job_id, item.staging_key) if item.staging_key else None
     if staged is None or not staged.exists():
@@ -145,89 +197,107 @@ def prepare_item(item: ClaimedItem, cfg: PipelineConfig) -> PreparedItem | ItemF
             "The uploaded file is missing; upload it again",
         )
 
+    progress = _Progress()
+    try:
+        plan = plan_decode(staged, item, cfg)
+        with get_memory_budget().reserve(plan.peak_bytes):
+            return _prepare(item, cfg, staged, plan, progress)
+    except Exception as exc:
+        for path in progress.created:
+            path.unlink(missing_ok=True)
+        stage = progress.stage
+        logger.warning("Prepare failed for %s at %s: %s", item.relative_path, stage, exc)
+        info = classify_ingest_error(exc, stage=stage)
+        return ItemFailure(item.id, info["kind"], stage, info["reason"], info["detail"])
+
+
+@dataclass
+class _Progress:
+    stage: str = "decode"
+    created: list[Path] = field(default_factory=list)
+
+
+def _prepare(
+    item: ClaimedItem, cfg: PipelineConfig, staged: Path, plan: DecodePlan, progress: _Progress
+) -> PreparedItem:
     image_store = get_image_store()
     thumbnail_store = get_thumbnail_store()
     stem = uuid.uuid4().hex
     storage_key = f"{stem}{staged.suffix.lower()}"
-    created: list[Path] = []
-    stage = "hash"
-    try:
-        source_hash = item.source_hash or file_sha256(staged)
-        file_size = staged.stat().st_size
 
-        thumbs_dir = incoming_dir(thumbnail_store.base_dir)
-        if item.kind == "video":
-            from backend.app.services.video_utils import extract_first_frame, get_video_dimensions
+    progress.stage = "hash"
+    source_hash = item.source_hash or file_sha256(staged)
+    file_size = staged.stat().st_size
 
-            stage = "thumbnails"
-            frame = extract_first_frame(staged)
-            try:
-                thumbnails = write_thumbnails(frame, stem, thumbs_dir)
-            finally:
-                frame.close()
-            created += [path for _, path in thumbnails.values()]
-            width, height = get_video_dimensions(staged)
-            image_pixel_hash = None
-            image_phash = None
-        else:
-            stage = "decode"
-            with PILImage.open(staged) as decoded:
-                decoded.load()
-                width, height = decoded.size
-                stage = "hash"
-                image_pixel_hash = pixel_hash(decoded)
-                stage = "thumbnails"
-                thumbnails = write_thumbnails(decoded, stem, thumbs_dir)
-            created += [path for _, path in thumbnails.values()]
-            stage = "hash"
-            with PILImage.open(thumbnails["large"][1]) as large:
-                image_phash = perceptual_hash(large)
+    thumbs_dir = incoming_dir(thumbnail_store.base_dir)
+    if item.kind == "video":
+        from backend.app.services.video_utils import extract_first_frame, get_video_dimensions
 
-        stage = "colors"
-        colors = color_extraction.extract_dominant_colors(
-            str(thumbnails["large"][1]), pipeline_config=cfg
-        )
+        progress.stage = "thumbnails"
+        frame = extract_first_frame(staged)
+        try:
+            thumbnails = write_thumbnails(frame, stem, thumbs_dir)
+        finally:
+            frame.close()
+        progress.created += [path for _, path in thumbnails.values()]
+        width, height = get_video_dimensions(staged)
+        image_pixel_hash = None
+        image_phash = None
+    else:
+        width, height = plan.width, plan.height
+        progress.stage = "decode"
+        with PILImage.open(staged) as decoded:
+            if not plan.full_decode:
+                decoded.draft("RGB", (800, 800))
+            decoded.load()
+            progress.stage = "hash"
+            image_pixel_hash = pixel_hash(decoded) if plan.full_decode else None
+            progress.stage = "thumbnails"
+            thumbnails = write_thumbnails(decoded, stem, thumbs_dir)
+        progress.created += [path for _, path in thumbnails.values()]
+        progress.stage = "hash"
+        with PILImage.open(thumbnails["large"][1]) as large:
+            image_phash = perceptual_hash(large)
 
-        stage = "grid_detection"
-        grid = (
-            _detect_grid(item, staged, width, height, cfg)
-            if item.kind != "video"
-            else {k: item.parsed.get(k) for k in ("gridded", "grid_width", "grid_height")}
-        )
+    progress.stage = "colors"
+    colors = color_extraction.extract_dominant_colors(
+        str(thumbnails["large"][1]), pipeline_config=cfg
+    )
 
-        stage = "copy"
-        library_temp_dir = incoming_dir(image_store.base_dir)
-        library_temp_dir.mkdir(parents=True, exist_ok=True)
-        temp_original = library_temp_dir / storage_key
-        created.append(temp_original)
-        shutil.copyfile(staged, temp_original)
+    progress.stage = "grid_detection"
+    grid = (
+        _detect_grid(item, staged, width, height, cfg)
+        if item.kind != "video"
+        else {k: item.parsed.get(k) for k in ("gridded", "grid_width", "grid_height")}
+    )
 
-        medium_key, medium_path = thumbnails["medium"]
-        return PreparedItem(
-            item=item,
-            storage_key=storage_key,
-            temp_original=temp_original,
-            temp_thumbnails=dict(thumbnails.values()),
-            thumbnail_key=medium_key,
-            clip_source=medium_path,
-            width=width,
-            height=height,
-            file_size=file_size,
-            media_type="video" if item.kind == "video" else "image",
-            source_hash=source_hash,
-            # No stored-format conversion yet (design §10): the stored file is the original.
-            stored_hash=source_hash,
-            pixel_hash=image_pixel_hash,
-            phash=image_phash,
-            colors=colors,
-            grid=grid,
-        )
-    except Exception as exc:
-        for path in created:
-            path.unlink(missing_ok=True)
-        logger.warning("Prepare failed for %s at %s: %s", item.relative_path, stage, exc)
-        info = classify_ingest_error(exc, stage=stage)
-        return ItemFailure(item.id, info["kind"], stage, info["reason"], info["detail"])
+    progress.stage = "copy"
+    library_temp_dir = incoming_dir(image_store.base_dir)
+    library_temp_dir.mkdir(parents=True, exist_ok=True)
+    temp_original = library_temp_dir / storage_key
+    progress.created.append(temp_original)
+    shutil.copyfile(staged, temp_original)
+
+    medium_key, medium_path = thumbnails["medium"]
+    return PreparedItem(
+        item=item,
+        storage_key=storage_key,
+        temp_original=temp_original,
+        temp_thumbnails=dict(thumbnails.values()),
+        thumbnail_key=medium_key,
+        clip_source=medium_path,
+        width=width,
+        height=height,
+        file_size=file_size,
+        media_type="video" if item.kind == "video" else "image",
+        source_hash=source_hash,
+        # No stored-format conversion yet (design §10): the stored file is the original.
+        stored_hash=source_hash,
+        pixel_hash=image_pixel_hash,
+        phash=image_phash,
+        colors=colors,
+        grid=grid,
+    )
 
 
 # ---------------------------------------------------------------------------

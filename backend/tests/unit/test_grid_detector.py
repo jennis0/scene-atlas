@@ -257,6 +257,40 @@ class TestSquareGridDetection:
 # ---------------------------------------------------------------------------
 
 
+class TestReducedDecode:
+    """Large images are decoded at reduced scale; results stay in original pixels."""
+
+    def test_reduced_read_matches_full_read(self, tmp_path, monkeypatch):
+        """Decoder-side downscaling gives the same answer as a full read at the same cap."""
+        width, height, cell = 6400, 4800, 140  # 46×34 cells (last ones partial)
+        path = tmp_path / "big_grid.jpg"
+        _make_square_grid_image(width, height, cell, line_thickness=4, path=str(path))
+        flags = []
+        real_imread = cv2.imread
+
+        def spy(p, flag):
+            flags.append(flag)
+            return real_imread(p, flag)
+
+        monkeypatch.setattr(cv2, "imread", spy)
+        reduced = GridDetector(max_dim=3200).detect(path, width, height)
+
+        full_read = GridDetector(max_dim=3200)
+        full_read._read_gray = lambda p, longest: real_imread(str(p), cv2.IMREAD_GRAYSCALE)
+        expected = full_read.detect(path, width, height)
+
+        assert flags == [cv2.IMREAD_REDUCED_GRAYSCALE_2]
+        assert reduced == expected
+        assert (reduced["grid_width"], reduced["grid_height"]) == (46, 34)
+
+    def test_unknown_original_size_uses_read_size(self, tmp_path):
+        width, height, cell = 900, 600, 100
+        _make_square_grid_image(width, height, cell, line_thickness=2, path=str(tmp_path / "g.png"))
+        edges, scale = GridDetector(max_dim=450)._preprocess(tmp_path / "g.png")
+        assert scale == 0.5
+        assert edges.shape == (300, 450)
+
+
 class TestHexGridDetection:
     """Test detection of hex grids."""
 

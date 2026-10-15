@@ -224,6 +224,51 @@ def test_three_thumbnail_sizes_written(env):
     assert job_status(env, job_id) == st.JOB_COMPLETED
 
 
+def test_huge_jpeg_is_decoded_at_reduced_scale(env, monkeypatch):
+    """JPEGs over the pixel-hash limit skip the full decode (and the pixel hash)."""
+    monkeypatch.setattr("backend.app.config.settings.pixel_hash_max_pixels", 1_000_000)
+    big = image_bytes(90, fmt="JPEG", size=(2400, 1800), quality=90)  # 4.3 Mpx
+    small = image_bytes(91, fmt="JPEG", size=(800, 600), quality=90)
+    job_id = make_job(env, {"A/Map/big.jpg": big, "A/Map/small.jpg": small})
+    env.worker.drain()
+    assert job_status(env, job_id) == st.JOB_COMPLETED
+    with env.SessionLocal() as db:
+        images = {i.filename: i for i in db.query(Image).all()}
+    assert (images["big.jpg"].width, images["big.jpg"].height) == (2400, 1800)  # original size
+    assert images["big.jpg"].pixel_hash is None
+    assert images["big.jpg"].phash is not None
+    assert images["small.jpg"].pixel_hash is not None
+    with PILImage.open(env.thumbnails.get_path(images["big.jpg"].thumbnail_key)) as medium:
+        assert medium.size == (400, 300)
+
+
+def test_huge_jpeg_byte_duplicates_still_caught(env, monkeypatch):
+    monkeypatch.setattr("backend.app.config.settings.pixel_hash_max_pixels", 1_000_000)
+    big = image_bytes(92, fmt="JPEG", size=(2400, 1800), quality=90)
+    make_job(env, {"A/Map/big.jpg": big})
+    env.worker.drain()
+    again = make_job(env, {"B/Map/big_copy.jpg": big})
+    env.worker.drain()
+    item = items_by_path(env, again)["B/Map/big_copy.jpg"]
+    assert (item.state, item.duplicate_tier) == (st.DUPLICATE, "bytes")
+
+
+def test_prepare_reserves_memory_budget(env, monkeypatch):
+    from backend.app.services.memory_budget import MemoryBudget
+
+    reservations = []
+
+    class Spy(MemoryBudget):
+        def reserve(self, nbytes):
+            reservations.append(nbytes)
+            return super().reserve(nbytes)
+
+    monkeypatch.setattr(ingest_process, "get_memory_budget", lambda: Spy(10**9))
+    make_job(env, {"A/Map/a.png": image_bytes(93, size=(100, 50))})
+    env.worker.drain()
+    assert reservations == [100 * 50 * 5]
+
+
 def test_group_merges_into_existing_gallery_group(env):
     with env.SessionLocal() as db:
         existing = ImageGroup(base_name="Island Fort", author="Czepeku")

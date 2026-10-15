@@ -70,6 +70,13 @@ class Settings(BaseSettings):
     # decompression bomb. Pillow's default (~89.5 Mpx) rejects ~2% of real battlemap
     # libraries; the largest observed maps are ~760 Mpx (~1.7 GB RSS to process).
     max_image_pixels: int = 1_000_000_000
+    # JPEGs above this many pixels are decoded at reduced scale (libjpeg DCT
+    # scaling) instead of in full, and skip the pixel-hash duplicate check (the
+    # byte hash still applies). ~400 MB peak at the limit instead of gigabytes.
+    pixel_hash_max_pixels: int = 100_000_000
+    # Memory reserved across concurrent image preparation; None = automatic
+    # (half of RAM beyond a 2 GiB reserve).
+    ingest_memory_budget_mb: int | None = None
     supported_formats: list[str] = [".jpg", ".jpeg", ".png", ".webp"]
     supported_video_formats: list[str] = [".mp4", ".webm"]
 
