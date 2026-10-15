@@ -138,86 +138,7 @@ export interface TagStats {
   >
 }
 
-// Import types — duplicate detection
-export interface DuplicateInfo {
-  image_id: number
-  name: string | null
-  author: string | null
-  storage_key: string
-  thumbnail_key: string | null
-  group_name: string | null
-}
-
-// Import types — upload response (from analysis)
-export interface ImportFileInfo {
-  relative_path: string
-  filename: string
-  name: string | null
-  media_type: string | null
-  detected_tags: TagData[]
-  gridded: boolean | null
-  grid_width: number | null
-  grid_height: number | null
-  grid_type: string | null
-  grid_confidence: number | null
-  subgroup: string | null
-  image_type: string | null
-  content_hash: string | null
-  duplicate_of: DuplicateInfo | null
-}
-
-export interface ImportGroup {
-  author: string | null
-  group_name: string
-  files: ImportFileInfo[]
-}
-
-export interface ImportUploadResponse {
-  job_id: string
-  total_files: number
-  groups: ImportGroup[]
-}
-
-export interface BatchUploadResponse {
-  files_saved: number
-  bytes_saved: number
-  skipped_invalid: string[]
-}
-
-export interface UploadProgress {
-  phase: 'uploading' | 'analysing'
-  filesUploaded: number
-  filesTotal: number
-  bytesUploaded: number
-  bytesTotal: number
-  currentBatch: number
-  totalBatches: number
-  /** Bytes transferred for the current in-flight batch (from Axios progress event). */
-  currentBatchLoaded: number
-  currentBatchTotal: number
-  startTime: number
-}
-
-// Pre-flight hash check types
-export interface HashCheckItem {
-  relative_path: string
-  filename: string
-  content_hash: string
-}
-
-export interface HashCheckResultItem {
-  relative_path: string
-  content_hash: string
-  duplicate_of: DuplicateInfo | null
-}
-
-export interface HashCheckResponse {
-  results: HashCheckResultItem[]
-  total_checked: number
-  duplicates_found: number
-}
-
-// Import types — confirm request (full per-file metadata)
+// Per-image tag as edited in the group editor
 export interface TagData {
   category: string
   value: string
@@ -225,29 +146,7 @@ export interface TagData {
   source: string
 }
 
-export interface ImportConfirmFile {
-  relative_path: string
-  name?: string
-  media_type?: string
-  image_type?: string
-  tags: TagData[]
-  gridded: boolean | null
-  grid_width: number | null
-  grid_height: number | null
-  grid_type: string | null
-  subgroup: string | null
-  content_hash?: string
-  reuse_storage_key?: string
-  reuse_thumbnail_key?: string
-}
-
-export interface ImportConfirmRequest {
-  author: string
-  group_name: string
-  files: ImportConfirmFile[]
-}
-
-// Import types — editable state (frontend only)
+// Group editor state (frontend only)
 export interface EditableFileState {
   relative_path: string
   filename: string
@@ -262,11 +161,8 @@ export interface EditableFileState {
   image_type?: 'battlemap' | 'scene'
   excluded: boolean
   outOfScope?: boolean // true = in group but not in search results (mass-edit context only)
-  previewUrl?: string // Browser blob URL (for direct uploads) or server preview URL (for ZIP)
+  previewUrl?: string // Thumbnail URL
   fullImageUrl?: string // Full-res URL (edit mode); falls back to previewUrl in lightbox
-  content_hash?: string // SHA-256 content hash
-  duplicate_of?: DuplicateInfo | null // Existing image this file matches
-  duplicate_action?: 'skip' | 'import' // User's choice for duplicate files
 }
 
 export interface EditableGroupState {
@@ -281,10 +177,6 @@ export interface EditableGroupState {
   total: number
   /** Error message from a failed confirm, displayed in the footer */
   error?: string
-  /** Backend group job ID, set after confirm response. Used for robust status matching. */
-  group_job_id?: string
-  /** Per-file error/warning details from the pipeline */
-  file_errors?: ImportFileError[]
 }
 
 // Group picker/merge types
@@ -376,61 +268,6 @@ export interface GroupEditResponse {
   id: number
   new_group_ids: number[]
   deleted_image_ids: number[]
-}
-
-/** Per-file error or warning detail from the ingest pipeline or upload phase. */
-export interface ImportFileError {
-  filename: string
-  relative_path?: string | null
-  reason: string
-  stage: string
-  severity?: 'error' | 'warning'
-}
-
-// Import types — status response
-export interface ImportGroupStatus {
-  group_job_id: string
-  group_name: string
-  total_files: number
-  processed_files: number
-  failed_files: number
-  status: string
-  group_id?: number | null
-  file_errors?: ImportFileError[]
-}
-
-export interface ImportJobResponse {
-  job_id: string
-  status: string
-  groups: ImportGroupStatus[]
-  created_at: string
-  completed_at: string | null
-  error_message?: string | null
-  source_label?: string | null
-  job_warnings?: ImportFileError[]
-  total_file_size?: number
-}
-
-// Import tray types
-export interface ImportJobSummary {
-  job_id: string
-  source_label: string | null
-  status: string
-  total_groups: number
-  completed_groups: number
-  failed_groups: number
-  running_groups: number
-  pending_groups?: number
-  total_files: number
-  processed_files: number
-  created_at: string
-  error_message?: string | null
-  failed_files?: number
-  warning_count?: number
-}
-
-export interface ActiveImportsResponse {
-  jobs: ImportJobSummary[]
 }
 
 // Background job status (from /api/v1/jobs)

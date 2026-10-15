@@ -66,6 +66,22 @@ class Settings(BaseSettings):
     # Image Processing
     thumbnail_sizes: list[tuple[int, int]] = [(150, 150), (400, 400), (800, 800)]
     max_image_size: int = 10 * 1024 * 1024
+    # Largest image (in pixels) Pillow will decode; beyond this it's treated as a
+    # decompression bomb. Pillow's default (~89.5 Mpx) rejects ~2% of real battlemap
+    # libraries; the largest observed maps are ~760 Mpx (~1.7 GB RSS to process).
+    max_image_pixels: int = 1_000_000_000
+    # JPEGs above this many pixels are decoded at reduced scale (libjpeg DCT
+    # scaling) instead of in full, and skip the pixel-hash duplicate check (the
+    # byte hash still applies). ~400 MB peak at the limit instead of gigabytes.
+    pixel_hash_max_pixels: int = 100_000_000
+    # Memory reserved across concurrent image preparation; None = automatic
+    # (half of RAM beyond a 2 GiB reserve).
+    ingest_memory_budget_mb: int | None = None
+    # Most files one import job may contain (across all manifest chunks).
+    max_import_items: int = 50_000
+    # Start the ingest worker with the app. Tests turn this off and drive the
+    # worker synchronously with drain().
+    ingest_worker_enabled: bool = True
     supported_formats: list[str] = [".jpg", ".jpeg", ".png", ".webp"]
     supported_video_formats: list[str] = [".mp4", ".webm"]
 

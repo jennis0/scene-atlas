@@ -19,9 +19,4 @@ contextBridge.exposeInMainWorld('electronAPI', {
   changeStorageDirs: (appDataDir: string, imageLibraryDir: string): Promise<void> =>
     ipcRenderer.invoke('system:change-storage-dirs', appDataDir, imageLibraryDir),
 
-  // Filesystem access for drag-and-drop folder traversal
-  readDirectory: (dirPath: string): Promise<Array<{ relativePath: string; absolutePath: string }>> =>
-    ipcRenderer.invoke('fs:read-directory', dirPath),
-  readFileBytes: (absolutePath: string): Promise<{ data: Uint8Array }> =>
-    ipcRenderer.invoke('fs:read-file-bytes', absolutePath),
 })

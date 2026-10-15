@@ -11,9 +11,11 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
+    UniqueConstraint,
     create_engine,
     text,
 )
@@ -48,16 +50,18 @@ class Image(Base):
     grid_type = Column(String, nullable=True)  # "square" | "hex" | None
     grid_confidence = Column(Float, nullable=True)  # 0.0-1.0, None = filename-detected
     subgroup = Column("sub_variant", String, nullable=True)  # Subgroup path (e.g. "MA / No Grid")
-    content_hash = Column(String(64), nullable=True, index=True)  # SHA-256 hex digest
+    content_hash = Column(String(64), nullable=True, index=True)  # SHA-256 of original bytes
+    stored_hash = Column(String(64), nullable=True, index=True)  # SHA-256 of the stored file
+    pixel_hash = Column(String(64), nullable=True, index=True)  # Hash of canonical decoded pixels
+    phash = Column(Integer, nullable=True)  # 64-bit perceptual hash (signed); advisory only
     search_text = Column(Text, nullable=True)  # Pre-tokenized text for FTS5 (CamelCase-split)
     media_type = Column(String, nullable=True, default="image")  # "image" or "video"
     image_type = Column(String, nullable=True, default="battlemap")  # "battlemap" or "scene"
     import_job_id = Column(
         String, ForeignKey("import_jobs.id"), nullable=True, index=True
     )  # Import job that created this row; None for pre-existing/manually added images
-    # NOTE: If you ever add relationship("ImportJob", ...) here, do NOT use
-    # cascade="all, delete-orphan" — images may share storage_key with images
-    # from other imports, so deleting the job must not cascade-delete images.
+    # NOTE: Never add a cascading relationship to ImportJob here: dismissing or
+    # pruning a job must not delete its images (only an explicit Undo does).
 
     # Storage keys (resolved via ImageStore at runtime)
     thumbnail_key = Column(String)  # Key into thumbnail store (e.g., "a1b2c3d4_400x400.jpg")
@@ -161,32 +165,33 @@ class Color(Base):
 
 
 class ImportJob(Base):
-    """Tracks image import jobs (one per upload session).
+    """One import the user started (ADR-018). Aggregates its groups and items.
 
-    Represents the full editing session, from upload through group confirmation.
-    Individual group processing is tracked by ImportGroupJob children.
+    Status (``active`` | ``paused`` | ``completed`` | ``cancelled``) is derived
+    from item counts by ``ingest_queue.recompute_job_status``; a job never fails
+    as a whole.
     """
 
     __tablename__ = "import_jobs"
 
-    id = Column(String, primary_key=True)  # UUID
-    status = Column(String, nullable=False, default="staging")
-    # status values: uploading, staging, active, completed, failed, cancelled, expired, broken
-    source_label = Column(String, nullable=True)  # Display label for import tray
-    total_files = Column(Integer, default=0)
-    error_message = Column(Text, nullable=True)
+    id = Column(String, primary_key=True)  # UUID hex
+    status = Column(String, nullable=False, default="active")
+    source_label = Column(String, nullable=True)  # Display label, e.g. "Forest Pack.zip"
+    default_image_type = Column(String, nullable=False, default="battlemap")
+    planned_at = Column(DateTime, nullable=True)  # Manifest sealed + groups planned
+    last_upload_at = Column(DateTime, nullable=True)  # Last byte receipt
+    dismissed_at = Column(DateTime, nullable=True)  # Hidden from the activity dock
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
-    # JSON: full analysis output — used for reconnection (rebuilding preview UI)
-    analysis_result = Column(Text, nullable=True)
-    job_warnings = Column(
-        Text, nullable=True
-    )  # JSON list of warning dicts (upload skips, pipeline warnings)
-    total_file_size = Column(Integer, default=0)  # Accumulated bytes across all upload batches
 
     # Relationships
-    groups = relationship("ImportGroupJob", back_populates="job", cascade="all, delete-orphan")
+    import_groups = relationship(
+        "ImportGroup", back_populates="job", cascade="all, delete-orphan", passive_deletes=True
+    )
+    items = relationship(
+        "ImportItem", back_populates="job", cascade="all, delete-orphan", passive_deletes=True
+    )
 
     def __repr__(self):
         return f"<ImportJob(id='{self.id}', status='{self.status}')>"
@@ -205,34 +210,77 @@ class AppSetting(Base):
         return f"<AppSetting(key='{self.key}', value_json='{self.value_json}')>"
 
 
-class ImportGroupJob(Base):
-    """Tracks progress of a single group within an import job."""
+class ImportGroup(Base):
+    """A group planned from the uploaded paths at seal time (ADR-018).
 
-    __tablename__ = "import_group_jobs"
+    Resolves to a gallery ``ImageGroup``: an existing one (``merged_into_existing``)
+    or one created when the first image of the group commits.
+    """
 
-    id = Column(String, primary_key=True)  # UUID hex
+    __tablename__ = "import_groups"
+
+    id = Column(Integer, primary_key=True)
     job_id = Column(String, ForeignKey("import_jobs.id"), nullable=False, index=True)
-    group_name = Column("variant_group_name", String, nullable=False)
     author = Column(String, nullable=True)
-    total_files = Column(Integer, default=0)
-    processed_files = Column(Integer, default=0)
-    failed_files = Column(Integer, default=0)
-    status = Column(String, nullable=False, default="running")
-    # status values: running, completed, failed, cancelled
-    error_message = Column(Text, nullable=True)
-    file_errors = Column(Text, nullable=True)  # JSON list of per-file error dicts
+    group_name = Column(String, nullable=False)
+    image_group_id = Column(Integer, ForeignKey("variant_groups.id"), nullable=True)
+    merged_into_existing = Column(Boolean, nullable=False, default=False)
+    sort_order = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
-    completed_at = Column(DateTime, nullable=True)
-    # Set once the group finishes so the frontend can link back to the created ImageGroup
-    created_group_id = Column(Integer, nullable=True)
 
-    # Relationships
-    job = relationship("ImportJob", back_populates="groups")
+    job = relationship("ImportJob", back_populates="import_groups")
 
     def __repr__(self):
-        return (
-            f"<ImportGroupJob(id='{self.id}', group='{self.group_name}', status='{self.status}')>"
-        )
+        return f"<ImportGroup(id={self.id}, group='{self.group_name}')>"
+
+
+class ImportItem(Base):
+    """One file in an import job. All durable ingest state lives here (ADR-018).
+
+    State machine: see ``backend/app/services/ingest_state.py``.
+    """
+
+    __tablename__ = "import_items"
+
+    id = Column(Integer, primary_key=True)
+    job_id = Column(String, ForeignKey("import_jobs.id"), nullable=False)
+    import_group_id = Column(Integer, ForeignKey("import_groups.id"), nullable=True)
+    kind = Column(String, nullable=False, default="image")  # image | video | archive
+    relative_path = Column(String, nullable=False)  # Display + resume matching only
+    filename = Column(String, nullable=False)
+    size = Column(Integer, nullable=True)
+    last_modified = Column(Integer, nullable=True)  # Client-reported, ms since epoch
+    image_type = Column(String, nullable=False, default="battlemap")
+    parsed = Column(Text, nullable=True)  # JSON parser output (set at plan time)
+    state = Column(String, nullable=False, default="awaiting_bytes")
+    staging_key = Column(String, nullable=True)  # Server-generated staged filename
+    source_hash = Column(String(64), nullable=True)  # SHA-256 of the original bytes
+    attempts = Column(Integer, nullable=False, default=0)
+    retry_after = Column(DateTime, nullable=True)
+    error_kind = Column(String, nullable=True)  # file | transient | system
+    error_stage = Column(String, nullable=True)
+    error_reason = Column(Text, nullable=True)  # User-facing
+    error_detail = Column(Text, nullable=True)  # Raw exception text
+    image_id = Column(Integer, ForeignKey("images.id"), nullable=True)
+    duplicate_of_image_id = Column(Integer, ForeignKey("images.id"), nullable=True)
+    duplicate_tier = Column(String, nullable=True)  # bytes | pixels
+    allow_duplicate = Column(Boolean, nullable=False, default=False)
+    similar_to_image_id = Column(Integer, ForeignKey("images.id"), nullable=True)
+    similarity_distance = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    job = relationship("ImportJob", back_populates="items")
+
+    __table_args__ = (
+        UniqueConstraint("job_id", "relative_path", name="uq_import_items_job_path"),
+        Index("ix_import_items_state_job", "state", "job_id"),
+        Index("ix_import_items_job_state", "job_id", "state"),
+        Index("ix_import_items_job_group", "job_id", "import_group_id"),
+    )
+
+    def __repr__(self):
+        return f"<ImportItem(id={self.id}, path='{self.relative_path}', state='{self.state}')>"
 
 
 # Database setup utilities
@@ -486,7 +534,7 @@ def seed_default_settings(session):
         "enable_image_grid_detection": True,
         "grid_min_cell_px": 32,
         "grid_max_cell_px": 320,
-        "grid_detection_max_dim": 20000,
+        "grid_detection_max_dim": 8000,  # Phase 0: ~0.5% accuracy cost, 3-4x less CPU on huge maps
         "grid_presence_threshold": 0.20,
         "grid_size_threshold": 0.15,
         "grid_period_ratio_threshold": 0.98,
@@ -509,7 +557,7 @@ def seed_default_settings(session):
         "max_job_workers": resource_defaults["max_job_workers"],
         "scheduler_enabled": True,
         # Import processing — initial value read from env so setup wizard choice is honoured
-        "convert_to_webp": bool(int(os.environ.get("CONVERT_TO_WEBP", "1"))),
+        "convert_to_webp": bool(int(os.environ.get("CONVERT_TO_WEBP", "0"))),
         "webp_lossless": True,
         "webp_quality": 95,
     }

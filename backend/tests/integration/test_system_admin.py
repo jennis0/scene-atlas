@@ -6,7 +6,8 @@ from backend.app.models.database import (
     Color,
     Image,
     ImageGroup,
-    ImportGroupJob,
+    ImportGroup,
+    ImportItem,
     ImportJob,
     Tag,
     TagCategory,
@@ -57,19 +58,23 @@ def _seed_library(db_session):
             )
         )
 
-    job = ImportJob(id="test-import-1", status="completed", total_files=3)
+    job = ImportJob(id="test-import-1", status="completed")
     db_session.add(job)
     db_session.flush()
-
-    gj = ImportGroupJob(
-        id="test-group-job-1",
-        job_id=job.id,
-        group_name="Test Group",
-        total_files=3,
-        processed_files=3,
-        status="completed",
-    )
-    db_session.add(gj)
+    import_group = ImportGroup(job_id=job.id, group_name="Test Group", image_group_id=group.id)
+    db_session.add(import_group)
+    db_session.flush()
+    for img in imgs:
+        db_session.add(
+            ImportItem(
+                job_id=job.id,
+                import_group_id=import_group.id,
+                relative_path=img.filename,
+                filename=img.filename,
+                state="done",
+                image_id=img.id,
+            )
+        )
     db_session.commit()
 
     return group.id, [img.id for img in imgs]
@@ -99,7 +104,7 @@ class TestDeleteLibrary:
         assert db.query(Tag).count() == 3
         assert db.query(Color).count() == 3
         assert db.query(ImportJob).count() == 1
-        assert db.query(ImportGroupJob).count() == 1
+        assert db.query(ImportItem).count() == 3
         db.close()
 
         # Trigger purge
@@ -123,7 +128,8 @@ class TestDeleteLibrary:
         assert db.query(Tag).count() == 0
         assert db.query(Color).count() == 0
         assert db.query(ImportJob).count() == 0
-        assert db.query(ImportGroupJob).count() == 0
+        assert db.query(ImportItem).count() == 0
+        assert db.query(ImportGroup).count() == 0
         db.close()
 
     def test_purge_preserves_tag_categories(self, test_client, tmp_db):

@@ -1,5 +1,7 @@
 # Web Import Flow
 
+> **Being replaced:** this describes the current import flow, which is being redesigned. See [ingest-redesign.md](ingest-redesign.md) and ADR-018.
+
 ## Overview
 
 The web import allows users to upload images (files, folders, or zip archives) through the browser. After upload, groups are auto-confirmed and processing starts immediately. Images are immediately visible in search and the gallery after import.

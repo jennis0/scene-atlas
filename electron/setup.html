@@ -266,8 +266,8 @@
           <div class="toggle-hint">Saves 20&ndash;40% storage with no quality loss (lossless). Originals are not kept.</div>
         </div>
         <div class="toggle-control">
-          <button class="toggle-switch" title="Toggle WebP conversion"></button>
-          <span class="toggle-state">On</span>
+          <button class="toggle-switch off" title="Toggle WebP conversion"></button>
+          <span class="toggle-state">Off</span>
         </div>
       </div>
 
@@ -283,7 +283,7 @@
   <script>
     let appDataDir = ''
     let imageLibraryDir = ''
-    let convertToWebp = true  // default on
+    let convertToWebp = false  // default off (ADR-018)
 
     // Populate default dirs on load
     window.setupAPI.getDefaultDirs().then(function(dirs) {

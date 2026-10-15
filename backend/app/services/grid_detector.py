@@ -20,6 +20,13 @@ from scipy.signal import fftconvolve, find_peaks
 
 logger = logging.getLogger(__name__)
 
+# Decoder-side downscaling flags, largest reduction first.
+_REDUCED_GRAYSCALE = (
+    (8, cv2.IMREAD_REDUCED_GRAYSCALE_8),
+    (4, cv2.IMREAD_REDUCED_GRAYSCALE_4),
+    (2, cv2.IMREAD_REDUCED_GRAYSCALE_2),
+)
+
 
 class GridDetectionResult(TypedDict):
     gridded: bool | None
@@ -45,7 +52,7 @@ class GridDetector:
         self,
         min_cell_px: int = 32,
         max_cell_px: int = 320,
-        max_dim: int = 20_000,
+        max_dim: int = 8_000,
         presence_threshold: float = 0.20,
         size_threshold: float = 0.15,
         period_ratio_threshold: float = 0.98,
@@ -102,7 +109,7 @@ class GridDetector:
         threshold: float,
     ) -> GridDetectionResult:
         """Core detection pipeline: standard AC + 30-degree rotation for hex."""
-        edges, scale = self._preprocess(image_path)
+        edges, scale = self._preprocess(image_path, orig_width, orig_height)
         if edges is None:
             return {**_NO_GRID}
 
@@ -262,26 +269,48 @@ class GridDetector:
     # Preprocessing
     # ------------------------------------------------------------------
 
-    def _preprocess(self, image_path: Path) -> tuple[np.ndarray | None, float]:
+    def _read_gray(self, image_path: Path, longest_side: int) -> np.ndarray | None:
+        """Read as grayscale, letting the decoder downscale when the cap allows.
+
+        For JPEGs, the IMREAD_REDUCED_* flags decode directly at 1/2, 1/4 or 1/8
+        scale (libjpeg DCT scaling), so a 760 Mpx map never materialises at full
+        resolution. The largest factor that keeps the result at or above
+        ``max_dim`` is used; the final resize to ``max_dim`` happens afterwards.
+        """
+        flag = cv2.IMREAD_GRAYSCALE
+        for factor, reduced in _REDUCED_GRAYSCALE:
+            if longest_side / factor >= self.max_dim:
+                flag = reduced
+                break
+        return cv2.imread(str(image_path), flag)
+
+    def _preprocess(
+        self, image_path: Path, orig_width: int = 0, orig_height: int = 0
+    ) -> tuple[np.ndarray | None, float]:
         """Load image, convert to grayscale, optionally downsample, and apply Canny.
 
         Returns:
             (edge_image, scale_factor) where scale_factor maps scaled px → original px.
             Returns (None, 0) if image cannot be loaded.
         """
-        img = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
+        longest = max(orig_width, orig_height)
+        img = self._read_gray(image_path, longest)
         if img is None:
             logger.warning("Could not read image: %s", image_path)
             return None, 0.0
 
         h, w = img.shape
+        if not longest:  # original size unknown: what we read is full size
+            orig_width, orig_height, longest = w, h, max(h, w)
 
         scale = 1.0
-        if max(h, w) > self.max_dim:
-            scale = self.max_dim / max(h, w)
-            new_w = max(1, int(w * scale))
-            new_h = max(1, int(h * scale))
-            img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        if longest > self.max_dim:
+            # Scale is relative to the original, not to the (possibly reduced) read.
+            scale = self.max_dim / longest
+            new_w = max(1, int(orig_width * scale))
+            new_h = max(1, int(orig_height * scale))
+            if (new_w, new_h) != (w, h):
+                img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
         # Canny edge detection with adaptive thresholds
         median_val = np.median(img)

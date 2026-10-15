@@ -1,0 +1,544 @@
+/**
+ * The import dialog (ADR-018, design/ingest-redesign.md §8.2).
+ *
+ * Two views over the ImportManager:
+ * - Start: choose battlemap/scene, then drop or browse files, folders or zips.
+ * - Progress: what's being sent and imported, any problems, the group ledger,
+ *   and controls. Closing never stops anything; reopening shows the same job.
+ */
+
+import { useRef, useState } from 'react'
+import {
+  AlertTriangle,
+  FileWarning,
+  Files,
+  FolderOpen,
+  Grid3X3,
+  Image as ImageIcon,
+  Loader2,
+  PauseCircle,
+  UploadCloud,
+  WifiOff,
+} from 'lucide-react'
+import { toast } from 'sonner'
+import { getImportManager } from '@/lib/import/ImportManager'
+import { useImportJob, useImportManagerSnapshot } from '@/lib/import/useImports'
+import type { ImageType, PickedFile } from '@/lib/import/types'
+import { ConfirmOverlay, ImportFrame, Notice, TextButton } from './ImportFrame'
+import { GroupLedger } from './GroupLedger'
+import {
+  finishedCount,
+  formatBytes,
+  isFinished,
+  jobStatusText,
+  outcomeText,
+  plural,
+  uploadPhaseText,
+} from './format'
+import { filesFromDrop, filesFromInput } from './pickFiles'
+
+interface ImportDialogProps {
+  /** null: start a new import. Otherwise show that job. */
+  jobId: string | null
+  open: boolean
+  onClose: () => void
+  /** A new import was created; the parent should now show it. */
+  onStarted: (jobId: string) => void
+  onOpenReport: (jobId: string) => void
+  onOpenGroup?: (imageGroupId: number) => void
+}
+
+export function ImportDialog({
+  jobId,
+  open,
+  onClose,
+  onStarted,
+  onOpenReport,
+  onOpenGroup,
+}: ImportDialogProps) {
+  if (!jobId) return <StartView open={open} onClose={onClose} onStarted={onStarted} />
+  return (
+    <ProgressView
+      jobId={jobId}
+      open={open}
+      onClose={onClose}
+      onOpenReport={onOpenReport}
+      onOpenGroup={onOpenGroup}
+    />
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Start
+// ---------------------------------------------------------------------------
+
+function StartView({
+  open,
+  onClose,
+  onStarted,
+}: {
+  open: boolean
+  onClose: () => void
+  onStarted: (jobId: string) => void
+}) {
+  const [imageType, setImageType] = useState<ImageType>('battlemap')
+  const [reading, setReading] = useState(false)
+  const [starting, setStarting] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
+  const fileInput = useRef<HTMLInputElement>(null)
+  const folderInput = useRef<HTMLInputElement>(null)
+  const busy = reading || starting
+
+  const start = async (files: PickedFile[]) => {
+    if (!files.length) return
+    setStarting(true)
+    try {
+      const jobId = await getImportManager().startImport(files, { imageType })
+      onStarted(jobId)
+    } catch {
+      toast.error("Couldn't start the import", {
+        description: 'The server could not be reached. Check that Scene Atlas is running.',
+      })
+    } finally {
+      setStarting(false)
+    }
+  }
+
+  const onDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+    if (busy) return
+    setReading(true)
+    let files: PickedFile[] = []
+    try {
+      files = await filesFromDrop(e.dataTransfer)
+    } finally {
+      setReading(false)
+    }
+    await start(files)
+  }
+
+  return (
+    <ImportFrame open={open} onClose={onClose} title="Import maps and scenes">
+      <div className="px-6 pt-2 pb-6 space-y-5">
+        <fieldset className="space-y-2" disabled={busy}>
+          <legend className="text-[12px] text-muted-foreground mb-2">Import these as</legend>
+          <div className="inline-flex rounded-md overflow-hidden border border-border">
+            <TypeOption
+              selected={imageType === 'battlemap'}
+              onClick={() => setImageType('battlemap')}
+              icon={<Grid3X3 className="h-3.5 w-3.5" />}
+              label="Battlemaps"
+            />
+            <TypeOption
+              selected={imageType === 'scene'}
+              onClick={() => setImageType('scene')}
+              icon={<ImageIcon className="h-3.5 w-3.5" />}
+              label="Scenes"
+            />
+          </div>
+          <p className="text-[12px] text-muted-foreground/70">
+            {imageType === 'battlemap'
+              ? 'Top-down maps. Grids are detected automatically.'
+              : 'Vistas, portraits and encounter art. No grid detection.'}
+          </p>
+        </fieldset>
+
+        <input
+          ref={fileInput}
+          type="file"
+          multiple
+          accept=".jpg,.jpeg,.png,.webp,.mp4,.webm,.zip"
+          className="hidden"
+          onChange={(e) => void start(filesFromInput(e.target.files))}
+        />
+        <input
+          ref={folderInput}
+          type="file"
+          // @ts-expect-error webkitdirectory is not in the HTMLInputElement type
+          webkitdirectory=""
+          multiple
+          className="hidden"
+          onChange={(e) => void start(filesFromInput(e.target.files))}
+        />
+
+        <div
+          onDragOver={(e) => {
+            e.preventDefault()
+            if (!busy) setDragOver(true)
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => void onDrop(e)}
+          className={`flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-10 transition-colors ${
+            busy
+              ? 'border-border/40 bg-secondary/20'
+              : dragOver
+                ? 'border-primary bg-primary/[0.06]'
+                : 'border-border/60'
+          }`}
+        >
+          {busy ? (
+            <>
+              <Loader2 className="h-8 w-8 animate-spin text-primary/70" />
+              <p className="text-[13px] text-muted-foreground">
+                {reading ? 'Reading the dropped folders' : 'Starting the import'}
+              </p>
+            </>
+          ) : (
+            <>
+              <UploadCloud
+                className={`h-9 w-9 ${dragOver ? 'text-primary' : 'text-muted-foreground/40'}`}
+              />
+              <div className="text-center">
+                <p
+                  className={`text-sm font-medium ${dragOver ? 'text-primary' : 'text-foreground'}`}
+                >
+                  {dragOver ? 'Drop to import' : 'Drop files or folders here'}
+                </p>
+                <p className="mt-0.5 text-[12px] text-muted-foreground/70">
+                  Images, videos and .zip archives. Folder names become groups.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <BrowseButton
+                  onClick={() => folderInput.current?.click()}
+                  icon={<FolderOpen className="h-3.5 w-3.5" />}
+                  label="Choose a folder"
+                />
+                <BrowseButton
+                  onClick={() => fileInput.current?.click()}
+                  icon={<Files className="h-3.5 w-3.5" />}
+                  label="Choose files"
+                />
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </ImportFrame>
+  )
+}
+
+function TypeOption({
+  selected,
+  onClick,
+  icon,
+  label,
+}: {
+  selected: boolean
+  onClick: () => void
+  icon: React.ReactNode
+  label: string
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      onClick={onClick}
+      className={`inline-flex items-center gap-1.5 h-8 px-3 text-[12.5px] transition-colors first:border-r first:border-border focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/40 ${
+        selected
+          ? 'bg-primary/20 text-primary'
+          : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
+  )
+}
+
+function BrowseButton({
+  onClick,
+  icon,
+  label,
+}: {
+  onClick: () => void
+  icon: React.ReactNode
+  label: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1.5 h-8 px-3 text-[12.5px] rounded-md border border-border/60 bg-secondary/60 text-muted-foreground hover:text-foreground hover:border-border hover:bg-secondary transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+    >
+      {icon}
+      {label}
+    </button>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Progress
+// ---------------------------------------------------------------------------
+
+function ProgressView({
+  jobId,
+  open,
+  onClose,
+  onOpenReport,
+  onOpenGroup,
+}: {
+  jobId: string
+  open: boolean
+  onClose: () => void
+  onOpenReport: (jobId: string) => void
+  onOpenGroup?: (imageGroupId: number) => void
+}) {
+  const manager = getImportManager()
+  const { queue, connection } = useImportManagerSnapshot()
+  const { job, upload, detail } = useImportJob(jobId, { watch: open })
+  const [confirmingCancel, setConfirmingCancel] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const resumeFiles = useRef<HTMLInputElement>(null)
+  const resumeFolder = useRef<HTMLInputElement>(null)
+
+  const run = async (action: () => Promise<unknown>) => {
+    setBusy(true)
+    try {
+      await action()
+    } catch {
+      toast.error("That didn't work", { description: 'The server could not be reached.' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const resumeWith = async (files: PickedFile[]) => {
+    if (!files.length) return
+    const result = await manager.resumeUpload(jobId, files)
+    if (result.matched === 0) {
+      toast.warning('None of those files are missing from this import', {
+        description: 'Choose the same folder or files you started the import with.',
+      })
+    } else if (result.missing > 0) {
+      toast.message(`Sending ${plural(result.matched, 'file')}`, {
+        description: `${plural(result.missing, 'file')} still weren't found in what you chose.`,
+      })
+    }
+  }
+
+  const label = job?.label ?? upload?.label ?? 'Import'
+  const finished = job ? isFinished(job) : upload?.phase === 'failed'
+  const counts = job?.counts
+  const statusLine = job ? jobStatusText(job, upload) : (uploadPhaseText(upload) ?? 'Starting')
+
+  return (
+    <ImportFrame
+      open={open}
+      onClose={onClose}
+      title={label}
+      status={statusLine}
+      footer={
+        <>
+          {job && !finished && job.status === 'active' && (
+            <TextButton onClick={() => void run(() => manager.pause(jobId))} disabled={busy}>
+              Pause
+            </TextButton>
+          )}
+          {job?.status === 'paused' && (
+            <TextButton onClick={() => void run(() => manager.resume(jobId))} disabled={busy}>
+              Resume
+            </TextButton>
+          )}
+          {job && !finished && (
+            <TextButton tone="danger" onClick={() => setConfirmingCancel(true)} disabled={busy}>
+              Cancel import
+            </TextButton>
+          )}
+          <span className="flex-1" />
+          {!finished && (
+            <span className="text-[11.5px] text-muted-foreground/60 mr-1">
+              Keeps running if you close this
+            </span>
+          )}
+          {finished && job && (
+            <TextButton tone="primary" onClick={() => onOpenReport(jobId)}>
+              View report
+            </TextButton>
+          )}
+          <TextButton onClick={onClose}>Close</TextButton>
+        </>
+      }
+    >
+      <div className="px-6 pb-4 space-y-3 shrink-0">
+        {counts && (
+          <ProgressMeter
+            received={counts.total - counts.awaiting_bytes}
+            finished={finishedCount(counts)}
+            total={counts.total}
+          />
+        )}
+        {upload && upload.totalBytes > 0 && !finished && upload.phase !== 'finished' && (
+          <p className="font-mono text-[10.5px] text-muted-foreground/70 tabular-nums">
+            {formatBytes(upload.sentBytes)} of {formatBytes(upload.totalBytes)} sent
+          </p>
+        )}
+
+        {upload?.phase === 'failed' && upload.error && (
+          <Notice tone="problem" icon={<FileWarning className="h-4 w-4" />}>
+            The import couldn't start: {upload.error}
+          </Notice>
+        )}
+
+        {queue?.system_paused && !finished && (
+          <Notice
+            tone="attention"
+            icon={<PauseCircle className="h-4 w-4" />}
+            actions={
+              <TextButton
+                onClick={() => void run(() => manager.retrySystemPause())}
+                disabled={busy}
+              >
+                Try again now
+              </TextButton>
+            }
+          >
+            Importing is paused: {queue.reason}. It continues by itself once that's resolved.
+          </Notice>
+        )}
+
+        {connection === 'lost' && (
+          <Notice tone="attention" icon={<WifiOff className="h-4 w-4" />}>
+            Can't reach Scene Atlas. Progress will update when the connection returns.
+          </Notice>
+        )}
+
+        {job?.upload_interrupted && (
+          <Notice
+            tone="attention"
+            icon={<AlertTriangle className="h-4 w-4" />}
+            actions={
+              <>
+                <TextButton onClick={() => resumeFolder.current?.click()}>Choose folder</TextButton>
+                <TextButton onClick={() => resumeFiles.current?.click()}>Choose files</TextButton>
+                <TextButton
+                  onClick={() => void run(() => manager.finishWithoutMissing(jobId))}
+                  disabled={busy}
+                >
+                  Finish without them
+                </TextButton>
+              </>
+            }
+          >
+            The upload stopped with {plural(job.counts.awaiting_bytes, 'file')} still to send.
+            Choose the same folder or files again to send the rest.
+          </Notice>
+        )}
+
+        {upload && upload.failures.length > 0 && !finished && (
+          <Notice
+            tone="problem"
+            icon={<FileWarning className="h-4 w-4" />}
+            actions={
+              <TextButton onClick={() => manager.retryFailedUploads(jobId)}>Try again</TextButton>
+            }
+          >
+            {plural(upload.failures.length, 'file')} couldn't be sent.{' '}
+            <span className="text-muted-foreground" title={upload.failures[0].relativePath}>
+              {upload.failures[0].relativePath.split('/').pop()}: {upload.failures[0].reason}
+              {upload.failures.length > 1 && ', and others'}
+            </span>
+          </Notice>
+        )}
+
+        {finished && counts && (
+          <p className="text-[13px] text-foreground">
+            {job?.status === 'cancelled' ? 'Cancelled. ' : 'Finished. '}
+            {outcomeText(counts)}
+            {counts.skipped > 0 && `, ${counts.skipped.toLocaleString()} skipped`}.
+          </p>
+        )}
+      </div>
+
+      <input
+        ref={resumeFiles}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(e) => void resumeWith(filesFromInput(e.target.files))}
+      />
+      <input
+        ref={resumeFolder}
+        type="file"
+        // @ts-expect-error webkitdirectory is not in the HTMLInputElement type
+        webkitdirectory=""
+        multiple
+        className="hidden"
+        onChange={(e) => void resumeWith(filesFromInput(e.target.files))}
+      />
+
+      <div className="flex-1 min-h-[180px] flex flex-col border-t border-border/30 pt-2">
+        <GroupLedger groups={detail?.groups ?? []} onOpenGroup={onOpenGroup} />
+      </div>
+
+      {confirmingCancel && (
+        <ConfirmOverlay
+          title="Cancel this import?"
+          detail={
+            <>
+              Files that haven't been imported yet are skipped.
+              {counts && counts.done > 0 && (
+                <> The {plural(counts.done, 'image')} already imported stay in your library.</>
+              )}
+            </>
+          }
+          confirmLabel="Cancel import"
+          tone="warning"
+          busy={busy}
+          onCancel={() => setConfirmingCancel(false)}
+          onConfirm={() =>
+            void run(async () => {
+              await manager.cancel(jobId)
+              setConfirmingCancel(false)
+            })
+          }
+        />
+      )}
+    </ImportFrame>
+  )
+}
+
+/**
+ * One track, two layers: how much the server has received (quiet) and how much
+ * is finished (amber). The gap between them is work waiting to be processed.
+ */
+function ProgressMeter({
+  received,
+  finished,
+  total,
+}: {
+  received: number
+  finished: number
+  total: number
+}) {
+  const pct = (n: number) => (total > 0 ? `${Math.round((n / total) * 100)}%` : '0%')
+  return (
+    <div>
+      <div
+        className="relative h-1 rounded-full bg-border/40 overflow-hidden"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={total}
+        aria-valuenow={finished}
+        aria-label="Files processed"
+      >
+        <div
+          className="absolute inset-y-0 left-0 bg-foreground/15 transition-[width] duration-500"
+          style={{ width: pct(received) }}
+        />
+        <div
+          className="absolute inset-y-0 left-0 bg-primary/80 transition-[width] duration-700 ease-out"
+          style={{ width: pct(finished) }}
+        />
+      </div>
+      <div className="mt-1.5 flex justify-between font-mono text-[10.5px] tabular-nums text-muted-foreground">
+        <span>{received.toLocaleString()} received</span>
+        <span>
+          {finished.toLocaleString()}
+          <span className="text-muted-foreground/50"> / {total.toLocaleString()} processed</span>
+        </span>
+      </div>
+    </div>
+  )
+}

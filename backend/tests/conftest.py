@@ -6,7 +6,6 @@ in fixtures where vector DB access is required.
 """
 
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 from PIL import Image as PILImage
@@ -69,46 +68,6 @@ def make_test_image():
 
 
 @pytest.fixture
-def tmp_staging(tmp_path, make_test_image):
-    """Staging directory with flat UUID-named files and .file_map.json.
-
-    Mirrors the production layout where uploaded files are stored as UUID
-    filenames and a sidecar JSON maps relative_path -> staging_key.
-    """
-    import json as _json
-
-    staging = tmp_path / "staging" / "test-job-id"
-    staging.mkdir(parents=True, exist_ok=True)
-
-    file_map = {}
-    entries = [
-        ("TestAuthor/TestMap/TestMap_Night_Grid.jpg", "aaa00001.jpg", (30, 30, 80)),
-        ("TestAuthor/TestMap/TestMap_Summer.jpg", "aaa00002.jpg", (100, 200, 100)),
-        ("FlatFile.jpg", "aaa00003.jpg", (200, 100, 100)),
-    ]
-    for rel_path, staging_key, color in entries:
-        make_test_image(staging / staging_key, color=color)
-        file_map[rel_path] = staging_key
-
-    (staging / ".file_map.json").write_text(_json.dumps(file_map))
-    return staging
-
-
-@pytest.fixture
-def staging_resolve(tmp_staging):
-    """Return a helper that resolves a relative_path to its actual staging path."""
-    import json as _json
-
-    file_map = _json.loads((tmp_staging / ".file_map.json").read_text())
-
-    def _resolve(relative_path: str) -> Path:
-        staging_key = file_map[relative_path]
-        return tmp_staging / staging_key
-
-    return _resolve
-
-
-@pytest.fixture
 def test_client(tmp_db, tmp_path):
     """FastAPI TestClient with test DB and isolated storage paths.
 
@@ -128,18 +87,31 @@ def test_client(tmp_db, tmp_path):
     engine, _ = tmp_db
 
     # Redirect database_url AND storage paths BEFORE entering TestClient so
-    # that the lifespan (which calls mark_interrupted_jobs, backfill, etc.)
-    # targets the test DB, not the production one.
+    # that the lifespan (backfill, etc.) targets the test DB, not the
+    # production one. The ingest worker is not started: tests drive it
+    # synchronously with drain().
     orig_db_url = settings.database_url
     orig_images = settings.store_images_dir
     orig_thumbnails = settings.store_thumbnails_dir
     orig_staging = settings.staging_dir
+    orig_worker_enabled = settings.ingest_worker_enabled
+    settings.ingest_worker_enabled = False
+
+    # The store singletons may already be cached at the real library path from
+    # an earlier test; swap in stores rooted in tmp_path so nothing leaks into
+    # the repo's images/ folder.
+    from backend.app import services
+    from backend.app.services.image_store import ImageStore
+
+    orig_stores = (services._image_store, services._thumbnail_store)
 
     settings.database_url = str(engine.url)
     settings.store_images_dir = tmp_path / "store" / "images"
     settings.store_thumbnails_dir = tmp_path / "store" / "thumbnails"
     settings.staging_dir = tmp_path / "staging"
     settings.store_images_dir.mkdir(parents=True, exist_ok=True)
+    services._image_store = ImageStore(settings.store_images_dir)
+    services._thumbnail_store = ImageStore(settings.store_thumbnails_dir)
     settings.store_thumbnails_dir.mkdir(parents=True, exist_ok=True)
     settings.staging_dir.mkdir(parents=True, exist_ok=True)
 
@@ -160,69 +132,5 @@ def test_client(tmp_db, tmp_path):
         settings.store_images_dir = orig_images
         settings.store_thumbnails_dir = orig_thumbnails
         settings.staging_dir = orig_staging
-
-
-@pytest.fixture
-def mock_heavy_services(monkeypatch):
-    """Mock CLIP + LanceDB + thumbnails so integration tests don't need real infrastructure.
-
-    The batch pipeline calls task functions via .fn() from their source modules,
-    so we mock at the source (backend.pipeline.tasks.*) not at the ingestion module level.
-    """
-    dummy_embedding = [0.1] * 512
-
-    # Mock single-image CLIP (used by process_single_image wrapper)
-    monkeypatch.setattr(
-        "backend.pipeline.ingestion.generate_clip_embedding",
-        lambda *args, **kwargs: dummy_embedding,
-    )
-    # Mock batch CLIP (used by batch pipeline)
-    monkeypatch.setattr(
-        "backend.pipeline.ingestion.batch_generate_clip_embeddings",
-        lambda image_paths, **kwargs: [dummy_embedding] * len(image_paths),
-    )
-
-    # Mock LanceDB (single + batch) -- get_lancedb_service() returns a mock
-    mock_lancedb_svc = MagicMock()
-    mock_lancedb_svc.add_image_embedding.return_value = True
-    mock_lancedb_svc.batch_add_embeddings.return_value = True
-    mock_lancedb_svc.get_embedding.return_value = None
-    monkeypatch.setattr(
-        "backend.pipeline.ingestion.get_lancedb_service",
-        lambda: mock_lancedb_svc,
-    )
-
-    # Mock thumbnails at the source module
-    def mock_generate_thumbnails(image_path, storage_key_stem, use_webp=False):
-        # Open image to get real dimensions (needed for DB save)
-        from PIL import Image as PILImage
-
-        with PILImage.open(image_path) as img:
-            dimensions = img.size
-        return {
-            "keys": {
-                "small": f"{storage_key_stem}_150x150.jpg",
-                "medium": f"{storage_key_stem}_400x400.jpg",
-                "large": f"{storage_key_stem}_800x800.jpg",
-            },
-            "dimensions": dimensions,
-        }
-
-    monkeypatch.setattr(
-        "backend.pipeline.tasks.image_processing.generate_thumbnails",
-        mock_generate_thumbnails,
-    )
-
-    # Mock color extraction at source module
-    def mock_extract_colors(*args, **kwargs):
-        return [
-            {"color_hex": "#1a2b3c", "percentage": 40.0, "color_order": 1},
-            {"color_hex": "#4d5e6f", "percentage": 30.0, "color_order": 2},
-        ]
-
-    monkeypatch.setattr(
-        "backend.pipeline.tasks.color_extraction.extract_dominant_colors",
-        mock_extract_colors,
-    )
-
-    return dummy_embedding
+        settings.ingest_worker_enabled = orig_worker_enabled
+        services._image_store, services._thumbnail_store = orig_stores

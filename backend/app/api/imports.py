@@ -1,1142 +1,693 @@
-"""Import API endpoints for web-based image upload and processing.
+"""Imports API (ADR-018, design/ingest-redesign.md §7).
 
-Upload endpoint saves files to staging, then calls analyse_upload to parse
-and group files. Confirm endpoint submits processing to the background
-JobRunner. Status endpoint reads progress from the ImportJob table.
+The client describes files (manifest), seals the manifest (server-side
+grouping), then supplies bytes one file at a time. The ingest worker processes
+items as their bytes arrive; the client only observes and issues actions.
+
+Every mutating endpoint takes SQLite's write lock up front (``BEGIN
+IMMEDIATE``) so it can't fail on a stale snapshot while the worker commits.
 """
 
-import asyncio
-import json
-import logging
-import shutil
-import uuid
-import zipfile
-from datetime import UTC, datetime
-from pathlib import Path
+from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
-from pydantic import BaseModel
+import asyncio
+import hashlib
+import logging
+import os
+import shutil
+import time
+import uuid
+from datetime import timedelta
+from pathlib import Path, PurePosixPath
+
+import anyio
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from ...pipeline import ingest_queue as q
+from ...pipeline.ingest_archive import expand_archive
+from ...pipeline.ingest_worker import get_ingest_worker
 from ..config import settings
-from ..models import (
-    ImportGroupJob,
-    ImportJob,
-)
-from ..models.schemas import (
-    ActiveImportsResponse,
-    AnalyseRequest,
-    BatchUploadResponse,
-    DuplicateInfo,
-    HashCheckRequest,
-    HashCheckResponse,
-    HashCheckResultItem,
-    ImportConfirmRequest,
-    ImportFileInfo,
-    ImportGroup,
-    ImportGroupStatus,
-    ImportJobResponse,
+from ..models import ImportGroup, ImportItem, ImportJob, get_session_local
+from ..models.import_schemas import (
+    ActionResult,
+    ArchiveResult,
+    ContentResult,
+    CreateImportRequest,
+    HashRequest,
+    HashResponse,
+    HashResult,
+    ImportCounts,
+    ImportGroupSummary,
+    ImportItemOut,
+    ImportItemPage,
+    ImportJobDetail,
+    ImportJobList,
     ImportJobSummary,
-    ImportUploadResponse,
-    ManifestEntry,
-    ReportSkippedRequest,
+    ItemActionRequest,
+    ManifestItemResult,
+    ManifestRequest,
+    ManifestResponse,
+    QueueStatus,
 )
+from ..services import ingest_state as st
 from ..services.app_settings import get_settings as get_app_settings
-from ..services.deletion_service import cleanup_import_images as _cleanup_import_images
-from ..services.import_state import GROUP_TERMINAL_STATUSES
-from ..services.job_runner import get_job_runner
-from ..services.staging import (
-    FILE_MAP_NAME as _FILE_MAP_NAME,
-)
-from ..services.staging import (
-    load_file_map as _load_file_map,
-)
-from ..services.staging import (
-    save_file_map as _save_file_map,
-)
-from ..services.validation import check_zip_safety, verify_media_mime
+from ..services.validation import verify_media_mime
 from .dependencies import acquire_heavy_op, get_db
 
-
-class ImportConfirmAllRequest(BaseModel):
-    """Confirm all groups for processing in one flow run."""
-
-    groups: list[ImportConfirmRequest]
-
-
-class FailImportRequest(BaseModel):
-    """Client-reported error message when marking an upload or staging job as failed."""
-
-    error_message: str
-
-
-VALID_IMAGE_TYPES = {"battlemap", "scene"}
-
 logger = logging.getLogger(__name__)
-
-
-def _parse_file_errors(raw: str | None) -> list[dict]:
-    """Parse JSON file_errors column, returning empty list on any failure."""
-    if not raw:
-        return []
-    try:
-        parsed = json.loads(raw)
-        if isinstance(parsed, list):
-            return parsed
-    except (json.JSONDecodeError, TypeError):
-        logger.warning("Malformed file_errors JSON in ImportGroupJob: %s", raw[:200])
-    return []
-
-
 router = APIRouter()
 
-
-@router.post("/check-hashes", response_model=HashCheckResponse)
-def check_hashes(
-    body: HashCheckRequest,
-    db: Session = Depends(get_db),
-):
-    """Check a batch of content hashes against the database.
-
-    Returns duplicate info for any hash that matches an existing image.
-    Used as a pre-flight check before uploading, allowing the client
-    to skip uploading files that already exist in the library.
-    """
-    from ..models import Image
-
-    if not body.files:
-        return HashCheckResponse(results=[], total_checked=0, duplicates_found=0)
-
-    # Collect unique hashes and batch-query DB
-    unique_hashes = list({f.content_hash for f in body.files})
-    existing_images = db.query(Image).filter(Image.content_hash.in_(unique_hashes)).all()
-
-    # Build hash → DuplicateInfo map (first match wins)
-    hash_to_dup: dict[str, DuplicateInfo] = {}
-    for img in existing_images:
-        if img.content_hash and img.content_hash not in hash_to_dup:
-            hash_to_dup[img.content_hash] = DuplicateInfo(
-                image_id=img.id,
-                name=img.name,
-                author=img.author,
-                storage_key=img.storage_key,
-                thumbnail_key=img.thumbnail_key,
-                group_name=img.group_name,
-            )
-
-    # Build results
-    results = []
-    duplicates_found = 0
-    for f in body.files:
-        dup = hash_to_dup.get(f.content_hash)
-        if dup:
-            duplicates_found += 1
-        results.append(
-            HashCheckResultItem(
-                relative_path=f.relative_path,
-                content_hash=f.content_hash,
-                duplicate_of=dup,
-            )
-        )
-
-    return HashCheckResponse(
-        results=results,
-        total_checked=len(body.files),
-        duplicates_found=duplicates_found,
-    )
+# An active job waiting on bytes that stopped arriving this long ago is shown as
+# "upload interrupted".
+UPLOAD_STALL = timedelta(minutes=2)
+# Free space kept in reserve on top of an import's estimated needs at seal time.
+SEAL_FREE_SPACE_MARGIN = 512 * 1024 * 1024
+_STREAM_CHUNK = 256 * 1024
 
 
-@router.post("/init")
-def init_import(db: Session = Depends(get_db)):
-    """Create an ImportJob immediately so the frontend can persist the job_id.
-
-    The job starts in ``"uploading"`` status.  Call ``POST /{job_id}/upload-batch``
-    one or more times to stage files, then ``POST /{job_id}/analyse`` to run
-    group detection.  If the user closes the dialog mid-upload the HTTP
-    requests continue in the background and the tray can track progress via
-    this record.
-    """
-    job_id = uuid.uuid4().hex[:16]
-    staging_dir = settings.staging_dir / job_id
-    staging_dir.mkdir(parents=True, exist_ok=True)
-    import_job = ImportJob(
-        id=job_id,
-        status="uploading",
-    )
-    db.add(import_job)
-    db.commit()
-    logger.info("Initialized import job %s (uploading)", job_id)
-    return {"job_id": job_id}
+# ---------------------------------------------------------------------------
+# Dependencies and helpers
+# ---------------------------------------------------------------------------
 
 
-_STREAM_CHUNK_SIZE = 256 * 1024  # 256 KB
-
-
-async def _stream_upload_to_disk(upload_file: UploadFile, dest: Path, max_bytes: int) -> int:
-    """Stream an UploadFile to *dest* in chunks, enforcing a size limit.
-
-    Returns the number of bytes written.  Deletes the partially-written file
-    and returns -1 if *max_bytes* is exceeded (caller must raise).
-    """
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    bytes_written = 0
+def get_write_db(request: Request):
+    """A session whose transaction holds the SQLite write lock from the start."""
+    db = get_session_local(request.app.state.db_engine)()
     try:
-        with open(dest, "wb") as f:
-            while chunk := await upload_file.read(_STREAM_CHUNK_SIZE):
-                bytes_written += len(chunk)
-                if bytes_written > max_bytes:
-                    break
-                f.write(chunk)
-            else:
-                # Loop completed without exceeding limit
-                return bytes_written
-    except Exception:
-        dest.unlink(missing_ok=True)
-        raise
-    # Exceeded limit — clean up
-    dest.unlink(missing_ok=True)
-    return -1
+        q.begin_immediate(db)
+        yield db
+    finally:
+        db.close()
 
 
-async def _save_files_to_staging(
-    files: list[UploadFile],
-    rel_paths_list: list[str],
-    staging_dir: Path,
-    app_settings,
-) -> tuple[list[str], int, list[str]]:
-    """Save uploaded files to the staging directory using UUID filenames.
-
-    Files are stored as flat UUID-named files (e.g. ``a1b2c3d4.jpg``) to
-    eliminate path-traversal risks and Windows MAX_PATH issues.  A
-    ``.file_map.json`` sidecar maps original relative paths to staging keys.
-
-    Streams files directly to disk instead of buffering entire contents in
-    memory.  Handles both regular image/video files and ZIP archives.
-    Validates file types, sizes, and magic bytes.
-
-    Returns:
-        (saved_relative_paths, total_bytes, skipped_invalid)
-    """
-    saved_relative_paths: list[str] = []
-    file_map = _load_file_map(staging_dir)
-    # Calculate bytes already staged from previous batches so the cross-batch
-    # total size limit cannot be bypassed by splitting a large upload into many
-    # small batches.
-    existing_bytes = sum(
-        p.stat().st_size for p in staging_dir.iterdir() if p.is_file() and p.name != _FILE_MAP_NAME
-    )
-    total_upload_bytes = existing_bytes
-    skipped_invalid: list[str] = []
-
-    for i, upload_file in enumerate(files):
-        filename = upload_file.filename or f"file_{i}"
-        rel_path = rel_paths_list[i] if i < len(rel_paths_list) else filename
-
-        if filename.lower().endswith(".zip"):
-            zip_staging_key = uuid.uuid4().hex + ".zip"
-            zip_path = staging_dir / zip_staging_key
-            file_bytes = await _stream_upload_to_disk(
-                upload_file, zip_path, app_settings.max_import_file_size
-            )
-            if file_bytes < 0:
-                limit_mb = app_settings.max_import_file_size // (1024 * 1024)
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"File '{filename}' exceeds size limit of {limit_mb} MB",
-                )
-            total_upload_bytes += file_bytes
-            if total_upload_bytes > app_settings.max_import_total_size:
-                zip_path.unlink(missing_ok=True)
-                limit_mb = app_settings.max_import_total_size // (1024 * 1024)
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"Total upload size exceeds limit of {limit_mb} MB",
-                )
-
-            try:
-                check_zip_safety(
-                    zip_path,
-                    max_files=app_settings.max_import_files,
-                    max_uncompressed_bytes=app_settings.max_import_total_size,
-                )
-            except ValueError as exc:
-                zip_path.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail=str(exc)) from exc
-
-            with zipfile.ZipFile(zip_path, "r") as zf:
-                for member in zf.infolist():
-                    if member.is_dir():
-                        continue
-                    if "__MACOSX" in member.filename or Path(member.filename).name.startswith("._"):
-                        continue
-                    ext = Path(member.filename).suffix.lower()
-                    if ext not in settings.all_supported_formats:
-                        continue
-                    # Extract to UUID-named file instead of member path
-                    staging_key = uuid.uuid4().hex + ext
-                    dest = staging_dir / staging_key
-                    with zf.open(member) as src, open(dest, "wb") as dst:
-                        shutil.copyfileobj(src, dst)
-                    file_map[member.filename] = staging_key
-                    saved_relative_paths.append(member.filename)
-
-            zip_path.unlink()
-        else:
-            ext = Path(filename).suffix.lower()
-            if ext not in settings.all_supported_formats:
-                continue
-
-            is_video = ext in settings.supported_video_formats
-            file_size_limit = (
-                app_settings.max_video_file_size if is_video else app_settings.max_import_file_size
-            )
-
-            staging_key = uuid.uuid4().hex + ext
-            dest = staging_dir / staging_key
-            file_bytes = await _stream_upload_to_disk(upload_file, dest, file_size_limit)
-            if file_bytes < 0:
-                limit_mb = file_size_limit // (1024 * 1024)
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"File '{filename}' exceeds size limit of {limit_mb} MB",
-                )
-            total_upload_bytes += file_bytes
-            if total_upload_bytes > app_settings.max_import_total_size:
-                dest.unlink(missing_ok=True)
-                limit_mb = app_settings.max_import_total_size // (1024 * 1024)
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"Total upload size exceeds limit of {limit_mb} MB",
-                )
-
-            if not verify_media_mime(dest, ext):
-                logger.warning("Skipping invalid file (bad magic bytes): %s", filename)
-                dest.unlink(missing_ok=True)
-                skipped_invalid.append(filename)
-                continue
-
-            file_map[rel_path] = staging_key
-            saved_relative_paths.append(rel_path)
-
-    _save_file_map(staging_dir, file_map)
-    return saved_relative_paths, total_upload_bytes, skipped_invalid
+def _open_session(request: Request) -> Session:
+    return get_session_local(request.app.state.db_engine)()
 
 
-def _build_analysis_response(
-    groups: list[dict],
-    job: ImportJob,
-    all_relative_paths: list[str],
-    db: Session,
-) -> ImportUploadResponse:
-    """Map analyse_upload output to ImportUploadResponse and persist job state."""
-    import_groups: list[ImportGroup] = []
-    for group in groups:
-        files_info: list[ImportFileInfo] = []
-        for f in group["files"]:
-            parsed = f["parsed"]
-            dup_data = f.get("duplicate_of")
-            dup_info = DuplicateInfo(**dup_data) if dup_data else None
-            files_info.append(
-                ImportFileInfo(
-                    relative_path=f["relative_path"],
-                    filename=parsed["filename"],
-                    name=parsed.get("name"),
-                    media_type=(
-                        "video"
-                        if Path(f["relative_path"]).suffix.lower()
-                        in settings.supported_video_formats
-                        else "image"
-                    ),
-                    detected_tags=[
-                        {
-                            "category": t["category"],
-                            "value": t["value"],
-                            "confidence": t.get("confidence", 1.0),
-                            "source": t.get("source", "auto"),
-                        }
-                        for t in parsed.get("tags", [])
-                    ],
-                    gridded=parsed.get("gridded"),
-                    grid_type=parsed.get("grid_type"),
-                    grid_width=parsed.get("grid_width"),
-                    grid_height=parsed.get("grid_height"),
-                    subgroup=parsed.get("subgroup"),
-                    image_type=parsed.get("image_type"),
-                    content_hash=f.get("content_hash"),
-                    duplicate_of=dup_info,
-                )
-            )
-        import_groups.append(
-            ImportGroup(
-                author=group.get("author"),
-                group_name=group["group_name"],
-                files=files_info,
-            )
+def _job_or_404(db: Session, job_id: str) -> ImportJob:
+    job = db.get(ImportJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Import not found")
+    return job
+
+
+def _require_unsealed(job: ImportJob) -> None:
+    if job.planned_at is not None:
+        raise HTTPException(status_code=409, detail="This import's file list is already sealed")
+
+
+def _require_sealed(job: ImportJob) -> None:
+    if job.planned_at is None:
+        raise HTTPException(status_code=409, detail="Seal the import's file list first")
+
+
+def _changed(wake: bool = False) -> None:
+    worker = get_ingest_worker()
+    worker.bump()
+    if wake:
+        worker.wake()
+
+
+def _counts(by_state: dict[str, int]) -> ImportCounts:
+    known = {state: by_state.get(state, 0) for state in st.ITEM_STATES}
+    return ImportCounts(**known, total=sum(by_state.values()))
+
+
+def _summaries(db: Session, jobs: list[ImportJob]) -> list[ImportJobSummary]:
+    """Summaries for many jobs with two grouped queries (no per-job N+1)."""
+    ids = [job.id for job in jobs]
+    by_job: dict[str, dict[str, int]] = {job_id: {} for job_id in ids}
+    group_counts: dict[str, int] = dict.fromkeys(ids, 0)
+    if ids:
+        rows = (
+            db.query(ImportItem.job_id, ImportItem.state, func.count(ImportItem.id))
+            .filter(ImportItem.job_id.in_(ids))
+            .group_by(ImportItem.job_id, ImportItem.state)
         )
+        for job_id, state, count in rows:
+            by_job[job_id][state] = count
+        group_rows = (
+            db.query(ImportGroup.job_id, func.count(ImportGroup.id))
+            .filter(ImportGroup.job_id.in_(ids))
+            .group_by(ImportGroup.job_id)
+        )
+        group_counts.update(dict(group_rows))
+    now = q.utcnow()
+    return [_summary(job, _counts(by_job[job.id]), group_counts[job.id], now) for job in jobs]
 
-    source_label = import_groups[0].group_name if import_groups else None
-    analysis_data = {
-        "summary": [
-            {"group_name": g.group_name, "author": g.author, "file_count": len(g.files)}
-            for g in import_groups
+
+def _summary(job: ImportJob, counts: ImportCounts, group_count: int, now) -> ImportJobSummary:
+    last_activity = job.last_upload_at or job.created_at or now
+    interrupted = (
+        job.status == st.JOB_ACTIVE
+        and counts.awaiting_bytes > 0
+        and counts.ready == 0
+        and counts.processing == 0
+        and now - last_activity > UPLOAD_STALL
+    )
+    return ImportJobSummary(
+        id=job.id,
+        label=job.source_label,
+        status=job.status,
+        default_image_type=job.default_image_type,
+        planned=job.planned_at is not None,
+        dismissed=job.dismissed_at is not None,
+        upload_interrupted=interrupted,
+        counts=counts,
+        group_count=group_count,
+        created_at=job.created_at,
+        updated_at=job.updated_at,
+        completed_at=job.completed_at,
+        last_upload_at=job.last_upload_at,
+    )
+
+
+def _detail(db: Session, job: ImportJob) -> ImportJobDetail:
+    (summary,) = _summaries(db, [job])
+    by_group: dict[int | None, dict[str, int]] = {}
+    rows = (
+        db.query(ImportItem.import_group_id, ImportItem.state, func.count(ImportItem.id))
+        .filter(ImportItem.job_id == job.id)
+        .group_by(ImportItem.import_group_id, ImportItem.state)
+    )
+    for group_id, state, count in rows:
+        by_group.setdefault(group_id, {})[state] = count
+    groups = (
+        db.query(ImportGroup)
+        .filter(ImportGroup.job_id == job.id)
+        .order_by(ImportGroup.sort_order, ImportGroup.id)
+        .all()
+    )
+    return ImportJobDetail(
+        **summary.model_dump(),
+        groups=[
+            ImportGroupSummary(
+                id=g.id,
+                author=g.author,
+                group_name=g.group_name,
+                image_group_id=g.image_group_id,
+                merged_into_existing=bool(g.merged_into_existing),
+                sort_order=g.sort_order,
+                counts=_counts(by_group.get(g.id, {})),
+            )
+            for g in groups
         ],
-        "groups": [g.model_dump() for g in import_groups],
-    }
-
-    job.status = "staging"
-    job.source_label = source_label
-    job.total_files = len(all_relative_paths)
-    job.analysis_result = json.dumps(analysis_data)
-    job.updated_at = datetime.now(UTC).replace(tzinfo=None)
-    db.commit()
-
-    return ImportUploadResponse(
-        job_id=job.id,
-        total_files=len(all_relative_paths),
-        groups=import_groups,
     )
 
 
-@router.post("/{job_id}/upload-batch", response_model=BatchUploadResponse)
-async def upload_batch(
-    job_id: str,
-    files: list[UploadFile] = File(default=[]),
-    relative_paths: str | None = Form(None),
+def _queue_status() -> QueueStatus:
+    status = get_ingest_worker().status()
+    return QueueStatus(
+        running=status.running,
+        system_paused=status.system_paused,
+        reason=status.system_reason,
+        current_job_id=status.current_job_id,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Listing and detail
+# ---------------------------------------------------------------------------
+
+
+@router.post("/queue/probe", response_model=QueueStatus)
+def probe_queue():
+    """Re-check system conditions immediately ("Retry now" for a system pause)."""
+    get_ingest_worker().probe_now()
+    return _queue_status()
+
+
+@router.get("", response_model=ImportJobList)
+def list_imports(
+    request: Request,
+    response: Response,
+    include_dismissed: bool = False,
+    limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
 ):
-    """Upload one batch of files to staging for an existing import job.
+    """Job summaries for the activity dock, plus queue status.
 
-    Call this endpoint multiple times (one batch at a time) before calling
-    ``POST /{job_id}/analyse`` to trigger group detection.  This avoids
-    hitting timeout limits when uploading large numbers of files.
-
-    Each batch should be bounded to a manageable size (e.g. ≤20 files or
-    ≤100 MB).  Files are appended to the staging directory; the job status
-    remains ``"uploading"`` until ``/analyse`` is called.
+    Supports ``If-None-Match``: the ETag changes whenever ingest state changes
+    (and once a minute, for the time-derived "upload interrupted" flag), so
+    idle polls cost almost nothing.
     """
-    job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Import job not found")
-    if job.status != "uploading":
-        logger.warning(
-            "upload-batch rejected for job %s: status is '%s', expected 'uploading'",
-            job_id,
-            job.status,
-        )
-        raise HTTPException(
-            status_code=409,
-            detail=f"Import job is in '{job.status}' state, expected 'uploading'",
-        )
+    worker_status = get_ingest_worker().status()
+    etag = f'W/"{worker_status.version}-{int(time.time() // 60)}-{int(include_dismissed)}"'
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag})
+    response.headers["ETag"] = etag
 
-    staging_dir = settings.staging_dir / job_id
-    staging_dir.mkdir(parents=True, exist_ok=True)
+    query = db.query(ImportJob)
+    if not include_dismissed:
+        query = query.filter(ImportJob.dismissed_at.is_(None))
+    jobs = query.order_by(ImportJob.created_at.desc(), ImportJob.id).limit(limit).all()
+    return ImportJobList(
+        jobs=_summaries(db, jobs), queue=_queue_status(), version=worker_status.version
+    )
 
-    rel_paths_list: list[str] = []
-    if relative_paths:
-        try:
-            rel_paths_list = json.loads(relative_paths)
-        except (json.JSONDecodeError, TypeError):
-            rel_paths_list = []
 
-    app_settings = get_app_settings(db)
+@router.get("/{job_id}", response_model=ImportJobDetail)
+def get_import(job_id: str, db: Session = Depends(get_db)):
+    return _detail(db, _job_or_404(db, job_id))
 
-    # Pre-flight: check physical disk space before writing files
-    try:
-        disk_usage = shutil.disk_usage(staging_dir)
-        available_mb = disk_usage.free // (1024 * 1024)
-        # Estimate incoming batch size from Content-Length or sum of file sizes
-        estimated_bytes = sum(f.size or 0 for f in files)
-        if estimated_bytes > 0 and estimated_bytes > disk_usage.free:
-            raise HTTPException(
-                status_code=413,
-                detail=f"Insufficient disk space. Only {available_mb} MB free on the storage drive.",
-            )
-    except HTTPException:
-        raise
-    except Exception:
-        # disk_usage can fail on some platforms/mount points — don't block uploads
-        logger.debug("Could not check disk space for staging dir", exc_info=True)
 
-    if len(files) > app_settings.max_import_files:
+@router.get("/{job_id}/items", response_model=ImportItemPage)
+def list_items(
+    job_id: str,
+    state: list[str] | None = Query(None),
+    group_id: int | None = None,
+    error_kind: str | None = None,
+    after: int = 0,
+    limit: int = Query(200, ge=1, le=1000),
+    db: Session = Depends(get_db),
+):
+    """Paginated per-file view for the import report (keyset pagination on id)."""
+    _job_or_404(db, job_id)
+    query = db.query(ImportItem).filter(ImportItem.job_id == job_id, ImportItem.id > after)
+    if state:
+        query = query.filter(ImportItem.state.in_(state))
+    if group_id is not None:
+        query = query.filter(ImportItem.import_group_id == group_id)
+    if error_kind:
+        query = query.filter(ImportItem.error_kind == error_kind)
+    rows = query.order_by(ImportItem.id).limit(limit + 1).all()
+    page = rows[:limit]
+    return ImportItemPage(
+        items=[ImportItemOut.model_validate(row) for row in page],
+        next_after=page[-1].id if len(rows) > limit else None,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Create, manifest, archives, seal, hashes
+# ---------------------------------------------------------------------------
+
+
+@router.post("", response_model=ImportJobSummary, status_code=201)
+def create_import(body: CreateImportRequest, db: Session = Depends(get_write_db)):
+    job = q.create_job(db, label=body.label, default_image_type=body.default_image_type)
+    db.commit()
+    _changed()
+    return _summaries(db, [job])[0]
+
+
+@router.post("/{job_id}/manifest", response_model=ManifestResponse)
+def add_manifest(job_id: str, body: ManifestRequest, db: Session = Depends(get_write_db)):
+    """Add a chunk of file descriptions (metadata only, no bytes).
+
+    Paths already in the job and OS junk are ignored. Unsupported files become
+    skipped items and oversized ones failed items, so both show in the report.
+    """
+    job = _job_or_404(db, job_id)
+    _require_unsealed(job)
+    existing = db.query(func.count(ImportItem.id)).filter(ImportItem.job_id == job_id).scalar()
+    if existing + len(body.files) > settings.max_import_items:
         raise HTTPException(
             status_code=413,
-            detail=f"Too many files in batch: {len(files)}, limit is {app_settings.max_import_files}",
+            detail=f"An import can contain at most {settings.max_import_items} files",
         )
 
-    try:
-        saved_paths, total_bytes, skipped_invalid = await _save_files_to_staging(
-            files, rel_paths_list, staging_dir, app_settings
+    refs: dict[str, str | None] = {}
+    entries = []
+    for f in body.files:
+        path = q.normalise_relative_path(f.relative_path)
+        refs.setdefault(path, f.client_ref)
+        entries.append(
+            q.ManifestEntry(
+                relative_path=f.relative_path,
+                size=f.size,
+                last_modified=f.last_modified,
+                image_type=f.image_type,
+            )
         )
-    except HTTPException:
+    already = {
+        path
+        for (path,) in db.query(ImportItem.relative_path).filter(
+            ImportItem.job_id == job_id, ImportItem.relative_path.in_(list(refs))
+        )
+    }
+    app_settings = get_app_settings(db)
+    items = q.add_manifest_items(
+        db,
+        job,
+        [e for e in entries if q.normalise_relative_path(e.relative_path) not in already],
+        max_file_size=app_settings.max_import_file_size,
+    )
+    db.commit()
+    _changed()
+    return ManifestResponse(
+        items=[
+            ManifestItemResult(
+                client_ref=refs.get(item.relative_path),
+                item_id=item.id,
+                relative_path=item.relative_path,
+                state=item.state,
+                error_reason=item.error_reason,
+            )
+            for item in items
+        ],
+        ignored=len(body.files) - len(items),
+    )
+
+
+async def _stream_body(request: Request, dest: Path, max_bytes: int) -> tuple[int, str]:
+    """Stream the request body to ``dest``, hashing as it goes. Returns (bytes, sha256)."""
+    digest = hashlib.sha256()
+    written = 0
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        async with await anyio.open_file(dest, "wb") as out:
+            async for chunk in request.stream():
+                written += len(chunk)
+                if written > max_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File exceeds the {max_bytes // (1024 * 1024)} MB size limit",
+                    )
+                digest.update(chunk)
+                await out.write(chunk)
+    except BaseException:
+        dest.unlink(missing_ok=True)
         raise
-    except Exception as e:
-        logger.exception("Batch upload failed for job %s: %s", job_id, e)
-        raise HTTPException(status_code=500, detail=f"Batch upload failed: {e}") from e
-
-    # Persist backend-detected skipped files as job warnings
-    if skipped_invalid:
-        existing = json.loads(job.job_warnings or "[]")
-        new_warnings = [
-            {
-                "filename": name,
-                "reason": "Not a supported image format (invalid file header)",
-                "stage": "upload",
-                "severity": "warning",
-            }
-            for name in skipped_invalid
-        ]
-        job.job_warnings = json.dumps(existing + new_warnings)
-
-    # Accumulate total file size across batches
-    job.total_file_size = (job.total_file_size or 0) + total_bytes
-    db.commit()
-
-    logger.info(
-        "Batch upload for job %s: %d files saved (%d bytes), %d skipped",
-        job_id,
-        len(saved_paths),
-        total_bytes,
-        len(skipped_invalid),
-    )
-    return BatchUploadResponse(
-        files_saved=len(saved_paths),
-        bytes_saved=total_bytes,
-        skipped_invalid=skipped_invalid,
-    )
+    return written, digest.hexdigest()
 
 
-@router.post("/{job_id}/report-skipped")
-def report_skipped_files(
+async def _drain(request: Request) -> None:
+    async for _ in request.stream():
+        pass
+
+
+@router.put("/{job_id}/archives", response_model=ArchiveResult)
+async def upload_archive(
     job_id: str,
-    body: ReportSkippedRequest,
-    db: Session = Depends(get_db),
-):
-    """Record client-side skipped files (magic byte / size rejects) as job warnings.
-
-    Called by the frontend after all upload batches complete, before triggering analyse.
-    """
-    job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Import job not found")
-    if job.status not in ("uploading", "staging"):
-        raise HTTPException(
-            status_code=409,
-            detail=f"Cannot report skipped files for job in '{job.status}' state",
-        )
-
-    existing = json.loads(job.job_warnings or "[]")
-    new_warnings = [
-        {
-            "filename": f.filename,
-            "reason": f.reason,
-            "stage": "upload",
-            "severity": "warning",
-        }
-        for f in body.files
-    ]
-    job.job_warnings = json.dumps(existing + new_warnings)
-    db.commit()
-
-    return {"ok": True, "warning_count": len(existing) + len(new_warnings)}
-
-
-@router.post("/{job_id}/analyse", response_model=ImportUploadResponse)
-async def analyse_staged(
-    job_id: str,
-    body: AnalyseRequest,
-    db: Session = Depends(get_db),
+    request: Request,
+    name: str = Query(..., min_length=1, max_length=512),
     _admission: None = Depends(acquire_heavy_op),
 ):
-    """Analyse all staged files and transition job to 'staging' state.
+    """Upload a zip (raw body); its contents become items. Only before seal."""
 
-    Call this after all ``/upload-batch`` requests have completed.
-    Scans the staging directory for saved files, merges with the duplicate
-    manifest, runs group detection, and returns the same response shape as
-    the old ``/upload`` endpoint.
-    """
-    job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Import job not found")
-    if job.status != "uploading":
-        logger.warning(
-            "analyse rejected for job %s: status is '%s', expected 'uploading'",
-            job_id,
-            job.status,
-        )
-        raise HTTPException(
-            status_code=409,
-            detail=f"Import job is in '{job.status}' state, expected 'uploading'",
-        )
+    def _limits():
+        with _open_session(request) as db:
+            job = _job_or_404(db, job_id)
+            _require_unsealed(job)
+            return get_app_settings(db)
 
-    staging_dir = settings.staging_dir / job_id
-    if not staging_dir.exists():
-        raise HTTPException(status_code=400, detail="No staged files found for this job")
+    app_settings = await asyncio.to_thread(_limits)
+    tmp = q.staging_dir_for(job_id) / f".{uuid.uuid4().hex}.zip.part"
+    await _stream_body(request, tmp, app_settings.max_import_file_size)
 
-    if body.image_type not in VALID_IMAGE_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid image_type '{body.image_type}'. Must be one of: {', '.join(sorted(VALID_IMAGE_TYPES))}",
-        )
-
-    # Read file map to discover staged files (relative_path → staging_key)
-    file_map = _load_file_map(staging_dir)
-    saved_relative_paths: list[str] = list(file_map.keys())
-
-    # Merge with manifest (duplicate files the client chose not to re-upload)
-    manifest_entries: list[ManifestEntry] = body.manifest
-    manifest_paths = [entry.relative_path for entry in manifest_entries]
-    all_relative_paths = saved_relative_paths + manifest_paths
-
-    if not all_relative_paths:
-        raise HTTPException(
-            status_code=400,
-            detail="No supported image or video files found in staging",
-        )
-
-    precomputed_hashes: dict[str, dict] = {
-        entry.relative_path: {
-            "content_hash": entry.content_hash,
-            "duplicate_of": entry.duplicate_of,
-        }
-        for entry in manifest_entries
-    }
-
-    from ...pipeline.ingestion import analyse_upload
-
-    logger.info(
-        "Running analyse_upload for job %s: %d staged + %d manifest files",
-        job_id,
-        len(saved_relative_paths),
-        len(manifest_entries),
-    )
-    try:
-        groups = await asyncio.to_thread(
-            analyse_upload,
-            staging_dir=str(staging_dir),
-            relative_paths=all_relative_paths,
-            precomputed_hashes=precomputed_hashes if precomputed_hashes else None,
-            default_image_type=body.image_type,
-            file_map=file_map,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"File analysis failed: {e}") from e
-
-    return _build_analysis_response(groups, job, all_relative_paths, db)
-
-
-@router.post("/{job_id}/confirm-all")
-async def confirm_all_groups(
-    job_id: str,
-    body: ImportConfirmAllRequest,
-    db: Session = Depends(get_db),
-    _admission: None = Depends(acquire_heavy_op),
-):
-    """Confirm all groups for processing in a single flow run.
-
-    Unlike the per-group /confirm endpoint (which submits one job per group),
-    this endpoint submits a single process_import_job that handles all groups
-    sequentially.  The CLIP model is therefore loaded once for the entire job
-    instead of once per group, reducing peak memory usage for large multi-group
-    imports.
-    """
-    job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Import job not found")
-    if job.status != "staging":
-        raise HTTPException(
-            status_code=409,
-            detail=f"Job is already {job.status}, cannot confirm again",
-        )
-
-    staging_dir = settings.staging_dir / job_id
-    if not staging_dir.exists():
-        raise HTTPException(status_code=404, detail="Staging directory not found")
-
-    file_map = _load_file_map(staging_dir)
-
-    # Build ImportGroupJob rows and the groups payload for the flow.
-    groups_payload: list[dict] = []
-    group_statuses: list[ImportGroupStatus] = []
-    for group_req in body.groups:
-        valid_files = []
-        for f in group_req.files:
-            staging_key = file_map.get(f.relative_path)
-            has_staged_file = staging_key and (staging_dir / staging_key).exists()
-            if has_staged_file or f.reuse_storage_key:
-                valid_files.append(f.model_dump())
-            else:
-                logger.warning(
-                    "File not found in staging and no reuse key: %s (group '%s')",
-                    f.relative_path,
-                    group_req.group_name,
-                )
-        if not valid_files:
-            logger.warning("No valid files for group '%s', skipping", group_req.group_name)
-            continue
-
-        group_job_id = uuid.uuid4().hex[:16]
-        group_job = ImportGroupJob(
-            id=group_job_id,
-            job_id=job_id,
-            group_name=group_req.group_name,
-            author=group_req.author,
-            total_files=len(valid_files),
-            processed_files=0,
-            failed_files=0,
-            status="pending",
-        )
-        db.add(group_job)
-
-        groups_payload.append(
-            {
-                "group_job_id": group_job_id,
-                "author": group_req.author,
-                "group_name": group_req.group_name,
-                "files": valid_files,
-            }
-        )
-        group_statuses.append(
-            ImportGroupStatus(
-                group_job_id=group_job_id,
-                group_name=group_req.group_name,
-                total_files=len(valid_files),
-                processed_files=0,
-                failed_files=0,
-                status="pending",
+    def _expand() -> ArchiveResult:
+        db = _open_session(request)
+        try:
+            q.begin_immediate(db)
+            job = _job_or_404(db, job_id)
+            _require_unsealed(job)
+            counts = expand_archive(
+                db,
+                job,
+                tmp,
+                name,
+                max_files=app_settings.max_import_files,
+                max_uncompressed_bytes=app_settings.max_import_total_size,
+                max_file_size=app_settings.max_import_file_size,
             )
-        )
-
-    if not groups_payload:
-        raise HTTPException(status_code=400, detail="No valid files found in any group")
-
-    from ...pipeline.ingestion import process_import_job
-    from ...pipeline.pipeline_config import PipelineConfig
-
-    _pipeline_config = PipelineConfig.from_app_settings(get_app_settings(db))
-
-    runner = get_job_runner()
-    try:
-        runner.submit(
-            process_import_job,
-            job_id=job_id,
-            staging_dir=str(staging_dir),
-            groups=groups_payload,
-            pipeline_config=_pipeline_config,
-            name=f"Import job: {job_id[:8]}",
-        )
-    except Exception:
-        logger.exception("Failed to submit import job %s to runner", job_id)
-        db.rollback()
-        job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
-        if job:
-            job.status = "failed"
-            job.error_message = "Failed to submit processing job"
-            job.completed_at = datetime.now(UTC).replace(tzinfo=None)
-            job.updated_at = datetime.now(UTC).replace(tzinfo=None)
+            job.last_upload_at = q.utcnow()
             db.commit()
-        raise HTTPException(
-            status_code=503,
-            detail="Failed to submit processing job",
-        ) from None
+            return ArchiveResult(name=name, **vars(counts))
+        finally:
+            tmp.unlink(missing_ok=True)
+            db.close()
 
-    job.status = "active"
-    job.updated_at = datetime.now(UTC).replace(tzinfo=None)
-    db.commit()
-
-    logger.info("Submitted process_import_job for job %s: %s groups", job_id, len(groups_payload))
-
-    return ImportJobResponse(
-        job_id=job.id,
-        status=job.status,
-        groups=group_statuses,
-        created_at=job.created_at,
-        completed_at=None,
-    )
+    result = await asyncio.to_thread(_expand)
+    _changed()
+    return result
 
 
-@router.get("/{job_id}/status", response_model=ImportJobResponse)
-def get_import_status(
-    job_id: str,
-    db: Session = Depends(get_db),
-):
-    """Get the status of an import job.
+def _check_free_space(db: Session, job_id: str) -> None:
+    """Refuse to seal an import that can't fit on disk (staging + library copies)."""
+    from ..services import get_image_store
 
-    Reads progress from the ImportJob table, which is updated by the
-    process_import_group background job as it processes each image.
-    """
-    job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Import job not found")
-
-    group_jobs = (
-        db.query(ImportGroupJob)
-        .filter(ImportGroupJob.job_id == job_id)
-        .order_by(ImportGroupJob.created_at)
-        .all()
-    )
-
-    groups = [
-        ImportGroupStatus(
-            group_job_id=gj.id,
-            group_name=gj.group_name,
-            total_files=gj.total_files,
-            processed_files=gj.processed_files,
-            failed_files=gj.failed_files,
-            status=gj.status,
-            group_id=gj.created_group_id,
-            file_errors=_parse_file_errors(gj.file_errors),
+    pending = (
+        db.query(ImportItem.state, func.coalesce(func.sum(ImportItem.size), 0))
+        .filter(
+            ImportItem.job_id == job_id,
+            ImportItem.state.in_([st.AWAITING_BYTES, st.READY]),
         )
-        for gj in group_jobs
-    ]
-
-    # Status is authoritative from DB — no derivation needed
-    return ImportJobResponse(
-        job_id=job.id,
-        status=job.status,
-        groups=groups,
-        detected_group_count=len(group_jobs),
-        created_at=job.created_at,
-        completed_at=job.completed_at,
-        error_message=job.error_message,
-        source_label=job.source_label,
-        job_warnings=_parse_file_errors(job.job_warnings),
-        total_file_size=job.total_file_size or 0,
+        .group_by(ImportItem.state)
     )
-
-
-@router.get("/{job_id}/analysis", response_model=ImportUploadResponse)
-def get_import_analysis(job_id: str, db: Session = Depends(get_db)):
-    """Return the stored analysis for an import job.
-
-    Used by the frontend to rebuild the preview UI when reconnecting to a job
-    that was closed during upload (localStorage has no groups, but the server
-    completed the analysis in the background).
-    """
-    job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Import job not found")
-    if not job.analysis_result:
-        raise HTTPException(status_code=404, detail="No analysis available")
-    try:
-        parsed = json.loads(job.analysis_result)
-        # New format: dict with "groups" key; legacy format: plain list (no full groups)
-        groups_data = parsed.get("groups", []) if isinstance(parsed, dict) else []
-        if not groups_data:
-            raise HTTPException(status_code=404, detail="No analysis available")
-        groups = [ImportGroup(**g) for g in groups_data]
-    except (json.JSONDecodeError, KeyError, TypeError) as e:
-        raise HTTPException(status_code=404, detail="Analysis data corrupted") from e
-    return ImportUploadResponse(
-        job_id=job_id,
-        total_files=job.total_files or 0,
-        groups=groups,
-    )
-
-
-@router.get("/active", response_model=ActiveImportsResponse)
-def get_active_imports(db: Session = Depends(get_db)):
-    """List non-terminal import jobs for the import tray.
-
-    Returns staging/active jobs and recently-completed ones
-    (within 1 hour). Status is authoritative from the ImportJob table.
-    """
-    from collections import defaultdict
-    from datetime import timedelta
-
-    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=1)
-
-    # Fetch recent jobs — import tables are small so fetching last 7 days is fine
-    recent_cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=7)
-    all_jobs = (
-        db.query(ImportJob)
-        .filter(ImportJob.created_at >= recent_cutoff)
-        .order_by(ImportJob.created_at.desc())
-        .all()
-    )
-    if not all_jobs:
-        return ActiveImportsResponse(jobs=[])
-
-    all_job_ids = [j.id for j in all_jobs]
-
-    # Batch query: all group jobs for all relevant jobs (avoids N per-job queries)
-    groups_by_job: dict[str, list] = defaultdict(list)
-    for grp in db.query(ImportGroupJob).filter(ImportGroupJob.job_id.in_(all_job_ids)).all():
-        groups_by_job[grp.job_id].append(grp)
-
-    summaries = []
-    # Status is authoritative from DB — no derivation needed.
-    # Note: 'broken' is intentionally absent — broken jobs always appear in the
-    # ActivityDock until the user explicitly cancels/cleans them up.
-    truly_terminal = {"completed", "failed", "cancelled", "expired"}
-    for job in all_jobs:
-        groups = groups_by_job[job.id]
-        if job.status in truly_terminal:
-            if job.completed_at is None or job.completed_at < cutoff:
-                continue
-
-        summaries.append(
-            ImportJobSummary(
-                job_id=job.id,
-                source_label=job.source_label,
-                status=job.status,
-                total_groups=len(groups),
-                completed_groups=sum(1 for g in groups if g.status == "completed"),
-                failed_groups=sum(1 for g in groups if g.status == "failed"),
-                running_groups=sum(1 for g in groups if g.status == "running"),
-                pending_groups=sum(1 for g in groups if g.status == "pending"),
-                total_files=job.total_files,
-                processed_files=sum(g.processed_files for g in groups),
-                created_at=job.created_at,
-                error_message=job.error_message,
-                failed_files=sum(g.failed_files for g in groups),
-                warning_count=len(json.loads(job.job_warnings or "[]")),
-            )
-        )
-
-    return ActiveImportsResponse(jobs=summaries)
-
-
-@router.delete("/cleanup")
-def cleanup_old_imports(db: Session = Depends(get_db)):
-    """Delete completed, failed, cancelled, and abandoned staging import jobs.
-
-    Never deletes jobs that are currently staging (pending user review) or running.
-    """
-    # Only delete jobs in terminal status — status is authoritative from DB
-    terminal_statuses = {"completed", "failed", "cancelled", "expired", "broken"}
-
-    all_jobs = db.query(ImportJob).all()
-    to_delete = []
-
-    for job in all_jobs:
-        groups = db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job.id).all()
-
-        if not groups:
-            # Staging/expired job with no confirmed groups — safe to delete
-            if job.status in terminal_statuses:
-                to_delete.append(job)
-        elif all(g.status in terminal_statuses for g in groups):
-            # All groups are terminal — job is done (only delete if job itself is terminal)
-            if job.status in terminal_statuses:
-                to_delete.append(job)
-        # Otherwise: has running groups or active job — leave it alone
-
-    count = len(to_delete)
-    for job in to_delete:
-        db.delete(job)
-    db.commit()
-
-    return {"deleted": count}
-
-
-@router.post("/{job_id}/cancel")
-def cancel_import(job_id: str, db: Session = Depends(get_db)):
-    """Cancel an import job and clean up all associated data.
-
-    Deletes:
-    - Staging directory (unless groups are still running)
-    - All Image rows created by this import (files on disk if not shared with
-      other imports, thumbnails, LanceDB embeddings)
-    - Now-empty ImageGroups created by this import
-
-    Works for all non-completed states. Returns 409 for completed imports.
-
-    When groups are actively running, staging cleanup is deferred
-    (staging_cleaned=False).  When all groups are already in a terminal state
-    (completed/failed/cancelled), transition_job_status determines the final
-    status rather than hard-coding 'cancelled'.
-    """
-    job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Import job not found")
-
-    if job.status == "completed":
-        logger.warning(
-            "cancel rejected for job %s: status is 'completed'",
-            job_id,
-        )
-        raise HTTPException(
-            status_code=409,
-            detail="Cannot cancel a completed import. Use the delete endpoint to remove images.",
-        )
-
-    # Inspect group state to drive cleanup behaviour
-    groups = db.query(ImportGroupJob).filter(ImportGroupJob.job_id == job_id).all()
-    has_running = any(g.status == "running" for g in groups)
-    all_groups_terminal = bool(groups) and all(
-        g.status in {"completed", "failed", "cancelled"} for g in groups
-    )
-
-    # Clean up imported images (files + DB rows + LanceDB vectors)
-    deleted_images = _cleanup_import_images(job_id, db)
-    logger.info("Deleted %d image(s) for cancelled import %s", deleted_images, job_id)
-
-    # Only clean staging when no groups are actively running (running groups
-    # may still be writing to staging)
-    staging_dir = settings.staging_dir / job_id
-    staging_cleaned = False
-    if not has_running and staging_dir.exists():
-        shutil.rmtree(staging_dir, ignore_errors=True)
-        staging_cleaned = True
-
-    now = datetime.now(UTC).replace(tzinfo=None)
-    if all_groups_terminal:
-        # All groups already done — determine the real final status via transition
-        # (e.g. 'failed' if any group failed, 'completed' if all succeeded).
-        from ..services.import_state import transition_job_status
-
-        job.updated_at = now
-        final_status = transition_job_status(db, job_id)
-        db.commit()
+    sizes = dict(pending)
+    to_upload = sizes.get(st.AWAITING_BYTES, 0)
+    to_store = to_upload + sizes.get(st.READY, 0)
+    staging_root = settings.staging_dir
+    staging_root.mkdir(parents=True, exist_ok=True)
+    library_root = get_image_store().base_dir
+    needs = {library_root: to_store}
+    if os.stat(staging_root).st_dev == os.stat(library_root).st_dev:
+        needs[library_root] += to_upload
     else:
-        # Groups are running or no groups submitted — cancel only non-terminal
-        # groups; completed/failed rows keep their truthful status.
-        db.query(ImportGroupJob).filter(
-            ImportGroupJob.job_id == job_id,
-            ImportGroupJob.status.notin_(GROUP_TERMINAL_STATUSES),
-        ).update({"status": "cancelled"}, synchronize_session=False)
-        job.status = "cancelled"
-        job.completed_at = now
-        job.updated_at = now
-        db.commit()
-        final_status = "cancelled"
-
-    return {
-        "status": final_status,
-        "deleted_images": deleted_images,
-        "staging_cleaned": staging_cleaned,
-    }
-
-
-@router.post("/{job_id}/fail")
-def fail_import(job_id: str, body: FailImportRequest, db: Session = Depends(get_db)):
-    """Mark an import job as failed (upload/analyse error, not user cancellation).
-
-    Only valid from 'uploading' or 'staging' states. For jobs with running groups,
-    the pipeline itself handles failure via transition_job_status().
-    """
-    job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Import job not found")
-
-    allowed_statuses = {"uploading", "staging"}
-    if job.status not in allowed_statuses:
-        logger.warning(
-            "fail rejected for job %s: status is '%s', expected uploading/staging",
-            job_id,
-            job.status,
-        )
-        raise HTTPException(
-            status_code=409,
-            detail=f"Cannot fail a job in '{job.status}' status (only uploading/staging)",
-        )
-
-    # Clean up staging directory
-    staging_dir = settings.staging_dir / job_id
-    staging_cleaned = False
-    if staging_dir.exists():
-        shutil.rmtree(staging_dir, ignore_errors=True)
-        staging_cleaned = True
-
-    # Best-effort image cleanup — typically a no-op at uploading/staging phase
-    # since no Image rows are committed yet, but ensures consistency if the
-    # allowed states ever expand to include post-confirm stages.
-    try:
-        deleted_images = _cleanup_import_images(job_id, db)
-        if deleted_images:
-            logger.info(
-                "Cleaned up %d image(s) from failed import %s (/fail)", deleted_images, job_id
+        needs[staging_root] = to_upload
+    for path, needed in needs.items():
+        free = shutil.disk_usage(path).free
+        if needed and free < needed + SEAL_FREE_SPACE_MARGIN:
+            raise HTTPException(
+                status_code=507,
+                detail=(
+                    f"Not enough free disk space: this import needs about "
+                    f"{(needed + SEAL_FREE_SPACE_MARGIN) // (1024 * 1024)} MB on {path}, "
+                    f"{free // (1024 * 1024)} MB available"
+                ),
             )
-    except Exception:
-        logger.warning(
-            "Image cleanup failed for job %s in /fail (non-fatal)", job_id, exc_info=True
-        )
-        deleted_images = 0
-
-    now = datetime.now(UTC).replace(tzinfo=None)
-    job.status = "failed"
-    job.error_message = body.error_message[:500] if body.error_message else None
-    job.completed_at = now
-    job.updated_at = now
-    db.commit()
-
-    return {
-        "status": "failed",
-        "error_message": job.error_message,
-        "staging_cleaned": staging_cleaned,
-    }
 
 
-@router.post("/{job_id}/groups/{group_id}/cancel")
-def cancel_import_group(
+@router.post("/{job_id}/seal", response_model=ImportJobDetail)
+def seal_import(
     job_id: str,
-    group_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_write_db),
+    _admission: None = Depends(acquire_heavy_op),
 ):
-    """Cancel a single import group.
+    """Close the file list: work out groups server-side and start processing. Idempotent."""
+    job = _job_or_404(db, job_id)
+    if job.planned_at is None:
+        _check_free_space(db, job_id)
+        q.plan_job(db, job_id)
+        db.commit()
+        _changed(wake=True)
+    return _detail(db, job)
 
-    Only groups that haven't started running can be cancelled.
-    """
-    group_job = (
-        db.query(ImportGroupJob)
-        .filter(ImportGroupJob.id == group_id, ImportGroupJob.job_id == job_id)
-        .first()
+
+@router.post("/{job_id}/hashes", response_model=HashResponse)
+def submit_hashes(job_id: str, body: HashRequest, db: Session = Depends(get_write_db)):
+    """Client-computed SHA-256s, sent ahead of uploading; known files are skipped."""
+    _job_or_404(db, job_id)
+    items = q.apply_client_hashes(db, job_id, {e.item_id: e.sha256 for e in body.items})
+    db.commit()
+    _changed()
+    return HashResponse(
+        items=[
+            HashResult(
+                item_id=item.id,
+                state=item.state,
+                duplicate_of_image_id=item.duplicate_of_image_id,
+            )
+            for item in items
+        ]
     )
-    if not group_job:
-        raise HTTPException(status_code=404, detail="Group not found")
-    if group_job.status != "pending":
-        raise HTTPException(
-            status_code=400,
-            detail=f"Group in '{group_job.status}' state cannot be cancelled",
-        )
-
-    group_job.status = "cancelled"
-    group_job.completed_at = datetime.now(UTC).replace(tzinfo=None)
-    db.commit()
-
-    return {"status": "cancelled", "group_id": group_id}
 
 
-@router.get("/{job_id}/preview/{relative_path:path}")
-def get_preview_thumbnail(
-    job_id: str,
-    relative_path: str,
-):
-    """Serve a preview thumbnail for a staged file.
+# ---------------------------------------------------------------------------
+# Bytes
+# ---------------------------------------------------------------------------
 
-    Thumbnails are stored in data/staging/{job_id}/.thumbs/ keyed by the
-    staging key.  Falls back to the original staged file if no thumbnail
-    exists.  All disk filenames are UUID-based so no path traversal is
-    possible.
+_ALREADY_RECEIVED = frozenset({st.READY, st.PROCESSING, st.DONE, st.DUPLICATE})
+
+
+def _content_result(item: ImportItem) -> ContentResult:
+    return ContentResult(
+        item_id=item.id,
+        state=item.state,
+        error_reason=item.error_reason,
+        duplicate_of_image_id=item.duplicate_of_image_id,
+    )
+
+
+@router.put("/{job_id}/items/{item_id}/content", response_model=ContentResult)
+async def upload_content(job_id: str, item_id: int, request: Request):
+    """Upload one file's bytes (raw body). Idempotent and safe to retry.
+
+    Re-sending bytes for an item that already has them is a no-op. The upload is
+    streamed to a temp file, hashed, checked against its claimed type, then
+    renamed into staging.
     """
-    staging_dir = settings.staging_dir / job_id
-    if not staging_dir.exists():
-        raise HTTPException(status_code=404, detail="Staging directory not found")
 
-    file_map = _load_file_map(staging_dir)
-    staging_key = file_map.get(relative_path)
-    if not staging_key:
-        raise HTTPException(status_code=404, detail="Preview not found")
+    def _load():
+        with _open_session(request) as db:
+            job = _job_or_404(db, job_id)
+            item = db.get(ImportItem, item_id)
+            if item is None or item.job_id != job_id:
+                raise HTTPException(status_code=404, detail="Item not found")
+            app_settings = get_app_settings(db)
+            limit = (
+                app_settings.max_video_file_size
+                if item.kind == "video"
+                else app_settings.max_import_file_size
+            )
+            return job.status, item.state, item.relative_path, item.kind, limit, item
 
-    # Check for pre-generated thumbnail keyed by staging_key stem
-    thumb_name = Path(staging_key).stem + ".jpg"
-    thumb_path = staging_dir / ".thumbs" / thumb_name
-    if thumb_path.exists():
-        return FileResponse(thumb_path, media_type="image/jpeg")
+    job_status, state, relative_path, kind, limit, snapshot = await asyncio.to_thread(_load)
+    if state in _ALREADY_RECEIVED:
+        await _drain(request)
+        return _content_result(snapshot)
+    if state != st.AWAITING_BYTES or kind == "archive":
+        await _drain(request)
+        raise HTTPException(status_code=409, detail=f"This file can't accept an upload ({state})")
+    if job_status == st.JOB_CANCELLED:
+        await _drain(request)
+        raise HTTPException(status_code=409, detail="This import was cancelled")
 
-    # Fall back to the original staged file
-    original_path = staging_dir / staging_key
-    if original_path.exists():
-        suffix = original_path.suffix.lower()
-        media_types = {
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".png": "image/png",
-            ".webp": "image/webp",
-        }
-        return FileResponse(original_path, media_type=media_types.get(suffix, "image/jpeg"))
+    ext = PurePosixPath(relative_path).suffix.lower()
+    staging_key = f"{uuid.uuid4().hex}{ext}"
+    final = q.staged_path(job_id, staging_key)
+    tmp = final.with_name(f".{staging_key}.part")
+    written, digest = await _stream_body(request, tmp, limit)
+    if written == 0:
+        tmp.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="Empty upload")
+    valid = await asyncio.to_thread(verify_media_mime, tmp, ext)
 
-    raise HTTPException(status_code=404, detail="Preview not found")
+    def _record() -> ContentResult:
+        db = _open_session(request)
+        try:
+            q.begin_immediate(db)
+            item = db.get(ImportItem, item_id)
+            if item.state != st.AWAITING_BYTES:  # a concurrent retry won the race
+                tmp.unlink(missing_ok=True)
+                return _content_result(item)
+            if not valid:
+                tmp.unlink(missing_ok=True)
+                item.state = st.next_item_state(item.state, st.ItemEvent.FILE_ERROR)
+                item.error_kind = "file"
+                item.error_stage = "validate"
+                item.error_reason = "File content doesn't match its type"
+                q.recompute_job_status(db, job_id)
+            else:
+                os.replace(tmp, final)
+                q.mark_bytes_received(db, item, staging_key=staging_key, source_hash=digest)
+            db.commit()
+            return _content_result(item)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
+        finally:
+            db.close()
+
+    result = await asyncio.to_thread(_record)
+    _changed(wake=result.state == st.READY)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Actions
+# ---------------------------------------------------------------------------
+
+
+def _action(db: Session, job_id: str, affected: int, wake: bool = False) -> ActionResult:
+    db.commit()
+    _changed(wake=wake)
+    return ActionResult(affected=affected, status=db.get(ImportJob, job_id).status)
+
+
+@router.post("/{job_id}/pause", response_model=ActionResult)
+def pause_import(job_id: str, db: Session = Depends(get_write_db)):
+    _job_or_404(db, job_id)
+    q.pause_job(db, job_id)
+    return _action(db, job_id, 0)
+
+
+@router.post("/{job_id}/resume", response_model=ActionResult)
+def resume_import(job_id: str, db: Session = Depends(get_write_db)):
+    _job_or_404(db, job_id)
+    q.resume_job(db, job_id)
+    return _action(db, job_id, 0, wake=True)
+
+
+@router.post("/{job_id}/cancel", response_model=ActionResult)
+def cancel_import(job_id: str, db: Session = Depends(get_write_db)):
+    """Stop the import. Finished files are kept; use DELETE to undo the import."""
+    _job_or_404(db, job_id)
+    return _action(db, job_id, q.cancel_job(db, job_id))
+
+
+@router.post("/{job_id}/retry", response_model=ActionResult)
+def retry_import_items(
+    job_id: str, body: ItemActionRequest | None = None, db: Session = Depends(get_write_db)
+):
+    job = _job_or_404(db, job_id)
+    if job.status == st.JOB_CANCELLED:
+        raise HTTPException(status_code=409, detail="This import was cancelled")
+    item_ids = body.item_ids if body else None
+    return _action(db, job_id, q.retry_items(db, job_id, item_ids), wake=True)
+
+
+@router.post("/{job_id}/import-as-copy", response_model=ActionResult)
+def import_duplicates_as_copies(
+    job_id: str, body: ItemActionRequest | None = None, db: Session = Depends(get_write_db)
+):
+    """Process duplicates as fully independent new images (design §6)."""
+    job = _job_or_404(db, job_id)
+    if job.status == st.JOB_CANCELLED:
+        raise HTTPException(status_code=409, detail="This import was cancelled")
+    item_ids = body.item_ids if body else None
+    return _action(db, job_id, q.import_as_copy(db, job_id, item_ids), wake=True)
+
+
+@router.post("/{job_id}/finish-upload", response_model=ActionResult)
+def finish_without_missing(job_id: str, db: Session = Depends(get_write_db)):
+    """Give up on files that were never uploaded."""
+    job = _job_or_404(db, job_id)
+    _require_sealed(job)
+    affected = q.skip_items(db, job_id, "Not uploaded", states={st.AWAITING_BYTES})
+    return _action(db, job_id, affected)
+
+
+@router.post("/{job_id}/groups/{group_id}/skip", response_model=ActionResult)
+def skip_group(job_id: str, group_id: int, db: Session = Depends(get_write_db)):
+    _job_or_404(db, job_id)
+    group = db.get(ImportGroup, group_id)
+    if group is None or group.job_id != job_id:
+        raise HTTPException(status_code=404, detail="Group not found")
+    affected = q.skip_items(db, job_id, "Skipped", import_group_id=group_id)
+    return _action(db, job_id, affected)
+
+
+@router.post("/{job_id}/dismiss", response_model=ActionResult)
+def dismiss_import(job_id: str, db: Session = Depends(get_write_db)):
+    """Hide a finished import from the activity dock. Deletes nothing."""
+    job = _job_or_404(db, job_id)
+    if job.status not in (st.JOB_COMPLETED, st.JOB_CANCELLED):
+        raise HTTPException(status_code=409, detail="Only finished imports can be dismissed")
+    q.dismiss_job(db, job_id)
+    return _action(db, job_id, 0)
+
+
+@router.delete("/{job_id}", response_model=ActionResult)
+def undo_import(job_id: str, db: Session = Depends(get_write_db)):
+    """Undo: delete every image this import created, then the import itself."""
+    _job_or_404(db, job_id)
+    try:
+        deleted, pending = q.undo_job(db, job_id)
+    except q.JobBusyError:
+        db.commit()  # keep the cancellation; the in-flight batch finishes shortly
+        _changed()
+        raise HTTPException(
+            status_code=409, detail="Finishing the current batch; try again in a moment"
+        ) from None
+    except IntegrityError:
+        db.rollback()
+        raise
+    db.commit()
+    pending.apply()
+    _changed()
+    return ActionResult(affected=deleted, status="deleted")

@@ -437,3 +437,48 @@ Key choices:
 - A fresh install with no model in `APP_DATA_DIR` starts the backend in a degraded state (CLIPService fails to load); web mode shows a blocking `ModelSetupScreen` overlay
 - Stale embeddings from previous models are preserved in named LanceDB tables (`embeddings_{name}`) — user can delete via `DELETE /api/v1/models/{name}/embeddings`
 - The large model is never auto-recommended; it requires explicit selection
+
+---
+
+## ADR-018: Durable per-item ingest pipeline
+
+**Date:** 2026-10-15
+**Status:** Accepted (implementation in progress; supersedes the import model in ADR-012 and the import state machine in [import-state-machine.md](import-state-machine.md))
+
+**Context:** A reliability audit (2026-10-12) found about 50 issues in the import flow. Three structural causes account for nearly all of them.
+1. **An import job was an all-or-nothing transaction.** A restart, a failed group, or dismissing a failed job deleted every image the job had imported. This existed to avoid false duplicate matches.
+2. **There was no durable per-file state.** The work list lived in `JobRunner` kwargs in memory, so nothing could resume, cancel couldn't stop the worker, and maintenance timers could delete long imports part-way through.
+3. **The browser drove the lifecycle.** Upload, analyse and auto-confirm ran in React effects, so tab closes, remounts and races stranded jobs in non-terminal states.
+
+Duplicate detection was also broken under WebP conversion, and imports over ~32k files hit SQLite's variable limit.
+
+**Decision:** Replace the import pipeline with a durable, per-item model. Full design: [ingest-redesign.md](ingest-redesign.md).
+
+1. **A job contains groups, and a group contains items.** Jobs remain the user-facing unit. Every file is an `import_items` row holding its own state (`awaiting_bytes`, `ready`, `processing`, `done`, `duplicate`, `failed`, `skipped`), attempts, classified error and resulting image. Job progress is derived from item counts.
+2. **Jobs have four states (`active`, `paused`, `completed`, `cancelled`) and never fail as a whole.** Cancel keeps finished work. Deleting imported images happens only through an explicit "Undo import". Dismiss only hides.
+3. **A dedicated `IngestWorker`, separate from `JobRunner`,** claims items in batches, round-robin across jobs. Each batch commits in one `BEGIN IMMEDIATE` transaction with temp-then-rename file placement. LanceDB is written after commit and repaired by id-set reconciliation. Startup recovery returns in-flight items to `ready`, and an item that crashes processing 3 times is failed.
+4. **Errors are classified as `file`, `transient` or `system`.** File errors fail the item. Transient errors are retried with backoff. System errors (disk full, model missing or switching, library unavailable) pause the queue with a reason instead of failing anything.
+5. **Uploads send the file list first, then the bytes:** a chunked manifest, then seal (parse and group server-side), then one idempotent raw `PUT` per file. Processing overlaps the upload. Interrupted uploads can be resumed by re-picking the files.
+6. **Duplicate detection has three tiers.**
+   - Exact original-bytes SHA-256: auto-skip, and checked client-side before upload.
+   - Canonical decoded-pixel hash: auto-skip at commit.
+   - Perceptual hash: advisory "possible duplicate" only, never auto-skipped, because battlemap variants are near-duplicates by nature.
+
+   "Import as new copy" processes the file as fully independent (own stored file, thumbnails and embedding). It is the escape hatch for a faulty match, so it shares nothing with the matched image. The shared-storage reuse path is removed.
+7. **The frontend has one `ImportManager` store** outside React. It owns uploads, a hashing Web Worker and a single ETag-aware poller; dialogs and the dock are pure views.
+8. **Stored-file conversion defaults to off.** It becomes a server config option later (`original`/`webp`/`jpeg`/`png` plus quality).
+
+**Alternatives considered:**
+- **Patch the existing flow finding by finding.** Rejected: the stuck and destructive states are emergent from the all-or-nothing job model and client-driven lifecycle.
+- **Keep running imports through `JobRunner`.** Rejected: imports would queue behind model downloads and rebuilds, and there would be no natural place for claim, recovery and system-pause logic.
+- **Perceptual-hash auto-skip with a strict threshold.** Rejected: gridded/gridless and prop variants fall inside any useful threshold.
+- **Hashing after conversion.** Rejected: it depends on settings and encoder, lossy output loses its link to the source, and it can't be computed client-side.
+- **Leases on claimed items.** Not needed under the single-process backend; revisit if multiple backend processes are introduced.
+
+**Consequences:**
+- Restarts, crashes and network loss no longer lose or delete work.
+- Every import reaches a terminal state, or a clearly displayed waiting state.
+- Removed: `import_group_jobs`, `analysis_result`/`file_errors` JSON, `.file_map.json`, `confirm-all`, `/fail`, `mark_interrupted_jobs`, `expire_stale_jobs`, the per-job FTS rebuild, and six frontend import hooks.
+- More HTTP requests per import (one per file). Reverse-proxy rate limits must allow for this.
+- The future bulk local-library import becomes another source of bytes for the same item queue.
+- Scene Atlas is unreleased, so no data migration is provided.

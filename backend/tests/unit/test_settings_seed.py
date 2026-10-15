@@ -22,13 +22,13 @@ def fresh_db():
 
 
 class TestWebPSeed:
-    def test_convert_to_webp_defaults_true(self, fresh_db):
+    def test_convert_to_webp_defaults_false(self, fresh_db):
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("CONVERT_TO_WEBP", None)
             seed_default_settings(fresh_db)
         row = fresh_db.query(AppSetting).filter_by(key="convert_to_webp").first()
         assert row is not None
-        assert json.loads(row.value_json) is True
+        assert json.loads(row.value_json) is False
 
     def test_convert_to_webp_false_from_env(self, fresh_db):
         with patch.dict(os.environ, {"CONVERT_TO_WEBP": "0"}):

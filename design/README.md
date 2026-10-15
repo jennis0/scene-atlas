@@ -26,7 +26,8 @@ How individual features and subsystems are designed.
 | [ingestion.md](ingestion.md) | Ingestion pipeline -- batched processing, CLIP embeddings, background jobs |
 | [web-import.md](web-import.md) | Web import flow -- upload, grouping, preview, confirm, processing |
 | [parser.md](parser.md) | ImageParser -- filename parsing, tag extraction, image group detection |
-| [import-state-machine.md](import-state-machine.md) | Import state machine -- 7 statuses, transitions, frontend mapping |
+| [import-state-machine.md](import-state-machine.md) | Import state machine -- 7 statuses, transitions, frontend mapping (being replaced, see ingest-redesign.md) |
+| [ingest-redesign.md](ingest-redesign.md) | **In progress** -- durable per-item ingest pipeline (ADR-018): data model, worker, upload protocol, dedup tiers, implementation plan |
 | [group-view.md](group-view.md) | Group view -- hero+mosaic card layout for browsing by image group |
 | [tag-packs.md](tag-packs.md) | Tag packs -- genre-specific vocabularies, import mechanics, settings integration |
 | [resource-management.md](resource-management.md) | Resource management -- detection, concurrency controls, memory monitoring |
@@ -39,11 +40,12 @@ Design decisions, visual standards, and security posture.
 
 | File | Description |
 |------|-------------|
-| [decisions.md](decisions.md) | **Architecture Decision Log** -- numbered record of all major design decisions (ADRs 001-017) |
+| [decisions.md](decisions.md) | **Architecture Decision Log** -- numbered record of all major design decisions (ADRs 001-018) |
 | [visual-language.md](visual-language.md) | Visual design system -- tokens, typography, components, patterns |
 | [security.md](security.md) | Security evaluation for hosted deployment mode |
 | [testing.md](testing.md) | Testing strategy -- CI/CD tiers, coverage targets, test conventions |
 | [onnx-int8-quantisation.md](onnx-int8-quantisation.md) | ONNX INT8 quantisation methodology and results |
+| [grid-detection-v3.md](grid-detection-v3.md) | Grid detector v3 research: twin-difference labels, held-out results, small-map diagnosis, port recommendation |
 
 ## Status and Backlog
 

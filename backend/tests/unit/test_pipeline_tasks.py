@@ -122,99 +122,47 @@ class TestExtractDominantColors:
 # ---------------------------------------------------------------------------
 
 
-class TestGetImageDimensions:
-    def test_returns_correct_dimensions(self, make_test_image, tmp_path):
-        from backend.pipeline.tasks.image_processing import get_image_dimensions
+class TestWriteThumbnails:
+    def test_writes_three_sizes_fitting_their_boxes(self, tmp_path):
+        from backend.pipeline.tasks.image_processing import write_thumbnails
 
-        img_path = tmp_path / "test.jpg"
-        make_test_image(img_path, width=320, height=240)
-        assert get_image_dimensions(str(img_path)) == (320, 240)
+        img = PILImage.new("RGB", (1600, 1200), (10, 20, 30))
+        result = write_thumbnails(img, "abc123", tmp_path / "out")
 
-    def test_missing_file_raises(self, tmp_path):
-        from backend.pipeline.tasks.image_processing import get_image_dimensions
+        assert set(result) == {"small", "medium", "large"}
+        expected = {"small": (150, 112), "medium": (400, 300), "large": (800, 600)}
+        for size_name, (key, path) in result.items():
+            assert path.exists()
+            assert key == path.name
+            with PILImage.open(path) as thumb:
+                assert thumb.format == "JPEG"
+                assert thumb.size == expected[size_name]
 
-        with pytest.raises((FileNotFoundError, OSError)):
-            get_image_dimensions(str(tmp_path / "nope.jpg"))
+    def test_keys_share_the_stem(self, tmp_path):
+        from backend.pipeline.tasks.image_processing import write_thumbnails
 
+        result = write_thumbnails(PILImage.new("RGB", (900, 900)), "stem42", tmp_path)
+        assert sorted(key for key, _ in result.values()) == [
+            "stem42_150x150.jpg",
+            "stem42_400x400.jpg",
+            "stem42_800x800.jpg",
+        ]
 
-class TestGetFileSize:
-    def test_returns_positive_size(self, make_test_image, tmp_path):
-        from backend.pipeline.tasks.image_processing import get_file_size
+    def test_small_images_are_not_upscaled(self, tmp_path):
+        from backend.pipeline.tasks.image_processing import write_thumbnails
 
-        img_path = tmp_path / "test.jpg"
-        make_test_image(img_path, width=50, height=50)
-        size = get_file_size(str(img_path))
-        assert size > 0
-        assert size == img_path.stat().st_size
+        result = write_thumbnails(PILImage.new("RGB", (120, 80)), "tiny", tmp_path)
+        for _, path in result.values():
+            with PILImage.open(path) as thumb:
+                assert thumb.size[0] <= 120 and thumb.size[1] <= 80
 
-    def test_missing_file_raises(self, tmp_path):
-        from backend.pipeline.tasks.image_processing import get_file_size
+    def test_rgba_and_palette_images_become_rgb(self, tmp_path):
+        from backend.pipeline.tasks.image_processing import write_thumbnails
 
-        with pytest.raises((FileNotFoundError, OSError)):
-            get_file_size(str(tmp_path / "nope.jpg"))
-
-
-class TestGeneratePreviewThumbnail:
-    def test_generates_thumbnail_file(self, make_test_image, tmp_path):
-        from backend.pipeline.tasks.image_processing import generate_preview_thumbnail
-
-        img_path = tmp_path / "src" / "image.jpg"
-        make_test_image(img_path, width=200, height=200)
-        staging = tmp_path / "staging"
-        staging.mkdir()
-
-        result = generate_preview_thumbnail(str(img_path), str(staging), "folder/image.jpg")
-        assert result is not None
-        assert result.endswith(".jpg")
-        assert (staging / ".thumbs" / result).exists()
-
-    def test_relative_path_slashes_replaced(self, make_test_image, tmp_path):
-        from backend.pipeline.tasks.image_processing import generate_preview_thumbnail
-
-        img_path = tmp_path / "image.jpg"
-        make_test_image(img_path)
-        staging = tmp_path / "staging"
-        staging.mkdir()
-
-        result = generate_preview_thumbnail(str(img_path), str(staging), "a/b/c.png")
-        assert result == "a__b__c.jpg"
-
-    def test_returns_none_for_invalid_image(self, tmp_path):
-        from backend.pipeline.tasks.image_processing import generate_preview_thumbnail
-
-        staging = tmp_path / "staging"
-        staging.mkdir()
-        result = generate_preview_thumbnail(str(tmp_path / "nope.jpg"), str(staging), "x.jpg")
-        assert result is None
-
-
-class TestGenerateThumbnails:
-    def test_generates_all_sizes(self, make_test_image, tmp_path):
-        from backend.pipeline.tasks.image_processing import generate_thumbnails
-
-        img_path = tmp_path / "source.jpg"
-        make_test_image(img_path, width=800, height=600)
-        thumb_dir = tmp_path / "thumbs"
-        thumb_dir.mkdir()
-
-        with patch("backend.pipeline.tasks.image_processing.get_thumbnail_store") as mock_store:
-            from backend.app.services.image_store import ImageStore
-
-            store = ImageStore(thumb_dir)
-            mock_store.return_value = store
-
-            result = generate_thumbnails(str(img_path), "abc123")
-
-        assert "keys" in result
-        assert "dimensions" in result
-        assert result["dimensions"] == (800, 600)
-        assert "small" in result["keys"]
-        assert "medium" in result["keys"]
-        assert "large" in result["keys"]
-
-        # Verify files were actually written
-        for key in result["keys"].values():
-            assert store.get_path(key).exists()
+        for mode in ("RGBA", "P", "L"):
+            result = write_thumbnails(PILImage.new(mode, (500, 500)), f"m{mode}", tmp_path)
+            with PILImage.open(result["medium"][1]) as thumb:
+                assert thumb.mode == "RGB"
 
 
 # ---------------------------------------------------------------------------

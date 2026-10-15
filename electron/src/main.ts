@@ -122,53 +122,6 @@ ipcMain.handle(
 
 // ── IPC handlers for renderer file system access ─────────────────────────────
 
-/**
- * Recursively walk a directory and return all file paths.
- * relativePath is relative to the parent of dirPath (so the folder name is
- * included), using forward slashes for consistency with webkitRelativePath.
- */
-function walkDir(
-  dirPath: string,
-  relativeTo: string,
-  results: Array<{ relativePath: string; absolutePath: string }>,
-): void {
-  let entries: fs.Dirent[]
-  try {
-    entries = fs.readdirSync(dirPath, { withFileTypes: true })
-  } catch {
-    return
-  }
-  for (const entry of entries) {
-    const absPath = path.join(dirPath, entry.name)
-    const relPath = path.relative(relativeTo, absPath).replace(/\\/g, '/')
-    if (entry.isDirectory()) {
-      walkDir(absPath, relativeTo, results)
-    } else if (entry.isFile()) {
-      results.push({ relativePath: relPath, absolutePath: absPath })
-    }
-  }
-}
-
-/**
- * Returns all files under a directory with relativePath starting from the
- * directory name itself (matching webkitRelativePath convention).
- */
-ipcMain.handle('fs:read-directory', (_event, dirPath: string) => {
-  const parentDir = path.dirname(dirPath)
-  const results: Array<{ relativePath: string; absolutePath: string }> = []
-  walkDir(dirPath, parentDir, results)
-  return results
-})
-
-/**
- * Read a file and return its bytes. Used by the renderer to create File
- * objects from paths returned by fs:read-directory.
- */
-ipcMain.handle('fs:read-file-bytes', (_event, absolutePath: string) => {
-  const data = fs.readFileSync(absolutePath)
-  return { data: new Uint8Array(data.buffer, data.byteOffset, data.byteLength) }
-})
-
 // ── Setup window ────────────────────────────────────────────────────────────
 
 function showSetupWindow(): void {

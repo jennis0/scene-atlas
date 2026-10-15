@@ -44,7 +44,6 @@ import {
 } from './import/shared/dnd'
 import { GroupSidebarShell } from './import/shared/GroupSidebarShell'
 import { invalidateGalleryQueries } from '@/lib/queryKeys'
-import { useImportProgressPolling } from '@/hooks/useImportProgressPolling'
 
 interface EditGroupDialogProps {
   // Single-group mode: pass groupId
@@ -52,15 +51,12 @@ interface EditGroupDialogProps {
   // Mass-edit mode: pass seedImages (the search result images to edit)
   seedImages?: SeedImage[]
   // Import-review mode: pass groupIds to load multiple groups by ID, all images in scope
+  // (e.g. every group an import created, from the import report).
   groupIds?: number[]
-  // Live import mode: pass importJobId to enable polling and pending-group stubs.
-  importJobId?: string
   open: boolean
   onClose: () => void
-  /** Called after the import/edit is confirmed.
-   *  For live import review, receives the jobId that was confirmed so callers
-   *  can dismiss it without relying on external refs that may have been mutated. */
-  onSave: (reviewedImportJobId?: string) => void
+  /** Called after editing is done (changes are auto-saved as you go). */
+  onSave: () => void
 }
 
 // ── Main component ─────────────────────────────────────────────────────────
@@ -69,7 +65,6 @@ export default function EditGroupDialog({
   groupId,
   seedImages,
   groupIds,
-  importJobId,
   open,
   onClose,
   onSave,
@@ -81,29 +76,6 @@ export default function EditGroupDialog({
   useEffect(() => {
     if (focusGroupName) setFocusGroupName(false)
   }, [focusGroupName])
-
-  // ── Live import review state ────────────────────────────────────────────
-  // Grows as groups complete processing; starts from any pre-fetched groupIds.
-  const [liveGroupIds, setLiveGroupIds] = useState<number[]>(groupIds ?? [])
-
-  // Reset liveGroupIds whenever the dialog opens with a new importJobId.
-  // groupIds is intentionally excluded from the dependency array: in live-review
-  // mode it is always undefined, so including it would cause spurious resets
-  // if a parent ever re-creates the array reference with identical contents.
-  const prevImportJobId = useRef<string | undefined>(undefined)
-  useEffect(() => {
-    if (importJobId !== prevImportJobId.current) {
-      prevImportJobId.current = importJobId
-      setLiveGroupIds(groupIds ?? [])
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [importJobId])
-
-  const { runningGroups, failedGroups, allDone } = useImportProgressPolling({
-    importJobId,
-    onGroupCompleted: (completedGroupId) => setLiveGroupIds((prev) => [...prev, completedGroupId]),
-    enabled: open && !!importJobId,
-  })
 
   const invalidateGallery = useCallback(() => invalidateGalleryQueries(queryClient), [queryClient])
 
@@ -190,18 +162,11 @@ export default function EditGroupDialog({
   }, [resetOperations, resetDnd, resetMultiselect])
 
   // ── Data loading (single-group / mass-edit / import-review) ────────
-  // In live import mode, pass liveGroupIds (which grows as groups complete);
-  // otherwise fall through to the groupIds prop as usual.
-  const effectiveGroupIds = importJobId
-    ? liveGroupIds.length > 0
-      ? liveGroupIds
-      : undefined
-    : groupIds
   const { loading, loadError, isMassEdit, ungroupedCount } = useEditGroupLoad({
     open,
     groupId,
     seedImages,
-    groupIds: effectiveGroupIds,
+    groupIds,
     onResetDialogState: resetDialogState,
     fileEditing: {
       setGroups,
@@ -215,19 +180,13 @@ export default function EditGroupDialog({
 
   // ── Close / Done ────────────────────────────────────────────────
 
-  const isImportReview = !!importJobId || (!!groupIds && groupIds.length > 0)
+  const isImportReview = !!groupIds && groupIds.length > 0
 
   // Called on any close action — changes have already been auto-saved
   const handleDone = useCallback(() => {
-    if (isImportReview) {
-      const capturedImportJobId = importJobId
-      onSave(capturedImportJobId ?? undefined)
-      onClose()
-    } else {
-      onSave()
-      onClose()
-    }
-  }, [isImportReview, importJobId, onSave, onClose])
+    onSave()
+    onClose()
+  }, [onSave, onClose])
 
   // Destructure commonly-used operations for readability in JSX
   const {
@@ -428,21 +387,6 @@ export default function EditGroupDialog({
           </div>
         )}
 
-        {/* ── Waiting for first group to complete (live import mode, no groups yet) ── */}
-        {!loading && !loadError && groups.length === 0 && !!importJobId && !allDone && (
-          <div className="flex flex-col items-center justify-center flex-1 gap-3 text-muted-foreground">
-            <Loader2 className="h-6 w-6 animate-spin" />
-            <p className="text-sm">Waiting for groups to process…</p>
-          </div>
-        )}
-
-        {/* ── Loading initial groups for completed import (poll hasn't returned yet) ── */}
-        {!loading && !loadError && groups.length === 0 && !!importJobId && allDone && (
-          <div className="flex items-center justify-center flex-1">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
-        )}
-
         {/* ── Load error ── */}
         {!loading && loadError && (
           <div className="mx-6 mt-4 flex items-center gap-2 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2">
@@ -456,9 +400,9 @@ export default function EditGroupDialog({
           <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
             <div className="flex min-h-0 flex-1 overflow-hidden">
               {/* ── Left: groups nav (only when >1 group, or when stubs are present) ── */}
-              {(groups.length > 1 || runningGroups.length > 0 || failedGroups.length > 0) && (
+              {groups.length > 1 && (
                 <GroupSidebarShell
-                  headerLabel={`${groups.length + runningGroups.length + failedGroups.length} groups`}
+                  headerLabel={`${groups.length} groups`}
                   allCount={totalInScope}
                   isAllActive={isAllTab}
                   onSelectAll={() => setActiveTab(ALL_TAB)}
@@ -599,38 +543,6 @@ export default function EditGroupDialog({
                         </div>
                       </DraggableGroupRow>
                     </DroppableGroupRow>
-                  ))}
-
-                  {/* ── Pending group stubs (still processing) ── */}
-                  {runningGroups.map((stub) => (
-                    <div
-                      key={stub.group_job_id}
-                      className="flex items-center gap-2 pl-3 pr-3 py-2 opacity-60 cursor-not-allowed select-none border-l-2 border-transparent"
-                    >
-                      <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0" />
-                      <span className="flex-1 text-[12px] text-muted-foreground truncate">
-                        {stub.group_name}
-                      </span>
-                      <span className="text-[11px] text-muted-foreground/40 tabular-nums shrink-0">
-                        {stub.processed_files}/{stub.total_files}
-                      </span>
-                    </div>
-                  ))}
-
-                  {/* ── Failed group stubs ── */}
-                  {failedGroups.map((stub) => (
-                    <div
-                      key={stub.group_job_id}
-                      className="flex items-center gap-2 pl-3 pr-3 py-2 opacity-70 select-none border-l-2 border-transparent"
-                    >
-                      <AlertCircle className="h-3.5 w-3.5 text-destructive shrink-0" />
-                      <span className="flex-1 text-[12px] text-muted-foreground truncate">
-                        {stub.group_name}
-                      </span>
-                      <span className="text-[11px] text-destructive/60 shrink-0">
-                        {stub.failed_files} failed
-                      </span>
-                    </div>
                   ))}
                 </GroupSidebarShell>
               )}
@@ -804,7 +716,6 @@ export default function EditGroupDialog({
                               >
                                 <FileCard
                                   file={file}
-                                  jobId=""
                                   vocab={tagVocab}
                                   existingSubgroups={groupSubVariants}
                                   selected={activeSelection.has(file.relative_path)}
@@ -841,7 +752,6 @@ export default function EditGroupDialog({
                         >
                           <FileCard
                             file={file}
-                            jobId=""
                             vocab={tagVocab}
                             existingSubgroups={groupSubVariants}
                             selected={activeSelection.has(file.relative_path)}
@@ -882,7 +792,6 @@ export default function EditGroupDialog({
                           <FileCard
                             key={file.relative_path}
                             file={file}
-                            jobId=""
                             vocab={tagVocab}
                             existingSubgroups={groupSubVariants}
                             selected={false}
@@ -981,8 +890,6 @@ export default function EditGroupDialog({
                           <Loader2 className="h-3.5 w-3.5 animate-spin inline mr-1" />
                           Saving…
                         </>
-                      ) : isImportReview ? (
-                        'Confirm Import'
                       ) : (
                         'Done'
                       )}

@@ -6,8 +6,10 @@ import ErrorBoundary from './components/ErrorBoundary'
 import { ModelSetupScreen } from './components/setup/ModelSetupScreen'
 import { modelsApi } from './lib/api/modelsApi'
 import { isServer } from './lib/appMode'
+import { useTheme } from './contexts/ThemeContext'
 
 function App() {
+  const { theme } = useTheme()
   const [setupReady, setSetupReady] = useState(!isServer)
   const [checkingSetup, setCheckingSetup] = useState(isServer)
   const [skipModel, setSkipModel] = useState(false)
@@ -88,7 +90,7 @@ function App() {
           </Routes>
         </div>
       </Router>
-      <Toaster position="bottom-right" richColors />
+      <Toaster position="bottom-right" richColors theme={theme} />
     </ErrorBoundary>
   )
 }

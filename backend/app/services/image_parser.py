@@ -110,10 +110,47 @@ class ImageParser:
         self._ordinal_re = re.compile(r"(\d+)(st|nd|rd|th)\b", re.IGNORECASE)
         self._camel_re = re.compile(r"([a-z])([A-Z])|([a-zA-Z])([0-9])|([0-9])([a-zA-Z])")
         self._dim_re = re.compile(r"(?<!\d)[\(\[ ]?(\d{1,3})\s*[xX]\s*(\d{1,3})[\)\] ]?(?!\d)")
-        self._by_author_re = re.compile(r"[bB]y([A-Z][a-z]+|[A-Z]+|[a-z]+)")
+        # "byAuthor" / "_byAuthor" / "ArenabyUpsetti": the author is a capitalised
+        # word, which stops before a further "by<Capital>". Candidates are vetted in
+        # _author_from_stem, since "by" also sits inside words (Abyss, RubyGhost).
+        self._by_author_re = re.compile(r"[bB]y([A-Z](?:(?!by[A-Z])[a-z0-9])+)")
+        # Ordinary words ending in "by" that run into a following capitalised word.
+        self._by_words = frozenset(
+            {
+                "abby",
+                "baby",
+                "bobby",
+                "chubby",
+                "crabby",
+                "derby",
+                "flabby",
+                "gatsby",
+                "goodby",
+                "grubby",
+                "hobby",
+                "kirby",
+                "lobby",
+                "lullaby",
+                "nearby",
+                "rugby",
+                "ruby",
+                "shabby",
+                "shelby",
+                "standby",
+                "stubby",
+                "toby",
+                "tubby",
+                "wallaby",
+                "whitby",
+            }
+        )
         self._bracket_re = re.compile(r"[\(\[](.*?)[\)\]]")
         self._grid_negative_re = re.compile(r"\b(no[-_ ]?grid|gridless|ungridded|gl)\b")
-        self._grid_hex_re = re.compile(r"\b(hexgrid|hex[-_ ]?grid|hg)\b")
+        # A bare "hex" marks hex maps too (partyoftwo: "..._Online_HexHBlack" = flat
+        # hexes, black lines). "GH" is only trusted in the filename: as a folder name
+        # it is used for other things (e.g. a Gnome/Halfling portrait code).
+        self._grid_hex_re = re.compile(r"\b(hexgrid|hex[-_ ]?grid|hex|hg)\b")
+        self._grid_hex_stem_re = re.compile(r"\b(hexgrid|hex[-_ ]?grid|hex|hg|gh)\b")
         self._grid_positive_re = re.compile(r"\b(grid(ded)?|gd)\b")
 
         self._generic_folders = frozenset(
@@ -264,6 +301,9 @@ class ImageParser:
         self._abbrev_rejoin_re = re.compile(r"\b([A-Z]{1,2})\s+(\d+)\b")
         self._tight_alpha_dash_re = re.compile(r"(?<=[a-zA-Z])-(?=[a-zA-Z])")
         self._multi_space_re = re.compile(r"\s+")
+        # Brackets left empty once their contents were stripped as noise:
+        # "Abyssal Fall - $5 Rewards (Gridless)" -> "Abyssal Fall - ()".
+        self._empty_brackets_re = re.compile(r"\(\s*\)|\[\s*\]|\{\s*\}")
 
         # Build tag vocabulary from DB categories
         self._vocabulary: dict[str, tuple[str, str]] = {}
@@ -426,7 +466,37 @@ class ImageParser:
         name = self._maps_word_re.sub("", name)
         if not keep_grid:
             name = self._grid_name_re.sub("", name)
-        return name
+        return self._empty_brackets_re.sub("", name)
+
+    def _author_from_stem(self, stem: str) -> str | None:
+        """The author named by a "byAuthor" marker in the filename, if any."""
+        for m in self._by_author_re.finditer(stem):
+            candidate = m.group(1)
+            if candidate.lower() in self._junk_words:  # "StoneCircleByTheWater"
+                continue
+            # The camel-case word that ends in this "by" ("Ruby" in "RubyGhost").
+            start = m.start()
+            while start > 0 and stem[start - 1].islower():
+                start -= 1
+            if start > 0 and stem[start - 1].isupper():
+                start -= 1
+            if (stem[start : m.start()] + "by").lower() in self._by_words:
+                continue
+            return candidate
+        return None
+
+    def _clean_subgroup(self, segment: str) -> str:
+        """Tidy a subgroup folder name, keeping its meaning (grid state, numbering).
+
+        Only strips what is never a meaningful label: dimensions, pricing tiers
+        and the brackets they leave behind.
+        """
+        text = segment.replace("_", " ")
+        text = self._dim_re.sub(" ", text)
+        text = self._pricing_re.sub("", text).replace("$", "")
+        text = self._empty_brackets_re.sub("", text)
+        text = re.sub(r"-(\s+-)+", "-", text)  # "A [1x2] - $5 Rewards - B" -> "A - B"
+        return self._multi_space_re.sub(" ", text).strip(" -")
 
     def _deduplicate_sequences(self, words: list[str]) -> list[str]:
         """Remove repeated multi-word sequences (later occurrence removed)
@@ -614,10 +684,7 @@ class ImageParser:
         stem = path_obj.stem
 
         # --- Author ---
-        author = parts[0] if parts else "Unknown"
-        author_match = self._by_author_re.search(stem)
-        if author_match:
-            author = author_match.group(1)
+        author = self._author_from_stem(stem) or (parts[0] if parts else "Unknown")
 
         # --- Grid detection (from filename) — battlemaps only ---
         gridded = None
@@ -629,7 +696,7 @@ class ImageParser:
             grid_text = self._split_camel(stem).lower().replace("_", " ").replace("-", " ")
             if self._grid_negative_re.search(grid_text):
                 gridded = False
-            elif self._grid_hex_re.search(grid_text):
+            elif self._grid_hex_stem_re.search(grid_text):
                 gridded = True
                 grid_type = "hex"
             elif self._grid_positive_re.search(grid_text):
@@ -708,7 +775,14 @@ class ImageParser:
         effective_author = author if group_from_folder else None
         group_name = self._clean_group_name(group_raw, author=effective_author)
 
-        subgroups = [s.replace("_", " ").strip() for s in subgroups_raw]
+        # Packs often nest a copy of their own folder ("Abyssal Fall [various]/
+        # Abyssal Fall [various]/Gridless"); that copy is not a subgroup.
+        while (
+            subgroups_raw
+            and self._clean_group_name(subgroups_raw[0], author=effective_author) == group_name
+        ):
+            subgroups_raw = subgroups_raw[1:]
+        subgroups = [c for c in (self._clean_subgroup(s) for s in subgroups_raw) if c]
         subgroup = " / ".join(subgroups) if subgroups else None
 
         name = self._build_name(stem, author, group_name, subgroups)

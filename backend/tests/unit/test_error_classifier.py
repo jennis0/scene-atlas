@@ -91,3 +91,58 @@ class TestClassifyIngestError:
         ]:
             result = classify_ingest_error(exc, stage=stage)
             assert result["stage"] == stage
+
+
+class TestErrorKinds:
+    """Each classified error carries a kind that tells the ingest worker how to react."""
+
+    def test_corrupt_image_is_a_file_error(self):
+        exc = OSError("cannot identify image file 'bad.png'")
+        assert classify_ingest_error(exc, stage="decode")["kind"] == "file"
+
+    def test_truncated_image_is_a_file_error(self):
+        exc = OSError("image file is truncated (12 bytes not processed)")
+        result = classify_ingest_error(exc, stage="decode")
+        assert result["kind"] == "file"
+        assert result["reason"] == "Image file is incomplete or truncated"
+
+    def test_decompression_bomb_is_a_file_error(self):
+        exc = Exception("decompression bomb detected")
+        assert classify_ingest_error(exc, stage="decode")["kind"] == "file"
+
+    def test_disk_full_is_a_system_error(self):
+        exc = OSError(errno.ENOSPC, "No space left on device")
+        assert classify_ingest_error(exc, stage="copy")["kind"] == "system"
+
+    def test_missing_model_is_a_system_error(self):
+        exc = RuntimeError("Embedding service unavailable: None")
+        result = classify_ingest_error(exc, stage="embedding")
+        assert result["kind"] == "system"
+        assert result["reason"] == "No AI model is available"
+
+    def test_system_unavailable_error_passes_reason_through(self):
+        from backend.pipeline.error_classifier import SystemUnavailableError
+
+        result = classify_ingest_error(SystemUnavailableError("Library drive missing"), "copy")
+        assert result == {
+            "reason": "Library drive missing",
+            "kind": "system",
+            "stage": "copy",
+            "detail": "Library drive missing",
+        }
+
+    def test_database_locked_is_transient(self):
+        import sqlite3
+
+        from sqlalchemy.exc import OperationalError
+
+        exc = OperationalError("INSERT ...", {}, sqlite3.OperationalError("database is locked"))
+        assert classify_ingest_error(exc, stage="db_save")["kind"] == "transient"
+
+    def test_memory_error_is_transient(self):
+        assert classify_ingest_error(MemoryError(), stage="thumbnails")["kind"] == "transient"
+
+    def test_unknown_errors_are_transient(self):
+        """Unknown errors get bounded retries rather than failing on the first try."""
+        result = classify_ingest_error(RuntimeError("weird"), stage="colors")
+        assert result["kind"] == "transient"

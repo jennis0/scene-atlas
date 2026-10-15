@@ -1,4 +1,8 @@
-"""Unit tests for scripts.quantisation.utils pure functions."""
+"""Unit tests for scripts.quantisation.utils pure functions.
+
+scripts/quantisation/ is internal tooling kept out of git (see .gitignore), so
+these tests only run where it exists locally; clean checkouts and CI skip them.
+"""
 
 import json
 from pathlib import Path
@@ -6,14 +10,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from scripts.quantisation.utils import (
-    ExperimentResult,
-    RunMeta,
-    collect_images,
-    cosine_diffs,
-    rank_correlation,
-    save_results,
-)
+utils = pytest.importorskip("scripts.quantisation.utils")
+ExperimentResult = utils.ExperimentResult
+RunMeta = utils.RunMeta
+collect_images = utils.collect_images
+cosine_diffs = utils.cosine_diffs
+rank_correlation = utils.rank_correlation
+save_results = utils.save_results
 
 # ── cosine_diffs ─────────────────────────────────────────────────────────────
 

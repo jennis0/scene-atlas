@@ -308,211 +308,6 @@ class TagCategoryResponse(TagCategoryBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-class DuplicateInfo(BaseModel):
-    """Info about an existing image that matches the uploaded file's content hash."""
-
-    image_id: int
-    name: str | None = None
-    author: str | None = None
-    storage_key: str
-    thumbnail_key: str | None = None
-    group_name: str | None = None
-
-
-class HashCheckItem(BaseModel):
-    """One file entry in a hash-check request."""
-
-    relative_path: str
-    filename: str
-    content_hash: str  # SHA-256 hex digest (64 chars)
-
-
-class HashCheckRequest(BaseModel):
-    """Request body for POST /imports/check-hashes."""
-
-    files: list[HashCheckItem]
-
-
-class HashCheckResultItem(BaseModel):
-    """Per-file result from hash check."""
-
-    relative_path: str
-    content_hash: str
-    duplicate_of: DuplicateInfo | None = None
-
-
-class HashCheckResponse(BaseModel):
-    """Response from POST /imports/check-hashes."""
-
-    results: list[HashCheckResultItem]
-    total_checked: int
-    duplicates_found: int
-
-
-class ImportFileInfo(BaseModel):
-    """Per-file info returned after upload analysis."""
-
-    relative_path: str
-    filename: str
-    name: str | None = None
-    media_type: str | None = "image"
-    image_type: str | None = None
-    detected_tags: list[TagBase] = []
-    gridded: bool | None = None
-    grid_width: int | None = None
-    grid_height: int | None = None
-    grid_type: str | None = None
-    grid_confidence: float | None = None
-    subgroup: str | None = None
-    content_hash: str | None = None
-    duplicate_of: DuplicateInfo | None = None
-
-
-class ImportGroup(BaseModel):
-    """A detected group within an upload."""
-
-    author: str | None = None
-    group_name: str
-    files: list[ImportFileInfo]
-
-
-class ImportUploadResponse(BaseModel):
-    """Response after uploading and analysing files."""
-
-    job_id: str
-    total_files: int
-    groups: list[ImportGroup]
-
-
-class BatchUploadResponse(BaseModel):
-    """Response from POST /imports/{job_id}/upload-batch."""
-
-    files_saved: int
-    bytes_saved: int
-    skipped_invalid: list[str] = []
-
-
-class ManifestEntry(BaseModel):
-    """One entry in the duplicate manifest sent with an analyse request."""
-
-    relative_path: str
-    filename: str
-    content_hash: str
-    duplicate_of: dict | None = None
-
-
-class AnalyseRequest(BaseModel):
-    """Request body for POST /imports/{job_id}/analyse."""
-
-    manifest: list[ManifestEntry] = []
-    image_type: str = "battlemap"
-
-
-class ImportConfirmFile(BaseModel):
-    """Per-file metadata from the preview UI, sent at confirm time."""
-
-    relative_path: str
-    name: str | None = None
-    media_type: str | None = None
-    image_type: str | None = None
-    tags: list[TagBase] = []
-    gridded: bool | None = None
-    grid_width: int | None = None
-    grid_height: int | None = None
-    grid_type: str | None = None
-    grid_confidence: float | None = None
-    subgroup: str | None = None
-    content_hash: str | None = None
-    reuse_storage_key: str | None = None
-    reuse_thumbnail_key: str | None = None
-
-
-class ImportConfirmRequest(BaseModel):
-    """Confirm one group for processing."""
-
-    author: str
-    group_name: str
-    files: list[ImportConfirmFile]
-
-
-class FileError(BaseModel):
-    """Per-file error or warning detail within an import group."""
-
-    filename: str
-    relative_path: str | None = None  # Full path for user context in nested folders
-    reason: str
-    stage: str
-    severity: str = "error"  # "error" | "warning"
-
-
-class ImportGroupStatus(BaseModel):
-    """Status of one group within an import job."""
-
-    group_job_id: str = ""  # Stable ID for frontend matching (ImportGroupJob.id)
-    group_name: str
-    total_files: int = 0
-    processed_files: int = 0
-    failed_files: int = 0
-    status: str = "pending"  # pending, running, completed, failed
-    group_id: int | None = None  # Set once completed — links to the created ImageGroup
-    file_errors: list[FileError] = []  # Per-file error details when available
-
-
-class ImportJobResponse(BaseModel):
-    """Import job status response."""
-
-    job_id: str
-    status: str  # uploading, staging, active, completed, failed, cancelled, expired
-    groups: list[ImportGroupStatus] = []
-    detected_group_count: int = 0
-    created_at: datetime
-    completed_at: datetime | None = None
-    error_message: str | None = None  # Set for failed/broken jobs
-    source_label: str | None = None  # Filename or import name
-    job_warnings: list[FileError] = []  # Upload-phase and pipeline-level warnings
-    total_file_size: int = 0  # Total bytes across all uploaded files
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class ImportJobSummary(BaseModel):
-    """Lightweight summary for the active imports tray."""
-
-    job_id: str
-    source_label: str | None = None
-    status: str
-    total_groups: int = 0
-    completed_groups: int = 0
-    failed_groups: int = 0
-    running_groups: int = 0
-    pending_groups: int = 0
-    total_files: int = 0
-    processed_files: int = 0
-    created_at: datetime
-    error_message: str | None = None
-    failed_files: int = 0  # Total failed files across all groups
-    warning_count: int = 0  # Number of job-level warnings (upload skips, etc.)
-
-
-class ReportSkippedFile(BaseModel):
-    """Single skipped file reported by the frontend."""
-
-    filename: str
-    reason: str
-
-
-class ReportSkippedRequest(BaseModel):
-    """Request body for POST /imports/{job_id}/report-skipped."""
-
-    files: list[ReportSkippedFile]
-
-
-class ActiveImportsResponse(BaseModel):
-    """Response for GET /imports/active."""
-
-    jobs: list[ImportJobSummary]
-
-
 # ── App Settings ──────────────────────────────────────────────────────────────
 
 
@@ -527,7 +322,7 @@ class AppSettings(BaseModel):
     enable_image_grid_detection: bool = True
     grid_min_cell_px: int = 32
     grid_max_cell_px: int = 320
-    grid_detection_max_dim: int = 20_000
+    grid_detection_max_dim: int = 8_000
     grid_presence_threshold: float = 0.20
     grid_size_threshold: float = 0.15
     grid_period_ratio_threshold: float = 0.98
@@ -555,7 +350,7 @@ class AppSettings(BaseModel):
     scheduler_enabled: bool = True
 
     # Import processing
-    convert_to_webp: bool = True
+    convert_to_webp: bool = False
     webp_lossless: bool = True
     webp_quality: int = Field(95, ge=0, le=100)
 

@@ -111,6 +111,7 @@ eval/data/czepeku/
 # Internal development scripts (not part of the release)
 scripts/labelling/
 scripts/quantisation/
+scripts/grid_research/
 scripts/benchmark_lancedb.py
 
 # Husky internals (regenerated on npm install)

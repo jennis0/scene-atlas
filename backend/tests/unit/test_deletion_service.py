@@ -1,13 +1,13 @@
-"""Unit tests for safe_delete_image() and cleanup_import_images()."""
+"""Unit tests for safe_delete_image() and delete_image_rows()."""
 
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from backend.app.models.database import Color, Image, ImportJob, Tag
+from backend.app.models.database import Color, Image, Tag
 from backend.app.services.deletion_service import (
     _delete_all_thumbnails,
-    cleanup_import_images,
+    delete_image_rows,
     safe_delete_image,
 )
 from backend.app.services.image_store import ImageStore
@@ -394,117 +394,59 @@ class TestSafeDeleteImageStoreError:
         assert db_session.get(Image, img.id) is None
 
 
-class TestCleanupImportImages:
-    """cleanup_import_images() deletes all images for an import job."""
+class TestDeleteImageRows:
+    """Rows are deleted first; files and vectors only when pending.apply() runs."""
 
-    def test_removes_all_images_for_job(self, db_session, stores, monkeypatch):
-        """All Image rows for a job are deleted; count matches."""
+    def _seed(self, db_session, image_store, thumbnail_store, key, thumb):
+        img = _make_image(key, thumb)
+        db_session.add(img)
+        db_session.flush()
+        _seed_store(image_store, key)
+        for size in (150, 400, 800):
+            _seed_store(thumbnail_store, thumb.replace("400x400", f"{size}x{size}"))
+        return img
+
+    def test_files_survive_until_apply(self, db_session, stores, monkeypatch):
         image_store, thumbnail_store = stores
         _patch_stores(monkeypatch, image_store, thumbnail_store)
-        mock_vector_db_svc = MagicMock()
-        mock_vector_db_svc.delete_embeddings = MagicMock()
-        with patch(
-            "backend.app.services.lancedb_service.get_lancedb_service",
-            return_value=mock_vector_db_svc,
-        ):
-            job = ImportJob(id="test-job-1", status="failed", source_label="test")
-            img_a = _make_image("key-a.jpg", filename="a.jpg", name="A")
-            img_b = _make_image("key-b.jpg", filename="b.jpg", name="B")
-            img_a.import_job_id = "test-job-1"
-            img_b.import_job_id = "test-job-1"
-            db_session.add_all([job, img_a, img_b])
-            db_session.commit()
+        img = self._seed(db_session, image_store, thumbnail_store, "aa11.jpg", "aa11_400x400.jpg")
+        image_id = img.id
+        svc = MagicMock()
 
-            count = cleanup_import_images("test-job-1", db_session)
-            db_session.commit()
+        pending = delete_image_rows(db_session, [img])
+        db_session.commit()
+        assert db_session.query(Image).count() == 0
+        assert image_store.exists("aa11.jpg")  # nothing on disk touched yet
 
-        assert count == 2
-        remaining = db_session.query(Image).filter(Image.import_job_id == "test-job-1").all()
-        assert remaining == []
+        with patch("backend.app.services.lancedb_service.get_lancedb_service", return_value=svc):
+            pending.apply()
+        assert not image_store.exists("aa11.jpg")
+        for size in (150, 400, 800):
+            assert not thumbnail_store.exists(f"aa11_{size}x{size}.jpg")
+        svc.delete_embeddings.assert_called_once_with([image_id])
 
-    def test_returns_zero_for_empty_job(self, db_session, stores, monkeypatch):
-        """Returns 0 and does nothing when no images exist for the job."""
+    def test_shared_storage_key_is_kept(self, db_session, stores, monkeypatch):
         image_store, thumbnail_store = stores
         _patch_stores(monkeypatch, image_store, thumbnail_store)
-        mock_vector_db_svc = MagicMock()
-        with patch(
-            "backend.app.services.lancedb_service.get_lancedb_service",
-            return_value=mock_vector_db_svc,
-        ):
-            job = ImportJob(id="empty-job", status="failed", source_label="empty")
-            db_session.add(job)
-            db_session.commit()
+        first = self._seed(db_session, image_store, thumbnail_store, "bb22.jpg", "bb22_400x400.jpg")
+        db_session.add(_make_image("bb22.jpg", "bb22_400x400.jpg"))
+        db_session.flush()
 
-            count = cleanup_import_images("empty-job", db_session)
+        pending = delete_image_rows(db_session, [first])
+        assert pending.storage_keys == []
+        assert pending.thumbnail_keys == []
 
-        assert count == 0
+    def test_empty_list_is_a_no_op(self, db_session):
+        pending = delete_image_rows(db_session, [])
+        assert (pending.storage_keys, pending.thumbnail_keys, pending.image_ids) == ([], [], [])
 
-    def test_deletes_physical_files_when_unique_key(self, db_session, stores, monkeypatch):
-        """Physical files are removed when no other image shares the storage key."""
+    def test_vector_failure_does_not_raise(self, db_session, stores, monkeypatch):
         image_store, thumbnail_store = stores
         _patch_stores(monkeypatch, image_store, thumbnail_store)
-        mock_vector_db_svc = MagicMock()
-        with patch(
-            "backend.app.services.lancedb_service.get_lancedb_service",
-            return_value=mock_vector_db_svc,
-        ):
-            _seed_store(image_store, "unique-key.jpg")
-            job = ImportJob(id="file-job", status="failed", source_label="test")
-            img = _make_image("unique-key.jpg", filename="u.jpg", name="U")
-            img.import_job_id = "file-job"
-            db_session.add_all([job, img])
-            db_session.commit()
-
-            cleanup_import_images("file-job", db_session)
-            db_session.commit()
-
-        assert not image_store.exists("unique-key.jpg")
-
-    def test_deletes_all_thumbnail_sizes(self, db_session, stores, monkeypatch):
-        """cleanup_import_images removes all three thumbnail size variants, not just one."""
-        image_store, thumbnail_store = stores
-        _patch_stores(monkeypatch, image_store, thumbnail_store)
-        mock_vector_db_svc = MagicMock()
-        with patch(
-            "backend.app.services.lancedb_service.get_lancedb_service",
-            return_value=mock_vector_db_svc,
-        ):
-            stem = "tkey"
-            thumb_key = f"{stem}_400x400.jpg"
-            _seed_store(image_store, "tk.jpg")
-            for size in ["150x150", "400x400", "800x800"]:
-                _seed_store(thumbnail_store, f"{stem}_{size}.jpg")
-
-            job = ImportJob(id="thumb-job", status="failed", source_label="test")
-            img = _make_image("tk.jpg", thumbnail_key=thumb_key, filename="tk.jpg", name="TK")
-            img.import_job_id = "thumb-job"
-            db_session.add_all([job, img])
-            db_session.commit()
-
-            cleanup_import_images("thumb-job", db_session)
-            db_session.commit()
-
-        for size in ["150x150", "400x400", "800x800"]:
-            assert not thumbnail_store.exists(f"{stem}_{size}.jpg"), f"{size} thumbnail not deleted"
-
-    def test_vector_db_failure_does_not_raise(self, db_session, stores, monkeypatch):
-        """Vector DB errors during batch cleanup are swallowed."""
-        image_store, thumbnail_store = stores
-        _patch_stores(monkeypatch, image_store, thumbnail_store)
-        mock_vector_db_svc = MagicMock()
-        mock_vector_db_svc.delete_embeddings.side_effect = RuntimeError("vector db down")
-        with patch(
-            "backend.app.services.lancedb_service.get_lancedb_service",
-            return_value=mock_vector_db_svc,
-        ):
-            job = ImportJob(id="vector-fail-job", status="failed", source_label="test")
-            img = _make_image("vfail.jpg", filename="vf.jpg", name="VF")
-            img.import_job_id = "vector-fail-job"
-            db_session.add_all([job, img])
-            db_session.commit()
-
-            # Must not raise
-            count = cleanup_import_images("vector-fail-job", db_session)
-            db_session.commit()
-
-        assert count == 1
+        img = self._seed(db_session, image_store, thumbnail_store, "cc33.jpg", "cc33_400x400.jpg")
+        pending = delete_image_rows(db_session, [img])
+        svc = MagicMock()
+        svc.delete_embeddings.side_effect = RuntimeError("lancedb down")
+        with patch("backend.app.services.lancedb_service.get_lancedb_service", return_value=svc):
+            pending.apply()
+        assert not image_store.exists("cc33.jpg")

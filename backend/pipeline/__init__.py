@@ -1,15 +1,6 @@
-"""Image processing pipeline — ingestion, maintenance, and backfill functions."""
+"""Image processing pipeline: ingest, maintenance, and backfill functions.
 
-from .ingestion import (
-    analyse_upload,
-    bulk_image_ingestion,
-    process_import_group,
-    process_single_image,
-)
-
-__all__ = [
-    "analyse_upload",
-    "bulk_image_ingestion",
-    "process_import_group",
-    "process_single_image",
-]
+The ingest pipeline (ADR-018) lives in ``ingest_queue`` (durable item/job
+operations), ``ingest_process`` (one batch), ``ingest_worker`` (the worker
+loop), ``ingest_archive`` and ``ingest_maintenance``.
+"""

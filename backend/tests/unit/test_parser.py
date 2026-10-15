@@ -5,6 +5,8 @@ Tests pure parsing logic with no DB, no filesystem.
 
 import json
 
+import pytest
+
 from backend.app.services.image_parser import ImageParser
 
 # ---------------------------------------------------------------------------
@@ -160,6 +162,30 @@ class TestParseGridDetection:
         result = p.parse("author/group/gridded/Map.jpg")
         assert result["gridded"] is True
 
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "caeora/Avernus_BlueHexGrid.jpg",
+            "partyoftwo/Porttown_Set01_PortTown1_Online_HexHBlack.jpg",
+            "partyoftwo/Porttown_Set02_Island_Online_HexV_HexVWhite.jpg",
+            "caeora/ForestBattleShield_ForestBattleHexShield.jpg",
+            "author/Fort/Fort_Night_HG.jpg",
+            "author/Fort/Fort_Night_GH.jpg",
+        ],
+    )
+    def test_hex_markers(self, path):
+        result = make_parser().parse(path)
+        assert (result["gridded"], result["grid_type"]) == (True, "hex")
+
+    def test_gh_folder_is_not_a_hex_marker(self):
+        # A portrait-pack code (Gnome/Halfling), not a grid marker.
+        result = make_parser().parse("pack/Gnome, Halfling/GH-GH-MS-F101/Fulllength.png")
+        assert result["grid_type"] is None
+
+    def test_hex_folder_is_a_hex_marker(self):
+        result = make_parser().parse("author/Fort/Hex/Fort_Night.jpg")
+        assert result["grid_type"] == "hex"
+
 
 class TestParseDimensions:
     """Grid dimension extraction from filename."""
@@ -195,6 +221,38 @@ class TestParseAuthor:
         p = make_parser()
         result = p.parse("someone/group/Map_byCzepeku.jpg")
         assert result["author"] == "Czepeku"
+
+    # Real filenames (from a 179k-path library survey).
+    @pytest.mark.parametrize(
+        ("path", "author"),
+        [
+            ("2mtt_community/2mttCommunity_2mtt100_ArenabyUpsetti_Arena,Day.png", "Upsetti"),
+            ("mutenn/DillingerGateMapsByMutenn_DillingerGateGL.jpg", "Mutenn"),
+            ("2mtt_community/2mtt100_DragoncryptbyZachari43_Assets.jpg", "Zachari43"),
+            ("2mtt_community/2mtt100_TakenOverByNaturebyBazz_Tower.png", "Nature"),
+        ],
+    )
+    def test_by_author_variants(self, path, author):
+        assert make_parser().parse(path)["author"] == author
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            # "by" inside a word
+            "czepeku/Abyssal Fall/GL_AbyssalFall_Zone1_InfernalFall.jpg",
+            "angela_maps/labyrinth/grid/Labyrinth (filled)_grid.jpg",
+            "this-is-cool/daniel-bystedt/the-3d-scifi-art-of-daniel-bystedt-10.jpg",
+            "redditdnd/images/tactical_map/1byh4ds_5htjevl7t4tc1.jpg",
+            # an ordinary word ending in "by" before a capitalised word
+            "czepeku/Haunted Ghost Ship/GL_HauntedGhostShipExterior_RubyGhost.jpg",
+            "community/contest/BabyRhinos_DragonMountainCave_40x20.jpg",
+            "community/KiirbyHD 1.jpg",
+            # "By" followed by a filler word
+            "neutral_party/Altar By The Road/AltarByTheRoad_Gridded.jpg",
+        ],
+    )
+    def test_by_inside_words_is_not_an_author(self, path):
+        assert make_parser().parse(path)["author"] == path.split("/")[0]
 
 
 class TestParseTags:
@@ -260,6 +318,33 @@ class TestParseSubgroups:
         result = p.parse("author/group/file.jpg")
         assert result["subgroups"] == []
         assert result["subgroup"] is None
+
+    def test_nested_copy_of_group_folder_is_not_a_subgroup(self):
+        pack = "Abyssal Fall [various] - $5 Rewards (Gridless)"
+        result = make_parser().parse(f"czepeku/{pack}/{pack}/Gridless/GL_AbyssalFall_Zone1.jpg")
+        assert result["subgroup"] == "Gridless"
+
+    def test_deeper_folder_matching_group_is_kept(self):
+        path = "Crosshead/TILES/DUNGEONDRAFT MODULAR SERIES/FOREST MAPS/TILES/Bridge.jpg"
+        result = make_parser().parse(path)
+        assert result["subgroup"] == "DUNGEONDRAFT MODULAR SERIES / FOREST MAPS / TILES"
+
+    @pytest.mark.parametrize(
+        ("folder", "subgroup"),
+        [
+            ("MA 18x22", "MA"),
+            (
+                "Airship Port [84x111] - $5 Rewards - Slices - Gridded Pt 1",
+                "Airship Port - Slices - Gridded Pt 1",
+            ),
+            ("Airships Pt3 - $5 Rewards", "Airships Pt3"),
+            ("Full Res -- No Grid", "Full Res -- No Grid"),
+            ("Gridless", "Gridless"),
+        ],
+    )
+    def test_subgroup_noise_is_stripped(self, folder, subgroup):
+        result = make_parser().parse(f"author/Group/{folder}/file.jpg")
+        assert result["subgroup"] == subgroup
 
 
 class TestParseGenericFolders:
@@ -503,6 +588,25 @@ class TestCleanGroupName:
 # ===========================================================================
 # _build_name() tests
 # ===========================================================================
+
+
+class TestEmptyBrackets:
+    """Brackets emptied by noise removal must not survive into names."""
+
+    def test_group_name_after_pricing_and_grid_removed(self):
+        pack = "Ages of the Vale Pt.1 [27x39] - $5 Rewards (Gridless)"
+        result = make_parser().parse(f"czepeku/{pack}/01 Barn/GL_Barn_Roof_Day.jpg")
+        assert result["group_name"] == "Ages of the Vale Pt.1"
+
+    def test_scene_name_after_grid_marker_removed(self):
+        result = make_parser().parse(
+            "venatus/Clash Amidst Clouds/Skybreaker Main Deck (no grid).png"
+        )
+        assert result["name"] == "Skybreaker Main Deck"
+
+    def test_bracket_with_content_is_kept(self):
+        result = make_parser().parse("czepeku/Abyssal Fall [various] - $5 Rewards/GL_Zone1.jpg")
+        assert result["group_name"] == "Abyssal Fall [various]"
 
 
 class TestBuildName:

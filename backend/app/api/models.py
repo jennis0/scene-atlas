@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from ..models.database import AppSetting, ImportJob
+from ..models.database import AppSetting
 from ..services import clip_service as _clip_module
 from ..services.clip_service import (
     get_effective_model_name,
@@ -116,18 +116,23 @@ def _download_and_activate(name: str, progress_fn=None) -> None:
                 progress_fn=lambda c, t, m: progress_fn(c, t * steps, m) if progress_fn else None,
             )
 
-        if progress_fn:
-            progress_fn(steps - 2, steps, "Loading model...")
-        reload_clip_service()
-        wait_for_clip_ready()
+        # Imports pause (rather than being refused) while the model and its vector
+        # table change underneath them; no batch spans the switch.
+        from backend.pipeline.ingest_worker import get_ingest_worker
 
-        model_meta = get_model(name)
-        embedding_dim = model_meta["embedding_dim"] if model_meta else None
-        reload_lancedb_service(get_collection_name(name), vector_size=embedding_dim)
+        with get_ingest_worker().held("Paused while the AI model changes"):
+            if progress_fn:
+                progress_fn(steps - 2, steps, "Loading model...")
+            reload_clip_service()
+            wait_for_clip_ready()
 
-        if progress_fn:
-            progress_fn(steps - 1, steps, "Re-building embeddings...")
-        rebuild_all_embeddings(force=True)
+            model_meta = get_model(name)
+            embedding_dim = model_meta["embedding_dim"] if model_meta else None
+            reload_lancedb_service(get_collection_name(name), vector_size=embedding_dim)
+
+            if progress_fn:
+                progress_fn(steps - 1, steps, "Re-building embeddings...")
+            rebuild_all_embeddings(force=True)
 
         if progress_fn:
             progress_fn(steps, steps, "Done")
@@ -316,17 +321,6 @@ def set_active_model(
 
     if model_name == get_effective_model_name() and is_model_downloaded(model_name):
         return ActiveModelResponse(status="already_active", job_id=None)
-
-    # Guard: reject model swap while imports are in progress
-    active_imports = (
-        db.query(ImportJob).filter(ImportJob.status.in_(("uploading", "staging", "active"))).count()
-    )
-    if active_imports:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Cannot change model while {active_imports} import(s) are in progress. "
-            "Cancel or wait for them to finish first.",
-        )
 
     # Guard: reject if a model activation job is already running
     runner = get_job_runner()

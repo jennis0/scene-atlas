@@ -21,22 +21,9 @@ export function relevanceToPercent(minScore: number): number {
   return Math.round(((minScore - RELEVANCE_MIN) / (RELEVANCE_MAX - RELEVANCE_MIN)) * 100)
 }
 
-// ── Import workflow timings ──────────────────────────────────────────────────
-export const POLL_INTERVAL_MS = 2_000
+// ── Polling ──────────────────────────────────────────────────────────────────
 export const ACTIVE_POLL_INTERVAL_MS = 10_000
-export const AUTO_SAVE_INTERVAL_MS = 15_000
 export const SAVED_INDICATOR_DURATION_MS = 1_500
-export const IMPORT_STORAGE_EXPIRY_MS = 24 * 60 * 60 * 1_000 // 24 hours
-
-// ── Upload limits ────────────────────────────────────────────────────────────
-export const MAX_FILE_SIZE_MB = 200
-export const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
-
-// ── Batch upload ─────────────────────────────────────────────────────────────
-export const MAX_BATCH_FILES = 20
-export const MAX_BATCH_BYTES = 100 * 1024 * 1024 // 100 MB per batch
-export const BATCH_UPLOAD_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes per batch
-export const MAX_BATCH_RETRIES = 2
 
 // ── Input length limits ──────────────────────────────────────────────────────
 export const MAX_AUTHOR_LENGTH = 256

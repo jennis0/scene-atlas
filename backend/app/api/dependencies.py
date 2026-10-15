@@ -16,7 +16,7 @@ def get_db(request: Request):
 
 
 async def acquire_heavy_op(request: Request):
-    """Admission control — limits concurrent heavy operations (analyse, confirm-all).
+    """Admission control — limits concurrent heavy operations (import seal, archive expansion).
 
     Prevents GIL thrashing from too many concurrent asyncio.to_thread() calls.
     """
