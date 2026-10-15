@@ -36,7 +36,11 @@ Given a relative path like `czepeku/Island Fort/Gridded/IslandFort_Night_Rain_30
 **Filename-based** (always runs, in `ImageParser.parse()`):
 - CamelCase-split + normalize the filename stem to space-separated words
 - Check negative regex: `\b(no[-_ ]?grid|gridless|ungridded)\b` → `gridded = False`
-- Check positive regex: `\b(grid(ded)?)\b` → `gridded = True`
+- Check hex regex: `\b(hexgrid|hex[-_ ]?grid|hex|hg)\b` → `gridded = True, grid_type = "hex"`.
+  - A bare `hex` counts, because partyoftwo marks its hex maps `HexH` / `HexV` (flat/pointy) plus a line colour, e.g. `…_Online_HexHBlack`.
+  - `GH` counts in the filename only. In folder names it appears as an unrelated code (a portrait pack's Gnome/Halfling `GH-GH-MS-F101`).
+  - Checked against 179k real paths: 262 files newly become hex, all genuine hex maps apart from one item image (`washer-hex-…`), which is imported as a scene and so never gets grid detection.
+- Check positive regex: `\b(grid(ded)?|gd)\b` → `gridded = True`
 - Also checks path components if filename doesn't match
 - Grid dimensions: `(\d{1,3})\s*[xX]\s*(\d{1,3})` pattern → `grid_width`, `grid_height`
 - **Skipped for `image_type="scene"`** — scenes do not use grid metadata

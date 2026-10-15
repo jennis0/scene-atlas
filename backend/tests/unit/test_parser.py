@@ -162,6 +162,30 @@ class TestParseGridDetection:
         result = p.parse("author/group/gridded/Map.jpg")
         assert result["gridded"] is True
 
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "caeora/Avernus_BlueHexGrid.jpg",
+            "partyoftwo/Porttown_Set01_PortTown1_Online_HexHBlack.jpg",
+            "partyoftwo/Porttown_Set02_Island_Online_HexV_HexVWhite.jpg",
+            "caeora/ForestBattleShield_ForestBattleHexShield.jpg",
+            "author/Fort/Fort_Night_HG.jpg",
+            "author/Fort/Fort_Night_GH.jpg",
+        ],
+    )
+    def test_hex_markers(self, path):
+        result = make_parser().parse(path)
+        assert (result["gridded"], result["grid_type"]) == (True, "hex")
+
+    def test_gh_folder_is_not_a_hex_marker(self):
+        # A portrait-pack code (Gnome/Halfling), not a grid marker.
+        result = make_parser().parse("pack/Gnome, Halfling/GH-GH-MS-F101/Fulllength.png")
+        assert result["grid_type"] is None
+
+    def test_hex_folder_is_a_hex_marker(self):
+        result = make_parser().parse("author/Fort/Hex/Fort_Night.jpg")
+        assert result["grid_type"] == "hex"
+
 
 class TestParseDimensions:
     """Grid dimension extraction from filename."""

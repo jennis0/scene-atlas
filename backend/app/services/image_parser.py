@@ -146,7 +146,11 @@ class ImageParser:
         )
         self._bracket_re = re.compile(r"[\(\[](.*?)[\)\]]")
         self._grid_negative_re = re.compile(r"\b(no[-_ ]?grid|gridless|ungridded|gl)\b")
-        self._grid_hex_re = re.compile(r"\b(hexgrid|hex[-_ ]?grid|hg)\b")
+        # A bare "hex" marks hex maps too (partyoftwo: "..._Online_HexHBlack" = flat
+        # hexes, black lines). "GH" is only trusted in the filename: as a folder name
+        # it is used for other things (e.g. a Gnome/Halfling portrait code).
+        self._grid_hex_re = re.compile(r"\b(hexgrid|hex[-_ ]?grid|hex|hg)\b")
+        self._grid_hex_stem_re = re.compile(r"\b(hexgrid|hex[-_ ]?grid|hex|hg|gh)\b")
         self._grid_positive_re = re.compile(r"\b(grid(ded)?|gd)\b")
 
         self._generic_folders = frozenset(
@@ -692,7 +696,7 @@ class ImageParser:
             grid_text = self._split_camel(stem).lower().replace("_", " ").replace("-", " ")
             if self._grid_negative_re.search(grid_text):
                 gridded = False
-            elif self._grid_hex_re.search(grid_text):
+            elif self._grid_hex_stem_re.search(grid_text):
                 gridded = True
                 grid_type = "hex"
             elif self._grid_positive_re.search(grid_text):
