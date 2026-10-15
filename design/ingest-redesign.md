@@ -91,7 +91,7 @@ One row per file. **All durable ingest state lives here.**
 | `error_kind`, `error_stage`, `error_reason`, `error_detail` | `error_kind` ∈ `file` \| `transient` \| `system`. `error_reason` is user-facing; `error_detail` is the raw exception. |
 | `image_id` | Set when `done` |
 | `duplicate_of_image_id`, `duplicate_tier` | Set when `duplicate` (`bytes` \| `pixels`) |
-| `allow_duplicate` | Set by "Import anyway" |
+| `allow_duplicate` | Set by "Import as new copy". Skips the dedup check at commit. |
 | `similar_to_image_id`, `similarity_distance` | Perceptual-hash flag (advisory only, §6) |
 | `created_at`, `updated_at` | |
 
@@ -104,7 +104,7 @@ Indexes:
 
 | Column | Notes |
 |---|---|
-| `source_hash` | Replaces `content_hash`. SHA-256 of the **original** uploaded bytes, never of converted output. Indexed. Not unique (see "Import anyway"). |
+| `source_hash` | Replaces `content_hash`. SHA-256 of the **original** uploaded bytes, never of converted output. Indexed. Not unique (see "Import as new copy"). |
 | `stored_hash` | SHA-256 of the stored file. Equal to `source_hash` when no conversion happened. Lets re-imports of exported files match. Indexed. |
 | `pixel_hash` | Hash of the canonical decoded pixels (§6). Indexed. NULL for video. |
 | `phash` | 64-bit perceptual hash (§6). NULL for video. |
@@ -118,7 +118,7 @@ Indexes:
 ### 4.1 Item states
 
 ```
-                 ┌──────── import anyway ────────┐
+                 ┌───── import as new copy ──────┐
                  ▼                               │
 awaiting_bytes ─bytes received─▶ ready ─claim─▶ processing ─commit─▶ done
    │   │                          ▲  ▲              │ │
@@ -147,7 +147,8 @@ awaiting_bytes ─bytes received─▶ ready ─claim─▶ processing ─commit
 | `processing` | startup recovery, `attempts >= 3` | `failed` ("Repeatedly crashed during processing") | Recovery |
 | `failed` | retry, staged bytes present | `ready` | API |
 | `failed` | retry, staged bytes gone | `awaiting_bytes` | API |
-| `duplicate` | import anyway | `ready` + `allow_duplicate` | API |
+| `duplicate` | import as new copy, staged bytes present | `ready` + `allow_duplicate` | API |
+| `duplicate` | import as new copy, no staged bytes (skipped via client hash) | `awaiting_bytes` + `allow_duplicate` | API |
 | `awaiting_bytes`/`ready` | cancel, finish-without, abandoned | `skipped` | API / maintenance |
 
 Terminal: `done`, `duplicate`, `failed`, `skipped`. `failed` and `duplicate` can be re-opened by explicit user action.
@@ -162,7 +163,7 @@ Four states:
 - **`completed`:** no items in `awaiting_bytes`, `ready` or `processing`.
 - **`cancelled`:** the user cancelled. Unfinished items become `skipped` and finished work is kept.
 
-`recompute_job_status(job_id)` is the only writer of `active` ↔ `completed`, as `transition_job_status` is today. It is called after every batch commit, byte receipt, retry, import-anyway and finish-without. A retry on a `completed` job re-opens it to `active`.
+`recompute_job_status(job_id)` is the only writer of `active` ↔ `completed`, as `transition_job_status` is today. It is called after every batch commit, byte receipt, retry, import-as-copy and finish-without. A retry on a `completed` job re-opens it to `active`.
 
 **A job never "fails".** Outcomes are counts ("Completed · 412 imported · 3 failed · 12 duplicates").
 
@@ -170,7 +171,7 @@ Derived display states (computed in the API, never stored):
 - **Upload interrupted:** `active`, `awaiting_bytes > 0`, nothing `ready` or `processing`, and `last_upload_at` older than 2 minutes. The UI offers "Choose files to resume" or "Finish without them".
 - **Waiting on system:** the queue is system-paused (§5.4).
 
-**Undo import** deletes every image the job created (reference-count aware, §6). It then deletes the job and its groups and items. The job disappears; there is no "undone" state.
+**Undo import** deletes every image the job created. It then deletes the job and its groups and items. The job disappears; there is no "undone" state.
 
 ---
 
@@ -212,6 +213,14 @@ The goal is that a file is either fully in the library or not at all, and that c
    - Decode once. Generate thumbnails, colours, grid detection, `pixel_hash` and `phash` from that decode.
    - Copy the original (or the converted output) to a temp file **on the library volume** (`{IMAGE_LIBRARY_DIR}/.incoming/`). Write thumbnails to `{APP_DATA_DIR}/.incoming/`.
    - Temp files sit on the same volume as their destination, so the final placement is an atomic rename even when the app-data and library dirs are different drives.
+   - **Why the temp copy goes to the slow library drive:**
+     - All working reads (decode, hashing) come from staging on the fast app-data drive.
+     - The only library-drive I/O is the one unavoidable write of each original, which happens once wherever the temp file lives.
+     - Doing that write during prepare keeps it parallel with CPU work and outside the SQLite write lock.
+     - The alternatives are worse. Copying from the fast drive at commit would hold the write lock for seconds per batch on an HDD. Copying after commit would make rows visible before their files exist, and a crash would leave rows without files.
+   - **Throughput expectation:** ingest should be CPU-bound (decode, grid detection, embedding). At an average of about 4 MB per image, 10–25 images/s means 40–100 MB/s of writes, which is near HDD sequential limits only at the top end.
+     - Concurrent writes from the prepare pool could cause seek thrash on an HDD. The mitigation, if Phase 0 shows it, is a single library-writer thread that serialises the temp writes into one sequential stream.
+     - Phase 0 measures this with the library on an HDD.
 2. **Embed:** batch the embeddings.
 3. **Commit** in one `BEGIN IMMEDIATE` transaction. SQLite's single writer makes check-then-insert race-free without a unique index.
    - Dedup check against `source_hash`, `stored_hash` and `pixel_hash` (skipped when `allow_duplicate`). Duplicates become `duplicate` and their temp files are discarded.
@@ -268,9 +277,13 @@ Rationale for not using a post-conversion hash as the key:
 - Lossy output has no byte relationship to its source.
 - It can't be computed client-side.
 
-**Import anyway** (per item, or "all duplicates in this job"): `duplicate` → `ready` with `allow_duplicate`.
-- The worker takes the existing reuse path. It creates a new `Image` record sharing the original's `storage_key`, thumbnails, colours and embedding, but with metadata from the new path and group. No bytes and no reprocessing are needed.
-- Deletion is already reference-counted on `storage_key` (`deletion_service`).
+**Import as new copy** (per item, or "all duplicates in this job"): `duplicate` → `ready` (or `awaiting_bytes`) with `allow_duplicate`.
+- The item is processed **exactly like a new file**: its own stored file, thumbnails, colours, grid detection and embedding, and an independent `Image` record. Nothing is shared with the image it matched.
+- This is deliberate. The action is the escape hatch for a faulty duplicate match, so it must not inherit anything from the matched image.
+- **Bytes are needed:**
+  - Staged bytes of `duplicate` items are kept, like those of `failed` items (§9).
+  - Items skipped via the client hash never sent bytes, so they go to `awaiting_bytes`. If this tab still holds the `File`, the manager uploads it automatically; otherwise the job shows "Choose files to resume".
+- **The existing reuse path is removed:** today's `reuse_storage_key` branch in `prepare.py` and storage-key reference counting in `deletion_service`. Every image owns its stored file. Shared-storage records are a pending open question (§14).
 
 Within one job, two identical files are handled by the commit-time check: the second becomes `duplicate` of the first.
 
@@ -298,7 +311,7 @@ All endpoints live under `/api/v1/imports`. Request bodies never carry per-file 
 | `POST /imports/{id}/pause`, `/resume`, `/cancel` | Job control |
 | `POST /imports/{id}/groups/{gid}/skip` | Skip one group's remaining items |
 | `POST /imports/{id}/retry` | `{item_ids?}` (default: all `failed`) |
-| `POST /imports/{id}/import-anyway` | `{item_ids?}` (default: all `duplicate`) |
+| `POST /imports/{id}/import-as-copy` | `{item_ids?}` (default: all `duplicate`) |
 | `POST /imports/{id}/finish-upload` | `awaiting_bytes` → `skipped` ("Not uploaded") |
 | `POST /imports/{id}/dismiss` | Hide from the dock |
 | `DELETE /imports/{id}` | **Undo import.** Deletes the job's created images, then the job. |
@@ -365,7 +378,7 @@ Dialogs and the dock are pure views over the manager, so remounting a dialog can
   - Pause, cancel and open controls.
   - A queue-level banner when system-paused, with "Retry now".
   - "Upload interrupted" rows offer "Choose files to resume" or "Finish without them".
-- **ImportReport** (replaces `ImportSummaryDialog` and `ImportDonePane`). Sections: Groups (status, merged-into-existing), Problems (failed grouped by `error_reason`, retry per reason or per item), Duplicates (linked to the existing image, import anyway), Possible duplicates (Phase 4), Skipped. Actions: Retry failed, Undo import (confirm with counts), Dismiss. All lists are virtualised and paginated from `GET /imports/{id}/items`.
+- **ImportReport** (replaces `ImportSummaryDialog` and `ImportDonePane`). Sections: Groups (status, merged-into-existing), Problems (failed grouped by `error_reason`, retry per reason or per item), Duplicates (linked to the existing image; "Import as new copy"), Possible duplicates (Phase 4), Skipped. Actions: Retry failed, Undo import (confirm with counts), Dismiss. All lists are virtualised and paginated from `GET /imports/{id}/items`.
 - **Notifications:** a toast on every job completion, including "Completed with 3 failures" and a system pause, with a link to the report.
 - **EditGroupDialog live review** reads group progress from the manager instead of running its own poller.
 - **Resume:** the user re-picks files or a folder. The manager fetches the job's `awaiting_bytes` items and matches on `(relative_path, size)`. Only missing files are hashed and uploaded.
@@ -386,7 +399,7 @@ Dialogs and the dock are pure views over the manager, so remounting a dialog can
 | Task | When | Behaviour |
 |---|---|---|
 | `recover_ingest` | Startup (before ready) | `processing` → `ready`, or `failed` at 3 attempts. Delete `.incoming/` temp files. No image deletion. Fast: two UPDATE statements. |
-| Staging cleanup | Inline plus scheduled | A staged file is deleted as soon as its item is `done`, `duplicate` or `skipped`. Staged files of `failed` items are kept for retry until the job is dismissed or completed more than 7 days ago. Never mtime-based. |
+| Staging cleanup | Inline plus scheduled | A staged file is deleted as soon as its item is `done` or `skipped`. Staged files of `failed` and `duplicate` items are kept (for retry and import-as-copy) until the job is dismissed or completed more than 7 days ago. Never mtime-based. |
 | Abandon stale uploads | Scheduled | `active` jobs with `awaiting_bytes` and `last_upload_at` more than 7 days ago: those items → `skipped` ("Not uploaded"), then the job is recomputed. |
 | Prune job history | Scheduled | Delete job, group and item rows for jobs dismissed more than 30 days ago. Images are untouched. |
 | Vector reconciliation | Startup, after each job completes, scheduled | Id-set diff and re-embed (§5.3). Replaces the count-based forced rebuild. |
@@ -432,7 +445,7 @@ Backend integration tests, with a real worker driven by `drain()`:
 - **System pause:** `ENOSPC` causes a system pause, then probe, then resume, with no failures.
 - **Job control:**
   - cancel mid-job keeps `done` items;
-  - Undo deletes exactly the job's images, with reference counts respected for import-anyway records;
+  - Undo deletes exactly the job's images;
   - retry on a completed job re-opens it;
   - finish-without and abandonment.
 - **Upload protocol:**
@@ -445,7 +458,7 @@ Backend integration tests, with a real worker driven by `drain()`:
   - two concurrent jobs with the same file produce one image;
   - an in-job duplicate;
   - client-hash skip;
-  - import anyway uses the reuse path with no bytes.
+  - import as new copy produces a fully independent record (own file, thumbnails, embedding), including the client-hash-skipped case that needs bytes.
 - **Vectors:** a vector write failure is repaired by reconciliation.
 - **Model switch** causes a system pause, and ingest resumes afterwards.
 
@@ -470,7 +483,7 @@ Large feature; worktree branch `worktree-ingest-redesign`. **The branch is not m
 | **1. Backend core** | Alembic migration (drop `import_group_jobs`, reshape `import_jobs`, add `import_groups`/`import_items`, image hash columns). `ingest_state` module. `IngestWorker` (claim, round-robin, recovery, system pause, `drain()`). Commit protocol with tiers 1–2 and atomic placement. pHash stored. Error kinds. Vector reconciliation. WebP default off. | Unit and service-level integration tests green, driven without the HTTP API |
 | **2. Backend API and maintenance** | New endpoints (§7), archive expansion, ETag progress version, model-switch pause. Delete old endpoints and pipeline functions, and rewrite maintenance (§9). Fix the orphan sweep. | API integration tests green; no references to the removed code |
 | **3. Frontend** | `ImportManager`, hash worker, poller; new ImportDialog, ActivityDock and ImportReport; EditGroupDialog hookup; delete the old hooks and components; remove the Electron fs IPC. | Vitest green; manual run of import, interrupt and resume on Linux and Windows |
-| **4. Duplicate UX** | Import anyway (bulk and per item), possible-duplicate flags in the report. | Tests plus manual check |
+| **4. Duplicate UX** | Import as new copy (bulk and per item), possible-duplicate flags in the report. | Tests plus manual check |
 | **5. Conversion config** | `stored_format`/`stored_quality` server config, `stored_hash`. | Tests |
 | **6. E2E and docs** | E2E failure-injection specs. Fold this document into `import-state-machine.md`, `web-import.md`, `ingestion.md` and `storage.md`; update `backend.md`, `frontend.md`, `security.md` (rate limits) and `status-and-roadmap.md`. | Docs describe the shipped system; this file removed or reduced to a pointer |
 
@@ -513,4 +526,7 @@ Finding ids are from the 2026-10-12 audit (B = backend, F = frontend).
 - **Request count.** One `PUT` per file means about 10k requests for a 10k-file import. That's fine on localhost and HTTP/1.1 keep-alive; reverse-proxy rate limits need configuring (§7).
 - **SQLite write contention.** Batch commits are short, but user edits during a big import compete for the writer. `busy_timeout` plus transient retry covers it; watch for it in Phase 0/1.
 - **Possible-duplicate volume.** A job could flag many items; the report needs grouping by existing image and bulk actions (Phase 4).
+- **Shared-storage "add to group".** Should there also be an action that puts the *existing* image into the new group, alongside "Import as new copy"?
+  - Today an image belongs to exactly one group, so this would be either a second record sharing the stored file (with diverging tags) or a move.
+  - Doing it properly needs many-to-many group membership. Deferred until there's a concrete need.
 - **Future bulk import.** Linked library folders will add an item source whose bytes are read in place rather than staged. The item and job model, worker, report and dock should need no structural change. Revisit `kind` and `staging_key` vs a `source_path` then.

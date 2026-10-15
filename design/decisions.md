@@ -464,7 +464,7 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
    - Canonical decoded-pixel hash: auto-skip at commit.
    - Perceptual hash: advisory "possible duplicate" only, never auto-skipped, because battlemap variants are near-duplicates by nature.
 
-   "Import anyway" creates a record that shares the existing stored file.
+   "Import as new copy" processes the file as fully independent (own stored file, thumbnails and embedding). It is the escape hatch for a faulty match, so it shares nothing with the matched image. The shared-storage reuse path is removed.
 7. **The frontend has one `ImportManager` store** outside React. It owns uploads, a hashing Web Worker and a single ETag-aware poller; dialogs and the dock are pure views.
 8. **Stored-file conversion defaults to off.** It becomes a server config option later (`original`/`webp`/`jpeg`/`png` plus quality).
 
