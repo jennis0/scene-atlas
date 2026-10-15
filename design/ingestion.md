@@ -1,5 +1,7 @@
 # Ingestion Pipeline
 
+> **Being replaced:** this describes the current import flow, which is being redesigned. See [ingest-redesign.md](ingest-redesign.md) and ADR-018.
+
 ## Overview
 
 The ingestion pipeline processes images from the filesystem into the system: parsing metadata, copying into the object store, generating thumbnails, extracting colors, generating CLIP embeddings, and saving everything to SQLite + LanceDB.

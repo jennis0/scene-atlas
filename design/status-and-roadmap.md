@@ -54,6 +54,7 @@ Scene Atlas is a tool for viewing and searching large collections of tabletop RP
 
 | Feature | Branch | Plan File | Status |
 |---------|--------|-----------|--------|
+| Ingest pipeline redesign (ADR-018) | `worktree-ingest-redesign` | [ingest-redesign.md](ingest-redesign.md) | Design accepted 2026-10-15; implementation phases 0-6 pending |
 | Security Phase 2 (headers + rate limiting) | `feature/security-phase-2-headers` | [security.md](security.md) | Security headers, rate limiting (8 endpoints), CI scanning, CORS warning. Auth deferred to Phase 3. |
 
 ### Backlog Items
@@ -91,7 +92,7 @@ For detailed architecture, see:
 - [ingestion.md](ingestion.md) — Pipeline architecture
 - [search.md](search.md) — Search architecture (FTS5, semantic, RRF, phrase matching, multi-model)
 - [gpu-acceleration.md](gpu-acceleration.md) — GPU provider chain, DirectML maintenance notes
-- [decisions.md](decisions.md) — All Architecture Decision Records (ADRs 001-017)
+- [decisions.md](decisions.md) — All Architecture Decision Records (ADRs 001-018)
 
 ---
 

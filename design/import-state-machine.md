@@ -1,5 +1,7 @@
 # Import Job State Machine
 
+> **Being replaced:** this describes the current import flow, which is being redesigned. See [ingest-redesign.md](ingest-redesign.md) and ADR-018.
+
 ## Overview
 
 Import jobs track the lifecycle of a multi-group image import from upload through processing to completion. The import flow uses an **explicit state machine** where `ImportJob.status` is the single source of truth — status is never derived from child group states.
