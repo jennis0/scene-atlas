@@ -281,6 +281,48 @@ Downscaled maps with 6–20 px cells aren't usable as VTT maps. Current's higher
    - A detected scale is useful to VTT users even on gridless maps.
    - Consider storing "has a drawn grid" and "grid scale" as separate fields.
 
+## 7. Port plan (agreed 2026-10-16)
+
+The port is a separate branch and worktree, started after `worktree-ingest-redesign` is merged. Each step below is a reviewable commit.
+
+**Decisions:**
+- **`grid_source` column: yes.** Detector re-runs must never overwrite a user's grid correction.
+- **No re-detection on upgrade.** The app is unreleased, and local libraries will be rebuilt.
+- **No `legacy` rollback switch.** v3 replaces the old detector outright; only its <1000 px path survives.
+- **The training script is committed** under `scripts/models/grid/`, next to the CLIP export scripts. The evaluation research stays untracked in `scripts/grid_research/`.
+
+**Steps:**
+
+1. **Module.** Create `backend/app/services/grid_v3/`:
+   - `analysis.py`: decode, profiles, spectra, comb search.
+   - `features.py`: 27 presence and 8 hex features, in a pinned order.
+   - `models.py`: lazy ONNX sessions, CPU provider, single-threaded. Validates the feature list and version in `meta.json`.
+   - `detector.py`: `detect(path, w, h, *, size_only, sibling_counts)`. Images under 1000 px go to the legacy path, which is reduced to just what that needs.
+
+   Port the algorithm unchanged, and confirm parity with `grid_v3_fullres.py` on a local sample: identical decisions, and features equal to within float tolerance.
+2. **Tests, written alongside step 1. Synthetic fixtures only:** no commercial map may be committed.
+   - Generated textures with square and hex grids: cell-size sweeps, faint lines, few cells, plank and flagstone decoys.
+   - Model outputs for fixed feature vectors match stored probabilities.
+   - An opt-in local regression suite, enabled by an environment variable, replays the round 2–5 crop cases against the user's library.
+3. **Ingest integration:**
+   - `_detect_grid` calls the new detector.
+   - `plan_decode` reserves grid memory with the per-format formula from round 5. Progressive-JPEG sniffing already exists there.
+   - Sibling grid sizes come from the same import group (`import_items.import_group_id`) for size-only mode.
+   - Detector errors become clear file-level failures.
+4. **Settings:**
+   - Remove `grid_min_cell_px`, `grid_max_cell_px`, `grid_presence_threshold`, `grid_size_threshold`, `grid_period_ratio_threshold`, `grid_hex_rot_conf` and `grid_detection_max_dim` from config, schemas, `database.py` defaults, frontend types and the Settings screen.
+   - Add `grid_analysis_max_dim` (default None), labelled in the UI as reducing accuracy on high-resolution maps.
+5. **`grid_source`:**
+   - Add a migration for `images.grid_source` (`filename`, `detector:v3`, `user`).
+   - Set it at ingest, and to `user` on manual edits.
+   - Point the existing backfill job at v3, skipping `user`-sourced grids.
+   - No upgrade-time re-run.
+6. **Packaging:** add `backend/app/data/grid_models/` (about 70 KB) to the PyInstaller `datas` list, and verify through the release workflow on Windows and macOS. onnxruntime already ships.
+7. **Reproducibility and docs:**
+   - `scripts/models/grid/train_grid_models.py` rebuilds the ONNX models and `meta.json` from a features file. Its docstring records data provenance and the round-5 metrics.
+   - Retire `backend/scripts/eval_grid_detection.py`, which evaluates the old detector.
+   - Write ADR-019, and update this document, `parser.md` §2 and the status page.
+
 ## 6. Prototype location
 
 The code is in `scripts/grid_research/`, gitignored and local to the main checkout:
