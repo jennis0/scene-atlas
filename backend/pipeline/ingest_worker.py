@@ -250,8 +250,15 @@ class IngestWorker:
                 worked = False
                 self._stop.wait(5.0)
             if not worked and not self._stop.is_set():
-                self._wake.wait(self._idle_wait)
+                self._wake.wait(self._next_wait())
                 self._wake.clear()
+
+    def _next_wait(self) -> float:
+        """Idle wait, cut short when a system-pause re-probe is due sooner."""
+        if self._system_reason is None:
+            return self._idle_wait
+        until_probe = self._probe_interval - (time.monotonic() - self._last_probe)
+        return max(0.05, min(self._idle_wait, until_probe))
 
 
 _worker: IngestWorker | None = None

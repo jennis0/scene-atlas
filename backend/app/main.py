@@ -131,10 +131,14 @@ async def lifespan(app: FastAPI):
     # loaded: re-embeds images missing a vector (crash between commit and vector
     # write, or a freshly switched model) and drops vectors with no image.
     def _reconcile_embeddings_when_ready() -> None:
+        from ..pipeline.ingest_worker import get_ingest_worker
         from ..pipeline.vector_reconcile import reconcile_vectors
         from .services.clip_service import get_clip_unavailable_reason, wait_for_clip_ready
 
         wait_for_clip_ready()
+        # The worker may have paused for "waiting for the AI model"; re-check now
+        # rather than at its next scheduled probe.
+        get_ingest_worker().probe_now()
         if get_clip_unavailable_reason() is None:
             runner.submit(reconcile_vectors, name="Reconcile embeddings")
 

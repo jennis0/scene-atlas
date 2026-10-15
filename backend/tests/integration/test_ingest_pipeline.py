@@ -902,3 +902,15 @@ def test_plan_decode_png_is_always_full(tmp_path, monkeypatch):
     PILImage.new("RGB", (3000, 2000)).save(path)
     plan = plan_decode(path, _claimed(), PipelineConfig(enable_image_grid_detection=False))
     assert plan.full_decode and plan.peak_bytes == 3000 * 2000 * 5
+
+
+def test_paused_worker_reprobes_on_probe_interval(env):
+    from backend.pipeline.ingest_worker import IngestWorker
+
+    worker = IngestWorker(
+        probe=lambda: "No AI model is available", idle_wait=30.0, probe_interval=2.0
+    )
+    assert worker._next_wait() == 30.0
+    worker.run_once()  # pauses
+    assert worker.status().system_paused
+    assert 0.05 <= worker._next_wait() <= 2.0
