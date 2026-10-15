@@ -109,11 +109,19 @@ export function Gallery() {
     return () => clearTimeout(timer)
   }, [importedTotal, queryClient])
 
+  // An import whose dialog is on screen already shows its outcome: no toast.
+  const watchedJobRef = useRef<string | null>(null)
+  useEffect(() => {
+    watchedJobRef.current = dialogs.importDialog.open
+      ? dialogs.importDialog.jobId
+      : dialogs.reportJobId
+  }, [dialogs.importDialog, dialogs.reportJobId])
+
   // Tell the user when an import finishes, including when files had problems.
   useEffect(() => {
     return getImportManager().onJobFinished((job) => {
       invalidateGalleryQueries(queryClient)
-      if (job.status === 'cancelled') return
+      if (job.status === 'cancelled' || watchedJobRef.current === job.id) return
       const action = { label: 'View report', onClick: () => dialogs.setReportJobId(job.id) }
       const description = outcomeText(job.counts)
       if (job.counts.failed > 0) {

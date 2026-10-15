@@ -569,6 +569,41 @@ describe('polling', () => {
     expect(list).toHaveBeenCalledTimes(4)
   })
 
+  it('backs off while the server is down, but rechecks every few seconds', async () => {
+    const calls: Calls = []
+    const list = vi.fn().mockRejectedValue(networkError())
+    const { manager } = track(
+      makeManager(fakeClient(calls, { list }), { pollActiveMs: 1000, pollRetryCapMs: 5000 }),
+    )
+    manager.startPolling()
+    await vi.advanceTimersByTimeAsync(60_000) // 0, 2, 6, 11, 16, ... 56 s
+    expect(manager.getSnapshot().connection).toBe('lost')
+    expect(list.mock.calls.length).toBeGreaterThanOrEqual(12)
+
+    list.mockResolvedValue({ data: { jobs: [], queue, version: 1 }, etag: null })
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(manager.getSnapshot().connection).toBe('ok')
+  })
+
+  it('switches an idle poller to the active cadence when an import starts', async () => {
+    const calls: Calls = []
+    const list = vi.fn().mockResolvedValue({ data: { jobs: [], queue, version: 1 }, etag: null })
+    const { manager } = track(
+      makeManager(fakeClient(calls, { list }), { pollActiveMs: 1000, pollIdleMs: 30_000 }),
+    )
+    manager.startPolling()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(list).toHaveBeenCalledTimes(1) // idle: next poll armed for 30 s
+
+    list.mockResolvedValue({ data: { jobs: [summary('job1')], queue, version: 2 }, etag: null })
+    await manager.refresh() // e.g. after startImport creates the job
+    expect(list).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(list).toHaveBeenCalledTimes(3)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(list).toHaveBeenCalledTimes(4)
+  })
+
   it('notifies when a job finishes', async () => {
     const calls: Calls = []
     const list = vi

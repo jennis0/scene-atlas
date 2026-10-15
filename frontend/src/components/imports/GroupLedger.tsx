@@ -65,6 +65,9 @@ function LedgerRow({
   const ratio = counts.total > 0 ? finished / counts.total : 0
   const open = counts.processing > 0 || counts.ready > 0 || counts.awaiting_bytes > 0
   const canOpen = !!onOpenGroup && group.image_group_id !== null && counts.done > 0
+  // Count against what this import could add: files already in the library or
+  // skipped are settled, not missing, so a finished group never reads "3/6".
+  const importable = counts.total - counts.duplicate - counts.skipped
 
   const content = (
     <>
@@ -82,10 +85,13 @@ function LedgerRow({
           )}
         </span>
         <span className="ml-auto flex items-baseline gap-2 shrink-0 font-mono text-[10.5px] tabular-nums">
+          {counts.duplicate > 0 && (
+            <span className="text-muted-foreground/60">{counts.duplicate} in library</span>
+          )}
           {counts.failed > 0 && <span className="text-destructive">{counts.failed} failed</span>}
           <span className="text-muted-foreground">
             {counts.done}
-            <span className="text-muted-foreground/50">/{counts.total}</span>
+            <span className="text-muted-foreground/50">/{importable}</span>
           </span>
         </span>
       </div>

@@ -105,6 +105,20 @@ describe('ImportDialog: progress', () => {
     expect(screen.getByText('Keeps running if you close this')).toBeInTheDocument()
   })
 
+  it('counts a group against what it could import, not files already in the library', async () => {
+    const settled = group({ counts: counts({ done: 3, duplicate: 3, skipped: 1 }) })
+    ;({ manager, client } = await installFakeImportManager({
+      jobs: [jobSummary({ status: 'completed', counts: settled.counts })],
+      details: { job1: { ...jobSummary({ status: 'completed' }), groups: [settled] } },
+    }))
+    renderWithProviders(
+      <ImportDialog jobId="job1" open onClose={noop} onStarted={noop} onOpenReport={noop} />,
+    )
+    const row = await screen.findByRole('listitem')
+    expect(row).toHaveTextContent('3 in library')
+    expect(row).toHaveTextContent('3/3')
+  })
+
   it('offers resume or finishing without missing files after an interrupted upload', async () => {
     ;({ manager, client } = await installFakeImportManager({
       jobs: [

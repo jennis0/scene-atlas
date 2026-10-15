@@ -104,6 +104,8 @@ export interface ImportManagerOptions {
   pollActiveMs?: number
   pollHiddenMs?: number
   pollIdleMs?: number
+  /** Longest wait between polls while the server is unreachable. */
+  pollRetryCapMs?: number
   sleep?: (ms: number) => Promise<void>
   isHidden?: () => boolean
   /** Window to attach the beforeunload guard to (null to skip). */
@@ -217,6 +219,7 @@ export class ImportManager {
 
   private etag: string | null = null
   private pollTimer: ReturnType<typeof setTimeout> | null = null
+  private pollDueAt = 0
   private polling = false
   private pollInFlight: Promise<void> | null = null
   private pollFailures = 0
@@ -241,6 +244,9 @@ export class ImportManager {
       pollActiveMs: options.pollActiveMs ?? 1000,
       pollHiddenMs: options.pollHiddenMs ?? 5000,
       pollIdleMs: options.pollIdleMs ?? 30_000,
+      // Short: a conditional GET is cheap, and the UI should notice within
+      // seconds when a restarted server comes back.
+      pollRetryCapMs: options.pollRetryCapMs ?? 5000,
     }
   }
 
@@ -826,6 +832,7 @@ export class ImportManager {
     if (this.pollInFlight) return this.pollInFlight
     this.pollInFlight = this.poll().finally(() => {
       this.pollInFlight = null
+      this.pullPollForward()
     })
     return this.pollInFlight
   }
@@ -833,6 +840,7 @@ export class ImportManager {
   private schedulePoll(delay: number): void {
     if (!this.polling) return
     if (this.pollTimer) clearTimeout(this.pollTimer)
+    this.pollDueAt = Date.now() + delay
     this.pollTimer = setTimeout(async () => {
       this.pollTimer = null
       await this.refresh()
@@ -840,9 +848,20 @@ export class ImportManager {
     }, delay)
   }
 
+  /**
+   * After an out-of-band poll (an action, a new import), bring the armed timer
+   * forward if the cadence just got faster — otherwise an import started while
+   * idle would wait out the 30 s idle timer before its progress moved.
+   */
+  private pullPollForward(): void {
+    if (!this.polling || !this.pollTimer) return
+    const delay = this.nextPollDelay()
+    if (Date.now() + delay < this.pollDueAt) this.schedulePoll(delay)
+  }
+
   private nextPollDelay(): number {
     if (this.pollFailures > 0) {
-      return Math.min(this.opts.retryCapMs, this.opts.pollActiveMs * 2 ** this.pollFailures)
+      return Math.min(this.opts.pollRetryCapMs, this.opts.pollActiveMs * 2 ** this.pollFailures)
     }
     if (this.isHidden()) return this.opts.pollHiddenMs
     return this.hasActivity() ? this.opts.pollActiveMs : this.opts.pollIdleMs
