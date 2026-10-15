@@ -665,6 +665,19 @@ def get_clip_service() -> CLIPService:
     return _clip_service
 
 
+def get_clip_unavailable_reason() -> str | None:
+    """Why embeddings can't be generated right now, or None if the model is ready.
+
+    Never blocks, unlike ``get_clip_service()``. Used by the ingest worker to
+    pause the queue instead of failing images while a model loads or is missing.
+    """
+    if not _clip_ready.is_set():
+        return "Waiting for the AI model to load"
+    if _clip_service is None:
+        return "No AI model is available"
+    return None
+
+
 def wait_for_clip_ready() -> None:
     """Block until the CLIPService has finished loading (or failed).
 

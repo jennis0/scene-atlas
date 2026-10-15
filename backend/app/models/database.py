@@ -11,9 +11,11 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
+    UniqueConstraint,
     create_engine,
     text,
 )
@@ -48,7 +50,10 @@ class Image(Base):
     grid_type = Column(String, nullable=True)  # "square" | "hex" | None
     grid_confidence = Column(Float, nullable=True)  # 0.0-1.0, None = filename-detected
     subgroup = Column("sub_variant", String, nullable=True)  # Subgroup path (e.g. "MA / No Grid")
-    content_hash = Column(String(64), nullable=True, index=True)  # SHA-256 hex digest
+    content_hash = Column(String(64), nullable=True, index=True)  # SHA-256 of original bytes
+    stored_hash = Column(String(64), nullable=True, index=True)  # SHA-256 of the stored file
+    pixel_hash = Column(String(64), nullable=True, index=True)  # Hash of canonical decoded pixels
+    phash = Column(Integer, nullable=True)  # 64-bit perceptual hash (signed); advisory only
     search_text = Column(Text, nullable=True)  # Pre-tokenized text for FTS5 (CamelCase-split)
     media_type = Column(String, nullable=True, default="image")  # "image" or "video"
     image_type = Column(String, nullable=True, default="battlemap")  # "battlemap" or "scene"
@@ -185,8 +190,20 @@ class ImportJob(Base):
     )  # JSON list of warning dicts (upload skips, pipeline warnings)
     total_file_size = Column(Integer, default=0)  # Accumulated bytes across all upload batches
 
+    # --- Per-item ingest model (ADR-018) ---
+    default_image_type = Column(String, nullable=False, default="battlemap")
+    planned_at = Column(DateTime, nullable=True)  # Manifest sealed + groups planned
+    last_upload_at = Column(DateTime, nullable=True)  # Last byte receipt
+    dismissed_at = Column(DateTime, nullable=True)  # Hidden from the activity dock
+
     # Relationships
     groups = relationship("ImportGroupJob", back_populates="job", cascade="all, delete-orphan")
+    import_groups = relationship(
+        "ImportGroup", back_populates="job", cascade="all, delete-orphan", passive_deletes=True
+    )
+    items = relationship(
+        "ImportItem", back_populates="job", cascade="all, delete-orphan", passive_deletes=True
+    )
 
     def __repr__(self):
         return f"<ImportJob(id='{self.id}', status='{self.status}')>"
@@ -233,6 +250,79 @@ class ImportGroupJob(Base):
         return (
             f"<ImportGroupJob(id='{self.id}', group='{self.group_name}', status='{self.status}')>"
         )
+
+
+class ImportGroup(Base):
+    """A group planned from the uploaded paths at seal time (ADR-018).
+
+    Resolves to a gallery ``ImageGroup``: an existing one (``merged_into_existing``)
+    or one created when the first image of the group commits.
+    """
+
+    __tablename__ = "import_groups"
+
+    id = Column(Integer, primary_key=True)
+    job_id = Column(String, ForeignKey("import_jobs.id"), nullable=False, index=True)
+    author = Column(String, nullable=True)
+    group_name = Column(String, nullable=False)
+    image_group_id = Column(Integer, ForeignKey("variant_groups.id"), nullable=True)
+    merged_into_existing = Column(Boolean, nullable=False, default=False)
+    sort_order = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    job = relationship("ImportJob", back_populates="import_groups")
+
+    def __repr__(self):
+        return f"<ImportGroup(id={self.id}, group='{self.group_name}')>"
+
+
+class ImportItem(Base):
+    """One file in an import job. All durable ingest state lives here (ADR-018).
+
+    State machine: see ``backend/app/services/ingest_state.py``.
+    """
+
+    __tablename__ = "import_items"
+
+    id = Column(Integer, primary_key=True)
+    job_id = Column(String, ForeignKey("import_jobs.id"), nullable=False)
+    import_group_id = Column(Integer, ForeignKey("import_groups.id"), nullable=True)
+    kind = Column(String, nullable=False, default="image")  # image | video | archive
+    relative_path = Column(String, nullable=False)  # Display + resume matching only
+    filename = Column(String, nullable=False)
+    size = Column(Integer, nullable=True)
+    last_modified = Column(Integer, nullable=True)  # Client-reported, ms since epoch
+    image_type = Column(String, nullable=False, default="battlemap")
+    parsed = Column(Text, nullable=True)  # JSON parser output (set at plan time)
+    state = Column(String, nullable=False, default="awaiting_bytes")
+    staging_key = Column(String, nullable=True)  # Server-generated staged filename
+    source_hash = Column(String(64), nullable=True)  # SHA-256 of the original bytes
+    attempts = Column(Integer, nullable=False, default=0)
+    retry_after = Column(DateTime, nullable=True)
+    error_kind = Column(String, nullable=True)  # file | transient | system
+    error_stage = Column(String, nullable=True)
+    error_reason = Column(Text, nullable=True)  # User-facing
+    error_detail = Column(Text, nullable=True)  # Raw exception text
+    image_id = Column(Integer, ForeignKey("images.id"), nullable=True)
+    duplicate_of_image_id = Column(Integer, ForeignKey("images.id"), nullable=True)
+    duplicate_tier = Column(String, nullable=True)  # bytes | pixels
+    allow_duplicate = Column(Boolean, nullable=False, default=False)
+    similar_to_image_id = Column(Integer, ForeignKey("images.id"), nullable=True)
+    similarity_distance = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    job = relationship("ImportJob", back_populates="items")
+
+    __table_args__ = (
+        UniqueConstraint("job_id", "relative_path", name="uq_import_items_job_path"),
+        Index("ix_import_items_state_job", "state", "job_id"),
+        Index("ix_import_items_job_state", "job_id", "state"),
+        Index("ix_import_items_job_group", "job_id", "import_group_id"),
+    )
+
+    def __repr__(self):
+        return f"<ImportItem(id={self.id}, path='{self.relative_path}', state='{self.state}')>"
 
 
 # Database setup utilities
@@ -509,7 +599,7 @@ def seed_default_settings(session):
         "max_job_workers": resource_defaults["max_job_workers"],
         "scheduler_enabled": True,
         # Import processing — initial value read from env so setup wizard choice is honoured
-        "convert_to_webp": bool(int(os.environ.get("CONVERT_TO_WEBP", "1"))),
+        "convert_to_webp": bool(int(os.environ.get("CONVERT_TO_WEBP", "0"))),
         "webp_lossless": True,
         "webp_quality": 95,
     }

@@ -88,7 +88,7 @@ One row per file. **All durable ingest state lives here.**
 | `staging_key` | Server-generated name of the staged bytes; NULL until received |
 | `source_hash` | SHA-256 of the original bytes. Client-supplied hint before upload; server-computed (authoritative) on receipt |
 | `attempts`, `retry_after` | Claim counter (poison detection) and backoff for transient errors |
-| `error_kind`, `error_stage`, `error_reason`, `error_detail` | `error_kind` ∈ `file` \| `transient` \| `system`. `error_reason` is user-facing; `error_detail` is the raw exception. |
+| `error_kind`, `error_stage`, `error_reason`, `error_detail` | `error_kind` ∈ `file` \| `transient` \| `system` \| `bytes_lost`. `error_reason` is user-facing; `error_detail` is the raw exception. |
 | `image_id` | Set when `done` |
 | `duplicate_of_image_id`, `duplicate_tier` | Set when `duplicate` (`bytes` \| `pixels`) |
 | `allow_duplicate` | Set by "Import as new copy". Skips the dedup check at commit. |
@@ -486,6 +486,40 @@ Large feature; worktree branch `worktree-ingest-redesign`. **The branch is not m
 | **4. Duplicate UX** | Import as new copy (bulk and per item), possible-duplicate flags in the report. | Tests plus manual check |
 | **5. Conversion config** | `stored_format`/`stored_quality` server config, `stored_hash`. | Tests |
 | **6. E2E and docs** | E2E failure-injection specs. Fold this document into `import-state-machine.md`, `web-import.md`, `ingestion.md` and `storage.md`; update `backend.md`, `frontend.md`, `security.md` (rate limits) and `status-and-roadmap.md`. | Docs describe the shipped system; this file removed or reduced to a pointer |
+
+### Phase 1 status (done)
+
+**Where the code lives:**
+
+| Module | Responsibility |
+|---|---|
+| `backend/app/services/ingest_state.py` | Pure item and job state machines. The DB layer derives allowed source states from its transition table. |
+| `backend/pipeline/ingest_queue.py` | All durable operations: create, manifest, plan (seal), byte receipt, claim, failures, recovery, retry, import-as-copy, skip, pause, resume, cancel, `recompute_job_status`, and `write_session()` (`BEGIN IMMEDIATE`). |
+| `backend/pipeline/ingest_process.py` | One batch: `prepare_item` (prepare pool), `embed`, `commit_batch` (one write transaction with temp-then-rename placement), `write_vectors`, `process_batch` |
+| `backend/pipeline/ingest_worker.py` | `IngestWorker` (loop thread, round-robin cursor, system pause and probe, `drain()`, `status()` with a version counter) and `get_ingest_worker()` |
+| `backend/pipeline/image_hashes.py` | SHA-256, strip-wise pixel hash, DCT pHash |
+| `backend/pipeline/vector_reconcile.py` | Id-set reconciliation |
+| `backend/alembic/versions/020_ingest_items.py` | New tables and columns. Additive only, so the old flow keeps working until Phase 2. |
+
+**Refinements made during implementation:**
+
+- **Column names.** The job label stays in `import_jobs.source_label`, and the source hash stays in `images.content_hash`. Both are still used by the old flow; rename them, if at all, in Phase 2's cleanup migration.
+- **Decoding once.** Prepare decodes each image once for the pixel hash and thumbnails.
+  - Colour extraction and the pHash read the 800px thumbnail rather than the original (colour extraction downsamples to 512px anyway).
+  - Thumbnails cascade large → medium → small instead of copying the full-resolution image three times.
+  - Only grid detection re-reads the original.
+- **`error_kind`** also takes `bytes_lost` (the staged file disappeared; the item goes back to `awaiting_bytes`).
+- **Sessions don't autoflush**, so `recompute_job_status` flushes before counting. Without this every job stayed `active` forever; the integration tests catch it.
+- **WebP defaults to off everywhere:** the backend seed, the settings schema, the Electron setup wizard and config, and `.env.example`. The new pipeline doesn't convert at all until Phase 5.
+
+**Carried into Phase 2:**
+
+- **Wire the worker into the FastAPI lifespan** (`recover()` then `start()`) **at the same time as removing `mark_interrupted_jobs`.** That function would treat the new `active` jobs as interrupted and delete their images, which is why the worker isn't wired up yet.
+- **The orphan sweep must skip `.incoming/`** (and `backups/`).
+- **Maintenance deletes staged files of `done` items.** They're normally removed right after the commit, but a crash in between leaves them behind.
+- **Undo** must use `import_groups.image_group_id` and `merged_into_existing` to decide which gallery groups to delete. The current `cleanup_import_images` uses `ImportGroupJob.created_group_id`.
+- **The import report** must handle items whose `image_id` points at an image the user has since deleted. SQLite foreign keys aren't enforced.
+- **MemoryError back-off to batch size 1** is not implemented; MemoryError is retried as transient. Add it if Phase 0 shows real OOMs.
 
 ---
 

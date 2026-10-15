@@ -555,7 +555,7 @@ class AppSettings(BaseModel):
     scheduler_enabled: bool = True
 
     # Import processing
-    convert_to_webp: bool = True
+    convert_to_webp: bool = False
     webp_lossless: bool = True
     webp_quality: int = Field(95, ge=0, le=100)
 

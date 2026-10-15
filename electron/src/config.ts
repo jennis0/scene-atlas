@@ -27,7 +27,7 @@ function migrateLegacyConfig(legacy: LegacyConfig): AppConfig {
   return {
     appDataDir: dataDir,
     imageLibraryDir: path.join(dataDir, 'store', 'images'),
-    convertToWebp: true,
+    convertToWebp: false,
   }
 }
 
@@ -49,7 +49,7 @@ export function loadConfig(): AppConfig | null {
     return {
       appDataDir: parsed.appDataDir,
       imageLibraryDir: parsed.imageLibraryDir,
-      convertToWebp: parsed.convertToWebp ?? true,
+      convertToWebp: parsed.convertToWebp ?? false,
     }
   } catch {
     return null

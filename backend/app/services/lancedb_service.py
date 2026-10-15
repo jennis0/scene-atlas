@@ -269,6 +269,14 @@ class LanceDBService:
             logger.warning("Error retrieving embeddings for %d ids: %s", len(image_ids), e)
             return {}
 
+    def get_all_ids(self) -> set[int]:
+        """Every image id in the table, without loading vectors (for reconciliation)."""
+        table = self._table
+        if table is None:
+            raise RuntimeError("LanceDBService is closed")
+        rows = table.search().select(["id"]).limit(None).to_arrow()
+        return set(rows.column("id").to_pylist())
+
     def get_collection_info(self) -> dict:
         """Get information about the collection."""
         table = self._table
