@@ -6,7 +6,7 @@
 - Keep `grid_detector.py` for smaller images.
 
 This is not yet an ADR; write one when the port lands.
-**Prototype:** `grid_v3.py`, trained models, and the evaluation scripts. These are research code and are not tracked in git, matching the convention in `05b2234`. They are in `scripts/grid_research/` (see §6).
+**Prototype:** `grid_v3.py`, trained models, and the evaluation scripts. These are research code and are not tracked in git, matching the convention in `05b2234`. They are in `scripts/grid_research/` (see §7).
 
 This document records why the change is proposed, how it was measured, and what did not work. Read it before touching grid detection.
 
@@ -281,7 +281,7 @@ Downscaled maps with 6–20 px cells aren't usable as VTT maps. Current's higher
    - A detected scale is useful to VTT users even on gridless maps.
    - Consider storing "has a drawn grid" and "grid scale" as separate fields.
 
-## 7. Port plan (agreed 2026-10-16)
+## 6. Port plan (agreed 2026-10-16)
 
 The port is a separate branch and worktree, started after `worktree-ingest-redesign` is merged. Each step below is a reviewable commit.
 
@@ -323,7 +323,7 @@ The port is a separate branch and worktree, started after `worktree-ingest-redes
    - Retire `backend/scripts/eval_grid_detection.py`, which evaluates the old detector.
    - Write ADR-019, and update this document, `parser.md` §2 and the status page.
 
-## 6. Prototype location
+## 7. Prototype location
 
 The code is in `scripts/grid_research/`, gitignored and local to the main checkout:
 - **Port this:** `gridalgo/grid_v3_fullres.py` (full resolution, `max_analysis_dim` parameter, ONNX models, no `factor`, no half/double fix, optional `sibling_prior()`), with its models in `gridalgo/v3_fullres_models/`.
