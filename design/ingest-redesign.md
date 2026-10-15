@@ -360,7 +360,7 @@ Processing overlaps the upload; nothing waits for "upload complete".
   - About 1 s while any job is active and the tab is visible, 5 s when hidden, 30 s when idle.
   - Exponential backoff on errors, which drives a `connection: ok | degraded | lost` state.
 - **`beforeunload` guard** while any local upload has outstanding bytes.
-- **Persistence:** localStorage holds only the ids of jobs this browser started (for "Choose files to resume"). It never holds file lists.
+- **Persistence: none.** The server reports `upload_interrupted`, and any browser can resume by re-picking the files (matched by path and size), so nothing needs to be stored locally. (The original plan kept job ids in localStorage; it turned out to be unnecessary.)
 
 Dialogs and the dock are pure views over the manager, so remounting a dialog cannot orphan an upload or start a request loop.
 
@@ -625,6 +625,31 @@ Large feature; worktree branch `worktree-ingest-redesign`. **The branch is not m
 - **The frontend still calls the old endpoints,** so imports through the UI don't work on this branch until Phase 3.
 - **`e2e/helpers/seed.ts` and `stress_tests/`** still use the old API (Phase 6).
 - **Library purge deletes `backups/`.** This predates the redesign: backups live inside the image library folder, and the purge removes that whole folder. It needs a separate decision.
+
+### Phase 3 status (in progress)
+
+**Step 1, `ImportManager`: done.** It lives in `frontend/src/lib/import/`:
+
+| File | Responsibility |
+|---|---|
+| `types.ts` | API types |
+| `importClient.ts` | Typed HTTP client |
+| `hasher.ts`, `hash.worker.ts` | Web Worker SHA-256. Off in insecure contexts and for files over 256 MB. |
+| `ImportManager.ts` | Uploads, resume, single poller, unload guard, actions |
+| `useImports.ts` | `useSyncExternalStore` hooks |
+
+**Behaviour:**
+- **Upload retries:**
+  - Network errors back off (capped at 30 s) and retry indefinitely while the tab is open; the upload shows "waiting for connection".
+  - 5xx/408/429 retry up to 5 times, then the file is recorded as a local failure. It stays `awaiting_bytes` server-side, so it can be resumed.
+  - 409/404 stop quietly.
+  - Other 4xx (e.g. 413) fail the file at once.
+- **Setup calls** (manifest, archives, seal, hashes) use the same retry policy. If the import can't be started (e.g. 507 at seal), the job is cancelled so it can't sit active forever.
+- **Pipelining:** a hashing round (50 files) runs ahead of 3 concurrent uploads.
+- **Poller:** 1 s while anything is active, 5 s when the tab is hidden, 30 s when idle, with exponential backoff on errors. One failure shows the connection as `degraded`, three as `lost`. Concurrent refreshes are coalesced.
+- **Notifications:** `onJobFinished` fires when a job moves from active/paused to completed/cancelled (for toasts).
+
+**Steps 2 (views) and 3 (wiring and deletions)** are next.
 
 ---
 
