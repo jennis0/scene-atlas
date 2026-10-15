@@ -14,7 +14,8 @@ from ..models import (
     Color,
     Image,
     ImageGroup,
-    ImportGroupJob,
+    ImportGroup,
+    ImportItem,
     ImportJob,
     Tag,
     TagCategory,
@@ -113,7 +114,8 @@ def _purge_library(
         db.commit()
 
         _step("Deleting import records")
-        db.query(ImportGroupJob).delete()
+        db.query(ImportItem).delete()
+        db.query(ImportGroup).delete()
         db.query(ImportJob).delete()
         db.commit()
 
@@ -157,7 +159,10 @@ def delete_library(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409, detail="Library purge already in progress")
 
     active_imports = (
-        db.query(ImportJob).filter(ImportJob.status.in_(("uploading", "staging", "active"))).count()
+        db.query(ImportItem.job_id)
+        .filter(ImportItem.state.in_(("awaiting_bytes", "ready", "processing")))
+        .distinct()
+        .count()
     )
     if active_imports:
         raise HTTPException(

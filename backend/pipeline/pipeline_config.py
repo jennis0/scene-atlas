@@ -30,7 +30,7 @@ class PipelineConfig:
     enable_image_grid_detection: bool = True
     grid_min_cell_px: int = 32
     grid_max_cell_px: int = 320
-    grid_detection_max_dim: int = 20_000
+    grid_detection_max_dim: int = 8_000
     grid_presence_threshold: float = 0.20
     grid_size_threshold: float = 0.15
     grid_period_ratio_threshold: float = 0.98

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import uuid
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
@@ -360,17 +361,132 @@ def recompute_job_status(db: Session, job_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def find_byte_duplicates(db: Session, hashes: Iterable[str]) -> dict[str, int]:
+    """Map each hash that matches a library image (source or stored bytes) → oldest image id."""
+    from backend.app.models import Image
+
+    found: dict[str, int] = {}
+    ordered = sorted(set(hashes))
+    for start in range(0, len(ordered), _IN_CHUNK):
+        chunk = ordered[start : start + _IN_CHUNK]
+        rows = (
+            db.query(Image.id, Image.content_hash, Image.stored_hash)
+            .filter(Image.content_hash.in_(chunk) | Image.stored_hash.in_(chunk))
+            .order_by(Image.id)
+            .all()
+        )
+        wanted = set(chunk)
+        for image_id, content_hash, stored_hash in rows:
+            for h in (content_hash, stored_hash):
+                if h in wanted:
+                    found.setdefault(h, image_id)
+    return found
+
+
+def _mark_duplicate(item: ImportItem, image_id: int) -> None:
+    item.state = st.next_item_state(item.state, ItemEvent.HASH_DUPLICATE)
+    item.duplicate_of_image_id = image_id
+    item.duplicate_tier = "bytes"
+
+
 def mark_bytes_received(
     db: Session, item: ImportItem, *, staging_key: str, source_hash: str
 ) -> None:
-    """Record staged bytes for an item awaiting them."""
-    item.state = st.next_item_state(item.state, ItemEvent.BYTES_RECEIVED)
+    """Record staged bytes for an item awaiting them.
+
+    If the bytes already exist in the library (and the user hasn't asked for a
+    new copy) the item becomes a duplicate straight away; its staged bytes are
+    kept so "Import as new copy" works without a re-upload.
+    """
     item.staging_key = staging_key
     item.source_hash = source_hash
     item.error_kind = item.error_stage = item.error_reason = item.error_detail = None
+    existing = None if item.allow_duplicate else find_byte_duplicates(db, [source_hash])
+    if existing:
+        _mark_duplicate(item, existing[source_hash])
+    else:
+        item.state = st.next_item_state(item.state, ItemEvent.BYTES_RECEIVED)
     job = db.get(ImportJob, item.job_id)
     if job is not None:
         job.last_upload_at = utcnow()
+    # Every item transition must be followed by a status recompute; doing it here
+    # means no caller can forget (an all-duplicates import must still complete).
+    recompute_job_status(db, item.job_id)
+
+
+def apply_client_hashes(db: Session, job_id: str, hashes: dict[int, str]) -> list[ImportItem]:
+    """Record client-computed hashes for items awaiting bytes; skip uploads of known files.
+
+    The client hash is only ever used to *skip* an upload. Bytes that are
+    uploaded are always re-hashed server-side, and that hash is authoritative.
+    """
+    items = (
+        db.query(ImportItem)
+        .filter(ImportItem.job_id == job_id, ImportItem.id.in_(list(hashes)))
+        .all()
+    )
+    awaiting = [i for i in items if i.state == st.AWAITING_BYTES and not i.allow_duplicate]
+    existing = find_byte_duplicates(db, [hashes[i.id] for i in awaiting])
+    for item in awaiting:
+        image_id = existing.get(hashes[item.id])
+        if image_id is not None:
+            item.source_hash = hashes[item.id]
+            _mark_duplicate(item, image_id)
+    db.flush()
+    recompute_job_status(db, job_id)
+    return items
+
+
+def dismiss_job(db: Session, job_id: str) -> None:
+    """Hide a finished job from the activity dock. Never deletes anything."""
+    job = db.get(ImportJob, job_id)
+    job.dismissed_at = job.dismissed_at or utcnow()
+
+
+class JobBusyError(Exception):
+    """Raised when an operation must wait for the batch in progress to finish."""
+
+
+def undo_job(db: Session, job_id: str):
+    """Delete every image the job created, then the job itself (design §4.2).
+
+    Cancels the job first. If a batch is mid-flight, raises JobBusyError so the
+    caller can retry once it has committed. Gallery groups the job created (not
+    ones it merged into) are deleted when they end up empty.
+
+    Returns ``(deleted_count, pending)``: the caller commits, then calls
+    ``pending.apply()`` to remove files and vectors.
+    """
+    from backend.app.services.deletion_service import delete_image_rows
+
+    cancel_job(db, job_id)
+    if job_counts(db, job_id).get(st.PROCESSING, 0):
+        raise JobBusyError(job_id)
+
+    from backend.app.models import Image
+
+    images = db.query(Image).filter(Image.import_job_id == job_id).all()
+    pending = delete_image_rows(db, images)
+
+    created_group_ids = [
+        group_id
+        for (group_id,) in db.query(ImportGroup.image_group_id).filter(
+            ImportGroup.job_id == job_id,
+            ImportGroup.merged_into_existing.is_(False),
+            ImportGroup.image_group_id.isnot(None),
+        )
+    ]
+    for group_id in created_group_ids:
+        if not db.query(Image.id).filter(Image.group_id == group_id).first():
+            group = db.get(ImageGroup, group_id)
+            if group is not None:
+                db.delete(group)
+
+    db.query(ImportItem).filter(ImportItem.job_id == job_id).delete(synchronize_session=False)
+    db.query(ImportGroup).filter(ImportGroup.job_id == job_id).delete(synchronize_session=False)
+    db.query(ImportJob).filter(ImportJob.id == job_id).delete(synchronize_session=False)
+    shutil.rmtree(staging_dir_for(job_id), ignore_errors=True)
+    return len(images), pending
 
 
 # ---------------------------------------------------------------------------

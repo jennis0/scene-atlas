@@ -2,10 +2,11 @@
 
 import logging
 import re
+from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
-from ..models.database import Image, ImageGroup, ImportGroupJob
+from ..models.database import Image
 
 logger = logging.getLogger(__name__)
 
@@ -64,75 +65,71 @@ def safe_delete_image(db: Session, image: Image) -> None:
         )
 
 
-def cleanup_import_images(job_id: str, db: Session) -> int:
-    """Delete all Image rows (and their files/embeddings) attached to an import job.
+@dataclass
+class PendingFileDeletes:
+    """Files and vectors to remove once the row deletions have committed.
 
-    Implements ref-counted physical file deletion: only removes files when no
-    other Image rows share the same storage_key. Also cleans up now-empty
-    ImageGroups that were created by this import.
-
-    Does NOT commit — caller is responsible.
-    Returns the count of Image rows deleted.
+    Deleting files only after the commit means a failed commit can never leave
+    rows pointing at missing files; at worst an orphaned file is left for the
+    orphan sweep.
     """
-    from . import get_image_store, get_thumbnail_store
-    from .lancedb_service import get_lancedb_service
 
-    images = db.query(Image).filter(Image.import_job_id == job_id).all()
+    storage_keys: list[str] = field(default_factory=list)
+    thumbnail_keys: list[str] = field(default_factory=list)
+    image_ids: list[int] = field(default_factory=list)
+
+    def apply(self) -> None:
+        from . import get_image_store, get_thumbnail_store
+        from .lancedb_service import get_lancedb_service
+
+        image_store = get_image_store()
+        thumbnail_store = get_thumbnail_store()
+        for key in self.storage_keys:
+            try:
+                image_store.delete(key)
+            except Exception as e:
+                logger.warning("Failed to delete image file %s: %s", key, e)
+        for key in self.thumbnail_keys:
+            _delete_all_thumbnails(thumbnail_store, key)
+        svc = get_lancedb_service()
+        for start in range(0, len(self.image_ids), _CHUNK):
+            try:
+                svc.delete_embeddings(self.image_ids[start : start + _CHUNK])
+            except Exception:
+                logger.warning("LanceDB cleanup failed (non-fatal)", exc_info=True)
+
+
+_CHUNK = 500
+
+
+def delete_image_rows(db: Session, images: list[Image]) -> PendingFileDeletes:
+    """Delete image rows (tags/colours cascade) and return the files to remove after commit.
+
+    Stored files still referenced by another image (legacy shared-storage
+    records) are kept. Does NOT commit.
+    """
+    pending = PendingFileDeletes()
     if not images:
-        return 0
-
-    image_store = get_image_store()
-    thumbnail_store = get_thumbnail_store()
-    svc = get_lancedb_service()
-    deleted_count = 0
-    image_ids_to_delete = []
-    group_ids_to_check: set[int] = set()
-
+        return pending
+    candidates = {img.storage_key: img.thumbnail_key for img in images if img.storage_key}
+    pending.image_ids = [img.id for img in images]
     for image in images:
-        image_ids_to_delete.append(image.id)
-        if image.group_id:
-            group_ids_to_check.add(image.group_id)
-
-        sibling_count = (
-            db.query(Image)
-            .filter(Image.storage_key == image.storage_key, Image.id != image.id)
-            .count()
-        )
-        if sibling_count == 0:
-            if image.storage_key:
-                try:
-                    image_store.delete(image.storage_key)
-                except Exception as e:
-                    logger.warning("Failed to delete image file %s: %s", image.storage_key, e)
-            if image.thumbnail_key:
-                _delete_all_thumbnails(thumbnail_store, image.thumbnail_key)
-
         db.delete(image)
-        deleted_count += 1
-
-    if image_ids_to_delete:
-        try:
-            svc.delete_embeddings(image_ids_to_delete)
-        except Exception:
-            logger.warning("LanceDB cleanup failed for job %s (non-fatal)", job_id, exc_info=True)
-
     db.flush()
 
-    # Clean up now-empty ImageGroups that were created by this import
-    group_job_rows = (
-        db.query(ImportGroupJob.created_group_id)
-        .filter(ImportGroupJob.job_id == job_id, ImportGroupJob.created_group_id.isnot(None))
-        .all()
-    )
-    created_group_ids = {row[0] for row in group_job_rows}
-    for group_id in created_group_ids & group_ids_to_check:
-        remaining = db.query(Image).filter(Image.group_id == group_id).count()
-        if remaining == 0:
-            grp = db.query(ImageGroup).filter(ImageGroup.id == group_id).first()
-            if grp:
-                db.delete(grp)
-
-    return deleted_count
+    keys = sorted(candidates)
+    still_used: set[str] = set()
+    for start in range(0, len(keys), _CHUNK):
+        chunk = keys[start : start + _CHUNK]
+        still_used |= {
+            key for (key,) in db.query(Image.storage_key).filter(Image.storage_key.in_(chunk))
+        }
+    for key in keys:
+        if key not in still_used:
+            pending.storage_keys.append(key)
+            if candidates[key]:
+                pending.thumbnail_keys.append(candidates[key])
+    return pending
 
 
 def _delete_all_thumbnails(thumbnail_store, thumbnail_key: str) -> None:

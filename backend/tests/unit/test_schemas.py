@@ -2,11 +2,8 @@
 
 import pytest
 
-from backend.app.models.schemas import (
-    ImportConfirmFile,
-    ImportConfirmRequest,
-    TagBase,
-)
+from backend.app.models.import_schemas import HashEntry, ManifestFile, ManifestRequest
+from backend.app.models.schemas import TagBase
 
 
 class TestTagBase:
@@ -35,58 +32,21 @@ class TestTagBase:
         assert restored == tag
 
 
-class TestImportConfirmFile:
-    """ImportConfirmFile defaults and validation."""
+class TestImportSchemas:
+    def test_manifest_file_minimal(self):
+        f = ManifestFile(relative_path="A/B/c.png")
+        assert f.size is None and f.image_type is None
 
-    def test_minimal(self):
-        f = ImportConfirmFile(relative_path="author/map.jpg")
-        assert f.tags == []
-        assert f.gridded is None
-        assert f.grid_width is None
-        assert f.grid_height is None
-        assert f.subgroup is None
-
-    def test_with_tags(self):
-        f = ImportConfirmFile(
-            relative_path="author/map.jpg",
-            tags=[TagBase(category="lighting", value="night")],
-            gridded=True,
-            grid_width=30,
-            grid_height=30,
-            subgroup="Night",
-        )
-        assert len(f.tags) == 1
-        assert f.gridded is True
-
-    def test_serialization_for_flow(self):
-        """model_dump() output should be compatible with process_import_group's files param."""
-        f = ImportConfirmFile(
-            relative_path="author/map.jpg",
-            tags=[TagBase(category="lighting", value="night", confidence=0.9, source="auto")],
-            gridded=True,
-        )
-        d = f.model_dump()
-        assert d["relative_path"] == "author/map.jpg"
-        assert d["tags"][0]["category"] == "lighting"
-        assert d["tags"][0]["value"] == "night"
-        assert d["gridded"] is True
-
-
-class TestImportConfirmRequest:
-    """ImportConfirmRequest validation."""
-
-    def test_valid_request(self):
-        req = ImportConfirmRequest(
-            author="TestAuthor",
-            group_name="Test Map",
-            files=[ImportConfirmFile(relative_path="file.jpg")],
-        )
-        assert req.author == "TestAuthor"
-        assert len(req.files) == 1
-
-    def test_missing_author_fails(self):
+    def test_manifest_rejects_unknown_image_type(self):
         with pytest.raises(ValueError):
-            ImportConfirmRequest(
-                group_name="Test Map",
-                files=[ImportConfirmFile(relative_path="file.jpg")],
-            )
+            ManifestFile(relative_path="a.png", image_type="portrait")
+
+    def test_manifest_chunk_is_bounded(self):
+        with pytest.raises(ValueError):
+            ManifestRequest(files=[{"relative_path": f"{n}.png"} for n in range(2001)])
+
+    def test_hash_must_be_lowercase_hex_sha256(self):
+        HashEntry(item_id=1, sha256="a" * 64)
+        for bad in ("A" * 64, "a" * 63, "g" * 64):
+            with pytest.raises(ValueError):
+                HashEntry(item_id=1, sha256=bad)

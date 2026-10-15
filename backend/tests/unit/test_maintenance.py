@@ -1,6 +1,6 @@
 """Unit tests for maintenance helper functions.
 
-Tests rotate_backups() and cleanup_stale_staging() as pure functions.
+Tests rotate_backups() as a pure function and sweep_orphaned_store_files().
 The backup_sqlite and full backup_database functions are already covered by
 test_backup_restore.py (integration test).
 """
@@ -8,18 +8,12 @@ test_backup_restore.py (integration test).
 import os
 import time
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
-from backend.app.models.database import Base, Image, ImageGroup, ImportGroupJob, ImportJob
-from backend.pipeline.maintenance import (
-    cleanup_stale_staging,
-    mark_interrupted_jobs,
-    rotate_backups,
-)
+from backend.app.models import Image
+from backend.app.services.image_store import ImageStore
+from backend.pipeline.maintenance import rotate_backups, sweep_orphaned_store_files
 
 # ---------------------------------------------------------------------------
 # rotate_backups
@@ -109,247 +103,99 @@ class TestRotateBackups:
 
 
 # ---------------------------------------------------------------------------
-# cleanup_stale_staging
-# ---------------------------------------------------------------------------
-
-
-class TestCleanupStaleStaging:
-    def test_nonexistent_staging_root_returns_zero(self, tmp_path, monkeypatch):
-        mock_settings = MagicMock()
-        mock_settings.staging_dir = tmp_path / "no_staging_here"
-        monkeypatch.setattr("backend.pipeline.maintenance.settings", mock_settings)
-
-        result = cleanup_stale_staging(max_age_hours=24)
-        assert result == 0
-
-    def test_empty_staging_root_returns_zero(self, tmp_path, monkeypatch):
-        staging = tmp_path / "staging"
-        staging.mkdir()
-        mock_settings = MagicMock()
-        mock_settings.staging_dir = staging
-        monkeypatch.setattr("backend.pipeline.maintenance.settings", mock_settings)
-
-        result = cleanup_stale_staging(max_age_hours=24)
-        assert result == 0
-
-    def test_fresh_dir_not_deleted(self, tmp_path, monkeypatch):
-        staging = tmp_path / "staging"
-        staging.mkdir()
-        fresh_dir = staging / "fresh_job"
-        fresh_dir.mkdir()
-        # mtime is now — definitely within 24h
-
-        mock_settings = MagicMock()
-        mock_settings.staging_dir = staging
-        monkeypatch.setattr("backend.pipeline.maintenance.settings", mock_settings)
-
-        result = cleanup_stale_staging(max_age_hours=24)
-        assert result == 0
-        assert fresh_dir.exists()
-
-    def test_stale_dir_is_deleted(self, tmp_path, monkeypatch):
-        staging = tmp_path / "staging"
-        staging.mkdir()
-        stale_dir = staging / "stale_job"
-        stale_dir.mkdir()
-
-        # Back-date the mtime to 48h ago
-        two_days_ago = time.time() - 48 * 3600
-        os.utime(stale_dir, (two_days_ago, two_days_ago))
-
-        mock_settings = MagicMock()
-        mock_settings.staging_dir = staging
-        monkeypatch.setattr("backend.pipeline.maintenance.settings", mock_settings)
-
-        result = cleanup_stale_staging(max_age_hours=24)
-        assert result == 1
-        assert not stale_dir.exists()
-
-    def test_mix_of_stale_and_fresh(self, tmp_path, monkeypatch):
-        staging = tmp_path / "staging"
-        staging.mkdir()
-
-        stale = staging / "stale_job"
-        stale.mkdir()
-        two_days_ago = time.time() - 48 * 3600
-        os.utime(stale, (two_days_ago, two_days_ago))
-
-        fresh = staging / "fresh_job"
-        fresh.mkdir()
-        # fresh has current mtime
-
-        mock_settings = MagicMock()
-        mock_settings.staging_dir = staging
-        monkeypatch.setattr("backend.pipeline.maintenance.settings", mock_settings)
-
-        result = cleanup_stale_staging(max_age_hours=24)
-        assert result == 1
-        assert not stale.exists()
-        assert fresh.exists()
-
-    def test_non_directory_entries_ignored(self, tmp_path, monkeypatch):
-        """Files (not dirs) inside staging root are left alone."""
-        staging = tmp_path / "staging"
-        staging.mkdir()
-        a_file = staging / "somefile.txt"
-        a_file.write_text("data")
-
-        mock_settings = MagicMock()
-        mock_settings.staging_dir = staging
-        monkeypatch.setattr("backend.pipeline.maintenance.settings", mock_settings)
-
-        result = cleanup_stale_staging(max_age_hours=24)
-        assert result == 0
-        assert a_file.exists()
-
-
-# ---------------------------------------------------------------------------
-# mark_interrupted_jobs
+# sweep_orphaned_store_files
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture
-def db_session():
-    engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-    session = Session()
-    yield session
-    session.close()
+def stores(tmp_db, tmp_path, monkeypatch):
+    from backend.app import services
+
+    engine, SessionLocal = tmp_db
+    monkeypatch.setattr("backend.app.config.settings.database_url", str(engine.url))
+    images = ImageStore(tmp_path / "library")
+    thumbs = ImageStore(tmp_path / "thumbs")
+    monkeypatch.setattr(services, "_image_store", images)
+    monkeypatch.setattr(services, "_thumbnail_store", thumbs)
+    return SessionLocal, images, thumbs
 
 
-def _make_import_job(db, job_id, status):
-    job = ImportJob(id=job_id, status=status, total_files=1)
-    db.add(job)
-    db.flush()
-    return job
+def _age(path: Path, seconds: float = 7200) -> Path:
+    old = time.time() - seconds
+    os.utime(path, (old, old))
+    return path
 
 
-def _make_import_group(db, job_id, group_id, status="running"):
-    gj = ImportGroupJob(
-        id=group_id,
-        job_id=job_id,
-        group_name="G",
-        author="A",
-        total_files=1,
-        processed_files=0,
-        failed_files=0,
-        status=status,
-    )
-    db.add(gj)
-    db.flush()
-    return gj
+def _put(store: ImageStore, key: str, age: float = 7200) -> Path:
+    path = store.get_path(key)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"x")
+    return _age(path, age)
 
 
-class TestMarkInterruptedJobs:
-    def test_active_job_becomes_broken(self, db_session):
-        _make_import_job(db_session, "j1", "active")
-        count = mark_interrupted_jobs(db_session)
-        db_session.commit()
-        job = db_session.query(ImportJob).filter_by(id="j1").first()
-        assert job.status == "broken"
-        assert count == 1
-
-    def test_uploading_job_becomes_broken(self, db_session):
-        _make_import_job(db_session, "j1", "uploading")
-        mark_interrupted_jobs(db_session)
-        db_session.commit()
-        assert db_session.query(ImportJob).filter_by(id="j1").first().status == "broken"
-
-    def test_running_groups_marked_failed(self, db_session):
-        _make_import_job(db_session, "j1", "active")
-        _make_import_group(db_session, "j1", "g1", "running")
-        _make_import_group(db_session, "j1", "g2", "completed")
-        mark_interrupted_jobs(db_session)
-        db_session.commit()
-        g1 = db_session.query(ImportGroupJob).filter_by(id="g1").first()
-        g2 = db_session.query(ImportGroupJob).filter_by(id="g2").first()
-        assert g1.status == "failed"
-        assert g2.status == "completed"  # already terminal, not changed
-
-    def test_staging_job_becomes_broken(self, db_session):
-        _make_import_job(db_session, "j1", "staging")
-        mark_interrupted_jobs(db_session)
-        db_session.commit()
-        assert db_session.query(ImportJob).filter_by(id="j1").first().status == "broken"
-
-    def test_completed_job_unchanged(self, db_session):
-        _make_import_job(db_session, "j1", "completed")
-        mark_interrupted_jobs(db_session)
-        assert db_session.query(ImportJob).filter_by(id="j1").first().status == "completed"
-
-    def test_error_message_set(self, db_session):
-        _make_import_job(db_session, "j1", "active")
-        mark_interrupted_jobs(db_session)
-        db_session.commit()
-        job = db_session.query(ImportJob).filter_by(id="j1").first()
-        assert "restarted" in (job.error_message or "").lower()
-
-    def test_completed_at_set(self, db_session):
-        _make_import_job(db_session, "j1", "uploading")
-        mark_interrupted_jobs(db_session)
-        db_session.commit()
-        job = db_session.query(ImportJob).filter_by(id="j1").first()
-        assert job.completed_at is not None
-
-    def test_no_interrupted_jobs_returns_zero(self, db_session):
-        _make_import_job(db_session, "j1", "completed")
-        _make_import_job(db_session, "j2", "completed")
-        count = mark_interrupted_jobs(db_session)
-        assert count == 0
-
-    def test_multiple_interrupted_jobs_all_marked(self, db_session):
-        _make_import_job(db_session, "j1", "active")
-        _make_import_job(db_session, "j2", "uploading")
-        count = mark_interrupted_jobs(db_session)
-        db_session.commit()
-        assert count == 2
-        assert db_session.query(ImportJob).filter_by(id="j1").first().status == "broken"
-        assert db_session.query(ImportJob).filter_by(id="j2").first().status == "broken"
-
-    def test_broken_job_images_cleaned_up(self, db_session, monkeypatch):
-        """Images from interrupted imports are deleted so they don't cause
-        false duplicate-hash matches on re-upload."""
-        from unittest.mock import MagicMock
-
-        # Set up an active job with an image (as if a group partially completed)
-        _make_import_job(db_session, "j_img", "active")
-        group = ImageGroup(base_name="TestMap", author="Author")
-        db_session.add(group)
-        db_session.flush()
-        gj = _make_import_group(db_session, "j_img", "g_img", "running")
-        gj.created_group_id = group.id
-        img = Image(
-            name="TestMap",
-            filename="test.jpg",
-            author="Author",
-            storage_key="abc123.jpg",
-            content_hash="f" * 64,
-            group_id=group.id,
-            import_job_id="j_img",
-            media_type="image",
+def _add_image(SessionLocal, storage_key: str, thumbnail_key: str) -> None:
+    with SessionLocal() as db:
+        db.add(
+            Image(filename="f.jpg", storage_key=storage_key, thumbnail_key=thumbnail_key, name="n")
         )
-        db_session.add(img)
-        db_session.flush()
+        db.commit()
 
-        # Mock the stores that _cleanup_import_images uses (lazy imports
-        # from backend.app.services and backend.app.services.lancedb_service)
-        mock_store = MagicMock()
-        mock_store.delete.return_value = True
-        monkeypatch.setattr("backend.app.services.get_image_store", lambda: mock_store)
-        monkeypatch.setattr("backend.app.services.get_thumbnail_store", lambda: mock_store)
-        mock_lancedb = MagicMock()
-        monkeypatch.setattr(
-            "backend.app.services.lancedb_service.get_lancedb_service", lambda: mock_lancedb
-        )
 
-        mark_interrupted_jobs(db_session)
-        db_session.commit()
+class TestSweepOrphanedStoreFiles:
+    def test_known_files_are_kept_and_orphans_deleted(self, stores):
+        SessionLocal, images, thumbs = stores
+        for n in range(10):
+            stem = f"{n:02d}aa{n:028x}"
+            _add_image(SessionLocal, f"{stem}.jpg", f"{stem}_400x400.jpg")
+            _put(images, f"{stem}.jpg")
+            for size in (150, 400, 800):
+                _put(thumbs, f"{stem}_{size}x{size}.jpg")
+        orphan = _put(images, "ffee0000000000000000000000000000.png")
+        orphan_thumb = _put(thumbs, "ffee0000000000000000000000000000_150x150.jpg")
 
-        # Job is broken
-        job = db_session.query(ImportJob).filter_by(id="j_img").first()
-        assert job.status == "broken"
+        result = sweep_orphaned_store_files()
 
-        # Image was deleted
-        remaining = db_session.query(Image).filter_by(import_job_id="j_img").count()
-        assert remaining == 0, f"Expected 0 images, found {remaining}"
+        assert result == {
+            "orphaned_images": 1,
+            "deleted_images": 1,
+            "orphaned_thumbnails": 1,
+            "deleted_thumbnails": 1,
+        }
+        assert not orphan.exists() and not orphan_thumb.exists()
+        assert len(list(images.base_dir.rglob("*.jpg"))) == 10
+        assert len(list(thumbs.base_dir.rglob("*.jpg"))) == 30
+
+    def test_legacy_short_keys_are_recognised(self, stores):
+        SessionLocal, images, thumbs = stores
+        _add_image(SessionLocal, "a1b2c3d4e5f6.jpg", "a1b2c3d4e5f6_400x400.webp")
+        kept = _put(images, "a1b2c3d4e5f6.jpg")
+        kept_thumb = _put(thumbs, "a1b2c3d4e5f6_800x800.webp")
+        sweep_orphaned_store_files()
+        assert kept.exists() and kept_thumb.exists()
+
+    def test_backups_and_incoming_are_never_touched(self, stores):
+        _, images, _ = stores
+        backup = images.base_dir / "backups" / "2026-01-01" / "battlemap.db"
+        incoming = images.base_dir / ".incoming" / "abcd.jpg"
+        for path in (backup, incoming):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"x")
+            _age(path)
+        sweep_orphaned_store_files()
+        assert backup.exists() and incoming.exists()
+
+    def test_recent_files_are_left_alone(self, stores):
+        _, images, _ = stores
+        fresh = _put(images, "abcd0000000000000000000000000000.jpg", age=10)
+        result = sweep_orphaned_store_files()
+        assert fresh.exists()
+        assert result["orphaned_images"] == 0
+
+    def test_refuses_when_most_of_the_store_looks_orphaned(self, stores):
+        """E.g. the wrong database is in use: deleting would destroy the library."""
+        _, images, _ = stores
+        files = [_put(images, f"{n:02x}cd{n:028x}.jpg") for n in range(40)]
+        result = sweep_orphaned_store_files()
+        assert result["orphaned_images"] == 40
+        assert result["deleted_images"] == 0
+        assert all(p.exists() for p in files)

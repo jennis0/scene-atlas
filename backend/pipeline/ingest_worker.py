@@ -18,7 +18,9 @@ import logging
 import shutil
 import threading
 import time
-from collections.abc import Callable
+import uuid
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 from backend.app.config import settings
@@ -90,10 +92,12 @@ class IngestWorker:
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self._lock = threading.Lock()
+        self._lock = threading.Condition()
         self._cursor: str | None = None
         self._current_job_id: str | None = None
         self._system_reason: str | None = None
+        self._holds: dict[str, str] = {}  # external pauses, e.g. a model switch
+        self._busy = False
         self._last_probe = 0.0
         self._version = 0
 
@@ -131,13 +135,35 @@ class IngestWorker:
 
     def status(self) -> WorkerStatus:
         with self._lock:
+            reason = next(iter(self._holds.values()), None) or self._system_reason
             return WorkerStatus(
                 running=self._thread is not None,
-                system_paused=self._system_reason is not None,
-                system_reason=self._system_reason,
+                system_paused=reason is not None,
+                system_reason=reason,
                 current_job_id=self._current_job_id,
                 version=self._version,
             )
+
+    @contextmanager
+    def held(self, reason: str, timeout: float | None = None) -> Iterator[None]:
+        """Pause the queue for the duration of the block, e.g. while the AI model changes.
+
+        Waits (up to ``timeout``) for a batch already in progress to finish, so no
+        batch spans the held operation. Shown to users as a system pause.
+        """
+        key = uuid.uuid4().hex
+        with self._lock:
+            self._holds[key] = reason
+            self._version += 1
+            self._lock.wait_for(lambda: not self._busy, timeout)
+        logger.info("Ingest held: %s", reason)
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._holds.pop(key, None)
+                self._version += 1
+            self.wake()
 
     # --- system pause ----------------------------------------------------------
 
@@ -165,6 +191,18 @@ class IngestWorker:
 
     def run_once(self) -> bool:
         """Process at most one batch. Returns True if any work was done."""
+        with self._lock:
+            if self._holds:
+                return False
+            self._busy = True
+        try:
+            return self._run_once()
+        finally:
+            with self._lock:
+                self._busy = False
+                self._lock.notify_all()
+
+    def _run_once(self) -> bool:
         if self._system_reason is not None:
             if time.monotonic() - self._last_probe < self._probe_interval:
                 return False

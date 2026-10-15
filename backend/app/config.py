@@ -77,6 +77,11 @@ class Settings(BaseSettings):
     # Memory reserved across concurrent image preparation; None = automatic
     # (half of RAM beyond a 2 GiB reserve).
     ingest_memory_budget_mb: int | None = None
+    # Most files one import job may contain (across all manifest chunks).
+    max_import_items: int = 50_000
+    # Start the ingest worker with the app. Tests turn this off and drive the
+    # worker synchronously with drain().
+    ingest_worker_enabled: bool = True
     supported_formats: list[str] = [".jpg", ".jpeg", ".png", ".webp"]
     supported_video_formats: list[str] = [".mp4", ".webm"]
 

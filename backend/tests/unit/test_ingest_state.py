@@ -10,7 +10,7 @@ from backend.app.services.ingest_state import IllegalTransitionError, ItemEvent
 # Every legal transition, from design/ingest-redesign.md §4.1.
 LEGAL = [
     (st.AWAITING_BYTES, ItemEvent.BYTES_RECEIVED, st.READY),
-    (st.AWAITING_BYTES, ItemEvent.CLIENT_DUPLICATE, st.DUPLICATE),
+    (st.AWAITING_BYTES, ItemEvent.HASH_DUPLICATE, st.DUPLICATE),
     (st.AWAITING_BYTES, ItemEvent.FILE_ERROR, st.FAILED),
     (st.AWAITING_BYTES, ItemEvent.SKIP, st.SKIPPED),
     (st.READY, ItemEvent.CLAIM, st.PROCESSING),

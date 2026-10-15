@@ -9,7 +9,7 @@ Usage from API endpoints::
     from backend.app.services.job_runner import get_job_runner
 
     runner = get_job_runner()
-    runner.submit(process_import_job, job_id=..., name="Import: MyMaps")
+    runner.submit(rebuild_all_embeddings, name="Rebuild embeddings", force=True)
 
     # Later — check progress:
     record = runner.get_job(job_id)
@@ -203,7 +203,8 @@ class JobRunner:
     def run_sync(self, fn: Callable, *args: Any, timeout: float = 120, **kwargs: Any) -> Any:
         """Run a function in the thread pool and block until complete.
 
-        Used for ``analyse_upload`` which the API endpoint must await.
+        For callers that must wait for a result while respecting the pool's
+        concurrency limit.
         """
         future = self._executor.submit(fn, *args, **kwargs)
         return future.result(timeout=timeout)

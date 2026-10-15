@@ -1,17 +1,18 @@
-"""Maintenance tasks: database backup, staging cleanup, and stale job expiry.
+"""Maintenance tasks: database backup and orphaned store file sweep.
 
 Functions:
-    backup_database     — Snapshot SQLite + LanceDB, rotate old backups. Runs daily.
-    cleanup_staging     — Remove stale staging directories older than 24h. Runs every 6h.
-    expire_stale_jobs   — Mark abandoned import jobs as expired. Runs every 6h.
+    backup_database            — Snapshot SQLite + LanceDB, rotate old backups. Runs daily.
+    sweep_orphaned_store_files — Delete store files no image refers to. Runs daily.
 
-Scheduled by the Scheduler (started in FastAPI lifespan).  Also runnable
-from the CLI: ``uv run python -m backend.pipeline.maintenance``
+Ingest-related maintenance lives in ``ingest_maintenance``; vector index repair
+in ``vector_reconcile``. Scheduled by the Scheduler (started in the FastAPI
+lifespan). Also runnable from the CLI: ``uv run python -m backend.pipeline.maintenance``
 """
 
 import logging
 import shutil
 import sqlite3
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -145,249 +146,49 @@ def backup_database() -> dict:
 # ---------------------------------------------------------------------------
 
 
-def cleanup_stale_staging(max_age_hours: int = 24) -> int:
-    """Remove staging job directories older than ``max_age_hours``.
+# Only files in the store's shard layout (ab/cd/<key>) are ever considered;
+# anything else under the library root (backups/, .incoming/) is left alone.
+_SHARD_HEX = set("0123456789abcdef")
+ORPHAN_MIN_AGE_SECONDS = 3600
+# If more than this fraction of files look orphaned, something is wrong (wrong
+# database, unmounted drive): refuse to delete anything.
+ORPHAN_SANITY_FRACTION = 0.25
 
-    Uses directory mtime as the age proxy. Catches the case where a background
-    job died mid-import and left behind a staging directory that will never
-    be cleaned up by the import flow itself.
 
-    Returns the number of directories removed.
-    """
-    logger = logging.getLogger(__name__)
-    staging_root = settings.staging_dir
-    if not staging_root.exists():
-        return 0
+def _is_shard_dir(name: str) -> bool:
+    return len(name) == 2 and set(name) <= _SHARD_HEX
 
-    cutoff = datetime.now(UTC) - timedelta(hours=max_age_hours)
-    deleted = 0
 
-    for staging_dir in staging_root.iterdir():
-        if not staging_dir.is_dir():
+def _store_files(base_dir: Path) -> list[Path]:
+    """Files at <base>/<xx>/<yy>/<name> where xx and yy are shard directories."""
+    files: list[Path] = []
+    if not base_dir.exists():
+        return files
+    for first in base_dir.iterdir():
+        if not (first.is_dir() and _is_shard_dir(first.name)):
             continue
-        mtime = datetime.fromtimestamp(staging_dir.stat().st_mtime, tz=UTC)
-        if mtime < cutoff:
-            age = datetime.now(UTC) - mtime
-            shutil.rmtree(staging_dir, ignore_errors=True)
-            logger.info("Cleaned stale staging dir: %s (age: %s)", staging_dir.name, age)
-            deleted += 1
-
-    return deleted
-
-
-def cleanup_staging() -> dict:
-    """Remove staging directories abandoned by crashed or cancelled imports.
-
-    Scheduled every 6 hours.  Catches orphaned staging dirs that were not
-    cleaned up by /finalize, /cancel, or expire_stale_jobs.
-    """
-    logger = logging.getLogger(__name__)
-    deleted = cleanup_stale_staging()
-    logger.info("Staging cleanup complete: removed %s stale director(ies)", deleted)
-    return {"deleted": deleted}
-
-
-# ---------------------------------------------------------------------------
-# Stale import job expiry
-# ---------------------------------------------------------------------------
-
-
-def expire_stale_jobs(max_age_hours: int = 48) -> dict:
-    """Mark staging/active import jobs as expired if no activity for ``max_age_hours``.
-
-    Cleans up their staging directories.  Skips jobs that still have running
-    groups (to avoid killing in-progress work).
-
-    Scheduled every 6 hours.  Solves the problem of abandoned import sessions
-    that would otherwise live forever in the database.
-    """
-    logger = logging.getLogger(__name__)
-
-    from backend.app.models import ImportGroupJob, ImportJob
-    from backend.pipeline.db import pipeline_db
-
-    with pipeline_db() as db:
-        cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=max_age_hours)
-        stale_statuses = {"staging", "active", "uploading"}
-
-        # Find stale jobs: non-terminal and no recent activity
-        stale_jobs = (
-            db.query(ImportJob)
-            .filter(
-                ImportJob.status.in_(stale_statuses),
-            )
-            .all()
-        )
-
-        expired_count = 0
-        for job in stale_jobs:
-            # Use updated_at if available, else created_at
-            last_activity = job.updated_at or job.created_at
-            if last_activity is None or last_activity >= cutoff:
+        for second in first.iterdir():
+            if not (second.is_dir() and _is_shard_dir(second.name)):
                 continue
-
-            # Don't expire jobs with running groups
-            running = (
-                db.query(ImportGroupJob)
-                .filter(ImportGroupJob.job_id == job.id, ImportGroupJob.status == "running")
-                .count()
-            )
-            if running > 0:
-                logger.info(
-                    "Skipping expiry for job %s: %s group(s) still running", job.id, running
-                )
-                continue
-
-            job.status = "expired"
-            job.completed_at = datetime.now(UTC).replace(tzinfo=None)
-
-            # Clean up images from this abandoned import so they don't
-            # cause false duplicate-hash matches on re-upload.
-            try:
-                from backend.app.services.deletion_service import (
-                    cleanup_import_images as _cleanup_import_images,
-                )
-
-                cleaned = _cleanup_import_images(job.id, db)
-                if cleaned:
-                    logger.info(
-                        "  Cleaned up %d image(s) from expired import %s",
-                        cleaned,
-                        job.id,
-                    )
-            except Exception:
-                logger.warning(
-                    "  Image cleanup failed for expired job %s (non-fatal)",
-                    job.id,
-                    exc_info=True,
-                )
-
-            # Clean up staging directory
-            staging_dir = settings.staging_dir / job.id
-            if staging_dir.exists():
-                shutil.rmtree(staging_dir, ignore_errors=True)
-                logger.info("Cleaned staging for expired job %s", job.id)
-
-            expired_count += 1
-            logger.info("Expired stale import job %s (last activity: %s)", job.id, last_activity)
-
-        db.commit()
-
-    logger.info("Stale job expiry complete: expired %s job(s)", expired_count)
-    return {"expired": expired_count}
+            files.extend(p for p in second.iterdir() if p.is_file())
+    return files
 
 
-# ---------------------------------------------------------------------------
-# Startup: mark interrupted jobs
-# ---------------------------------------------------------------------------
+def _thumbnail_stem(name: str) -> str:
+    """'abc123_400x400.jpg' -> 'abc123' (all sizes of one image share the stem)."""
+    return Path(name).stem.rsplit("_", 1)[0]
 
 
-def mark_interrupted_jobs(db=None) -> int:
-    """Mark import jobs that were interrupted by a server restart as broken.
+def sweep_orphaned_store_files(delete: bool = True) -> dict:
+    """Find, and delete, store files that no image row refers to.
 
-    Jobs in 'uploading', 'staging', or 'active' states cannot be resumed after
-    a restart because their background processing threads are gone.  This is
-    called at server startup to transition them to 'broken' so users can see
-    the problem and cancel/clean up from the ActivityDock.
+    Files become orphaned when a crash lands between placing a file and
+    committing its row, or when a deletion commits but file removal fails.
+    Files younger than an hour are skipped (they may belong to a batch that is
+    committing right now). If an implausibly large share of the store looks
+    orphaned, nothing is deleted and an error is logged instead.
 
-    Args:
-        db: Optional SQLAlchemy session.  If None, a new session is created and
-            committed/closed by this function.  Pass a session in unit tests.
-
-    Returns:
-        Number of jobs marked as broken.
-    """
-    logger = logging.getLogger(__name__)
-    from backend.app.models import ImportGroupJob, ImportJob
-    from backend.pipeline.db import pipeline_db
-
-    if db is None:
-        with pipeline_db() as own_db:
-            return mark_interrupted_jobs(own_db)
-
-    try:
-        interrupted_statuses = ("uploading", "staging", "active")
-        jobs = db.query(ImportJob).filter(ImportJob.status.in_(interrupted_statuses)).all()
-        if not jobs:
-            return 0
-
-        now = datetime.now(UTC).replace(tzinfo=None)
-        count = 0
-        for job in jobs:
-            logger.warning(
-                "Marking import job %s as broken (was '%s' at server restart)",
-                job.id,
-                job.status,
-            )
-            # Mark running/pending child groups as failed
-            affected = (
-                db.query(ImportGroupJob)
-                .filter(
-                    ImportGroupJob.job_id == job.id,
-                    ImportGroupJob.status.in_(("running", "pending")),
-                )
-                .update(
-                    {"status": "failed", "completed_at": now},
-                    synchronize_session=False,
-                )
-            )
-            if affected:
-                logger.warning(
-                    "  Marked %d running/pending group job(s) as failed for job %s",
-                    affected,
-                    job.id,
-                )
-            job.status = "broken"
-            job.error_message = "Server was restarted before this import could complete"
-            job.completed_at = now
-            job.updated_at = now
-            count += 1
-
-            # Clean up images from this interrupted import so they don't
-            # cause false duplicate-hash matches on re-upload.
-            try:
-                from backend.app.services.deletion_service import (
-                    cleanup_import_images as _cleanup_import_images,
-                )
-
-                cleaned = _cleanup_import_images(job.id, db)
-                if cleaned:
-                    logger.warning(
-                        "  Cleaned up %d image(s) from broken import %s",
-                        cleaned,
-                        job.id,
-                    )
-            except Exception:
-                logger.warning(
-                    "  Image cleanup failed for broken job %s (non-fatal)",
-                    job.id,
-                    exc_info=True,
-                )
-
-        return count
-
-    except Exception:
-        logger.exception("Error marking interrupted import jobs")
-        return 0
-
-
-# ---------------------------------------------------------------------------
-# Orphan file sweep (Option A)
-# ---------------------------------------------------------------------------
-
-
-def sweep_orphaned_store_files() -> dict:
-    """Scan ImageStore and ThumbnailStore for files with no DB Image row.
-
-    Files can become orphaned when batch DB saves fail after files have already
-    been copied to the store — the copy has no Image row anchoring it, so the
-    normal _cleanup_import_images() path can never reach it.
-
-    This function logs orphaned files as warnings. It does NOT delete them
-    automatically; deletion can be added in a future phase once confidence in
-    the sweep logic is established.
-
-    Scheduled daily alongside backup_database().
+    Scheduled daily.
     """
     logger = logging.getLogger(__name__)
 
@@ -395,113 +196,37 @@ def sweep_orphaned_store_files() -> dict:
     from backend.app.services import get_image_store, get_thumbnail_store
     from backend.pipeline.db import pipeline_db
 
-    orphaned_images = 0
-    orphaned_thumbnails = 0
-
     with pipeline_db() as db:
-        # Load all known storage and thumbnail keys from the DB in one query each
-        image_keys: set[str] = {
-            row[0]
-            for row in db.query(Image.storage_key).filter(Image.storage_key.isnot(None)).all()
-        }
-        thumbnail_keys: set[str] = {
-            row[0]
-            for row in db.query(Image.thumbnail_key).filter(Image.thumbnail_key.isnot(None)).all()
-        }
+        image_keys = {key for (key,) in db.query(Image.storage_key) if key}
+        thumbnail_stems = {_thumbnail_stem(key) for (key,) in db.query(Image.thumbnail_key) if key}
 
-    # Walk ImageStore looking for files with no DB row.
-    # Use relative_to(base_dir) so the key includes subdirectory components
-    # (e.g. "a1/b2c3d4.jpg") matching how storage_key values are stored in the DB.
-    image_store = get_image_store()
-    if image_store.base_dir.exists():
-        for file_path in image_store.base_dir.rglob("*"):
-            if not file_path.is_file():
-                continue
-            key = str(file_path.relative_to(image_store.base_dir))
-            if key not in image_keys:
-                logger.warning(
-                    "Orphaned ImageStore file (no DB row): %s",
-                    key,
-                )
-                orphaned_images += 1
-
-    # Walk ThumbnailStore looking for thumbnails with no DB row
-    thumbnail_store = get_thumbnail_store()
-    if thumbnail_store.base_dir.exists():
-        for file_path in thumbnail_store.base_dir.rglob("*"):
-            if not file_path.is_file():
-                continue
-            key = str(file_path.relative_to(thumbnail_store.base_dir))
-            if key not in thumbnail_keys:
-                logger.warning(
-                    "Orphaned ThumbnailStore file (no DB row): %s",
-                    key,
-                )
-                orphaned_thumbnails += 1
-
-    if orphaned_images or orphaned_thumbnails:
-        logger.warning(
-            "Orphan sweep found %d orphaned image file(s) and %d orphaned thumbnail file(s). "
-            "Run fix_orphaned_images script if needed.",
-            orphaned_images,
-            orphaned_thumbnails,
-        )
-    else:
-        logger.info("Orphan sweep: no orphaned files found")
-
-    return {"orphaned_images": orphaned_images, "orphaned_thumbnails": orphaned_thumbnails}
-
-
-# ---------------------------------------------------------------------------
-# Vector DB / DB desync detection
-# ---------------------------------------------------------------------------
-
-
-def check_vector_db_sync() -> dict:
-    """Compare DB image count against LanceDB point count and log any delta.
-
-    Images that exist in the DB but have no LanceDB embedding are silently
-    absent from semantic search results.  This check surfaces that problem
-    without triggering expensive CLIP re-computation.
-
-    If the delta exceeds 10, a warning is logged.  Run the backfill script
-    (write_new_embeddings) to repair any desync.
-
-    Scheduled daily alongside backup_database().
-    """
-    logger = logging.getLogger(__name__)
-
-    from backend.app.models import Image
-    from backend.app.services.lancedb_service import get_lancedb_service
-    from backend.pipeline.db import pipeline_db
-
-    with pipeline_db() as db:
-        db_count: int = db.query(Image).count()
-
-    try:
-        vector_info = get_lancedb_service().get_collection_info()
-        vector_count: int = vector_info.get("points_count") or 0
-    except Exception as e:
-        logger.warning("Vector DB sync check failed (LanceDB unavailable?): %s", e)
-        return {"db_count": db_count, "vector_count": None, "delta": None}
-
-    delta = db_count - vector_count
-    if delta > 10:
-        logger.warning(
-            "Vector DB/DB desync: %d image(s) in DB but only %d point(s) in LanceDB "
-            "(delta=%d). Run 'write_new_embeddings' to repair.",
-            db_count,
-            vector_count,
-            delta,
-        )
-    elif delta != 0:
-        logger.info(
-            "Vector DB/DB minor delta: %d image(s) in DB, %d point(s) in LanceDB (delta=%d)",
-            db_count,
-            vector_count,
-            delta,
-        )
-    else:
-        logger.info("Vector DB/DB in sync: %d image(s)", db_count)
-
-    return {"db_count": db_count, "vector_count": vector_count, "delta": delta}
+    now = time.time()
+    results: dict[str, int] = {}
+    for label, store, is_known in (
+        ("images", get_image_store(), lambda p: p.name in image_keys),
+        ("thumbnails", get_thumbnail_store(), lambda p: _thumbnail_stem(p.name) in thumbnail_stems),
+    ):
+        files = _store_files(store.base_dir)
+        orphans = [
+            p for p in files if not is_known(p) and now - p.stat().st_mtime > ORPHAN_MIN_AGE_SECONDS
+        ]
+        deleted = 0
+        if orphans and len(orphans) > ORPHAN_SANITY_FRACTION * len(files) and len(orphans) > 20:
+            logger.error(
+                "Orphan sweep: %d of %d %s files look orphaned; refusing to delete. "
+                "Is the right database / library folder in use?",
+                len(orphans),
+                len(files),
+                label,
+            )
+        elif delete:
+            for path in orphans:
+                path.unlink(missing_ok=True)
+                deleted += 1
+        if orphans:
+            logger.warning(
+                "Orphan sweep: %d orphaned %s file(s), %d deleted", len(orphans), label, deleted
+            )
+        results[f"orphaned_{label}"] = len(orphans)
+        results[f"deleted_{label}"] = deleted
+    return results

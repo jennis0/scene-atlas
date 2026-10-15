@@ -52,7 +52,7 @@ class GridDetector:
         self,
         min_cell_px: int = 32,
         max_cell_px: int = 320,
-        max_dim: int = 20_000,
+        max_dim: int = 8_000,
         presence_threshold: float = 0.20,
         size_threshold: float = 0.15,
         period_ratio_threshold: float = 0.98,

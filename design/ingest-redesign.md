@@ -402,7 +402,7 @@ Dialogs and the dock are pure views over the manager, so remounting a dialog can
 | Staging cleanup | Inline plus scheduled | A staged file is deleted as soon as its item is `done` or `skipped`. Staged files of `failed` and `duplicate` items are kept (for retry and import-as-copy) until the job is dismissed or completed more than 7 days ago. Never mtime-based. |
 | Abandon stale uploads | Scheduled | `active` jobs with `awaiting_bytes` and `last_upload_at` more than 7 days ago: those items → `skipped` ("Not uploaded"), then the job is recomputed. |
 | Prune job history | Scheduled | Delete job, group and item rows for jobs dismissed more than 30 days ago. Images are untouched. |
-| Vector reconciliation | Startup, after each job completes, scheduled | Id-set diff and re-embed (§5.3). Replaces the count-based forced rebuild. |
+| Vector reconciliation | Startup (once the model has loaded) and daily | Id-set diff and re-embed (§5.3). Replaces the count-based forced rebuild. |
 | Orphan store sweep | Scheduled | Fixed to compare sharded paths against keys correctly, and to account for all thumbnail sizes. Deletes orphans older than 1 h (not just logs). Tested. |
 
 The scheduler runs each task once at startup as well as on its interval, so short Electron sessions still get maintenance.
@@ -539,7 +539,17 @@ Large feature; worktree branch `worktree-ingest-redesign`. **The branch is not m
 
 **Follow-ups, not yet scheduled:**
 
-- **Grid cap:** lower `grid_detection_max_dim` once the real-library accuracy check confirms it's safe. On synthetic grids, sizing is lost when the scaled cell falls near the detector's scaled `max_cell_px` bound, which is existing detector behaviour.
+- **Grid cap: done, default lowered from 20,000 to 8,000 px.** Measured on 373 real battlemaps:
+  - Presence agreement with the 20k baseline is 99.5%; size agreement is 95% (net about −0.5% of images).
+  - Filename-truth accuracy is unchanged at 39/47.
+  - CPU on the largest maps drops 3–4× (761 Mpx: 18 s → 5.5 s), and peak memory on baseline JPEGs drops from 1.45 GB to 0.37 GB.
+  - 6,000 px needs the sub-pixel fix below first, and 4,000 px clearly loses accuracy.
+  - Existing databases keep their seeded value until it's changed in settings.
+- **Grid detector accuracy.** Two error sources, independent of the cap:
+  1. Grid spacing is measured in whole pixels. A sub-pixel peak refinement fixed several off-by-one counts on large maps in an offline test.
+  2. `_pick_best_periods` sometimes picks double or half the real grid size, even at 20k. This is the main error source.
+  - An alternative algorithm (streamed 1-D spectral analysis) is being prototyped separately.
+- **Progressive JPEGs and PNG/WebP decode at full size whatever the scale**: about 6 bytes/px of coefficient buffer for progressive JPEGs. `plan_decode` reserves accordingly, so the memory budget stays honest, but these files still cost up to about 1.3 GB at 200+ Mpx. Only a streaming decoder (pyvips) would fix that.
 - **pHash** puts gridded/gridless pairs at 0–2 bits apart and unrelated images at ≥20. Phase 4 must suppress or group "possible duplicate" flags within the same import group and between sibling grid/no-grid folders, or about 9k images will flag.
 
 ### Phase 1 status (done)
@@ -575,6 +585,46 @@ Large feature; worktree branch `worktree-ingest-redesign`. **The branch is not m
 - **Undo** must use `import_groups.image_group_id` and `merged_into_existing` to decide which gallery groups to delete. The current `cleanup_import_images` uses `ImportGroupJob.created_group_id`.
 - **The import report** must handle items whose `image_id` points at an image the user has since deleted. SQLite foreign keys aren't enforced.
 - **MemoryError back-off to batch size 1** is not implemented; MemoryError is retried as transient. Superseded by the memory-aware admission follow-up in the Phase 0 results.
+
+### Phase 2 status (done)
+
+**Where the code lives:**
+
+| Module | Responsibility |
+|---|---|
+| `backend/app/api/imports.py` | The §7 API. Mutating endpoints use `get_write_db` (`BEGIN IMMEDIATE`). `GET /imports` supports `ETag`, keyed on the worker version plus a minute bucket for the time-derived `upload_interrupted` flag. |
+| `backend/app/models/import_schemas.py` | Request and response models |
+| `backend/pipeline/ingest_archive.py` | Server-side zip expansion into items, before seal |
+| `backend/pipeline/ingest_maintenance.py` | Abandon stale uploads, release staged bytes by state, prune dismissed jobs, sweep stray staging files |
+| `backend/pipeline/maintenance.py` | Backups, and the orphan sweep (now deletes) |
+| `backend/app/services/scheduler.py` | Persists each task's last run under `<app data>/scheduler/`, so overdue tasks run 60 s after startup |
+| `backend/alembic/versions/021_drop_legacy_import_tables.py` | Drops `import_group_jobs` and the old `import_jobs` columns, and deletes old-status job rows (their images are kept) |
+
+**Removed:**
+- **Pipeline:** `ingestion.py`, `prepare.py`, `persistence.py`, `services/staging.py`, `services/import_state.py`, `tasks/webp_conversion.py` (it deleted its input in place), and the old thumbnail helpers.
+- **Model:** the `ImportGroupJob` model and the old import schemas.
+- **Maintenance:** `mark_interrupted_jobs`, `expire_stale_jobs`, the staging cleanups and the count-based vector check.
+- **Tests:** about 15 test modules for the removed code.
+
+**Refinements made during implementation:**
+
+- **Duplicates are also detected on byte receipt,** not only at commit. The event was renamed `HASH_DUPLICATE`. Staged bytes are kept for "Import as new copy".
+- **`mark_bytes_received` recomputes the job status itself.** Without this, an import whose every file was a duplicate stayed `active` forever, the same bug class as the old F2. Tests catch it.
+- **Done items have `staging_key` cleared in the commit transaction.** The staged file is deleted after the commit; a crash in between leaves an unreferenced file for the stray-staging sweep.
+- **Undo deletes rows, commits, then deletes files and vectors** (`deletion_service.PendingFileDeletes`). A failed commit can no longer leave rows pointing at deleted files (audit M3).
+- **A model switch takes a worker hold** (`IngestWorker.held()`), which waits for any in-flight batch and pauses the queue with "Paused while the AI model changes". The switch is no longer refused while imports are active.
+- **Library purge refuses** while any import has open items, and deletes the new import tables.
+- **Orphan sweep safety valves:**
+  - It only considers files in the `xx/yy/<key>` shard layout, so `backups/` and `.incoming/` are never touched.
+  - It ignores files younger than an hour.
+  - It deletes nothing if more than 25% of the store looks orphaned, since that most likely means the wrong database is in use.
+- **Test isolation fix.** The `test_client` fixture now swaps the image and thumbnail store singletons for temp directories and doesn't start the worker. The cached singletons were how earlier test runs leaked files into the repo's `images/` folder.
+
+**Known gaps until Phase 3 / Phase 6:**
+
+- **The frontend still calls the old endpoints,** so imports through the UI don't work on this branch until Phase 3.
+- **`e2e/helpers/seed.ts` and `stress_tests/`** still use the old API (Phase 6).
+- **Library purge deletes `backups/`.** This predates the redesign: backups live inside the image library folder, and the purge removes that whole folder. It needs a separate decision.
 
 ---
 

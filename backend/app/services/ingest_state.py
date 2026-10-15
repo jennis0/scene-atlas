@@ -50,7 +50,7 @@ class ItemEvent(StrEnum):
     """Everything that can happen to an item."""
 
     BYTES_RECEIVED = "bytes_received"  # upload landed and validated
-    CLIENT_DUPLICATE = "client_duplicate"  # client hash matched before upload
+    HASH_DUPLICATE = "hash_duplicate"  # byte hash matched a library image before processing
     CLAIM = "claim"  # worker took it
     COMMITTED = "committed"  # image row written
     DUPLICATE_AT_COMMIT = "duplicate_at_commit"  # source/stored/pixel hash matched at commit
@@ -70,7 +70,7 @@ class ItemEvent(StrEnum):
 
 _TRANSITIONS: dict[tuple[str, ItemEvent], str] = {
     (AWAITING_BYTES, ItemEvent.BYTES_RECEIVED): READY,
-    (AWAITING_BYTES, ItemEvent.CLIENT_DUPLICATE): DUPLICATE,
+    (AWAITING_BYTES, ItemEvent.HASH_DUPLICATE): DUPLICATE,
     (AWAITING_BYTES, ItemEvent.FILE_ERROR): FAILED,  # bytes received but invalid
     (AWAITING_BYTES, ItemEvent.SKIP): SKIPPED,
     (READY, ItemEvent.CLAIM): PROCESSING,

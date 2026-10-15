@@ -60,9 +60,8 @@ class Image(Base):
     import_job_id = Column(
         String, ForeignKey("import_jobs.id"), nullable=True, index=True
     )  # Import job that created this row; None for pre-existing/manually added images
-    # NOTE: If you ever add relationship("ImportJob", ...) here, do NOT use
-    # cascade="all, delete-orphan" — images may share storage_key with images
-    # from other imports, so deleting the job must not cascade-delete images.
+    # NOTE: Never add a cascading relationship to ImportJob here: dismissing or
+    # pruning a job must not delete its images (only an explicit Undo does).
 
     # Storage keys (resolved via ImageStore at runtime)
     thumbnail_key = Column(String)  # Key into thumbnail store (e.g., "a1b2c3d4_400x400.jpg")
@@ -166,38 +165,27 @@ class Color(Base):
 
 
 class ImportJob(Base):
-    """Tracks image import jobs (one per upload session).
+    """One import the user started (ADR-018). Aggregates its groups and items.
 
-    Represents the full editing session, from upload through group confirmation.
-    Individual group processing is tracked by ImportGroupJob children.
+    Status (``active`` | ``paused`` | ``completed`` | ``cancelled``) is derived
+    from item counts by ``ingest_queue.recompute_job_status``; a job never fails
+    as a whole.
     """
 
     __tablename__ = "import_jobs"
 
-    id = Column(String, primary_key=True)  # UUID
-    status = Column(String, nullable=False, default="staging")
-    # status values: uploading, staging, active, completed, failed, cancelled, expired, broken
-    source_label = Column(String, nullable=True)  # Display label for import tray
-    total_files = Column(Integer, default=0)
-    error_message = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    completed_at = Column(DateTime, nullable=True)
-    # JSON: full analysis output — used for reconnection (rebuilding preview UI)
-    analysis_result = Column(Text, nullable=True)
-    job_warnings = Column(
-        Text, nullable=True
-    )  # JSON list of warning dicts (upload skips, pipeline warnings)
-    total_file_size = Column(Integer, default=0)  # Accumulated bytes across all upload batches
-
-    # --- Per-item ingest model (ADR-018) ---
+    id = Column(String, primary_key=True)  # UUID hex
+    status = Column(String, nullable=False, default="active")
+    source_label = Column(String, nullable=True)  # Display label, e.g. "Forest Pack.zip"
     default_image_type = Column(String, nullable=False, default="battlemap")
     planned_at = Column(DateTime, nullable=True)  # Manifest sealed + groups planned
     last_upload_at = Column(DateTime, nullable=True)  # Last byte receipt
     dismissed_at = Column(DateTime, nullable=True)  # Hidden from the activity dock
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
 
     # Relationships
-    groups = relationship("ImportGroupJob", back_populates="job", cascade="all, delete-orphan")
     import_groups = relationship(
         "ImportGroup", back_populates="job", cascade="all, delete-orphan", passive_deletes=True
     )
@@ -220,36 +208,6 @@ class AppSetting(Base):
 
     def __repr__(self):
         return f"<AppSetting(key='{self.key}', value_json='{self.value_json}')>"
-
-
-class ImportGroupJob(Base):
-    """Tracks progress of a single group within an import job."""
-
-    __tablename__ = "import_group_jobs"
-
-    id = Column(String, primary_key=True)  # UUID hex
-    job_id = Column(String, ForeignKey("import_jobs.id"), nullable=False, index=True)
-    group_name = Column("variant_group_name", String, nullable=False)
-    author = Column(String, nullable=True)
-    total_files = Column(Integer, default=0)
-    processed_files = Column(Integer, default=0)
-    failed_files = Column(Integer, default=0)
-    status = Column(String, nullable=False, default="running")
-    # status values: running, completed, failed, cancelled
-    error_message = Column(Text, nullable=True)
-    file_errors = Column(Text, nullable=True)  # JSON list of per-file error dicts
-    created_at = Column(DateTime, default=datetime.utcnow)
-    completed_at = Column(DateTime, nullable=True)
-    # Set once the group finishes so the frontend can link back to the created ImageGroup
-    created_group_id = Column(Integer, nullable=True)
-
-    # Relationships
-    job = relationship("ImportJob", back_populates="groups")
-
-    def __repr__(self):
-        return (
-            f"<ImportGroupJob(id='{self.id}', group='{self.group_name}', status='{self.status}')>"
-        )
 
 
 class ImportGroup(Base):
@@ -576,7 +534,7 @@ def seed_default_settings(session):
         "enable_image_grid_detection": True,
         "grid_min_cell_px": 32,
         "grid_max_cell_px": 320,
-        "grid_detection_max_dim": 20000,
+        "grid_detection_max_dim": 8000,  # Phase 0: ~0.5% accuracy cost, 3-4x less CPU on huge maps
         "grid_presence_threshold": 0.20,
         "grid_size_threshold": 0.15,
         "grid_period_ratio_threshold": 0.98,

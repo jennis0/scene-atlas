@@ -149,12 +149,22 @@ _GRID_BYTES_PER_PIXEL = 5
 _VIDEO_PEAK_BYTES = 256 * 1024 * 1024
 
 
-def _grid_read_pixels(width: int, height: int, cfg: PipelineConfig) -> int:
-    """Pixels grid detection will materialise (it reads at reduced scale when the cap allows)."""
+# A progressive JPEG's DCT coefficients are buffered for the whole image before
+# any (even reduced-scale) output is produced: ~6 bytes/px whatever the scale.
+_PROGRESSIVE_BYTES_PER_PIXEL = 6
+
+
+def _grid_read_pixels(width: int, height: int, cfg: PipelineConfig, reducible: bool) -> int:
+    """Pixels grid detection will materialise.
+
+    Baseline JPEGs are read at reduced scale when the cap allows; other formats
+    are decoded in full and then downscaled.
+    """
     longest = max(width, height)
-    for factor in (8, 4, 2):
-        if longest / factor >= cfg.grid_detection_max_dim:
-            return (width // factor) * (height // factor)
+    if reducible:
+        for factor in (8, 4, 2):
+            if longest / factor >= cfg.grid_detection_max_dim:
+                return (width // factor) * (height // factor)
     return width * height
 
 
@@ -162,21 +172,27 @@ def plan_decode(staged: Path, item: ClaimedItem, cfg: PipelineConfig) -> DecodeP
     """Read only the header and decide how to decode (design §5.3, Phase 0 follow-ups).
 
     JPEGs over ``settings.pixel_hash_max_pixels`` are decoded at reduced scale
-    (libjpeg DCT scaling), which caps their memory at tens of megabytes; every
-    downstream stage except the pixel hash only needs an 800 px image. Other
-    formats can't be decoded at reduced scale by Pillow and are decoded in full.
+    (libjpeg DCT scaling); every downstream stage except the pixel hash only needs
+    an 800 px image. That caps baseline JPEGs at tens of megabytes. Progressive
+    JPEGs still buffer their whole coefficient array, and PNG/WebP are always
+    decoded in full, so their estimates reflect that (Phase 0 grid-cap study).
     """
     if item.kind == "video":
         return DecodePlan(0, 0, False, _VIDEO_PEAK_BYTES)
     with PILImage.open(staged) as header:
         width, height = header.size
         image_format = header.format
+        progressive = bool(header.info.get("progressive") or header.info.get("progression"))
     pixels = width * height
-    full_decode = not (image_format == "JPEG" and pixels > settings.pixel_hash_max_pixels)
+    is_jpeg = image_format == "JPEG"
+    full_decode = not (is_jpeg and pixels > settings.pixel_hash_max_pixels)
     decoded_pixels = pixels if full_decode else max(pixels // 64, 800 * 800)
     peak = decoded_pixels * _DECODE_BYTES_PER_PIXEL
+    if is_jpeg and progressive:
+        peak = max(peak, pixels * _PROGRESSIVE_BYTES_PER_PIXEL)
     if item.image_type == "battlemap" and cfg.enable_image_grid_detection:
-        peak = max(peak, _grid_read_pixels(width, height, cfg) * _GRID_BYTES_PER_PIXEL)
+        read = _grid_read_pixels(width, height, cfg, reducible=is_jpeg and not progressive)
+        peak = max(peak, read * _GRID_BYTES_PER_PIXEL)
     return DecodePlan(width, height, full_decode, peak)
 
 
@@ -493,6 +509,9 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
                 row.image_id = image.id
                 row.source_hash = p.source_hash
                 row.error_kind = row.error_stage = row.error_reason = row.error_detail = None
+                # The staged file is deleted right after commit; a crash in between
+                # leaves an unreferenced file for the stray-staging sweep.
+                row.staging_key = None
 
                 # Later items in this batch dedup against this one too.
                 by_bytes.setdefault(p.source_hash, image.id)

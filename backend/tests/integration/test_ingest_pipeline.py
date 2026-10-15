@@ -705,3 +705,200 @@ def test_write_session_holds_the_write_lock(env, tmp_db):
                 other.execute("BEGIN IMMEDIATE")
         finally:
             other.close()
+
+
+# ---------------------------------------------------------------------------
+# Worker holds (model switch)
+# ---------------------------------------------------------------------------
+
+
+def test_hold_pauses_queue_until_released(env):
+    job_id = make_job(env, {"A/Map/a.png": image_bytes(100)})
+    with env.worker.held("Paused while the AI model changes"):
+        assert env.worker.drain() == 0
+        status = env.worker.status()
+        assert status.system_paused and status.system_reason == "Paused while the AI model changes"
+    assert not env.worker.status().system_paused
+    env.worker.drain()
+    assert job_status(env, job_id) == st.JOB_COMPLETED
+
+
+def test_hold_waits_for_in_flight_batch(env, monkeypatch):
+    import threading
+
+    started, release = threading.Event(), threading.Event()
+    real = ingest_process.process_batch
+
+    def slow(items, cfg, pool):
+        started.set()
+        release.wait(60)
+        return real(items, cfg, pool)
+
+    monkeypatch.setattr("backend.pipeline.ingest_worker.process_batch", slow)
+    make_job(env, {"A/Map/a.png": image_bytes(101)})
+    runner = threading.Thread(target=env.worker.run_once)
+    runner.start()
+    assert started.wait(60)
+
+    entered = threading.Event()
+
+    def hold():
+        with env.worker.held("switching"):
+            entered.set()
+
+    holder = threading.Thread(target=hold)
+    holder.start()
+    assert not entered.wait(0.2)  # the batch is still running
+    release.set()
+    runner.join(60)
+    holder.join(60)
+    assert entered.is_set()
+
+
+# ---------------------------------------------------------------------------
+# Maintenance
+# ---------------------------------------------------------------------------
+
+
+def test_abandon_stale_uploads(env):
+    from backend.pipeline.ingest_maintenance import abandon_stale_uploads
+
+    job_id = make_job(env, {"A/Map/a.png": None}, upload=False)
+    assert abandon_stale_uploads() == 0  # fresh: still waiting for the client
+    later = ingest_queue.utcnow() + timedelta(days=8)
+    assert abandon_stale_uploads(now=later) == 1
+    item = items_by_path(env, job_id)["A/Map/a.png"]
+    assert (item.state, item.error_reason) == (st.SKIPPED, "Not uploaded")
+    assert job_status(env, job_id) == st.JOB_COMPLETED
+
+
+def test_release_staged_bytes_follows_item_state(env):
+    from backend.pipeline.ingest_maintenance import release_staged_bytes
+
+    data = image_bytes(102)
+    make_job(env, {"A/Map/a.png": data})
+    env.worker.drain()
+    dup_job = make_job(env, {"B/Map/copy.png": data})
+    dup = items_by_path(env, dup_job)["B/Map/copy.png"]
+    staged = staged_path(dup_job, dup.staging_key)
+
+    assert release_staged_bytes() == 0  # duplicate bytes kept for "Import as new copy"
+    assert staged.exists()
+    assert release_staged_bytes(now=ingest_queue.utcnow() + timedelta(days=8)) == 1
+    assert not staged.exists()
+    assert items_by_path(env, dup_job)["B/Map/copy.png"].staging_key is None
+
+
+def test_released_duplicate_bytes_mean_copy_needs_upload(env):
+    from backend.pipeline.ingest_maintenance import release_staged_bytes
+
+    data = image_bytes(103)
+    make_job(env, {"A/Map/a.png": data})
+    env.worker.drain()
+    dup_job = make_job(env, {"B/Map/copy.png": data})
+    release_staged_bytes(now=ingest_queue.utcnow() + timedelta(days=8))
+    with env.SessionLocal() as db:
+        ingest_queue.import_as_copy(db, dup_job)
+        db.commit()
+    assert items_by_path(env, dup_job)["B/Map/copy.png"].state == st.AWAITING_BYTES
+
+
+def test_prune_dismissed_jobs_keeps_images(env):
+    from backend.pipeline.ingest_maintenance import prune_dismissed_jobs
+
+    job_id = make_job(env, {"A/Map/a.png": image_bytes(104)})
+    env.worker.drain()
+    with env.SessionLocal() as db:
+        ingest_queue.dismiss_job(db, job_id)
+        db.commit()
+    assert prune_dismissed_jobs() == 0
+    assert prune_dismissed_jobs(now=ingest_queue.utcnow() + timedelta(days=31)) == 1
+    with env.SessionLocal() as db:
+        assert db.get(ImportJob, job_id) is None
+        assert db.query(ImportItem).count() == 0
+        assert db.query(Image).count() == 1
+
+
+def test_sweep_stray_staging_files(env):
+    import os
+    import time
+
+    from backend.app.config import settings
+    from backend.pipeline.ingest_maintenance import sweep_stray_staging_files
+
+    job_id = make_job(env, {"A/Map/a.png": image_bytes(105)})
+    item = items_by_path(env, job_id)["A/Map/a.png"]
+    job_dir = staged_path(job_id, "x").parent
+    referenced = job_dir / item.staging_key
+    stray = job_dir / ".abandoned.part"
+    fresh = job_dir / ".uploading.part"
+    orphan_dir = settings.staging_dir / "no-such-job"
+    orphan_dir.mkdir(parents=True)
+    old = time.time() - 7200
+    for path in (stray, fresh):
+        path.write_bytes(b"x")
+    os.utime(stray, (old, old))
+    os.utime(referenced, (old, old))
+    os.utime(orphan_dir, (old, old))
+
+    assert sweep_stray_staging_files() == 2
+    assert referenced.exists() and fresh.exists()
+    assert not stray.exists() and not orphan_dir.exists()
+
+
+def test_maintenance_does_not_touch_active_jobs(env):
+    from backend.pipeline.ingest_maintenance import run_ingest_maintenance
+
+    job_id = make_job(env, {"A/Map/a.png": image_bytes(106)})
+    result = run_ingest_maintenance()
+    assert result["abandoned"] == 0
+    item = items_by_path(env, job_id)["A/Map/a.png"]
+    assert item.state == st.READY and staged_path(job_id, item.staging_key).exists()
+
+
+# ---------------------------------------------------------------------------
+# Decode planning (memory estimates)
+# ---------------------------------------------------------------------------
+
+
+def _claimed(kind="image", image_type="battlemap"):
+    return ingest_queue.ClaimedItem(
+        id=1,
+        job_id="j",
+        import_group_id=None,
+        kind=kind,
+        relative_path="a.jpg",
+        filename="a.jpg",
+        image_type=image_type,
+        parsed={},
+        staging_key="a.jpg",
+        source_hash=None,
+        attempts=1,
+        allow_duplicate=False,
+    )
+
+
+@pytest.mark.parametrize("progressive", [False, True])
+def test_plan_decode_accounts_for_progressive_jpegs(tmp_path, monkeypatch, progressive):
+    from backend.pipeline.ingest_process import plan_decode
+
+    monkeypatch.setattr("backend.app.config.settings.pixel_hash_max_pixels", 1_000_000)
+    path = tmp_path / "a.jpg"
+    PILImage.new("RGB", (3000, 2000), (9, 9, 9)).save(path, progressive=progressive)
+    cfg = PipelineConfig(enable_image_grid_detection=False)
+    plan = plan_decode(path, _claimed(), cfg)
+    assert not plan.full_decode  # over the pixel-hash limit: reduced-scale decode
+    if progressive:
+        assert plan.peak_bytes >= 3000 * 2000 * 6  # whole coefficient buffer
+    else:
+        assert plan.peak_bytes < 3000 * 2000  # tens of MB at real sizes
+
+
+def test_plan_decode_png_is_always_full(tmp_path, monkeypatch):
+    from backend.pipeline.ingest_process import plan_decode
+
+    monkeypatch.setattr("backend.app.config.settings.pixel_hash_max_pixels", 1_000_000)
+    path = tmp_path / "a.png"
+    PILImage.new("RGB", (3000, 2000)).save(path)
+    plan = plan_decode(path, _claimed(), PipelineConfig(enable_image_grid_detection=False))
+    assert plan.full_decode and plan.peak_bytes == 3000 * 2000 * 5
