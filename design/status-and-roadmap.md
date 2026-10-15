@@ -62,6 +62,7 @@ Scene Atlas is a tool for viewing and searching large collections of tabletop RP
 | Item | Tracked In | Priority |
 |------|-----------|----------|
 | Session-based auth (Phase 3) | [security.md](security.md) | High |
+| Port grid detector v3 (one detector; ONNX models; sibling prior) | [grid-detection-v3.md](grid-detection-v3.md) | Medium |
 | E2E test expansion (~31 remaining tests) | [e2e-todo.md](e2e-todo.md) | P1-P3 |
 | Code quality improvements (11 items) | [technical-debt.md](technical-debt.md) | Medium |
 | Filename in analyse-step error responses | — | Low |

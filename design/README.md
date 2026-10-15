@@ -45,6 +45,7 @@ Design decisions, visual standards, and security posture.
 | [security.md](security.md) | Security evaluation for hosted deployment mode |
 | [testing.md](testing.md) | Testing strategy -- CI/CD tiers, coverage targets, test conventions |
 | [onnx-int8-quantisation.md](onnx-int8-quantisation.md) | ONNX INT8 quantisation methodology and results |
+| [grid-detection-v3.md](grid-detection-v3.md) | Grid detector v3 research: twin-difference labels, held-out results, small-map diagnosis, port recommendation |
 
 ## Status and Backlog
 
