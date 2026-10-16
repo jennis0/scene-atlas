@@ -46,6 +46,14 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting %s v%s", settings.app_name, settings.app_version)
 
+    # Load every Pillow plugin now, while the process is single-threaded. Pillow
+    # otherwise imports them (dlopen) the first time it meets an unrecognised
+    # file, and that can deadlock against prepare-pool threads inside
+    # threadpoolctl's dl_iterate_phdr (sklearn KMeans), hanging the whole server.
+    from PIL import Image as PILImage
+
+    PILImage.init()
+
     # Initialize database
     try:
         engine = get_engine(settings.database_url)

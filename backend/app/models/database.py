@@ -266,7 +266,7 @@ class ImportItem(Base):
     source_hash = Column(String(64), nullable=True)  # SHA-256 of the original bytes
     attempts = Column(Integer, nullable=False, default=0)
     retry_after = Column(DateTime, nullable=True)
-    error_kind = Column(String, nullable=True)  # file | transient | system
+    error_kind = Column(String, nullable=True)  # file | transient | system | bytes_lost
     error_stage = Column(String, nullable=True)
     error_reason = Column(Text, nullable=True)  # User-facing
     error_detail = Column(Text, nullable=True)  # Raw exception text

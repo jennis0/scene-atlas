@@ -599,8 +599,8 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
               </SettingRow>
 
               <SettingRow
-                label="Max files per import"
-                description="Maximum number of files in a single import"
+                label="Max files per zip"
+                description="Maximum number of files expanded from one zip archive"
               >
                 <div className="flex items-center gap-2">
                   <Input
@@ -612,15 +612,15 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                     value={(val('max_import_files') as number) ?? ''}
                     onChange={(e) => setField('max_import_files', parseIntInput(e.target.value))}
                     className="w-20 text-right font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    aria-label="Max files per import"
+                    aria-label="Max files per zip"
                   />
                   <span className="w-8 shrink-0" />
                 </div>
               </SettingRow>
 
               <SettingRow
-                label="Max total upload size"
-                description="Maximum total size for all files in one import"
+                label="Max zip size (uncompressed)"
+                description="Maximum total uncompressed size of one zip archive"
               >
                 <div className="flex items-center gap-2">
                   <Input
@@ -634,7 +634,7 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                       setField('max_import_total_size', parseSizeInput(e.target.value))
                     }
                     className="w-20 text-right font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    aria-label="Max total upload size in MB"
+                    aria-label="Max zip size in MB"
                   />
                   <span className="w-8 shrink-0 text-xs text-muted-foreground">MB</span>
                 </div>

@@ -1,4 +1,4 @@
-"""Integration tests for the imports API (ADR-018, design/ingest-redesign.md §7).
+"""Integration tests for the imports API (ADR-018, design/ingestion.md §7).
 
 Drives the real HTTP API with the TestClient, and the ingest worker
 synchronously with ``drain()``. Embeddings and LanceDB are faked.
@@ -126,11 +126,16 @@ def import_files(api, files: dict[str, bytes], label="Test") -> tuple[str, dict[
 
 def test_full_flow(api):
     job_id = api.create("Forest Pack")
+    day, night = image_bytes(1), image_bytes(2)
     result = api.manifest(
         job_id,
         [
-            {"relative_path": "Czepeku/Forest/Forest_Day.png", "size": 10, "client_ref": "a"},
-            {"relative_path": "Czepeku/Forest/Forest_Night.png", "size": 10, "client_ref": "b"},
+            {"relative_path": "Czepeku/Forest/Forest_Day.png", "size": len(day), "client_ref": "a"},
+            {
+                "relative_path": "Czepeku/Forest/Forest_Night.png",
+                "size": len(night),
+                "client_ref": "b",
+            },
             {"relative_path": "Czepeku/Forest/._Forest_Day.png", "size": 4},
             {"relative_path": "Czepeku/Forest/readme.txt", "size": 4, "client_ref": "c"},
         ],
@@ -144,8 +149,8 @@ def test_full_flow(api):
     assert detail["planned"] is True
     assert [g["group_name"] for g in detail["groups"]] == ["Forest"]
 
-    for ref, seed in (("a", 1), ("b", 2)):
-        r = api.put(job_id, by_ref[ref]["item_id"], image_bytes(seed))
+    for ref, data in (("a", day), ("b", night)):
+        r = api.put(job_id, by_ref[ref]["item_id"], data)
         assert r.status_code == 200 and r.json()["state"] == "ready"
 
     assert api.detail(job_id)["status"] == "active"
@@ -272,6 +277,31 @@ def test_upload_rejects_mismatched_content(api):
     assert r.status_code == 200
     assert r.json()["state"] == "failed"
     assert r.json()["error_reason"] == "File content doesn't match its type"
+
+
+def test_upload_of_different_size_than_manifest_fails_the_item(api):
+    data = image_bytes(30)
+    job_id = api.create("Changed")
+    [item] = api.manifest(job_id, [{"relative_path": "A/G/x.png", "size": len(data) + 1}])["items"]
+    api.client.post(f"{BASE}/{job_id}/seal")
+    r = api.put(job_id, item["item_id"], data)
+    assert r.status_code == 200
+    assert r.json()["state"] == "failed"
+    [failed] = api.client.get(f"{BASE}/{job_id}/items").json()["items"]
+    assert "changed size" in failed["error_reason"]
+
+
+def test_concurrent_seals_never_hit_database_locked(api):
+    """Write-locked endpoints must not hold the lock across thread-pool hops."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    job_id = api.create("Busy")
+    api.manifest(job_id, [{"relative_path": f"A/G/{n}.png", "size": 1} for n in range(5)])
+    with ThreadPoolExecutor(64) as pool:
+        codes = list(
+            pool.map(lambda _: api.client.post(f"{BASE}/{job_id}/seal").status_code, range(120))
+        )
+    assert set(codes) == {200}
 
 
 def test_upload_enforces_size_limit(api):

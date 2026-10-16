@@ -1,4 +1,4 @@
-"""Imports API (ADR-018, design/ingest-redesign.md §7).
+"""Imports API (ADR-018, design/ingestion.md §7).
 
 The client describes files (manifest), seals the manifest (server-side
 grouping), then supplies bytes one file at a time. The ingest worker processes
@@ -6,6 +6,9 @@ items as their bytes arrive; the client only observes and issues actions.
 
 Every mutating endpoint takes SQLite's write lock up front (``BEGIN
 IMMEDIATE``) so it can't fail on a stale snapshot while the worker commits.
+The lock is taken and released inside the endpoint body (``@write_locked``),
+on one thread: holding it across FastAPI's dependency and endpoint threads let
+waiting requests fill the thread pool while the holder waited for a slot.
 """
 
 from __future__ import annotations
@@ -55,7 +58,7 @@ from ..models.import_schemas import (
 from ..services import ingest_state as st
 from ..services.app_settings import get_settings as get_app_settings
 from ..services.validation import verify_media_mime
-from .dependencies import acquire_heavy_op, get_db
+from .dependencies import acquire_heavy_op, get_db, write_locked
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -74,10 +77,9 @@ _STREAM_CHUNK = 256 * 1024
 
 
 def get_write_db(request: Request):
-    """A session whose transaction holds the SQLite write lock from the start."""
+    """A session for a ``@write_locked`` endpoint, which takes the write lock itself."""
     db = get_session_local(request.app.state.db_engine)()
     try:
-        q.begin_immediate(db)
         yield db
     finally:
         db.close()
@@ -287,6 +289,7 @@ def list_items(
 
 
 @router.post("", response_model=ImportJobSummary, status_code=201)
+@write_locked
 def create_import(body: CreateImportRequest, db: Session = Depends(get_write_db)):
     job = q.create_job(db, label=body.label, default_image_type=body.default_image_type)
     db.commit()
@@ -295,6 +298,7 @@ def create_import(body: CreateImportRequest, db: Session = Depends(get_write_db)
 
 
 @router.post("/{job_id}/manifest", response_model=ManifestResponse)
+@write_locked
 def add_manifest(job_id: str, body: ManifestRequest, db: Session = Depends(get_write_db)):
     """Add a chunk of file descriptions (metadata only, no bytes).
 
@@ -463,6 +467,7 @@ def _check_free_space(db: Session, job_id: str) -> None:
 
 
 @router.post("/{job_id}/seal", response_model=ImportJobDetail)
+@write_locked
 def seal_import(
     job_id: str,
     db: Session = Depends(get_write_db),
@@ -479,6 +484,7 @@ def seal_import(
 
 
 @router.post("/{job_id}/hashes", response_model=HashResponse)
+@write_locked
 def submit_hashes(job_id: str, body: HashRequest, db: Session = Depends(get_write_db)):
     """Client-computed SHA-256s, sent ahead of uploading; known files are skipped."""
     _job_or_404(db, job_id)
@@ -565,12 +571,21 @@ async def upload_content(job_id: str, item_id: int, request: Request):
             if item.state != st.AWAITING_BYTES:  # a concurrent retry won the race
                 tmp.unlink(missing_ok=True)
                 return _content_result(item)
-            if not valid:
+            # A size that differs from the manifest means the file changed (or was
+            # cut short) after it was chosen.
+            problem = (
+                "File content doesn't match its type"
+                if not valid
+                else "File changed size after it was chosen; choose it again"
+                if item.size is not None and item.size != written
+                else None
+            )
+            if problem:
                 tmp.unlink(missing_ok=True)
                 item.state = st.next_item_state(item.state, st.ItemEvent.FILE_ERROR)
                 item.error_kind = "file"
                 item.error_stage = "validate"
-                item.error_reason = "File content doesn't match its type"
+                item.error_reason = problem
                 q.recompute_job_status(db, job_id)
             else:
                 os.replace(tmp, final)
@@ -600,6 +615,7 @@ def _action(db: Session, job_id: str, affected: int, wake: bool = False) -> Acti
 
 
 @router.post("/{job_id}/pause", response_model=ActionResult)
+@write_locked
 def pause_import(job_id: str, db: Session = Depends(get_write_db)):
     _job_or_404(db, job_id)
     q.pause_job(db, job_id)
@@ -607,6 +623,7 @@ def pause_import(job_id: str, db: Session = Depends(get_write_db)):
 
 
 @router.post("/{job_id}/resume", response_model=ActionResult)
+@write_locked
 def resume_import(job_id: str, db: Session = Depends(get_write_db)):
     _job_or_404(db, job_id)
     q.resume_job(db, job_id)
@@ -614,6 +631,7 @@ def resume_import(job_id: str, db: Session = Depends(get_write_db)):
 
 
 @router.post("/{job_id}/cancel", response_model=ActionResult)
+@write_locked
 def cancel_import(job_id: str, db: Session = Depends(get_write_db)):
     """Stop the import. Finished files are kept; use DELETE to undo the import."""
     _job_or_404(db, job_id)
@@ -621,6 +639,7 @@ def cancel_import(job_id: str, db: Session = Depends(get_write_db)):
 
 
 @router.post("/{job_id}/retry", response_model=ActionResult)
+@write_locked
 def retry_import_items(
     job_id: str, body: ItemActionRequest | None = None, db: Session = Depends(get_write_db)
 ):
@@ -632,6 +651,7 @@ def retry_import_items(
 
 
 @router.post("/{job_id}/import-as-copy", response_model=ActionResult)
+@write_locked
 def import_duplicates_as_copies(
     job_id: str, body: ItemActionRequest | None = None, db: Session = Depends(get_write_db)
 ):
@@ -644,6 +664,7 @@ def import_duplicates_as_copies(
 
 
 @router.post("/{job_id}/finish-upload", response_model=ActionResult)
+@write_locked
 def finish_without_missing(job_id: str, db: Session = Depends(get_write_db)):
     """Give up on files that were never uploaded."""
     job = _job_or_404(db, job_id)
@@ -653,6 +674,7 @@ def finish_without_missing(job_id: str, db: Session = Depends(get_write_db)):
 
 
 @router.post("/{job_id}/groups/{group_id}/skip", response_model=ActionResult)
+@write_locked
 def skip_group(job_id: str, group_id: int, db: Session = Depends(get_write_db)):
     _job_or_404(db, job_id)
     group = db.get(ImportGroup, group_id)
@@ -663,6 +685,7 @@ def skip_group(job_id: str, group_id: int, db: Session = Depends(get_write_db)):
 
 
 @router.post("/{job_id}/dismiss", response_model=ActionResult)
+@write_locked
 def dismiss_import(job_id: str, db: Session = Depends(get_write_db)):
     """Hide a finished import from the activity dock. Deletes nothing."""
     job = _job_or_404(db, job_id)
@@ -673,6 +696,7 @@ def dismiss_import(job_id: str, db: Session = Depends(get_write_db)):
 
 
 @router.delete("/{job_id}", response_model=ActionResult)
+@write_locked
 def undo_import(job_id: str, db: Session = Depends(get_write_db)):
     """Undo: delete every image this import created, then the import itself."""
     _job_or_404(db, job_id)
