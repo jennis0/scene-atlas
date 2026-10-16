@@ -33,7 +33,7 @@ def _build_parser(db) -> ImageParser:
     return ImageParser(tag_categories=cat_dicts)
 
 
-def clean_group_names(parser: ImageParser) -> dict:
+def clean_group_names(parser: ImageParser) -> dict[int, str]:
     """Clean all ImageGroup base_name values.
 
     Returns mapping of group id -> new base_name for use by the image task.
@@ -83,7 +83,7 @@ def reparse_image_names_batch(
         for image in images:
             try:
                 stem = Path(image.filename).stem
-                grp_name = group_names.get(image.group_id, "")
+                grp_name = group_names.get(image.group_id, "") if image.group_id else ""
                 subgroups = image.subgroup.split(" / ") if image.subgroup else []
                 new_name = parser._build_name(stem, image.author, grp_name, subgroups)
 

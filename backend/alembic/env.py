@@ -37,7 +37,10 @@ def get_url() -> str:
     temporary test databases).  When called from the CLI, the value in
     alembic.ini is used.
     """
-    return config.get_main_option("sqlalchemy.url")
+    url = config.get_main_option("sqlalchemy.url")
+    if not url:
+        raise RuntimeError("sqlalchemy.url is not configured")
+    return url
 
 
 def run_migrations_offline() -> None:

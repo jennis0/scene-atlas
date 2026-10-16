@@ -16,6 +16,7 @@ import logging
 import os
 import sys
 import threading
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -52,8 +53,8 @@ _FALLBACK_MANIFEST: dict = {
 }
 
 _INTERPOLATION_MAP = {
-    "bicubic": Image.BICUBIC,
-    "bilinear": Image.BILINEAR,
+    "bicubic": Image.Resampling.BICUBIC,
+    "bilinear": Image.Resampling.BILINEAR,
 }
 
 
@@ -89,7 +90,7 @@ class _SentencePieceTokenizerWrapper:
     ):
         import sentencepiece as spm
 
-        self._sp = spm.SentencePieceProcessor(model_file=model_path)
+        self._sp = spm.SentencePieceProcessor(model_file=model_path)  # pyright: ignore[reportCallIssue]
         self._max_length = max_length
         self._pad_id = pad_id
         self._lowercase = lowercase
@@ -98,7 +99,7 @@ class _SentencePieceTokenizerWrapper:
     def encode(self, text: str) -> _TokenizerOutput:
         if self._lowercase:
             text = text.lower()
-        ids = self._sp.encode(text, out_type=int)
+        ids = self._sp.encode(text, out_type=int)  # pyright: ignore[reportAttributeAccessIssue]
         # Append EOS if configured (SigLIP2 convention)
         if self._eos_id is not None:
             ids = ids + [self._eos_id]
@@ -264,7 +265,7 @@ class CLIPService:
         self._image_mean = np.array(manifest["image_mean"], dtype=np.float32)
         self._image_std = np.array(manifest["image_std"], dtype=np.float32)
         self._interpolation = _INTERPOLATION_MAP.get(
-            manifest.get("interpolation", "bicubic"), Image.BICUBIC
+            manifest.get("interpolation", "bicubic"), Image.Resampling.BICUBIC
         )
         self._resize_mode: str = manifest.get("resize_mode", "shortest_edge_then_crop")
 
@@ -459,7 +460,7 @@ class CLIPService:
             setattr(self, session_attr, new_session)
             self._session_providers[session_attr] = cpu_providers
             self._inference_count = 0
-            return new_session.run(output_names, feed)
+            return new_session.run(output_names, feed)  # pyright: ignore[reportReturnType]
 
     # ── Public interface ─────────────────────────────────────────────────
 
@@ -526,7 +527,7 @@ class CLIPService:
 
         return embedding
 
-    def batch_encode_images(self, image_paths: list[str | Path]) -> list[list[float]]:
+    def batch_encode_images(self, image_paths: Sequence[str | Path]) -> list[list[float]]:
         """Generate embeddings for multiple images in batch.
 
         Args:

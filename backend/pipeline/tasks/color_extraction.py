@@ -74,14 +74,13 @@ def extract_dominant_colors(
         pixels = pixels[indices]
 
     # Apply k-means clustering
-    kmeans = KMeans(n_clusters=_num_colors, random_state=42, n_init=_n_init)
-    kmeans.fit(pixels)
+    kmeans = KMeans(n_clusters=_num_colors, random_state=42, n_init=_n_init)  # pyright: ignore[reportArgumentType]
+    labels = kmeans.fit_predict(pixels)
 
     # Get cluster centers (dominant colors)
     colors = kmeans.cluster_centers_
 
     # Get the percentage of each color
-    labels = kmeans.labels_
     label_counts = np.bincount(labels)
     total_pixels = len(labels)
     percentages = (label_counts / total_pixels) * 100

@@ -8,6 +8,7 @@ import threading
 import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -298,7 +299,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 # Rate limiting middleware
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # pyright: ignore[reportArgumentType]
 app.add_middleware(SlowAPIMiddleware)
 
 # Include API routers
@@ -460,7 +461,7 @@ async def health(request: Request):
     when one or more checks fail.  Useful for diagnosing "why isn't search
     working?" without tailing logs.
     """
-    checks: dict[str, str] = {}
+    checks: dict[str, Any] = {}
     overall = "healthy"
 
     # Database check

@@ -226,7 +226,7 @@ def create_session_with_fallback(
                 providers,
                 actual,
             )
-        return session, actual
+        return session, list(actual)
     except Exception as exc:
         if providers == ["CPUExecutionProvider"]:
             raise  # Already on CPU — nothing to fall back to

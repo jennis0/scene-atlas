@@ -127,6 +127,7 @@ class TestManifestPreprocessing:
 
         mock_session = MagicMock()
         mock_session.run.return_value = [np.zeros((1, manifest["embedding_dim"]))]
+        mock_session.get_providers.return_value = ["CPUExecutionProvider"]
 
         with patch("onnxruntime.InferenceSession", return_value=mock_session):
             from backend.app.services.clip_service import CLIPService
@@ -147,12 +148,12 @@ class TestManifestPreprocessing:
 
     def test_interpolation_bicubic(self, tmp_path, manifest_clip):
         svc = self._make_service_with_manifest(tmp_path, manifest_clip)
-        assert svc._interpolation == PILImage.BICUBIC
+        assert svc._interpolation == PILImage.Resampling.BICUBIC
 
     def test_interpolation_bilinear(self, tmp_path, manifest_clip):
         manifest_clip["interpolation"] = "bilinear"
         svc = self._make_service_with_manifest(tmp_path, manifest_clip)
-        assert svc._interpolation == PILImage.BILINEAR
+        assert svc._interpolation == PILImage.Resampling.BILINEAR
 
     def test_resize_mode_from_manifest(self, tmp_path, manifest_clip):
         svc = self._make_service_with_manifest(tmp_path, manifest_clip)
@@ -209,7 +210,7 @@ class TestManifestPreprocessing:
         else:
             new_w = old_size
             new_h = int(h * old_size / w)
-        old_img = img.resize((new_w, new_h), PILImage.BICUBIC)
+        old_img = img.resize((new_w, new_h), PILImage.Resampling.BICUBIC)
         w, h = old_img.size
         left = (w - old_size) // 2
         top = (h - old_size) // 2
@@ -389,6 +390,7 @@ class TestSentencePieceServiceInit:
 
         mock_session = MagicMock()
         mock_session.run.return_value = [np.zeros((1, 768))]
+        mock_session.get_providers.return_value = ["CPUExecutionProvider"]
 
         with (
             patch("onnxruntime.InferenceSession", return_value=mock_session),
@@ -404,7 +406,7 @@ class TestSentencePieceServiceInit:
 
         assert svc.embedding_dim == 768
         assert svc._resize_mode == "direct_resize"
-        assert svc._interpolation == PILImage.BILINEAR
+        assert svc._interpolation == PILImage.Resampling.BILINEAR
 
         # Verify the tokenizer is the sentencepiece wrapper
         from backend.app.services.clip_service import _SentencePieceTokenizerWrapper

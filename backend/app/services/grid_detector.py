@@ -209,8 +209,8 @@ class GridDetector:
         Returns dict with h_period, v_period, h_strength, v_strength,
         confidence, and ratio.
         """
-        row_proj = np.mean(edges, axis=1, dtype=np.float64)
-        col_proj = np.mean(edges, axis=0, dtype=np.float64)
+        row_proj = np.asarray(np.mean(edges, axis=1, dtype=np.float64))
+        col_proj = np.asarray(np.mean(edges, axis=0, dtype=np.float64))
 
         v_candidates, _ = self._find_ac_peaks(row_proj, min_cell, max_cell)
         h_candidates, _ = self._find_ac_peaks(col_proj, min_cell, max_cell)

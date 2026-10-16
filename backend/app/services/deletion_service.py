@@ -127,8 +127,8 @@ def delete_image_rows(db: Session, images: list[Image]) -> PendingFileDeletes:
     for key in keys:
         if key not in still_used:
             pending.storage_keys.append(key)
-            if candidates[key]:
-                pending.thumbnail_keys.append(candidates[key])
+            if thumb := candidates[key]:
+                pending.thumbnail_keys.append(thumb)
     return pending
 
 

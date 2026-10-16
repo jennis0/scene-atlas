@@ -422,11 +422,12 @@ def init_db(engine):
         # into sys._MEIPASS (_internal/).  Alembic resolves script_location via
         # os.path.abspath() (relative to CWD, not the config file), so we must
         # override it with the absolute _MEIPASS path after loading the config.
-        alembic_ini = _Path(_sys._MEIPASS) / "alembic.ini"
+        bundle_dir = _Path(_sys._MEIPASS)  # pyright: ignore[reportAttributeAccessIssue]
+        alembic_ini = bundle_dir / "alembic.ini"
         alembic_cfg = AlembicConfig(str(alembic_ini))
         alembic_cfg.set_main_option(
             "script_location",
-            str(_Path(_sys._MEIPASS) / "backend" / "alembic"),
+            str(bundle_dir / "backend" / "alembic"),
         )
     else:
         # Normal dev runtime: 4 levels up from backend/app/models/database.py
