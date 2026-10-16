@@ -200,6 +200,27 @@ uv run ruff check backend/ scripts/ --exclude backend/tests \
 uv run python scripts/quality/comment_density.py
 ```
 
+## Progress
+
+- **Step 2 (mechanical cleanup) — done** on `chore/code-quality-baseline`:
+  - Removed backend dead code (legacy `_migrate_images_content_hash`, `generate_clip_embedding`,
+    `ImageStore.generate_key`, `JobRunner.run_sync`, `is_shutting_down`, `is_path_within`,
+    `_strip_word_prefix`, `all_supported_formats`, `ClipService.active_providers`).
+    Kept `put_bytes`, `target_of`, `hamming_distance`, `in_use` and `group_image_count`:
+    they are small public APIs, used by serialisation or tests that check real contracts.
+  - Removed log-and-reraise wrappers (callers already log); `logger.exception` where
+    errors are swallowed. `lancedb_service.py` was left to the search/perf branch.
+  - Frontend: removed 5 unused files, 3 unused deps, unused exports.
+  - Deduplicated export naming (`naming.unique_export_path` / `export_metadata`), grid
+    filter icons, bulk-edit helpers, group-edit payload mapping. jscpd: 11 → 3 clones;
+    the remaining 3 (`search.py`, `groups.py`) belong to the search/perf branch.
+  - Fixed a test-isolation bug: root-endpoint tests failed whenever `frontend/dist`
+    existed locally.
+- **Search refactor + N+1 fixes** — in progress on `perf/search-and-queries`.
+- **Stale docs found** (for step 3): `design/ingestion.md` still describes the pre-ADR-018
+  pipeline (`process_single_image` etc.), and `design/testing.md` refers to a
+  `mock_heavy_services` fixture that no longer exists.
+
 ## Proposed next steps
 
 Each step is a separate PR; all must be behaviour-preserving with tests green.
