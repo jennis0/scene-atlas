@@ -4,6 +4,8 @@ Verifies the health endpoint returns the expected shape including mode field
 and subsystem check results, and the root endpoint supports content negotiation.
 """
 
+import pytest
+
 
 class TestHealthEndpoint:
     def test_returns_200(self, test_client):
@@ -29,6 +31,12 @@ class TestHealthEndpoint:
 
 
 class TestRootEndpoint:
+    @pytest.fixture(autouse=True)
+    def _no_spa_build(self, monkeypatch):
+        # The SPA is enabled at import time if frontend/dist exists, which depends on
+        # whether the developer has built the frontend locally.
+        monkeypatch.setattr("backend.app.main._spa_enabled", False)
+
     def test_returns_json_by_default(self, test_client):
         resp = test_client.get("/")
         assert resp.status_code == 200
