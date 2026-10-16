@@ -55,6 +55,7 @@ What's done, what's in progress, and what's known to be incomplete.
 |------|-------------|
 | [status-and-roadmap.md](status-and-roadmap.md) | **Single source of truth** -- feature inventory, in-progress work, backlog |
 | [technical-debt.md](technical-debt.md) | Code quality improvements with specific file paths and fix guidance |
+| [code-quality-baseline.md](code-quality-baseline.md) | Pre-release quality baseline -- duplication, comments, dead code, types, coverage; comment rubric |
 
 ## System Overview
 
