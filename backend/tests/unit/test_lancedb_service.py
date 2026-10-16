@@ -171,3 +171,32 @@ class TestLanceDBServiceCollection:
         svc.close()
         with pytest.raises(RuntimeError, match="closed"):
             svc.search_similar(_rand_vec())
+
+
+class TestEnsureCollectionExisting:
+    """Regression: lancedb>=0.30 ``list_tables()`` returns a response object, so a plain
+    ``name in db.list_tables()`` check is always False and existing tables were never
+    inspected."""
+
+    def test_reopens_existing_table_without_losing_rows(self, tmp_path):
+        first = LanceDBService(path=tmp_path / "db", collection_name="emb", vector_size=32)
+        first.add_image_embedding(1, _rand_vec(), {"filename": "a", "author": "", "base_name": ""})
+        first.close()
+
+        second = LanceDBService(path=tmp_path / "db", collection_name="emb", vector_size=32)
+        assert second.get_collection_info()["points_count"] == 1
+        assert second.table_exists("emb")
+        assert not second.table_exists("missing")
+        second.close()
+
+    def test_recreates_table_when_vector_size_changes(self, tmp_path):
+        first = LanceDBService(path=tmp_path / "db", collection_name="emb", vector_size=32)
+        first.add_image_embedding(1, _rand_vec(), {"filename": "a", "author": "", "base_name": ""})
+        first.close()
+
+        second = LanceDBService(path=tmp_path / "db", collection_name="emb", vector_size=64)
+        second.add_image_embedding(
+            2, _rand_vec(64), {"filename": "b", "author": "", "base_name": ""}
+        )
+        assert second.get_collection_info()["points_count"] == 1
+        second.close()

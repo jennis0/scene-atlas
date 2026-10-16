@@ -265,7 +265,7 @@ def get_embeddings_stats(name: str) -> EmbeddingStatsResponse:
     svc = get_lancedb_service()
 
     try:
-        if collection_name not in svc.db.list_tables():
+        if not svc.table_exists(collection_name):
             return EmbeddingStatsResponse(
                 collection_name=collection_name,
                 vectors_count=0,

@@ -51,6 +51,17 @@ class LanceDBService:
         self.collection_name = collection_name
         self.ensure_collection()
 
+    def table_exists(self, name: str) -> bool:
+        # list_tables() is paginated and returns a response object, not a list of names.
+        page_token = None
+        while True:
+            page = self.db.list_tables(page_token=page_token)
+            if name in page.tables:
+                return True
+            page_token = page.page_token
+            if not page_token:
+                return False
+
     def ensure_collection(self):
         """Ensure the table exists with the correct vector size.
 
@@ -60,9 +71,7 @@ class LanceDBService:
         """
         with self._lock:
             try:
-                existing_tables = self.db.list_tables()
-
-                if self.collection_name in existing_tables:
+                if self.table_exists(self.collection_name):
                     table = self.db.open_table(self.collection_name)
                     schema = table.schema
                     vec_field = schema.field("vector")
