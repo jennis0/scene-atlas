@@ -31,6 +31,7 @@ backend/
 │   │   ├── job_runner.py        # Background job runner (ThreadPoolExecutor)
 │   │   ├── lancedb_service.py   # LanceDB disk-backed vector DB client
 │   │   ├── scheduler.py         # Periodic task scheduler (asyncio)
+│   │   ├── search_service.py    # Hybrid search, filters, facets (see search.md)
 │   │   ├── validation.py        # Input validation helpers
 │   │   └── video_utils.py       # Video frame extraction + dimensions
 │   ├── config.py         # Pydantic settings (env-driven)

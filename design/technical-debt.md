@@ -210,179 +210,30 @@ import and call it.
 
 ---
 
-## 6. N+1 queries in `get_active_imports`
+## 6–10. Query scaling (resolved 2026-10-17, branch `perf/search-and-queries`)
 
-**Priority: Medium**
-**Effort: Small (30–60 minutes)**
-**Files:** `backend/app/api/imports.py`
+Re-audited against a synthetic 56k-image library (`python -m stress_tests.library_scale`,
+the size of the reference library). Query counts are now pinned by tests using the
+`query_counter` fixture (`backend/tests/conftest.py`): `integration/test_query_counts.py`
+for read endpoints and the "Query counts" section of `integration/test_ingest_pipeline.py`.
 
-### Problem
+| # | Original item | Outcome |
+|---|---------------|---------|
+| 6 | N+1 in `get_active_imports` | **Not applicable.** That endpoint went with ADR-018; its successor `GET /imports` already summarises all jobs with two grouped queries (`_summaries`). Now pinned by a test. |
+| 7 | N+1 group lookup in `_save_image_to_db` | **Already fixed by the redesign** (`ingest_process._resolve_group` caches per batch). The same pattern remained elsewhere and is **DONE**: `commit_batch` and `record_failures` did one `db.get(ImportItem)` per item (now one query per batch), `plan_job` flushed once per group, and `undo_job` ran two queries per created group and loaded every deleted image's tags and colours. |
+| 8 | ColorIndex loads the whole `colors` table | **DONE.** Still in memory (a SQL distance query would need LAB columns, i.e. a model change, and gives no real benefit at this size), but stored as numpy arrays: 65 MB → 9 MB retained (114 → 18 MB peak) and 146 → ~10 ms per colour at 56k images. Refresh is atomic. Matching ids are passed to SQL via `json_each` (`search_service.id_set`), as were search candidates: binding one parameter per id fails above SQLite's 32,766-variable limit. |
+| 9 | Five COUNT queries per `/facets` | **Already collapsed** into one GROUP BY before this pass; the total-count query is now derived too (7 → 6 queries). The real cost was the tag and colour aggregates: migration 022 adds covering indexes, 1.0 s → 0.27 s. |
+| 10 | N+1 LanceDB calls for reuse images | **Not applicable.** ADR-018 has no embedding-reuse path: duplicates become `duplicate` items without an image, and "Import as new copy" embeds normally in the batch call. Group delete/edit no longer make one LanceDB call per image either (they use `delete_image_rows`). |
 
-`GET /imports/active` issues:
-- 1 query for all `ImportJob` rows
-- N queries for `ImportGroupJob` rows (one per job)
+Other hot-path N+1s fixed in the same pass: grouped search/browse (hero and mosaic queries
+per group: 303 → 7 queries for 50 groups), `GET /images/` and `/images/{id}/scenes`
+(three lazy loads per image), `GET /groups/{id}` (joined tags × colours rows),
+`GET /tags/values/{category}` (loaded every Tag row), and the tag rename/delete cascade
+(one IN list with every affected id). See `design/search.md` for the search structure.
 
-With 20 jobs in the 7-day window this is up to 21 queries. The endpoint is polled every
-few seconds by the ActivityDock.
-
-### Fix
-
-```python
-# One query for all group jobs across all relevant job IDs
-all_job_ids = [j.id for j in all_jobs]
-groups_by_job: dict[str, list[ImportGroupJob]] = defaultdict(list)
-for grp in db.query(ImportGroupJob).filter(ImportGroupJob.job_id.in_(all_job_ids)).all():
-    groups_by_job[grp.job_id].append(grp)
-```
-
----
-
-## 7. N+1 group lookup in `_save_image_to_db` (core import hot path)
-
-**Priority: High**
-**Effort: Medium (1–2 hours)**
-**Files:** `backend/pipeline/ingestion.py`
-
-### Problem
-
-`_save_image_to_db` issues a `SELECT` on `ImageGroup` for every image in a batch. When
-`batch_save_to_database` saves 16 images from the same group, this is 16 identical queries
-in a single transaction. This is the core hot path for every import.
-
-```python
-# ingestion.py ~line 138 — called N times per batch
-grp = db.query(ImageGroup).filter(
-    ImageGroup.base_name == group_name,
-    ImageGroup.author == author
-).first()
-```
-
-### Fix
-
-Resolve the group once per batch in `batch_save_to_database` and pass it into
-`_save_image_to_db`, or cache it by `(base_name, author)` within a single DB session.
-Since all images in a batch share the same group, the simplest approach is to pass an
-optional `group` parameter:
-
-```python
-def _save_image_to_db(db: Session, image_data: dict, group: ImageGroup | None = None) -> int:
-    ...
-```
-
-and resolve it once in `batch_save_to_database` before the loop.
-
----
-
-## 8. ColorIndex loads entire `colors` table into memory
-
-**Priority: Medium**
-**Effort: Medium (half day)**
-**Files:** `backend/app/services/color_search.py`
-
-### Problem
-
-`ColorIndex._refresh` loads every row from the `colors` table on every 60-second TTL
-expiry:
-
-```python
-rows = db.query(Color.image_id, Color.color_hex).all()
-```
-
-At 5 colors per image and 50,000 images this is 250,000 rows loaded on every refresh.
-The subsequent search is a pure O(N) linear scan. Additionally, `_cache` and `_loaded_at`
-are updated non-atomically, creating a narrow window where a concurrent request could
-see stale data.
-
-### Fix options
-
-**Option A (simple):** Move color search into a SQL query with a perceptual-distance
-WHERE clause using indexed hex string comparison. Approximate color search by bucketing
-hex values (e.g. reduce to 4-bit per channel before indexing).
-
-**Option B (medium):** Keep the in-memory index but make the refresh atomic using a
-`threading.Lock`. For very large libraries, add a configurable TTL or a max-row cap.
-
-**Option C (architecture):** Store a precomputed LAB color value per Color row and add
-a generated column or periodic materialized view. Query with a distance threshold using
-a SQL expression. Eliminates the in-memory cache entirely.
-
-Option B is the minimum viable fix; Option C is the long-term solution once the library
-grows past ~10,000 images.
-
----
-
-## 9. Five COUNT queries per `/facets` request
-
-**Priority: Medium**
-**Effort: Small (30 minutes)**
-**Files:** `backend/app/api/search.py`
-
-### Problem
-
-The `/search/facets` endpoint issues five individual `COUNT` queries for grid stats:
-
-```python
-gridded_count = db.query(func.count(Image.id)).filter(reviewed, Image.gridded.is_(True)).scalar()
-gridless_count = db.query(func.count(Image.id)).filter(reviewed, Image.gridded.is_(False)).scalar()
-unknown_count  = db.query(func.count(Image.id)).filter(reviewed, Image.gridded.is_(None)).scalar()
-square_count   = db.query(func.count(Image.id)).filter(reviewed, Image.gridded.is_(True), Image.grid_type == "square").scalar()
-hex_count      = db.query(func.count(Image.id)).filter(reviewed, Image.gridded.is_(True), Image.grid_type == "hex").scalar()
-```
-
-This endpoint is called on every gallery page load (for the filter panel) and issues at
-least 9 separate queries total.
-
-### Fix
-
-```python
-from sqlalchemy import case
-
-rows = (
-    db.query(
-        Image.gridded,
-        Image.grid_type,
-        func.count(Image.id),
-    )
-    .filter(reviewed)
-    .group_by(Image.gridded, Image.grid_type)
-    .all()
-)
-# Aggregate rows in Python into the required counts
-```
-
----
-
-## 10. N+1 LanceDB calls for reuse (dedup) images
-
-**Priority: Low**
-**Effort: Small (30 minutes)**
-**Files:** `backend/pipeline/ingestion.py`
-
-### Problem
-
-When a batch contains duplicate images (reuse path), their existing LanceDB embeddings
-are retrieved one-at-a-time:
-
-```python
-for prep in reuse_images:
-    source_id = prep["reuse_embedding_from"]
-    embedding = get_lancedb_service().get_embedding(source_id)  # one query per image
-```
-
-LanceDB supports batch lookups by ID. For a batch of 20 duplicates this is 20
-serial queries.
-
-### Fix
-
-Add a `get_embeddings(ids: list[int]) -> dict[int, list[float]]` method to `LanceDBService`
-and call it once per batch:
-
-```python
-source_ids = [prep["reuse_embedding_from"] for prep in reuse_images]
-embeddings_by_id = get_lancedb_service().get_embeddings(source_ids)
-```
-
----
+Known remaining costs, acceptable for now: `/search/groups` with a query and `limit=500`
+takes ~1.3 s at 56k images, mostly serialising ~2,500 images with tags and colours; one
+INSERT per import group at seal time (SQLAlchemy can't batch `INSERT … RETURNING` on SQLite).
 
 ---
 
@@ -442,13 +293,9 @@ after upgrading.
 |---|------|----------|--------|
 | 1 | Move `_cleanup_import_images` to service layer | High | Small |
 | 2 | Deduplicate `_FILE_MAP_NAME` / `_load_file_map` | High | Small |
-| 7 | N+1 group lookup in `_save_image_to_db` | High | Medium |
 | 3 | Pipeline DB session helper | Medium | Small |
 | 4 | Tag-cascade + FTS rebuild deduplication | Medium | Small |
-| 6 | N+1 in `get_active_imports` | Medium | Small |
-| 8 | ColorIndex full-table load | Medium | Medium |
-| 9 | Five COUNT queries in `/facets` | Medium | Small |
 | 5 | Tag vocabulary parsing deduplication | Low | Medium |
-| 10 | N+1 LanceDB reuse calls | Low | Small |
+| 6–10 | Query scaling | — | **Done** |
 | 11 | Remove `continue-on-error` from CI security scanning | Medium | Small |
 | 12 | Upgrade GitHub Actions to Node.js 24 versions | Medium | Small |
