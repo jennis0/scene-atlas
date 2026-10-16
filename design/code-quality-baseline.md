@@ -216,6 +216,24 @@ uv run python scripts/quality/comment_density.py
     the remaining 3 (`search.py`, `groups.py`) belong to the search/perf branch.
   - Fixed a test-isolation bug: root-endpoint tests failed whenever `frontend/dist`
     existed locally.
+- **Step 4 (types) — done except the modules on the search/perf branch**, on
+  `refactor/sqlalchemy-mapped` (stacked on step 2):
+  - Models migrated to `Mapped[]` / `mapped_column()`. Verified schema-neutral by diffing
+    the generated DDL, column options and relationships before and after (identical).
+  - Declared 8 indexes that migrations create but the models omitted
+    (`ix_images_{variant_group_id,gridded,grid_type,image_type,media_type}`,
+    `ix_tags_image_id`, `ix_tags_category_value`, `ix_colors_image_id`). Remaining
+    model-vs-migration drift is benign: FTS5 shadow tables, an FK on
+    `images.import_job_id` SQLite can't add without a table rebuild, and nullability /
+    uniqueness nits on `app_settings.updated_at` and `tag_categories.name`.
+  - pyright scoped to production code (`backend/tests`, `backend/scripts` excluded).
+    494 → 66 errors, all in `api/{imports,search,groups}.py`, `ingest_queue.py`,
+    `lancedb_service.py` (mostly Optional `db`/`_table` access) and
+    `model_download_service.py`. Fix after the search/perf branch merges, then gate.
+  - **Bug found and fixed:** with lancedb 0.30, `name in db.list_tables()` is always
+    False (`ListTablesResponse`). Changing the embedding vector size crashed startup
+    with a schema mismatch, and `GET /models/{name}/embeddings` always reported 0
+    vectors. Fixed via `LanceDBService.table_exists()`, with regression tests.
 - **Search refactor + N+1 fixes** — in progress on `perf/search-and-queries`.
 - **Stale docs found** (for step 3): `design/ingestion.md` still describes the pre-ADR-018
   pipeline (`process_single_image` etc.), and `design/testing.md` refers to a
