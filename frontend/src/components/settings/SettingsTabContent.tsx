@@ -13,6 +13,14 @@ import { tagApi } from '@/lib/api/tagApi'
 import { TagPackCard } from '@/components/setup/TagPackCard'
 import type { AppSettings } from '@/types'
 
+/** Longest side analysed for grids (0 = full resolution). Lower is faster, but in
+ * evaluation 4096 px missed most thin-line 200 dpi maps (design/grid-detection-v3.md). */
+const GRID_RESOLUTION_OPTIONS = [
+  { value: 0, label: 'Full', title: 'Analyse every map at full resolution (recommended)' },
+  { value: 8192, label: '8K', title: 'Reduce maps larger than 8192 px' },
+  { value: 4096, label: '4K', title: 'Reduce maps larger than 4096 px; misses thin grid lines' },
+] as const
+
 interface StoragePathRowProps {
   label: string
   description: string
@@ -497,6 +505,40 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                   />
                 </button>
               </SettingRow>
+
+              {Boolean(val('enable_image_grid_detection')) && (
+                <SettingRow
+                  label="Grid analysis resolution"
+                  description="Full resolution finds thin grid lines on high-resolution maps. A limit is faster but can miss them."
+                >
+                  <div
+                    role="radiogroup"
+                    aria-label="Grid analysis resolution"
+                    className="flex rounded-md border border-border/50 overflow-hidden"
+                  >
+                    {GRID_RESOLUTION_OPTIONS.map((option) => {
+                      const selected = (val('grid_analysis_max_dim') ?? 0) === option.value
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          role="radio"
+                          aria-checked={selected}
+                          title={option.title}
+                          onClick={() => setField('grid_analysis_max_dim', option.value)}
+                          className={`px-2.5 h-7 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/40 ${
+                            selected
+                              ? 'bg-primary text-primary-foreground'
+                              : 'bg-secondary text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </SettingRow>
+              )}
 
               <div className="border-t border-border/30" />
             </section>

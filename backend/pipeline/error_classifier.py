@@ -31,6 +31,8 @@ import sqlite3
 
 from sqlalchemy.exc import OperationalError as SAOperationalError
 
+from backend.app.services.grid.models import GridModelError
+
 KIND_FILE = "file"
 KIND_TRANSIENT = "transient"
 KIND_SYSTEM = "system"
@@ -79,6 +81,9 @@ def _classify(exc: Exception, stage: str) -> tuple[str, str]:
     # --- Explicit system conditions raised by the pipeline itself ---
     if isinstance(exc, SystemUnavailableError):
         return str(exc), KIND_SYSTEM
+
+    if isinstance(exc, GridModelError):
+        return "Grid detection models are missing or damaged; reinstall Scene Atlas", KIND_SYSTEM
 
     if "embedding service unavailable" in msg:
         return "No AI model is available", KIND_SYSTEM

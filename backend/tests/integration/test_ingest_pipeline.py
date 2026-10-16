@@ -914,3 +914,56 @@ def test_paused_worker_reprobes_on_probe_interval(env):
     worker.run_once()  # pauses
     assert worker.status().system_paused
     assert 0.05 <= worker._next_wait() <= 2.0
+
+
+# ---------------------------------------------------------------------------
+# Grid detection inputs
+# ---------------------------------------------------------------------------
+
+
+def test_claimed_items_carry_sibling_grid_sizes(env):
+    make_job(
+        env,
+        {
+            "Author/Fort/Fort_Day_30x20.png": image_bytes(1),
+            "Author/Fort/Fort_Night_Gridded.png": image_bytes(2),
+            "Author/Cave/Cave_Gridded.png": image_bytes(3),
+        },
+    )
+    _, items = ingest_queue.claim_next_batch(None, limit=10)
+    by_name = {item.filename: item for item in items}
+    assert set(by_name["Fort_Night_Gridded.png"].sibling_grid_counts) == {(30, 20), (20, 30)}
+    assert by_name["Cave_Gridded.png"].sibling_grid_counts == ()
+
+
+def test_grid_source_recorded_at_import(env):
+    make_job(
+        env,
+        {
+            "Author/Fort/Fort_Day_30x20.png": image_bytes(4),
+            "Author/Fort/Fort_Plain.png": image_bytes(5),
+        },
+    )
+    env.worker.drain()
+    with env.SessionLocal() as db:
+        sources = {img.filename: img.grid_source for img in db.query(Image).all()}
+    assert sources == {"Fort_Day_30x20.png": "filename", "Fort_Plain.png": None}
+
+
+def test_detector_result_records_detector_source(env, monkeypatch):
+    env.config = PipelineConfig(enable_image_grid_detection=True, ingestion_batch_size=4)
+    monkeypatch.setattr(
+        "backend.pipeline.tasks.grid_detection.detect_grid",
+        lambda *a, **kw: {
+            "gridded": True,
+            "grid_type": "square",
+            "grid_width": 12,
+            "grid_height": 9,
+            "confidence": 0.97,
+        },
+    )
+    make_job(env, {"Author/Fort/Fort_Plain.png": image_bytes(6)})
+    env.worker.drain()
+    with env.SessionLocal() as db:
+        img = db.query(Image).one()
+    assert (img.gridded, img.grid_width, img.grid_source) == (True, 12, "detector")
