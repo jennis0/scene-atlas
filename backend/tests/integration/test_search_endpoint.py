@@ -399,7 +399,7 @@ class TestSearchSemanticFallback:
         def _raise(*args, **kwargs):
             raise RuntimeError("CLIP model not loaded")
 
-        monkeypatch.setattr("backend.app.api.search.get_clip_service", _raise)
+        monkeypatch.setattr("backend.app.services.search_service.get_clip_service", _raise)
 
         resp = client.get("/api/v1/search/", params={"query": "forest"})
         assert resp.status_code == 200
@@ -411,7 +411,7 @@ class TestSearchSemanticFallback:
         def _raise(*args, **kwargs):
             raise RuntimeError("CLIP model not loaded")
 
-        monkeypatch.setattr("backend.app.api.search.get_clip_service", _raise)
+        monkeypatch.setattr("backend.app.services.search_service.get_clip_service", _raise)
 
         resp = client.get("/api/v1/search/", params={"query": "forest", "semantic_only": "true"})
         assert resp.status_code == 503
@@ -423,7 +423,7 @@ class TestSearchSemanticFallback:
         def _raise(*args, **kwargs):
             raise RuntimeError("CLIP model not loaded")
 
-        monkeypatch.setattr("backend.app.api.search.get_clip_service", _raise)
+        monkeypatch.setattr("backend.app.services.search_service.get_clip_service", _raise)
 
         resp = client.get("/api/v1/search/", params={"query": "forest"})
         assert resp.status_code == 200
@@ -441,11 +441,15 @@ class TestSearchSemanticFallback:
 
         mock_clip = MagicMock()
         mock_clip.encode_text.return_value = [0.0] * 768
-        monkeypatch.setattr("backend.app.api.search.get_clip_service", lambda: mock_clip)
+        monkeypatch.setattr(
+            "backend.app.services.search_service.get_clip_service", lambda: mock_clip
+        )
 
         mock_lancedb = MagicMock()
         mock_lancedb.search_similar.return_value = []  # 0 semantic results
-        monkeypatch.setattr("backend.app.api.search.get_lancedb_service", lambda: mock_lancedb)
+        monkeypatch.setattr(
+            "backend.app.services.search_service.get_lancedb_service", lambda: mock_lancedb
+        )
 
         resp = client.get("/api/v1/search/", params={"query": "forest"})
         assert resp.status_code == 200
@@ -461,7 +465,7 @@ class TestSearchSemanticFallback:
         def _raise(*args, **kwargs):
             raise RuntimeError("CLIP model not loaded")
 
-        monkeypatch.setattr("backend.app.api.search.get_clip_service", _raise)
+        monkeypatch.setattr("backend.app.services.search_service.get_clip_service", _raise)
 
         resp = client.get("/api/v1/search/", params={"query": "forest", "text_only": "true"})
         assert resp.status_code == 200

@@ -114,18 +114,10 @@ class _BrokenClip:
 
 
 def _patch_semantic(monkeypatch, clip) -> None:
-    import backend.app.api.search as api_module
+    import backend.app.services.search_service as search_service
 
-    modules = [api_module]
-    try:
-        import backend.app.services.search_service as service_module
-
-        modules.append(service_module)
-    except ImportError:
-        pass
-    for module in modules:
-        monkeypatch.setattr(module, "get_clip_service", lambda: clip, raising=False)
-        monkeypatch.setattr(module, "get_lancedb_service", _FakeLanceDB, raising=False)
+    monkeypatch.setattr(search_service, "get_clip_service", lambda: clip)
+    monkeypatch.setattr(search_service, "get_lancedb_service", _FakeLanceDB)
 
 
 @pytest.fixture
