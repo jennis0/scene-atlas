@@ -2,8 +2,8 @@
 
 Usage:
     python -m stress_tests run --all
-    python -m stress_tests run --scenario concurrent-imports
-    python -m stress_tests run --scenario concurrent-imports --quick
+    python -m stress_tests run --scenario concurrent_imports
+    python -m stress_tests run --scenario happy_path --scenario undo_import --quick
     python -m stress_tests run --all --large
     python -m stress_tests generate-fixtures
     python -m stress_tests list
@@ -126,11 +126,13 @@ class ScenarioResult:
 class StressTestServer:
     """Manages a uvicorn subprocess with an isolated temp data directory."""
 
-    def __init__(self, work_dir: Path, *, data_dir: Path | None = None) -> None:
+    def __init__(self, work_dir: Path) -> None:
         self.work_dir = work_dir
         self.log_path = work_dir / "server.log"
-        # Allow callers to share a data directory across restarts (server_restart_recovery)
-        self._data_dir = data_dir
+        # Isolated roots: never the repo's data/ and images/ folders.
+        self.data_dir = work_dir / "data"
+        self.library_dir = work_dir / "library"
+        self.starts = 0
         self.port: int | None = None
         self.base_url: str | None = None
         self._proc: subprocess.Popen | None = None
@@ -151,6 +153,26 @@ class StressTestServer:
         self._port_sock = s
         return port
 
+    def _link_models(self) -> None:
+        """Symlink already-downloaded AI models into the isolated data dir.
+
+        A fresh data dir has no model, so the ingest worker would stay
+        system-paused ("No AI model is available"). Models are looked up in
+        $STRESS_MODELS_DIR, else <repo>/data/models.
+        """
+        source = Path(os.environ.get("STRESS_MODELS_DIR") or REPO_ROOT / "data" / "models")
+        dest = self.data_dir / "models"
+        dest.mkdir(parents=True, exist_ok=True)
+        if not source.is_dir():
+            return
+        for model in source.iterdir():
+            target = dest / model.name
+            if model.is_dir() and not target.exists() and not model.name.startswith("."):
+                try:
+                    target.symlink_to(model.resolve(), target_is_directory=True)
+                except OSError:  # e.g. Windows without symlink rights
+                    shutil.copytree(model, target)
+
     def start(self, timeout: float = 90) -> str:
         """Start the server and wait for it to signal readiness.
 
@@ -161,28 +183,32 @@ class StressTestServer:
         Returns the base URL, e.g. ``http://127.0.0.1:18423``.
         """
         self.port = self._reserve_port()
-        self.work_dir.mkdir(parents=True, exist_ok=True)
-        data_dir = self._data_dir if self._data_dir is not None else (self.work_dir / "data")
-        data_dir.mkdir(parents=True, exist_ok=True)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.library_dir.mkdir(parents=True, exist_ok=True)
+        self._link_models()
 
         env = os.environ.copy()
-        env["DATA_DIR"] = str(data_dir)
+        env["APP_DATA_DIR"] = str(self.data_dir)
+        env["IMAGE_LIBRARY_DIR"] = str(self.library_dir)
         env["API_PORT"] = str(self.port)
-        # DEBUG=true enables debug-level logging in the server
-        env["DEBUG"] = "true"
         env["PYTHONUNBUFFERED"] = "1"
-
-        # Disable scheduled maintenance tasks during stress tests — they run every
-        # 6h+ anyway and won't fire, but the scheduler_interference scenario
-        # will enable them explicitly by patching the scheduler interval.
-        # We keep the scheduler *running* so the interference scenario works.
+        # The scheduler stays on: overdue maintenance runs 60 s after startup,
+        # which maintenance_during_import relies on.
 
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
-        self._log_fh = open(self.log_path, "w", encoding="utf-8", errors="replace")
+        # Append, so a restarted server's log follows the first one's.
+        self._log_fh = open(self.log_path, "a", encoding="utf-8", errors="replace")
+        self.starts += 1
+        self._log_fh.write(f"===== server start #{self.starts} on port {self.port} =====\n")
+        self._log_fh.flush()
 
+        # Run uvicorn with this interpreter (the harness itself runs under `uv run`),
+        # so the PID we signal is the server, not a `uv` wrapper that can leave
+        # the real server running after a kill.
+        env["PYTHONFAULTHANDLER"] = "1"  # SIGABRT dumps every thread's stack to the log
         cmd = [
-            "uv",
-            "run",
+            sys.executable,
+            "-m",
             "uvicorn",
             "backend.app.main:app",
             "--host",
@@ -195,6 +221,8 @@ class StressTestServer:
         if sys.platform == "win32":
             # CREATE_NEW_PROCESS_GROUP allows us to kill the entire process tree
             kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            kwargs["start_new_session"] = True  # own process group, killed as a whole
 
         self._proc = subprocess.Popen(
             cmd,
@@ -272,10 +300,28 @@ class StressTestServer:
                         timeout=timeout,
                     )
                     if r.status_code < 500:
-                        return  # CLIP loaded (even 400 means we got through)
+                        break  # CLIP loaded (even 400 means we got through)
                 except httpx.RequestError:
                     time.sleep(1)
-        raise RuntimeError(f"CLIP did not load within {timeout}s. Check {self.log_path}")
+            else:
+                raise RuntimeError(f"CLIP did not load within {timeout}s. Check {self.log_path}")
+            # The ingest worker system-pauses until the model is ready; make sure
+            # that pause has cleared so timings don't include model loading.
+            while time.monotonic() < deadline:
+                queue = client.get("/api/v1/imports").json()["queue"]
+                if not queue["system_paused"]:
+                    return
+                client.post("/api/v1/imports/queue/probe")
+                time.sleep(0.5)
+        raise RuntimeError(
+            f"Ingest queue still system-paused after {timeout}s ({queue['reason']}). "
+            "If no model is available, download one in the app or set STRESS_MODELS_DIR."
+        )
+
+    def restart(self, *, kill: bool = True, timeout: float = 90) -> str:
+        """Stop (SIGKILL by default, i.e. a crash) and start again on the same data."""
+        self.stop(force=kill)
+        return self.start(timeout=timeout)
 
     def stop(self, force: bool = False) -> None:
         if self._proc is None:
@@ -309,15 +355,24 @@ class StressTestServer:
         else:
             import signal
 
-            if force:
-                self._proc.send_signal(signal.SIGKILL)
-            else:
+            pgid = self._proc.pid  # start_new_session: the server leads its own group
+            if not force:
                 self._proc.send_signal(signal.SIGTERM)
                 try:
-                    self._proc.wait(timeout=10)
+                    self._proc.wait(timeout=15)
                 except subprocess.TimeoutExpired:
-                    self._proc.send_signal(signal.SIGKILL)
-                    self._proc.wait()
+                    # Hung: dump all thread stacks to server.log (faulthandler), then kill.
+                    print(_yellow("    Server ignored SIGTERM; dumping stacks to its log"))
+                    self._proc.send_signal(signal.SIGABRT)
+                    try:
+                        self._proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        pass
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            self._proc.wait()
 
         if self._port_sock:
             self._port_sock.close()
@@ -333,7 +388,7 @@ class StressTestServer:
         dest.mkdir(parents=True, exist_ok=True)
         if self.log_path.exists():
             shutil.copy2(self.log_path, dest / "server.log")
-        db_path = self.work_dir / "data" / "battlemap.db"
+        db_path = self.data_dir / "battlemap.db"
         if db_path.exists():
             shutil.copy2(db_path, dest / "db.sqlite")
 
@@ -351,7 +406,7 @@ def _check_disk_space(path: Path, warn_below_gb: float = 10.0) -> None:
             print(
                 _yellow(
                     f"  Warning: Only {free_gb:.1f} GB free on disk. "
-                    f"Large fixtures require ~200 MB (default) or ~7 GB (--large)."
+                    f"Fixtures need ~100 MB (default) or a few GB (--large)."
                 )
             )
     except Exception:
@@ -384,8 +439,8 @@ def _print_result(result: ScenarioResult) -> None:
     elapsed = f"({result.elapsed:.0f}s)"
     detail = result.message
     if result.stats:
-        detail = result.stats.summary_str()
-    name = result.name.ljust(30)
+        detail = f"{detail} [{result.stats.summary_str()}]"
+    name = result.name.ljust(28)
     print(f"  {status}  {name} {elapsed:>6}  {detail}")
     if not result.passed and result.failure_details:
         for line in result.failure_details.strip().splitlines():
@@ -443,11 +498,26 @@ def _save_summary(results: list[ScenarioResult], dest: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+@dataclass
+class ScenarioContext:
+    """Everything a scenario gets: the live server, fixtures and the run mode."""
+
+    server: StressTestServer
+    fixtures: object  # fixtures.FixturePaths (kept untyped to avoid an import cycle)
+    large_mode: bool
+    quick_mode: bool
+
+    @property
+    def base_url(self) -> str:
+        assert self.server.base_url is not None
+        return self.server.base_url
+
+
 def _run_scenario(
     scenario_name: str,
     scenario_fn,
     work_dir: Path,
-    fixtures_dir: Path,
+    fixture_paths,
     large_mode: bool,
     quick_mode: bool,
     results_dir: Path,
@@ -460,26 +530,23 @@ def _run_scenario(
     t_start = time.monotonic()
 
     try:
-        base_url = server.start()
+        server.start()
         if wait_for_clip:
-            print("    Waiting for CLIP model to load...")
             server.wait_for_clip()
-
-        result = asyncio.run(
-            scenario_fn(
-                base_url=base_url,
-                fixtures_dir=fixtures_dir,
-                large_mode=large_mode,
-                quick_mode=quick_mode,
-            )
+        ctx = ScenarioContext(
+            server=server,
+            fixtures=fixture_paths,
+            large_mode=large_mode,
+            quick_mode=quick_mode,
         )
+        limit = 3600 if large_mode else 1200
+        result = asyncio.run(asyncio.wait_for(scenario_fn(ctx), timeout=limit))
     except Exception as exc:
-        elapsed = time.monotonic() - t_start
         result = ScenarioResult(
             name=scenario_name,
             passed=False,
-            message=f"Scenario raised unexpected exception: {type(exc).__name__}: {exc}",
-            elapsed=elapsed,
+            message=f"Scenario raised {type(exc).__name__}: {exc}",
+            elapsed=0,
             failure_details=traceback.format_exc(),
         )
     finally:
@@ -492,12 +559,11 @@ def _run_scenario(
         artifact_dir = results_dir / f"{_timestamp()}_{scenario_name}"
         server.copy_artifacts(artifact_dir)
         _save_summary([result], artifact_dir)
-        if result.failure_details:
-            result.failure_details = (
-                f"Server log: {artifact_dir / 'server.log'}\n"
-                f"DB snapshot: {artifact_dir / 'db.sqlite'}\n"
-                f"{result.failure_details}"
-            )
+        result.failure_details = (
+            f"Server log: {artifact_dir / 'server.log'}\n"
+            f"DB snapshot: {artifact_dir / 'db.sqlite'}\n"
+            f"{result.failure_details or ''}"
+        )
 
     return result
 
@@ -517,13 +583,11 @@ def _cmd_list(args: argparse.Namespace) -> None:
     print()
     print(_bold("Available stress test scenarios:"))
     print()
-    header = f"  {'Scenario':<30} {'Est. time (default)':<22} {'Est. time (--quick)'}"
+    header = f"  {'Scenario':<28} {'Default':<12} {'--quick':<10} Description"
     print(header)
-    print("  " + "-" * (len(header) - 2))
-    for name, _fn, default_time, quick_time in scenarios.SCENARIO_REGISTRY:
-        print(f"  {name:<30} {default_time:<22} {quick_time}")
-    print()
-    print("  Total (default): ~25-40 min   Total (--quick): ~7 min")
+    print("  " + "-" * (len(header) + 30))
+    for entry in scenarios.SCENARIO_REGISTRY:
+        print(f"  {entry.name:<28} {entry.default_time:<12} {entry.quick_time:<10} {entry.summary}")
     print()
 
 
@@ -533,14 +597,11 @@ def _cmd_generate_fixtures(args: argparse.Namespace) -> None:
     has_ffmpeg = _check_ffmpeg()
     if not has_ffmpeg:
         print(_yellow("  Warning: ffmpeg not found — video fixtures will be skipped."))
-        print(_yellow("  Install ffmpeg and add to PATH to enable video scenarios."))
 
     print(f"  Generating fixtures in {FIXTURES_DIR}...")
     _check_disk_space(FIXTURES_DIR.parent)
     fixtures.ensure_fixtures(
-        fixtures_dir=FIXTURES_DIR,
-        large_mode=args.large,
-        has_ffmpeg=has_ffmpeg,
+        fixtures_dir=FIXTURES_DIR, large_mode=args.large, has_ffmpeg=has_ffmpeg
     )
     print(_green("  Fixtures ready."))
 
@@ -550,31 +611,25 @@ def _cmd_run(args: argparse.Namespace) -> None:
 
     has_ffmpeg = _check_ffmpeg()
     if not has_ffmpeg:
-        print(_yellow("  Warning: ffmpeg not found — video scenarios will be skipped."))
+        print(_yellow("  Warning: ffmpeg not found — real-video checks will be skipped."))
 
     _check_disk_space(FIXTURES_DIR.parent)
 
-    # Generate fixtures
     print("  Generating/verifying fixtures...")
-    fixtures.ensure_fixtures(
-        fixtures_dir=FIXTURES_DIR,
-        large_mode=args.large,
-        has_ffmpeg=has_ffmpeg,
+    fixture_paths = fixtures.ensure_fixtures(
+        fixtures_dir=FIXTURES_DIR, large_mode=args.large, has_ffmpeg=has_ffmpeg
     )
 
-    # Select scenarios to run
     if args.all:
-        selected = scenarios.SCENARIO_REGISTRY
+        selected = list(scenarios.SCENARIO_REGISTRY)
     else:
-        selected = [entry for entry in scenarios.SCENARIO_REGISTRY if entry[0] == args.scenario]
-        if not selected:
-            print(_red(f"  Unknown scenario: {args.scenario!r}"))
+        by_name = {entry.name: entry for entry in scenarios.SCENARIO_REGISTRY}
+        unknown = [name for name in args.scenario if name not in by_name]
+        if unknown:
+            print(_red(f"  Unknown scenario(s): {', '.join(unknown)}"))
             print("  Run `python -m stress_tests list` to see available scenarios.")
             sys.exit(1)
-
-    # Skip video scenarios if no ffmpeg
-    if not has_ffmpeg:
-        selected = [e for e in selected if "video" not in e[0] and "large_upload" not in e[0]]
+        selected = [by_name[name] for name in args.scenario]
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     work_dir = RESULTS_DIR / f"_work_{_timestamp()}"
@@ -582,27 +637,24 @@ def _cmd_run(args: argparse.Namespace) -> None:
     results: list[ScenarioResult] = []
     _print_banner()
 
-    for name, fn, _dt, _qt in selected:
-        # Scenarios that test CLIP (most of them) need CLIP loaded.
-        # malformed_input and endpoint_spam don't process images so we skip CLIP wait
-        needs_clip = name not in {"endpoint_spam", "malformed_input"}
-
+    for entry in selected:
         result = _run_scenario(
-            scenario_name=name,
-            scenario_fn=fn,
+            scenario_name=entry.name,
+            scenario_fn=entry.fn,
             work_dir=work_dir,
-            fixtures_dir=FIXTURES_DIR,
-            large_mode=getattr(args, "large", False),
-            quick_mode=getattr(args, "quick", False),
+            fixture_paths=fixture_paths,
+            large_mode=args.large,
+            quick_mode=args.quick,
             results_dir=RESULTS_DIR,
-            wait_for_clip=needs_clip,
+            wait_for_clip=entry.needs_model,
         )
         results.append(result)
         _print_result(result)
 
     _print_summary(results, RESULTS_DIR if any(not r.passed for r in results) else None)
+    _save_summary(results, RESULTS_DIR / f"{_timestamp()}_run")
 
-    # Clean up work dir on full success
+    # Keep the work dir (server logs, databases) only when something failed.
     if all(r.passed for r in results) and work_dir.exists():
         shutil.rmtree(work_dir, ignore_errors=True)
 
@@ -629,19 +681,21 @@ def main() -> None:
     gen_parser.add_argument(
         "--large",
         action="store_true",
-        help="Generate 500MB+ variants (requires ~7 GB disk)",
+        help="Also generate the --large variants",
     )
 
     # run
     run_parser = sub.add_parser("run", help="Run stress test scenarios")
     run_group = run_parser.add_mutually_exclusive_group(required=True)
     run_group.add_argument("--all", action="store_true", help="Run all scenarios")
-    run_group.add_argument("--scenario", metavar="NAME", help="Run a single scenario")
-    run_parser.add_argument("--quick", action="store_true", help="Reduced load, <7 min total")
+    run_group.add_argument(
+        "--scenario", metavar="NAME", action="append", help="Run a scenario (repeatable)"
+    )
+    run_parser.add_argument("--quick", action="store_true", help="Reduced load")
     run_parser.add_argument(
         "--large",
         action="store_true",
-        help="Enable 500MB+ fixture variants",
+        help="Bigger loads and fixtures (needs several GB of disk)",
     )
 
     args = parser.parse_args()
