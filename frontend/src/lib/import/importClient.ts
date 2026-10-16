@@ -1,5 +1,5 @@
 /**
- * HTTP client for the imports API (ADR-018, design/ingest-redesign.md §7).
+ * HTTP client for the imports API (ADR-018, design/ingestion.md §7).
  *
  * Thin and typed; retry and backoff policy lives in ImportManager, which is the
  * only intended caller.

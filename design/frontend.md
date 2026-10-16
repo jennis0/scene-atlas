@@ -43,20 +43,24 @@ frontend/src/
 │   │   ├── confirm-dialog.tsx
 │   │   ├── error-alert.tsx
 │   │   └── video-indicator.tsx
-│   ├── import/                # Import-specific sub-components
+│   ├── imports/               # Import views over ImportManager (ADR-018)
+│   │   ├── ImportDialog.tsx       # Start view + live progress (meter, notices, ledger, pause/cancel)
+│   │   ├── ImportReportDialog.tsx # Groups / Problems / Already in library / Skipped; Undo, Dismiss
+│   │   ├── GroupLedger.tsx        # Virtualised per-group progress ledger
+│   │   ├── ImportJobRow.tsx       # Activity dock row for one import job
+│   │   ├── ImportFrame.tsx        # Shared dialog chrome, notices, confirm overlay
+│   │   ├── format.ts              # Shared wording
+│   │   └── pickFiles.ts           # File/folder pick helpers
+│   ├── import/                # Group/image editing sub-components (used by EditGroupDialog, ImageViewer)
 │   │   ├── FileCard.tsx           # Image card in gallery/viewer
 │   │   ├── FileToolbar.tsx        # Toolbar for file operations
-│   │   ├── ImportFileCard.tsx     # File card in import dialog
-│   │   ├── ImportFileToolbar.tsx  # Import-specific toolbar
-│   │   ├── ImportUploadPane.tsx   # Upload drop zone
-│   │   ├── ImportDonePane.tsx     # Completion summary
 │   │   ├── MetadataForm.tsx       # Author/name form for groups
 │   │   ├── TagPicker.tsx          # Tag selection widget
 │   │   ├── GridToggle.tsx         # Grid on/off toggle
 │   │   ├── GridSizeInput.tsx      # Grid dimensions input
 │   │   ├── tagColors.ts           # Tag color palette + lookup
 │   │   ├── fileFilter.ts          # File search/filter logic
-│   │   ├── types.ts               # Import-specific types
+│   │   ├── types.ts               # Editing types
 │   │   └── shared/
 │   │       ├── FileToolbarCore.tsx     # Shared toolbar primitives
 │   │       ├── FileCardExcludedState.tsx # Excluded file visual state
@@ -85,12 +89,10 @@ frontend/src/
 │   ├── GroupGrid.tsx          # Virtualized group grid
 │   ├── ImageGrid.tsx          # Virtualized individual image grid
 │   ├── ImageViewer.tsx        # Full-screen image viewer
-│   ├── ImportDialog.tsx       # Import flow (upload → preview → process)
 │   ├── LoadingScreen.tsx      # Electron: loading/error splash
 │   ├── GalleryHeader.tsx       # Main gallery header (search, view toggle, actions)
 │   ├── GroupPickerShell.tsx    # Wrapper for merge picker UI
 │   ├── GroupSidebarShell.tsx   # Sidebar shell for group browsing
-│   ├── ImportSummaryDialog.tsx # Import completion summary (errors, warnings, skipped)
 │   ├── MergeGroupPicker.tsx   # Group merge selection dialog
 │   ├── SceneTile.tsx          # Clickable scene thumbnail tile
 │   ├── SubgroupDropdown.tsx   # Subgroup selector dropdown
@@ -101,15 +103,10 @@ frontend/src/
 │   ├── TagColorContext.tsx    # DB-driven tag color provider
 │   └── ThemeContext.tsx       # Light/dark mode toggle (stored in localStorage)
 ├── hooks/
-│   ├── useActiveImports.ts    # Active import polling + status
 │   ├── useAppMode.ts          # Detect Electron vs browser mode
 │   ├── useBackgroundJobs.ts   # Global background job state
-│   ├── useFileEditing.ts      # In-place editing of import metadata
+│   ├── useFileEditing.ts      # In-place editing of file metadata
 │   ├── useImageGrouping.ts    # Transforms flat Image[] → ImageGroup[]
-│   ├── useImportPersistence.ts # LocalStorage for draft imports
-│   ├── useImportPolling.ts    # Import status polling
-│   ├── useImportState.ts      # Complex import state machine
-│   ├── useImportUpload.ts     # File upload management
 │   ├── useJobPolling.ts       # Background job polling
 │   ├── useGroupSearch.ts      # Group search with pagination
 │   ├── useEditGroupDnd.ts     # Drag-and-drop for edit group dialog
@@ -118,7 +115,6 @@ frontend/src/
 │   ├── useGalleryDialogs.ts   # Manages multiple dialog open/close state
 │   ├── useGallerySearch.ts    # Gallery search with React Query
 │   ├── useGroupSidebarMultiselect.ts # Multi-select in group sidebar
-│   ├── useImportProgressPolling.ts   # Import progress tracking for live review
 │   └── useSettingsDraft.ts    # Settings UI draft state management
 ├── lib/
 │   ├── api/                   # Modular API client directory (_client.ts, per-domain modules like imageApi.ts, searchApi.ts, etc., and index.ts barrel export)
@@ -127,11 +123,14 @@ frontend/src/
 │   ├── categoryIcons.ts       # Tag category → Lucide icon mapping
 │   ├── colorPalette.ts        # Tailwind color presets for tag categories
 │   ├── constants.ts           # Shared constants
-│   ├── fsEntryTraversal.ts    # Electron: folder traversal via IPC
+│   ├── fsEntryTraversal.ts    # Dropped folder traversal (FileSystemEntry API)
 │   ├── getErrorMessage.ts     # Error message extraction helper
-│   ├── hashFile.ts            # Client-side SHA-256 file hashing
-│   ├── importStorage.ts       # LocalStorage helpers for import state
-│   ├── mimeCheck.ts           # File type validation
+│   ├── import/                # ImportManager: single owner of uploads + polling
+│   │   ├── ImportManager.ts       # Uploads, hashing pipeline, resume, single ETag poller, unload guard, actions
+│   │   ├── useImports.ts          # useSyncExternalStore hooks over the manager
+│   │   ├── importClient.ts        # Typed HTTP client for /imports
+│   │   ├── hasher.ts, hash.worker.ts # Web Worker SHA-256 (skipped in insecure contexts / >256 MB)
+│   │   └── types.ts               # Import API types
 │   ├── queryKeys.ts           # Centralized query key definitions + cache invalidation helpers
 │   └── utils.ts               # Tailwind cn() helper
 ├── pages/
@@ -166,19 +165,17 @@ The main page. Contains:
 5. Dialog marks non-seeded images as `outOfScope` (visible but protected from bulk edits)
 6. User can bring images into scope by clicking them individually
 
-### ImportDialog (`components/ImportDialog.tsx`)
-Group management tool for organizing files before import. Per-file metadata editing (tags, grid, name) is deferred to post-import via `ImageViewer` and `EditGroupDialog`.
+### Import (`components/imports/`, `lib/import/`)
+All import state lives in `ImportManager`, a module-level store outside the React tree read via `useSyncExternalStore` hooks. It owns local uploads (hash worker running ahead of 3 concurrent `PUT`s, per-file retry, waiting for connection), the single `GET /imports` poller (ETag; 1 s active, 5 s hidden, 30 s idle) and the `beforeunload` guard. Dialogs and the dock are pure views, so closing or remounting them never orphans an upload.
 
-1. **Upload** — file picker (files or folder via `webkitdirectory`) + zip support. Uploads to `/imports/upload`, gets back grouped variant info.
-2. **Preview** — tabbed view (one tab per detected image group). Each tab: editable author + group name, compact file cards (`ImportFileCard`) with thumbnail/name/type toggle, simplified toolbar (`ImportFileToolbar`) with search/filter/bulk actions for group management. "Import This Group" or "Import All" buttons.
-3. **Processing/Done** — progress per group, completion summary. Clicking completed job in ActivityDock opens `EditGroupDialog` for post-import metadata review.
+- **ImportDialog** — pick files, a folder or zips plus battlemap/scene; then a progress view with a received-vs-processed meter, notices (system pause, lost connection, upload interrupted → choose files to resume / finish without them, local upload failures → retry), the group ledger, and Pause/Resume/Cancel. Can be closed and reopened from the dock.
+- **ImportReportDialog** — Groups, Problems (by reason, Retry), Already in library (Import as new copies), Skipped. Undo import (confirmed), Dismiss, Review in editor (opens the created groups in `EditGroupDialog`).
+- A toast fires when each job finishes, with a "View report" action.
 
-State is preserved if dialog is closed during processing (re-open to check progress).
-
-Sub-components live in `components/import/` to keep the import flow self-contained.
+See [ingestion.md §8](ingestion.md#8-frontend).
 
 ### ActivityDock (`components/ActivityDock.tsx`)
-Floating bottom-right panel showing import and background job status. Collapsed state shows a pill with spinner + count badge. Expanded state shows job cards with progress bars and status indicators. See [visual-language.md](visual-language.md) for the dock pattern.
+Floating bottom-right panel showing import jobs (`ImportJobRow`, plus a queue banner when system-paused) and background job status. Collapsed state shows a pill with spinner + count badge. Expanded state shows job cards with progress bars and status indicators. See [visual-language.md](visual-language.md) for the dock pattern.
 
 ### ImageGrid (`components/ImageGrid.tsx`)
 Virtualized grid of individual image cards (200px wide, square thumbnails). Each card has an always-visible metadata bar showing name, author, and up to 3 tag badges.
@@ -208,11 +205,10 @@ Axios instance with:
 - Base URL: dynamic — `/api/v1` in browser (proxied by Vite in dev), `http://localhost:{port}/api/v1` in Electron (port from backend-ready IPC)
 - `paramsSerializer: { indexes: null }` for FastAPI array parameter compatibility (sends `tags=a&tags=b` instead of `tags[0]=a&tags[1]=b`)
 
-Key API groups:
+Key API groups (imports use their own client, `lib/import/importClient.ts`):
 - `imageApi` — list, get, patch, delete, getScenes, getAuthors, backfillGrids
 - `searchApi` — search (flat Image[], text+filters+semantic), groups (grouped view with pagination), facets, rebuildEmbeddings
 - `tagApi` — categories CRUD, tag value CRUD, retag-all, stats
-- `importApi` — init, upload, confirm, confirmAll, status, analysis, finalize, cancel, active, checkHashes
 - `groupApi` — get, edit, delete, merge, moveImages, download
 - `jobApi` — list, get
 - `systemApi` — info, deleteLibrary, resetTags
@@ -257,6 +253,5 @@ All interfaces mirror the backend Pydantic schemas. Key types:
 - `ImageGroup` — client-side grouped view type (rendered from GroupSearchResult + full Image objects)
 
 **Import & Jobs:**
-- `ImportUploadResponse`, `ImportGroup`, `ImportFileInfo`
-- `ImportConfirmRequest`, `ImportJobResponse`, `ImportGroupStatus`
+- Import API types live in `lib/import/types.ts`
 - `BackgroundJob`, `JobStatus`

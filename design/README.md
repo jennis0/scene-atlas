@@ -23,11 +23,8 @@ How individual features and subsystems are designed.
 |------|-------------|
 | [search.md](search.md) | Search system -- hybrid FTS5 + CLIP semantic, RRF fusion, phrase matching, model selection |
 | [frontend.md](frontend.md) | Frontend SPA -- React, components, hooks, filter logic |
-| [ingestion.md](ingestion.md) | Ingestion pipeline -- batched processing, CLIP embeddings, background jobs |
-| [web-import.md](web-import.md) | Web import flow -- upload, grouping, preview, confirm, processing |
+| [ingestion.md](ingestion.md) | Ingestion pipeline (ADR-018) -- jobs, groups and items, ingest worker, upload protocol, duplicate tiers, storage format, maintenance, import UI |
 | [parser.md](parser.md) | ImageParser -- filename parsing, tag extraction, image group detection |
-| [import-state-machine.md](import-state-machine.md) | Import state machine -- 7 statuses, transitions, frontend mapping (being replaced, see ingest-redesign.md) |
-| [ingest-redesign.md](ingest-redesign.md) | **In progress** -- durable per-item ingest pipeline (ADR-018): data model, worker, upload protocol, dedup tiers, implementation plan |
 | [group-view.md](group-view.md) | Group view -- hero+mosaic card layout for browsing by image group |
 | [tag-packs.md](tag-packs.md) | Tag packs -- genre-specific vocabularies, import mechanics, settings integration |
 | [resource-management.md](resource-management.md) | Resource management -- detection, concurrency controls, memory monitoring |

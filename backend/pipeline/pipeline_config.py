@@ -41,7 +41,7 @@ class PipelineConfig:
     ingestion_batch_size: int = 16
     max_concurrent_prepare: int = 4
 
-    # Storage format for imported images (design/ingest-redesign.md §10)
+    # Storage format for imported images (design/ingestion.md §10)
     stored_format: StoredFormat = field(default_factory=StoredFormat)
 
     @property

@@ -1,12 +1,27 @@
-# Ingest Pipeline Redesign
+# Ingestion Pipeline
 
-**Status:** Accepted design. Implementation is in progress on branch `worktree-ingest-redesign` (see [ADR-018](decisions.md#adr-018-durable-per-item-ingest-pipeline)).
+**Status:** Shipped (ADR-018, merged in PR #1; storage format in Phase 5). See [ADR-018](decisions.md#adr-018-durable-per-item-ingest-pipeline).
 
-**Scope:** the web/Electron upload path, from file selection through processing to the import report. Bulk import of an existing local library (linked folders, rescans) is **out of scope** here. This design deliberately makes it a later addition: a folder becomes another way of supplying bytes to the same item queue.
+**Scope:** the web/Electron upload path, from file selection through processing to the import report. Bulk import of an existing local library (linked folders, rescans) is **not built yet**. The model deliberately leaves room for it: a folder becomes another way of supplying bytes to the same item queue (§14).
 
-Until this lands, the current behaviour is still described by [import-state-machine.md](import-state-machine.md), [web-import.md](web-import.md) and [ingestion.md](ingestion.md). When implementation completes, fold this document into those docs (see Phase 6) and drop the "redesign" framing.
+The pipeline replaced an earlier job-and-confirm design in October 2026. Scene Atlas was unreleased, so there was no data migration; the old import tables, statuses and endpoints were removed outright. §1 records why, and §13 maps the audit findings to the design.
 
-Scene Atlas is unreleased, so **no data migration or backwards compatibility** is required. Old import tables, statuses and endpoints are replaced outright.
+**Code map:**
+
+| Area | Where |
+|---|---|
+| State machines | `backend/app/services/ingest_state.py` |
+| Durable queue operations | `backend/pipeline/ingest_queue.py` |
+| Batch processing (prepare, embed, commit, vectors) | `backend/pipeline/ingest_process.py` |
+| Worker loop, pause, recovery | `backend/pipeline/ingest_worker.py` |
+| Hashes (SHA-256, pixel hash, pHash) | `backend/pipeline/image_hashes.py` |
+| Storage-format conversion | `backend/pipeline/stored_format.py` |
+| Zip expansion | `backend/pipeline/ingest_archive.py` |
+| Maintenance | `backend/pipeline/ingest_maintenance.py`, `backend/pipeline/maintenance.py`, `backend/pipeline/vector_reconcile.py` |
+| HTTP API | `backend/app/api/imports.py`, `backend/app/models/import_schemas.py` |
+| Frontend store | `frontend/src/lib/import/` (`ImportManager.ts`, `importClient.ts`, `hash.worker.ts`, `useImports.ts`) |
+| Frontend views | `frontend/src/components/imports/` |
+| Migrations | `020_ingest_items.py`, `021_drop_legacy_import_tables.py` |
 
 ---
 
@@ -49,7 +64,7 @@ import_jobs 1───* import_groups 1───* import_items *───1 image
 | Column | Notes |
 |---|---|
 | `id` TEXT PK | uuid hex |
-| `label` | Display label, e.g. "Forest Pack.zip" or "3 folders" |
+| `source_label` | Display label, e.g. "Forest Pack.zip" or "3 folders" (`label` in the API) |
 | `status` | `active` \| `paused` \| `completed` \| `cancelled` (see §4.2) |
 | `default_image_type` | `battlemap` \| `scene` |
 | `planned_at` | Set when the manifest is sealed and groups are planned. Items are claimable only after this. |
@@ -57,7 +72,7 @@ import_jobs 1───* import_groups 1───* import_items *───1 image
 | `dismissed_at` | Hidden from the activity dock. Never deletes anything. |
 | `created_at`, `updated_at`, `completed_at` | |
 
-Removed relative to today: `analysis_result`, `job_warnings`, `error_message`, `total_files`, `total_file_size`, and the whole `import_group_jobs` table.
+Removed from the earlier design: `analysis_result`, `job_warnings`, `error_message`, `total_files`, `total_file_size`, and the whole `import_group_jobs` table.
 
 ### `import_groups`
 
@@ -92,7 +107,7 @@ One row per file. **All durable ingest state lives here.**
 | `image_id` | Set when `done` |
 | `duplicate_of_image_id`, `duplicate_tier` | Set when `duplicate` (`bytes` \| `pixels`) |
 | `allow_duplicate` | Set by "Import as new copy". Skips the dedup check at commit. |
-| `similar_to_image_id`, `similarity_distance` | Perceptual-hash flag (advisory only, §6) |
+| `similar_to_image_id`, `similarity_distance` | Perceptual-hash flag (advisory only, §6). Columns exist; nothing sets them yet. |
 | `created_at`, `updated_at` | |
 
 Indexes:
@@ -104,8 +119,8 @@ Indexes:
 
 | Column | Notes |
 |---|---|
-| `source_hash` | Replaces `content_hash`. SHA-256 of the **original** uploaded bytes, never of converted output. Indexed. Not unique (see "Import as new copy"). |
-| `stored_hash` | SHA-256 of the stored file. Equal to `source_hash` when no conversion happened. Lets re-imports of exported files match. Indexed. |
+| `content_hash` | SHA-256 of the **original** uploaded bytes (the item's `source_hash`), never of converted output. Indexed. Not unique (see "Import as new copy"). |
+| `stored_hash` | SHA-256 of the stored file. Equal to `content_hash` when no conversion happened (§10). Lets re-imports of exported files match. Indexed. |
 | `pixel_hash` | Hash of the canonical decoded pixels (§6). Indexed. NULL for video. |
 | `phash` | 64-bit perceptual hash (§6). NULL for video. |
 
@@ -163,7 +178,7 @@ Four states:
 - **`completed`:** no items in `awaiting_bytes`, `ready` or `processing`.
 - **`cancelled`:** the user cancelled. Unfinished items become `skipped` and finished work is kept.
 
-`recompute_job_status(job_id)` is the only writer of `active` ↔ `completed`, as `transition_job_status` is today. It is called after every batch commit, byte receipt, retry, import-as-copy and finish-without. A retry on a `completed` job re-opens it to `active`.
+`recompute_job_status(job_id)` is the only writer of `active` ↔ `completed`. It is called after every batch commit, byte receipt, retry, import-as-copy and finish-without. A retry on a `completed` job re-opens it to `active`.
 
 **A job never "fails".** Outcomes are counts ("Completed · 412 imported · 3 failed · 12 duplicates").
 
@@ -218,9 +233,8 @@ The goal is that a file is either fully in the library or not at all, and that c
      - The only library-drive I/O is the one unavoidable write of each original, which happens once wherever the temp file lives.
      - Doing that write during prepare keeps it parallel with CPU work and outside the SQLite write lock.
      - The alternatives are worse. Copying from the fast drive at commit would hold the write lock for seconds per batch on an HDD. Copying after commit would make rows visible before their files exist, and a crash would leave rows without files.
-   - **Throughput (measured in Phase 0):** ingest is CPU-bound. The redesigned pipeline is estimated at about 5 images/s on 4 cores and about 10 on 8 with the small model (3.3 and 6.7 with the medium model). That needs 23–45 MB/s of library writes, well within HDD sequential speed.
-     - Concurrent writes from the prepare pool could cause seek thrash on an HDD. The mitigation, if Phase 0 shows it, is a single library-writer thread that serialises the temp writes into one sequential stream.
-     - Phase 0 measures this with the library on an HDD.
+   - **Throughput (Phase 0, §12):** ingest is CPU-bound, at about 5 images/s on 4 cores and about 10 on 8 with the small model (3.3 and 6.7 with the medium model). That needs 23–45 MB/s of library writes, well within HDD sequential speed.
+     - Concurrent writes from the prepare pool could cause seek thrash on an HDD. Disk behaviour was not measured; if it shows up, the mitigation is a single library-writer thread that serialises the temp writes into one sequential stream.
 2. **Embed:** batch the embeddings.
 3. **Commit** in one `BEGIN IMMEDIATE` transaction. SQLite's single writer makes check-then-insert race-free without a unique index.
    - Dedup check against `source_hash`, `stored_hash` and `pixel_hash` (skipped when `allow_duplicate`). Duplicates become `duplicate` and their temp files are discarded.
@@ -228,7 +242,7 @@ The goal is that a file is either fully in the library or not at all, and that c
    - Insert the images, tags and colours. Resolve or create the `ImageGroup` and record it on `import_groups.image_group_id`. Mark the items `done` with `image_id`.
    - If the commit fails, delete the renamed files, then classify the error (usually transient).
 4. **Vectors:** `merge_insert` into LanceDB after the commit. A failure is logged, not fatal.
-   - **Reconciliation** runs at startup, after each job completes, and on schedule. It compares image ids between SQLite and LanceDB (id sets, not counts) and re-embeds the missing ones from the stored file. This replaces today's count-based auto-rebuild, which could drop the whole table.
+   - **Reconciliation** runs at startup, after each job completes, and on schedule. It compares image ids between SQLite and LanceDB (id sets, not counts) and re-embeds the missing ones from the stored file. This replaced a count-based auto-rebuild, which could drop the whole table.
 
 Crash windows:
 - Between rename and commit: orphan files remain. The orphan sweep handles them (fixed to compare keys correctly).
@@ -243,14 +257,14 @@ The full-library FTS rebuild after each job is removed; the INSERT/UPDATE/DELETE
 | Kind | Examples | Handling |
 |---|---|---|
 | `file` | `UnidentifiedImageError`, `DecompressionBombError`, cv2 read failure, truncated file, size mismatch with manifest | Item → `failed`. Retry is allowed but labelled as unlikely to help. |
-| `transient` | SQLite `database is locked`/busy, `MemoryError`, ONNX runtime error, LanceDB transient error | Item → `ready` with exponential `retry_after`, up to 3 attempts, then `failed`. A `MemoryError` on a batch re-claims those items with batch size 1. |
+| `transient` | SQLite `database is locked`/busy, `MemoryError`, ONNX runtime error, LanceDB transient error | Item → `ready` with exponential `retry_after`, up to 3 attempts, then `failed`. (`MemoryError` is rare now that prepare reserves from the memory budget, §12.) |
 | `system` | `ENOSPC`, image library root unavailable, embedding model not loaded, model switch or embedding rebuild in progress | The batch's items go back to `ready` with the attempt refunded. **The queue is system-paused** with a user-facing reason. |
 
 System pause:
 - It is worker state, held in memory and re-detected after a restart.
 - It is exposed in the `GET /imports` response.
 - The worker re-probes the condition every 30 s (free space above the threshold, model ready, library path reachable), and the user can force a probe with "Retry now".
-- Today the model-switch endpoint refuses while imports are active. Instead, the switch system-pauses ingest for its duration ("Paused while the AI model changes") and the pause clears when it finishes.
+- A model switch doesn't refuse or cancel imports. It system-pauses ingest for its duration ("Paused while the AI model changes") and the pause clears when it finishes.
 
 ### 5.5 Cancel and pause
 
@@ -268,7 +282,7 @@ Three tiers. Only tiers that can't produce a false positive act automatically.
 |---|---|---|---|---|
 | 1. Bytes | SHA-256 of the original bytes (`source_hash`), plus `stored_hash` | Client (hint, before upload) and server (authoritative, while streaming to staging) | The identical file, or a re-imported export | **Auto-skip.** If the client hash matches, bytes are never sent. |
 | 2. Pixels | SHA-256 of the canonical decoded pixels: EXIF orientation applied, converted to RGBA, colour zeroed under fully transparent pixels, metadata ignored. Hashed in strips to bound memory. | Worker, from the decode it already does | The same image re-saved: PNG ↔ lossless WebP, different compression, edited metadata | **Auto-skip at commit** |
-| 3. Perceptual | 64-bit DCT pHash (or dHash) via OpenCV/numpy (no new dependency) | Worker, from the thumbnail-sized decode | Lossy re-encodes, resized copies, VTT-compressed vs full-res, gridded vs gridless | **Never skip.** The item is `done` with `similar_to_image_id` set, shown as "Possible duplicate of X". Actions: Keep both (default) or Remove this one. ("Replace the existing image" is deferred.) |
+| 3. Perceptual | 64-bit DCT pHash (or dHash) via OpenCV/numpy (no new dependency) | Worker, from the thumbnail-sized decode | Lossy re-encodes, resized copies, VTT-compressed vs full-res, gridded vs gridless | **Never skip.** Stored on every image as `phash`. Flagging ("Possible duplicate of X", with Keep both / Remove this one) is deferred (§12). |
 
 Rationale for not auto-skipping on pHash: battlemap variants differ by thin grid lines or small props, which a pHash discards, so even a strict threshold would drop exactly the variants groups exist to hold.
 
@@ -283,13 +297,13 @@ Rationale for not using a post-conversion hash as the key:
 - **Bytes are needed:**
   - Staged bytes of `duplicate` items are kept, like those of `failed` items (§9).
   - Items skipped via the client hash never sent bytes, so they go to `awaiting_bytes`. If this tab still holds the `File`, the manager uploads it automatically; otherwise the job shows "Choose files to resume".
-- **The existing reuse path is removed:** today's `reuse_storage_key` branch in `prepare.py` and storage-key reference counting in `deletion_service`. Every image owns its stored file. Shared-storage records are a pending open question (§14).
+- **There is no storage reuse:** the earlier `reuse_storage_key` path was removed, so every imported image owns its stored file. (`deletion_service.safe_delete_image` still checks for other references to a storage key before deleting the file, as a safeguard.) Shared-storage records are a pending open question (§14).
 
 Within one job, two identical files are handled by the commit-time check: the second becomes `duplicate` of the first.
 
 Videos use tier 1 only.
 
-Perceptual flags and their bulk UI are Phase 4. The hashes themselves are computed and stored from Phase 1.
+Perceptual flags and their bulk UI are deferred (§12); the hashes are already computed and stored.
 
 ---
 
@@ -318,11 +332,12 @@ All endpoints live under `/api/v1/imports`. Request bodies never carry per-file 
 | `POST /imports/queue/probe` | "Retry now" for a system pause |
 
 Notes:
-- **Async endpoints must not block the event loop.** Streaming uses async I/O; parsing, zip expansion and DB work go through `asyncio.to_thread`. This fixes today's blocking `async def` endpoints.
+- **Async endpoints must not block the event loop.** Streaming uses async I/O; parsing, zip expansion and DB work go through `asyncio.to_thread`. (The earlier endpoints blocked it.)
 - **Limits:**
-  - `max_import_file_size` stays.
-  - `max_import_total_size` and the per-batch `max_import_files` are replaced by the seal-time free-space check plus a generous `max_import_items` (default 50,000), enforced across all manifest chunks.
-- **Rate limiting** (security phase 2) must budget for one request per file on the content endpoint.
+  - `max_import_file_size` and `max_video_file_size` cap single files.
+  - An import holds at most `settings.max_import_items` files (default 50,000), enforced across all manifest chunks, and seal checks free space.
+  - `max_import_files` and `max_import_total_size` now only guard zip expansion (entry count and uncompressed size).
+- **Rate limiting:** no `/imports` endpoint is rate-limited, because uploads make one request per file. They are bounded by the size and item limits, the seal-time free-space check and the `acquire_heavy_op` semaphore on seal and archives (see [security.md](security.md)).
 - **Security:**
   - `item_id` is always scoped to `job_id`, and staging names are server-generated.
   - `relative_path` never reaches the filesystem, preserving the guarantees in [security.md](security.md).
@@ -370,7 +385,7 @@ Dialogs and the dock are pure views over the manager, so remounting a dialog can
   1. Pick files, a folder or a zip (drag-drop or browse), plus the battlemap/scene toggle.
   2. Show progressive folder traversal feedback ("Found 3,214 files…").
   3. Start: create, manifest, seal.
-  4. Show the group plan with live per-group progress. This is information, not a review gate: processing starts immediately, as today.
+  4. Show the group plan with live per-group progress. This is information, not a review gate: processing starts immediately.
 
   The dialog can be closed at any point and reopened from the dock.
 - **ActivityDock:** one row per non-dismissed job.
@@ -378,7 +393,7 @@ Dialogs and the dock are pure views over the manager, so remounting a dialog can
   - Pause, cancel and open controls.
   - A queue-level banner when system-paused, with "Retry now".
   - "Upload interrupted" rows offer "Choose files to resume" or "Finish without them".
-- **ImportReport** (replaces `ImportSummaryDialog` and `ImportDonePane`). Sections: Groups (status, merged-into-existing), Problems (failed grouped by `error_reason`, retry per reason or per item), Duplicates (linked to the existing image; "Import as new copy"), Possible duplicates (Phase 4), Skipped. Actions: Retry failed, Undo import (confirm with counts), Dismiss. All lists are virtualised and paginated from `GET /imports/{id}/items`.
+- **ImportReport** (replaces `ImportSummaryDialog` and `ImportDonePane`). Sections: Groups (status, merged-into-existing), Problems (failed grouped by `error_reason`, retry per reason or per item), Duplicates (linked to the existing image; "Import as new copy"), Skipped. Possible-duplicate (pHash) flags are deferred (§12). Actions: Retry failed, Undo import (confirm with counts), Dismiss. All lists are virtualised and paginated from `GET /imports/{id}/items`.
 - **Notifications:** a toast on every job completion, including "Completed with 3 failures" and a system pause, with a link to the report.
 - **EditGroupDialog live review** reads group progress from the manager instead of running its own poller.
 - **Resume:** the user re-picks files or a folder. The manager fetches the job's `awaiting_bytes` items and matches on `(relative_path, size)`. Only missing files are hashed and uploaded.
@@ -421,14 +436,32 @@ The scheduler runs each task once at startup as well as on its interval, so shor
 
 ## 10. Image conversion
 
-- **`convert_to_webp` defaults to off** from Phase 1.
-- Phase 5 replaces it with a server config option: `stored_format` ∈ `original` (default) | `webp` | `jpeg` | `png`, plus `stored_quality` (and lossless for WebP).
-- **Phase 0 findings that constrain Phase 5:**
-  - Lossless WebP makes JPEGs about **3.1× larger** (25 of 28 sampled) and shrinks PNGs to about 0.59×. It costs about 11 s of CPU for a 20 Mpx map, roughly 13× the rest of the pipeline.
-  - Lossy q90 gives 0.56× for JPEG and 0.15× for PNG at about 0.1 s/Mpx.
-  - So: never offer lossless conversion for lossy sources, always encode WebP with `exact=True`, and skip conversion for images wider or taller than 16,383 px (WebP's limit, about 0.3% of the library).
-- Conversion only ever operates on worker-owned temp copies, never on staged originals or any user path.
-- `source_hash` and `pixel_hash` are always computed from the source; `stored_hash` from the output.
+By default the library stores each file exactly as uploaded. Three settings change that for **new** imports; existing images are never rewritten.
+
+| Setting | Values | Default |
+|---|---|---|
+| `stored_format` | `original` \| `webp` \| `jpeg` \| `png` | `original` |
+| `stored_quality` | 1–100, for lossy WebP and JPEG | 90 |
+| `stored_lossless` | Lossless WebP for lossless sources | on |
+
+`stored_format.convert` runs in prepare, after grid detection, and writes straight into the library's `.incoming/` temp directory. It never touches the staged upload or any user path. A file is **stored unchanged** when:
+
+- it is already in the target format (re-encoding a JPEG only loses quality);
+- it is animated (only the first frame would survive);
+- it has transparency and the target is JPEG;
+- the target is WebP and either side exceeds 16,383 px (WebP's limit, about 0.3% of the library).
+
+Encoding rules, from the Phase 0 measurements:
+
+- **JPEG sources never become lossless WebP.** That makes them about 3.1× larger (25 of 28 sampled) and costs about 11 s of CPU for a 20 Mpx map. They use `stored_quality` instead; lossy q90 gives about 0.56× for JPEG and 0.15× for PNG at about 0.1 s/Mpx.
+- **WebP is always written with `exact=True`,** so colour under transparent pixels survives and the pixel hash still matches.
+- The ICC profile is carried over.
+
+**Hashes.** `content_hash` (source bytes) and `pixel_hash` always come from the upload; `stored_hash` is the SHA-256 of the stored file and `file_size` its size. Duplicate checks look at both byte hashes, so re-importing the original of a converted image is still caught at the bytes tier.
+
+**Downloads** take their extension from `storage_key`, not the original filename (`backend/pipeline/naming.py`, `ImageViewer.buildDownloadFilename`), so a converted map downloads as `.webp`.
+
+The Electron setup wizard's "Convert to WebP" choice still passes `CONVERT_TO_WEBP=1`, which seeds `stored_format = "webp"` on first run.
 
 ---
 
@@ -470,32 +503,34 @@ Frontend:
 - **`ImportManager`** (vitest, mocked API): per-file retry then continue; network-down wait and resume; resume matching; `beforeunload`; poller backoff, ETag and connection states; hash-worker fallback in an insecure context.
 - **Component tests:** dock row states and report sections.
 
-E2E:
-- happy path
-- route-interception failure injection (aborted PUTs)
-- reload mid-upload, then resume
+E2E (`e2e/`, Playwright against a real backend and the Vite dev server):
+- The seed imports the fixture images through the real protocol (create, manifest, seal, hashes, PUT).
+- Import dialog start view and type toggle; a new file imported end to end, shown in the report and undone; a re-imported file reported as already in the library; the dock row and its report.
+- Not yet covered: pause/resume/cancel, retry and "Import as new copies" through the UI, and route-interception failure injection.
+
+Stress (`stress_tests/`, see `docs/development/stress-testing.md`): a live server process with its real worker thread, SQLite, LanceDB and prepare pool, with synthetic fixtures. Scenarios cover throughput, manifests up to 40k items, round-robin fairness, concurrent jobs and endpoint spam, cancel/pause/undo/retry/import-as-copy under load, interrupted-upload resume, zip edge cases, SIGKILL recovery and maintenance running alongside an import. Its library integrity check asserts rows = stored files = vectors, with no shared content hashes and no `.incoming` leftovers.
 
 ---
 
-## 12. Implementation plan
+## 12. Implementation history
 
-Large feature; worktree branch `worktree-ingest-redesign`. **The branch is not mergeable until Phase 3 completes**, because the frontend and backend contracts change together.
+Built in phases on `worktree-ingest-redesign` (2026-10-12 to 2026-10-16), merged as PR #1. Phase 5 and the Phase 6 test and docs work followed in a separate PR.
 
-| Phase | Content | Exit criteria |
+| Phase | Content | State |
 |---|---|---|
-| **0. Benchmark** (optional, parallel) | Per-stage timings on about 500 maps from the real library: decode, thumbnails, colours, grid detection, embedding, pixel hash, WebP. | Numbers recorded here; batch size and the pixel-hash choice confirmed |
-| **1. Backend core** | Alembic migration (drop `import_group_jobs`, reshape `import_jobs`, add `import_groups`/`import_items`, image hash columns). `ingest_state` module. `IngestWorker` (claim, round-robin, recovery, system pause, `drain()`). Commit protocol with tiers 1–2 and atomic placement. pHash stored. Error kinds. Vector reconciliation. WebP default off. | Unit and service-level integration tests green, driven without the HTTP API |
-| **2. Backend API and maintenance** | New endpoints (§7), archive expansion, ETag progress version, model-switch pause. Delete old endpoints and pipeline functions, and rewrite maintenance (§9). Fix the orphan sweep. | API integration tests green; no references to the removed code |
-| **3. Frontend** | `ImportManager`, hash worker, poller; new ImportDialog, ActivityDock and ImportReport; EditGroupDialog hookup; delete the old hooks and components; remove the Electron fs IPC. | Vitest green; manual run of import, interrupt and resume on Linux and Windows |
-| **4. Duplicate UX** | Import as new copy (bulk and per item), possible-duplicate flags in the report. | Tests plus manual check |
-| **5. Conversion config** | `stored_format`/`stored_quality` server config, `stored_hash`. | Tests |
-| **6. E2E and docs** | E2E failure-injection specs. Fold this document into `import-state-machine.md`, `web-import.md`, `ingestion.md` and `storage.md`; update `backend.md`, `frontend.md`, `security.md` (rate limits) and `status-and-roadmap.md`. | Docs describe the shipped system; this file removed or reduced to a pointer |
+| 0. Benchmark | Per-stage timings on 384 real maps | Done; results below |
+| 1. Backend core | Tables, `ingest_state`, `IngestWorker`, commit protocol, hash tiers 1–2, vector reconciliation | Done |
+| 2. API and maintenance | §7 endpoints, archive expansion, ETag, model-switch hold, §9 maintenance; old pipeline deleted | Done |
+| 3. Frontend | `ImportManager`, hash worker, ImportDialog, ActivityDock, ImportReportDialog; old hooks and components deleted | Done |
+| 4. Duplicate UX | Possible-duplicate (pHash) flags in the report | **Deferred** as a future feature; "Import as new copy" shipped in Phase 2–3 |
+| 5. Conversion config | `stored_format`, `stored_quality`, `stored_lossless` (§10) | Done |
+| 6. E2E and docs | E2E and stress suites on the new API; this document made permanent | Done |
 
 ### Phase 0 results (2026-10-15)
 
-**Setup:** 384 maps sampled from the real library (stratified by size, including the largest at up to 761 Mpx). Ryzen 9 5900X under WSL2, single process at nice 19 while the machine was busy. CPU time is the primary metric. Raw data and scripts were kept outside the repo.
+**Setup:** 384 maps sampled from the real library (stratified by size, up to 761 Mpx). Ryzen 9 5900X under WSL2, single process at nice 19. CPU time is the primary metric.
 
-| Stage, library-weighted mean CPU ms per image | Current pipeline | Redesign |
+| Stage, library-weighted mean CPU ms per image | Old pipeline | New pipeline |
 |---|---|---|
 | Decodes per image | 3 (PIL, cv2 colour, cv2 gray) | 1 (plus grid's grayscale read) |
 | Thumbnails | 430 | 89 (cascade from decoded image) |
@@ -506,211 +541,51 @@ Large feature; worktree branch `worktree-ingest-redesign`. **The branch is not m
 | Embedding, small / medium model | 102 / 474 | same |
 | **Total, small model** | **~1,150** | **~830 → about 5 img/s on 4 cores, 10 on 8** |
 
-**Decisions taken from the results:**
+Decisions taken from the results:
 
-1. **Claim and commit batch stays at 16.** On CPU, embedding batch size barely matters for the small model and larger batches are worse for medium. If the embed batch is ever split from the claim batch, use 4–8 on CPU.
-2. **Pixel hash:**
-   - Kept, using the strip implementation, which costs about 0.7× a decode.
-   - Switched to SHA-256 (about 2× faster than BLAKE2 with SHA-NI).
-   - **Fixed:** colour under fully transparent pixels is now zeroed before hashing. libwebp rewrites it by default, which made 8 of 12 transparent PNGs fail to match their own lossless WebP.
-3. **Pixel limit.** `Image.MAX_IMAGE_PIXELS` was Pillow's default (89.5 Mpx), promoted to an error, which **rejected about 2% of the real library (about 1,000 maps)**. It is now `settings.max_image_pixels`, default 1 Gpx.
-4. **OS junk.** 15% of image-extension files in the library are AppleDouble (`._*`, `__MACOSX`). The manifest now ignores OS junk. Other unsupported files become `skipped`, not `failed`.
-5. **WebP:** see §10.
-6. **Disk:** not measured; the session couldn't run Windows tools. Ingest needs only 23–45 MB/s, so the single library-writer mitigation stays optional.
+1. **Claim and commit batch stays at 16.** On CPU, embedding batch size barely matters for the small model and larger batches are worse for medium.
+2. **Pixel hash** uses the strip implementation (about 0.7× a decode) with SHA-256. Colour under fully transparent pixels is zeroed before hashing, because libwebp rewrites it by default.
+3. **Pixel limit.** Pillow's default 89.5 Mpx limit rejected about 2% of the real library. It is now `settings.max_image_pixels`, default 1 Gpx.
+4. **OS junk.** 15% of image-extension files in the library are AppleDouble (`._*`, `__MACOSX`). The manifest ignores OS junk; other unsupported files become `skipped`, not `failed`.
+5. **Storage format:** see §10.
 
-**Memory per image (done, 2026-10-15).** The old pipeline decoded every image in full three times, at 4 bytes/px in Pillow, which is about 3 GB for a 760 Mpx map. Now:
+**Memory per image.** The old pipeline decoded every image in full three times, about 3 GB for a 760 Mpx map. Now:
 
-- **Reduced-scale JPEG decode.** JPEGs over `settings.pixel_hash_max_pixels` (default 100 Mpx) are decoded at reduced scale with `Image.draft` (libjpeg DCT scaling). Everything downstream except the pixel hash needs ≤800 px.
-  - These images skip tier 2. Tier 1 (bytes) still applies.
-  - PNG and WebP can't be decoded at reduced scale by Pillow, so they are always decoded in full.
-- **Reduced-scale grid read.** Grid detection reads with `cv2.IMREAD_REDUCED_GRAYSCALE_{2,4,8}` when the cap allows. The results are identical to a full read at the same cap (unit-tested).
-- **Memory budget.** `MemoryBudget` (`backend/app/services/memory_budget.py`) reserves each image's estimated peak, from the header alone, before decoding.
-  - Capacity: half of RAM beyond a 2 GiB reserve, or `settings.ingest_memory_budget_mb`.
-  - An image bigger than the whole budget runs alone.
-- **Measured** peak RSS of the whole prepare step on a 400 Mpx JPEG:
+- **Reduced-scale JPEG decode.** JPEGs over `settings.pixel_hash_max_pixels` (default 100 Mpx) decode at reduced scale with `Image.draft`. These skip tier 2; tier 1 still applies. PNG and WebP always decode in full.
+- **Memory budget.** `MemoryBudget` (`backend/app/services/memory_budget.py`) reserves each image's estimated peak, from the header alone, before decoding. Capacity is half of RAM beyond a 2 GiB reserve, or `settings.ingest_memory_budget_mb`. An image bigger than the whole budget runs alone.
+- Grid detection is the dominant memory and CPU cost. Its resolution is the `grid_analysis_max_dim` setting (full resolution by default since grid v3; see [grid-detection-v3.md](grid-detection-v3.md)), and its per-format peak is part of the reservation.
+- Progressive JPEGs and PNG/WebP still decode at full size (about 6 bytes/px for progressive JPEGs), up to about 1.3 GB at 200+ Mpx. Only a streaming decoder (pyvips) would fix that.
 
-  | Configuration | Peak RSS | CPU |
-  |---|---|---|
-  | Grid detection off | 279 MB (mostly interpreter and libraries) | 2.1 s |
-  | Grid at a 20k cap | 2,244 MB | 15.3 s |
-  | Grid at an 8k cap | 558 MB | 2.5 s |
+### Implementation notes worth keeping
 
-  **The grid cap is now the dominant memory and CPU lever.**
-
-**Follow-ups, not yet scheduled:**
-
-- **Grid cap: done, default lowered from 20,000 to 8,000 px.** Measured on 373 real battlemaps:
-  - Presence agreement with the 20k baseline is 99.5%; size agreement is 95% (net about −0.5% of images).
-  - Filename-truth accuracy is unchanged at 39/47.
-  - CPU on the largest maps drops 3–4× (761 Mpx: 18 s → 5.5 s), and peak memory on baseline JPEGs drops from 1.45 GB to 0.37 GB.
-  - 6,000 px needs the sub-pixel fix below first, and 4,000 px clearly loses accuracy.
-  - Existing databases keep their seeded value until it's changed in settings.
-- **Grid detector accuracy.** Two error sources, independent of the cap:
-  1. Grid spacing is measured in whole pixels. A sub-pixel peak refinement fixed several off-by-one counts on large maps in an offline test.
-  2. `_pick_best_periods` sometimes picks double or half the real grid size, even at 20k. This is the main error source.
-  - An alternative algorithm (streamed 1-D spectral analysis) is being prototyped separately.
-- **Progressive JPEGs and PNG/WebP decode at full size whatever the scale**: about 6 bytes/px of coefficient buffer for progressive JPEGs. `plan_decode` reserves accordingly, so the memory budget stays honest, but these files still cost up to about 1.3 GB at 200+ Mpx. Only a streaming decoder (pyvips) would fix that.
-- **pHash** puts gridded/gridless pairs at 0–2 bits apart and unrelated images at ≥20. Phase 4 must suppress or group "possible duplicate" flags within the same import group and between sibling grid/no-grid folders, or about 9k images will flag.
-
-### Phase 1 status (done)
-
-**Where the code lives:**
-
-| Module | Responsibility |
-|---|---|
-| `backend/app/services/ingest_state.py` | Pure item and job state machines. The DB layer derives allowed source states from its transition table. |
-| `backend/pipeline/ingest_queue.py` | All durable operations: create, manifest, plan (seal), byte receipt, claim, failures, recovery, retry, import-as-copy, skip, pause, resume, cancel, `recompute_job_status`, and `write_session()` (`BEGIN IMMEDIATE`). |
-| `backend/pipeline/ingest_process.py` | One batch: `prepare_item` (prepare pool), `embed`, `commit_batch` (one write transaction with temp-then-rename placement), `write_vectors`, `process_batch` |
-| `backend/pipeline/ingest_worker.py` | `IngestWorker` (loop thread, round-robin cursor, system pause and probe, `drain()`, `status()` with a version counter) and `get_ingest_worker()` |
-| `backend/pipeline/image_hashes.py` | SHA-256, strip-wise pixel hash, DCT pHash |
-| `backend/pipeline/vector_reconcile.py` | Id-set reconciliation |
-| `backend/alembic/versions/020_ingest_items.py` | New tables and columns. Additive only, so the old flow keeps working until Phase 2. |
-
-**Refinements made during implementation:**
-
-- **Column names.** The job label stays in `import_jobs.source_label`, and the source hash stays in `images.content_hash`. Both are still used by the old flow; rename them, if at all, in Phase 2's cleanup migration.
-- **Decoding once.** Prepare decodes each image once for the pixel hash and thumbnails.
-  - Colour extraction and the pHash read the 800px thumbnail rather than the original (colour extraction downsamples to 512px anyway).
-  - Thumbnails cascade large → medium → small instead of copying the full-resolution image three times.
-  - Only grid detection re-reads the original.
-- **`error_kind`** also takes `bytes_lost` (the staged file disappeared; the item goes back to `awaiting_bytes`).
-- **Sessions don't autoflush**, so `recompute_job_status` flushes before counting. Without this every job stayed `active` forever; the integration tests catch it.
-- **WebP defaults to off everywhere:** the backend seed, the settings schema, the Electron setup wizard and config, and `.env.example`. The new pipeline doesn't convert at all until Phase 5.
-
-**Carried into Phase 2:**
-
-- **Wire the worker into the FastAPI lifespan** (`recover()` then `start()`) **at the same time as removing `mark_interrupted_jobs`.** That function would treat the new `active` jobs as interrupted and delete their images, which is why the worker isn't wired up yet.
-- **The orphan sweep must skip `.incoming/`** (and `backups/`).
-- **Maintenance deletes staged files of `done` items.** They're normally removed right after the commit, but a crash in between leaves them behind.
-- **Undo** must use `import_groups.image_group_id` and `merged_into_existing` to decide which gallery groups to delete. The current `cleanup_import_images` uses `ImportGroupJob.created_group_id`.
-- **The import report** must handle items whose `image_id` points at an image the user has since deleted. SQLite foreign keys aren't enforced.
-- **MemoryError back-off to batch size 1** is not implemented; MemoryError is retried as transient. Superseded by the memory-aware admission follow-up in the Phase 0 results.
-
-### Phase 2 status (done)
-
-**Where the code lives:**
-
-| Module | Responsibility |
-|---|---|
-| `backend/app/api/imports.py` | The §7 API. Mutating endpoints use `get_write_db` (`BEGIN IMMEDIATE`). `GET /imports` supports `ETag`, keyed on the worker version plus a minute bucket for the time-derived `upload_interrupted` flag. |
-| `backend/app/models/import_schemas.py` | Request and response models |
-| `backend/pipeline/ingest_archive.py` | Server-side zip expansion into items, before seal |
-| `backend/pipeline/ingest_maintenance.py` | Abandon stale uploads, release staged bytes by state, prune dismissed jobs, sweep stray staging files |
-| `backend/pipeline/maintenance.py` | Backups, and the orphan sweep (now deletes) |
-| `backend/app/services/scheduler.py` | Persists each task's last run under `<app data>/scheduler/`, so overdue tasks run 60 s after startup |
-| `backend/alembic/versions/021_drop_legacy_import_tables.py` | Drops `import_group_jobs` and the old `import_jobs` columns, and deletes old-status job rows (their images are kept) |
-
-**Removed:**
-- **Pipeline:** `ingestion.py`, `prepare.py`, `persistence.py`, `services/staging.py`, `services/import_state.py`, `tasks/webp_conversion.py` (it deleted its input in place), and the old thumbnail helpers.
-- **Model:** the `ImportGroupJob` model and the old import schemas.
-- **Maintenance:** `mark_interrupted_jobs`, `expire_stale_jobs`, the staging cleanups and the count-based vector check.
-- **Tests:** about 15 test modules for the removed code.
-
-**Refinements made during implementation:**
-
-- **Duplicates are also detected on byte receipt,** not only at commit. The event was renamed `HASH_DUPLICATE`. Staged bytes are kept for "Import as new copy".
-- **`mark_bytes_received` recomputes the job status itself.** Without this, an import whose every file was a duplicate stayed `active` forever, the same bug class as the old F2. Tests catch it.
-- **Done items have `staging_key` cleared in the commit transaction.** The staged file is deleted after the commit; a crash in between leaves an unreferenced file for the stray-staging sweep.
-- **Undo deletes rows, commits, then deletes files and vectors** (`deletion_service.PendingFileDeletes`). A failed commit can no longer leave rows pointing at deleted files (audit M3).
-- **A model switch takes a worker hold** (`IngestWorker.held()`), which waits for any in-flight batch and pauses the queue with "Paused while the AI model changes". The switch is no longer refused while imports are active.
-- **Library purge refuses** while any import has open items, and deletes the new import tables.
-- **Orphan sweep safety valves:**
-  - It only considers files in the `xx/yy/<key>` shard layout, so `backups/` and `.incoming/` are never touched.
-  - It ignores files younger than an hour.
-  - It deletes nothing if more than 25% of the store looks orphaned, since that most likely means the wrong database is in use.
-- **Test isolation fix.** The `test_client` fixture now swaps the image and thumbnail store singletons for temp directories and doesn't start the worker. The cached singletons were how earlier test runs leaked files into the repo's `images/` folder.
-
-**Known gaps until Phase 3 / Phase 6:**
-
-- **The frontend still calls the old endpoints,** so imports through the UI don't work on this branch until Phase 3.
-- **`e2e/helpers/seed.ts` and `stress_tests/`** still use the old API (Phase 6).
-- **Library purge deletes `backups/`.** This predates the redesign: backups live inside the image library folder, and the purge removes that whole folder. It needs a separate decision.
-
-### Phase 3 status (done)
-
-**Step 1, `ImportManager`: done.** It lives in `frontend/src/lib/import/`:
-
-| File | Responsibility |
-|---|---|
-| `types.ts` | API types |
-| `importClient.ts` | Typed HTTP client |
-| `hasher.ts`, `hash.worker.ts` | Web Worker SHA-256. Off in insecure contexts and for files over 256 MB. |
-| `ImportManager.ts` | Uploads, resume, single poller, unload guard, actions |
-| `useImports.ts` | `useSyncExternalStore` hooks |
-
-**Behaviour:**
-- **Upload retries:**
-  - Network errors back off (capped at 30 s) and retry indefinitely while the tab is open; the upload shows "waiting for connection".
-  - 5xx/408/429 retry up to 5 times, then the file is recorded as a local failure. It stays `awaiting_bytes` server-side, so it can be resumed.
-  - 409/404 stop quietly.
-  - Other 4xx (e.g. 413) fail the file at once.
-- **Setup calls** (manifest, archives, seal, hashes) use the same retry policy. If the import can't be started (e.g. 507 at seal), the job is cancelled so it can't sit active forever.
-- **Pipelining:** a hashing round (50 files) runs ahead of 3 concurrent uploads.
-- **Poller:** 1 s while anything is active, 5 s when the tab is hidden, 30 s when idle, with exponential backoff on errors. One failure shows the connection as `degraded`, three as `lost`. Concurrent refreshes are coalesced.
-- **Notifications:** `onJobFinished` fires when a job moves from active/paused to completed/cancelled (for toasts).
-
-**Steps 2 and 3 (views, wiring, deletions): done.** The views are in `frontend/src/components/imports/`:
-
-| File | Responsibility |
-|---|---|
-| `ImportDialog.tsx` | Start view (type choice, drop or choose folder/files) and progress view: a two-layer meter (received vs processed), notices for system pause, lost connection, interrupted upload with resume, and local upload failures with retry; the group ledger; Pause/Resume/Cancel. |
-| `ImportReportDialog.tsx` | Groups / Problems (by reason, Retry) / Already in library (Import as new copies) / Skipped. Only non-empty sections are shown. Undo import (confirmed), Dismiss, Review in editor. |
-| `GroupLedger.tsx` | Virtualised ruled ledger. Group names in Cinzel, mono counts, an amber hairline per row; rows open the group editor. |
-| `ImportJobRow.tsx` | Activity dock row. Dismiss needs no confirmation because it never deletes anything. |
-| `ImportFrame.tsx` | Shared dialog chrome, notices and the confirm overlay |
-| `format.ts`, `pickFiles.ts` | Shared wording and file-pick helpers |
-
-**Changes beyond the plan:**
-
-- **EditGroupDialog's live import-review mode is removed** (its `importJobId` prop, poller and spinner stubs). The report's ledger opens single groups, and "Review in editor" opens every group the import created through the existing `groupIds` mode. The editor's button now says "Done", not "Confirm Import".
-- **The model-switch settings no longer cancel imports.** They say imports will pause and carry on. Previously they cancelled active imports and deleted their images.
-- **The gallery refreshes as images land**, throttled to every 4 s, instead of only when a job finishes. Every finished import gets a toast with a "View report" action, a warning variant when files failed.
-- **`ImportManager` grew:**
-  - `watchJob` (reference-counted per-group detail, re-fetched only when the summary poll changed);
-  - `retryFailedUploads` (re-send without re-picking);
-  - `listItems` (so views never call the HTTP client directly).
-- **Removed:**
-  - **Hooks:** the six old import hooks.
-  - **Libraries:** `importStorage`, `hashFile`, `mimeCheck`, `mergeGroupStatus`, the old `importApi`.
-  - **Components:** `ImportDialog` (old), `ImportSummaryDialog`, `ImportUploadPane`, `ImportDonePane`, `ImportFileCard`, `ImportFileToolbar`, FileCard's dead import-preview fallback and duplicate badge.
-  - **Types and constants:** the old import types and upload constants.
-  - **Electron:** the `fs:read-directory`/`fs:read-file-bytes` IPC and preload API, and the dead `File.path` drop fallback.
-- **Tests:** component tests for the dock, dialog and report against a real `ImportManager` over a fake client (`src/test/importFakes.ts`).
-- **Visual check:** each state was screenshotted in dark and light themes via a throwaway preview page (not committed).
-
-**Not verified here:**
-- The Electron TypeScript build: there are no root `node_modules` in this environment, and the change is deletion-only.
-- `e2e/` and `stress_tests/` still target the old API (Phase 6).
+- **Status is derived, never stored ad hoc.** `recompute_job_status` counts items; sessions don't autoflush, so it flushes first. `mark_bytes_received` recomputes too, or an all-duplicates import would stay `active` forever.
+- **Duplicates are detected on byte receipt** as well as at commit (`HASH_DUPLICATE`). Their staged bytes are kept for "Import as new copy".
+- **Done items have `staging_key` cleared inside the commit transaction**; the staged file is deleted afterwards, and the stray-staging sweep catches a crash in between.
+- **Undo deletes rows, commits, then deletes files and vectors** (`deletion_service.PendingFileDeletes`), so a failed commit can't leave rows pointing at deleted files.
+- **A model switch takes a worker hold** (`IngestWorker.held()`): it waits for the in-flight batch and pauses the queue with "Paused while the AI model changes". Imports are no longer cancelled by a model switch.
+- **Library purge refuses** while any import has open items.
+- **Orphan sweep safety valves:** only the `xx/yy/<key>` shard layout is considered (so `backups/` and `.incoming/` are never touched), files younger than an hour are ignored, and nothing is deleted if more than 25% of the store looks orphaned.
+- **Test isolation.** The `test_client` fixture swaps the image and thumbnail store singletons for temp directories and doesn't start the worker.
+- **Write-locked endpoints** (`api/dependencies.write_locked`) take `BEGIN IMMEDIATE` and release it on the endpoint's own thread. The first version took the lock in a FastAPI dependency, which runs on a different thread-pool slot from the endpoint body; under ~50–100 concurrent writes the waiters filled the pool, the holder couldn't get a slot, and requests failed with "database is locked" after the 10 s busy timeout. The stress suite found it.
+- **Pillow plugins are loaded at startup** (`PILImage.init()` in the lifespan). Pillow otherwise dlopens its plugins the first time it meets an unidentifiable file; when that happened while prepare-pool threads were inside threadpoolctl's `dl_iterate_phdr` (sklearn KMeans in colour extraction), the process deadlocked on the loader lock and the GIL. The stress suite found it with corrupt uploads.
+- **Uploads are checked against the manifest size;** a mismatch fails the item ("File changed size after it was chosen").
+- **Frontend.** EditGroupDialog's live import-review mode was removed; the report's "Review in editor" opens every group the import created. The gallery refreshes as images land (throttled to 4 s), and every finished import gets a toast with "View report", except when its dialog is open.
 
 ### Live end-to-end run (2026-10-15)
 
-The setup: a real backend (small model, isolated data and library directories) and the Vite dev server, driven by Playwright through the real UI. The test data was copied read-only from the user's library. The scripts were throwaway and are not committed; Phase 6 should turn the scenarios into `e2e/` tests.
+Real backend and Vite dev server, driven through the UI with Playwright, on data copied read-only from the user's library.
 
-**Scenario A: a folder with awkward cases.** The 48-file folder contained 42 maps, an in-folder copy, a zip holding 3 copies, a truncated JPEG, a `notes.txt` and a `._` AppleDouble file.
-- It finished in 11.5 s: 42 done, 4 duplicates (bytes tier), 1 failed ("File content doesn't match its type"), 1 skipped, and the junk file ignored.
-- 8 groups were created.
-- Report tabs, gallery and dock were all correct, with no console errors.
-- When the same bytes appear both loose and in a zip, which copy wins is arbitrary. That is acceptable: the loser is reported as a duplicate either way.
+- **Awkward folder** (42 maps, an in-folder copy, a zip of 3 copies, a truncated JPEG, a `notes.txt`, an AppleDouble file): 11.5 s; 42 done, 4 duplicates, 1 failed ("File content doesn't match its type"), 1 skipped, junk ignored, 8 groups.
+- **Crash recovery:** the backend was SIGKILLed with 12–13 items `processing`. After restart the queue was ready in 6–7 s and the job completed about 4 s later. An integrity check found DB rows = stored files = vectors, with no `.incoming` leftovers or orphans.
+- **Undo** removed every row, file, thumbnail and vector in three runs.
+- Bugs it found, all fixed: a stale system pause after the model loaded; the poller keeping its idle interval after an import started; "Offline" lingering up to 30 s; finished groups counting duplicates against progress; toasts covering the dialog.
 
-**Scenario B: crash recovery.** 30 Czepeku maps (126 MB) were imported, and the backend was SIGKILLed while 12–13 items were `processing`.
-- After restart, the queue was ready in 6–7 s. The in-flight items went back to `ready` (attempt 2), and the job completed about 4 s later.
-- The final state was 27 done and 3 duplicates. The duplicates are genuine: the same files exist in two packs in the real library.
-- An integrity check found DB rows = stored files = vectors = 69, with 3 thumbnails each, no `.incoming` leftovers, no orphans and no duplicate content hashes.
-- Staging keeps only the duplicates' bytes, for 7 days, as designed (§9).
+### Open items
 
-**Undo:** run three times against the real store (42 and 27 images). Each run removed every row, file, thumbnail and vector.
-
-**Bugs found and fixed:**
-- **A stale system pause after the model loaded.** "Waiting for the AI model" persisted for about 60 s. Fixed with `IngestWorker._next_wait` and `probe_now()` once the model is ready.
-- **The dialog froze mid-import.** The poller kept its 30 s idle timer after an import started; only explicit refreshes updated the UI. `refresh()` now pulls the armed timer forward (`pullPollForward`).
-- **"Offline" lasted up to 30 s after the server came back.** Poll backoff now has its own 5 s cap (`pollRetryCapMs`).
-- **A finished group read "3/6" when 3 files were already in the library.** Rows now count against importable files (total − duplicate − skipped) and show "N in library".
-- **Toasts:** they rendered light-on-dark and covered the open dialog's footer. They now follow the theme, and no toast appears for a job whose dialog is open.
-
-**Observations, not yet acted on:**
-- **Progress moves in batch-sized steps.** Up to 16 items commit together, so large maps advance the count in jumps of about 16 every few seconds. A "processing" segment on the meter would make it feel smoother.
-- **A pre-existing name-parser bug, since fixed:** a group came out as "Abyssal Fall [various] - ()" with author "ssal". The fix was checked against 179k real paths; see `design/parser.md`.
-- **`backend/tests/unit/test_quantisation_utils.py` fails to import in a fresh checkout or worktree**, because `05b2234` untracked `scripts/quantisation/` but kept its test.
+- **Possible-duplicate flags (former Phase 4), deferred.** pHash puts gridded/gridless pairs 0–2 bits apart and unrelated images at ≥20 bits, so flags must be suppressed or grouped within an import group and between sibling grid/no-grid folders, or about 9k images in the real library would flag.
+- **Progress moves in batch-sized steps** (up to 16 items commit together). A "processing" segment on the meter would make it feel smoother.
+- **Library purge deletes `backups/`,** because backups live inside the image library folder. This predates the pipeline and needs its own decision.
+- **Bulk local-library import** (§14).
 
 ---
 
@@ -748,10 +623,19 @@ Finding ids are from the 2026-10-12 audit (B = backend, F = frontend).
 ## 14. Risks and open questions
 
 - **Pixel-hash determinism.** JPEG decoding is stable for a given libjpeg-turbo, but a Pillow upgrade could in theory change the decoded output. The failure mode is a missed duplicate, never a false skip, so this is acceptable.
-- **Request count.** One `PUT` per file means about 10k requests for a 10k-file import. That's fine on localhost and HTTP/1.1 keep-alive; reverse-proxy rate limits need configuring (§7).
-- **SQLite write contention.** Batch commits are short, but user edits during a big import compete for the writer. `busy_timeout` plus transient retry covers it; watch for it in Phase 0/1.
-- **Possible-duplicate volume.** A job could flag many items; the report needs grouping by existing image and bulk actions (Phase 4).
+- **Request count.** One `PUT` per file means about 10k requests for a 10k-file import. That's fine on localhost and HTTP/1.1 keep-alive, but a reverse proxy with its own rate limits must allow for it (§7).
+- **SQLite write contention.** Batch commits are short, but user edits during a big import compete for the writer. `busy_timeout` plus transient retry covers it. API endpoints take the write lock on the thread that does the work (`write_locked`, §12), so concurrent requests queue for the lock rather than for thread-pool slots.
+- **Possible-duplicate volume.** When pHash flags ship, a job could flag many items; the report will need grouping by existing image and bulk actions (§12).
 - **Shared-storage "add to group".** Should there also be an action that puts the *existing* image into the new group, alongside "Import as new copy"?
   - Today an image belongs to exactly one group, so this would be either a second record sharing the stored file (with diverging tags) or a move.
   - Doing it properly needs many-to-many group membership. Deferred until there's a concrete need.
 - **Future bulk import.** Linked library folders will add an item source whose bytes are read in place rather than staged. The item and job model, worker, report and dock should need no structural change. Revisit `kind` and `staging_key` vs a `source_path` then.
+
+## 15. Related
+
+- **Videos** are imported like images but use tier-1 duplicates only. A first frame (`backend/app/services/video_utils.py`) supplies thumbnails and the embedding, and `max_video_file_size` caps their size. Images and videos are told apart by `images.media_type`.
+- **Group detection** (folder-based, then prefix-based) runs at seal; see [parser.md](parser.md).
+- **Grid detection** runs in prepare for battlemaps; see [grid-detection-v3.md](grid-detection-v3.md).
+- **Other background work** (backfills, retagging, embedding rebuilds, model downloads) runs through `JobRunner` (`backend/app/services/job_runner.py`), and periodic maintenance through the scheduler (`backend/app/services/scheduler.py`).
+- **Logging** is set up once in `backend/app/logging_config.py`: stdout plus `{data_dir}/logs/scene-atlas.log` (10 MB, 5 rotations), `DEBUG` with `--debug`.
+- **Command-line maintenance** (`uv run python -m backend.pipeline.<module>`): `backfill_content_hash`, `backfill_grid_detection`, `reparse_names`, `retag_all_images`, `fix_orphaned_images`, `export_library`.

@@ -46,17 +46,17 @@ All endpoints are currently public. Network-level isolation is required until se
 
 ### 2. HIGH: Path Traversal in Upload Endpoint
 
-**Status**: FIXED on main — staging redesign (UUID-flat-file structure with `.file_map.json` sidecar)
+**Status**: FIXED — staged files use server-generated names (`import_items.staging_key`); `relative_path` never reaches the filesystem
 
 ### 3. HIGH: No Rate Limiting
 
 **Status**: DONE (Phase 2)
 
 Rate limiting implemented via `slowapi` with two tiers:
-- **expensive** (2/min): `POST /search/rebuild-embeddings`, `GET /export/library`, `PATCH /settings/`, `POST /tags/retag-all`, `POST /images/backfill-grids`
+- **expensive** (2/min): `POST /search/rebuild-embeddings`, `GET /export/library`, `PATCH /settings/`, `POST /tags/retag-all`, `POST /tags/packs/{pack_name}/import`, `POST /images/backfill-grids`
 - **destructive** (1/min): `DELETE /system/library`, `POST /system/tags/reset`
 
-Upload-batch is intentionally NOT rate-limited — it's already gated by admission control (`acquire_heavy_op` semaphore) and requires an active import job. Rate limiting caused silent import failures because the frontend treats 429 as a fatal client error.
+The `/imports` endpoints are intentionally NOT rate-limited. An import sends one `PUT /imports/{id}/items/{item_id}/content` per file (≈10k requests for a 10k-file import), so a per-IP limit would throttle legitimate imports. They are bounded instead by `max_import_file_size` (413 on the streamed body), `max_import_items` per job, the seal-time free-space check, and the `acquire_heavy_op` semaphore on the CPU-heavy seal and archive-expansion endpoints. The client retries 429/5xx up to 5 times per file, then records a resumable local failure. Reverse proxies with their own rate limits must allow for the per-file request volume.
 
 Configurable via `RATE_LIMIT_EXPENSIVE`, `RATE_LIMIT_DESTRUCTIVE` env vars. Disable entirely with `RATE_LIMIT_ENABLED=false`.
 
@@ -111,12 +111,12 @@ Startup warning logged when `APP_MODE=server` and CORS origins are still set to 
 
 ## Staging Security Redesign
 
-The path traversal issue (finding 2) was resolved by redesigning the staging directory to use UUID-based flat filenames instead of user-supplied relative paths.
+The path traversal issue (finding 2) was resolved by staging uploads under server-generated filenames instead of user-supplied relative paths.
 
 **Before**: `staging_dir / "Author/GroupName/map.jpg"` (user-controlled path)
-**After**: `staging_dir / "a1b2c3d4.jpg"` (UUID, safe by construction)
+**After**: `staging_dir / {job_id} / {staging_key}` (server-generated, safe by construction)
 
-A `.file_map.json` sidecar maps `{relative_path: staging_key}` so group detection and the frontend still use original paths as logical identifiers.
+`import_items.relative_path` is kept only for display, grouping and resume matching, and `item_id` is always scoped to its `job_id`. See [ingestion.md §7](ingestion.md#7-upload-protocol).
 
 ---
 

@@ -3,7 +3,7 @@
 Real SQLite, real filesystem, real thumbnails, colours and hashes. Embeddings and
 LanceDB are faked. The worker is driven synchronously with ``drain()``.
 
-Covers design/ingest-redesign.md §11: happy path, group resolution, the three
+Covers design/ingestion.md §11: happy path, group resolution, the three
 dedup tiers, import-as-copy, file/transient/system errors, crash recovery,
 cancel/pause/retry, round-robin scheduling, bytes lost, vector reconciliation
 and commit-failure cleanup.

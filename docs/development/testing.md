@@ -98,75 +98,95 @@ Playwright tests validate critical user flows in a real browser against the full
 - Located in `e2e/` at project root (not inside `frontend/`) -- tests exercise the full stack
 - Dual webServer config: Playwright starts both backend and frontend automatically
 - Real CLIP model (no mocking) -- loads in a background thread, server responds immediately
-- Test data seeded via the import API using real encrypted fixture images (decrypted at runtime from Git LFS)
+- Test data seeded via the import API using real encrypted fixture images (decrypted at runtime from Git LFS). Without `E2E_IMAGE_KEY`, set `E2E_IMAGE_DIR` to a local folder of your own (non-commercial) images to seed from instead
+- The backend runs against an isolated `e2e/.tmp-data` (`APP_DATA_DIR`; library in `.tmp-data/library`). The project's `data/models` is linked in so the model isn't downloaded twice. `E2E_FRONTEND_PORT` moves the Vite server off 5173
 - Serial execution (`workers: 1`) -- tests share backend state
 - Chromium only in CI; Firefox/WebKit available locally via `--project` flag
 
 **Key files:**
 - `e2e/playwright.config.ts` -- Dual webServer, serial execution, CI/local reporter config
 - `e2e/fixtures/base.ts` -- Worker-scoped auto fixture that decrypts real images and seeds via API
-- `e2e/helpers/seed.ts` -- Uploads images via import API, confirms all groups, polls until done
+- `e2e/helpers/seed.ts` -- Import API (ADR-018): create job → manifest (first 2 files as scenes, the rest battlemaps) → seal → hashes → PUT bytes per item → poll `GET /imports/{id}` until finished; throws listing any failed items
+- `e2e/helpers/images.ts` -- Generates unique random PNGs, so import tests always add something new
 - `e2e/helpers/decrypt-fixtures.ts` -- Decrypts `e2e-images.zip.enc` (Git LFS) for CI and local dev
 
 **`reuseExistingServer`:** Locally, if you already have the backend and frontend running, Playwright reuses them -- no cold-start overhead. In CI, Playwright starts both servers fresh.
 
-**Test coverage (37 tests across 10 files):**
+**Test coverage (35 tests across 10 files):**
 - `smoke.spec.ts` -- Health check, page load, seeded data visible
 - `gallery.spec.ts` -- Image count, type tabs, view toggle, sort dropdown
 - `gallery-deep.spec.ts` -- Text-only search, semantic search, filters, clear all, empty state, grouped view
 - `search.spec.ts` -- Text search, clear, semantic prefix with relevance slider
 - `image-viewer.spec.ts` -- Open/close modal, keyboard navigation, delete navigation
-- `import.spec.ts` -- Dialog open, file upload via file chooser
-- `upload-flow.spec.ts` -- Upload, search, semantic search, author filter, metadata viewer
-- `import-deep.spec.ts` -- Upload controls, type toggle, file upload processing
+- `import.spec.ts` -- Import dialog start view: pickers, battlemap/scene toggle, Escape closes
+- `upload-flow.spec.ts` -- Search, semantic search, author filter, metadata viewer on seeded data
+- `import-deep.spec.ts` -- New file: progress view → finished → report counts → confirmed undo restores the gallery count; re-importing a library file is reported under "Already in library"
 - `edit-group.spec.ts` -- Context menu open, group images/metadata, escape close
-- `activity-dock.spec.ts` -- Dock pill after import, expanding dock shows job cards
+- `activity-dock.spec.ts` -- Closing the dialog keeps the import in the dock; its row shows the outcome and opens the report
 
 ## Test File Structure
 
 ```
 backend/tests/
 ├── conftest.py                    # Shared fixtures, LanceDB/CLIP mocking
+├── test_prepare_pool.py           # Global prepare pool
+├── test_seed_settings.py          # seed_default_settings
 ├── unit/                          # Pure logic, no DB, no filesystem side effects
 │   ├── test_parser.py             # ImageParser.parse() and group_files()
 │   ├── test_schemas.py            # Pydantic model validation and round-trips
-│   ├── test_thumbnail_names.py    # Preview thumbnail filename consistency
 │   ├── test_naming.py             # export_path, download_filename, sanitize_segment
 │   ├── test_pipeline_tasks.py     # color_extraction, image_processing, grid_detection, embedding
+│   ├── test_pipeline_db.py        # pipeline_db() session helper
 │   ├── test_video_utils.py        # verify_video_mime, extract_first_frame, get_video_dimensions
 │   ├── test_color_search.py       # HSL color distance, color index search
-│   ├── test_deletion_service.py   # safe_delete_image, file + DB + LanceDB cleanup
+│   ├── test_deletion_service.py   # safe_delete_image, delete_image_rows
 │   ├── test_system_info.py        # dir_size utility
 │   ├── test_path_traversal.py     # Path traversal prevention
-│   ├── test_validation.py         # Input validation helpers
-│   ├── test_import_state.py       # Import state machine transitions
+│   ├── test_validation.py         # Upload validation helpers
+│   ├── test_ingest_state.py       # Import item/job state machine transitions
+│   ├── test_error_classifier.py   # Ingest error kinds (file / transient / system)
+│   ├── test_image_hashes.py       # SHA-256, pixel hash, pHash
+│   ├── test_memory_budget.py      # Memory-aware prepare admission
+│   ├── test_stored_format.py      # Stored-format conversion rules
+│   ├── test_settings_seed.py      # CONVERT_TO_WEBP → stored_format seeding
 │   ├── test_fts_service.py        # FTS5 full-text search
-│   ├── test_grid_detector.py      # Image-based grid detection algorithm
+│   ├── test_grid_detector.py      # GridDetector service
+│   ├── test_grid_v3.py            # Grid detection v3 on synthetic images
+│   ├── test_grid_pipeline_rules.py # Grid memory estimates, backfill selection
+│   ├── test_grid_regression_local.py # Opt-in regression on a local map library
 │   ├── test_image_store.py        # Hash-sharded filesystem storage
-│   ├── test_maintenance.py        # Backup + cleanup tasks
+│   ├── test_maintenance.py        # Backups + orphan sweep
+│   ├── test_scheduler.py          # Periodic task scheduler
+│   ├── test_lancedb_service.py    # LanceDBService against a real tmp LanceDB
+│   ├── test_clip_service.py       # CLIPService module helpers
 │   ├── test_config_mode.py        # APP_MODE config detection
+│   ├── test_config_roots.py       # APP_DATA_DIR + IMAGE_LIBRARY_DIR split
+│   ├── test_database_pragmas.py   # SQLite pragmas
+│   ├── test_logging_config.py     # Logging configuration
+│   ├── test_security_headers.py   # SecurityHeadersMiddleware
 │   ├── test_ort_providers.py      # ONNX Runtime execution provider selection + fallback
 │   ├── test_manifest.py           # Model manifest loading and validation
+│   ├── test_model_registry.py     # Model registry helpers
+│   ├── test_model_download_service.py # Model downloads
+│   ├── test_tag_packs.py          # Tag pack import service
+│   ├── test_vocabulary.py         # Tag vocabulary loader
+│   ├── test_quantisation_utils.py # scripts.quantisation utils (needs untracked scripts/quantisation/)
 │   └── test_resource_detector.py  # compute_resource_defaults concurrency scaling
 ├── integration/                   # Real SQLite DB, mocked CLIP/LanceDB
-│   ├── test_metadata_roundtrip.py # User edits survive to DB (highest priority)
-│   ├── test_analyse_upload.py     # analyse_upload (grouping + thumbnails)
-│   ├── test_process_single.py     # process_single_image (both modes)
-│   ├── test_process_import_group.py # process_import_group + process_import_job
-│   ├── test_upload_endpoint.py    # POST /imports/upload
-│   ├── test_confirm_endpoint.py   # POST /imports/{id}/confirm
-│   ├── test_preview_endpoint.py   # GET /imports/{id}/preview/{path}
-│   ├── test_imports_status.py     # GET /imports/{id}/status + active
+│   ├── test_ingest_pipeline.py    # IngestWorker driven by drain(): commit, dedup, recovery, system pause, reconciliation
+│   ├── test_imports_api.py        # /imports API: manifest, seal, hashes, content PUT, archives, control, undo
 │   ├── test_search_endpoint.py    # GET /api/v1/search/ + facets
 │   ├── test_images_endpoint.py    # GET/PATCH/DELETE /api/v1/images/ + scenes + file serving
 │   ├── test_groups_endpoint.py    # Groups CRUD, merge, move-images, download
 │   ├── test_tags_endpoint.py      # Tags/categories CRUD + cascading
 │   ├── test_export_endpoint.py    # GET /api/v1/export/library (ZIP structure + metadata)
-│   ├── test_system_admin.py       # GET /api/v1/system/ endpoints
-│   ├── test_system_endpoint.py    # System info + delete library
+│   ├── test_models_api.py         # /api/v1/models/ endpoints
+│   ├── test_rate_limits.py        # Rate limiting
+│   ├── test_system_admin.py       # Library purge, tag reset
+│   ├── test_system_endpoint.py    # GET /api/v1/system/info
 │   ├── test_health_endpoint.py    # GET /health deep health check
 │   ├── test_backup_restore.py     # Backup + restore pipeline
-│   ├── test_expire_stale_jobs.py  # Stale job expiry + staging cleanup
+│   ├── test_migration_022.py      # Migration 022 (grid source labelling)
 │   └── test_clip_heavy.py         # Real CLIP model tests (marked @heavy, excluded by default)
 
 e2e/                                  # Playwright E2E tests (full stack, real browser)
@@ -179,6 +199,7 @@ e2e/                                  # Playwright E2E tests (full stack, real b
 │   ├── actions.ts                    # Reusable test helpers (gallery, import, search, filter)
 │   ├── config.ts                     # Backend URL config
 │   ├── decrypt-fixtures.ts           # Decrypt encrypted fixture archive
+│   ├── images.ts                     # Unique synthetic PNGs for import tests
 │   └── seed.ts                       # API-based data seeding orchestration
 └── tests/
     ├── smoke.spec.ts                 # Health check, page load, seeded data
@@ -186,11 +207,11 @@ e2e/                                  # Playwright E2E tests (full stack, real b
     ├── gallery-deep.spec.ts          # Text-only search, semantic, filters, grouped view
     ├── search.spec.ts                # Text search, semantic prefix, clear
     ├── image-viewer.spec.ts          # Modal open/close, keyboard nav, delete nav
-    ├── import.spec.ts                # Upload dialog, file upload preview
-    ├── upload-flow.spec.ts           # Upload, search, filter, metadata viewer
-    ├── import-deep.spec.ts           # Upload controls, type toggle, processing
+    ├── import.spec.ts                # Import dialog start view
+    ├── upload-flow.spec.ts           # Search, filter, metadata viewer
+    ├── import-deep.spec.ts           # Import → report → undo; duplicate skipped
     ├── edit-group.spec.ts            # Context menu, group metadata, escape close
-    └── activity-dock.spec.ts         # Dock pill, expanding job cards
+    └── activity-dock.spec.ts         # Dock row → report
 
 frontend/src/
 ├── components/
@@ -198,10 +219,12 @@ frontend/src/
 │   ├── DesktopGate.test.tsx
 │   ├── EditGroupDialog.test.tsx
 │   ├── LibraryInfoDialog.test.tsx
-│   └── import/
-│       ├── fileFilter.test.ts
-│       ├── tagColors.test.ts
-│       └── types.test.ts
+│   ├── import/
+│   │   ├── fileFilter.test.ts
+│   │   ├── tagColors.test.ts
+│   │   └── types.test.ts
+│   └── imports/
+│       └── imports.test.tsx         # Dialog, dock row and report over a real ImportManager + fake client (test/importFakes.ts)
 ├── contexts/
 │   └── ThemeContext.test.tsx
 ├── hooks/
@@ -210,8 +233,6 @@ frontend/src/
 │   ├── useGalleryDialogs.test.ts
 │   ├── useGallerySearch.test.ts
 │   ├── useImageGrouping.test.ts
-│   ├── useImportState.moveFiles.test.ts
-│   ├── useImportUpload.test.ts
 │   ├── useJobPolling.test.ts
 │   └── useSettingsDraft.test.tsx
 └── lib/
@@ -220,6 +241,6 @@ frontend/src/
     ├── categoryIcons.test.ts
     ├── constants.test.ts
     ├── getErrorMessage.test.ts
-    ├── importStorage.test.ts
-    └── mimeCheck.test.ts
+    └── import/
+        └── ImportManager.test.ts    # Uploads, retry, resume, poller/ETag, hash fallback
 ```

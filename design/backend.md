@@ -2,7 +2,7 @@
 
 ## Overview
 
-The backend is a **FastAPI** application serving a REST API for image management, search, and import. It connects to SQLite (relational data), LanceDB (vector embeddings, disk-backed and memory-mapped), and the filesystem (image/thumbnail storage). Background work runs in-process via a `JobRunner` (ThreadPoolExecutor) and periodic maintenance via a `Scheduler` (asyncio).
+The backend is a **FastAPI** application serving a REST API for image management, search, and import. It connects to SQLite (relational data), LanceDB (vector embeddings, disk-backed and memory-mapped), and the filesystem (image/thumbnail storage). Imports are processed by a dedicated `IngestWorker` thread, other background work runs in-process via a `JobRunner` (ThreadPoolExecutor), and periodic maintenance via a `Scheduler` (asyncio).
 
 ## Directory Structure
 
@@ -12,7 +12,7 @@ backend/
 │   ├── api/              # API route handlers
 │   │   ├── groups.py     # Image group CRUD, merge, mass-edit
 │   │   ├── images.py     # CRUD + file serving for images
-│   │   ├── imports.py    # Web import upload/confirm/status
+│   │   ├── imports.py    # Import jobs: manifest, seal, per-file upload, control, report
 │   │   ├── jobs.py       # Background job status API
 │   │   ├── search.py     # Text, filter, and semantic search
 │   │   └── tags.py       # Tag categories and tag CRUD
@@ -28,16 +28,26 @@ backend/
 │   │   ├── grid_detector.py     # Image-based grid detection algorithm
 │   │   ├── image_parser.py      # Filename/path metadata parser
 │   │   ├── image_store.py       # Hash-sharded filesystem storage
+│   │   ├── ingest_state.py      # Pure import item/job state machines
 │   │   ├── job_runner.py        # Background job runner (ThreadPoolExecutor)
 │   │   ├── lancedb_service.py   # LanceDB disk-backed vector DB client
+│   │   ├── memory_budget.py     # Per-image memory reservation for prepare
+│   │   ├── prepare_pool.py      # Global prepare thread pool
 │   │   ├── scheduler.py         # Periodic task scheduler (asyncio)
 │   │   ├── validation.py        # Input validation helpers
 │   │   └── video_utils.py       # Video frame extraction + dimensions
 │   ├── config.py         # Pydantic settings (env-driven)
 │   └── main.py           # FastAPI app creation, router mounting, startup
 ├── pipeline/
-│   ├── ingestion.py              # Image ingestion (analyse, process, bulk ingest)
-│   ├── maintenance.py            # Backup + staging cleanup (scheduled)
+│   ├── ingest_queue.py           # Durable import operations (manifest, seal, claim, retry, cancel…)
+│   ├── ingest_process.py         # One batch: prepare, embed, commit, write vectors
+│   ├── ingest_worker.py          # IngestWorker loop thread (round-robin, system pause, recovery)
+│   ├── ingest_archive.py         # Server-side zip expansion into items
+│   ├── ingest_maintenance.py     # Abandoned uploads, staged-bytes release, job pruning
+│   ├── image_hashes.py           # SHA-256, pixel hash, perceptual hash
+│   ├── stored_format.py          # Optional conversion to the configured stored format
+│   ├── vector_reconcile.py       # SQLite ↔ LanceDB id-set reconciliation
+│   ├── maintenance.py            # Backups + orphaned store file sweep (scheduled)
 │   ├── logger.py                 # Logging helper for pipeline modules
 │   ├── backfill_content_hash.py  # Hash backfill CLI utility
 │   ├── backfill_grid_detection.py # Grid detection backfill CLI utility
@@ -164,21 +174,25 @@ Returns `GroupSearchResponse` with paginated groups. Supports two modes:
 ### Imports (`/imports`)
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST | `/check-hashes` | Pre-flight duplicate check via content hash |
-| POST | `/init` | Initialise a new import job |
-| POST | `/upload` | Upload files for import analysis |
-| POST | `/{job_id}/confirm-all` | Confirm all groups at once |
-| GET | `/{job_id}/status` | Check import job progress |
-| GET | `/{job_id}/analysis` | Get or reconnect to analysis results |
-| POST | `/{job_id}/cancel` | Cancel an import job |
-| POST | `/{job_id}/groups/{gid}/cancel` | Cancel a single group |
-| GET | `/{job_id}/preview/{path}` | Serve preview thumbnail |
-| GET | `/active` | List active import jobs |
-| POST | `/{job_id}/upload-batch` | Batch file upload for import job |
-| POST | `/{job_id}/analyse` | Trigger group detection on uploaded files |
-| POST | `/{job_id}/report-skipped` | Report skipped files from client |
-| POST | `/{job_id}/fail` | Client failure reporting (marks job as failed) |
-| DELETE | `/cleanup` | Clean up old/expired imports |
+| POST | `` | Create a job `{label, default_image_type}` |
+| POST | `/{job_id}/manifest` | Add a chunk (≤2,000) of file entries; returns item ids. 409 after seal |
+| PUT | `/{job_id}/archives?name=…` | Raw zip body, expanded server-side into items. 409 after seal |
+| POST | `/{job_id}/seal` | Parse and plan groups, check free space, make items claimable |
+| POST | `/{job_id}/hashes` | Client SHA-256 hints; matches become duplicates without uploading |
+| PUT | `/{job_id}/items/{item_id}/content` | Raw file body for one item (idempotent) |
+| GET | `` | Job summaries for the dock plus queue status (`ETag`/304) |
+| GET | `/{job_id}` | One job with per-group counts |
+| GET | `/{job_id}/items` | Paginated items, filterable by state / group / error kind |
+| POST | `/{job_id}/pause`, `/resume`, `/cancel` | Job control (cancel keeps finished work) |
+| POST | `/{job_id}/groups/{group_id}/skip` | Skip one group's remaining items |
+| POST | `/{job_id}/retry` | Retry failed items |
+| POST | `/{job_id}/import-as-copy` | Re-import duplicates as independent copies |
+| POST | `/{job_id}/finish-upload` | Skip files that were never uploaded |
+| POST | `/{job_id}/dismiss` | Hide from the dock (deletes nothing) |
+| DELETE | `/{job_id}` | Undo import: delete the job's images, then the job |
+| POST | `/queue/probe` | "Retry now" for a system-paused queue |
+
+See [ingestion.md §7](ingestion.md#7-upload-protocol).
 
 ### Jobs (`/jobs`)
 | Method | Path | Purpose |
@@ -246,8 +260,11 @@ SQLite FTS5 full-text search. Manages the `image_fts` virtual table with Porter 
 ### ColorSearch
 Color-based image search using CIE LAB distance. Finds images with dominant colors near a given hex color within a configurable threshold.
 
-### ImportStateService
-State machine for import job lifecycle. Validates transitions between the 7 import statuses (uploading → staging → active → completed/failed/cancelled/expired). See [import-state-machine.md](import-state-machine.md).
+### Ingest state machines
+`backend/app/services/ingest_state.py` — pure item (`awaiting_bytes` → `ready` → `processing` → `done`/`duplicate`/`failed`/`skipped`) and job (`active`/`paused`/`completed`/`cancelled`) transition tables, unit-testable without a database. Durable operations live in `backend/pipeline/ingest_queue.py`. See [ingestion.md §4](ingestion.md#4-state-machines).
+
+### IngestWorker
+`backend/pipeline/ingest_worker.py` — dedicated loop thread, started in the lifespan (separate from `JobRunner`). Claims batches round-robin across jobs, processes them via `ingest_process.py`, system-pauses on disk/model/library problems, and recovers `processing` items at startup. See [ingestion.md §5](ingestion.md#5-processing-the-ingest-worker).
 
 ### DeletionService
 Cascade deletion of images — removes DB records, ImageStore files, thumbnails, and LanceDB embeddings in a single transaction.
@@ -261,9 +278,6 @@ Video frame extraction and dimension reading for video media type support.
 ### AppSettingsService
 Manages the `app_settings` database table for runtime-configurable feature flags and tuning parameters (grid detection, color extraction, concurrency limits). Settings are seeded at first boot via `seed_default_settings()`. See `backend/app/services/app_settings.py`.
 
-### StagingService
-Manages temporary files during imports. Handles UUID-based flat-file storage with `.file_map.json` sidecar for path mapping. See `backend/app/services/staging.py`.
-
 ### PreparePoolService
 Global `ThreadPoolExecutor` for CPU-heavy image preparation tasks (thumbnails, colors, grid detection). Capped by `max_concurrent_prepare` to prevent OOM. See `backend/app/services/prepare_pool.py`.
 
@@ -273,10 +287,11 @@ In-process background job runner using `ThreadPoolExecutor` (default 2 workers).
 ### Scheduler
 Lightweight asyncio-based periodic task scheduler. Registers maintenance tasks during FastAPI lifespan startup:
 - `backup_database` — every 24h
-- `cleanup_staging` — every 6h
-- `expire_stale_jobs` — every 6h
+- `ingest_maintenance` — every 6h (abandon stale uploads, release staged bytes by item state, prune dismissed jobs)
 - `sweep_orphaned_store_files` — every 24h
-- `check_vector_db_sync` — every 24h
+- `reconcile_vectors` — every 24h
+
+Each task's last run is persisted, so overdue tasks run shortly after startup.
 
 ## Configuration
 
@@ -297,7 +312,7 @@ All config via `backend/app/config.py` using `pydantic-settings`. Reads from `.e
 
 1. FastAPI app created in `main.py`
 2. On startup: create DB engine, run `init_db()` (create tables), run `seed_tag_categories()` (upsert vocabulary)
-3. Run `cleanup_stale_staging()` and `mark_interrupted_jobs()` to recover from unclean shutdowns
+3. `IngestWorker.recover()` re-queues items left `processing` by an unclean shutdown (nothing is deleted), then the worker starts
 4. Begin CLIP model background load (non-blocking, loads in a background thread)
 4b. If no model is present in APP_DATA_DIR, CLIPService enters an error state; frontend shows ModelSetupScreen overlay (web mode) blocking access until a model is downloaded.
 5. Start JobRunner (background thread pool), start Scheduler (periodic tasks)
@@ -314,10 +329,14 @@ API endpoints
   ├── CLIPService (semantic search)
   └── LanceDBService (vector search, thread-safe via RLock)
 
-Background jobs (via JobRunner)
-  ├── SQLAlchemy (save_to_database)
-  ├── ImageStore (copy files into store)
-  ├── ImageParser (metadata extraction)
+IngestWorker (imports)
+  ├── SQLAlchemy (claim / commit via ingest_queue.write_session)
+  ├── PreparePool + MemoryBudget (decode, hashes, thumbnails, colours, grid)
+  ├── ImageStore (temp copy in .incoming/, renamed into place at commit)
+  ├── ImageParser (metadata extraction, at seal)
   ├── CLIPService (embedding generation)
-  └── LanceDBService (save embeddings)
+  └── LanceDBService (write vectors after commit)
+
+Background jobs (via JobRunner)
+  └── Retag, embedding rebuild, backfills, vector reconciliation, library purge
 ```

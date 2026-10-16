@@ -1,4 +1,4 @@
-"""Storage-format conversion rules (design/ingest-redesign.md §10)."""
+"""Storage-format conversion rules (design/ingestion.md §10)."""
 
 from __future__ import annotations
 

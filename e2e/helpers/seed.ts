@@ -4,7 +4,7 @@ import path from "path";
 import { BACKEND_URL } from "./config";
 
 /**
- * Seeds the backend through the import API (ADR-018, design/ingest-redesign.md §7):
+ * Seeds the backend through the import API (ADR-018, design/ingestion.md §7):
  * create job → manifest → seal → hashes → PUT bytes per item → poll until finished.
  */
 

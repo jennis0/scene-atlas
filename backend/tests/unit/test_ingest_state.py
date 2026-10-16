@@ -7,7 +7,7 @@ import pytest
 from backend.app.services import ingest_state as st
 from backend.app.services.ingest_state import IllegalTransitionError, ItemEvent
 
-# Every legal transition, from design/ingest-redesign.md §4.1.
+# Every legal transition, from design/ingestion.md §4.1.
 LEGAL = [
     (st.AWAITING_BYTES, ItemEvent.BYTES_RECEIVED, st.READY),
     (st.AWAITING_BYTES, ItemEvent.HASH_DUPLICATE, st.DUPLICATE),

@@ -10,7 +10,7 @@ Callers:
 - the imports API (create, manifest, plan, user actions),
 - tests.
 
-See design/ingest-redesign.md §3–§5.
+See design/ingestion.md §3–§5.
 """
 
 from __future__ import annotations

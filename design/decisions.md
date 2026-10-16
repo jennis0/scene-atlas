@@ -443,7 +443,7 @@ Key choices:
 ## ADR-018: Durable per-item ingest pipeline
 
 **Date:** 2026-10-15
-**Status:** Accepted (implementation in progress; supersedes the import model in ADR-012 and the import state machine in [import-state-machine.md](import-state-machine.md))
+**Status:** Implemented (PR #1; storage format added in the Phase 6 PR). Supersedes the import model in ADR-012 and the earlier seven-state import state machine.
 
 **Context:** A reliability audit (2026-10-12) found about 50 issues in the import flow. Three structural causes account for nearly all of them.
 1. **An import job was an all-or-nothing transaction.** A restart, a failed group, or dismissing a failed job deleted every image the job had imported. This existed to avoid false duplicate matches.
@@ -452,7 +452,7 @@ Key choices:
 
 Duplicate detection was also broken under WebP conversion, and imports over ~32k files hit SQLite's variable limit.
 
-**Decision:** Replace the import pipeline with a durable, per-item model. Full design: [ingest-redesign.md](ingest-redesign.md).
+**Decision:** Replace the import pipeline with a durable, per-item model. Full design: [ingestion.md](ingestion.md).
 
 1. **A job contains groups, and a group contains items.** Jobs remain the user-facing unit. Every file is an `import_items` row holding its own state (`awaiting_bytes`, `ready`, `processing`, `done`, `duplicate`, `failed`, `skipped`), attempts, classified error and resulting image. Job progress is derived from item counts.
 2. **Jobs have four states (`active`, `paused`, `completed`, `cancelled`) and never fail as a whole.** Cancel keeps finished work. Deleting imported images happens only through an explicit "Undo import". Dismiss only hides.
@@ -466,7 +466,7 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 
    "Import as new copy" processes the file as fully independent (own stored file, thumbnails and embedding). It is the escape hatch for a faulty match, so it shares nothing with the matched image. The shared-storage reuse path is removed.
 7. **The frontend has one `ImportManager` store** outside React. It owns uploads, a hashing Web Worker and a single ETag-aware poller; dialogs and the dock are pure views.
-8. **Stored-file conversion defaults to off.** It becomes a server config option later (`original`/`webp`/`jpeg`/`png` plus quality).
+8. **Stored-file conversion defaults to off.** The `stored_format` setting (`original`/`webp`/`jpeg`/`png`, plus quality and lossless-for-lossless-sources) converts new imports on a worker temp copy; source and pixel hashes always come from the upload.
 
 **Alternatives considered:**
 - **Patch the existing flow finding by finding.** Rejected: the stuck and destructive states are emergent from the all-or-nothing job model and client-driven lifecycle.
@@ -488,7 +488,7 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 ## ADR-019: Grid detector v3 (spectral comb plus trained classifiers)
 
 **Date:** 2026-10-16
-**Status:** Accepted (implemented on branch `worktree-grid-v3`)
+**Status:** Implemented (PR #2)
 
 **Context:** The original detector (Canny edges plus autocorrelation, 8000 px cap) peaked at about 1.6 GB per map. It called grids on 28% of explicitly gridless maps, and made spurious hex calls. Five evaluation rounds against labels from gridded/gridless "twins" across 28 creators (see [grid-detection-v3.md](grid-detection-v3.md)) showed that a harmonic-comb detector with small trained classifiers is better. Measured by leaving one creator out at a time, v3's worst-creator F1 is .685 against .667 for the current detector, and its median is .944 against .913. It also gets the grid size exactly right more often: .945 vs .875.
 

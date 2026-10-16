@@ -1,4 +1,4 @@
-"""Process one claimed batch of import items (ADR-018, design/ingest-redesign.md §5.3).
+"""Process one claimed batch of import items (ADR-018, design/ingestion.md §5.3).
 
     prepare (prepare pool) → embed (one batch) → commit (one BEGIN IMMEDIATE
     transaction) → vectors (LanceDB, after commit) → staging cleanup

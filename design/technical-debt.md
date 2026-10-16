@@ -4,83 +4,16 @@ Deferred items from the 2026-03-04 full backend code review (simplify pass). Ite
 grouped by theme and ordered roughly by impact vs effort.
 
 The following fixes **were applied** in the same session and are not listed here:
-- `finalize_import` now correctly treats `broken` as terminal — **DONE**
 - `ImageStore.delete` TOCTOU race fixed (atomic `unlink`) — **DONE**
 - `PipelineConfig` fallback duplication removed in task files
-- `confirm_all_groups` now logs per-file skip warnings (matching `confirm_import`)
 - Thumbnail fallback now logs a `warning` before serving full-res
-- `confirm_review` uses a single bulk `UPDATE` instead of per-row ORM mutations
 - `edit_group` new-group split no longer issues per-image DB queries
 - Composite index on `(tags.category, tags.value)` added in migration 016
 
----
-
-## 1. Move `_cleanup_import_images` out of the API layer
-
-**Priority: High**
-**Effort: Small (1–2 hours)**
-**Files:** `backend/app/api/imports.py`, `backend/pipeline/ingestion.py`,
-`backend/pipeline/maintenance.py`, `backend/app/services/deletion_service.py`
-
-### Problem
-
-`_cleanup_import_images` is a private function inside `backend/app/api/imports.py` — part
-of the HTTP API layer. It is imported from the pipeline and maintenance layers in five places
-via deferred `from backend.app.api.imports import _cleanup_import_images` calls:
-
-- `pipeline/ingestion.py` lines ~1280, ~1314, ~1346 (`_finalize_import_job`)
-- `pipeline/maintenance.py` lines ~249, ~348 (`expire_stale_jobs`, `mark_interrupted_jobs`)
-
-This inverts the correct dependency direction: `api → pipeline/services`, not the reverse.
-The function has no HTTP-specific logic — it queries the DB for Image rows attached to a
-job, deletes their files from ImageStore and LanceDB, and removes the DB rows. It belongs
-in a service module.
-
-### Fix
-
-Move `_cleanup_import_images` (and rename it, since it will no longer be private to one
-module) into `backend/app/services/deletion_service.py` alongside `safe_delete_image`.
-Update all five import sites to import from the service. Remove the deferred imports.
-
-```python
-# backend/app/services/deletion_service.py
-def cleanup_import_images(job_id: str, db: Session) -> int:
-    """Delete all Image rows (and their files) attached to an import job."""
-    ...
-```
-
----
-
-## 2. Deduplicate `_FILE_MAP_NAME` / `_load_file_map`
-
-**Priority: High**
-**Effort: Small (30 minutes)**
-**Files:** `backend/app/api/imports.py`, `backend/pipeline/ingestion.py`
-
-### Problem
-
-The constant `_FILE_MAP_NAME = ".file_map.json"` and the function `_load_file_map(staging_dir)`
-are defined identically in both files. If the staging format ever changes, one copy will be
-forgotten.
-
-`_save_file_map` (writes the map) only exists in `imports.py`. All three belong together.
-
-### Fix
-
-Extract to a small shared module, e.g. `backend/app/services/staging.py`:
-
-```python
-FILE_MAP_NAME = ".file_map.json"
-
-def load_file_map(staging_dir: Path) -> dict[str, str]:
-    ...
-
-def save_file_map(staging_dir: Path, mapping: dict[str, str]) -> None:
-    ...
-```
-
-Both `imports.py` and `ingestion.py` import from there. The pipeline importing from
-`app/services/` is fine — only importing from `app/api/` is the problematic direction.
+Items 1, 2, 6, 7 and 10 (`_cleanup_import_images` placement, `.file_map.json` helpers,
+N+1 in `get_active_imports`, N+1 group lookup in `_save_image_to_db`, N+1 LanceDB reuse
+calls) were **removed** with the code they described when the import pipeline was replaced
+(ADR-018). Numbering is kept stable.
 
 ---
 
@@ -88,7 +21,7 @@ Both `imports.py` and `ingestion.py` import from there. The pipeline importing f
 
 **Priority: Medium**
 **Effort: Small (1 hour) but many touch-points**
-**Files:** All `backend/pipeline/` scripts and several functions in `ingestion.py`
+**Files:** All `backend/pipeline/` scripts
 
 ### Problem
 
@@ -101,14 +34,17 @@ with SessionLocal() as db:
     ...
 ```
 
-This two-liner appears ~30 times across the pipeline layer (10 times in `ingestion.py` alone,
-plus `maintenance.py`, `backfill_grid_detection.py`, `retag_all_images.py`, etc.).
+This two-liner still appears ~15 times across the pipeline layer (`backfill_grid_detection.py`, `retag_all_images.py`, etc.).
 `get_engine` returns a cached engine so repeated calls are not expensive, but the pattern
-clutters every function and makes connection-pool tuning a 30-site change.
+clutters every function and makes connection-pool tuning a many-site change.
+
+**Partly done:** `backend/pipeline/db.py:pipeline_db()` exists and is used by `maintenance.py`
+and `vector_reconcile.py`; the remaining call sites still need migrating. (The ingest pipeline
+uses its own `ingest_queue.write_session()` for `BEGIN IMMEDIATE` transactions.)
 
 ### Fix
 
-Add a context manager to `pipeline_config.py` or a new `backend/pipeline/db.py`:
+The helper in `backend/pipeline/db.py` (it also commits on clean exit and rolls back on error):
 
 ```python
 from contextlib import contextmanager
@@ -210,69 +146,6 @@ import and call it.
 
 ---
 
-## 6. N+1 queries in `get_active_imports`
-
-**Priority: Medium**
-**Effort: Small (30–60 minutes)**
-**Files:** `backend/app/api/imports.py`
-
-### Problem
-
-`GET /imports/active` issues:
-- 1 query for all `ImportJob` rows
-- N queries for `ImportGroupJob` rows (one per job)
-
-With 20 jobs in the 7-day window this is up to 21 queries. The endpoint is polled every
-few seconds by the ActivityDock.
-
-### Fix
-
-```python
-# One query for all group jobs across all relevant job IDs
-all_job_ids = [j.id for j in all_jobs]
-groups_by_job: dict[str, list[ImportGroupJob]] = defaultdict(list)
-for grp in db.query(ImportGroupJob).filter(ImportGroupJob.job_id.in_(all_job_ids)).all():
-    groups_by_job[grp.job_id].append(grp)
-```
-
----
-
-## 7. N+1 group lookup in `_save_image_to_db` (core import hot path)
-
-**Priority: High**
-**Effort: Medium (1–2 hours)**
-**Files:** `backend/pipeline/ingestion.py`
-
-### Problem
-
-`_save_image_to_db` issues a `SELECT` on `ImageGroup` for every image in a batch. When
-`batch_save_to_database` saves 16 images from the same group, this is 16 identical queries
-in a single transaction. This is the core hot path for every import.
-
-```python
-# ingestion.py ~line 138 — called N times per batch
-grp = db.query(ImageGroup).filter(
-    ImageGroup.base_name == group_name,
-    ImageGroup.author == author
-).first()
-```
-
-### Fix
-
-Resolve the group once per batch in `batch_save_to_database` and pass it into
-`_save_image_to_db`, or cache it by `(base_name, author)` within a single DB session.
-Since all images in a batch share the same group, the simplest approach is to pass an
-optional `group` parameter:
-
-```python
-def _save_image_to_db(db: Session, image_data: dict, group: ImageGroup | None = None) -> int:
-    ...
-```
-
-and resolve it once in `batch_save_to_database` before the loop.
-
----
-
 ## 8. ColorIndex loads entire `colors` table into memory
 
 **Priority: Medium**
@@ -352,40 +225,6 @@ rows = (
 
 ---
 
-## 10. N+1 LanceDB calls for reuse (dedup) images
-
-**Priority: Low**
-**Effort: Small (30 minutes)**
-**Files:** `backend/pipeline/ingestion.py`
-
-### Problem
-
-When a batch contains duplicate images (reuse path), their existing LanceDB embeddings
-are retrieved one-at-a-time:
-
-```python
-for prep in reuse_images:
-    source_id = prep["reuse_embedding_from"]
-    embedding = get_lancedb_service().get_embedding(source_id)  # one query per image
-```
-
-LanceDB supports batch lookups by ID. For a batch of 20 duplicates this is 20
-serial queries.
-
-### Fix
-
-Add a `get_embeddings(ids: list[int]) -> dict[int, list[float]]` method to `LanceDBService`
-and call it once per batch:
-
-```python
-source_ids = [prep["reuse_embedding_from"] for prep in reuse_images]
-embeddings_by_id = get_lancedb_service().get_embeddings(source_ids)
-```
-
----
-
----
-
 ## 11. Remove `continue-on-error` from CI security scanning
 
 **Priority: Medium**
@@ -440,15 +279,10 @@ after upgrading.
 
 | # | Item | Priority | Effort |
 |---|------|----------|--------|
-| 1 | Move `_cleanup_import_images` to service layer | High | Small |
-| 2 | Deduplicate `_FILE_MAP_NAME` / `_load_file_map` | High | Small |
-| 7 | N+1 group lookup in `_save_image_to_db` | High | Medium |
 | 3 | Pipeline DB session helper | Medium | Small |
 | 4 | Tag-cascade + FTS rebuild deduplication | Medium | Small |
-| 6 | N+1 in `get_active_imports` | Medium | Small |
 | 8 | ColorIndex full-table load | Medium | Medium |
 | 9 | Five COUNT queries in `/facets` | Medium | Small |
 | 5 | Tag vocabulary parsing deduplication | Low | Medium |
-| 10 | N+1 LanceDB reuse calls | Low | Small |
 | 11 | Remove `continue-on-error` from CI security scanning | Medium | Small |
 | 12 | Upgrade GitHub Actions to Node.js 24 versions | Medium | Small |
