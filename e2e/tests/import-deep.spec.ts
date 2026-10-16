@@ -5,6 +5,7 @@ import {
   getTestImagePaths,
   importFiles,
   openImportDialog,
+  undoImport,
   waitForGalleryLoad,
   waitForImportFinished,
 } from "../helpers/actions";
@@ -31,28 +32,15 @@ test.describe("Import: end to end", () => {
     await waitForImportFinished(page);
     await expect(dialog.getByText("Finished. 1 imported.")).toBeVisible();
 
-    // The new image lands in the gallery.
     await expect
       .poll(() => getSceneCount(page), { timeout: 30_000 })
       .toBe(before + 1);
 
-    // Report: counts in the status line, then undo with confirmation.
     await dialog.getByRole("button", { name: "View report" }).click();
     const report = page.getByRole("dialog");
     await expect(report.getByRole("heading", { name: label })).toBeVisible();
     await expect(report.getByText(/^1 imported$/)).toBeVisible();
-    await report.getByRole("button", { name: "Undo import" }).click();
-    const confirm = page.getByRole("alertdialog", {
-      name: "Undo this import?",
-    });
-    await expect(confirm).toContainText("1 image");
-    await confirm
-      .getByRole("button", { name: "Delete imported images" })
-      .click();
-
-    await expect(page.getByText("Import undone. 1 image removed.")).toBeVisible(
-      { timeout: 10_000 },
-    );
+    await undoImport(page, 1);
     await expect
       .poll(() => getSceneCount(page), { timeout: 30_000 })
       .toBe(before);
@@ -89,7 +77,6 @@ test.describe("Import: end to end", () => {
       page.getByTitle(path.basename(existing), { exact: true }),
     ).toBeVisible();
 
-    // Nothing was added.
     expect(await getSceneCount(page)).toBe(before);
   });
 });

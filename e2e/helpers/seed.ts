@@ -2,68 +2,38 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { BACKEND_URL } from "./config";
+import { listMediaFiles } from "./images";
 
-/**
- * Seeds the backend through the import API (ADR-018, design/ingestion.md §7):
- * create job → manifest → seal → hashes → PUT bytes per item → poll until finished.
- */
+// Seeds the backend through the import API (ADR-018, design/ingestion.md §7).
 
 const API = `${BACKEND_URL}/api/v1/imports`;
 const MANIFEST_CHUNK = 2000;
 
-interface ImportCounts {
-  awaiting_bytes: number;
-  ready: number;
-  processing: number;
-  done: number;
-  duplicate: number;
-  failed: number;
-  skipped: number;
-  total: number;
-}
-
 interface ImportJobDetail {
-  id: string;
   status: "active" | "paused" | "completed" | "cancelled";
-  counts: ImportCounts;
+  counts: Record<"done" | "duplicate" | "failed" | "skipped" | "total", number>;
   group_count: number;
-  groups: { group_name: string; counts: ImportCounts }[];
 }
 
 interface ManifestItem {
-  client_ref: string | null;
+  client_ref: string;
   item_id: number;
-  relative_path: string;
   state: string;
-  error_reason: string | null;
-}
-
-interface ImportItem {
-  id: number;
-  relative_path: string;
-  state: string;
-  error_stage: string | null;
-  error_reason: string | null;
 }
 
 async function api<T>(
   method: string,
   url: string,
-  body?: unknown,
-  raw?: Buffer,
+  init: { json?: unknown; bytes?: Buffer } = {},
 ): Promise<T> {
   const res = await fetch(url, {
     method,
-    headers: raw
+    headers: init.bytes
       ? { "Content-Type": "application/octet-stream" }
-      : body !== undefined
+      : init.json !== undefined
         ? { "Content-Type": "application/json" }
         : undefined,
-    body: raw
-      ? new Uint8Array(raw)
-      : body !== undefined
-        ? JSON.stringify(body)
-        : undefined,
+    body: init.bytes ? new Uint8Array(init.bytes) : JSON.stringify(init.json),
   });
   if (!res.ok) {
     throw new Error(
@@ -74,22 +44,19 @@ async function api<T>(
 }
 
 /**
- * Import every media file under `imageDir` and wait for the job to finish.
- * The first 2 files are imported as "scene" (so scene-type filter tests have
- * data); the rest as "battlemap". Throws if any file fails.
+ * Import every media file under `imageDir` and wait for it to finish. The
+ * first 2 are scenes so the scene-type filter tests have data.
  */
 export async function seedTestData(imageDir: string): Promise<void> {
-  const files = collectFiles(imageDir);
+  const files = listMediaFiles(imageDir);
   if (files.length === 0) throw new Error(`No images found in ${imageDir}`);
   console.log(`[seed] Importing ${files.length} file(s) from ${imageDir}`);
 
   const job = await api<{ id: string }>("POST", API, {
-    label: "E2E seed",
-    default_image_type: "battlemap",
+    json: { label: "E2E seed", default_image_type: "battlemap" },
   });
   const jobId = job.id;
 
-  // Manifest: metadata only. client_ref maps results back to local paths.
   const byRef = new Map<string, string>();
   const manifest = files.map((file, i) => {
     const stat = fs.statSync(file);
@@ -108,7 +75,7 @@ export async function seedTestData(imageDir: string): Promise<void> {
     const res = await api<{ items: ManifestItem[]; ignored: number }>(
       "POST",
       `${API}/${jobId}/manifest`,
-      { files: manifest.slice(i, i + MANIFEST_CHUNK) },
+      { json: { files: manifest.slice(i, i + MANIFEST_CHUNK) } },
     );
     items.push(...res.items);
   }
@@ -121,13 +88,15 @@ export async function seedTestData(imageDir: string): Promise<void> {
     "POST",
     `${API}/${jobId}/hashes`,
     {
-      items: waiting.map((it) => ({
-        item_id: it.item_id,
-        sha256: crypto
-          .createHash("sha256")
-          .update(fs.readFileSync(byRef.get(it.client_ref!)!))
-          .digest("hex"),
-      })),
+      json: {
+        items: waiting.map((it) => ({
+          item_id: it.item_id,
+          sha256: crypto
+            .createHash("sha256")
+            .update(fs.readFileSync(byRef.get(it.client_ref)!))
+            .digest("hex"),
+        })),
+      },
     },
   );
   const stillWaiting = new Set(
@@ -138,12 +107,9 @@ export async function seedTestData(imageDir: string): Promise<void> {
 
   for (const it of waiting) {
     if (!stillWaiting.has(it.item_id)) continue;
-    await api(
-      "PUT",
-      `${API}/${jobId}/items/${it.item_id}/content`,
-      undefined,
-      fs.readFileSync(byRef.get(it.client_ref!)!),
-    );
+    await api("PUT", `${API}/${jobId}/items/${it.item_id}/content`, {
+      bytes: fs.readFileSync(byRef.get(it.client_ref)!),
+    });
   }
   console.log(
     `[seed] Sent ${stillWaiting.size} file(s); waiting for processing`,
@@ -156,10 +122,13 @@ export async function seedTestData(imageDir: string): Promise<void> {
       `${c.failed} failed, ${c.skipped} skipped, ${detail.group_count} group(s)`,
   );
   if (detail.status !== "completed" || c.failed > 0) {
-    const failed = await api<{ items: ImportItem[] }>(
-      "GET",
-      `${API}/${jobId}/items?state=failed&limit=50`,
-    );
+    const failed = await api<{
+      items: {
+        relative_path: string;
+        error_stage: string | null;
+        error_reason: string | null;
+      }[];
+    }>("GET", `${API}/${jobId}/items?state=failed&limit=50`);
     const lines = failed.items.map(
       (f) => `  ${f.relative_path}: [${f.error_stage}] ${f.error_reason}`,
     );
@@ -169,8 +138,7 @@ export async function seedTestData(imageDir: string): Promise<void> {
   }
 }
 
-/** Poll an import until it is completed or cancelled. */
-export async function waitForImport(
+async function waitForImport(
   jobId: string,
   timeoutMs: number,
 ): Promise<ImportJobDetail> {
@@ -190,21 +158,4 @@ export async function waitForImport(
   throw new Error(
     `Import ${jobId} did not finish within ${timeoutMs}ms (${last})`,
   );
-}
-
-/** Collect all supported media files recursively, in a stable order. */
-function collectFiles(dir: string): string[] {
-  const results: string[] = [];
-  const entries = fs
-    .readdirSync(dir, { withFileTypes: true })
-    .sort((a, b) => a.name.localeCompare(b.name));
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      results.push(...collectFiles(full));
-    } else if (/\.(jpe?g|png|webp|mp4|webm)$/i.test(entry.name)) {
-      results.push(full);
-    }
-  }
-  return results;
 }

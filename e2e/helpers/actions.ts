@@ -1,6 +1,5 @@
 import { Page, expect } from "@playwright/test";
-import path from "path";
-import fs from "fs";
+import { listMediaFiles } from "./images";
 
 /** Wait for the gallery to load and show a scene count. */
 export async function waitForGalleryLoad(
@@ -10,7 +9,6 @@ export async function waitForGalleryLoad(
   await expect(page.getByText(/[1-9]\d* scenes/)).toBeVisible({ timeout });
 }
 
-/** Title of the import dialog's start view. */
 export const IMPORT_START_TITLE = "Import maps and scenes";
 
 /** Open the import dialog (start view) via the header Import button. */
@@ -21,11 +19,7 @@ export async function openImportDialog(page: Page): Promise<void> {
   ).toBeVisible({ timeout: 5_000 });
 }
 
-/**
- * Pick files via "Choose files" in the import dialog's start view. The import
- * starts at once and the dialog switches to the progress view, titled with the
- * import's label (the file name for a single loose file).
- */
+/** Pick files in the start view; the import starts and the progress view opens. */
 export async function importFiles(
   page: Page,
   filePaths: string[],
@@ -50,6 +44,24 @@ export async function waitForImportFinished(
   });
 }
 
+/** From an open import report, undo the import and confirm. */
+export async function undoImport(
+  page: Page,
+  imageCount: number,
+): Promise<void> {
+  const noun = imageCount === 1 ? "image" : "images";
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Undo import" })
+    .click();
+  const confirm = page.getByRole("alertdialog", { name: "Undo this import?" });
+  await expect(confirm).toContainText(`${imageCount} ${noun}`);
+  await confirm.getByRole("button", { name: "Delete imported images" }).click();
+  await expect(
+    page.getByText(`Import undone. ${imageCount} ${noun} removed.`),
+  ).toBeVisible({ timeout: 10_000 });
+}
+
 /** Fill the search input and submit the search form. */
 export async function searchFor(page: Page, query: string): Promise<void> {
   const searchInput = page.getByPlaceholder(/Search/);
@@ -62,19 +74,6 @@ export async function clearSearch(page: Page): Promise<void> {
   const searchInput = page.getByPlaceholder(/Search/);
   await searchInput.clear();
   await page.getByRole("button", { name: "Search", exact: true }).click();
-}
-
-/**
- * Hover a parent element then click a child within it.
- * Useful for elements with opacity-0 group-hover:opacity-100.
- */
-export async function hoverAndClick(
-  page: Page,
-  parentLocator: ReturnType<Page["locator"]>,
-  childLocator: ReturnType<Page["locator"]>,
-): Promise<void> {
-  await parentLocator.hover();
-  await childLocator.click();
 }
 
 /** Switch to grouped view mode. */
@@ -92,25 +91,11 @@ export async function openFilterPanel(page: Page): Promise<void> {
   await page.getByRole("button", { name: /Filters/ }).click();
 }
 
-/**
- * Collect a subset of test image paths for upload.
- * Returns up to `maxFiles` image paths from the test image directory.
- */
+/** Up to `maxFiles` still images under `imageDir`. */
 export function getTestImagePaths(imageDir: string, maxFiles = 4): string[] {
-  const files: string[] = [];
-  const walk = (dir: string) => {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (files.length >= maxFiles) return;
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        walk(full);
-      } else if (/\.(jpe?g|png|webp)$/i.test(entry.name)) {
-        files.push(full);
-      }
-    }
-  };
-  walk(imageDir);
-  return files;
+  return listMediaFiles(imageDir)
+    .filter((f) => /\.(jpe?g|png|webp)$/i.test(f))
+    .slice(0, maxFiles);
 }
 
 /** Get the current scene count from the gallery. */

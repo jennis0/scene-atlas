@@ -62,3 +62,12 @@ export function writeUniquePng(name: string): string {
   fs.writeFileSync(file, makePng());
   return file;
 }
+
+/** All media files under `dir`, recursively, in a stable order. */
+export function listMediaFiles(dir: string): string[] {
+  return fs
+    .readdirSync(dir, { withFileTypes: true, recursive: true })
+    .filter((e) => e.isFile() && /\.(jpe?g|png|webp|mp4|webm)$/i.test(e.name))
+    .map((e) => path.join(e.parentPath, e.name))
+    .sort();
+}
