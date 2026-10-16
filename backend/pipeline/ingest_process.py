@@ -315,14 +315,14 @@ def _prepare(
         else {k: item.parsed.get(k) for k in ("gridded", "grid_width", "grid_height")}
     )
 
-    progress.stage = "copy"
     library_temp_dir = incoming_dir(image_store.base_dir)
     library_temp_dir.mkdir(parents=True, exist_ok=True)
-    stored_hash = source_hash
-    converted = None
-    if item.kind != "video":
-        progress.stage = "convert"
-        converted = convert_stored_format(staged, library_temp_dir, stem, cfg.stored_format)
+    progress.stage = "convert"
+    converted = (
+        convert_stored_format(staged, library_temp_dir, stem, cfg.stored_format)
+        if item.kind != "video"
+        else None
+    )
     if converted is not None:
         progress.created.append(converted)
         temp_original = converted
@@ -334,6 +334,7 @@ def _prepare(
         temp_original = library_temp_dir / storage_key
         progress.created.append(temp_original)
         shutil.copyfile(staged, temp_original)
+        stored_hash = source_hash
 
     medium_key, medium_path = thumbnails["medium"]
     return PreparedItem(

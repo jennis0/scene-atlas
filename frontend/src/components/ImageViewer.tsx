@@ -981,7 +981,7 @@ function buildDownloadFilename(img: Image): string {
     parts.push('No Grid')
   }
 
-  // The stored file's extension: it differs from the upload's when a storage format is set.
+  // The stored file's extension, which differs from the upload's after conversion.
   const ext = (img.storage_key || img.filename).match(/\.[^.]+$/)?.[0] ?? ''
   return parts.join(' - ') + ext
 }

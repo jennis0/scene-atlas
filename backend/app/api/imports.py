@@ -4,11 +4,8 @@ The client describes files (manifest), seals the manifest (server-side
 grouping), then supplies bytes one file at a time. The ingest worker processes
 items as their bytes arrive; the client only observes and issues actions.
 
-Every mutating endpoint takes SQLite's write lock up front (``BEGIN
-IMMEDIATE``) so it can't fail on a stale snapshot while the worker commits.
-The lock is taken and released inside the endpoint body (``@write_locked``),
-on one thread: holding it across FastAPI's dependency and endpoint threads let
-waiting requests fill the thread pool while the holder waited for a slot.
+Every mutating endpoint is ``@write_locked`` (``BEGIN IMMEDIATE`` up front) so
+it can't fail on a stale snapshot while the worker commits.
 """
 
 from __future__ import annotations
@@ -74,15 +71,6 @@ _STREAM_CHUNK = 256 * 1024
 # ---------------------------------------------------------------------------
 # Dependencies and helpers
 # ---------------------------------------------------------------------------
-
-
-def get_write_db(request: Request):
-    """A session for a ``@write_locked`` endpoint, which takes the write lock itself."""
-    db = get_session_local(request.app.state.db_engine)()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 def _open_session(request: Request) -> Session:
@@ -290,7 +278,7 @@ def list_items(
 
 @router.post("", response_model=ImportJobSummary, status_code=201)
 @write_locked
-def create_import(body: CreateImportRequest, db: Session = Depends(get_write_db)):
+def create_import(body: CreateImportRequest, db: Session = Depends(get_db)):
     job = q.create_job(db, label=body.label, default_image_type=body.default_image_type)
     db.commit()
     _changed()
@@ -299,7 +287,7 @@ def create_import(body: CreateImportRequest, db: Session = Depends(get_write_db)
 
 @router.post("/{job_id}/manifest", response_model=ManifestResponse)
 @write_locked
-def add_manifest(job_id: str, body: ManifestRequest, db: Session = Depends(get_write_db)):
+def add_manifest(job_id: str, body: ManifestRequest, db: Session = Depends(get_db)):
     """Add a chunk of file descriptions (metadata only, no bytes).
 
     Paths already in the job and OS junk are ignored. Unsupported files become
@@ -470,7 +458,7 @@ def _check_free_space(db: Session, job_id: str) -> None:
 @write_locked
 def seal_import(
     job_id: str,
-    db: Session = Depends(get_write_db),
+    db: Session = Depends(get_db),
     _admission: None = Depends(acquire_heavy_op),
 ):
     """Close the file list: work out groups server-side and start processing. Idempotent."""
@@ -485,7 +473,7 @@ def seal_import(
 
 @router.post("/{job_id}/hashes", response_model=HashResponse)
 @write_locked
-def submit_hashes(job_id: str, body: HashRequest, db: Session = Depends(get_write_db)):
+def submit_hashes(job_id: str, body: HashRequest, db: Session = Depends(get_db)):
     """Client-computed SHA-256s, sent ahead of uploading; known files are skipped."""
     _job_or_404(db, job_id)
     items = q.apply_client_hashes(db, job_id, {e.item_id: e.sha256 for e in body.items})
@@ -571,15 +559,11 @@ async def upload_content(job_id: str, item_id: int, request: Request):
             if item.state != st.AWAITING_BYTES:  # a concurrent retry won the race
                 tmp.unlink(missing_ok=True)
                 return _content_result(item)
-            # A size that differs from the manifest means the file changed (or was
-            # cut short) after it was chosen.
-            problem = (
-                "File content doesn't match its type"
-                if not valid
-                else "File changed size after it was chosen; choose it again"
-                if item.size is not None and item.size != written
-                else None
-            )
+            problem = None
+            if not valid:
+                problem = "File content doesn't match its type"
+            elif item.size is not None and item.size != written:
+                problem = "File changed size after it was chosen; choose it again"
             if problem:
                 tmp.unlink(missing_ok=True)
                 item.state = st.next_item_state(item.state, st.ItemEvent.FILE_ERROR)
@@ -616,7 +600,7 @@ def _action(db: Session, job_id: str, affected: int, wake: bool = False) -> Acti
 
 @router.post("/{job_id}/pause", response_model=ActionResult)
 @write_locked
-def pause_import(job_id: str, db: Session = Depends(get_write_db)):
+def pause_import(job_id: str, db: Session = Depends(get_db)):
     _job_or_404(db, job_id)
     q.pause_job(db, job_id)
     return _action(db, job_id, 0)
@@ -624,7 +608,7 @@ def pause_import(job_id: str, db: Session = Depends(get_write_db)):
 
 @router.post("/{job_id}/resume", response_model=ActionResult)
 @write_locked
-def resume_import(job_id: str, db: Session = Depends(get_write_db)):
+def resume_import(job_id: str, db: Session = Depends(get_db)):
     _job_or_404(db, job_id)
     q.resume_job(db, job_id)
     return _action(db, job_id, 0, wake=True)
@@ -632,7 +616,7 @@ def resume_import(job_id: str, db: Session = Depends(get_write_db)):
 
 @router.post("/{job_id}/cancel", response_model=ActionResult)
 @write_locked
-def cancel_import(job_id: str, db: Session = Depends(get_write_db)):
+def cancel_import(job_id: str, db: Session = Depends(get_db)):
     """Stop the import. Finished files are kept; use DELETE to undo the import."""
     _job_or_404(db, job_id)
     return _action(db, job_id, q.cancel_job(db, job_id))
@@ -641,7 +625,7 @@ def cancel_import(job_id: str, db: Session = Depends(get_write_db)):
 @router.post("/{job_id}/retry", response_model=ActionResult)
 @write_locked
 def retry_import_items(
-    job_id: str, body: ItemActionRequest | None = None, db: Session = Depends(get_write_db)
+    job_id: str, body: ItemActionRequest | None = None, db: Session = Depends(get_db)
 ):
     job = _job_or_404(db, job_id)
     if job.status == st.JOB_CANCELLED:
@@ -653,7 +637,7 @@ def retry_import_items(
 @router.post("/{job_id}/import-as-copy", response_model=ActionResult)
 @write_locked
 def import_duplicates_as_copies(
-    job_id: str, body: ItemActionRequest | None = None, db: Session = Depends(get_write_db)
+    job_id: str, body: ItemActionRequest | None = None, db: Session = Depends(get_db)
 ):
     """Process duplicates as fully independent new images (design §6)."""
     job = _job_or_404(db, job_id)
@@ -665,7 +649,7 @@ def import_duplicates_as_copies(
 
 @router.post("/{job_id}/finish-upload", response_model=ActionResult)
 @write_locked
-def finish_without_missing(job_id: str, db: Session = Depends(get_write_db)):
+def finish_without_missing(job_id: str, db: Session = Depends(get_db)):
     """Give up on files that were never uploaded."""
     job = _job_or_404(db, job_id)
     _require_sealed(job)
@@ -675,7 +659,7 @@ def finish_without_missing(job_id: str, db: Session = Depends(get_write_db)):
 
 @router.post("/{job_id}/groups/{group_id}/skip", response_model=ActionResult)
 @write_locked
-def skip_group(job_id: str, group_id: int, db: Session = Depends(get_write_db)):
+def skip_group(job_id: str, group_id: int, db: Session = Depends(get_db)):
     _job_or_404(db, job_id)
     group = db.get(ImportGroup, group_id)
     if group is None or group.job_id != job_id:
@@ -686,7 +670,7 @@ def skip_group(job_id: str, group_id: int, db: Session = Depends(get_write_db)):
 
 @router.post("/{job_id}/dismiss", response_model=ActionResult)
 @write_locked
-def dismiss_import(job_id: str, db: Session = Depends(get_write_db)):
+def dismiss_import(job_id: str, db: Session = Depends(get_db)):
     """Hide a finished import from the activity dock. Deletes nothing."""
     job = _job_or_404(db, job_id)
     if job.status not in (st.JOB_COMPLETED, st.JOB_CANCELLED):
@@ -697,7 +681,7 @@ def dismiss_import(job_id: str, db: Session = Depends(get_write_db)):
 
 @router.delete("/{job_id}", response_model=ActionResult)
 @write_locked
-def undo_import(job_id: str, db: Session = Depends(get_write_db)):
+def undo_import(job_id: str, db: Session = Depends(get_db)):
     """Undo: delete every image this import created, then the import itself."""
     _job_or_404(db, job_id)
     try:

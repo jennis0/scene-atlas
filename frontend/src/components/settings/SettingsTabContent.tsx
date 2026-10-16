@@ -28,6 +28,75 @@ const STORED_FORMAT_OPTIONS = [
   { value: 'png', label: 'PNG', title: 'Lossless, but usually larger than the original' },
 ] as const
 
+interface ToggleSwitchProps {
+  checked: boolean
+  onChange: (checked: boolean) => void
+  label: string
+}
+
+function ToggleSwitch({ checked, onChange, label }: ToggleSwitchProps) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      aria-label={label}
+      aria-pressed={checked}
+      className={`h-6 w-11 rounded-full transition-colors flex items-center px-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 ${
+        checked ? 'bg-primary' : 'bg-secondary border border-border/50'
+      }`}
+    >
+      <div
+        className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+          checked ? 'translate-x-5' : 'translate-x-0'
+        }`}
+      />
+    </button>
+  )
+}
+
+interface SegmentedControlProps<T extends string | number> {
+  options: readonly { value: T; label: string; title: string }[]
+  value: T
+  onChange: (value: T) => void
+  label: string
+}
+
+function SegmentedControl<T extends string | number>({
+  options,
+  value,
+  onChange,
+  label,
+}: SegmentedControlProps<T>) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className="flex rounded-md border border-border/50 overflow-hidden"
+    >
+      {options.map((option) => {
+        const selected = value === option.value
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            title={option.title}
+            onClick={() => onChange(option.value)}
+            className={`px-2.5 h-7 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/40 ${
+              selected
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-secondary text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {option.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 interface StoragePathRowProps {
   label: string
   description: string
@@ -491,26 +560,11 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                 label="Grid detection"
                 description="Automatically detect grids on imported battlemaps"
               >
-                <button
-                  type="button"
-                  onClick={() => {
-                    const current = val('enable_image_grid_detection')
-                    setField('enable_image_grid_detection', !current)
-                  }}
-                  aria-label="Toggle grid detection"
-                  aria-pressed={val('enable_image_grid_detection') as boolean}
-                  className={`h-6 w-11 rounded-full transition-colors flex items-center px-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 ${
-                    val('enable_image_grid_detection')
-                      ? 'bg-primary'
-                      : 'bg-secondary border border-border/50'
-                  }`}
-                >
-                  <div
-                    className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
-                      val('enable_image_grid_detection') ? 'translate-x-5' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
+                <ToggleSwitch
+                  checked={Boolean(val('enable_image_grid_detection'))}
+                  onChange={(on) => setField('enable_image_grid_detection', on)}
+                  label="Toggle grid detection"
+                />
               </SettingRow>
 
               {Boolean(val('enable_image_grid_detection')) && (
@@ -518,32 +572,12 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                   label="Grid analysis resolution"
                   description="Full resolution finds thin grid lines on high-resolution maps. A limit is faster but can miss them."
                 >
-                  <div
-                    role="radiogroup"
-                    aria-label="Grid analysis resolution"
-                    className="flex rounded-md border border-border/50 overflow-hidden"
-                  >
-                    {GRID_RESOLUTION_OPTIONS.map((option) => {
-                      const selected = (val('grid_analysis_max_dim') ?? 0) === option.value
-                      return (
-                        <button
-                          key={option.value}
-                          type="button"
-                          role="radio"
-                          aria-checked={selected}
-                          title={option.title}
-                          onClick={() => setField('grid_analysis_max_dim', option.value)}
-                          className={`px-2.5 h-7 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/40 ${
-                            selected
-                              ? 'bg-primary text-primary-foreground'
-                              : 'bg-secondary text-muted-foreground hover:text-foreground'
-                          }`}
-                        >
-                          {option.label}
-                        </button>
-                      )
-                    })}
-                  </div>
+                  <SegmentedControl
+                    options={GRID_RESOLUTION_OPTIONS}
+                    value={(val('grid_analysis_max_dim') as number) ?? 0}
+                    onChange={(v) => setField('grid_analysis_max_dim', v)}
+                    label="Grid analysis resolution"
+                  />
                 </SettingRow>
               )}
 
@@ -644,32 +678,12 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                 label="Stored format"
                 description="Format new imports are kept in. Files already in that format, animations, and very large images stay as uploaded."
               >
-                <div
-                  role="radiogroup"
-                  aria-label="Stored format"
-                  className="flex rounded-md border border-border/50 overflow-hidden"
-                >
-                  {STORED_FORMAT_OPTIONS.map((option) => {
-                    const selected = (val('stored_format') ?? 'original') === option.value
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        role="radio"
-                        aria-checked={selected}
-                        title={option.title}
-                        onClick={() => setField('stored_format', option.value)}
-                        className={`px-2.5 h-7 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/40 ${
-                          selected
-                            ? 'bg-primary text-primary-foreground'
-                            : 'bg-secondary text-muted-foreground hover:text-foreground'
-                        }`}
-                      >
-                        {option.label}
-                      </button>
-                    )
-                  })}
-                </div>
+                <SegmentedControl
+                  options={STORED_FORMAT_OPTIONS}
+                  value={(val('stored_format') as string) ?? 'original'}
+                  onChange={(v) => setField('stored_format', v)}
+                  label="Stored format"
+                />
               </SettingRow>
 
               {(val('stored_format') === 'webp' || val('stored_format') === 'jpeg') && (
@@ -699,21 +713,11 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                   label="Lossless WebP for PNGs"
                   description="Keeps PNGs pixel-perfect but imports more slowly. Off uses the quality above."
                 >
-                  <button
-                    type="button"
-                    onClick={() => setField('stored_lossless', !val('stored_lossless'))}
-                    aria-label="Toggle lossless WebP"
-                    aria-pressed={val('stored_lossless') as boolean}
-                    className={`h-6 w-11 rounded-full transition-colors flex items-center px-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 ${
-                      val('stored_lossless') ? 'bg-primary' : 'bg-secondary border border-border/50'
-                    }`}
-                  >
-                    <div
-                      className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
-                        val('stored_lossless') ? 'translate-x-5' : 'translate-x-0'
-                      }`}
-                    />
-                  </button>
+                  <ToggleSwitch
+                    checked={Boolean(val('stored_lossless'))}
+                    onChange={(on) => setField('stored_lossless', on)}
+                    label="Toggle lossless WebP"
+                  />
                 </SettingRow>
               )}
 

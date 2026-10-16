@@ -1,21 +1,8 @@
-"""Optional conversion of imported images to a configured storage format (design §10).
+"""Convert imported images to the configured storage format (design/ingestion.md §10).
 
-The library keeps the original file unless the ``stored_format`` setting asks for
-another format. Conversion works on a worker-owned temp copy and never touches
-the staged upload. Hashes used for duplicate detection (``source_hash``,
-``pixel_hash``) always come from the source, so they work the same whatever the
-storage format.
-
-An image is stored unchanged, even when a format is configured, if converting it
-would lose something or can't be done:
-
-- it is already in the target format (re-encoding a JPEG only loses quality);
-- it is animated (only the first frame would survive);
-- it has transparency and the target is JPEG;
-- it is wider or taller than WebP allows, for a WebP target.
-
-Lossy sources are never encoded as lossless WebP, which makes JPEGs about three
-times larger (Phase 0 findings); they use ``stored_quality`` instead.
+An image is stored unchanged when converting would lose something or can't be
+done (``skip_reason``). Lossy sources never become lossless WebP: that makes
+JPEGs about three times larger.
 """
 
 from __future__ import annotations
@@ -35,8 +22,6 @@ _PIL_FORMAT = {"webp": "WEBP", "jpeg": "JPEG", "png": "PNG"}
 _SUFFIX = {"webp": ".webp", "jpeg": ".jpg", "png": ".png"}
 
 WEBP_MAX_DIM = 16383
-# Source formats that can only hold lossy data; lossless output would just inflate them.
-_LOSSY_SOURCES = {"JPEG", "MPO"}
 
 
 @dataclass(frozen=True)
@@ -50,9 +35,8 @@ class StoredFormat:
 
 def skip_reason(image: PILImage.Image, target: str) -> str | None:
     """Why ``image`` should be stored unchanged instead of converted to ``target``, or None."""
-    source = (image.format or "").upper()
-    if _PIL_FORMAT[target] == source or (target == "jpeg" and source == "MPO"):
-        return "already in the target format"
+    if _PIL_FORMAT[target] == _source_format(image):
+        return "already in the target format"  # re-encoding would only lose quality
     if getattr(image, "n_frames", 1) > 1:
         return "animated"
     if target == "jpeg" and _has_alpha(image):
@@ -74,14 +58,14 @@ def convert(source: Path, dest_dir: Path, stem: str, spec: StoredFormat) -> Path
         if reason:
             logger.debug("Storing %s unconverted: %s", source.name, reason)
             return None
-        lossy_source = (image.format or "").upper() in _LOSSY_SOURCES
+        lossy_source = _source_format(image) == "JPEG"
         icc_profile = image.info.get("icc_profile")
         image.load()
         out = _normalise_mode(image, spec.format)
         dest = dest_dir / f"{stem}{_SUFFIX[spec.format]}"
         options: dict = {"icc_profile": icc_profile} if icc_profile else {}
         if spec.format == "webp":
-            options["exact"] = True  # keep RGB under transparent pixels (pixel_hash relies on it)
+            options["exact"] = True  # keep RGB under transparent pixels
             if spec.lossless and not lossy_source:
                 options["lossless"] = True
             else:
@@ -99,12 +83,16 @@ def convert(source: Path, dest_dir: Path, stem: str, spec: StoredFormat) -> Path
     return dest
 
 
+def _source_format(image: PILImage.Image) -> str:
+    fmt = (image.format or "").upper()
+    return "JPEG" if fmt == "MPO" else fmt  # MPO is multi-picture JPEG
+
+
 def _has_alpha(image: PILImage.Image) -> bool:
     return image.mode in ("RGBA", "LA", "PA") or "transparency" in image.info
 
 
 def _normalise_mode(image: PILImage.Image, target: str) -> PILImage.Image:
-    """Convert to a mode the target format can write."""
     if target == "jpeg":
         return image if image.mode in ("RGB", "L", "CMYK") else image.convert("RGB")
     if target == "webp":

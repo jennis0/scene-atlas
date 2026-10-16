@@ -350,8 +350,7 @@ class AppSettings(BaseModel):
     max_job_workers: int = 2
     scheduler_enabled: bool = True
 
-    # Storage format for imported images (design/ingestion.md §10).
-    # "original" keeps each file as uploaded.
+    # Storage format for new imports (design/ingestion.md §10)
     stored_format: StoredFormatName = "original"
     stored_quality: int = Field(90, ge=1, le=100)  # lossy WebP and JPEG
     stored_lossless: bool = True  # lossless WebP for lossless sources (never for JPEGs)

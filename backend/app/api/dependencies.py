@@ -33,15 +33,12 @@ async def acquire_heavy_op(request: Request):
 
 
 def write_locked(endpoint):
-    """Run a sync endpoint inside a ``BEGIN IMMEDIATE`` transaction on its own thread.
+    """Run a sync endpoint (taking ``db``) inside ``BEGIN IMMEDIATE``.
 
-    For read-check-write endpoints that must not race each other. The endpoint
-    receives its session as the ``db`` keyword argument and commits what it
-    wants kept; anything left open (an error, or a path with nothing to write)
-    is rolled back before the thread returns. Taking and releasing the lock on
-    the endpoint's thread matters: a lock taken in a dependency is held while
-    the request waits for another thread-pool slot, and under load the waiting
-    requests fill the pool.
+    The endpoint commits what it keeps; anything left open is rolled back. The
+    lock is taken and released on the endpoint's own thread: taken in a
+    dependency, it was held while the request waited for a second thread-pool
+    slot, and under load the waiters filled the pool.
     """
 
     @functools.wraps(endpoint)
