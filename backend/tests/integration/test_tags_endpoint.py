@@ -502,3 +502,51 @@ class TestImportMultipleTagPacks:
         assert "common" in data["imported"]
         assert len(data["errors"]) == 1
         assert "nonexistent_pack" in data["errors"][0]
+
+
+def test_renaming_a_used_tag_value_updates_vocabulary(test_client, tmp_db):
+    """Regression: the tag cascade expired the session and dropped the vocabulary edit."""
+    import json
+
+    from backend.app.models.database import Image, Tag, TagCategory
+
+    _, SessionLocal = tmp_db
+    with SessionLocal() as db:
+        img = Image(filename="a.jpg", storage_key="a.jpg")
+        db.add(img)
+        db.flush()
+        db.add(Tag(image_id=img.id, category="lighting", value="night"))
+        db.commit()
+    resp = test_client.patch(
+        "/api/v1/tags/categories/lighting/tags/night", json={"new_value": "evening"}
+    )
+    assert resp.status_code == 200
+    with SessionLocal() as db:
+        category = db.query(TagCategory).filter_by(name="lighting").one()
+        values = [
+            v if isinstance(v, str) else v["value"] for v in json.loads(category.common_values)
+        ]
+        assert "evening" in values and "night" not in values
+        assert db.query(Tag).one().value == "evening"
+
+
+def test_deleting_a_used_tag_value_updates_vocabulary(test_client, tmp_db):
+    import json
+
+    from backend.app.models.database import Image, Tag, TagCategory
+
+    _, SessionLocal = tmp_db
+    with SessionLocal() as db:
+        img = Image(filename="a.jpg", storage_key="a.jpg")
+        db.add(img)
+        db.flush()
+        db.add(Tag(image_id=img.id, category="lighting", value="night"))
+        db.commit()
+    assert test_client.delete("/api/v1/tags/categories/lighting/tags/night").status_code == 200
+    with SessionLocal() as db:
+        category = db.query(TagCategory).filter_by(name="lighting").one()
+        values = [
+            v if isinstance(v, str) else v["value"] for v in json.loads(category.common_values)
+        ]
+        assert "night" not in values
+        assert db.query(Tag).count() == 0

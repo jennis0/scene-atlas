@@ -5,7 +5,7 @@ import json
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import func
-from sqlalchemy.orm import Session, subqueryload
+from sqlalchemy.orm import Session, selectinload, subqueryload
 
 from ..config import settings
 from ..models import (
@@ -24,21 +24,25 @@ from .rate_limits import limiter
 
 router = APIRouter()
 
+_CASCADE_CHUNK = 500
+
 
 def _cascade_tag_change(db: Session, affected_image_ids: list[int]) -> None:
     """Reload affected images and rebuild their FTS search text + invalidate alias cache."""
-    from ..services.fts_service import invalidate_alias_cache, rebuild_search_text
+    from ..services.fts_service import invalidate_alias_cache, search_text_for
 
     if affected_image_ids:
+        # Flush first: expire_all() discards unflushed changes, such as the
+        # caller's vocabulary edit on the TagCategory.
+        db.flush()
         db.expire_all()
-        affected_imgs = (
-            db.query(Image)
-            .options(subqueryload(Image.tags))
-            .filter(Image.id.in_(affected_image_ids))
-            .all()
-        )
-        for img in affected_imgs:
-            rebuild_search_text(img, db)
+    # Chunked: a common tag can be on more images than SQLite allows bound
+    # parameters in one statement.
+    for start in range(0, len(affected_image_ids), _CASCADE_CHUNK):
+        chunk = affected_image_ids[start : start + _CASCADE_CHUNK]
+        for img in db.query(Image).options(selectinload(Image.tags)).filter(Image.id.in_(chunk)):
+            img.search_text = search_text_for(img)
+        db.flush()  # one batched UPDATE per chunk; the FTS trigger fires per row
     invalidate_alias_cache()
 
 
@@ -301,9 +305,8 @@ def delete_tag_value(category_name: str, tag_name: str, db: Session = Depends(ge
 @router.get("/values/{category_name}")
 def get_tag_values_for_category(category_name: str, db: Session = Depends(get_db)):
     """Get all unique tag values used for a specific category."""
-    tags = db.query(Tag).filter(Tag.category == category_name).all()
-    values = list({tag.value for tag in tags})
-    return {"category": category_name, "values": sorted(values)}
+    rows = db.query(Tag.value).filter(Tag.category == category_name).distinct()
+    return {"category": category_name, "values": sorted(value for (value,) in rows)}
 
 
 @router.get("/image/{image_id}", response_model=list[TagResponse])

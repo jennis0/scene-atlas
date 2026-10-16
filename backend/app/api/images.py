@@ -6,7 +6,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from ..config import settings
 from ..models import (
@@ -32,6 +32,10 @@ class ImagePatch(BaseModel):
 
 router = APIRouter()
 
+# ImageResponse includes tags, colours and the group name; without eager loading
+# each listed image costs three more queries.
+_WITH_RELATIONS = (selectinload(Image.tags), selectinload(Image.colors), joinedload(Image.group))
+
 
 @router.get("/authors", response_model=list[str])
 def list_authors(db: Session = Depends(get_db)):
@@ -45,7 +49,7 @@ def list_authors(db: Session = Depends(get_db)):
 @router.get("/", response_model=list[ImageResponse])
 def list_images(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     """List all images with pagination."""
-    images = db.query(Image).offset(skip).limit(limit).all()
+    images = db.query(Image).options(*_WITH_RELATIONS).offset(skip).limit(limit).all()
     return images
 
 
@@ -102,7 +106,9 @@ def get_image_scenes(image_id: int, db: Session = Depends(get_db)):
     if not image.group_id:
         return [image]  # No group, return just this image
 
-    scenes = db.query(Image).filter(Image.group_id == image.group_id).all()
+    scenes = (
+        db.query(Image).options(*_WITH_RELATIONS).filter(Image.group_id == image.group_id).all()
+    )
 
     return scenes
 
