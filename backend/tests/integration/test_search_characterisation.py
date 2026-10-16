@@ -177,7 +177,7 @@ def golden_library(test_client, tmp_db, monkeypatch):
     db.commit()
     db.close()
 
-    color_index._loaded_at = 0.0  # the index is a process-wide cache
+    color_index.invalidate()  # the index is a process-wide cache
     invalidate_alias_cache()
     _patch_semantic(monkeypatch, _FakeClip())
     return test_client

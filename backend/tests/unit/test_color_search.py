@@ -13,6 +13,7 @@ import pytest
 
 from backend.app.services.color_search import (
     ColorIndex,
+    _hsl_cylinders,
     color_distance,
     hex_to_hsl_cylinder,
 )
@@ -21,7 +22,7 @@ ABS_TOL = 1e-4
 
 
 def _make_mock_db(rows: list):
-    """Return a mock SQLAlchemy Session whose .query().all() yields rows.
+    """Return a mock SQLAlchemy Session whose .query().yield_per() yields rows.
 
     rows: list of (image_id, color_hex) pairs, matching what
     ColorIndex._refresh() pulls from the DB.
@@ -29,7 +30,7 @@ def _make_mock_db(rows: list):
     mock_db = MagicMock()
     mock_query = MagicMock()
     mock_db.query.return_value = mock_query
-    mock_query.all.return_value = rows
+    mock_query.yield_per.return_value = rows
     return mock_db
 
 
@@ -191,7 +192,7 @@ class TestColorIndex:
         index.find_images_by_color(mock_db, "#ff0000", threshold=0.1)
         index.find_images_by_color(mock_db, "#ff0000", threshold=0.1)
 
-        assert mock_db.query.return_value.all.call_count == 1
+        assert mock_db.query.return_value.yield_per.call_count == 1
 
     def test_cache_refresh_after_ttl(self):
         """After the 60-second TTL expires the DB is queried again on the next search."""
@@ -209,7 +210,7 @@ class TestColorIndex:
             index.find_images_by_color(mock_db, "#ff0000", threshold=0.1)
 
         # Two DB queries: one at t=0, one after TTL expiry at t=61.
-        assert mock_db.query.return_value.all.call_count == 2
+        assert mock_db.query.return_value.yield_per.call_count == 2
 
 
 class TestColorIndexConcurrency:
@@ -236,3 +237,23 @@ class TestColorIndexConcurrency:
         for t in threads:
             t.join()
         assert not errors, f"Concurrent refresh raised: {errors}"
+
+
+class TestVectorisedConversion:
+    def test_matches_scalar_conversion(self):
+        """The numpy conversion used by the index agrees with hex_to_hsl_cylinder."""
+        import random
+
+        rng = random.Random(7)
+        hexes = ["#000000", "#ffffff", "#808080", "#ff0000", "#00ff00", "#0000ff", "#ff00ff"]
+        hexes += [f"#{rng.randrange(1 << 24):06x}" for _ in range(2000)]
+        vectors = _hsl_cylinders(hexes)
+        for hex_val, vec in zip(hexes, vectors, strict=True):
+            assert tuple(vec) == pytest.approx(hex_to_hsl_cylinder(hex_val), abs=1e-12)
+
+    def test_index_is_compact(self):
+        """The index stores numpy arrays, not one Python tuple per colour (~65 MB at 56k images)."""
+        rows = [(i // 5, f"#{(i * 2654435761) % (1 << 24):06x}") for i in range(50_000)]
+        index = ColorIndex()
+        index._refresh(_make_mock_db(rows))
+        assert index._ids.nbytes + index._vectors.nbytes <= 50_000 * 32
