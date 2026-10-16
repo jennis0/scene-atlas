@@ -1,63 +1,52 @@
 import { test, expect } from "../fixtures/base";
-import path from "path";
-import fs from "fs";
-import { getTestImagePaths } from "../helpers/actions";
+import {
+  IMPORT_START_TITLE,
+  openImportDialog,
+  waitForGalleryLoad,
+} from "../helpers/actions";
 
-test.describe("Import flow", () => {
-  test("import dialog opens and shows upload UI", async ({ page }) => {
+test.describe("Import dialog: start view", () => {
+  test("opens from the header and shows the pickers", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator("h1")).toContainText("Scene Atlas");
+    await waitForGalleryLoad(page);
+    await openImportDialog(page);
 
-    // Click the Import button (has title="Import images")
-    await page.getByTitle("Import images").click();
-
-    // The import dialog should open — custom Dialog uses div.fixed.inset-0.z-50
-    await expect(page.getByText("Import Scenes")).toBeVisible({
-      timeout: 5_000,
-    });
-
-    // Should show upload controls
-    await expect(page.getByText(/Drop files or folders here/)).toBeVisible();
-    await expect(page.getByText("Browse files")).toBeVisible();
+    await expect(page.getByText("Drop files or folders here")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Choose a folder" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Choose files" }),
+    ).toBeVisible();
   });
 
-  test("upload a file and see it in preview", async ({ page }) => {
+  test("battlemap/scene choice toggles", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator("h1")).toContainText("Scene Atlas");
+    await waitForGalleryLoad(page);
+    await openImportDialog(page);
 
-    // Open import dialog
-    await page.getByTitle("Import images").click();
-    await expect(page.getByText("Import Scenes")).toBeVisible({
-      timeout: 5_000,
-    });
-
-    // Find a test image to upload
-    const imageDir =
-      process.env.E2E_IMAGE_DIR || path.resolve(__dirname, "..", ".tmp-images");
-
-    const testFiles = getTestImagePaths(imageDir, 1);
-    if (testFiles.length === 0) {
-      if (process.env.CI)
-        throw new Error(`No test images found in ${imageDir}`);
-      test.skip();
-      return;
-    }
-
-    // Use the file chooser to upload
-    const fileChooserPromise = page.waitForEvent("filechooser");
-
-    // Click the "Browse files" button to trigger file chooser
-    await page.getByText("Browse files").click();
-
-    const fileChooser = await fileChooserPromise;
-    await fileChooser.setFiles(testFiles[0]);
-
-    // After upload, the dialog auto-confirms all groups and closes itself when
-    // processing starts (ImportDialog closes on state='processing'). Wait for
-    // the 'Import Scenes' heading to disappear — that's the reliable signal
-    // that upload + analysis + auto-confirm all completed successfully.
+    const battlemaps = page.getByRole("button", { name: "Battlemaps" });
+    const scenes = page.getByRole("button", { name: "Scenes", exact: true });
+    await expect(battlemaps).toHaveAttribute("aria-pressed", "true");
+    await expect(scenes).toHaveAttribute("aria-pressed", "false");
     await expect(
-      page.getByRole("heading", { name: "Import Scenes" }),
-    ).toBeHidden({ timeout: 30_000 });
+      page.getByText(/Grids are detected automatically/),
+    ).toBeVisible();
+
+    await scenes.click();
+    await expect(scenes).toHaveAttribute("aria-pressed", "true");
+    await expect(battlemaps).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByText(/No grid detection/)).toBeVisible();
+  });
+
+  test("closes with Escape", async ({ page }) => {
+    await page.goto("/");
+    await waitForGalleryLoad(page);
+    await openImportDialog(page);
+
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByRole("heading", { name: IMPORT_START_TITLE }),
+    ).toBeHidden({ timeout: 5_000 });
   });
 });

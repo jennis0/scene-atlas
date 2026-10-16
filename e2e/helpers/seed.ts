@@ -1,252 +1,210 @@
+import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { BACKEND_URL } from "./config";
 
-interface ImportFileInfo {
+/**
+ * Seeds the backend through the import API (ADR-018, design/ingest-redesign.md §7):
+ * create job → manifest → seal → hashes → PUT bytes per item → poll until finished.
+ */
+
+const API = `${BACKEND_URL}/api/v1/imports`;
+const MANIFEST_CHUNK = 2000;
+
+interface ImportCounts {
+  awaiting_bytes: number;
+  ready: number;
+  processing: number;
+  done: number;
+  duplicate: number;
+  failed: number;
+  skipped: number;
+  total: number;
+}
+
+interface ImportJobDetail {
+  id: string;
+  status: "active" | "paused" | "completed" | "cancelled";
+  counts: ImportCounts;
+  group_count: number;
+  groups: { group_name: string; counts: ImportCounts }[];
+}
+
+interface ManifestItem {
+  client_ref: string | null;
+  item_id: number;
   relative_path: string;
-  filename: string;
-  name: string | null;
-  image_type: string | null;
-  gridded: boolean | null;
-  subgroup: string | null;
-  content_hash: string | null;
-  detected_tags: { category: string; value: string }[];
+  state: string;
+  error_reason: string | null;
 }
 
-interface ImportGroup {
-  author: string | null;
-  group_name: string;
-  files: ImportFileInfo[];
+interface ImportItem {
+  id: number;
+  relative_path: string;
+  state: string;
+  error_stage: string | null;
+  error_reason: string | null;
 }
 
-interface AnalyseResponse {
-  job_id: string;
-  total_files: number;
-  groups: ImportGroup[];
+async function api<T>(
+  method: string,
+  url: string,
+  body?: unknown,
+  raw?: Buffer,
+): Promise<T> {
+  const res = await fetch(url, {
+    method,
+    headers: raw
+      ? { "Content-Type": "application/octet-stream" }
+      : body !== undefined
+        ? { "Content-Type": "application/json" }
+        : undefined,
+    body: raw
+      ? new Uint8Array(raw)
+      : body !== undefined
+        ? JSON.stringify(body)
+        : undefined,
+  });
+  if (!res.ok) {
+    throw new Error(
+      `${method} ${url} failed: ${res.status} ${await res.text()}`,
+    );
+  }
+  return (await res.json()) as T;
 }
 
 /**
- * Seed the backend with test images via the import API.
- * Uploads images, analyses, confirms all groups, and waits for processing to complete.
+ * Import every media file under `imageDir` and wait for the job to finish.
+ * The first 2 files are imported as "scene" (so scene-type filter tests have
+ * data); the rest as "battlemap". Throws if any file fails.
  */
 export async function seedTestData(imageDir: string): Promise<void> {
-  console.log("[seed] Starting test data seed...");
-
-  // 1. Init an import job
-  console.log("[seed] Step 1: Initialising import job...");
-  const initRes = await fetch(`${BACKEND_URL}/api/v1/imports/init`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: "{}",
-  });
-  if (!initRes.ok) {
-    const body = await initRes.text();
-    throw new Error(`Failed to init import: ${initRes.status} ${body}`);
-  }
-  const { job_id: jobId } = (await initRes.json()) as { job_id: string };
-  console.log(`[seed] Job created: ${jobId}`);
-
-  // 2. Collect all image files and assign mixed image types.
-  //    The first 2 images are seeded as "scene" so that scene-type
-  //    filter tests have data; the rest default to "battlemap".
   const files = collectFiles(imageDir);
   if (files.length === 0) throw new Error(`No images found in ${imageDir}`);
-  console.log(`[seed] Step 2: Found ${files.length} image(s) in ${imageDir}`);
+  console.log(`[seed] Importing ${files.length} file(s) from ${imageDir}`);
 
-  // 3. Upload files via upload-batch
-  console.log(`[seed] Step 3: Uploading ${files.length} file(s)...`);
-  const form = new FormData();
-  const relativePaths: string[] = [];
-  for (const filePath of files) {
-    const relativePath = path.relative(imageDir, filePath).replace(/\\/g, "/");
-    relativePaths.push(relativePath);
-    const buffer = fs.readFileSync(filePath);
-    const ext = path.extname(filePath).toLowerCase();
-    const mimeTypes: Record<string, string> = {
-      ".jpg": "image/jpeg",
-      ".jpeg": "image/jpeg",
-      ".png": "image/png",
-      ".webp": "image/webp",
-      ".gif": "image/gif",
-      ".mp4": "video/mp4",
-      ".webm": "video/webm",
+  const job = await api<{ id: string }>("POST", API, {
+    label: "E2E seed",
+    default_image_type: "battlemap",
+  });
+  const jobId = job.id;
+
+  // Manifest: metadata only. client_ref maps results back to local paths.
+  const byRef = new Map<string, string>();
+  const manifest = files.map((file, i) => {
+    const stat = fs.statSync(file);
+    const ref = String(i);
+    byRef.set(ref, file);
+    return {
+      client_ref: ref,
+      relative_path: path.relative(imageDir, file).replace(/\\/g, "/"),
+      size: stat.size,
+      last_modified: Math.round(stat.mtimeMs),
+      image_type: i < 2 ? "scene" : "battlemap",
     };
-    const blob = new Blob([buffer], {
-      type: mimeTypes[ext] || "application/octet-stream",
-    });
-    form.append("files", blob, path.basename(filePath));
+  });
+  const items: ManifestItem[] = [];
+  for (let i = 0; i < manifest.length; i += MANIFEST_CHUNK) {
+    const res = await api<{ items: ManifestItem[]; ignored: number }>(
+      "POST",
+      `${API}/${jobId}/manifest`,
+      { files: manifest.slice(i, i + MANIFEST_CHUNK) },
+    );
+    items.push(...res.items);
   }
-  form.append("relative_paths", JSON.stringify(relativePaths));
 
-  const uploadRes = await fetch(
-    `${BACKEND_URL}/api/v1/imports/${jobId}/upload-batch`,
+  await api("POST", `${API}/${jobId}/seal`);
+
+  // Send hashes first so files already in the library are skipped without upload.
+  const waiting = items.filter((it) => it.state === "awaiting_bytes");
+  const hashed = await api<{ items: { item_id: number; state: string }[] }>(
+    "POST",
+    `${API}/${jobId}/hashes`,
     {
-      method: "POST",
-      body: form,
+      items: waiting.map((it) => ({
+        item_id: it.item_id,
+        sha256: crypto
+          .createHash("sha256")
+          .update(fs.readFileSync(byRef.get(it.client_ref!)!))
+          .digest("hex"),
+      })),
     },
   );
-  if (!uploadRes.ok) {
-    const body = await uploadRes.text();
-    throw new Error(`Upload failed: ${uploadRes.status} ${body}`);
-  }
-  console.log("[seed] Upload complete.");
+  const stillWaiting = new Set(
+    hashed.items
+      .filter((r) => r.state === "awaiting_bytes")
+      .map((r) => r.item_id),
+  );
 
-  // 4. Analyse staged files
-  console.log("[seed] Step 4: Analysing staged files...");
-  const analyseRes = await fetch(
-    `${BACKEND_URL}/api/v1/imports/${jobId}/analyse`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ manifest: [] }),
-    },
-  );
-  if (!analyseRes.ok) {
-    const body = await analyseRes.text();
-    throw new Error(`Analyse failed: ${analyseRes.status} ${body}`);
-  }
-  const analyseData = (await analyseRes.json()) as AnalyseResponse;
-  console.log(
-    `[seed] Analysis complete: ${analyseData.groups.length} group(s), ` +
-      `${analyseData.total_files} total file(s)`,
-  );
-  for (const g of analyseData.groups) {
-    console.log(`[seed]   Group "${g.group_name}": ${g.files.length} file(s)`);
-  }
-
-  // 5. Build confirm-all payload from the analysis
-  console.log("[seed] Step 5: Confirming all groups...");
-  // Assign mixed image types: first 2 files across all groups are "scene",
-  // the rest are "battlemap". This ensures scene-type filter tests have data.
-  let fileIndex = 0;
-  const confirmGroups = analyseData.groups.map((group) => ({
-    author: group.author || "TestArtist",
-    group_name: group.group_name,
-    files: group.files.map((f) => {
-      const imageType = fileIndex < 2 ? "scene" : "battlemap";
-      fileIndex++;
-      return {
-        relative_path: f.relative_path,
-        name: f.name,
-        image_type: imageType,
-        gridded: f.gridded,
-        subgroup: f.subgroup,
-        content_hash: f.content_hash,
-        tags: f.detected_tags || [],
-      };
-    }),
-    remaining_groups: [],
-  }));
-
-  const confirmRes = await fetch(
-    `${BACKEND_URL}/api/v1/imports/${jobId}/confirm-all`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ groups: confirmGroups }),
-    },
-  );
-  if (!confirmRes.ok) {
-    const body = await confirmRes.text();
-    throw new Error(`Confirm failed: ${confirmRes.status} ${body}`);
-  }
-  console.log("[seed] Confirm accepted. Processing pipeline running...");
-
-  // 6. Poll until processing completes
-  console.log("[seed] Step 6: Polling for job completion...");
-  let lastStatus = "";
-  let finalStatusData: Record<string, unknown> = {};
-  await pollUntil(
-    async () => {
-      const res = await fetch(`${BACKEND_URL}/api/v1/imports/${jobId}/status`);
-      const data = (await res.json()) as {
-        status: string;
-        completed_groups?: number;
-        total_groups?: number;
-        failed_groups?: number;
-        processed_files?: number;
-        failed_files?: number;
-        groups?: {
-          group_id: number | null;
-          group_name: string;
-          status: string;
-          processed_files: number;
-          failed_files: number;
-        }[];
-      };
-      finalStatusData = data as Record<string, unknown>;
-      if (data.status !== lastStatus) {
-        console.log(
-          `[seed]   Job status: ${data.status}` +
-            (data.total_groups != null
-              ? ` (${data.completed_groups ?? 0}/${data.total_groups} groups, ` +
-                `${data.processed_files ?? 0} processed, ${data.failed_files ?? 0} failed)`
-              : ""),
-        );
-        lastStatus = data.status;
-      }
-      if (data.status === "failed") {
-        throw new Error(
-          `Import job failed (last status response: ${JSON.stringify(data)})`,
-        );
-      }
-      return data.status === "completed";
-    },
-    180_000,
-    1000,
-  );
-  console.log(
-    `[seed] Job completed. Final status: ${JSON.stringify(finalStatusData)}`,
-  );
-  // Log per-group breakdown for debugging
-  const groups =
-    (finalStatusData.groups as
-      | {
-          group_id: number | null;
-          group_name: string;
-          status: string;
-          processed_files: number;
-          failed_files: number;
-        }[]
-      | undefined) ?? [];
-  for (const g of groups) {
-    console.log(
-      `[seed]   Group "${g.group_name}": status=${g.status}, processed=${g.processed_files}, failed=${g.failed_files}`,
+  for (const it of waiting) {
+    if (!stillWaiting.has(it.item_id)) continue;
+    await api(
+      "PUT",
+      `${API}/${jobId}/items/${it.item_id}/content`,
+      undefined,
+      fs.readFileSync(byRef.get(it.client_ref!)!),
     );
   }
+  console.log(
+    `[seed] Sent ${stillWaiting.size} file(s); waiting for processing`,
+  );
 
-  // Import auto-finalizes when all groups complete — no manual finalize needed.
-  console.log("[seed] Seed complete.");
+  const detail = await waitForImport(jobId, 300_000);
+  const c = detail.counts;
+  console.log(
+    `[seed] Import ${detail.status}: ${c.done} done, ${c.duplicate} duplicate, ` +
+      `${c.failed} failed, ${c.skipped} skipped, ${detail.group_count} group(s)`,
+  );
+  if (detail.status !== "completed" || c.failed > 0) {
+    const failed = await api<{ items: ImportItem[] }>(
+      "GET",
+      `${API}/${jobId}/items?state=failed&limit=50`,
+    );
+    const lines = failed.items.map(
+      (f) => `  ${f.relative_path}: [${f.error_stage}] ${f.error_reason}`,
+    );
+    throw new Error(
+      `Seed import ${detail.status} with ${c.failed} failed file(s):\n${lines.join("\n")}`,
+    );
+  }
 }
 
-/** Collect all supported media files recursively from a directory. */
+/** Poll an import until it is completed or cancelled. */
+export async function waitForImport(
+  jobId: string,
+  timeoutMs: number,
+): Promise<ImportJobDetail> {
+  const deadline = Date.now() + timeoutMs;
+  let last = "";
+  while (Date.now() < deadline) {
+    const detail = await api<ImportJobDetail>("GET", `${API}/${jobId}`);
+    const c = detail.counts;
+    const line = `${detail.status} ${c.done + c.duplicate + c.failed + c.skipped}/${c.total}`;
+    if (line !== last) console.log(`[seed]   ${line}`);
+    last = line;
+    if (detail.status === "completed" || detail.status === "cancelled") {
+      return detail;
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  throw new Error(
+    `Import ${jobId} did not finish within ${timeoutMs}ms (${last})`,
+  );
+}
+
+/** Collect all supported media files recursively, in a stable order. */
 function collectFiles(dir: string): string[] {
   const results: string[] = [];
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+  const entries = fs
+    .readdirSync(dir, { withFileTypes: true })
+    .sort((a, b) => a.name.localeCompare(b.name));
+  for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       results.push(...collectFiles(full));
-    } else if (/\.(jpe?g|png|webp|gif|mp4|webm)$/i.test(entry.name)) {
+    } else if (/\.(jpe?g|png|webp|mp4|webm)$/i.test(entry.name)) {
       results.push(full);
     }
   }
   return results;
-}
-
-/** Poll a condition function until it returns true or timeout. */
-async function pollUntil(
-  condition: () => Promise<boolean>,
-  timeoutMs: number,
-  intervalMs: number,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      if (await condition()) return;
-    } catch (err) {
-      throw err; // Propagate hard failures (e.g. job failed state)
-    }
-    await new Promise((r) => setTimeout(r, intervalMs));
-  }
-  throw new Error(`Polling timed out after ${timeoutMs}ms`);
 }
