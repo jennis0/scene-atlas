@@ -9,7 +9,6 @@
  *
  * Usage:
  *   import { appMode, isApp, isServer } from '@/lib/appMode'
- *   import { useAppMode } from '@/hooks/useAppMode'
  */
 
 export type AppMode = 'app' | 'server'

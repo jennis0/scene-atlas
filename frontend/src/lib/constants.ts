@@ -29,6 +29,3 @@ export const SAVED_INDICATOR_DURATION_MS = 1_500
 export const MAX_AUTHOR_LENGTH = 256
 export const MAX_NAME_LENGTH = 512
 export const MAX_SEARCH_LENGTH = 2048
-
-// ── Canvas / image viewer ────────────────────────────────────────────────────
-export const CANVAS_DOT_SIZE = 24
