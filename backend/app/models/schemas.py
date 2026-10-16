@@ -1,6 +1,7 @@
 """Pydantic schemas for API request/response models."""
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -312,6 +313,9 @@ class TagCategoryResponse(TagCategoryBase):
 # ── App Settings ──────────────────────────────────────────────────────────────
 
 
+StoredFormatName = Literal["original", "webp", "jpeg", "png"]
+
+
 class AppSettings(BaseModel):
     """DB-backed application settings (feature flags and tuning parameters).
 
@@ -346,10 +350,11 @@ class AppSettings(BaseModel):
     max_job_workers: int = 2
     scheduler_enabled: bool = True
 
-    # Import processing
-    convert_to_webp: bool = False
-    webp_lossless: bool = True
-    webp_quality: int = Field(95, ge=0, le=100)
+    # Storage format for imported images (design/ingest-redesign.md §10).
+    # "original" keeps each file as uploaded.
+    stored_format: StoredFormatName = "original"
+    stored_quality: int = Field(90, ge=1, le=100)  # lossy WebP and JPEG
+    stored_lossless: bool = True  # lossless WebP for lossless sources (never for JPEGs)
 
     # Model selection (managed via POST /api/v1/models/active — not in AppSettingsPatch)
     active_model: str = ""  # "" = auto-detect at startup; "small"|"medium"|"large" once set
@@ -373,6 +378,6 @@ class AppSettingsPatch(BaseModel):
     max_import_total_size: int | None = None
     max_job_workers: int | None = None
     scheduler_enabled: bool | None = None
-    convert_to_webp: bool | None = None
-    webp_lossless: bool | None = None
-    webp_quality: int | None = Field(None, ge=0, le=100)
+    stored_format: StoredFormatName | None = None
+    stored_quality: int | None = Field(None, ge=1, le=100)
+    stored_lossless: bool | None = None

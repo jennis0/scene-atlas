@@ -21,6 +21,13 @@ const GRID_RESOLUTION_OPTIONS = [
   { value: 4096, label: '4K', title: 'Reduce maps larger than 4096 px; misses thin grid lines' },
 ] as const
 
+const STORED_FORMAT_OPTIONS = [
+  { value: 'original', label: 'Original', title: 'Keep each file exactly as uploaded' },
+  { value: 'webp', label: 'WebP', title: 'Smallest files; lossless for PNGs' },
+  { value: 'jpeg', label: 'JPEG', title: 'Small files; images with transparency stay as uploaded' },
+  { value: 'png', label: 'PNG', title: 'Lossless, but usually larger than the original' },
+] as const
+
 interface StoragePathRowProps {
   label: string
   description: string
@@ -634,25 +641,81 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
               </SettingRow>
 
               <SettingRow
-                label="Convert imports to WebP"
-                description="Reduces file size 20–40% with no quality loss. Applies to new imports only."
+                label="Stored format"
+                description="Format new imports are kept in. Files already in that format, animations, and very large images stay as uploaded."
               >
-                <button
-                  type="button"
-                  onClick={() => setField('convert_to_webp', !val('convert_to_webp'))}
-                  aria-label="Toggle WebP conversion"
-                  aria-pressed={val('convert_to_webp') as boolean}
-                  className={`h-6 w-11 rounded-full transition-colors flex items-center px-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 ${
-                    val('convert_to_webp') ? 'bg-primary' : 'bg-secondary border border-border/50'
-                  }`}
+                <div
+                  role="radiogroup"
+                  aria-label="Stored format"
+                  className="flex rounded-md border border-border/50 overflow-hidden"
                 >
-                  <div
-                    className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
-                      val('convert_to_webp') ? 'translate-x-5' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
+                  {STORED_FORMAT_OPTIONS.map((option) => {
+                    const selected = (val('stored_format') ?? 'original') === option.value
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        title={option.title}
+                        onClick={() => setField('stored_format', option.value)}
+                        className={`px-2.5 h-7 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/40 ${
+                          selected
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-secondary text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    )
+                  })}
+                </div>
               </SettingRow>
+
+              {(val('stored_format') === 'webp' || val('stored_format') === 'jpeg') && (
+                <SettingRow
+                  label="Quality"
+                  description="For lossy WebP and JPEG (1-100). JPEG sources always use this."
+                >
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      inputSize="compact"
+                      min="1"
+                      max="100"
+                      inputMode="numeric"
+                      value={(val('stored_quality') as number) ?? ''}
+                      onChange={(e) => setField('stored_quality', parseIntInput(e.target.value))}
+                      className="w-16 text-right font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      aria-label="Stored quality (1-100)"
+                    />
+                    <span className="w-8 shrink-0" />
+                  </div>
+                </SettingRow>
+              )}
+
+              {val('stored_format') === 'webp' && (
+                <SettingRow
+                  label="Lossless WebP for PNGs"
+                  description="Keeps PNGs pixel-perfect but imports more slowly. Off uses the quality above."
+                >
+                  <button
+                    type="button"
+                    onClick={() => setField('stored_lossless', !val('stored_lossless'))}
+                    aria-label="Toggle lossless WebP"
+                    aria-pressed={val('stored_lossless') as boolean}
+                    className={`h-6 w-11 rounded-full transition-colors flex items-center px-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 ${
+                      val('stored_lossless') ? 'bg-primary' : 'bg-secondary border border-border/50'
+                    }`}
+                  >
+                    <div
+                      className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                        val('stored_lossless') ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </SettingRow>
+              )}
 
               <div className="border-t border-border/30" />
             </section>

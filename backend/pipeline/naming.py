@@ -41,7 +41,8 @@ def download_filename(img: Image, group_name: str) -> str:
         parts.append(f"{label}{dims}")
     else:
         parts.append("No Grid")
-    return " - ".join(parts) + Path(img.filename).suffix
+    # The stored file's extension: it differs from the upload's when a storage format is set.
+    return " - ".join(parts) + Path(img.storage_key or img.filename).suffix
 
 
 def export_path(img: Image, group_name: str | None, author: str | None) -> str:
