@@ -16,38 +16,30 @@ import io
 import struct
 import subprocess
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 from PIL import Image as PILImage
 
-# ---------------------------------------------------------------------------
-# In-memory image generation (used by most scenarios)
-# ---------------------------------------------------------------------------
 
-
-def noise_pixels(seed: int, width: int, height: int, channels: int = 3) -> np.ndarray:
-    """Deterministic random pixels for ``seed``."""
-    rng = np.random.default_rng(seed)
-    return rng.integers(0, 256, size=(height, width, channels), dtype=np.uint8)
-
-
-def noise_jpeg(seed: int, width: int = 96, height: int = 72) -> bytes:
-    """A random-noise JPEG whose bytes and pixels are unique per seed."""
-    img = PILImage.fromarray(noise_pixels(seed, width, height), "RGB")
+def _noise_image(seed: int, width: int, height: int, **save_args) -> bytes:
+    pixels = np.random.default_rng(seed).integers(0, 256, size=(height, width, 3), dtype=np.uint8)
     buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=70 + (seed % 25))
+    PILImage.fromarray(pixels, "RGB").save(buf, **save_args)
     return buf.getvalue()
+
+
+def noise_jpeg(seed: int, width: int = 96, height: int = 72, quality: int | None = None) -> bytes:
+    """A random-noise JPEG whose bytes and pixels are unique per seed."""
+    q = quality if quality is not None else 70 + seed % 25
+    return _noise_image(seed, width, height, format="JPEG", quality=q)
 
 
 def noise_png(seed: int, width: int = 96, height: int = 72, compress_level: int = 6) -> bytes:
-    """A random-noise PNG. The same seed at different compression levels gives
-    different bytes but identical pixels (exercises the pixel-hash tier)."""
-    img = PILImage.fromarray(noise_pixels(seed, width, height), "RGB")
-    buf = io.BytesIO()
-    img.save(buf, format="PNG", compress_level=compress_level)
-    return buf.getvalue()
+    """Same seed at different compression levels: different bytes, identical pixels."""
+    return _noise_image(seed, width, height, format="PNG", compress_level=compress_level)
 
 
 def image_set(
@@ -73,17 +65,11 @@ def zip_bytes(members: list[tuple[str, bytes]]) -> bytes:
     return buf.getvalue()
 
 
-# ---------------------------------------------------------------------------
-# On-disk fixtures (larger or slower to build; cached between runs)
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class FixturePaths:
-    """Paths to the cached on-disk fixtures."""
-
     zip_small: Path  # 10 images
-    zip_large: Path  # 100 images (1000 with --large)
+    zip_large: Path  # large_zip_count images
+    large_zip_count: int
     zip_near_bomb: Path  # declared uncompressed size beyond the archive limit
 
     # Valid magic bytes, corrupt body
@@ -94,32 +80,24 @@ class FixturePaths:
     malformed_webm: Path
     malformed_zip: Path
 
-    # Large but valid images (for concurrent big uploads)
     big_jpegs: list[Path]
-
-    # Real videos (None without ffmpeg)
-    video_mp4: Path | None
+    video_mp4: Path | None  # None without ffmpeg
     video_webm: Path | None
-
     large_mode: bool
-    has_ffmpeg: bool
 
 
 def _random_bytes(seed: int, size: int) -> bytes:
     return np.random.default_rng(seed).integers(0, 256, size=size, dtype=np.uint8).tobytes()
 
 
-def generate_near_zip_bomb(output_path: Path) -> Path:
-    """800 × 3 MB of zeros: ~2.4 GB declared, ~2.5 MB on disk.
+def _near_zip_bomb() -> bytes:
+    """800 × 3 MB of zeros: ~2.4 GB declared, ~2.5 MB compressed.
 
     The archive guard sums the declared uncompressed sizes before extracting,
     so this must become one failed ``archive`` item without writing 2.4 GB.
     """
     zero_block = b"\x00" * (3 * 1024 * 1024)
-    with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for i in range(800):
-            zf.writestr(f"file_{i:04d}.jpg", zero_block)
-    return output_path
+    return zip_bytes([(f"file_{i:04d}.jpg", zero_block) for i in range(800)])
 
 
 def _malformed(kind: str, size: int) -> bytes:
@@ -163,68 +141,57 @@ def ensure_fixtures(fixtures_dir: Path, large_mode: bool, has_ffmpeg: bool) -> F
     """Generate any missing fixtures (cached by file name; delete the dir to rebuild)."""
     fixtures_dir.mkdir(parents=True, exist_ok=True)
 
-    def missing(p: Path, min_bytes: int = 1) -> bool:
-        return not p.exists() or p.stat().st_size < min_bytes
-
-    def write(p: Path, data: bytes) -> None:
-        tmp = p.with_suffix(p.suffix + ".part")
-        tmp.write_bytes(data)
-        tmp.replace(p)
-
-    zip_small = fixtures_dir / "small_10.zip"
-    if missing(zip_small):
-        print(f"    Generating {zip_small.name}...")
-        write(zip_small, zip_bytes(image_set(10, 10_000, folder="ZipAuthor/Small Pack")))
+    def cached(name: str, build: Callable[[], bytes], min_bytes: int = 1) -> Path:
+        path = fixtures_dir / name
+        if not path.exists() or path.stat().st_size < min_bytes:
+            print(f"    Generating {name}...")
+            tmp = path.with_suffix(path.suffix + ".part")
+            tmp.write_bytes(build())
+            tmp.replace(path)
+        return path
 
     large_count = 1000 if large_mode else 100
-    zip_large = fixtures_dir / f"large_{large_count}.zip"
-    if missing(zip_large):
-        print(f"    Generating {zip_large.name}...")
-        write(
-            zip_large,
-            zip_bytes(image_set(large_count, 20_000, folder="ZipAuthor/Large Pack")),
-        )
-
-    zip_near_bomb = fixtures_dir / "near_bomb.zip"
-    if missing(zip_near_bomb):
-        print(f"    Generating {zip_near_bomb.name}...")
-        generate_near_zip_bomb(zip_near_bomb)
+    zip_small = cached(
+        "small_10.zip", lambda: zip_bytes(image_set(10, 10_000, folder="ZipAuthor/Small Pack"))
+    )
+    zip_large = cached(
+        f"large_{large_count}.zip",
+        lambda: zip_bytes(image_set(large_count, 20_000, folder="ZipAuthor/Large Pack")),
+    )
+    zip_near_bomb = cached("near_bomb.zip", _near_zip_bomb)
 
     malformed_mb = 200 if large_mode else 5
-    malformed: dict[str, Path] = {}
-    for kind in ("jpg", "png", "webp", "mp4", "webm", "zip"):
-        path = fixtures_dir / f"malformed_{malformed_mb}mb.{kind}"
-        if missing(path, int(malformed_mb * 1024 * 1024 * 0.9)):
-            print(f"    Generating {path.name}...")
-            write(path, _malformed(kind, malformed_mb * 1024 * 1024))
-        malformed[kind] = path
+    size = malformed_mb * 1024 * 1024
+    malformed = {
+        kind: cached(
+            f"malformed_{malformed_mb}mb.{kind}",
+            lambda k=kind: _malformed(k, size),
+            int(size * 0.9),
+        )
+        for kind in ("jpg", "png", "webp", "mp4", "webm", "zip")
+    }
 
-    # Big valid images: noise JPEGs compress poorly, so ~3 bytes/px at q95.
     big_side = 12_000 if large_mode else 4_000
-    big_jpegs: list[Path] = []
-    for i in range(4):
-        path = fixtures_dir / f"big_{big_side}px_{i}.jpg"
-        if missing(path):
-            print(f"    Generating {path.name}...")
-            img = PILImage.fromarray(noise_pixels(30_000 + i, big_side, big_side), "RGB")
-            buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=90)
-            write(path, buf.getvalue())
-        big_jpegs.append(path)
+    big_jpegs = [
+        cached(
+            f"big_{big_side}px_{i}.jpg",
+            lambda i=i: noise_jpeg(30_000 + i, big_side, big_side, quality=90),
+        )
+        for i in range(4)
+    ]
 
     video_mp4 = video_webm = None
     if has_ffmpeg:
-        seconds, size = (30, "1920x1080") if large_mode else (1, "640x360")
-        video_mp4 = fixtures_dir / f"video_{size}_{seconds}s.mp4"
-        if missing(video_mp4):
-            print(f"    Generating {video_mp4.name}...")
-            _ffmpeg_video(video_mp4, ["-c:v", "libx264", "-preset", "ultrafast"], seconds, size)
-        video_webm = fixtures_dir / f"video_{size}_{seconds}s.webm"
-        if missing(video_webm):
-            print(f"    Generating {video_webm.name}...")
-            _ffmpeg_video(
-                video_webm, ["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "63"], seconds, size
-            )
+        seconds, dims = (30, "1920x1080") if large_mode else (1, "640x360")
+        video_mp4 = fixtures_dir / f"video_{dims}_{seconds}s.mp4"
+        video_webm = fixtures_dir / f"video_{dims}_{seconds}s.webm"
+        for path, codec in (
+            (video_mp4, ["-c:v", "libx264", "-preset", "ultrafast"]),
+            (video_webm, ["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "63"]),
+        ):
+            if not path.exists():
+                print(f"    Generating {path.name}...")
+                _ffmpeg_video(path, codec, seconds, dims)
 
     total_mb = sum(p.stat().st_size for p in fixtures_dir.rglob("*") if p.is_file()) >> 20
     print(f"    Fixtures total: ~{total_mb} MB in {fixtures_dir}")
@@ -232,6 +199,7 @@ def ensure_fixtures(fixtures_dir: Path, large_mode: bool, has_ffmpeg: bool) -> F
     return FixturePaths(
         zip_small=zip_small,
         zip_large=zip_large,
+        large_zip_count=large_count,
         zip_near_bomb=zip_near_bomb,
         malformed_jpeg=malformed["jpg"],
         malformed_png=malformed["png"],
@@ -243,5 +211,4 @@ def ensure_fixtures(fixtures_dir: Path, large_mode: bool, has_ffmpeg: bool) -> F
         video_mp4=video_mp4,
         video_webm=video_webm,
         large_mode=large_mode,
-        has_ffmpeg=has_ffmpeg,
     )

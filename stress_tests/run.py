@@ -16,6 +16,7 @@ import asyncio
 import json
 import os
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -29,19 +30,12 @@ from typing import IO
 
 import httpx
 
-# ---------------------------------------------------------------------------
-# Paths
-# ---------------------------------------------------------------------------
-
 REPO_ROOT = Path(__file__).parent.parent
 STRESS_DIR = Path(__file__).parent
 FIXTURES_DIR = STRESS_DIR / ".fixtures"
 RESULTS_DIR = STRESS_DIR / "results"
 
-# ---------------------------------------------------------------------------
-# ANSI colours (disabled on Windows without ANSI support, or in non-TTY)
-# ---------------------------------------------------------------------------
-
+# Disabled on Windows without ANSI support, and when not a TTY.
 _USE_COLOUR = (sys.stdout.isatty() and sys.platform != "win32") or (
     sys.platform == "win32" and os.environ.get("TERM") == "xterm"
 )
@@ -61,11 +55,6 @@ def _yellow(s: str) -> str:
 
 def _bold(s: str) -> str:
     return f"\033[1m{s}\033[0m" if _USE_COLOUR else s
-
-
-# ---------------------------------------------------------------------------
-# Result types
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -118,11 +107,6 @@ class ScenarioResult:
     failure_details: str | None = None
 
 
-# ---------------------------------------------------------------------------
-# Server management
-# ---------------------------------------------------------------------------
-
-
 class StressTestServer:
     """Manages a uvicorn subprocess with an isolated temp data directory."""
 
@@ -140,12 +124,8 @@ class StressTestServer:
         self._port_sock: socket.socket | None = None  # held until uvicorn binds
 
     def _reserve_port(self) -> int:
-        """Bind to port 0, record the assigned port, and hold the socket open.
-
-        The socket is kept in self._port_sock to prevent OS port reuse until
-        uvicorn has actually bound the port.  Both sockets use SO_REUSEADDR so
-        uvicorn can bind the same address without conflict.
-        """
+        """Bind port 0 and hold the socket until uvicorn binds, so the OS can't reuse
+        the port in between. SO_REUSEADDR lets uvicorn bind it while we hold it."""
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind(("127.0.0.1", 0))
@@ -174,14 +154,7 @@ class StressTestServer:
                     shutil.copytree(model, target)
 
     def start(self, timeout: float = 90) -> str:
-        """Start the server and wait for it to signal readiness.
-
-        The server prints ``SCENE_ATLAS_READY port=N`` to stdout once the DB,
-        Qdrant, and job runner are up.  We capture that line as our ready signal
-        then drain remaining stdout to the log file.
-
-        Returns the base URL, e.g. ``http://127.0.0.1:18423``.
-        """
+        """Start the server; ready once it prints ``SCENE_ATLAS_READY`` to stdout."""
         self.port = self._reserve_port()
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.library_dir.mkdir(parents=True, exist_ok=True)
@@ -192,6 +165,7 @@ class StressTestServer:
         env["IMAGE_LIBRARY_DIR"] = str(self.library_dir)
         env["API_PORT"] = str(self.port)
         env["PYTHONUNBUFFERED"] = "1"
+        env["PYTHONFAULTHANDLER"] = "1"  # SIGABRT dumps every thread's stack to the log
         # The scheduler stays on: overdue maintenance runs 60 s after startup,
         # which maintenance_during_import relies on.
 
@@ -205,7 +179,6 @@ class StressTestServer:
         # Run uvicorn with this interpreter (the harness itself runs under `uv run`),
         # so the PID we signal is the server, not a `uv` wrapper that can leave
         # the real server running after a kill.
-        env["PYTHONFAULTHANDLER"] = "1"  # SIGABRT dumps every thread's stack to the log
         cmd = [
             sys.executable,
             "-m",
@@ -219,7 +192,6 @@ class StressTestServer:
 
         kwargs: dict = {}
         if sys.platform == "win32":
-            # CREATE_NEW_PROCESS_GROUP allows us to kill the entire process tree
             kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
         else:
             kwargs["start_new_session"] = True  # own process group, killed as a whole
@@ -235,7 +207,6 @@ class StressTestServer:
             **kwargs,
         )
 
-        # Wait for ready signal in stdout
         deadline = time.monotonic() + timeout
         ready = False
         while time.monotonic() < deadline:
@@ -245,17 +216,12 @@ class StressTestServer:
                     f"Server exited prematurely (code {self._proc.returncode}). "
                     f"Check {self.log_path}"
                 )
-            # readline() blocks until a line is available or EOF
-            # We use a timeout via select on Unix; on Windows we just poll
             line = self._proc.stdout.readline()
             if not line:
                 time.sleep(0.05)
                 continue
             if "SCENE_ATLAS_READY" in line:
-                # Uvicorn has bound the port — release our reservation socket
-                if self._port_sock:
-                    self._port_sock.close()
-                    self._port_sock = None
+                self._release_port()
                 ready = True
                 break
 
@@ -267,46 +233,38 @@ class StressTestServer:
 
         self.base_url = f"http://127.0.0.1:{self.port}"
 
-        # Drain remaining stdout to log in background (server also logs to stderr/log_fh).
-        # Capture local refs so stop() setting self._log_fh=None doesn't cause AttributeError,
-        # and guard against ValueError if stop() closes the file while we're still draining.
+        # Bound to locals: stop() clears self._log_fh and may close it mid-drain.
         def _drain(proc_stdout=self._proc.stdout, log_fh=self._log_fh) -> None:
             for line in proc_stdout:
                 try:
                     log_fh.write(f"[stdout] {line}")
                     log_fh.flush()
                 except ValueError:
-                    break  # File closed by stop() — nothing more to do
+                    break
 
         threading.Thread(target=_drain, daemon=True, name="stdout-drain").start()
 
         return self.base_url
 
     def wait_for_clip(self, timeout: float = 120) -> None:
-        """Block until the CLIP model is loaded by making a warm-up search request.
-
-        The search endpoint calls get_clip_service() which blocks on _clip_ready.wait().
-        Once this returns, CLIP is guaranteed ready for all subsequent requests.
-        """
+        """Block until CLIP has loaded (a text search waits for it) and the ingest
+        queue's model-missing pause has cleared, so timings exclude model loading."""
         assert self.base_url is not None
         deadline = time.monotonic() + timeout
         with httpx.Client(base_url=self.base_url, timeout=timeout) as client:
             while time.monotonic() < deadline:
                 try:
-                    # A non-empty query triggers CLIP; empty queries skip it
                     r = client.get(
                         "/api/v1/search",
                         params={"q": "stress test warm up", "limit": 1},
                         timeout=timeout,
                     )
                     if r.status_code < 500:
-                        break  # CLIP loaded (even 400 means we got through)
+                        break
                 except httpx.RequestError:
                     time.sleep(1)
             else:
                 raise RuntimeError(f"CLIP did not load within {timeout}s. Check {self.log_path}")
-            # The ingest worker system-pauses until the model is ready; make sure
-            # that pause has cleared so timings don't include model loading.
             while time.monotonic() < deadline:
                 queue = client.get("/api/v1/imports").json()["queue"]
                 if not queue["system_paused"]:
@@ -327,17 +285,8 @@ class StressTestServer:
         if self._proc is None:
             return
         if self._proc.poll() is not None:
-            # Already dead
-            if self._port_sock:
-                self._port_sock.close()
-                self._port_sock = None
-            if self._log_fh:
-                self._log_fh.close()
-                self._log_fh = None
-            self._proc = None
-            return
-
-        if sys.platform == "win32":
+            pass
+        elif sys.platform == "win32":
             if force:
                 subprocess.run(
                     ["taskkill", "/F", "/T", "/PID", str(self._proc.pid)],
@@ -353,8 +302,6 @@ class StressTestServer:
                         capture_output=True,
                     )
         else:
-            import signal
-
             pgid = self._proc.pid  # start_new_session: the server leads its own group
             if not force:
                 self._proc.send_signal(signal.SIGTERM)
@@ -374,14 +321,16 @@ class StressTestServer:
                 pass
             self._proc.wait()
 
-        if self._port_sock:
-            self._port_sock.close()
-            self._port_sock = None
+        self._release_port()
         if self._log_fh:
-            self._log_fh.flush()
             self._log_fh.close()
             self._log_fh = None
         self._proc = None
+
+    def _release_port(self) -> None:
+        if self._port_sock:
+            self._port_sock.close()
+            self._port_sock = None
 
     def copy_artifacts(self, dest: Path) -> None:
         """Copy server log and DB snapshot to a results directory."""
@@ -391,11 +340,6 @@ class StressTestServer:
         db_path = self.data_dir / "battlemap.db"
         if db_path.exists():
             shutil.copy2(db_path, dest / "db.sqlite")
-
-
-# ---------------------------------------------------------------------------
-# Pre-flight checks
-# ---------------------------------------------------------------------------
 
 
 def _check_disk_space(path: Path, warn_below_gb: float = 10.0) -> None:
@@ -409,22 +353,16 @@ def _check_disk_space(path: Path, warn_below_gb: float = 10.0) -> None:
                     f"Fixtures need ~100 MB (default) or a few GB (--large)."
                 )
             )
-    except Exception:
-        pass  # Non-fatal
+    except OSError:
+        pass
 
 
 def _check_ffmpeg() -> bool:
-    """Return True if ffmpeg is available on PATH."""
     try:
         result = subprocess.run(["ffmpeg", "-version"], capture_output=True, timeout=5)
         return result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return False
-
-
-# ---------------------------------------------------------------------------
-# Results display
-# ---------------------------------------------------------------------------
 
 
 def _print_banner() -> None:
@@ -447,7 +385,7 @@ def _print_result(result: ScenarioResult) -> None:
             print(f"           {_red('->')} {line}")
 
 
-def _print_summary(results: list[ScenarioResult], results_dir: Path | None) -> None:
+def _print_summary(results: list[ScenarioResult]) -> None:
     print()
     print("=" * 52)
     passed = sum(1 for r in results if r.passed)
@@ -457,8 +395,8 @@ def _print_summary(results: list[ScenarioResult], results_dir: Path | None) -> N
     else:
         verdict = _red(f"{passed}/{total} scenarios passed")
     print(f"  {verdict}")
-    if results_dir and any(not r.passed for r in results):
-        print(f"  Artifacts -> {results_dir}")
+    if passed != total:
+        print(f"  Artifacts -> {RESULTS_DIR}")
     print()
 
 
@@ -493,15 +431,8 @@ def _save_summary(results: list[ScenarioResult], dest: Path) -> None:
     (dest / "summary.json").write_text(json.dumps(summary, indent=2))
 
 
-# ---------------------------------------------------------------------------
-# Run a single scenario
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class ScenarioContext:
-    """Everything a scenario gets: the live server, fixtures and the run mode."""
-
     server: StressTestServer
     fixtures: object  # fixtures.FixturePaths (kept untyped to avoid an import cycle)
     large_mode: bool
@@ -521,7 +452,6 @@ def _run_scenario(
     large_mode: bool,
     quick_mode: bool,
     results_dir: Path,
-    wait_for_clip: bool = True,
 ) -> ScenarioResult:
     """Start a fresh server, run the scenario, stop the server, collect artifacts."""
     print(f"  Running {_bold(scenario_name)}...")
@@ -531,8 +461,7 @@ def _run_scenario(
 
     try:
         server.start()
-        if wait_for_clip:
-            server.wait_for_clip()
+        server.wait_for_clip()
         ctx = ScenarioContext(
             server=server,
             fixtures=fixture_paths,
@@ -554,7 +483,6 @@ def _run_scenario(
 
     result.elapsed = time.monotonic() - t_start
 
-    # Save artifacts only on failure
     if not result.passed:
         artifact_dir = results_dir / f"{_timestamp()}_{scenario_name}"
         server.copy_artifacts(artifact_dir)
@@ -572,11 +500,6 @@ def _timestamp() -> str:
     return datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
 
 
-# ---------------------------------------------------------------------------
-# CLI subcommands
-# ---------------------------------------------------------------------------
-
-
 def _cmd_list(args: argparse.Namespace) -> None:
     from stress_tests import scenarios
 
@@ -591,34 +514,26 @@ def _cmd_list(args: argparse.Namespace) -> None:
     print()
 
 
-def _cmd_generate_fixtures(args: argparse.Namespace) -> None:
+def _prepare_fixtures(large: bool):
     from stress_tests import fixtures
 
     has_ffmpeg = _check_ffmpeg()
     if not has_ffmpeg:
-        print(_yellow("  Warning: ffmpeg not found — video fixtures will be skipped."))
-
-    print(f"  Generating fixtures in {FIXTURES_DIR}...")
+        print(_yellow("  Warning: ffmpeg not found — video fixtures and checks are skipped."))
     _check_disk_space(FIXTURES_DIR.parent)
-    fixtures.ensure_fixtures(
-        fixtures_dir=FIXTURES_DIR, large_mode=args.large, has_ffmpeg=has_ffmpeg
-    )
+    print(f"  Generating/verifying fixtures in {FIXTURES_DIR}...")
+    return fixtures.ensure_fixtures(FIXTURES_DIR, large_mode=large, has_ffmpeg=has_ffmpeg)
+
+
+def _cmd_generate_fixtures(args: argparse.Namespace) -> None:
+    _prepare_fixtures(args.large)
     print(_green("  Fixtures ready."))
 
 
 def _cmd_run(args: argparse.Namespace) -> None:
-    from stress_tests import fixtures, scenarios
+    from stress_tests import scenarios
 
-    has_ffmpeg = _check_ffmpeg()
-    if not has_ffmpeg:
-        print(_yellow("  Warning: ffmpeg not found — real-video checks will be skipped."))
-
-    _check_disk_space(FIXTURES_DIR.parent)
-
-    print("  Generating/verifying fixtures...")
-    fixture_paths = fixtures.ensure_fixtures(
-        fixtures_dir=FIXTURES_DIR, large_mode=args.large, has_ffmpeg=has_ffmpeg
-    )
+    fixture_paths = _prepare_fixtures(args.large)
 
     if args.all:
         selected = list(scenarios.SCENARIO_REGISTRY)
@@ -646,24 +561,17 @@ def _cmd_run(args: argparse.Namespace) -> None:
             large_mode=args.large,
             quick_mode=args.quick,
             results_dir=RESULTS_DIR,
-            wait_for_clip=entry.needs_model,
         )
         results.append(result)
         _print_result(result)
 
-    _print_summary(results, RESULTS_DIR if any(not r.passed for r in results) else None)
+    _print_summary(results)
     _save_summary(results, RESULTS_DIR / f"{_timestamp()}_run")
 
-    # Keep the work dir (server logs, databases) only when something failed.
-    if all(r.passed for r in results) and work_dir.exists():
+    all_passed = all(r.passed for r in results)
+    if all_passed:  # otherwise keep server logs and databases for inspection
         shutil.rmtree(work_dir, ignore_errors=True)
-
-    sys.exit(0 if all(r.passed for r in results) else 1)
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
+    sys.exit(0 if all_passed else 1)
 
 
 def main() -> None:
@@ -673,10 +581,8 @@ def main() -> None:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    # list
     sub.add_parser("list", help="List available scenarios with estimated runtimes")
 
-    # generate-fixtures
     gen_parser = sub.add_parser("generate-fixtures", help="Pre-generate test fixtures")
     gen_parser.add_argument(
         "--large",
@@ -684,7 +590,6 @@ def main() -> None:
         help="Also generate the --large variants",
     )
 
-    # run
     run_parser = sub.add_parser("run", help="Run stress test scenarios")
     run_group = run_parser.add_mutually_exclusive_group(required=True)
     run_group.add_argument("--all", action="store_true", help="Run all scenarios")

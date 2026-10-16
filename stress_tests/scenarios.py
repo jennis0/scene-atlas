@@ -40,11 +40,6 @@ BATCH_SIZE = 16  # ingestion_batch_size default: the most a pause/cancel lets fi
 OPEN_STATES = ("awaiting_bytes", "ready", "processing")
 
 
-# ---------------------------------------------------------------------------
-# Small helpers
-# ---------------------------------------------------------------------------
-
-
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -82,6 +77,10 @@ class Check:
         )
 
 
+def done_at_least(n: int) -> Callable[[dict], bool]:
+    return lambda job: job["counts"]["done"] >= n
+
+
 def settled(job: dict) -> bool:
     """A job whose items can't change any more without a user action."""
     counts = job["counts"]
@@ -90,18 +89,22 @@ def settled(job: dict) -> bool:
     return job["status"] == "cancelled" and counts["processing"] == 0 and counts["ready"] == 0
 
 
-# ---------------------------------------------------------------------------
-# ImportClient: the §7 protocol
-# ---------------------------------------------------------------------------
+def entries(files: list[tuple[str, bytes]]) -> list[dict]:
+    return [
+        {"client_ref": str(i), "relative_path": path, "size": len(data)}
+        for i, (path, data) in enumerate(files)
+    ]
 
 
 @dataclass
 class StartedImport:
     job_id: str
-    item_ids: dict[str, int]  # relative_path → item_id
     manifest: list[dict]
-    detail: dict  # the seal response (group plan)
-    setup_seconds: float = 0.0
+
+    @property
+    def item_ids(self) -> dict[str, int]:
+        """relative_path → item_id"""
+        return {m["relative_path"]: m["item_id"] for m in self.manifest}
 
 
 @dataclass
@@ -139,8 +142,6 @@ class ImportClient:
             raise RuntimeError(f"{method} {path} → {r.status_code}: {r.text[:300]}")
         return r.json()
 
-    # --- setup -------------------------------------------------------------
-
     async def create(self, label: str, image_type: str = "battlemap") -> str:
         body = {"label": label, "default_image_type": image_type}
         return (await self.ok("POST", IMPORTS, json=body))["id"]
@@ -171,8 +172,6 @@ class ImportClient:
             )
             out.extend(body["items"])
         return out
-
-    # --- bytes -------------------------------------------------------------
 
     async def put(self, job_id: str, item_id: int, data: bytes) -> httpx.Response:
         """PUT one file's bytes, retrying transport errors (the endpoint is idempotent)."""
@@ -206,8 +205,6 @@ class ImportClient:
 
         await asyncio.gather(*(one(i, d) for i, d in payloads.items()))
         return responses
-
-    # --- reading -----------------------------------------------------------
 
     async def job(self, job_id: str) -> dict:
         return await self.ok("GET", f"{IMPORTS}/{job_id}")
@@ -267,7 +264,8 @@ class ImportClient:
                 await asyncio.sleep(interval)
         return {job_id: await self.job(job_id) for job_id in job_ids}
 
-    # --- actions -----------------------------------------------------------
+    async def wait_one(self, job_id: str, **kwargs) -> dict:
+        return (await self.wait([job_id], **kwargs))[job_id]
 
     async def action(self, job_id: str, name: str, body: dict | None = None) -> httpx.Response:
         return await self.req("POST", f"{IMPORTS}/{job_id}/{name}", json=body)
@@ -281,8 +279,6 @@ class ImportClient:
                 return r
             await asyncio.sleep(0.25)
 
-    # --- whole flows -------------------------------------------------------
-
     async def start(
         self,
         files: list[tuple[str, bytes]],
@@ -292,16 +288,10 @@ class ImportClient:
         extra_manifest: list[dict] | None = None,
     ) -> StartedImport:
         """Create, manifest and seal a job for ``files`` (no bytes sent yet)."""
-        t0 = time.monotonic()
         job_id = await self.create(label, image_type)
-        entries = [
-            {"client_ref": str(i), "relative_path": path, "size": len(data)}
-            for i, (path, data) in enumerate(files)
-        ] + (extra_manifest or [])
-        manifest = await self.manifest(job_id, entries)
-        detail = await self.seal(job_id)
-        ids = {m["relative_path"]: m["item_id"] for m in manifest}
-        return StartedImport(job_id, ids, manifest, detail, time.monotonic() - t0)
+        manifest = await self.manifest(job_id, entries(files) + (extra_manifest or []))
+        await self.seal(job_id)
+        return StartedImport(job_id, manifest)
 
     async def supply(
         self,
@@ -312,9 +302,8 @@ class ImportClient:
         concurrency: int = UPLOAD_CONCURRENCY,
     ) -> dict[int, httpx.Response]:
         """Send hashes (skipping known files), then upload the rest."""
-        payloads = {
-            started.item_ids[path]: data for path, data in files if path in started.item_ids
-        }
+        ids = started.item_ids
+        payloads = {ids[path]: data for path, data in files if path in ids}
         if use_hashes and payloads:
             results = await self.send_hashes(
                 started.job_id, {i: sha256(d) for i, d in payloads.items()}
@@ -335,12 +324,7 @@ class ImportClient:
     ) -> dict:
         started = await self.start(files, label=label, image_type=image_type)
         await self.supply(started, files, use_hashes=use_hashes)
-        return (await self.wait([started.job_id], timeout=timeout))[started.job_id]
-
-
-# ---------------------------------------------------------------------------
-# Direct inspection of the server's database and stores
-# ---------------------------------------------------------------------------
+        return await self.wait_one(started.job_id, timeout=timeout)
 
 
 class Library:
@@ -438,15 +422,6 @@ class Env:
         return self.check.result(name, self.stats, ok_message)
 
 
-def counts_of(job: dict) -> dict[str, int]:
-    return job["counts"]
-
-
-# ---------------------------------------------------------------------------
-# Scenarios
-# ---------------------------------------------------------------------------
-
-
 async def happy_path(ctx: ScenarioContext) -> ScenarioResult:
     """One import end to end; measures setup, upload and processing throughput."""
     env = Env(ctx)
@@ -459,10 +434,10 @@ async def happy_path(ctx: ScenarioContext) -> ScenarioResult:
         t_setup = time.monotonic() - t0
         await api.supply(started, files)
         t_upload = time.monotonic() - t0
-        job = (await api.wait([started.job_id]))[started.job_id]
+        job = await api.wait_one(started.job_id)
         t_total = time.monotonic() - t0
 
-        c = counts_of(job)
+        c = job["counts"]
         env.check.eq(job["status"], "completed", "status")
         env.check.eq(c["done"], n, "done")
         env.check.eq(c["total"], n, "total")
@@ -525,16 +500,15 @@ async def large_manifest(ctx: ScenarioContext) -> ScenarioResult:
         await api.req("GET", IMPORTS)
         t_list = time.monotonic() - t
 
-        ids = {m["relative_path"]: m["item_id"] for m in manifest}
-        await api.supply(StartedImport(job_id, ids, manifest, detail), list(upload_files.items()))
+        await api.supply(StartedImport(job_id, manifest), list(upload_files.items()))
         await api.wait(
             [job_id],
             until=lambda j: j["counts"]["done"] + j["counts"]["failed"] >= uploaded,
         )
         r = await api.action(job_id, "finish-upload")
         env.check.eq(r.status_code, 200, "finish-upload")
-        job = (await api.wait([job_id]))[job_id]
-        c = counts_of(job)
+        job = await api.wait_one(job_id)
+        c = job["counts"]
         env.check.eq(job["status"], "completed", "status")
         env.check.eq(c["done"], uploaded, "done")
         env.check.eq(c["skipped"], total - uploaded, "skipped (not uploaded)")
@@ -587,7 +561,7 @@ async def round_robin_fairness(ctx: ScenarioContext) -> ScenarioResult:
         big_files = image_set(big_n, 4_000_000, folder="Fair/Big Pack", width=480, height=360)
         big = await api.start(big_files, label="big")
         await api.supply(big, big_files)
-        await api.wait([big.job_id], until=lambda j: j["counts"]["done"] >= BATCH_SIZE)
+        await api.wait_one(big.job_id, until=done_at_least(BATCH_SIZE))
 
         async def small(idx: int) -> tuple[str, float]:
             t = time.monotonic()
@@ -604,7 +578,7 @@ async def round_robin_fairness(ctx: ScenarioContext) -> ScenarioResult:
             f"big job finished before the small ones could prove fairness ({big_now['counts']}); "
             "increase its size",
         )
-        final = (await api.wait([big.job_id]))[big.job_id]
+        final = await api.wait_one(big.job_id)
         env.check.eq(final["counts"]["done"], big_n, "big job done")
         worst = max(t for _, t in latencies)
         env.check.note(
@@ -628,7 +602,7 @@ async def endpoint_spam(ctx: ScenarioContext) -> ScenarioResult:
         # 1. Concurrent seals are idempotent: one plan, one set of groups.
         files = image_set(3, 5_000_000, folder="Spam/Seal")
         job_id = await api.create("spam seal")
-        await api.manifest(job_id, [{"relative_path": p, "size": len(d)} for p, d in files])
+        await api.manifest(job_id, entries(files))
         codes = await spam(lambda: api.req("POST", f"{IMPORTS}/{job_id}/seal"))
         check(set(codes) == {200}, f"concurrent seal codes {sorted(set(codes))}")
         detail = await api.job(job_id)
@@ -642,7 +616,7 @@ async def endpoint_spam(ctx: ScenarioContext) -> ScenarioResult:
         check(set(codes) == {200}, f"concurrent PUT codes {sorted(set(codes))}")
         rest = {i["id"]: dict(files)[i["relative_path"]] for i in items[1:]}
         await api.upload(job_id, rest)
-        final = (await api.wait([job_id]))[job_id]
+        final = await api.wait_one(job_id)
         check.eq(final["counts"]["done"], 3, "done after concurrent PUTs")
         check.eq(env.lib.images(job_id), 3, "images after concurrent PUTs")
 
@@ -697,9 +671,7 @@ async def cancellation_chaos(ctx: ScenarioContext) -> ScenarioResult:
         # (a) before seal
         files = image_set(3, 6_000_000, folder="Cancel/A")
         job_a = await api.create("cancel a")
-        manifest = await api.manifest(
-            job_a, [{"relative_path": p, "size": len(d)} for p, d in files]
-        )
+        manifest = await api.manifest(job_a, entries(files))
         r = await api.action(job_a, "cancel")
         check.eq(r.status_code, 200, "(a) cancel before seal")
         r = await api.put(job_a, manifest[0]["item_id"], files[0][1])
@@ -719,11 +691,11 @@ async def cancellation_chaos(ctx: ScenarioContext) -> ScenarioResult:
         files = image_set(n, 6_200_000, folder="Cancel/C", width=480, height=360)
         c = await api.start(files, label="cancel c")
         await api.supply(c, files)
-        await api.wait([c.job_id], until=lambda j: j["counts"]["done"] >= BATCH_SIZE)
+        await api.wait_one(c.job_id, until=done_at_least(BATCH_SIZE))
         r = await api.action(c.job_id, "cancel")
         check.eq(r.status_code, 200, "(c) cancel mid-processing")
-        job = (await api.wait([c.job_id]))[c.job_id]
-        cc = counts_of(job)
+        job = await api.wait_one(c.job_id)
+        cc = job["counts"]
         check.eq(job["status"], "cancelled", "(c) status")
         check(0 < cc["done"] < n, f"(c) expected some but not all done: {cc}")
         check.eq(cc["done"] + cc["skipped"], n, "(c) done + skipped")
@@ -766,7 +738,7 @@ async def pause_resume(ctx: ScenarioContext) -> ScenarioResult:
             "paused",
         )
         await api.action(a.job_id, "resume")
-        job = (await api.wait([a.job_id]))[a.job_id]
+        job = await api.wait_one(a.job_id)
         check.eq((job["status"], job["counts"]["done"]), ("completed", n), "after resume")
 
         # Paused mid-processing: progress stops within one batch.
@@ -774,7 +746,7 @@ async def pause_resume(ctx: ScenarioContext) -> ScenarioResult:
         files = image_set(m, 7_100_000, folder="Pause/Mid", width=480, height=360)
         b = await api.start(files, label="pause mid")
         await api.supply(b, files)
-        await api.wait([b.job_id], until=lambda j: j["counts"]["done"] >= BATCH_SIZE)
+        await api.wait_one(b.job_id, until=done_at_least(BATCH_SIZE))
         await api.action(b.job_id, "pause")
         at_pause = (await api.job(b.job_id))["counts"]["done"]
         await asyncio.sleep(2)
@@ -790,7 +762,7 @@ async def pause_resume(ctx: ScenarioContext) -> ScenarioResult:
         if d2["done"] >= m:
             check.note("mid job finished before pause took effect (increase size)")
         await api.action(b.job_id, "resume")
-        job = (await api.wait([b.job_id]))[b.job_id]
+        job = await api.wait_one(b.job_id)
         check.eq((job["status"], job["counts"]["done"]), ("completed", m), "mid after resume")
         env.lib.integrity(check, expect_images=n + m)
     return env.finish("pause_resume", api, "pause holds, resume completes")
@@ -869,7 +841,7 @@ async def import_as_copy(ctx: ScenarioContext) -> ScenarioResult:
         check.eq(len(awaiting), n, "b items awaiting bytes")
         by_path = dict(b_files)
         await api.upload(b["id"], {i["id"]: by_path[i["relative_path"]] for i in awaiting})
-        b = (await api.wait([b["id"]]))[b["id"]]
+        b = await api.wait_one(b["id"])
         check.eq(b["counts"]["done"], n, "b copies done")
 
         # Duplicate detected on receipt: staged bytes kept, no re-upload needed.
@@ -878,7 +850,7 @@ async def import_as_copy(ctx: ScenarioContext) -> ScenarioResult:
         check.eq(c["counts"]["duplicate"], n, "c duplicates")
         sent = api.bytes_sent
         await api.action(c["id"], "import-as-copy")
-        c = (await api.wait([c["id"]]))[c["id"]]
+        c = await api.wait_one(c["id"])
         check.eq(c["counts"]["done"], n, "c copies done")
         check.eq(api.bytes_sent, sent, "bytes re-sent for c")
 
@@ -934,7 +906,7 @@ async def undo_import(ctx: ScenarioContext) -> ScenarioResult:
         files = image_set(n, 10_200_000, folder="Undo/Busy", width=480, height=360)
         busy = await api.start(files, label="busy")
         await api.supply(busy, files)
-        await api.wait([busy.job_id], until=lambda j: j["counts"]["done"] >= BATCH_SIZE)
+        await api.wait_one(busy.job_id, until=done_at_least(BATCH_SIZE))
         t = time.monotonic()
         r = await api.undo(busy.job_id)
         check.eq(r.status_code, 200, "undo mid-processing")
@@ -984,7 +956,7 @@ async def retry_failed(ctx: ScenarioContext) -> ScenarioResult:
             all(responses[i].json()["state"] == "failed" for i in garbage),
             "garbage bytes should fail validation",
         )
-        job = (await api.wait([started.job_id]))[started.job_id]
+        job = await api.wait_one(started.job_id)
         check.eq((job["counts"]["done"], job["counts"]["failed"]), (10, 8), "first pass")
         kinds = {i["error_kind"] for i in await api.items(started.job_id, ["failed"])}
         check.eq(kinds, {"file"}, "failure kinds")
@@ -997,7 +969,7 @@ async def retry_failed(ctx: ScenarioContext) -> ScenarioResult:
         check.eq(len(awaiting), 5, "validation failures need bytes again")
         fixed = dict(fixable)
         await api.upload(started.job_id, {i["id"]: fixed[i["relative_path"]] for i in awaiting})
-        job = (await api.wait([started.job_id]))[started.job_id]
+        job = await api.wait_one(started.job_id)
         check.eq(
             (job["status"], job["counts"]["done"], job["counts"]["failed"]),
             ("completed", 15, 3),
@@ -1017,9 +989,7 @@ async def interrupted_upload_resume(ctx: ScenarioContext) -> ScenarioResult:
         api = ImportClient(http, env.stats)
         started = await api.start(files, label="resume")
         await api.supply(started, files[:20])
-        job = (await api.wait([started.job_id], until=lambda j: j["counts"]["done"] >= 20))[
-            started.job_id
-        ]
+        job = await api.wait_one(started.job_id, until=done_at_least(20))
         check.eq(
             (job["status"], job["counts"]["awaiting_bytes"]), ("active", 40), "job waits for bytes"
         )
@@ -1039,10 +1009,10 @@ async def interrupted_upload_resume(ctx: ScenarioContext) -> ScenarioResult:
         # Re-sending bytes of finished items is a harmless no-op.
         replay = await api2.upload(started.job_id, {started.item_ids[p]: d for p, d in files[:5]})
         check(all(r.status_code == 200 for r in replay.values()), "re-PUT of done items")
-        await api2.wait([started.job_id], until=lambda j: j["counts"]["done"] >= 40)
+        await api2.wait_one(started.job_id, until=done_at_least(40))
         r = await api2.action(started.job_id, "finish-upload")
         check.eq(r.json().get("affected"), 20, "finish-upload skipped")
-        job = (await api2.wait([started.job_id]))[started.job_id]
+        job = await api2.wait_one(started.job_id)
         check.eq(
             (job["status"], job["counts"]["done"], job["counts"]["skipped"]),
             ("completed", 40, 20),
@@ -1057,7 +1027,7 @@ async def zip_archives(ctx: ScenarioContext) -> ScenarioResult:
     env = Env(ctx)
     check = env.check
     fx = env.fixtures
-    large_count = 1000 if fx.large_mode else 100
+    large_count = fx.large_zip_count
     mixed = zip_bytes(
         [
             *image_set(5, 13_000_000, folder="ZipAuthor/Mixed Pack"),
@@ -1070,9 +1040,7 @@ async def zip_archives(ctx: ScenarioContext) -> ScenarioResult:
     async with env.client() as http:
         api = ImportClient(http, env.stats)
         job_id = await api.create("zips")
-        manifest = await api.manifest(
-            job_id, [{"relative_path": p, "size": len(d)} for p, d in loose]
-        )
+        manifest = await api.manifest(job_id, entries(loose))
         results = {}
         t = time.monotonic()
         for name, data in [
@@ -1104,13 +1072,12 @@ async def zip_archives(ctx: ScenarioContext) -> ScenarioResult:
             "mixed.zip created/failed",
         )
 
-        detail = await api.seal(job_id)
+        await api.seal(job_id)
         r = await api.archive(job_id, "late.zip", fx.zip_small.read_bytes())
         check.eq(r.status_code, 409, "archive after seal")
-        ids = {m["relative_path"]: m["item_id"] for m in manifest}
-        await api.supply(StartedImport(job_id, ids, manifest, detail), loose)
-        job = (await api.wait([job_id]))[job_id]
-        c = counts_of(job)
+        await api.supply(StartedImport(job_id, manifest), loose)
+        job = await api.wait_one(job_id)
+        c = job["counts"]
         check.eq(job["status"], "completed", "status")
         expected_done = 10 + large_count + 5 + 5
         check.eq(c["done"], expected_done, "done")
@@ -1176,8 +1143,8 @@ async def malformed_input(ctx: ScenarioContext) -> ScenarioResult:
         )
         await api.action(started.job_id, "finish-upload")  # the empty file never arrives
 
-        job = (await api.wait([started.job_id]))[started.job_id]
-        c = counts_of(job)
+        job = await api.wait_one(started.job_id)
+        c = job["counts"]
         check.eq(job["status"], "completed", "status")
         failed = {i["relative_path"]: i for i in await api.items(started.job_id, ["failed"])}
         for path, _ in bad:
@@ -1269,7 +1236,7 @@ async def large_uploads(ctx: ScenarioContext) -> ScenarioResult:
         t = time.monotonic()
         await api.supply(started, files, use_hashes=False)
         t_up = time.monotonic() - t
-        job = (await api.wait([started.job_id], timeout=1800))[started.job_id]
+        job = await api.wait_one(started.job_id, timeout=1800)
         t_all = time.monotonic() - t
         env.check.eq(job["counts"]["done"], len(files), "big files done")
         env.check.note(
@@ -1281,9 +1248,9 @@ async def large_uploads(ctx: ScenarioContext) -> ScenarioResult:
             r = await api.archive(job_id, "large.zip", fx.zip_large.read_bytes())
             env.check.eq(r.status_code, 200, "large zip upload")
             await api.seal(job_id)
-            zjob = (await api.wait([job_id], timeout=1800))[job_id]
-            env.check.eq(zjob["counts"]["done"], 1000, "large zip done")
-            expected += 1000
+            zjob = await api.wait_one(job_id, timeout=1800)
+            env.check.eq(zjob["counts"]["done"], fx.large_zip_count, "large zip done")
+            expected += fx.large_zip_count
         env.lib.integrity(env.check, expect_images=expected)
     return env.finish("large_uploads", api, f"{len(files)} big files ({total_mb:.0f} MB)")
 
@@ -1302,12 +1269,12 @@ async def server_restart_recovery(ctx: ScenarioContext) -> ScenarioResult:
         await api.supply(partial, half[:15])
         await api.supply(main, files)
         before = (
-            await api.wait(
-                [main.job_id],
+            await api.wait_one(
+                main.job_id,
                 until=lambda j: j["counts"]["done"] >= BATCH_SIZE and j["counts"]["processing"] > 0,
                 interval=0.05,
             )
-        )[main.job_id]["counts"]
+        )["counts"]
 
     t = time.monotonic()
     ctx.server.restart(kill=True)
@@ -1364,15 +1331,10 @@ async def maintenance_during_import(ctx: ScenarioContext) -> ScenarioResult:
         check.eq(mid["counts"]["skipped"], 0, "items skipped by maintenance")
         check.eq(mid["status"], "active", "status during upload")
         await api.supply(started, files[sent:])
-        job = (await api.wait([started.job_id]))[started.job_id]
+        job = await api.wait_one(started.job_id)
         check.eq((job["status"], job["counts"]["done"]), ("completed", n), "final")
         env.lib.integrity(check, expect_images=n)
     return env.finish("maintenance_during_import", api, "maintenance left the import alone")
-
-
-# ---------------------------------------------------------------------------
-# Registry
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -1382,7 +1344,6 @@ class Scenario:
     default_time: str
     quick_time: str
     summary: str
-    needs_model: bool = True
 
 
 SCENARIO_REGISTRY: list[Scenario] = [
