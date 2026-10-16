@@ -85,10 +85,6 @@ class Settings(BaseSettings):
     supported_formats: list[str] = [".jpg", ".jpeg", ".png", ".webp"]
     supported_video_formats: list[str] = [".mp4", ".webm"]
 
-    @property
-    def all_supported_formats(self) -> list[str]:
-        return self.supported_formats + self.supported_video_formats
-
     # Rate limiting
     rate_limit_expensive: str = "2/minute"
     rate_limit_destructive: str = "1/minute"

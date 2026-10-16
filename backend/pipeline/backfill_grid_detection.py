@@ -124,8 +124,8 @@ def detect_grids_batch(image_ids: list[int], force: bool = False) -> dict:
                 image.grid_confidence = result["confidence"]
                 detected += 1
 
-            except Exception as e:
-                logger.error("Image %s: grid detection error: %s", image.id, e)
+            except Exception:
+                logger.exception("Image %s: grid detection error", image.id)
                 errors += 1
 
         db.commit()

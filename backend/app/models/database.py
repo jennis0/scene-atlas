@@ -17,7 +17,6 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     create_engine,
-    text,
 )
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
@@ -333,85 +332,6 @@ def get_engine(database_url: str = "sqlite:///./data/battlemap.db"):
 def get_session_local(engine):
     """Create session factory."""
     return sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-
-def _migrate_images_content_hash(engine):
-    """Add content_hash column and remove UNIQUE constraint from storage_key.
-
-    SQLite cannot ALTER TABLE to drop constraints, so we recreate the table
-    when the migration is needed. This is idempotent — it checks whether
-    content_hash already exists before doing anything.
-    """
-    with engine.connect() as conn:
-        # Check if migration is needed
-        cols = conn.execute(text("PRAGMA table_info(images)")).fetchall()
-        col_names = {row[1] for row in cols}
-
-        if "content_hash" in col_names:
-            return  # Already migrated
-
-        logger.info("Migrating images table: adding content_hash, removing UNIQUE on storage_key")
-
-        # Drop FTS triggers first (they reference the images table)
-        conn.execute(text("DROP TRIGGER IF EXISTS image_fts_ai"))
-        conn.execute(text("DROP TRIGGER IF EXISTS image_fts_ad"))
-        conn.execute(text("DROP TRIGGER IF EXISTS image_fts_au"))
-        # Drop FTS table so it gets recreated fresh by init_db
-        conn.execute(text("DROP TABLE IF EXISTS image_fts"))
-
-        # Recreate images table without UNIQUE on storage_key, with content_hash
-        conn.execute(
-            text("""
-            CREATE TABLE images_new (
-                id INTEGER PRIMARY KEY,
-                filename VARCHAR NOT NULL,
-                storage_key VARCHAR NOT NULL,
-                name VARCHAR,
-                author VARCHAR,
-                variant_group_id INTEGER REFERENCES variant_groups(id),
-                width INTEGER,
-                height INTEGER,
-                file_size INTEGER,
-                gridded BOOLEAN,
-                grid_width INTEGER,
-                grid_height INTEGER,
-                sub_variant VARCHAR,
-                content_hash VARCHAR(64),
-                thumbnail_key VARCHAR,
-                created_at DATETIME,
-                updated_at DATETIME
-            )
-        """)
-        )
-
-        conn.execute(
-            text("""
-            INSERT INTO images_new (
-                id, filename, storage_key, name, author, variant_group_id,
-                width, height, file_size, gridded, grid_width, grid_height,
-                sub_variant, thumbnail_key, created_at, updated_at
-            )
-            SELECT
-                id, filename, storage_key, name, author, variant_group_id,
-                width, height, file_size, gridded, grid_width, grid_height,
-                sub_variant, thumbnail_key, created_at, updated_at
-            FROM images
-        """)
-        )
-
-        conn.execute(text("DROP TABLE images"))
-        conn.execute(text("ALTER TABLE images_new RENAME TO images"))
-
-        # Recreate indexes
-        conn.execute(text("CREATE INDEX ix_images_id ON images (id)"))
-        conn.execute(text("CREATE INDEX ix_images_filename ON images (filename)"))
-        conn.execute(text("CREATE INDEX ix_images_storage_key ON images (storage_key)"))
-        conn.execute(text("CREATE INDEX ix_images_name ON images (name)"))
-        conn.execute(text("CREATE INDEX ix_images_author ON images (author)"))
-        conn.execute(text("CREATE INDEX ix_images_content_hash ON images (content_hash)"))
-
-        conn.commit()
-        logger.info("Images table migration complete")
 
 
 def init_db(engine):

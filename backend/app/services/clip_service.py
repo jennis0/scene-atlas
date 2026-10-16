@@ -313,12 +313,10 @@ class CLIPService:
         )
 
         # Per-session provider tracking — used by _run_with_fallback and DML recreation.
-        # _active_providers exposes the vision provider as the meaningful GPU indicator.
         self._session_providers: dict[str, list[str]] = {
             "_vision_session": vision_actual,
             "_text_session": text_actual,
         }
-        self._active_providers = vision_actual
 
         logger.info(
             "ONNX providers — vision (%s): %s, text (%s): %s",
@@ -355,11 +353,6 @@ class CLIPService:
         logger.info("ONNX models loaded (%s)", manifest.get("model_id", "unknown"))
 
     # ── Properties ────────────────────────────────────────────────────────
-
-    @property
-    def active_providers(self) -> list[str]:
-        """ORT execution providers in use (e.g. ``["CUDAExecutionProvider", "CPUExecutionProvider"]``)."""
-        return self._active_providers
 
     @property
     def embedding_dim(self) -> int:
@@ -438,7 +431,6 @@ class CLIPService:
         new_session, actual = create_session_with_fallback(model_path, session_providers, sess_opts)
         setattr(self, session_attr, new_session)
         self._session_providers[session_attr] = actual
-        self._active_providers = self._session_providers["_vision_session"]
         self._inference_count = 0
 
     def _run_with_fallback(
@@ -466,7 +458,6 @@ class CLIPService:
             new_session = ort.InferenceSession(model_path, cpu_opts, providers=cpu_providers)
             setattr(self, session_attr, new_session)
             self._session_providers[session_attr] = cpu_providers
-            self._active_providers = self._session_providers["_vision_session"]
             self._inference_count = 0
             return new_session.run(output_names, feed)
 
@@ -481,26 +472,21 @@ class CLIPService:
         Returns:
             Embedding vector as list of floats (L2-normalised).
         """
-        try:
-            with Image.open(image_path) as img:
-                pixel_values = self._preprocess_image(img.convert("RGB"))
+        with Image.open(image_path) as img:
+            pixel_values = self._preprocess_image(img.convert("RGB"))
 
-            pixel_values = pixel_values[np.newaxis, ...]
+        pixel_values = pixel_values[np.newaxis, ...]
 
-            self._maybe_recreate_dml_session("_vision_session", self._vision_model_path)
-            (embeddings,) = self._run_with_fallback(
-                "_vision_session",
-                self._vision_model_path,
-                ["embeddings"],
-                {"pixel_values": pixel_values},
-            )
-            embedding = embeddings[0].tolist()
-            logger.debug("Generated embedding for %s, size: %s", image_path, len(embedding))
-            return embedding
-
-        except Exception as e:
-            logger.error("Error encoding image %s: %s", image_path, e)
-            raise
+        self._maybe_recreate_dml_session("_vision_session", self._vision_model_path)
+        (embeddings,) = self._run_with_fallback(
+            "_vision_session",
+            self._vision_model_path,
+            ["embeddings"],
+            {"pixel_values": pixel_values},
+        )
+        embedding = embeddings[0].tolist()
+        logger.debug("Generated embedding for %s, size: %s", image_path, len(embedding))
+        return embedding
 
     def encode_text(self, text: str) -> list[float]:
         """Generate embedding for text query.
@@ -518,32 +504,27 @@ class CLIPService:
         if cached is not None:
             return list(cached)
 
-        try:
-            encoding = self._tokenizer.encode(text)
+        encoding = self._tokenizer.encode(text)
 
-            input_ids = np.array([encoding.ids], dtype=np.int64)
-            attention_mask = np.array([encoding.attention_mask], dtype=np.int64)
+        input_ids = np.array([encoding.ids], dtype=np.int64)
+        attention_mask = np.array([encoding.attention_mask], dtype=np.int64)
 
-            self._maybe_recreate_dml_session("_text_session", self._text_model_path)
-            (embeddings,) = self._run_with_fallback(
-                "_text_session",
-                self._text_model_path,
-                ["embeddings"],
-                {"input_ids": input_ids, "attention_mask": attention_mask},
-            )
-            embedding = embeddings[0].tolist()
-            logger.debug("Generated text embedding for '%s', size: %s", text, len(embedding))
+        self._maybe_recreate_dml_session("_text_session", self._text_model_path)
+        (embeddings,) = self._run_with_fallback(
+            "_text_session",
+            self._text_model_path,
+            ["embeddings"],
+            {"input_ids": input_ids, "attention_mask": attention_mask},
+        )
+        embedding = embeddings[0].tolist()
+        logger.debug("Generated text embedding for '%s', size: %s", text, len(embedding))
 
-            # Store as tuple to save memory; evict oldest if full
-            if len(_text_embedding_cache) >= _TEXT_CACHE_MAX:
-                _text_embedding_cache.pop(next(iter(_text_embedding_cache)))
-            _text_embedding_cache[text] = tuple(embedding)
+        # Store as tuple to save memory; evict oldest if full
+        if len(_text_embedding_cache) >= _TEXT_CACHE_MAX:
+            _text_embedding_cache.pop(next(iter(_text_embedding_cache)))
+        _text_embedding_cache[text] = tuple(embedding)
 
-            return embedding
-
-        except Exception as e:
-            logger.error("Error encoding text '%s': %s", text, e)
-            raise
+        return embedding
 
     def batch_encode_images(self, image_paths: list[str | Path]) -> list[list[float]]:
         """Generate embeddings for multiple images in batch.
@@ -554,33 +535,28 @@ class CLIPService:
         Returns:
             List of embedding vectors.
         """
-        try:
-            pixel_batch = []
-            for path in image_paths:
-                with Image.open(path) as img:
-                    pixel_batch.append(self._preprocess_image(img.convert("RGB")))
+        pixel_batch = []
+        for path in image_paths:
+            with Image.open(path) as img:
+                pixel_batch.append(self._preprocess_image(img.convert("RGB")))
 
-            pixel_values = np.stack(pixel_batch, axis=0)
-            del pixel_batch
+        pixel_values = np.stack(pixel_batch, axis=0)
+        del pixel_batch
 
-            self._maybe_recreate_dml_session(
-                "_vision_session",
-                self._vision_model_path,
-                item_count=len(image_paths),
-            )
-            (embeddings,) = self._run_with_fallback(
-                "_vision_session",
-                self._vision_model_path,
-                ["embeddings"],
-                {"pixel_values": pixel_values},
-            )
-            result = embeddings.tolist()
-            logger.debug("Generated batch embeddings for %s images", len(image_paths))
-            return result
-
-        except Exception as e:
-            logger.error("Error batch encoding images: %s", e)
-            raise
+        self._maybe_recreate_dml_session(
+            "_vision_session",
+            self._vision_model_path,
+            item_count=len(image_paths),
+        )
+        (embeddings,) = self._run_with_fallback(
+            "_vision_session",
+            self._vision_model_path,
+            ["embeddings"],
+            {"pixel_values": pixel_values},
+        )
+        result = embeddings.tolist()
+        logger.debug("Generated batch embeddings for %s images", len(image_paths))
+        return result
 
 
 # ── Singleton with background-load support ───────────────────────────────────
@@ -618,7 +594,7 @@ def _load_clip() -> None:
     except Exception as exc:
         with _clip_lock:
             _clip_error = exc
-        logger.error(
+        logger.exception(
             "Embedding model load failed: %s. "
             "The app will run but semantic search will not work until the model is available.",
             exc,

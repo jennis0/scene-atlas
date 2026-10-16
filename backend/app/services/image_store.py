@@ -9,7 +9,6 @@ swappable to S3/MinIO later.
 """
 
 import shutil
-import uuid
 from pathlib import Path
 
 
@@ -78,16 +77,3 @@ class ImageStore:
             return True
         except FileNotFoundError:
             return False
-
-    @staticmethod
-    def generate_key(original_filename: str) -> str:
-        """Generate a unique storage key preserving the file extension.
-
-        Args:
-            original_filename: Original filename (used only for extension)
-
-        Returns:
-            UUID-based key like "a1b2c3d4e5f67890abcdef1234567890.jpg"
-        """
-        ext = Path(original_filename).suffix.lower()
-        return f"{uuid.uuid4().hex}{ext}"

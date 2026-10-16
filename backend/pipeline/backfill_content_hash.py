@@ -54,8 +54,8 @@ def backfill_batch(image_ids: list[int]) -> dict:
 
                 image.content_hash = _compute_file_hash(file_path)
                 updated += 1
-            except Exception as e:
-                logger.error("Image %s: error computing hash: %s", image.id, e)
+            except Exception:
+                logger.exception("Image %s: error computing hash", image.id)
                 errors += 1
 
         db.commit()

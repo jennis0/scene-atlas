@@ -13,19 +13,6 @@ from zipfile import BadZipFile, ZipFile
 logger = logging.getLogger(__name__)
 
 
-def is_path_within(base_dir: Path, target: Path) -> bool:
-    """Return True if *target* resolves to a path inside *base_dir*.
-
-    Uses Path.relative_to() — immune to the adjacent-prefix false-positive
-    that str.startswith() suffers from.
-    """
-    try:
-        target.resolve().relative_to(base_dir.resolve())
-        return True
-    except ValueError:
-        return False
-
-
 def check_zip_safety(zip_path: Path, max_files: int, max_uncompressed_bytes: int) -> None:
     """Raise ValueError if ZIP exceeds file count or total uncompressed size.
 

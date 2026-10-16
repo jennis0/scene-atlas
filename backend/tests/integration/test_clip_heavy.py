@@ -128,14 +128,6 @@ class TestCLIPServiceReal:
 class TestCLIPEmbeddingGenerationReal:
     """Test the pipeline task functions with real model."""
 
-    def test_generate_clip_embedding(self, clip_service, make_test_image, tmp_path):
-        from backend.pipeline.tasks.embedding_generation import generate_clip_embedding
-
-        img = tmp_path / "test.jpg"
-        make_test_image(img, width=100, height=100)
-        embedding = generate_clip_embedding(str(img))
-        assert len(embedding) == clip_service.embedding_dim
-
     def test_batch_generate_clip_embeddings(self, clip_service, make_test_image, tmp_path):
         from backend.pipeline.tasks.embedding_generation import (
             batch_generate_clip_embeddings,

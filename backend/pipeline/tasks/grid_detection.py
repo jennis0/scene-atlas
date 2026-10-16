@@ -62,8 +62,8 @@ def detect_grid_from_image(
 
         return dict(result)
 
-    except Exception as e:
-        logger.error("Grid detection failed for %s: %s", image_path, e)
+    except Exception:
+        logger.exception("Grid detection failed for %s", image_path)
         return {
             "gridded": None,
             "grid_type": None,

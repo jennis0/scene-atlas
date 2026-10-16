@@ -108,8 +108,8 @@ def reparse_image_names_batch(
                     updated += 1
                 else:
                     unchanged += 1
-            except Exception as e:
-                logging.getLogger(__name__).error("Image %s: error reparsing name: %s", image.id, e)
+            except Exception:
+                logging.getLogger(__name__).exception("Image %s: error reparsing name", image.id)
                 errors += 1
 
         db.commit()

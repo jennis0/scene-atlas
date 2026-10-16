@@ -546,14 +546,6 @@ class ImageParser:
                 return words[n:]
         return words
 
-    def _strip_word_prefix(self, words: list[str], prefix_words: list[str]) -> list[str]:
-        """Remove leading words that match *prefix_words* (case-insensitive)."""
-        if not prefix_words or len(words) < len(prefix_words):
-            return words
-        if all(w.lower() == p.lower() for w, p in zip(words, prefix_words, strict=False)):
-            return words[len(prefix_words) :]
-        return words
-
     def _strip_word_sequence(self, words: list[str], seq_words: list[str]) -> list[str]:
         """Remove first occurrence of a contiguous word sequence (anywhere)."""
         if not seq_words:

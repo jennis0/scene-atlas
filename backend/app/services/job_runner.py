@@ -200,15 +200,6 @@ class JobRunner:
                     return rec.id
             return None
 
-    def run_sync(self, fn: Callable, *args: Any, timeout: float = 120, **kwargs: Any) -> Any:
-        """Run a function in the thread pool and block until complete.
-
-        For callers that must wait for a result while respecting the pool's
-        concurrency limit.
-        """
-        future = self._executor.submit(fn, *args, **kwargs)
-        return future.result(timeout=timeout)
-
     def shutdown(self, wait: bool = True) -> None:
         """Signal workers to stop, then drain the queue."""
         logger.info("JobRunner shutting down (wait=%s)...", wait)
@@ -279,15 +270,6 @@ def get_job_runner() -> JobRunner:
                 pass  # DB may not be ready on very first boot — use default
             _job_runner = JobRunner(max_workers=max_workers)
     return _job_runner
-
-
-def is_shutting_down() -> bool:
-    """Return True if the global JobRunner has been asked to shut down.
-
-    Safe to call from worker threads to bail out of long-running loops.
-    Returns False if no JobRunner has been created yet.
-    """
-    return _job_runner is not None and _job_runner.shutting_down
 
 
 def shutdown_job_runner() -> None:
