@@ -64,3 +64,31 @@ def export_path(img: Image, group_name: str | None, author: str | None) -> str:
         return f"{author_seg}/{group_seg}/{filename}"
 
     return f"{author_seg}/_Ungrouped/{filename}"
+
+
+def unique_export_path(img: Image, seen: set[str]) -> str:
+    """``export_path`` for *img*, suffixed `` (2)``, `` (3)``… if already in *seen*; records it."""
+    arc = export_path(img, img.group.base_name if img.group else None, img.author)
+    if arc in seen:
+        path = Path(arc)
+        n = 2
+        while f"{path.parent}/{path.stem} ({n}){path.suffix}" in seen:
+            n += 1
+        arc = f"{path.parent}/{path.stem} ({n}){path.suffix}"
+    seen.add(arc)
+    return arc
+
+
+def export_metadata(img: Image) -> dict:
+    """The ``metadata.json`` entry for one exported image."""
+    tags_by_cat: dict[str, list[str]] = {}
+    for tag in img.tags:
+        tags_by_cat.setdefault(tag.category, []).append(tag.value)
+    return {
+        "image_type": img.image_type or "battlemap",
+        "gridded": bool(img.gridded),
+        "grid_type": img.grid_type,
+        "grid_width": img.grid_width,
+        "grid_height": img.grid_height,
+        "tags": tags_by_cat,
+    }

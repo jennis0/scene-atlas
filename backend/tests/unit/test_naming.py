@@ -2,7 +2,13 @@
 
 from types import SimpleNamespace
 
-from backend.pipeline.naming import download_filename, export_path, sanitize_segment
+from backend.pipeline.naming import (
+    download_filename,
+    export_metadata,
+    export_path,
+    sanitize_segment,
+    unique_export_path,
+)
 
 
 class TestSanitizeSegment:
@@ -146,3 +152,51 @@ class TestExportPath:
         img = _mock_image(gridded=False)
         result = export_path(img, "Group", "Author:Name")
         assert result.startswith("Author Name/")
+
+
+def _exportable(**kwargs):
+    group = kwargs.pop("group", SimpleNamespace(base_name="Forest Map"))
+    return _mock_image(group=group, author="AuthorA", tags=[], **kwargs)
+
+
+class TestUniqueExportPath:
+    def test_first_use_is_unchanged_and_recorded(self):
+        seen: set[str] = set()
+        arc = unique_export_path(_exportable(), seen)
+        assert arc == "AuthorA/Forest Map/Forest Map - No Grid.jpg"
+        assert seen == {arc}
+
+    def test_collisions_get_numbered_suffixes(self):
+        seen: set[str] = set()
+        arcs = [unique_export_path(_exportable(), seen) for _ in range(3)]
+        assert arcs == [
+            "AuthorA/Forest Map/Forest Map - No Grid.jpg",
+            "AuthorA/Forest Map/Forest Map - No Grid (2).jpg",
+            "AuthorA/Forest Map/Forest Map - No Grid (3).jpg",
+        ]
+
+    def test_ungrouped_image(self):
+        assert unique_export_path(_exportable(group=None), set()).startswith("AuthorA/_Ungrouped/")
+
+
+class TestExportMetadata:
+    def test_groups_tags_by_category(self):
+        tags = [
+            SimpleNamespace(category="biome", value="forest"),
+            SimpleNamespace(category="biome", value="swamp"),
+            SimpleNamespace(category="mood", value="dark"),
+        ]
+        meta = export_metadata(
+            _mock_image(tags=tags, gridded=True, grid_type="square", grid_width=20, grid_height=15)
+        )
+        assert meta == {
+            "image_type": "battlemap",
+            "gridded": True,
+            "grid_type": "square",
+            "grid_width": 20,
+            "grid_height": 15,
+            "tags": {"biome": ["forest", "swamp"], "mood": ["dark"]},
+        }
+
+    def test_missing_type_defaults_to_battlemap(self):
+        assert export_metadata(_mock_image(image_type=None, tags=[]))["image_type"] == "battlemap"

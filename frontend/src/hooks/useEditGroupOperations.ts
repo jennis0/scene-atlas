@@ -3,7 +3,7 @@ import { groupApi } from '@/lib/api'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { SAVED_INDICATOR_DURATION_MS } from '@/lib/constants'
 import { ALL_TAB } from '@/hooks/useFileEditing'
-import { imageToEditable, buildPayload } from '@/hooks/useEditGroupLoad'
+import { imageToEditable, buildPayload, toImageEdit } from '@/hooks/useEditGroupLoad'
 import type { EditableGroupState, GroupPickerItem } from '@/types'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -180,19 +180,7 @@ export function useEditGroupOperations({
       const response = await groupApi.edit(sourceGId, {
         base_name: source.group_name,
         author: source.author || undefined,
-        images: remainingFiles
-          .filter((f) => !f.excluded)
-          .map((f) => ({
-            id: Number(f.relative_path),
-            name: f.name,
-            tags: f.tags,
-            gridded: f.gridded,
-            grid_width: f.grid_width,
-            grid_height: f.grid_height,
-            grid_type: f.grid_type,
-            subgroup: f.subgroup,
-            image_type: f.image_type,
-          })),
+        images: remainingFiles.filter((f) => !f.excluded).map(toImageEdit),
         new_groups: [
           {
             base_name: `${source.group_name} (split)`,

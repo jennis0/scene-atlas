@@ -25,14 +25,13 @@ import json
 import logging
 import shutil
 import sys
-from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 
 from backend.app.config import settings
 from backend.app.models.database import Image, get_engine, get_session_local
 from backend.app.services import get_image_store
-from backend.pipeline.naming import export_path
+from backend.pipeline.naming import export_metadata, unique_export_path
 
 logger = logging.getLogger(__name__)
 
@@ -89,39 +88,13 @@ def export_library(output_dir: str, progress_fn=None) -> dict:
                 skipped += 1
                 continue
 
-            group_name = img.group.base_name if img.group else None
-            arc = export_path(img, group_name, img.author)
-
-            # Deduplicate before extension
-            if arc in seen_paths:
-                stem = Path(arc).stem
-                ext = Path(arc).suffix
-                parent = str(Path(arc).parent)
-                n = 2
-                while True:
-                    candidate = f"{parent}/{stem} ({n}){ext}"
-                    if candidate not in seen_paths:
-                        arc = candidate
-                        break
-                    n += 1
-            seen_paths.add(arc)
+            arc = unique_export_path(img, seen_paths)
 
             target = dest / arc
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
 
-            tags_by_cat: dict[str, list[str]] = defaultdict(list)
-            for tag in img.tags:
-                tags_by_cat[tag.category].append(tag.value)
-
-            metadata[arc] = {
-                "image_type": img.image_type or "battlemap",
-                "gridded": bool(img.gridded),
-                "grid_type": img.grid_type,
-                "grid_width": img.grid_width,
-                "grid_height": img.grid_height,
-                "tags": dict(tags_by_cat),
-            }
+            metadata[arc] = export_metadata(img)
             exported += 1
 
         processed = min(i + BATCH_SIZE, total)

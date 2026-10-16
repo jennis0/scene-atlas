@@ -254,17 +254,17 @@ export function useFileEditing({
 
   // ── Bulk ops ──────────────────────────────────────────────────────
 
-  // Generic helper: applies a transform to selected, non-excluded, non-outOfScope files.
-  // Returns the updated groups array and saves affected groups via onGroupChange.
-  const bulkUpdateFiles = (
-    groupId: string | null,
+  // Applies `transform` to the selected, non-excluded, in-scope files of every group matching
+  // `inScope`, then saves those groups.
+  const applyToSelected = (
+    inScope: (groupId: string) => boolean,
+    selectionId: string,
     transform: (f: EditableFileState) => EditableFileState,
   ) => {
-    const selId = groupId ?? ALL_GROUP_ID
-    const sel = selections[selId] ?? new Set<string>()
+    const sel = selections[selectionId] ?? new Set<string>()
     setGroups((prev) => {
       const newGroups = prev.map((g) => {
-        if (groupId !== null && g.id !== groupId) return g
+        if (!inScope(g.id)) return g
         return {
           ...g,
           files: g.files.map((f) => {
@@ -273,54 +273,32 @@ export function useFileEditing({
           }),
         }
       })
-      const toSave = groupId !== null ? newGroups.filter((g) => g.id === groupId) : newGroups
+      const toSave = newGroups.filter((g) => inScope(g.id))
       if (toSave.length > 0) notifyGroupChange(toSave)
       return newGroups
     })
   }
 
-  /** Like bulkUpdateFiles but scoped to a specific set of group IDs. Uses selectionId for selection lookup. */
+  /** `groupId` null means every group, using the "all" selection. */
+  const bulkUpdateFiles = (
+    groupId: string | null,
+    transform: (f: EditableFileState) => EditableFileState,
+  ) =>
+    applyToSelected((id) => groupId === null || id === groupId, groupId ?? ALL_GROUP_ID, transform)
+
   const bulkUpdateFilesInGroups = (
     groupIds: string[],
     selectionId: string,
     transform: (f: EditableFileState) => EditableFileState,
   ) => {
     const groupIdSet = new Set(groupIds)
-    const sel = selections[selectionId] ?? new Set<string>()
-    setGroups((prev) => {
-      const newGroups = prev.map((g) => {
-        if (!groupIdSet.has(g.id)) return g
-        return {
-          ...g,
-          files: g.files.map((f) => {
-            if (!sel.has(f.relative_path) || f.excluded || f.outOfScope) return f
-            return transform(f)
-          }),
-        }
-      })
-      const toSave = newGroups.filter((g) => groupIdSet.has(g.id))
-      if (toSave.length > 0) notifyGroupChange(toSave)
-      return newGroups
-    })
+    applyToSelected((id) => groupIdSet.has(id), selectionId, transform)
   }
 
+  const exclude = (f: EditableFileState) => ({ ...f, excluded: true })
+
   const bulkExcludeInGroups = (groupIds: string[], selectionId: string) => {
-    const groupIdSet = new Set(groupIds)
-    const sel = selections[selectionId] ?? new Set<string>()
-    setGroups((prev) => {
-      const newGroups = prev.map((g) => {
-        if (!groupIdSet.has(g.id)) return g
-        return {
-          ...g,
-          files: g.files.map((f) =>
-            !sel.has(f.relative_path) || f.outOfScope ? f : { ...f, excluded: true },
-          ),
-        }
-      })
-      const toSave = newGroups.filter((g) => groupIdSet.has(g.id))
-      if (toSave.length > 0) notifyGroupChange(toSave)
-      return newGroups
-    })
+    bulkUpdateFilesInGroups(groupIds, selectionId, exclude)
     deselectAll(selectionId)
   }
 
@@ -340,23 +318,8 @@ export function useFileEditing({
     bulkUpdateFiles(groupId, (f) => ({ ...f, subgroup: value.trim() || null }))
 
   const bulkExclude = (groupId: string | null) => {
-    const selId = groupId ?? ALL_GROUP_ID
-    const sel = selections[selId] ?? new Set<string>()
-    setGroups((prev) => {
-      const newGroups = prev.map((g) => {
-        if (groupId !== null && g.id !== groupId) return g
-        return {
-          ...g,
-          files: g.files.map((f) =>
-            !sel.has(f.relative_path) || f.outOfScope ? f : { ...f, excluded: true },
-          ),
-        }
-      })
-      const toSave = groupId !== null ? newGroups.filter((g) => g.id === groupId) : newGroups
-      if (toSave.length > 0) notifyGroupChange(toSave)
-      return newGroups
-    })
-    deselectAll(selId)
+    bulkUpdateFiles(groupId, exclude)
+    deselectAll(groupId ?? ALL_GROUP_ID)
   }
 
   // ── Subgroup ops ──────────────────────────────────────────────────

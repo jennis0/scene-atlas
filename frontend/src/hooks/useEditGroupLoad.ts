@@ -41,22 +41,25 @@ export function imageToEditable(img: Image, outOfScope = false): EditableFileSta
   }
 }
 
+export function toImageEdit(f: EditableFileState): GroupEditRequest['images'][number] {
+  return {
+    id: Number(f.relative_path),
+    name: f.name,
+    tags: f.tags,
+    gridded: f.gridded,
+    grid_width: f.grid_width,
+    grid_height: f.grid_height,
+    grid_type: f.grid_type,
+    subgroup: f.subgroup,
+    image_type: f.image_type,
+  }
+}
+
 export function buildPayload(group: EditableGroupState): GroupEditRequest {
-  const kept = group.files.filter((f) => !f.excluded)
   return {
     base_name: group.group_name,
     author: group.author || undefined,
-    images: kept.map((f) => ({
-      id: Number(f.relative_path),
-      name: f.name,
-      tags: f.tags,
-      gridded: f.gridded,
-      grid_width: f.grid_width,
-      grid_height: f.grid_height,
-      grid_type: f.grid_type,
-      subgroup: f.subgroup,
-      image_type: f.image_type,
-    })),
+    images: group.files.filter((f) => !f.excluded).map(toImageEdit),
     new_groups: [],
   }
 }
