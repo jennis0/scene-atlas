@@ -3,7 +3,7 @@
 Real SQLite, real filesystem, real thumbnails, colours and hashes. Embeddings and
 LanceDB are faked. The worker is driven synchronously with ``drain()``.
 
-Covers design/ingest-redesign.md §11: happy path, group resolution, the three
+Covers design/ingestion.md §11: happy path, group resolution, the three
 dedup tiers, import-as-copy, file/transient/system errors, crash recovery,
 cancel/pause/retry, round-robin scheduling, bytes lost, vector reconciliation
 and commit-failure cleanup.
@@ -44,6 +44,7 @@ from backend.pipeline.ingest_queue import (
 )
 from backend.pipeline.ingest_worker import IngestWorker
 from backend.pipeline.pipeline_config import PipelineConfig
+from backend.pipeline.stored_format import StoredFormat
 from backend.pipeline.vector_reconcile import reconcile_vectors
 
 EMBEDDING = [0.1] * 8
@@ -967,3 +968,57 @@ def test_detector_result_records_detector_source(env, monkeypatch):
     with env.SessionLocal() as db:
         img = db.query(Image).one()
     assert (img.gridded, img.grid_width, img.grid_source) == (True, 12, "detector")
+
+
+# ---------------------------------------------------------------------------
+# Stored format (design §10)
+# ---------------------------------------------------------------------------
+
+
+def _store_as(env, fmt: str) -> None:
+    env.config = PipelineConfig(
+        enable_image_grid_detection=False, stored_format=StoredFormat(format=fmt)
+    )
+
+
+def test_stored_format_converts_and_keeps_source_hashes(env):
+    _store_as(env, "webp")
+    data = image_bytes(40)
+    job_id = make_job(env, {"A/Map/map.png": data})
+    env.worker.drain()
+
+    assert items_by_path(env, job_id)["A/Map/map.png"].state == st.DONE
+    with env.SessionLocal() as db:
+        image = db.query(Image).one()
+        stored = env.library.get_path(image.storage_key)
+        assert image.storage_key.endswith(".webp")
+        assert image.content_hash == hashlib.sha256(data).hexdigest()
+        assert image.stored_hash == hashlib.sha256(stored.read_bytes()).hexdigest()
+        assert image.stored_hash != image.content_hash
+        assert image.file_size == stored.stat().st_size
+        with PILImage.open(stored) as converted, PILImage.open(io.BytesIO(data)) as source:
+            assert converted.format == "WEBP"
+            assert np.array_equal(np.asarray(converted), np.asarray(source))  # lossless
+    assert not any(p.is_file() for p in (env.library.base_dir / ".incoming").rglob("*"))
+
+
+def test_converted_image_still_catches_reimport_of_original(env):
+    _store_as(env, "webp")
+    data = image_bytes(41)
+    make_job(env, {"A/Map/map.png": data})
+    env.worker.drain()
+    second = make_job(env, {"A/Map/again.png": data})
+    env.worker.drain()
+    item = items_by_path(env, second)["A/Map/again.png"]
+    assert (item.state, item.duplicate_tier) == (st.DUPLICATE, "bytes")
+
+
+def test_image_already_in_target_format_is_stored_unchanged(env):
+    _store_as(env, "jpeg")
+    data = image_bytes(42, fmt="JPEG")
+    make_job(env, {"A/Map/map.jpg": data})
+    env.worker.drain()
+    with env.SessionLocal() as db:
+        image = db.query(Image).one()
+        assert env.library.get_path(image.storage_key).read_bytes() == data
+        assert image.stored_hash == image.content_hash

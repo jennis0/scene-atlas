@@ -1,5 +1,5 @@
 /**
- * Types for the imports API (ADR-018, design/ingest-redesign.md §7).
+ * Types for the imports API (ADR-018, design/ingestion.md §7).
  * Mirrors backend/app/models/import_schemas.py.
  */
 

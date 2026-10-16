@@ -152,7 +152,7 @@ Example: `AbandonedCampsiteNight30x30` → `Abandoned Campsite Night 30 x 30`
 
 ### Integration with Ingestion
 
-In `pipeline/ingestion.py`, the `Image.name` field is populated from `parsed["name"]` (falling back to `group_name` if absent). This gives each image a distinct, human-readable display name separate from its group.
+At commit (`pipeline/ingest_process.py`), the `Image.name` field is populated from `parsed["name"]` (falling back to `group_name` if absent). This gives each image a distinct, human-readable display name separate from its group.
 
 ## Group Detection (`group_files()`)
 
@@ -201,4 +201,4 @@ The parser is type-aware via the `image_type` field (default: `"battlemap"`):
 | Tag extraction | Full | Full |
 | Name/group parsing | Full | Full |
 
-The `image_type` can be set per-file during import (see [web-import.md](web-import.md)). At the storage level, the `Image` model has an `image_type` column that drives conditional UI behavior (e.g., hiding the grid panel for scenes).
+The `image_type` can be set per-file during import (see [ingestion.md](ingestion.md)). At the storage level, the `Image` model has an `image_type` column that drives conditional UI behavior (e.g., hiding the grid panel for scenes).

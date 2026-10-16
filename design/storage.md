@@ -19,7 +19,7 @@ Schema changes are managed by **Alembic** migrations in `backend/alembic/version
 images
   id              INTEGER PK
   filename        TEXT NOT NULL        -- Original filename (display only)
-  storage_key     TEXT NOT NULL        -- Key into ImageStore (NOT unique — shared by dedup records)
+  storage_key     TEXT NOT NULL        -- Key into ImageStore (not unique-constrained; every new import owns its stored file)
   name            TEXT                 -- Display name for the individual image
   author          TEXT
   variant_group_id INTEGER FK → image_groups.id  -- (aliased as group_id in app code)
@@ -35,7 +35,10 @@ images
   grid_confidence FLOAT               -- 0.0–1.0; NULL = filename-detected
   sub_variant     TEXT                -- Subgroup path (aliased as subgroup in app code)
   import_job_id   TEXT                -- FK to import_jobs.id; tracks which import created the image
-  content_hash    TEXT(64)            -- SHA-256 hex digest for deduplication
+  content_hash    TEXT(64)            -- SHA-256 of the ORIGINAL uploaded bytes (design's source_hash); indexed
+  stored_hash     TEXT(64)            -- SHA-256 of the stored file; = content_hash unless converted; indexed
+  pixel_hash      TEXT(64)            -- SHA-256 of canonical decoded pixels (tier-2 dedup); indexed; NULL for video/huge JPEGs
+  phash           INTEGER             -- 64-bit perceptual hash (signed); advisory only
   search_text     TEXT                -- Pre-tokenized text for FTS5 (CamelCase-split)
   thumbnail_key   TEXT                -- Key into thumbnail store
   created_at      DATETIME
@@ -75,34 +78,45 @@ colors
   percentage      FLOAT               -- 0.0–100.0
   color_order     INTEGER             -- 1–5 for dominant colors
 
-import_jobs
+import_jobs                            -- one import the user started (ADR-018)
   id              TEXT PK              -- UUID hex string
-  status          TEXT NOT NULL        -- uploading | staging | active |
-                                       -- completed | failed | cancelled | expired | broken
-  source_label    TEXT                 -- Display label for activity dock
-  total_files     INTEGER DEFAULT 0
-  total_file_size INTEGER DEFAULT 0   -- Accumulated bytes across all upload batches
-  error_message   TEXT
-  job_warnings    TEXT                -- JSON: upload skips and pipeline warnings (migration 017)
-  analysis_result TEXT                 -- JSON: full analysis output for preview reconnection
-  created_at      DATETIME
-  updated_at      DATETIME
-  completed_at    DATETIME
+  status          TEXT NOT NULL        -- active | paused | completed | cancelled (derived from item counts)
+  source_label    TEXT                 -- Display label, e.g. "Forest Pack.zip"
+  default_image_type TEXT              -- battlemap | scene
+  planned_at      DATETIME             -- Set at seal; items are claimable only after this
+  last_upload_at  DATETIME             -- Last byte receipt; drives "upload interrupted" and abandonment
+  dismissed_at    DATETIME             -- Hidden from the dock; never deletes anything
+  created_at, updated_at, completed_at DATETIME
 
-import_group_jobs
-  id              TEXT PK              -- UUID hex string
+import_groups                          -- groups planned from the paths at seal time
+  id              INTEGER PK
   job_id          TEXT FK → import_jobs.id
-  variant_group_name TEXT NOT NULL     -- (aliased as group_name in app code)
-  author          TEXT
-  total_files     INTEGER DEFAULT 0
-  processed_files INTEGER DEFAULT 0
-  failed_files    INTEGER DEFAULT 0
-  status          TEXT NOT NULL DEFAULT 'running'  -- running | completed | failed | cancelled
-  file_errors     TEXT                -- JSON: per-file error dicts [{filename, reason, stage}] (migration 012)
-  error_message   TEXT
-  created_group_id INTEGER             -- FK to variant_groups.id once processing finishes
+  author, group_name TEXT
+  image_group_id  INTEGER FK → variant_groups.id  -- existing group (merge) or created on first commit
+  merged_into_existing BOOLEAN
+  sort_order      INTEGER              -- processing order within the job
   created_at      DATETIME
-  completed_at    DATETIME
+
+import_items                           -- one row per file; all durable ingest state
+  id              INTEGER PK
+  job_id          TEXT FK → import_jobs.id
+  import_group_id INTEGER FK → import_groups.id   -- NULL until sealed
+  kind            TEXT                 -- image | video | archive
+  relative_path, filename TEXT         -- display + resume matching only; never a filesystem path
+  size, last_modified INTEGER          -- from the client manifest
+  image_type      TEXT
+  parsed          TEXT                 -- JSON parser output
+  state           TEXT                 -- awaiting_bytes | ready | processing | done | duplicate | failed | skipped
+  staging_key     TEXT                 -- server-generated staged filename
+  source_hash     TEXT(64)             -- SHA-256 of original bytes (client hint, then server-computed)
+  attempts, retry_after                -- poison detection + transient backoff
+  error_kind, error_stage, error_reason, error_detail  -- kind: file | transient | system | bytes_lost
+  image_id        INTEGER FK → images.id           -- set when done
+  duplicate_of_image_id, duplicate_tier            -- set when duplicate (bytes | pixels)
+  allow_duplicate BOOLEAN              -- "Import as new copy"
+  similar_to_image_id, similarity_distance         -- perceptual flag (advisory)
+  created_at, updated_at DATETIME
+  -- UNIQUE (job_id, relative_path); indexes (state, job_id), (job_id, state), (job_id, import_group_id)
 
 app_settings
   key             TEXT PK              -- Setting identifier (e.g. "grid_detection_enabled")
@@ -120,7 +134,7 @@ A virtual table `image_fts` provides full-text search using the FTS5 extension w
 - `Image` → `ImageGroup` (many-to-one via `group_id` / physical column `variant_group_id`)
 - `Image` → `Tag` (one-to-many, cascade delete)
 - `Image` → `Color` (one-to-many, cascade delete)
-- `ImportJob` → `ImportGroupJob` (one-to-many, cascade delete)
+- `ImportJob` → `ImportGroup`, `ImportItem` (one-to-many, cascade delete); `ImportItem.image_id` → `Image`
 
 ### Column Aliasing
 Several DB columns retain their original names for backward compatibility (avoiding a migration), but are aliased to new names in the SQLAlchemy models. See ADR-011 for details. Key mappings:
@@ -177,7 +191,13 @@ This keeps any directory under ~256 entries.
 The filesystem is a dumb blob store. The DB's `storage_key` and `thumbnail_key` fields are the authoritative references. If a file exists in the store but has no DB entry, it's orphaned. If a DB entry's key points to a missing file, the image is broken.
 
 ### Staging Directory
-Import uploads are saved to `{APP_DATA_DIR}/staging/{job_id}/` using a UUID-flat-file structure — each uploaded file is stored with a UUID-based filename (e.g. `a1b2c3d4.jpg`) rather than the user-supplied path. A `.file_map.json` sidecar maps original relative paths to staging filenames, allowing group detection and the frontend to use original paths as logical identifiers while eliminating path traversal risks (see [security.md](security.md)). After processing, staging files are consumed by `process_single_image` which copies them into the ImageStore. Staging directories should be cleaned up after all groups in a job are processed.
+Each uploaded file is streamed to `{APP_DATA_DIR}/staging/{job_id}/` under a server-generated name recorded in `import_items.staging_key`; the user-supplied `relative_path` never reaches the filesystem (see [security.md](security.md)). Cleanup is state-based, never mtime-based: staged bytes are deleted once their item is `done` or `skipped`; those of `failed` and `duplicate` items are kept for retry / "Import as new copy" until the job is dismissed or completed more than 7 days ago (`ingest_maintenance.py`).
+
+### Atomic placement (`.incoming/`)
+The worker writes each stored original (or converted output) to `{IMAGE_LIBRARY_DIR}/.incoming/` and thumbnails to the thumbnail store's `.incoming/` during prepare, then renames them into place inside the commit transaction, so a file is either fully in the library or not at all. `.incoming/` is cleared at startup, and the orphan sweep only considers the `xx/yy/<key>` shard layout. See [ingestion.md §5.3](ingestion.md#53-commit-protocol).
+
+### Stored format
+By default the library keeps each upload's original bytes. The `stored_format` setting (`original` | `webp` | `jpeg` | `png`, with `stored_quality` 1–100, default 90, and `stored_lossless` for WebP) converts new imports on the worker's temp copy (`backend/pipeline/stored_format.py`). Conversion is skipped when the image is already in the target format, animated, has transparency with a JPEG target, or exceeds 16,383 px for WebP; JPEGs are never encoded as lossless WebP. Duplicate hashes always come from the source, so dedup works whatever the format.
 
 ## Backups
 

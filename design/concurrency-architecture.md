@@ -8,11 +8,14 @@
 |---|---|---|---|
 | HTTP admission control | `asyncio.Semaphore` | resource_detector (min 1) | `max_concurrent_heavy_requests` |
 | Background job pool | `ThreadPoolExecutor` | resource_detector (min 1) | `max_job_workers` |
-| Per-job image prepare | `ThreadPoolExecutor` | resource_detector, RAM-capped | `max_concurrent_prepare` |
+| Ingest image prepare (global pool) | `ThreadPoolExecutor` | resource_detector, RAM-capped | `max_concurrent_prepare` |
+| Ingest memory budget | `MemoryBudget` reservation per image | half of RAM beyond 2 GiB | `INGEST_MEMORY_BUDGET_MB` (env, config.py) |
 | Max file size per upload | request validation | 2 GB | `max_import_file_size` |
 | Max video size per upload | request validation | 2 GB | `max_video_file_size` |
-| Max files per import | request validation | 1000 | `max_import_files` |
-| Max total upload size | request validation | 2 GB | `max_import_total_size` |
+| Max files per import | manifest validation | 50,000 | `MAX_IMPORT_ITEMS` (env, config.py) |
+| Max entries per zip | archive expansion | 1000 | `max_import_files` |
+| Max uncompressed size per zip | archive expansion | 2 GB | `max_import_total_size` |
+| Free space for an import | seal-time check | estimated need | — |
 | CLIP text cache | LRU cache | 256 entries | `CLIP_TEXT_CACHE_MAX` (env, config.py) |
 | Color index TTL | time-based expiry | 60 s | `COLOR_CACHE_TTL_SECONDS` (env, config.py) |
 | Job record retention | age-based cleanup | 3600 s | `JOB_RETENTION_SECONDS` (env, config.py) |
@@ -43,7 +46,7 @@ modes behave identically on first boot.
 
 `seed_default_settings()` runs once when the DB is empty (no `.env` involvement):
 - Concurrency settings: `resource_detector.compute_resource_defaults()`
-- Import limits: sensible hardcoded values (2 GB per file, 1000 files)
+- Import limits: sensible hardcoded values (2 GB per file; 1000 entries / 2 GB uncompressed per zip)
 - Algorithm params: existing fixed defaults (grid detection, color extraction)
 
 To change any value on an existing deployment: use `PATCH /api/v1/settings` then restart.
@@ -69,7 +72,9 @@ On a 2 GB machine this yields 1 worker — correct and safe.
 ## Admission Control Semaphore
 
 `asyncio.Semaphore(max_concurrent_heavy_requests)` created in `app.lifespan`, gates
-`analyse_staged` and `confirm_all_groups` via `acquire_heavy_op` dependency.
+the CPU-heavy import endpoints `POST /imports/{id}/seal` and `PUT /imports/{id}/archives`
+via the `acquire_heavy_op` dependency. Per-file content uploads are not gated: they only
+stream to staging, and processing happens on the `IngestWorker` thread.
 
 ## Memory Monitoring
 

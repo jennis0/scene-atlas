@@ -180,24 +180,19 @@ LanceDB runs **in-process** (disk-backed, memory-mapped, no Docker). Thread-safe
 
 LanceDB is the **semantic search index, not the source of truth** — SQLite is authoritative. If LanceDB loses data, embeddings can be regenerated from images.
 
-**Population during ingestion** (`backend/pipeline/ingestion.py`):
-1. `batch_generate_clip_embeddings(image_paths)` — CLIP encodes images in batched forward passes
-2. `batch_save_to_vector_db(items)` — upserts `{image_id, embedding, metadata}` rows in a single call
+**Population during ingestion** (`backend/pipeline/ingest_process.py`):
+1. `embed()` — CLIP encodes each claimed batch in batched forward passes
+2. `write_vectors()` — after the SQLite commit, upserts `{image_id, embedding, metadata}` rows via `batch_add_embeddings` in a single call. A failure is logged, not fatal; reconciliation repairs it
 3. Each row stores payload: `image_id`, `filename`, `author`, `base_name`
-
-**Single-image flow** (`save_to_vector_db` in `persistence.py`):
-- Used by `process_single_image()` for one-off additions
-- Calls `lancedb_service.add_image_embedding(image_id, embedding, metadata)`
 
 **Deletion** (`backend/app/services/deletion_service.py`):
 - Single image: `lancedb_service.delete_image_embedding(image_id)`
-- Batch (failed import cleanup): `lancedb_service.delete_embeddings(image_ids)`
+- Batch (Undo import): `lancedb_service.delete_embeddings(image_ids)`
 - Cascade deletion removes the LanceDB row alongside SQLite row and filesystem files
 
-**Desync detection** (`backend/pipeline/maintenance.py`):
-- Scheduled daily: compares `images` row count vs LanceDB row count
-- Logs warning if delta exceeds 10 images
-- Repair: run `write_new_embeddings` pipeline script
+**Reconciliation** (`backend/pipeline/vector_reconcile.py`):
+- Runs once the model has loaded at startup, and daily via the scheduler
+- Compares image id sets (not counts) between SQLite and LanceDB and re-embeds missing ids from the stored file
 
 **Full rebuild** (`backend/pipeline/write_new_embeddings.py`):
 - `rebuild_all_embeddings()` — deletes the entire LanceDB table and regenerates all embeddings from stored images
@@ -272,10 +267,9 @@ Three SQLite triggers keep `image_fts` in sync with the `images` table:
 | `frontend/src/hooks/useGallerySearch.ts` | Search state management, prefix parsing |
 | `frontend/src/components/GalleryHeader.tsx` | Search input UI, mode indicator icon |
 | `frontend/src/lib/api/searchApi.ts` | API client for search endpoints |
-| `backend/pipeline/ingestion.py` | Embedding generation + LanceDB population during ingest |
-| `backend/pipeline/persistence.py` | `batch_save_to_vector_db()`, `save_to_vector_db()` |
+| `backend/pipeline/ingest_process.py` | Embedding generation + LanceDB population during ingest |
 | `backend/pipeline/write_new_embeddings.py` | Full LanceDB rebuild from stored images |
-| `backend/pipeline/maintenance.py` | Scheduled desync detection (DB vs LanceDB count) |
+| `backend/pipeline/vector_reconcile.py` | Id-set reconciliation between SQLite and LanceDB |
 | `backend/app/services/deletion_service.py` | Cascade deletion (SQLite + LanceDB + filesystem) |
 | `backend/alembic/versions/001_initial_schema.py` | FTS5 table + trigger creation |
 | `backend/alembic/versions/015_search_ranking.py` | Tokenizer upgrade (diacritics) |

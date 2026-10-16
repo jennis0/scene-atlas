@@ -19,7 +19,9 @@ Usage in pipeline entry points:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from .stored_format import StoredFormat
 
 
 @dataclass
@@ -39,8 +41,8 @@ class PipelineConfig:
     ingestion_batch_size: int = 16
     max_concurrent_prepare: int = 4
 
-    # Import processing
-    use_webp: bool = False
+    # Storage format for imported images (design/ingestion.md §10)
+    stored_format: StoredFormat = field(default_factory=StoredFormat)
 
     @property
     def grid_max_dim(self) -> int | None:
@@ -58,7 +60,9 @@ class PipelineConfig:
             color_kmeans_n_init=s.color_kmeans_n_init,
             ingestion_batch_size=s.ingestion_batch_size,
             max_concurrent_prepare=s.max_concurrent_prepare,
-            use_webp=s.convert_to_webp,
+            stored_format=StoredFormat(
+                format=s.stored_format, quality=s.stored_quality, lossless=s.stored_lossless
+            ),
         )
 
 

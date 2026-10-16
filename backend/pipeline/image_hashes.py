@@ -1,4 +1,4 @@
-"""Content hashes used for duplicate detection (ADR-018, design/ingest-redesign.md §6).
+"""Content hashes used for duplicate detection (ADR-018, design/ingestion.md §6).
 
 Three tiers:
 

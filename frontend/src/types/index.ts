@@ -323,8 +323,10 @@ export interface AppSettings {
   max_import_files: number
   max_import_total_size: number
 
-  // Import options
-  convert_to_webp: boolean
+  // Storage format for new imports
+  stored_format: 'original' | 'webp' | 'jpeg' | 'png'
+  stored_quality: number
+  stored_lossless: boolean
 
   // Job runner (takes effect on next restart)
   max_job_workers: number

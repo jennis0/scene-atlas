@@ -102,6 +102,10 @@ def _classify(exc: Exception, stage: str) -> tuple[str, str]:
     if "could not read image" in msg:
         return "Image could not be read for processing", KIND_FILE
 
+    # --- Video read failures (video_utils) ---
+    if "cannot open video" in msg or "cannot read first frame" in msg:
+        return "Video is corrupt or not a supported format", KIND_FILE
+
     # --- File system errors ---
     if isinstance(exc, OSError) and getattr(exc, "errno", None) == errno.ENOSPC:
         return "Not enough disk space to process image", KIND_SYSTEM

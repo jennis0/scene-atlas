@@ -146,3 +146,9 @@ class TestErrorKinds:
         """Unknown errors get bounded retries rather than failing on the first try."""
         result = classify_ingest_error(RuntimeError("weird"), stage="colors")
         assert result["kind"] == "transient"
+
+    def test_unreadable_video_is_a_file_error(self):
+        for msg in ("Cannot open video: /x.mp4", "Cannot read first frame from: /x.webm"):
+            result = classify_ingest_error(ValueError(msg), stage="thumbnails")
+            assert result["kind"] == "file"
+            assert result["reason"] == "Video is corrupt or not a supported format"

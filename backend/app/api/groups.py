@@ -27,7 +27,7 @@ from ..models.schemas import (
     MoveImagesResponse,
 )
 from ..services import get_image_store, safe_delete_image
-from .dependencies import get_db
+from .dependencies import get_db, write_locked
 
 router = APIRouter()
 
@@ -303,6 +303,7 @@ def delete_group(
 
 
 @router.post("/{group_id}/move-images", response_model=MoveImagesResponse)
+@write_locked
 def move_images(
     group_id: int,
     payload: MoveImagesRequest,

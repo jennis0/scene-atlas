@@ -61,13 +61,13 @@ These settings are accessible from **Settings** in the web UI and stored in the 
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Convert to WebP | On | Convert imported images to WebP |
-| WebP lossless | On | Use lossless compression (exact pixel copy, smaller file) |
-| WebP quality | 95 | Quality for lossy WebP (0-100, only applies when lossless is off) |
+| Stored format | Original | Format new imports are stored in: Original, WebP, JPEG or PNG (see [Importing](/guide/importing#stored-format)) |
+| Quality | 90 | Quality for WebP and JPEG (1-100) |
+| Lossless WebP for PNGs | On | Store lossless sources as lossless WebP; JPEGs always use the quality setting |
 | Max file size | 2 GB | Maximum size per uploaded file |
 | Max video file size | 2 GB | Maximum size per video file |
-| Max files per import | 1,000 | Maximum files in a single import |
-| Max total import size | 2 GB | Maximum total size per import |
+| Max files per import | 1,000 | Maximum entries in one uploaded ZIP archive |
+| Max total import size | 2 GB | Maximum unpacked size of one uploaded ZIP archive |
 
 ### Grid Detection
 

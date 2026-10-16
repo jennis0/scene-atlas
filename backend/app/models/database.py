@@ -266,7 +266,7 @@ class ImportItem(Base):
     source_hash = Column(String(64), nullable=True)  # SHA-256 of the original bytes
     attempts = Column(Integer, nullable=False, default=0)
     retry_after = Column(DateTime, nullable=True)
-    error_kind = Column(String, nullable=True)  # file | transient | system
+    error_kind = Column(String, nullable=True)  # file | transient | system | bytes_lost
     error_stage = Column(String, nullable=True)
     error_reason = Column(Text, nullable=True)  # User-facing
     error_detail = Column(Text, nullable=True)  # Raw exception text
@@ -559,10 +559,10 @@ def seed_default_settings(session):
         # Job runner — resource-aware default
         "max_job_workers": resource_defaults["max_job_workers"],
         "scheduler_enabled": True,
-        # Import processing — initial value read from env so setup wizard choice is honoured
-        "convert_to_webp": bool(int(os.environ.get("CONVERT_TO_WEBP", "0"))),
-        "webp_lossless": True,
-        "webp_quality": 95,
+        # Storage format — initial value read from env so the setup wizard choice is honoured
+        "stored_format": "webp" if os.environ.get("CONVERT_TO_WEBP", "0") == "1" else "original",
+        "stored_quality": 90,
+        "stored_lossless": True,
     }
 
     for key, value in defaults.items():

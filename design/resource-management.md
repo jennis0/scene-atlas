@@ -36,9 +36,9 @@ max_concurrent_heavy_requests = max(1, min(max(1, cpu // 2), 6))
 
 ### 1. Admission Semaphore (`heavy_op_semaphore`)
 
-**What:** An `asyncio.Semaphore` that gates entry into expensive async-to-thread operations (import analysis, confirm-all).
+**What:** An `asyncio.Semaphore` that gates entry into expensive async-to-thread operations (import seal and server-side zip expansion).
 
-**Why:** Prevents GIL thrashing from too many concurrent `asyncio.to_thread()` calls. Without this, multiple users confirming imports simultaneously would saturate the event loop.
+**Why:** Prevents GIL thrashing from too many concurrent `asyncio.to_thread()` calls. Without this, multiple users sealing large imports or uploading zips simultaneously would saturate the event loop.
 
 **Configured by:** `max_concurrent_heavy_requests` app setting.
 
@@ -48,9 +48,9 @@ max_concurrent_heavy_requests = max(1, min(max(1, cpu // 2), 6))
 
 ### 2. Prepare Pool (`PreparePoolService`)
 
-**What:** A global `ThreadPoolExecutor` shared across all import jobs for CPU-heavy image preparation (thumbnails, color extraction, grid detection).
+**What:** A global `ThreadPoolExecutor` used by the `IngestWorker` for CPU-heavy per-image preparation (decode, hashes, thumbnails, color extraction, grid detection). Each image also reserves its estimated peak memory from `MemoryBudget` (`backend/app/services/memory_budget.py`) before decoding.
 
-**Why:** Without a shared pool, each concurrent import would create its own threads, multiplying memory usage. A single import gets full throughput; two concurrent imports share the budget.
+**Why:** One shared pool bounds memory regardless of how many imports are queued. The worker claims batches round-robin across jobs, so concurrent imports share the pool fairly.
 
 **Configured by:** `max_concurrent_prepare` app setting.
 
@@ -60,9 +60,9 @@ max_concurrent_heavy_requests = max(1, min(max(1, cpu // 2), 6))
 
 ### 3. Job Runner (`JobRunner`)
 
-**What:** A `ThreadPoolExecutor` for background jobs (imports, retagging, embedding rebuilds, backfills). Tracks job status, progress, and results in memory.
+**What:** A `ThreadPoolExecutor` for background jobs (retagging, embedding rebuilds, backfills, vector reconciliation, library deletion). Imports do not use it; they run on the dedicated `IngestWorker` thread. Tracks job status, progress, and results in memory.
 
-**Why:** Heavy processing must not block the async event loop. The thread pool provides bounded concurrency for long-running work. Default of 2 workers allows one import + one maintenance job simultaneously.
+**Why:** Heavy processing must not block the async event loop. The thread pool provides bounded concurrency for long-running work. Default of 2 workers allows two maintenance jobs simultaneously.
 
 **Configured by:** `max_job_workers` app setting.
 

@@ -68,8 +68,6 @@ app.whenReady()
 | `system:choose-app-data-dir` | renderer → main | Opens native folder picker for new app data location |
 | `system:choose-image-library-dir` | renderer → main | Opens native folder picker for new image library location |
 | `system:change-storage-dirs` | renderer → main | Saves new paths (newAppDataDir, newImageLibraryDir), relaunches app |
-| `fs:read-directory` | renderer → main | Recursively walks a folder, returns relative + absolute paths |
-| `fs:read-file-bytes` | renderer → main | Reads file as `Uint8Array` (for hashing and upload) |
 
 ### Preload API Surface
 
@@ -85,15 +83,13 @@ window.electronAPI = {
   chooseAppDataDir: () => Promise<string | null>,
   chooseImageLibraryDir: () => Promise<string | null>,
   changeStorageDirs: (appDataDir, imageLibraryDir) => Promise<void>,
-  readDirectory: (path) => Promise<Array<{relativePath, absolutePath}>>,
-  readFileBytes: (path) => Promise<{data: Uint8Array}>,
 }
 ```
 
 ## Sidecar Lifecycle
 
 1. **Port discovery** — `findFreePort()` binds TCP port 0, reads OS-assigned port, closes socket
-2. **Spawn** — `spawn(sidecarPath, ['--port', port, '--app-data-dir', appDataDir, '--image-library-dir', imageLibraryDir], { env: { CONVERT_TO_WEBP: '1' | '0' } })` with piped stdio
+2. **Spawn** — `spawn(sidecarPath, ['--port', port, '--app-data-dir', appDataDir, '--image-library-dir', imageLibraryDir], { env: { CONVERT_TO_WEBP: '1' | '0' } })` with piped stdio. `CONVERT_TO_WEBP=1` only seeds the `stored_format` app setting to `webp` on first boot (otherwise `original`); after that, Settings → Stored format is authoritative.
 3. **Ready signal** — Main process scans stdout for `SCENE_ATLAS_READY`; when found, sends `backend-ready` IPC to renderer
 4. **Logging** — All stdout/stderr written to `{userData}/backend.log` with timestamps
 5. **Crash handling** — On non-zero exit, sends `backend-error` IPC with last 10 lines of output
@@ -144,7 +140,7 @@ The runtime code (`ort_providers.py`) auto-detects available providers and falls
 | Default app data dir | `{Documents}/Scene Atlas/data` |
 | Default image library dir | `{Documents}/Scene Atlas/images` |
 
-**Migration:** If an existing config contains only `dataDir` (legacy single-root format), it is automatically migrated: `appDataDir ← dataDir`, `imageLibraryDir ← dataDir/store/images`, `convertToWebp ← true`. The migrated config is persisted immediately.
+**Migration:** If an existing config contains only `dataDir` (legacy single-root format), it is automatically migrated: `appDataDir ← dataDir`, `imageLibraryDir ← dataDir/store/images`, `convertToWebp ← false`. The migrated config is persisted immediately.
 
 `userData` is the OS-standard app data path (e.g. `%APPDATA%/Scene Atlas` on Windows, `~/Library/Application Support/Scene Atlas` on macOS).
 

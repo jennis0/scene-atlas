@@ -1,4 +1,4 @@
-"""Process one claimed batch of import items (ADR-018, design/ingest-redesign.md §5.3).
+"""Process one claimed batch of import items (ADR-018, design/ingestion.md §5.3).
 
     prepare (prepare pool) → embed (one batch) → commit (one BEGIN IMMEDIATE
     transaction) → vectors (LanceDB, after commit) → staging cleanup
@@ -48,6 +48,7 @@ from .ingest_queue import (
     write_session,
 )
 from .pipeline_config import PipelineConfig
+from .stored_format import convert as convert_stored_format
 from .tasks import color_extraction, embedding_generation, grid_detection
 from .tasks.image_processing import write_thumbnails
 
@@ -314,12 +315,26 @@ def _prepare(
         else {k: item.parsed.get(k) for k in ("gridded", "grid_width", "grid_height")}
     )
 
-    progress.stage = "copy"
     library_temp_dir = incoming_dir(image_store.base_dir)
     library_temp_dir.mkdir(parents=True, exist_ok=True)
-    temp_original = library_temp_dir / storage_key
-    progress.created.append(temp_original)
-    shutil.copyfile(staged, temp_original)
+    progress.stage = "convert"
+    converted = (
+        convert_stored_format(staged, library_temp_dir, stem, cfg.stored_format)
+        if item.kind != "video"
+        else None
+    )
+    if converted is not None:
+        progress.created.append(converted)
+        temp_original = converted
+        storage_key = converted.name
+        stored_hash = file_sha256(converted)
+        file_size = converted.stat().st_size
+    else:
+        progress.stage = "copy"
+        temp_original = library_temp_dir / storage_key
+        progress.created.append(temp_original)
+        shutil.copyfile(staged, temp_original)
+        stored_hash = source_hash
 
     medium_key, medium_path = thumbnails["medium"]
     return PreparedItem(
@@ -334,8 +349,7 @@ def _prepare(
         file_size=file_size,
         media_type="video" if item.kind == "video" else "image",
         source_hash=source_hash,
-        # No stored-format conversion yet (design §10): the stored file is the original.
-        stored_hash=source_hash,
+        stored_hash=stored_hash,
         pixel_hash=image_pixel_hash,
         phash=image_phash,
         colors=colors,

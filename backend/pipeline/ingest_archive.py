@@ -1,4 +1,4 @@
-"""Expand an uploaded zip into import items (ADR-018, design/ingest-redesign.md §7).
+"""Expand an uploaded zip into import items (ADR-018, design/ingestion.md §7).
 
 Archives are expanded before the manifest is sealed, so their contents are
 grouped together with everything else. Each supported member is extracted to a

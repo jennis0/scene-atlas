@@ -1,4 +1,4 @@
-"""Periodic ingest maintenance (ADR-018, design/ingest-redesign.md §9).
+"""Periodic ingest maintenance (ADR-018, design/ingestion.md §9).
 
 Everything here is driven by item and job state, never by file timestamps alone,
 and nothing here deletes images. Active imports are never expired.
