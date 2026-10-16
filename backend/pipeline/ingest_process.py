@@ -422,8 +422,14 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
         with write_session() as db:
             by_bytes, by_pixels = _existing_hash_matches(db, prepared)
             group_cache: dict = {}
+            item_rows = {
+                row.id: row
+                for row in db.query(ImportItem).filter(
+                    ImportItem.id.in_([p.item.id for p in prepared])
+                )
+            }
             for p in prepared:
-                row = db.get(ImportItem, p.item.id)
+                row = item_rows.get(p.item.id)
                 if row is None or row.state != st.PROCESSING:
                     logger.warning("Item %s no longer processing; discarding", p.item.id)
                     continue
