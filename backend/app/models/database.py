@@ -26,6 +26,12 @@ logger = logging.getLogger(__name__)
 Base = declarative_base()
 
 
+GRID_SOURCE_FILENAME = "filename"
+GRID_SOURCE_DETECTOR = "detector"
+GRID_SOURCE_USER = "user"
+GRID_FIELDS = ("gridded", "grid_width", "grid_height", "grid_type")
+
+
 class Image(Base):
     """Main image table."""
 
@@ -49,6 +55,9 @@ class Image(Base):
     grid_height = Column(Integer, nullable=True)  # Grid tile count vertical (e.g. 45)
     grid_type = Column(String, nullable=True)  # "square" | "hex" | None
     grid_confidence = Column(Float, nullable=True)  # 0.0-1.0, None = filename-detected
+    # Where the grid fields came from: GRID_SOURCE_* (None = no grid information).
+    # Re-detection never overwrites GRID_SOURCE_USER.
+    grid_source = Column(String, nullable=True)
     subgroup = Column("sub_variant", String, nullable=True)  # Subgroup path (e.g. "MA / No Grid")
     content_hash = Column(String(64), nullable=True, index=True)  # SHA-256 of original bytes
     stored_hash = Column(String(64), nullable=True, index=True)  # SHA-256 of the stored file
@@ -532,13 +541,7 @@ def seed_default_settings(session):
     defaults = {
         # Grid detection (image analysis)
         "enable_image_grid_detection": True,
-        "grid_min_cell_px": 32,
-        "grid_max_cell_px": 320,
-        "grid_detection_max_dim": 8000,  # Phase 0: ~0.5% accuracy cost, 3-4x less CPU on huge maps
-        "grid_presence_threshold": 0.20,
-        "grid_size_threshold": 0.15,
-        "grid_period_ratio_threshold": 0.98,
-        "grid_hex_rot_conf": 0.20,
+        "grid_analysis_max_dim": 0,  # full resolution
         # Color extraction
         "num_dominant_colors": 5,
         "color_distance_threshold": 0.35,

@@ -28,13 +28,7 @@ class PipelineConfig:
 
     # Grid detection
     enable_image_grid_detection: bool = True
-    grid_min_cell_px: int = 32
-    grid_max_cell_px: int = 320
-    grid_detection_max_dim: int = 8_000
-    grid_presence_threshold: float = 0.20
-    grid_size_threshold: float = 0.15
-    grid_period_ratio_threshold: float = 0.98
-    grid_hex_rot_conf: float = 0.20
+    grid_analysis_max_dim: int = 0  # 0 = full resolution
 
     # Color extraction
     num_dominant_colors: int = 5
@@ -48,18 +42,17 @@ class PipelineConfig:
     # Import processing
     use_webp: bool = False
 
+    @property
+    def grid_max_dim(self) -> int | None:
+        """``grid_analysis_max_dim`` for the detector: None means full resolution."""
+        return self.grid_analysis_max_dim or None
+
     @classmethod
     def from_app_settings(cls, s) -> PipelineConfig:
         """Create a PipelineConfig from an AppSettings instance."""
         return cls(
             enable_image_grid_detection=s.enable_image_grid_detection,
-            grid_min_cell_px=s.grid_min_cell_px,
-            grid_max_cell_px=s.grid_max_cell_px,
-            grid_detection_max_dim=s.grid_detection_max_dim,
-            grid_presence_threshold=s.grid_presence_threshold,
-            grid_size_threshold=s.grid_size_threshold,
-            grid_period_ratio_threshold=s.grid_period_ratio_threshold,
-            grid_hex_rot_conf=s.grid_hex_rot_conf,
+            grid_analysis_max_dim=s.grid_analysis_max_dim,
             num_dominant_colors=s.num_dominant_colors,
             color_clustering_samples=s.color_clustering_samples,
             color_kmeans_n_init=s.color_kmeans_n_init,

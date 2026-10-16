@@ -1,0 +1,108 @@
+{
+ "chosen_presence": "gbm",
+ "presence_features": [
+  "joint",
+  "sx",
+  "sy",
+  "minax",
+  "odd",
+  "log_mindim",
+  "log_cell",
+  "z_joint",
+  "z_x",
+  "z_y",
+  "z_minax",
+  "z_self",
+  "null_mean",
+  "null_sd",
+  "hex",
+  "hex2d",
+  "sq2d",
+  "contrast_x",
+  "contrast_y",
+  "contrast_min",
+  "block_contrast_med",
+  "block_contrast_min",
+  "coverage_1.15",
+  "coverage_1.3",
+  "coverage_1.6",
+  "polarity",
+  "sign_agree"
+ ],
+ "hex_features": [
+  "hex",
+  "hex_edges",
+  "hex_pointy",
+  "hex_flat",
+  "hex2d",
+  "hex2d_both",
+  "sq2d",
+  "sq2d_both"
+ ],
+ "threshold": 0.5,
+ "sibling_prior_beta": 0.3,
+ "decision": "hex if hex_p >= threshold; else gridded if presence_p >= threshold",
+ "presence_params": {
+  "max_depth": 3,
+  "max_iter": 150,
+  "learning_rate": 0.08,
+  "l2_regularization": 1.0,
+  "class_weight": "balanced"
+ },
+ "hex_params": {
+  "C": 0.5,
+  "scaler": "standard"
+ },
+ "trained_at": "full resolution (max_analysis_dim=None)",
+ "training_rows": {
+  "twin": 2278,
+  "filename_hex": 120,
+  "synthetic": 2200
+ },
+ "creators": [
+  "Beneos",
+  "Crosshead",
+  "Dreadmaps",
+  "angela_maps",
+  "caeora",
+  "community",
+  "crafty_dice",
+  "czepeku",
+  "dice_grimorium",
+  "dww",
+  "fablekit",
+  "fantasy_atlas",
+  "forgotten_adventures",
+  "galaxy_compass",
+  "leasealair",
+  "limithron",
+  "lost_trails",
+  "mad_cartographer",
+  "mikwewa",
+  "moonlight_maps",
+  "mutenn",
+  "neutral_party",
+  "partyoftwo",
+  "reclusive_cartographer",
+  "spellarena",
+  "tomcartos",
+  "venatus",
+  "zack_moeller"
+ ],
+ "versions": {
+  "scikit-learn": "1.8.0",
+  "onnx_opset": 17
+ },
+ "verification": {
+  "presence_gbm": {
+   "rows": 2278,
+   "max_abs_diff_onnx_vs_sklearn": 1.0061532640381898e-07,
+   "decision_mismatches": 0
+  },
+  "hex_lr": {
+   "rows": 4598,
+   "max_abs_diff_onnx_vs_sklearn": 2.313418239752174e-07,
+   "decision_mismatches": 0
+  }
+ }
+}

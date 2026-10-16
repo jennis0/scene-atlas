@@ -17,6 +17,8 @@ export interface Image {
   grid_height: number | null
   grid_type: string | null
   grid_confidence: number | null
+  // Where the grid came from: 'filename' | 'detector' | 'user' | null
+  grid_source?: string | null
   subgroup: string | null
   image_type: 'battlemap' | 'scene'
   thumbnail_key: string | null
@@ -301,13 +303,8 @@ export interface AppSettings {
 
   // Grid detection (image analysis)
   enable_image_grid_detection: boolean
-  grid_min_cell_px: number
-  grid_max_cell_px: number
-  grid_detection_max_dim: number
-  grid_presence_threshold: number
-  grid_size_threshold: number
-  grid_period_ratio_threshold: number
-  grid_hex_rot_conf: number
+  // Longest side analysed for grids; 0 = full resolution
+  grid_analysis_max_dim: number
 
   // Color extraction
   num_dominant_colors: number

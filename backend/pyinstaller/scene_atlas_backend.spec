@@ -45,6 +45,10 @@ a = Analysis(
         # database.py detects sys.frozen and reads from sys._MEIPASS instead of __file__
         (str(project_root / 'alembic.ini'),          '.'),
         (str(project_root / 'backend' / 'alembic'),  'backend/alembic'),
+        # Data files read relative to their module (Path(__file__).parent): the tag
+        # vocabulary (first-boot tag seeding) and the grid detection models.
+        (str(project_root / 'backend' / 'app' / 'data' / 'tag_vocabulary.json'), 'backend/app/data'),
+        (str(project_root / 'backend' / 'app' / 'data' / 'grid_models'),         'backend/app/data/grid_models'),
     ],
     hiddenimports=[
         # uvicorn internals

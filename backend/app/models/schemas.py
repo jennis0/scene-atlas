@@ -68,6 +68,7 @@ class ImageBase(BaseModel):
     grid_height: int | None = None
     grid_type: str | None = None
     grid_confidence: float | None = None
+    grid_source: str | None = None
     subgroup: str | None = None
     content_hash: str | None = None
     media_type: str | None = "image"
@@ -320,13 +321,9 @@ class AppSettings(BaseModel):
 
     # Grid detection (image analysis)
     enable_image_grid_detection: bool = True
-    grid_min_cell_px: int = 32
-    grid_max_cell_px: int = 320
-    grid_detection_max_dim: int = 8_000
-    grid_presence_threshold: float = 0.20
-    grid_size_threshold: float = 0.15
-    grid_period_ratio_threshold: float = 0.98
-    grid_hex_rot_conf: float = 0.20
+    # Longest side analysed; 0 = full resolution (default). Lower is faster but misses
+    # thin grid lines on high-resolution maps (design/grid-detection-v3.md).
+    grid_analysis_max_dim: int = Field(0, ge=0)
 
     # Color extraction
     num_dominant_colors: int = 5
@@ -362,13 +359,7 @@ class AppSettingsPatch(BaseModel):
     """Partial update for app settings — only include fields you want to change."""
 
     enable_image_grid_detection: bool | None = None
-    grid_min_cell_px: int | None = None
-    grid_max_cell_px: int | None = None
-    grid_detection_max_dim: int | None = None
-    grid_presence_threshold: float | None = None
-    grid_size_threshold: float | None = None
-    grid_period_ratio_threshold: float | None = None
-    grid_hex_rot_conf: float | None = None
+    grid_analysis_max_dim: int | None = Field(None, ge=0)
     num_dominant_colors: int | None = None
     color_distance_threshold: float | None = None
     color_clustering_samples: int | None = None

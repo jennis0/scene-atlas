@@ -14,6 +14,7 @@ from ..models import (
     ImageGroup,
     Tag,
 )
+from ..models.database import GRID_FIELDS, GRID_SOURCE_USER
 from ..models.schemas import (
     GroupDetailResponse,
     GroupEditRequest,
@@ -220,10 +221,12 @@ def edit_group(
             continue
         image.name = img_payload.name
         image.author = payload.author  # sync author to group
-        image.gridded = img_payload.gridded
-        image.grid_width = img_payload.grid_width
-        image.grid_height = img_payload.grid_height
-        image.grid_type = img_payload.grid_type
+        new_grid = {f: getattr(img_payload, f) for f in GRID_FIELDS}
+        if any(getattr(image, f) != v for f, v in new_grid.items()):
+            for f, v in new_grid.items():
+                setattr(image, f, v)
+            image.grid_source = GRID_SOURCE_USER
+            image.grid_confidence = None
         image.subgroup = img_payload.subgroup
         if img_payload.image_type is not None:
             image.image_type = img_payload.image_type
