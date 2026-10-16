@@ -45,22 +45,19 @@ Given a relative path like `czepeku/Island Fort/Gridded/IslandFort_Night_Rain_30
 - Grid dimensions: `(\d{1,3})\s*[xX]\s*(\d{1,3})` pattern → `grid_width`, `grid_height`
 - **Skipped for `image_type="scene"`** — scenes do not use grid metadata
 
-**Image-analysis-based** (opt-in, in `prepare_single_image()`):
-- Enabled via `enable_image_grid_detection=True` in settings
-- Only runs for battlemaps (not scenes), non-video files
+**Image-analysis-based** (during ingest, `_detect_grid` in `backend/pipeline/ingest_process.py`):
+- Enabled with `enable_image_grid_detection` in settings.
+- Runs only for battlemaps (not scenes), and not for videos.
 - Decision tree:
-  - If filename says "nogrid" → `gridded=False`, skip analysis
-  - If filename says "grid" but no dimensions → run algorithm for **size only** (lower threshold)
-  - If no keyword → run algorithm for **presence + size**
-- Algorithm: Hybrid constraint + autocorrelation
-  1. Grayscale + Canny edge detection (full resolution, max_dim=20,000)
-  2. Compute row/column projections of edge image
-  3. Find dominant periods via FFT-based autocorrelation
-  4. Classify grid type from period ratio: square (≈1.0) or hex (≈0.866)
-  5. Validate against image dimensions (snap to nearest clean divisor → tile count)
-- Outputs: `grid_type` ("square"/"hex"), `grid_width`/`grid_height` (tile counts), `grid_confidence` (0.0–1.0)
-- Service: `backend/app/services/grid_detector.py`
-- Task: `backend/pipeline/tasks/grid_detection.py`
+  - Filename says "no grid", or gives an exact NxM → trust it and skip analysis.
+  - Filename says "grid" but gives no size → **size only**. Grid sizes from other file names in the same import group are scored as candidates.
+  - No keyword → **presence + size**.
+- Detector: v3 for images of 1000 px or more; the legacy detector (`grid_detector.py`) below that. See [grid-detection-v3.md](grid-detection-v3.md) and ADR-019.
+- Outputs:
+  - `grid_type` (`square` / `hex`) and `grid_width` / `grid_height` (tile counts);
+  - `grid_confidence`: the model's probability;
+  - `grid_source`: `filename` / `detector`, set to `user` when the grid is edited by hand.
+- Service: `backend/app/services/grid/` (`detect_grid`). Task: `backend/pipeline/tasks/grid_detection.py`.
 
 ### 3. Folder Hierarchy Parsing
 

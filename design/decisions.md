@@ -482,3 +482,32 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 - More HTTP requests per import (one per file). Reverse-proxy rate limits must allow for this.
 - The future bulk local-library import becomes another source of bytes for the same item queue.
 - Scene Atlas is unreleased, so no data migration is provided.
+
+---
+
+## ADR-019: Grid detector v3 (spectral comb plus trained classifiers)
+
+**Date:** 2026-10-16
+**Status:** Accepted (implemented on branch `worktree-grid-v3`)
+
+**Context:** The original detector (Canny edges plus autocorrelation, 8000 px cap) peaked at about 1.6 GB per map. It called grids on 28% of explicitly gridless maps, and made spurious hex calls. Five evaluation rounds against labels from gridded/gridless "twins" across 28 creators (see [grid-detection-v3.md](grid-detection-v3.md)) showed that a harmonic-comb detector with small trained classifiers is better. Measured by leaving one creator out at a time, v3's worst-creator F1 is .685 against .667 for the current detector, and its median is .944 against .913. It also gets the grid size exactly right more often: .945 vs .875.
+
+**Decision:**
+1. **Detector.** v3 handles maps whose longest side is 1000 px or more. It analyses at full resolution, with a harmonic comb over line-energy profiles, a per-image null distribution, spatial-coverage features and two hex measures. The decisions come from a gradient-boosted presence model and a hex logistic regression, shipped as ONNX in `backend/app/data/grid_models` and run on the CPU through the onnxruntime the app already includes.
+2. **Small maps.** Maps under 1000 px keep the legacy detector, where v3 measured worse.
+3. **One analysis setting.** The old tuning settings are removed. `grid_analysis_max_dim` (0 = full resolution) remains, and lowering it costs accuracy on thin-line, high-dpi maps.
+4. **Grid source.** Each image records where its grid came from: `images.grid_source` is `filename`, `detector` or `user`. Re-detection never overwrites `user`, nor explicit file-name labels ("No Grid", or an exact NxM).
+5. **Sibling sizes.** In size-only mode, NxM sizes from other file names in the same group are scored as candidate tile counts. They are never taken as truth.
+6. **Reproducible models.** `scripts/models/grid/train_grid_models.py` rebuilds the models byte-for-byte from a features file. Images and features stay out of git because the maps are commercial artwork.
+
+**Alternatives considered:**
+- **v3 for every image size.** Rejected: it was worse on small maps in the cross-artist evaluation.
+- **Hand-tuned thresholds without trained models.** Rejected: thresholds tuned on one dev sample did not hold on held-out creators (round 1).
+- **Pickle or JSON models.** Rejected: pickle is unsafe and tied to the scikit-learn version, and the chosen presence model is a tree ensemble, which JSON doesn't suit.
+- **Reduced-resolution analysis by default.** Rejected: 2-4x reduction blurred the 1-2 px lines on 200 dpi maps.
+
+**Consequences:**
+- Fewer false grids on gridless maps.
+- More CPU on very large maps (up to about 28 s for a 761 Mpx map), with memory reserved through the ingest budget's per-format formula.
+- Known limits: very dark thin-line maps, maps with only a few cells, perfectly regular one-directional patterns such as planks, and faint hex.
+- The legacy detector remains only for small images.

@@ -54,7 +54,8 @@ Scene Atlas is a tool for viewing and searching large collections of tabletop RP
 
 | Feature | Branch | Plan File | Status |
 |---------|--------|-----------|--------|
-| Ingest pipeline redesign (ADR-018) | `worktree-ingest-redesign` | [ingest-redesign.md](ingest-redesign.md) | Phases 0-3 done (backend + new import UI); phase 6 (E2E, docs fold-in) remaining; phases 4-5 (duplicate UX polish, conversion config) optional |
+| Ingest pipeline redesign (ADR-018) | merged to `main` (PR #1) | [ingest-redesign.md](ingest-redesign.md) | Phases 0-3 merged; phase 6 (E2E tests on the new API, docs fold-in) remaining; phases 4-5 (duplicate UX polish, conversion config) optional |
+| Grid detector v3 (ADR-019) | `worktree-grid-v3` | [grid-detection-v3.md](grid-detection-v3.md) | Implemented; awaiting review and merge |
 | Security Phase 2 (headers + rate limiting) | `feature/security-phase-2-headers` | [security.md](security.md) | Security headers, rate limiting (8 endpoints), CI scanning, CORS warning. Auth deferred to Phase 3. |
 
 ### Backlog Items
@@ -62,7 +63,6 @@ Scene Atlas is a tool for viewing and searching large collections of tabletop RP
 | Item | Tracked In | Priority |
 |------|-----------|----------|
 | Session-based auth (Phase 3) | [security.md](security.md) | High |
-| Port grid detector v3 (hybrid: full-res v3 ≥1000 px, current below; ONNX models; sibling prior) | [grid-detection-v3.md](grid-detection-v3.md) | Medium |
 | E2E test expansion (~31 remaining tests) | [e2e-todo.md](e2e-todo.md) | P1-P3 |
 | Code quality improvements (11 items) | [technical-debt.md](technical-debt.md) | Medium |
 | Filename in analyse-step error responses | — | Low |
