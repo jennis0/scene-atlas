@@ -261,7 +261,8 @@ def get_job_runner() -> JobRunner:
                 finally:
                     db.close()
             except Exception:
-                pass  # DB may not be ready on very first boot — use default
+                # DB may not be ready on very first boot — use default
+                logger.debug("Could not read max_job_workers; using default", exc_info=True)
             _job_runner = JobRunner(max_workers=max_workers)
     return _job_runner
 

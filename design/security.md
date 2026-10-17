@@ -83,6 +83,24 @@ The `frontend-build` job runs `npm audit --omit=dev --audit-level=high` on `fron
 
 pip-audit and npm audit query live advisory databases, so a new advisory can turn a PR red without a code change. That is intended: fix it (usually `uv lock --upgrade-package <pkg>` or a targeted `npm update <pkg>`), or add it to the accepted list below with a reason.
 
+### Codacy
+
+Codacy Cloud analyses every PR (gate: 0 new issues at Info and above). The repository is **not** linked to the org's "Default coding standard"; its tool set is configured per repository (last changed 2026-10-17):
+
+| Tool | State | Why |
+|---|---|---|
+| Ruff | on, **uses `pyproject.toml`** | Python lint + security. The `S` (flake8-bandit) rules replace Bandit, so Codacy and the local pre-push lint agree. Test paths ignore `S101`/`S603`/... via `per-file-ignores`. |
+| Opengrep (Semgrep) | on | Cross-language SAST, secrets, GitHub Actions and Dockerfile rules. `package-dependencies-check` (flags every `^` range in `package.json`) is off: the lockfiles pin exact versions. |
+| Trivy | on | Dependency CVEs from `uv.lock` / `package-lock.json`. Accepted ones are listed below. |
+| ESLint | on, uses `frontend/.eslintrc.cjs` | ESLint 8 matches the repo's eslintrc config (not ESLint9/flat config). |
+| Lizard | on | Function length / parameter count / complexity. |
+| Checkov, Hadolint | on | Dockerfile, docker-compose and workflow misconfiguration. |
+| Stylelint, markdownlint, Jackson Linter, Agentlinter | on | CSS, docs, JSON, CLAUDE.md / agent instructions. |
+| Bandit, Prospector, Pylint | **off** | Bandit ran twice (standalone and inside Prospector) and flagged every pytest `assert`; Ruff `S` covers the same checks. Pylint overlaps Ruff. CI's `backend-security` job still runs bandit on `backend/app` + `backend/pipeline`. |
+| PMD | off | No Java/Apex in the repo. |
+
+`.codacy.yml` excludes tests (`backend/tests`, `stress_tests`, `e2e`, `*.test.ts(x)`) and build output from analysis. Tests are still linted locally by ruff and eslint.
+
 ### 6. MEDIUM: Electron IPC Changing Storage Paths
 
 **Status**: Partially mitigated.
@@ -118,7 +136,8 @@ Re-check these whenever the dependency in question is upgraded. Last reviewed 20
 
 | Scanner | Finding | Why accepted |
 |---|---|---|
-| bandit B104 | `api_host = "0.0.0.0"` default in `backend/app/config.py` | Only read when the backend is started with `python -m backend.app.main` (dev, E2E). Electron forces `API_HOST=127.0.0.1`; Docker and the documented uvicorn commands pass `--host` explicitly. Changing the default to loopback is a reasonable follow-up but needs the E2E harness (which probes `localhost`) checked first. |
+| bandit B104 / ruff S104 | `api_host = "0.0.0.0"` default in `backend/app/config.py` | Only read when the backend is started with `python -m backend.app.main` (dev, E2E). Electron forces `API_HOST=127.0.0.1`; Docker and the documented uvicorn commands pass `--host` explicitly. Changing the default to loopback is a reasonable follow-up but needs the E2E harness (which probes `localhost`) checked first. |
+| Opengrep missing-user | `Dockerfile` runs as root | Existing deployments' `scene-atlas-data` volume and bind-mounted `IMAGE_DIR` are root-owned, so adding `USER` breaks them without a migration (chown entrypoint or documented `PUID`/`PGID`). Follow-up. |
 | pip-audit | `transformers` <5: PYSEC-2025-217, PYSEC-2026-2288, -2289, -2290, -3929, -4174 (RCE/path traversal when loading untrusted checkpoints, Trainer RNG state, remote code) | Dev-only extra used by `scripts/models/` to export checkpoints we choose. Excluded from the PyInstaller sidecar (`excludes` in `scene_atlas_backend.spec`) and never imported by the app. The fix is transformers 5, a major upgrade of the export pipeline. |
 | Dependabot | `torch` 2.6.0+cu124 (`gpu-dev` extra) | The cu124 PyTorch index stops at 2.6. Dev-only (model export on CUDA); the CPU variant is on a patched release. Fix: move the `pytorch-cuda` index to a newer CUDA (cu126/cu128). |
 | npm audit (frontend, dev) | `braces` (all versions), via `tailwindcss` 3 / `chokidar` / `micromatch` / `knip` | Build-time glob matching over our own patterns. No patched `braces` release exists; removal needs Tailwind 4 / knip 6. |

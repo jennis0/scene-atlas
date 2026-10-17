@@ -60,13 +60,15 @@ class ParentWatchdog:
         ).start()
         if self._stdin_fd is not None:
             threading.Thread(
-                target=self._watch_stdin, name="parent-watchdog-stdin", daemon=True
+                target=self._watch_stdin,
+                args=(self._stdin_fd,),
+                name="parent-watchdog-stdin",
+                daemon=True,
             ).start()
 
-    def _watch_stdin(self) -> None:
-        assert self._stdin_fd is not None
+    def _watch_stdin(self, stdin_fd: int) -> None:
         try:
-            while os.read(self._stdin_fd, 4096):
+            while os.read(stdin_fd, 4096):
                 pass  # Electron never writes; ignore anything that arrives.
         except OSError as exc:
             logger.warning(

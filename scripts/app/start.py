@@ -100,7 +100,7 @@ def main() -> None:
             "uvicorn",
             "backend.app.main:app",
             "--host",
-            "0.0.0.0",
+            "0.0.0.0",  # noqa: S104 — LAN access in dev; Electron/Docker set their own host
             "--port",
             "8000",
             "--no-proxy-headers",  # the app handles them (FORWARDED_ALLOW_IPS)

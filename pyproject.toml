@@ -98,6 +98,7 @@ select = [
     "SIM", # flake8-simplify
     "RET", # flake8-return
     "PIE", # flake8-pie
+    "S",   # flake8-bandit (security; replaces Bandit on Codacy)
     "RUF100",  # unused noqa
     "TRY400",  # logger.exception (keeps the traceback) inside except blocks
 ]
@@ -111,6 +112,10 @@ ignore = [
 "__init__.py" = ["F401"]  # unused imports in __init__.py
 "backend/tests/conftest.py" = ["E402"]  # storage roots are set before backend imports
 "backend/scripts/*" = ["E402"]  # sys.path manipulation before imports
+# Tests assert, spawn helper processes and use throwaway temp paths / randomness.
+"{backend/tests,stress_tests,e2e}/**" = ["S101", "S105", "S106", "S108", "S311", "S603", "S607"]
+# Dev/build tooling runs fixed commands (git, npm, uv) from the developer's PATH.
+"scripts/**" = ["S603", "S607"]
 
 [tool.ruff.format]
 quote-style = "double"

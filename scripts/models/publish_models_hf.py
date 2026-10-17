@@ -359,8 +359,8 @@ def create_or_update_collection(dry_run: bool = False) -> None:
             if col.title == COLLECTION_TITLE:
                 existing_collection = col
                 break
-    except Exception:
-        pass  # No existing collections or API error
+    except Exception as exc:
+        print(f"  Could not list existing collections ({exc}); creating a new one")
 
     if existing_collection:
         print(f"Found existing collection: {existing_collection.slug}")

@@ -196,7 +196,7 @@ def _get_active_model_name() -> str:
             if row and row.value_json:
                 return json.loads(row.value_json)
     except Exception:
-        pass
+        logger.debug("Could not read active_model setting; using defaults", exc_info=True)
 
     # 3. Auto-detect based on ORT provider availability
     providers = resolve_providers("auto")

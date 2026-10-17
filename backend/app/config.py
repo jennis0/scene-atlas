@@ -71,7 +71,7 @@ class Settings(BaseSettings):
     # API
     # Only read by `python -m backend.app.main` (dev/E2E). Electron forces 127.0.0.1 and
     # Docker/uvicorn pass --host explicitly; see design/security.md (accepted risks).
-    api_host: str = "0.0.0.0"  # nosec B104
+    api_host: str = "0.0.0.0"  # noqa: S104  # nosec B104
     api_port: int = 8000
     api_prefix: str = "/api/v1"
     # Proxies whose X-Forwarded-For / X-Forwarded-Proto are believed: comma-separated
