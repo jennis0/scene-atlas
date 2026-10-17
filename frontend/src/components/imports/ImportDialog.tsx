@@ -391,7 +391,7 @@ function ProgressView({
           )}
           <span className="flex-1" />
           {!finished && (
-            <span className="text-[11.5px] text-muted-foreground mr-1">
+            <span className="hidden sm:inline text-[11.5px] text-muted-foreground mr-1">
               Keeps running if you close this
             </span>
           )}
