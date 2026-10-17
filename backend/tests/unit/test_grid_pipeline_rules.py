@@ -1,5 +1,5 @@
 """Grid detection plumbing: memory estimates, which images the backfill touches, and
-how file-name grid sizes are oriented."""
+how file-name grid sizes are settled against the image."""
 
 from pathlib import Path
 from types import SimpleNamespace
@@ -7,7 +7,8 @@ from types import SimpleNamespace
 import pytest
 
 from backend.pipeline.backfill_grid_detection import detection_mode
-from backend.pipeline.ingest_process import _detect_grid, grid_detection_bytes, orient_grid
+from backend.pipeline.filename_grid import filename_grid_counts, orient_grid
+from backend.pipeline.ingest_process import _detect_grid, grid_detection_bytes
 from backend.pipeline.pipeline_config import PipelineConfig
 
 MB = 1024 * 1024
@@ -142,3 +143,38 @@ def test_ingest_stores_the_file_name_grid_oriented():
     grid = _detect_grid(item, Path("unused.jpg"), 3000, 2000, cfg)
     assert (grid["grid_width"], grid["grid_height"]) == (30, 20)
     assert grid["grid_source"] == "filename"
+
+
+# ---------------------------------------------------------------------------
+# File-name NxM with a glued-on digit
+# ---------------------------------------------------------------------------
+
+
+def _counts(gw, gh, alternatives, width, height):
+    parsed = {"grid_width": gw, "grid_height": gh, "grid_size_alternatives": alternatives}
+    result = filename_grid_counts(parsed, width, height)
+    return result["grid_width"], result["grid_height"]
+
+
+def test_glued_digit_is_dropped_when_the_literal_size_cannot_fit():
+    # spellarena "AncientWizardSLairDestroyed630x50": variant 6 of a 30x50 map
+    assert _counts(630, 50, [[30, 50]], 4200, 5999) == (30, 50)
+    # partyoftwo "Frozenpass218X27" on a portrait map: 18 columns x 27 rows
+    assert _counts(218, 27, [[18, 27]], 2594, 3769) == (18, 27)
+    # forgotten_adventures "ForestCamp25x201": part 1 of a 25x20 map
+    assert _counts(25, 201, [[25, 20]], 5000, 4000) == (25, 20)
+
+
+def test_literal_size_that_fits_is_kept():
+    assert _counts(100, 100, [[100, 10]], 5000, 5000) == (100, 100)
+    assert _counts(120, 80, [[20, 80]], 12000, 8000) == (120, 80)
+
+
+def test_alternative_that_does_not_fit_either_is_ignored():
+    # Neither 230x7 nor 30x7 gives square cells on this portrait image: keep the
+    # name's reading, oriented
+    assert _counts(230, 7, [[30, 7]], 4200, 5321) == (7, 230)
+
+
+def test_alternatives_need_the_image_size():
+    assert _counts(630, 50, [[30, 50]], None, None) == (630, 50)
