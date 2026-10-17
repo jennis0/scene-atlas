@@ -1,3 +1,5 @@
+import { displayChoice } from './displayChoice'
+
 /** Colour palette, independent of light/dark: each has both modes (see index.css). */
 export type Palette = 'navy' | 'verdigris' | 'lapis' | 'sienna' | 'nightshade'
 export const PALETTES: readonly { value: Palette; label: string; title: string }[] = [
@@ -18,18 +20,15 @@ export const PALETTES: readonly { value: Palette; label: string; title: string }
 
 export const PALETTE_STORAGE_KEY = 'scene-atlas-palette'
 
-/** Read the saved palette; anything unknown falls back to the default. */
-export function getStoredPalette(): Palette {
-  try {
-    const stored = localStorage.getItem(PALETTE_STORAGE_KEY)
-    return PALETTES.find((p) => p.value === stored)?.value ?? 'navy'
-  } catch {
-    return 'navy'
-  }
-}
+const choice = displayChoice<Palette>(
+  PALETTE_STORAGE_KEY,
+  'palette',
+  PALETTES.map((p) => p.value),
+  'navy',
+)
 
-/** The default palette is the base tokens, so only other palettes set the attribute. */
-export function applyPalette(palette: Palette) {
-  if (palette === 'navy') delete document.documentElement.dataset.palette
-  else document.documentElement.dataset.palette = palette
-}
+/** The saved palette; anything unknown falls back to navy, the default. */
+export const getStoredPalette = choice.read
+/** Navy is the base tokens, so only other palettes set data-palette. */
+export const applyPalette = choice.apply
+export const savePalette = choice.save

@@ -26,7 +26,7 @@ export function ProgressSummary({ job, secondsPerItem }: ProgressSummaryProps) {
         finished={finishedCount(counts)}
         total={counts.total}
       />
-      {job.planned && <p className="text-[12.5px] text-foreground/90">{parts.join(' · ')}</p>}
+      {job.planned && <p className="text-xs text-foreground/90">{parts.join(' · ')}</p>}
     </div>
   )
 }
@@ -64,7 +64,7 @@ function ProgressMeter({
           style={{ width: pct(finished) }}
         />
       </div>
-      <div className="mt-1.5 flex justify-between font-mono text-[10.5px] tabular-nums text-muted-foreground">
+      <div className="mt-1.5 flex justify-between font-mono text-2xs tabular-nums text-muted-foreground">
         <span>{received.toLocaleString()} received</span>
         <span>
           {finished.toLocaleString()}
@@ -85,7 +85,7 @@ export function NowImporting({ groups, planned }: NowImportingProps) {
   if (!planned || groups.length === 0) return null
   return (
     <section aria-labelledby="now-importing" className="space-y-1">
-      <h3 id="now-importing" className="text-[12px] text-muted-foreground">
+      <h3 id="now-importing" className="text-xs text-muted-foreground">
         Now importing
       </h3>
       <ul>
@@ -107,13 +107,13 @@ function ImportingGroupRow({ group }: { group: ImportGroupSummary }) {
   return (
     <li className="py-2">
       <div className="flex items-baseline gap-3 min-w-0">
-        <span className="font-display text-[15px] truncate" title={group.group_name}>
+        <span className="font-display text-sm truncate" title={group.group_name}>
           {group.group_name}
         </span>
-        <span className="text-[11px] text-muted-foreground truncate shrink min-w-0">
+        <span className="text-2xs text-muted-foreground truncate shrink min-w-0">
           {group.author}
         </span>
-        <span className="ml-auto shrink-0 font-mono text-[10.5px] tabular-nums text-muted-foreground">
+        <span className="ml-auto shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
           {started ? `${counts.done}/${importable}` : 'waiting'}
         </span>
       </div>
@@ -131,7 +131,7 @@ function ImportingGroupRow({ group }: { group: ImportGroupSummary }) {
 export function ProblemsLine({ counts }: { counts: ImportCounts }) {
   if (counts.duplicate === 0 && counts.failed === 0) return null
   return (
-    <p className="text-[12px] text-muted-foreground">
+    <p className="text-xs text-muted-foreground">
       {counts.duplicate > 0 && <>{counts.duplicate.toLocaleString()} already in your library</>}
       {counts.duplicate > 0 && counts.failed > 0 && ' · '}
       {counts.failed > 0 && (

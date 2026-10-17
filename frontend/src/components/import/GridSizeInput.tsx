@@ -11,8 +11,8 @@ interface GridSizeInputProps {
 const baseClass =
   'bg-secondary border border-border rounded text-foreground text-center placeholder:text-muted-foreground [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none'
 
-const defaultClass = `w-11 px-1.5 py-0.5 text-[11px] ${baseClass}`
-const compactClass = `w-[30px] h-[18px] px-1 py-0 text-[10px] font-mono ${baseClass}`
+const defaultClass = `w-11 px-1.5 py-0.5 text-2xs ${baseClass}`
+const compactClass = `w-[30px] h-[18px] px-1 py-0 text-3xs font-mono ${baseClass}`
 
 export function GridSizeInput({ width, height, onChange, disabled, compact }: GridSizeInputProps) {
   const [wDraft, setWDraft] = useState(width?.toString() ?? '')
@@ -60,7 +60,7 @@ export function GridSizeInput({ width, height, onChange, disabled, compact }: Gr
         disabled={disabled}
         className={inputClass}
       />
-      <span className={compact ? 'text-[10px]' : 'text-[11px]'}>&times;</span>
+      <span className={compact ? 'text-3xs' : 'text-2xs'}>&times;</span>
       <input
         type="number"
         value={hDraft}

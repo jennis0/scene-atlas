@@ -233,7 +233,7 @@ export function ImageViewer({
           onToggleGrid={toggleGrid}
         />
 
-        <div className="flex-1 min-h-0 overflow-y-auto lg:flex-none lg:w-[440px] lg:overflow-hidden flex flex-col border-t lg:border-t-0 lg:border-l border-border/20 bg-card">
+        <div className="flex-1 min-h-0 overflow-y-auto lg:flex-none lg:w-[25.88rem] lg:overflow-hidden flex flex-col border-t lg:border-t-0 lg:border-l border-border/20 bg-card">
           {/* Fixed: stays visible while the scenes below scroll */}
           <div className="px-4 pt-3 pb-2 shrink-0 border-b border-border/30">
             <ViewerToolbar
@@ -259,12 +259,12 @@ export function ImageViewer({
             <p className="text-sm text-muted-foreground">by {img.author}</p>
 
             <p
-              className="text-[10px] text-muted-foreground font-mono truncate mt-1"
+              className="text-3xs text-muted-foreground font-mono truncate mt-1"
               title={img.filename}
             >
               {filenameStem(img.filename)}
             </p>
-            <p className="text-[10px] text-muted-foreground mb-3">
+            <p className="text-3xs text-muted-foreground mb-3">
               {img.width}×{img.height} · {(img.file_size / 1024 / 1024).toFixed(1)} MB
             </p>
 

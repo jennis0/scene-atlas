@@ -129,7 +129,7 @@ export function GalleryHeader({
             {label}
             {count > 0 && (
               <span
-                className={`text-[10px] font-normal px-1.5 py-px rounded-full transition-colors
+                className={`text-3xs font-normal px-1.5 py-px rounded-full transition-colors
                 ${
                   imageType === value
                     ? 'bg-primary/15 text-primary'

@@ -145,7 +145,7 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
                     {img.media_type === 'video' && !isOverflowTile && <VideoIndicator size="sm" />}
                     {img.subgroup && !isOverflowTile && (
                       <div className="absolute bottom-0 left-0 right-0 bg-black/50 px-1.5 py-0.5">
-                        <span className="text-[10px] leading-tight text-white/90 line-clamp-1">
+                        <span className="text-3xs leading-tight text-white/90 line-clamp-1">
                           {img.subgroup}
                         </span>
                       </div>
@@ -153,7 +153,7 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
                     {isOverflowTile && (
                       <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-[2px]">
                         <span className="text-lg font-bold text-white">+{overflowCount}</span>
-                        <span className="text-[11px] text-white/90">more</span>
+                        <span className="text-2xs text-white/90">more</span>
                       </div>
                     )}
                     <div className="absolute inset-0 pointer-events-none ring-[0.5px] ring-inset ring-black/20" />
@@ -171,14 +171,14 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
         className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/55 to-transparent pt-10 pb-2.5 px-3 pointer-events-none"
       >
         <div style={{ maxWidth: hasMosaic ? '60%' : '100%' }}>
-          <p className="text-[13px] font-medium text-white leading-snug line-clamp-1 drop-shadow truncate">
+          <p className="text-xs font-medium text-white leading-snug line-clamp-1 drop-shadow truncate">
             {baseName}
           </p>
-          {author && <p className="text-[11px] text-white/85 truncate mt-0.5">{author}</p>}
+          {author && <p className="text-2xs text-white/85 truncate mt-0.5">{author}</p>}
           {totalScenes > 1 && (
             <div className="flex items-center gap-1 mt-0.5">
               <Layers className="h-3 w-3 text-white/70" />
-              <span className="text-[11px] tabular-nums text-white/85">
+              <span className="text-2xs tabular-nums text-white/85">
                 {matchingCount < totalScenes
                   ? `${matchingCount} of ${totalScenes} scenes`
                   : `${totalScenes} scenes`}

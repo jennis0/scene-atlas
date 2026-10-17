@@ -98,7 +98,7 @@ export function TextButton({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-md border text-[12.5px] whitespace-nowrap transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${toneClass}`}
+      className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-md border text-xs whitespace-nowrap transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${toneClass}`}
     >
       {children}
     </button>
@@ -135,14 +135,14 @@ export function ConfirmOverlay({
         className="bg-card border border-border rounded-lg p-5 max-w-sm mx-4 shadow-2xl shadow-black/70"
       >
         <p className="text-sm font-semibold text-foreground">{title}</p>
-        <div className="mt-1.5 text-[13px] text-muted-foreground leading-relaxed">{detail}</div>
+        <div className="mt-1.5 text-xs text-muted-foreground leading-relaxed">{detail}</div>
         <div className="mt-4 flex justify-end gap-2">
           <TextButton onClick={onCancel}>Keep it</TextButton>
           <button
             onClick={onConfirm}
             disabled={busy}
             data-autofocus
-            className={`h-8 px-3 rounded-md border text-[12.5px] transition-colors disabled:opacity-40 ${confirmClass}`}
+            className={`h-8 px-3 rounded-md border text-xs transition-colors disabled:opacity-40 ${confirmClass}`}
           >
             {confirmLabel}
           </button>
@@ -174,7 +174,7 @@ export function Notice({
         {icon}
       </span>
       <div className="flex-1 min-w-0">
-        <div className="text-[12.5px] leading-relaxed">{children}</div>
+        <div className="text-xs leading-relaxed">{children}</div>
         {actions && <div className="mt-1.5 -ml-3 flex flex-wrap items-center gap-1">{actions}</div>}
       </div>
     </div>

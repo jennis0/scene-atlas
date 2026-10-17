@@ -58,7 +58,7 @@ export function ImportJobRow({
         <div className="flex items-start gap-[7px] pr-12">
           <StatusIcon job={job} sending={sending} />
           <span
-            className={`min-w-0 flex-1 text-[12px] font-medium truncate leading-tight ${
+            className={`min-w-0 flex-1 text-xs font-medium truncate leading-tight ${
               finished ? 'text-muted-foreground' : 'text-foreground'
             }`}
             title={job.label ?? undefined}
@@ -75,7 +75,7 @@ export function ImportJobRow({
           />
         </div>
         <div
-          className={`mt-1 text-[10.5px] leading-tight truncate ${
+          className={`mt-1 text-2xs leading-tight truncate ${
             job.upload_interrupted ? 'text-primary' : 'text-muted-foreground'
           }`}
         >

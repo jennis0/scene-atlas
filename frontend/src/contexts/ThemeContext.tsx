@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useMemo } from 'react'
-import { applyPalette, getStoredPalette, PALETTE_STORAGE_KEY, type Palette } from '@/lib/palette'
+import { getStoredPalette, savePalette, type Palette } from '@/lib/palette'
+import { getStoredTextSize, saveTextSize, type TextSize } from '@/lib/textSize'
 
 export type Theme = 'light' | 'dark'
 
@@ -9,6 +10,8 @@ interface ThemeContextValue {
   toggleTheme: () => void
   palette: Palette
   setPalette: (palette: Palette) => void
+  textSize: TextSize
+  setTextSize: (size: TextSize) => void
 }
 
 const STORAGE_KEY = 'scene-atlas-theme'
@@ -28,6 +31,8 @@ const ThemeContext = createContext<ThemeContextValue>({
   toggleTheme: () => {},
   palette: 'navy',
   setPalette: () => {},
+  textSize: 'default',
+  setTextSize: () => {},
 })
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
@@ -50,18 +55,19 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const [palette, setPaletteState] = useState<Palette>(getStoredPalette)
   const setPalette = useCallback((next: Palette) => {
-    try {
-      localStorage.setItem(PALETTE_STORAGE_KEY, next)
-    } catch {
-      // Storage blocked: the palette still applies for this session.
-    }
-    applyPalette(next)
+    savePalette(next)
     setPaletteState(next)
   }, [])
 
+  const [textSize, setTextSizeState] = useState<TextSize>(getStoredTextSize)
+  const setTextSize = useCallback((next: TextSize) => {
+    saveTextSize(next)
+    setTextSizeState(next)
+  }, [])
+
   const value = useMemo(
-    () => ({ theme, setTheme, toggleTheme, palette, setPalette }),
-    [theme, setTheme, toggleTheme, palette, setPalette],
+    () => ({ theme, setTheme, toggleTheme, palette, setPalette, textSize, setTextSize }),
+    [theme, setTheme, toggleTheme, palette, setPalette, textSize, setTextSize],
   )
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>

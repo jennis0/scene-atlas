@@ -201,7 +201,7 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-semibold text-sm">{model.label}</span>
                   <span
-                    className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${hwBadge.className}`}
+                    className={`text-3xs font-medium px-1.5 py-0.5 rounded ${hwBadge.className}`}
                   >
                     {hwBadge.label}
                   </span>

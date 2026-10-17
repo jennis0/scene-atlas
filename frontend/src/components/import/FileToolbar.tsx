@@ -151,7 +151,7 @@ export function FileToolbar({
           skipped
         </span>
         <button
-          className="text-[11px] rounded border border-amber-500/30 px-1.5 py-0.5 text-amber-400/80 hover:bg-amber-500/10 transition-colors"
+          className="text-2xs rounded border border-amber-500/30 px-1.5 py-0.5 text-amber-400/80 hover:bg-amber-500/10 transition-colors"
           onClick={() => onBulkSetDuplicateAction(skippedDuplicateCount > 0 ? 'import' : 'skip')}
         >
           {skippedDuplicateCount > 0 ? 'Include all duplicates' : 'Skip all duplicates'}

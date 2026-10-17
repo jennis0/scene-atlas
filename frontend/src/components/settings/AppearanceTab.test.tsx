@@ -9,9 +9,10 @@ describe('AppearanceTab', () => {
     localStorage.clear()
     document.documentElement.classList.add('dark')
     delete document.documentElement.dataset.palette
+    delete document.documentElement.dataset.textSize
   })
 
-  it('switches mode and palette at once and saves them on this device', async () => {
+  it('switches mode, text size and palette at once and saves them on this device', async () => {
     const user = userEvent.setup()
     render(
       <ThemeProvider>
@@ -26,5 +27,9 @@ describe('AppearanceTab', () => {
     await user.click(screen.getByRole('radio', { name: /Slate & lapis/ }))
     expect(document.documentElement.dataset.palette).toBe('lapis')
     expect(localStorage.getItem('scene-atlas-palette')).toBe('lapis')
+
+    await user.click(screen.getByRole('radio', { name: 'Large' }))
+    expect(document.documentElement.dataset.textSize).toBe('large')
+    expect(localStorage.getItem('scene-atlas-text-size')).toBe('large')
   })
 })

@@ -266,6 +266,20 @@
     font-size: 106.25%; /* ~17px base — one step up from browser default */
   }
 
+  /* Text size (Settings → Appearance), as data-text-size on <html>. Percentages, so a
+     larger browser default font size still scales everything up. */
+  html[data-text-size='small'] {
+    font-size: 100%; /* 16px */
+  }
+
+  html[data-text-size='large'] {
+    font-size: 118.75%; /* 19px */
+  }
+
+  html[data-text-size='larger'] {
+    font-size: 131.25%; /* 21px */
+  }
+
   /* Subpixel rendering in light mode for bolder, crisper text;
      greyscale antialiasing in dark mode where it looks cleaner */
   .dark {

@@ -179,7 +179,7 @@ export function ResultView({ jobId, open, onClose, onReviewGroups, onUndone }: R
                 role="tab"
                 aria-selected={active === s}
                 onClick={() => setSection(s)}
-                className={`inline-flex items-center gap-2 h-8 px-3 text-[12.5px] border-r border-border last:border-r-0 transition-colors focus-visible:outline-offset-[-2px] ${
+                className={`inline-flex items-center gap-2 h-8 px-3 text-xs border-r border-border last:border-r-0 transition-colors focus-visible:outline-offset-[-2px] ${
                   active === s
                     ? 'bg-secondary text-foreground'
                     : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
@@ -187,7 +187,7 @@ export function ResultView({ jobId, open, onClose, onReviewGroups, onUndone }: R
               >
                 {SECTION_LABEL[s]}
                 <span
-                  className={`px-1.5 py-px rounded-full text-[10px] font-medium tabular-nums ${
+                  className={`px-1.5 py-px rounded-full text-3xs font-medium tabular-nums ${
                     s === 'failed'
                       ? 'bg-destructive/15 text-destructive'
                       : 'bg-primary/15 text-primary'
@@ -367,7 +367,7 @@ function ItemList({
 
   if (error) {
     return (
-      <div className="px-6 py-8 text-center text-[13px] text-muted-foreground">
+      <div className="px-6 py-8 text-center text-xs text-muted-foreground">
         Couldn't load this list.{' '}
         <button className="text-primary hover:underline" onClick={() => void load()}>
           Try again
@@ -395,10 +395,8 @@ function ItemList({
                 style={style}
                 className="flex items-center gap-3 border-b border-border/40"
               >
-                <span className="text-[12.5px] font-medium text-foreground truncate">
-                  {row.title}
-                </span>
-                <span className="font-mono text-[10.5px] text-muted-foreground tabular-nums">
+                <span className="text-xs font-medium text-foreground truncate">{row.title}</span>
+                <span className="font-mono text-2xs text-muted-foreground tabular-nums">
                   {row.ids.length.toLocaleString()}
                 </span>
                 <span className="ml-auto">{headerAction?.(row.ids)}</span>
@@ -425,7 +423,7 @@ function ItemList({
                 </span>
               )}
               <span
-                className="font-mono text-[11px] text-muted-foreground truncate"
+                className="font-mono text-2xs text-muted-foreground truncate"
                 title={row.item.relative_path}
               >
                 {row.item.relative_path}

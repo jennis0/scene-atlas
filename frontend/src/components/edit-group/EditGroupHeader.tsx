@@ -20,7 +20,7 @@ export function EditGroupHeader({ isMassEdit, summary, onDone, saving }: EditGro
             {isMassEdit ? 'Edit Search Results' : 'Edit Group'}
           </h2>
           {summary && (
-            <p className="text-[11px] text-muted-foreground mt-0.5 ml-7">
+            <p className="text-2xs text-muted-foreground mt-0.5 ml-7">
               {plural(summary.images, 'image')} across {plural(summary.groups, 'group')}
               {summary.ungrouped > 0 && ` · ${summary.ungrouped} ungrouped skipped`}
             </p>

@@ -126,7 +126,7 @@ function TypeRow({ image, onPatch, patching }: PatchRowProps) {
         aria-pressed={active}
         onClick={() => onPatch({ image_type: type })}
         disabled={patching}
-        className={`px-2 py-1 text-[11px] rounded-sm transition-colors ${
+        className={`px-2 py-1 text-2xs rounded-sm transition-colors ${
           active
             ? 'bg-primary/10 text-primary font-medium'
             : 'text-muted-foreground hover:text-foreground'

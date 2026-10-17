@@ -58,7 +58,7 @@ export function ImportRunningStrip({
   return (
     <div
       role="status"
-      className="flex flex-wrap items-center gap-x-4 gap-y-1 px-6 py-2 border-b border-border/30 bg-primary/[0.05] text-[12.5px]"
+      className="flex flex-wrap items-center gap-x-4 gap-y-1 px-6 py-2 border-b border-border/30 bg-primary/[0.05] text-xs"
     >
       <span className="flex items-center gap-2 text-foreground/90">
         {!finished && <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" aria-hidden />}

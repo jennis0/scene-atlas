@@ -19,7 +19,7 @@ export function PanelTitle({ children, badge, className = '' }: PanelTitleProps)
       <div className="flex items-center gap-2">
         <h2
           id={dialogTitleId}
-          className="font-display text-[15px] font-medium text-foreground leading-none"
+          className="font-display text-sm font-medium text-foreground leading-none"
         >
           {children}
         </h2>

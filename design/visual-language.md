@@ -8,7 +8,7 @@ A comprehensive reference for the Scene Atlas UI. All new components must confor
 
 **Theme:** Cartographic / archival, carried by the maps themselves rather than by ornament. Surfaces are quiet so the art leads; character comes from type (a book serif for names, the Cinzel wordmark) and a single accent colour.
 
-**Palettes.** Five, each with light and dark mode, chosen in Settings → Appearance and stored per device (`scene-atlas-palette` in localStorage, applied as `data-palette` on `<html>` before first paint; navy, the default, sets no attribute):
+**Palettes.** Five, each with light and dark mode, chosen in the Library dialog's Appearance tab and stored per device (`scene-atlas-palette` in localStorage, applied as `data-palette` on `<html>` before first paint; navy, the default, sets no attribute):
 - **Navy & gold** (default): deep navy and warm parchment, gold accent. Base tokens in `:root` / `.dark`.
 - **Ink & verdigris**: green-black ink and pale paper, aged-copper green accent.
 - **Slate & lapis**: near-neutral cool grey stone, cobalt accent (hue 214: lapis's own ~224 read as periwinkle).
@@ -86,15 +86,23 @@ Three font families, used in distinct roles. **Never mix roles.**
 | **Newsreader** (book serif) | `font-display` | Map/group names, viewer and dialog titles. Real lowercase, readable at any size. |
 | **Cinzel** (capitals serif) | `font-wordmark` | The "Scene Atlas" wordmark only. |
 | **Figtree** (geometric sans) | `font-sans` (default) | All body text, labels, controls, metadata. |
-| **JetBrains Mono** | `font-mono` | Filenames, UUIDs, dimensions, file sizes. `text-[10px]` usually. |
+| **JetBrains Mono** | `font-mono` | Filenames, UUIDs, dimensions, file sizes. `text-3xs` usually. |
 
 ### Size Scale in Practice
 - Wordmark: `font-wordmark text-2xl font-medium tracking-wide` (GalleryHeader)
 - Viewer heading (image name): `font-display text-2xl font-semibold`
-- Card name: `text-[13px] font-medium` (gradient overlay) or `text-sm font-semibold`
-- Metadata / labels: `text-[11px]` or `text-xs text-muted-foreground`
-- Micro badges / counts: `text-[10px]`
+- Card name: `text-xs font-medium` (gradient overlay) or `text-sm font-semibold`
+- Metadata / labels: `text-2xs` or `text-xs text-muted-foreground`
+- Micro badges / counts: `text-3xs`
 - Section labels: `.section-label` utility — `text-xs font-medium text-muted-foreground`, sentence case
+
+### Text size setting and rem-only sizing
+The Appearance tab offers Small / Default / Large / Larger, set as `data-text-size` on `<html>` (`lib/textSize.ts`), which changes the root font size: 16, 17 (default), 19, 21px, as percentages so a larger browser default still scales up. Everything in rem follows: text, spacing, icons, and the panels that hold text. Images and thumbnails keep their size, so the gallery's density is unchanged, unlike browser zoom.
+
+That only works if sizes are in rem, so:
+- **No pixel font sizes.** Use the scale: `text-3xs` (10px at default), `text-2xs` (11px), then Tailwind's `text-xs` (12.75px), `text-sm`, `text-base`. The two small steps are defined in `tailwind.config.js` without a line height, so they inherit one as the old pixel sizes did.
+- **Containers that hold text are sized in rem** (dialogs, the viewer's side panel, pickers, sidebars): px ÷ 17, e.g. the Library dialog is `max-w-[28.25rem]` (480px at default). Keep pixels only for things sized to images or the screen: thumbnails, the viewer stage (`max-w-[1600px]`), the gallery page width (`max-w-[1400px]`).
+- Check new dense UI at **Larger** as well as Default.
 
 ---
 
@@ -133,7 +141,7 @@ Use the `<Input>` component from `ui/input.tsx` which supports CVA variants:
 | Variant | Height | Size | Used for |
 |---------|--------|------|----------|
 | `default` | h-10 | text-sm | Gallery search, forms |
-| `compact` | h-[30px] | text-[12px] | Filter search, panel inputs |
+| `compact` | h-[30px] | text-xs | Filter search, panel inputs |
 | `sm` | h-6 | text-xs | Scene search, grid W×H inputs |
 
 Shared base: `bg-secondary border-border rounded-md` (focus comes from the global outline)
@@ -157,8 +165,8 @@ Two tiers:
 
 | Tier | Classes | Used for |
 |------|---------|----------|
-| **Solid** (button overlays) | `h-4 min-w-4 px-1 rounded-full bg-primary text-[10px] font-bold text-primary-foreground flex items-center justify-center tabular-nums` | Gallery filter button, ImageViewer filter badge |
-| **Tinted** (inline context) | `px-1.5 py-px rounded-full bg-primary/15 text-[10px] font-medium text-primary tabular-nums` | Tab counts, "N active" badges |
+| **Solid** (button overlays) | `h-4 min-w-4 px-1 rounded-full bg-primary text-3xs font-bold text-primary-foreground flex items-center justify-center tabular-nums` | Gallery filter button, ImageViewer filter badge |
+| **Tinted** (inline context) | `px-1.5 py-px rounded-full bg-primary/15 text-3xs font-medium text-primary tabular-nums` | Tab counts, "N active" badges |
 
 ### Close buttons
 
@@ -174,7 +182,7 @@ Standard close button (used in dialogs and panels):
 
 Ghost text only — no border, no background. Subtle default, brightens on hover:
 ```tsx
-<button className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground/70 hover:text-muted-foreground transition-colors">
+<button className="flex items-center gap-1.5 text-2xs text-muted-foreground/70 hover:text-muted-foreground transition-colors">
   <Plus className="h-[11px] w-[11px]" />
   New category
 </button>
@@ -242,7 +250,7 @@ The colour identity (hue) stays the same — red is always red, teal is always t
 ### Tag pill rendering
 Show **capitalised value only** — the colour already encodes the category:
 ```tsx
-<span className={`inline-flex items-center gap-1 text-[11px] rounded-full border px-2 py-px ${colors.bg} ${colors.text} ${colors.border}`}
+<span className={`inline-flex items-center gap-1 text-2xs rounded-full border px-2 py-px ${colors.bg} ${colors.text} ${colors.border}`}
   title={tag.category}>
   <span className="capitalize">{tag.value}</span>
 </span>
@@ -262,9 +270,9 @@ All image cards (`GroupCard`, `SceneTile`) share a **gradient overlay** structur
 │      (thumbnail)        │
 │                         │
 │ ░░░░░░░░░░░░░░░░░░░░░   │ ← gradient overlay: from-black/85 via-black/55 to-transparent
-│  Group                   │ ← font-display text-[15px] font-semibold text-white, wraps to 2 lines
-│  Subgroup · Variant      │ ← font-display text-[13px] text-white/85, wraps to 2 lines
-│  Author                  │ ← text-[11px] text-white/85 (sans)
+│  Group                   │ ← font-display text-sm font-semibold text-white, wraps to 2 lines
+│  Subgroup · Variant      │ ← font-display text-xs text-white/85, wraps to 2 lines
+│  Author                  │ ← text-2xs text-white/85 (sans)
 └─────────────────────────┘
 ```
 
@@ -432,8 +440,8 @@ Floating bottom-right card for imports (from the ImportManager) and background j
 
 ### Import ledger (`components/imports/GroupLedger.tsx`)
 The import's groups as ruled rows. Virtualised: a folder can plan thousands of groups. Clickable rows (groups with imported images) extend 8px into the gutter and use `hover:bg-muted/30`. Two variants:
-- **progress** (import dialog, and the report while still running): rows fill in as images land. Group name `font-display text-[15px]`, author `text-[11px]`, counts `font-mono text-[10.5px] tabular-nums` in the margin (`done/total`, failed in `text-destructive`), one hairline progress bar per row (`bg-primary/80` while open, `/35` finished). 48px rows.
-- **report** (the import dialog's finished view): 44px rows, ruled `border-border/40`. A 40×30 cover thumbnail (`cover_image_id` from the job detail, on the transparency backdrop), group name `font-display text-[15px]`, author only when the groups' authors differ (otherwise it's in the dialog's status line), then on the right only the exceptions worth reading — `N failed` (destructive), `N already in library`, `added to an existing group` — and `N images`. No progress bar.
+- **progress** (import dialog, and the report while still running): rows fill in as images land. Group name `font-display text-sm`, author `text-2xs`, counts `font-mono text-2xs tabular-nums` in the margin (`done/total`, failed in `text-destructive`), one hairline progress bar per row (`bg-primary/80` while open, `/35` finished). 48px rows.
+- **report** (the import dialog's finished view): 44px rows, ruled `border-border/40`. A 40×30 cover thumbnail (`cover_image_id` from the job detail, on the transparency backdrop), group name `font-display text-sm`, author only when the groups' authors differ (otherwise it's in the dialog's status line), then on the right only the exceptions worth reading — `N failed` (destructive), `N already in library`, `added to an existing group` — and `N images`. No progress bar.
 
 ### Import notices (`components/imports/ImportFrame.tsx`)
 One-line notices inside import dialogs: `rounded-lg border px-3 py-2.5`, attention `border-primary/25 bg-primary/[0.06]` (amber icon), problem `border-destructive/30 bg-destructive/[0.07]` (red icon). Actions go on a row beneath the text, never squeezed beside it.
@@ -496,8 +504,8 @@ For management dialogs with editable lists (tag values, vocabulary entries), use
 }`}>
   {/* Content area — click to enter edit mode */}
   <div className="flex-1 min-w-0 py-[7px] px-[10px] cursor-text" onClick={...}>
-    <span className={`text-[13px] font-medium capitalize ${colors.text}`}>{value}</span>
-    <button className="text-[10.5px] text-muted-foreground italic ...">aliases or "No aliases"</button>
+    <span className={`text-xs font-medium capitalize ${colors.text}`}>{value}</span>
+    <button className="text-2xs text-muted-foreground italic ...">aliases or "No aliases"</button>
   </div>
   {/* Margin column — count + actions */}
   <div className="w-[54px] shrink-0 flex items-center justify-end gap-1 px-2">

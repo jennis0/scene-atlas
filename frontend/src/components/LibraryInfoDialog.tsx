@@ -55,7 +55,7 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-[480px] bg-card border-border/50 p-0 overflow-hidden">
+      <DialogContent className="max-w-[28.24rem] bg-card border-border/50 p-0 overflow-hidden">
         <div className="shrink-0 bg-popover">
           <div
             className="px-4 flex items-center justify-between"
@@ -78,7 +78,7 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
           id={`${tabIdBase}-panel`}
           role="tabpanel"
           aria-labelledby={`${tabIdBase}-${activeTab}`}
-          className="overflow-y-auto h-[380px]"
+          className="overflow-y-auto h-[22.35rem]"
         >
           {/* Kept mounted while hidden, so a library purge keeps reporting progress */}
           <div hidden={activeTab !== 'library'}>
@@ -135,7 +135,7 @@ function SectionTabs({
           aria-controls={`${idBase}-panel`}
           tabIndex={active === id ? 0 : -1}
           onClick={() => onChange(id)}
-          className={`flex items-center gap-1.5 py-2.5 pr-5 text-[12px] font-medium border-b-2 -mb-px transition-colors duration-150 ${
+          className={`flex items-center gap-1.5 py-2.5 pr-5 text-xs font-medium border-b-2 -mb-px transition-colors duration-150 ${
             active === id
               ? 'border-primary text-foreground'
               : 'border-transparent text-muted-foreground hover:text-foreground'

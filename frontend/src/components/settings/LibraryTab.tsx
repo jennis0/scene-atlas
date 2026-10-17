@@ -171,7 +171,7 @@ function StorageBar({ storage }: { storage: SystemInfo['storage'] }) {
         {shown.map((seg) => (
           <div key={seg.key} className="flex items-center gap-1.5">
             <div className={`w-2 h-2 rounded-full ${seg.color}`} />
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-2xs text-muted-foreground">
               {seg.label}{' '}
               <span className="tabular-nums text-foreground/70">{formatBytes(seg.bytes)}</span>
             </span>

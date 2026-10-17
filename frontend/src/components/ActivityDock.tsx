@@ -130,13 +130,13 @@ export function ActivityDock({
         ) : (
           <Package className="h-4 w-4 text-primary" />
         )}
-        <span className="text-[12px] font-medium text-muted-foreground">Activity</span>
-        {connectionLost && <span className="text-[10px] text-primary/70">Offline</span>}
+        <span className="text-xs font-medium text-muted-foreground">Activity</span>
+        {connectionLost && <span className="text-3xs text-primary/70">Offline</span>}
         {!connectionLost && totalActiveCount > 0 && (
           <span
             className="min-w-[18px] h-[18px] flex items-center justify-center
             rounded-full bg-primary text-primary-foreground
-            text-[10px] font-bold tabular-nums leading-none px-1"
+            text-3xs font-bold tabular-nums leading-none px-1"
           >
             {totalActiveCount}
           </span>
@@ -199,12 +199,12 @@ export function ActivityDock({
                 badge={
                   <>
                     {totalActiveCount > 0 && (
-                      <span className="inline-flex items-center px-1.5 py-px rounded-full bg-primary/15 text-[10px] font-medium text-primary tabular-nums">
+                      <span className="inline-flex items-center px-1.5 py-px rounded-full bg-primary/15 text-3xs font-medium text-primary tabular-nums">
                         {totalActiveCount} running
                       </span>
                     )}
                     {connectionLost && (
-                      <span className="inline-flex items-center gap-1 text-[10px] text-primary/70">
+                      <span className="inline-flex items-center gap-1 text-3xs text-primary/70">
                         <WifiOff className="h-3 w-3" />
                         Offline
                       </span>
@@ -218,7 +218,7 @@ export function ActivityDock({
                 {finishedCount > 0 && (
                   <button
                     onClick={clearFinished}
-                    className="h-7 px-2 rounded text-[11px] text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                    className="h-7 px-2 rounded text-2xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
                     title="Remove finished imports and jobs from this list"
                   >
                     Clear finished
@@ -243,12 +243,12 @@ export function ActivityDock({
           {systemPaused && (
             <div className="mx-3.5 mt-2 flex items-start gap-2 rounded-md border border-primary/25 bg-primary/[0.06] px-2.5 py-2">
               <PauseCircle className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
-              <p className="flex-1 text-[11px] leading-snug text-foreground">
+              <p className="flex-1 text-2xs leading-snug text-foreground">
                 Imports paused: {queue?.reason}
               </p>
               <button
                 onClick={() => act(() => manager.retrySystemPause())}
-                className="text-[11px] text-primary hover:underline shrink-0"
+                className="text-2xs text-primary hover:underline shrink-0"
               >
                 Try again
               </button>
@@ -314,14 +314,14 @@ function BackgroundJobCard({ job, onDismiss }: { job: BackgroundJob; onDismiss?:
         <div className="flex items-start gap-[7px]">
           <JobStatusIcon status={job.status} />
           <span
-            className={`flex-1 text-[12px] font-medium truncate leading-tight ${
+            className={`flex-1 text-xs font-medium truncate leading-tight ${
               isTerminal && !expanded ? 'text-muted-foreground' : 'text-foreground'
             }`}
           >
             {job.name}
           </span>
           {job.progress_pct != null && !isTerminal && (
-            <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">{pct}%</span>
+            <span className="text-3xs text-muted-foreground tabular-nums shrink-0">{pct}%</span>
           )}
           {expanded && (
             <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0 mt-0.5 rotate-180" />
@@ -362,7 +362,7 @@ function BackgroundJobCard({ job, onDismiss }: { job: BackgroundJob; onDismiss?:
           </div>
         )}
 
-        <div className="mt-1 text-[10px] text-muted-foreground leading-tight">
+        <div className="mt-1 text-3xs text-muted-foreground leading-tight">
           {job.status === 'queued' && <span>Queued</span>}
           {job.status === 'running' && <span>{job.progress ?? 'Processing...'}</span>}
           {job.status === 'completed' && <span>{formatResult(job.result)}</span>}
@@ -380,7 +380,7 @@ function BackgroundJobCard({ job, onDismiss }: { job: BackgroundJob; onDismiss?:
             {job.status === 'completed' && job.result && (
               <div className="space-y-0.5">
                 {Object.entries(job.result).map(([key, val]) => (
-                  <div key={key} className="flex justify-between text-[10px]">
+                  <div key={key} className="flex justify-between text-3xs">
                     <span className="text-muted-foreground font-medium">
                       {key.replace(/_/g, ' ')}
                     </span>
@@ -390,7 +390,7 @@ function BackgroundJobCard({ job, onDismiss }: { job: BackgroundJob; onDismiss?:
               </div>
             )}
             {job.status === 'failed' && job.error && (
-              <div className="flex justify-between text-[10px] gap-4">
+              <div className="flex justify-between text-3xs gap-4">
                 <span className="text-muted-foreground font-medium shrink-0">Error</span>
                 <span className="text-destructive/65 text-right">{job.error}</span>
               </div>

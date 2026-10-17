@@ -63,7 +63,7 @@ function SlashHint() {
   return (
     <kbd
       aria-hidden="true"
-      className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 hidden sm:flex h-5 min-w-5 items-center justify-center rounded border border-border px-1 font-mono text-[11px] text-muted-foreground"
+      className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 hidden sm:flex h-5 min-w-5 items-center justify-center rounded border border-border px-1 font-mono text-2xs text-muted-foreground"
       title="Press / to search"
     >
       /

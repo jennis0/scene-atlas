@@ -57,7 +57,7 @@ function StoragePathRow({
     <SettingRow label={label} description={description} requiresRestart={requiresRestart}>
       <div className="flex items-center gap-2">
         <span
-          className={`max-w-[180px] truncate text-xs font-mono ${changed ? 'text-primary' : 'text-muted-foreground'}`}
+          className={`max-w-[10.59rem] truncate text-xs font-mono ${changed ? 'text-primary' : 'text-muted-foreground'}`}
           title={display}
         >
           {display}
@@ -261,7 +261,7 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
     }
 
     return (
-      <div className="min-h-[220px]">
+      <div className="min-h-[12.94rem]">
         {isError && error && (
           <div className="mb-4 p-3 rounded bg-destructive/10 border border-destructive/30 flex items-start gap-2">
             <AlertCircle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
@@ -370,24 +370,22 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="font-medium text-xs">{model.label}</span>
                           <span
-                            className={`text-[10px] font-medium px-1 py-0.5 rounded ${hwBadge.className}`}
+                            className={`text-3xs font-medium px-1 py-0.5 rounded ${hwBadge.className}`}
                           >
                             {hwBadge.label}
                           </span>
                           {!model.downloaded && (
-                            <span className="text-[10px] font-medium px-1 py-0.5 rounded bg-muted text-muted-foreground">
+                            <span className="text-3xs font-medium px-1 py-0.5 rounded bg-muted text-muted-foreground">
                               Not downloaded
                             </span>
                           )}
                         </div>
 
-                        <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        <p className="text-2xs text-muted-foreground leading-relaxed">
                           {model.description}
                         </p>
 
-                        <p className="text-[10px] text-muted-foreground">
-                          ~{model.approx_size_mb} MB
-                        </p>
+                        <p className="text-3xs text-muted-foreground">~{model.approx_size_mb} MB</p>
                       </button>
                     )
                   })}

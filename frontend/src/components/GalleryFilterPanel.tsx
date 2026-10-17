@@ -149,7 +149,7 @@ export function GalleryFilterPanel({ filters, facets, onFiltersChange }: Gallery
           <SlidersHorizontal className="h-3.5 w-3.5" />
           Filters
           {filters.length > 0 && (
-            <span className="h-4 min-w-4 px-1 rounded-full bg-primary text-[10px] font-bold text-primary-foreground flex items-center justify-center tabular-nums">
+            <span className="h-4 min-w-4 px-1 rounded-full bg-primary text-3xs font-bold text-primary-foreground flex items-center justify-center tabular-nums">
               {filters.length}
             </span>
           )}
