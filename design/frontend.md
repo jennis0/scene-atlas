@@ -35,7 +35,11 @@ frontend/src/
 ├── pages/Gallery.tsx  The only page: header, filters, grid, viewer, dialogs
 ├── components/
 │   ├── ui/            Primitives: button, input, dialog (custom portal), confirm-dialog,
-│   │                  checkbox / dropdown-menu / popover (Radix wrappers), video-indicator
+│   │                  checkbox / dropdown-menu / popover (Radix wrappers), panel-title,
+│   │                  video-indicator
+│   ├── viewer/        ImageViewer pieces: stage, toolbar, name editor, properties, tags, scene panel
+│   ├── edit-group/    EditGroupDialog pieces: header, sidebar, file grid, footer, confirmations,
+│   │                  useEditScope
 │   ├── imports/       Import dialog, progress ledger, job rows, import report
 │   ├── import/        Shared file-card, toolbar, tag/grid pickers and dnd pieces, used by the
 │   │                  edit-group dialog, viewer and filter UI (name predates the import rewrite)
@@ -119,11 +123,29 @@ Available in grouped view when the result has at most 500 groups (the `/search/g
 
 ## Image Viewer
 
-`components/ImageViewer.tsx`. The sidebar has a fixed metadata header (name, author, subgroup, grid state for battlemaps, filename, tags, colours, dimensions) and an independently scrolling scene panel for the group:
+`components/ImageViewer.tsx` owns the queries, mutations, keyboard handling and navigation
+reset; the presentational pieces live in `components/viewer/`. The key handler ignores keys
+while the name or subgroup is being edited, while focus is in an input, and while any dialog
+is open (`isAnyDialogOpen()` from `ui/dialogStack.ts`). The sidebar has a fixed metadata header (name, author, subgroup, grid state for battlemaps, filename, tags, colours, dimensions) and an independently scrolling scene panel for the group:
 
 - Scenes are partitioned by `subgroup`; scenes without one go under "Other".
 - A group with a single section shows it without subgroup headers.
 - Tiles are `SceneTile`s; clicking one switches the viewed image.
+- Search, the Maps/Scenes toggle and the filter menu are client-side, in `hooks/useSceneFilters.ts`.
+  It filters with the same `applyFileFilter` (`components/import/fileFilter.ts`) as the edit
+  dialog, with its own text matcher (name, subgroup or filename stem).
+
+## Edit Group Dialog
+
+`components/EditGroupDialog.tsx` wires together `useFileEditing` (editor state and bulk edits),
+`useEditGroupLoad`, `useEditGroupOperations` (API calls and auto-save), `useEditGroupDnd` and
+`useGroupSidebarMultiselect`. `edit-group/useEditScope.ts` derives what is in view: the
+multi-selected groups, every group (All tab) or the active group. Bulk edits take a `BulkScope`
+(one group id, several, or `null` for all).
+
+Confirmations (inline delete, merge picker, modal merges and deletes) are one `PendingConfirm`
+state in the dialog, so only one is open at a time. Operations a confirmation gates resolve to
+a success flag; the dialog closes the confirmation only on success.
 
 ## Imports
 

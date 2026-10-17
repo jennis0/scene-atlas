@@ -246,9 +246,10 @@ All five steps landed on one branch (combined PR):
 
 2. **Mechanical cleanup**: dead code, unused deps, duplicate logging, jscpd clones.
 3. **Per-area review**: frontend components, hooks/lib, Electron and all design docs were
-   reviewed against the rubric; findings applied (see the commit history). Deferred
-   larger frontend extractions (EditGroupDialog/ImageViewer subcomponents, `useSceneFilters`,
-   unified scene/file filtering) are listed in [status-and-roadmap.md](status-and-roadmap.md#backlog).
+   reviewed against the rubric; findings applied (see the commit history). The larger
+   frontend extractions deferred here (EditGroupDialog/ImageViewer subcomponents,
+   `useSceneFilters`, unified scene/file filtering, shared `TagChip`/`PanelTitle`) were done
+   later, after characterisation tests; see [frontend.md](frontend.md).
 4. **Types**: `Mapped[]` models; pyright at 0 errors.
 5. **Gates**: pre-push and the CI `quality` job run pyright, knip (`frontend/knip.json`) and
    jscpd (`.jscpd.json`, 1% threshold). Ruff now also enforces `SIM`, `RET`, `PIE`, `RUF100`
