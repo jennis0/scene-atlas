@@ -138,7 +138,7 @@ backend/tests/
 │   ├── test_pipeline_tasks.py     # color_extraction, image_processing, grid_detection, embedding
 │   ├── test_pipeline_db.py        # pipeline_db() session helper
 │   ├── test_video_utils.py        # verify_video_mime, extract_first_frame, get_video_dimensions
-│   ├── test_color_search.py       # HSL color distance, color index search
+│   ├── test_color_search.py       # hex to LAB, SQL delta E colour search
 │   ├── test_deletion_service.py   # safe_delete_image, delete_image_rows
 │   ├── test_system_info.py        # dir_size utility
 │   ├── test_path_traversal.py     # Path traversal prevention
@@ -187,6 +187,7 @@ backend/tests/
 │   ├── test_health_endpoint.py    # GET /health deep health check
 │   ├── test_backup_restore.py     # Backup + restore pipeline
 │   ├── test_migration_022.py      # Migration 022 (grid source labelling)
+│   ├── test_migration_024.py      # Migration 024 (colour LAB backfill, threshold units)
 │   └── test_clip_heavy.py         # Real CLIP model tests (marked @heavy, excluded by default)
 
 e2e/                                  # Playwright E2E tests (full stack, real browser)

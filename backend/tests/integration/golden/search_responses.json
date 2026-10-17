@@ -1715,6 +1715,223 @@
     "groups": [
      {
       "all_image_ids": null,
+      "author": "AuthorC",
+      "base_name": "Tavern",
+      "best_score": null,
+      "group_id": 3,
+      "hero_image": {
+       "author": "AuthorC",
+       "colors": [
+        {
+         "color_hex": "#996633",
+         "color_order": 1,
+         "id": 9,
+         "image_id": 10,
+         "percentage": 40.0
+        }
+       ],
+       "content_hash": null,
+       "file_size": null,
+       "filename": "Tavern_Empty.jpg",
+       "grid_confidence": null,
+       "grid_height": null,
+       "grid_source": null,
+       "grid_type": null,
+       "grid_width": null,
+       "gridded": null,
+       "group_id": 3,
+       "group_image_count": 7,
+       "group_name": "Tavern",
+       "height": null,
+       "id": 10,
+       "image_type": "scene",
+       "media_type": "image",
+       "name": "Tavern Empty",
+       "storage_key": "key10.jpg",
+       "subgroup": null,
+       "tags": [
+        {
+         "category": "occupancy",
+         "confidence": 1.0,
+         "id": 10,
+         "image_id": 10,
+         "source": "manual",
+         "value": "empty"
+        }
+       ],
+       "thumbnail_key": null,
+       "width": null
+      },
+      "matching_scenes": 7,
+      "mosaic_images": [
+       {
+        "author": "AuthorC",
+        "colors": [
+         {
+          "color_hex": "#aa7744",
+          "color_order": 1,
+          "id": 10,
+          "image_id": 11,
+          "percentage": 40.0
+         }
+        ],
+        "content_hash": null,
+        "file_size": null,
+        "filename": "Tavern_Crowded.jpg",
+        "grid_confidence": null,
+        "grid_height": null,
+        "grid_source": null,
+        "grid_type": null,
+        "grid_width": null,
+        "gridded": null,
+        "group_id": 3,
+        "group_image_count": 7,
+        "group_name": "Tavern",
+        "height": null,
+        "id": 11,
+        "image_type": "scene",
+        "media_type": "image",
+        "name": "Tavern Crowded",
+        "storage_key": "key11.jpg",
+        "subgroup": null,
+        "tags": [
+         {
+          "category": "occupancy",
+          "confidence": 1.0,
+          "id": 11,
+          "image_id": 11,
+          "source": "manual",
+          "value": "crowded"
+         }
+        ],
+        "thumbnail_key": null,
+        "width": null
+       },
+       {
+        "author": "AuthorC",
+        "colors": [
+         {
+          "color_hex": "#221100",
+          "color_order": 1,
+          "id": 11,
+          "image_id": 12,
+          "percentage": 40.0
+         }
+        ],
+        "content_hash": null,
+        "file_size": null,
+        "filename": "Tavern_Night.jpg",
+        "grid_confidence": null,
+        "grid_height": null,
+        "grid_source": null,
+        "grid_type": null,
+        "grid_width": null,
+        "gridded": null,
+        "group_id": 3,
+        "group_image_count": 7,
+        "group_name": "Tavern",
+        "height": null,
+        "id": 12,
+        "image_type": "scene",
+        "media_type": "image",
+        "name": "Tavern Night",
+        "storage_key": "key12.jpg",
+        "subgroup": null,
+        "tags": [
+         {
+          "category": "lighting",
+          "confidence": 1.0,
+          "id": 12,
+          "image_id": 12,
+          "source": "manual",
+          "value": "night"
+         }
+        ],
+        "thumbnail_key": null,
+        "width": null
+       },
+       {
+        "author": "AuthorC",
+        "colors": [
+         {
+          "color_hex": "#ffeecc",
+          "color_order": 1,
+          "id": 12,
+          "image_id": 13,
+          "percentage": 40.0
+         }
+        ],
+        "content_hash": null,
+        "file_size": null,
+        "filename": "Tavern_Day.jpg",
+        "grid_confidence": null,
+        "grid_height": null,
+        "grid_source": null,
+        "grid_type": null,
+        "grid_width": null,
+        "gridded": null,
+        "group_id": 3,
+        "group_image_count": 7,
+        "group_name": "Tavern",
+        "height": null,
+        "id": 13,
+        "image_type": "scene",
+        "media_type": "image",
+        "name": "Tavern Day",
+        "storage_key": "key13.jpg",
+        "subgroup": null,
+        "tags": [
+         {
+          "category": "lighting",
+          "confidence": 1.0,
+          "id": 13,
+          "image_id": 13,
+          "source": "manual",
+          "value": "day"
+         }
+        ],
+        "thumbnail_key": null,
+        "width": null
+       },
+       {
+        "author": "AuthorC",
+        "colors": [
+         {
+          "color_hex": "#332211",
+          "color_order": 1,
+          "id": 13,
+          "image_id": 14,
+          "percentage": 40.0
+         }
+        ],
+        "content_hash": null,
+        "file_size": null,
+        "filename": "Tavern_Cellar.jpg",
+        "grid_confidence": null,
+        "grid_height": null,
+        "grid_source": null,
+        "grid_type": "hex",
+        "grid_width": null,
+        "gridded": true,
+        "group_id": 3,
+        "group_image_count": 7,
+        "group_name": "Tavern",
+        "height": null,
+        "id": 14,
+        "image_type": "battlemap",
+        "media_type": "image",
+        "name": "Tavern Cellar",
+        "storage_key": "key14.jpg",
+        "subgroup": null,
+        "tags": [],
+        "thumbnail_key": null,
+        "width": null
+       }
+      ],
+      "total_scenes": 7
+     },
+     {
+      "all_image_ids": null,
       "author": "AuthorA",
       "base_name": "Forest Variants",
       "best_score": null,
@@ -1934,7 +2151,7 @@
     ],
     "limit": 50,
     "offset": 0,
-    "total_groups": 1
+    "total_groups": 2
    },
    "status": 200
   },
@@ -20102,43 +20319,43 @@
    "body": {
     "images": [
      {
-      "author": "AuthorA",
+      "author": "AuthorC",
       "colors": [
        {
-        "color_hex": "#aaaaaa",
+        "color_hex": "#ffeecc",
         "color_order": 1,
-        "id": 5,
-        "image_id": 6,
+        "id": 12,
+        "image_id": 13,
         "percentage": 40.0
        }
       ],
       "content_hash": null,
       "file_size": null,
-      "filename": "Forest_Fog.jpg",
+      "filename": "Tavern_Day.jpg",
       "grid_confidence": null,
       "grid_height": null,
       "grid_source": null,
       "grid_type": null,
       "grid_width": null,
       "gridded": null,
-      "group_id": 1,
-      "group_image_count": 6,
-      "group_name": "Forest Variants",
+      "group_id": 3,
+      "group_image_count": 7,
+      "group_name": "Tavern",
       "height": null,
-      "id": 6,
+      "id": 13,
       "image_type": "scene",
       "media_type": "image",
-      "name": "Forest Fog",
-      "storage_key": "key6.jpg",
+      "name": "Tavern Day",
+      "storage_key": "key13.jpg",
       "subgroup": null,
       "tags": [
        {
-        "category": "weather",
+        "category": "lighting",
         "confidence": 1.0,
-        "id": 6,
-        "image_id": 6,
+        "id": 13,
+        "image_id": 13,
         "source": "manual",
-        "value": "fog"
+        "value": "day"
        }
       ],
       "thumbnail_key": null,

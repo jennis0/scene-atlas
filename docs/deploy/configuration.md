@@ -62,7 +62,6 @@ Scene Atlas has **no built-in authentication**. In server mode, anyone who can r
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `COLOR_CACHE_TTL_SECONDS` | `60` | Colour index cache expiry in seconds |
 | `JOB_RETENTION_SECONDS` | `3600` | How long completed background job records are kept |
 | `RATE_LIMIT_ENABLED` | `true` | Enable per-client rate limits on expensive and destructive endpoints |
 | `RATE_LIMIT_EXPENSIVE` | `2/minute` | Limit for expensive operations |
@@ -102,9 +101,11 @@ Image grid detection runs on battlemaps only, in addition to filename-based dete
 | Setting | Key | Default | Where |
 |---------|-----|---------|-------|
 | Dominant colours | `num_dominant_colors` | 5 | API |
-| Colour distance threshold | `color_distance_threshold` | 0.35 | API |
+| Colour distance threshold | `color_distance_threshold` | 25 (delta E) | API |
 | Clustering samples | `color_clustering_samples` | 5,000 | API |
 | Clustering restarts | `color_kmeans_n_init` | 3 | API |
+
+The colour distance threshold is a CIE76 delta E between 0 and 100 (lower is stricter). Before migration 024 it was an HSL distance with a default of 0.35; upgrading maps 0.35 to 25 and scales custom values by the same ratio.
 
 ### Performance
 

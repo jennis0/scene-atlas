@@ -80,6 +80,7 @@ colors
   color_hex        TEXT(7) NOT NULL    -- "#1a2b3c"
   percentage       FLOAT               -- 0.0–100.0
   color_order      INTEGER             -- 1 = most dominant
+  lab_l, lab_a, lab_b  FLOAT NOT NULL  -- CIELAB of color_hex, for colour search (ix_colors_lab)
 
 import_jobs
   id               TEXT PK             -- UUID hex

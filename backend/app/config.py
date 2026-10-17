@@ -40,7 +40,6 @@ class Settings(BaseSettings):
 
     # Service constants
     clip_text_cache_max: int = 256
-    color_cache_ttl_seconds: float = 60.0
     job_retention_seconds: int = 3600
 
     # Image Processing

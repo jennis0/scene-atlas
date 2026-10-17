@@ -122,7 +122,6 @@ def _patch_semantic(monkeypatch, clip) -> None:
 
 @pytest.fixture
 def golden_library(test_client, tmp_db, monkeypatch):
-    from backend.app.services.color_search import color_index
     from backend.app.services.fts_service import invalidate_alias_cache
 
     _, SessionLocal = tmp_db
@@ -177,7 +176,6 @@ def golden_library(test_client, tmp_db, monkeypatch):
     db.commit()
     db.close()
 
-    color_index.invalidate()  # the index is a process-wide cache
     invalidate_alias_cache()
     _patch_semantic(monkeypatch, _FakeClip())
     return test_client
