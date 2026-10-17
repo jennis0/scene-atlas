@@ -1,8 +1,16 @@
 import { useState, useEffect } from 'react'
+import { AxiosError } from 'axios'
 import { Check } from 'lucide-react'
-import { toast } from 'sonner'
 import { tagApi } from '@/lib/api/tagApi'
+import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import type { TagPack } from '@/types'
+
+function importFailureMessage(err: unknown): string {
+  if (err instanceof AxiosError && err.response?.status === 429) {
+    return 'Too many attempts. Wait a minute and try again.'
+  }
+  return getApiErrorMessage(err, 'Could not reach the server.')
+}
 
 interface TagPackSetupStepProps {
   /** Current model download progress message, shown in the status bar */
@@ -32,18 +40,21 @@ export function TagPackSetupStep({
   const [importing, setImporting] = useState(false)
   const [importDone, setImportDone] = useState(false)
   const [fetchError, setFetchError] = useState(false)
+  const [importErrors, setImportErrors] = useState<string[]>([])
 
-  const fetchPacks = () => {
-    setLoading(true)
+  const fetchPacks = (keepSelection?: Set<string>) => {
+    // A refresh after a partial import keeps the current cards instead of the skeleton
+    if (!keepSelection) setLoading(true)
     setFetchError(false)
-    tagApi
+    return tagApi
       .getTagPacks()
       .then((data) => {
         setPacks(data)
-        // Pre-select non-imported packs (common is already imported)
+        // Pre-select packs not yet imported (first boot installs only common),
+        // or after a partial import keep the user's choice for packs that failed.
         const initial = new Set<string>()
         for (const p of data) {
-          if (!p.imported) {
+          if (!p.imported && (!keepSelection || keepSelection.has(p.name))) {
             initial.add(p.name)
           }
         }
@@ -80,13 +91,20 @@ export function TagPackSetupStep({
     }
 
     setImporting(true)
+    setImportErrors([])
+    let errors: string[]
     try {
-      await tagApi.importMultipleTagPacks(toImport)
-    } catch {
-      toast.error('Some tag packs failed to import. You can retry from Settings later.')
+      errors = (await tagApi.importMultipleTagPacks(toImport)).errors
+    } catch (err) {
+      errors = [importFailureMessage(err)]
+    }
+    if (errors.length > 0) {
+      setImportErrors(errors)
+      await fetchPacks(selected)
+    } else {
+      setImportDone(true)
     }
     setImporting(false)
-    setImportDone(true)
   }
 
   // When both import is done and model is complete, finish setup
@@ -151,7 +169,7 @@ export function TagPackSetupStep({
             </p>
             <button
               type="button"
-              onClick={fetchPacks}
+              onClick={() => fetchPacks()}
               className="px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-muted transition-colors"
             >
               Retry
@@ -214,6 +232,23 @@ export function TagPackSetupStep({
           </div>
         )}
 
+        {importErrors.length > 0 && (
+          <div
+            role="alert"
+            className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm"
+          >
+            <p className="font-medium text-destructive">Some tag packs could not be imported</p>
+            <ul className="mt-1 list-disc pl-5 text-xs text-muted-foreground">
+              {importErrors.map((error) => (
+                <li key={error}>{error}</li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Try again, or skip and add them later in Settings.
+            </p>
+          </div>
+        )}
+
         <div className="flex flex-col items-center gap-2">
           {importDone && !modelComplete ? (
             <>
@@ -237,7 +272,7 @@ export function TagPackSetupStep({
                 disabled={importing}
                 className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {importing ? 'Importing...' : 'Continue'}
+                {importing ? 'Importing...' : importErrors.length > 0 ? 'Try again' : 'Continue'}
               </button>
               <button
                 type="button"

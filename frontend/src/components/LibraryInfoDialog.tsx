@@ -399,7 +399,7 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
           open={confirmingResetTags}
           onOpenChange={setConfirmingResetTags}
           title="Reset Tags"
-          description="This will delete all tags from every image and reset tag categories to their defaults. This cannot be undone."
+          description="This will delete all tags from every image and reset tag categories to their defaults, keeping only the Common tag pack (add genre packs again from Settings). This cannot be undone."
           confirmLabel="Reset Tags"
           confirmVariant="destructive"
           loadingLabel="Resetting…"

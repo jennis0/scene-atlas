@@ -73,3 +73,18 @@ def test_seed_uses_resource_defaults(db_session):
         )
         == 7
     )
+
+
+def test_seed_matches_schema_defaults(db_session, monkeypatch):
+    """The seed covers every AppSettings field and uses its defaults, so the two can't drift."""
+    from backend.app.models.schemas import AppSettings
+
+    monkeypatch.delenv("CONVERT_TO_WEBP", raising=False)
+    seed_default_settings(db_session)
+    seeded = {row.key: json.loads(row.value_json) for row in db_session.query(AppSetting)}
+    expected = AppSettings().model_dump(exclude={"active_model"})
+    assert seeded.keys() == expected.keys()
+    resource_keys = {"max_concurrent_prepare", "max_concurrent_heavy_requests", "max_job_workers"}
+    for key in expected.keys() - resource_keys:
+        assert seeded[key] == expected[key], key
+    assert seeded["max_import_file_size"] == 2 * 1024 * 1024 * 1024

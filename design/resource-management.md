@@ -104,7 +104,7 @@ A zip that fails `check_zip_safety` becomes one failed `archive` item rather tha
 | `ingestion_batch_size` | 16 | Next batch (read per batch) |
 | Import limits | hardcoded | Next request (read per request) |
 
-The Settings UI exposes `max_concurrent_prepare` (labelled "Concurrent imports", 1–16); the others are only editable through the API.
+The Settings UI exposes `max_concurrent_prepare` (labelled "Parallel image processing", 1–16; restart required); the others are only editable through the API.
 
 ## Memory Monitoring
 

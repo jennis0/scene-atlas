@@ -160,7 +160,7 @@ The write endpoints are `@write_locked`, so they serialise with the ingest worke
 | DELETE | `/{tag_id}` | Remove a tag |
 | GET | `/stats` | Tag statistics |
 | GET | `/packs` | Tag packs with import status |
-| POST | `/packs/import-multiple` | Import several packs (setup wizard) |
+| POST | `/packs/import-multiple` | Import several packs (setup wizard; rate limited: expensive) |
 | POST | `/packs/{name}/import` | Import one pack (rate limited: expensive) |
 | POST | `/retag-all` | Retag job (rate limited: expensive) |
 
@@ -314,16 +314,14 @@ Two sources:
 | `app_data_dir` | `<repo>/data` | Fast storage root |
 | `image_library_dir` | `<repo>/images` | Originals + backups root |
 | `validate_roots` | `False` | Fail startup if roots are missing (frozen entry point) |
-| `database_url` | computed | Always `sqlite:///{app_data_dir}/battlemap.db` |
-| `store_thumbnails_dir`, `staging_dir`, `vector_db_path`, `config_dir`, `store_images_dir`, `backups_dir` | computed | Derived from the two roots in `__init__` |
+| `database_url` | derived | Always `sqlite:///{app_data_dir}/battlemap.db` |
+| `store_thumbnails_dir`, `staging_dir`, `vector_db_path`, `store_images_dir`, `backups_dir` | derived | From the two roots |
 | `vector_size` | `512` | Overwritten at startup from the model manifest's `embedding_dim` |
-| `embedding_model` | `clip-vit-b-32` | Used for `vector_collection_name` |
 | `inference_device` | `auto` | `auto` / `cpu` / `cuda` / `directml` / `coreml` |
 | `clip_text_cache_max` | `256` | Text embedding LRU size |
 | `color_cache_ttl_seconds` | `60.0` | Colour index cache TTL |
 | `job_retention_seconds` | `3600` | How long finished JobRunner records are kept |
 | `thumbnail_sizes` | `[(150,150), (400,400), (800,800)]` | small / medium / large |
-| `max_image_size` | `10 MiB` | Not referenced outside `config.py` |
 | `max_image_pixels` | `1_000_000_000` | Pillow `MAX_IMAGE_PIXELS`; above it decoding fails as a decompression bomb |
 | `pixel_hash_max_pixels` | `100_000_000` | JPEGs above this are decoded at reduced scale and skip the pixel hash |
 | `ingest_memory_budget_mb` | `None` | MemoryBudget capacity; `None` = automatic |
@@ -336,6 +334,8 @@ Two sources:
 | `rate_limit_enabled` | `True` | |
 | `api_host` / `api_port` / `api_prefix` | `0.0.0.0` / `8000` / `/api/v1` | |
 | `cors_origins` | `localhost:3000`, `:5173`, `:8000` | Startup warning if unchanged in server mode |
+
+Derived values are `cached_property`s, not fields, so no env var can set them (`DATABASE_URL`, `STAGING_DIR` etc. are ignored). Each is computed once on first access; tests assign them to redirect storage. `__init__` creates the thumbnail, staging and LanceDB directories inside the roots.
 
 Other environment variables: `EMBEDDING_MODEL` (operator override of the active model, read by `clip_service.py`; otherwise `app_settings.active_model`), `CONVERT_TO_WEBP` (`1` seeds the `stored_format` setting as `webp` at first boot).
 

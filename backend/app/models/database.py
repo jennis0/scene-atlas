@@ -478,23 +478,21 @@ def init_db(engine):
 
 
 def seed_tag_categories(session):
-    """Seed initial tag categories with vocabulary for auto-tagging.
+    """Seed the tag categories with the ``common`` tag pack.
 
     Only runs when the tag_categories table is completely empty (first boot).
     Once categories exist, this is a no-op so user edits are preserved.
 
-    Reads the canonical vocabulary from backend/app/data/tag_vocabulary.json.
-    The ImageParser loads these to build its tag vocabulary.
+    Genre packs are opt-in: the setup wizard or Settings imports them
+    (design/tag-packs.md). The ImageParser builds its vocabulary from these rows.
     """
     existing_count = session.query(TagCategory).count()
     if existing_count > 0:
         return
 
-    from backend.app.data.vocabulary import build_common_values_json, load_vocabulary
+    from backend.app.data.vocabulary import build_common_values_json, get_tags_for_packs
 
-    vocab = load_vocabulary()
-
-    for cat_data in vocab["categories"]:
+    for cat_data in get_tags_for_packs(["common"]):
         session.add(
             TagCategory(
                 name=cat_data["name"],
@@ -515,44 +513,24 @@ def seed_default_settings(session):
     Only runs when the app_settings table is completely empty.
     Once any setting row exists, this is a no-op so user-edited values are preserved.
 
-    Concurrency settings use resource_detector to compute host-appropriate defaults
-    based on CPU count and available RAM. Import limits and algorithm params use
-    sensible fixed defaults.
+    Values are the AppSettings schema defaults, except the concurrency settings
+    (computed by resource_detector from CPU count and RAM) and the stored format
+    (seeded from CONVERT_TO_WEBP so the setup wizard choice is honoured).
     """
+    from backend.app.models.schemas import AppSettings
     from backend.app.resource_detector import compute_resource_defaults
 
     existing_count = session.query(AppSetting).count()
     if existing_count > 0:
         return
 
+    # active_model stays unseeded so the first start auto-detects it.
+    defaults = AppSettings().model_dump(exclude={"active_model"})
     resource_defaults = compute_resource_defaults()
-
-    defaults = {
-        # Grid detection (image analysis)
-        "enable_image_grid_detection": True,
-        "grid_analysis_max_dim": 0,  # full resolution
-        # Color extraction
-        "num_dominant_colors": 5,
-        "color_distance_threshold": 0.35,
-        "color_clustering_samples": 5000,
-        "color_kmeans_n_init": 3,
-        # Ingestion performance — resource-aware defaults
-        "ingestion_batch_size": 16,
-        "max_concurrent_prepare": resource_defaults["max_concurrent_prepare"],
-        "max_concurrent_heavy_requests": resource_defaults["max_concurrent_heavy_requests"],
-        # Import limits — sensible hardcoded defaults (change via admin API)
-        "max_import_file_size": 2 * 1024 * 1024 * 1024,  # 2 GB
-        "max_video_file_size": 2 * 1024 * 1024 * 1024,  # 2 GB
-        "max_import_files": 1000,
-        "max_import_total_size": 2 * 1024 * 1024 * 1024,  # 2 GB
-        # Job runner — resource-aware default
-        "max_job_workers": resource_defaults["max_job_workers"],
-        "scheduler_enabled": True,
-        # Storage format — initial value read from env so the setup wizard choice is honoured
-        "stored_format": "webp" if os.environ.get("CONVERT_TO_WEBP", "0") == "1" else "original",
-        "stored_quality": 90,
-        "stored_lossless": True,
-    }
+    for key in ("max_concurrent_prepare", "max_concurrent_heavy_requests", "max_job_workers"):
+        defaults[key] = resource_defaults[key]
+    if os.environ.get("CONVERT_TO_WEBP", "0") == "1":
+        defaults["stored_format"] = "webp"
 
     for key, value in defaults.items():
         session.add(AppSetting(key=key, value_json=json.dumps(value)))

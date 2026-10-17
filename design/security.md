@@ -56,12 +56,12 @@ Staging is per job: `{APP_DATA_DIR}/staging/{job_id}/{staging_key}`. `staging_ke
 **Status**: Done.
 
 `slowapi`, keyed on the client address, with two tiers:
-- **expensive** (`RATE_LIMIT_EXPENSIVE`, default `2/minute`): `POST /search/rebuild-embeddings`, `GET /export/library`, `PATCH /settings/`, `POST /tags/retag-all`, `POST /tags/packs/{name}/import`, `POST /images/backfill-grids`
+- **expensive** (`RATE_LIMIT_EXPENSIVE`, default `2/minute`): `POST /search/rebuild-embeddings`, `GET /export/library`, `PATCH /settings/`, `POST /tags/retag-all`, `POST /tags/packs/{name}/import`, `POST /tags/packs/import-multiple`, `POST /images/backfill-grids`
 - **destructive** (`RATE_LIMIT_DESTRUCTIVE`, default `1/minute`): `DELETE /system/library`, `POST /system/tags/reset`
 
 `RATE_LIMIT_ENABLED=false` disables it.
 
-Import endpoints are not rate limited: a single import makes one request per file (≈10k for a 10k-file import), so a per-IP limit would throttle legitimate imports. Per-file uploads (`PUT …/items/{item_id}/content`) are bounded by `max_import_file_size` (413 on the streamed body) and require an existing item awaiting bytes; they do not take the heavy-op semaphore. Jobs are capped at `MAX_IMPORT_ITEMS` files and seal checks free disk space. Archive upload and seal are gated by the heavy-op semaphore (`acquire_heavy_op`, see [resource-management.md](resource-management.md)). The client retries 429/5xx up to 5 times per file, then records a resumable local failure, so reverse proxies with their own rate limits must allow for the per-file request volume. `POST /tags/packs/import-multiple` is not rate limited.
+Import endpoints are not rate limited: a single import makes one request per file (≈10k for a 10k-file import), so a per-IP limit would throttle legitimate imports. Per-file uploads (`PUT …/items/{item_id}/content`) are bounded by `max_import_file_size` (413 on the streamed body) and require an existing item awaiting bytes; they do not take the heavy-op semaphore. Jobs are capped at `MAX_IMPORT_ITEMS` files and seal checks free disk space. Archive upload and seal are gated by the heavy-op semaphore (`acquire_heavy_op`, see [resource-management.md](resource-management.md)). The client retries 429/5xx up to 5 times per file, then records a resumable local failure, so reverse proxies with their own rate limits must allow for the per-file request volume.
 
 **Reverse proxy requirement**: the proxy must overwrite (not append to) `X-Forwarded-For` so the limiter keys on the real client IP; otherwise a client can spoof the header to get fresh buckets.
 
