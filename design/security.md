@@ -73,13 +73,15 @@ A pure ASGI `SecurityHeadersMiddleware` adds `X-Content-Type-Options: nosniff`, 
 
 ### 5. MEDIUM: Security Scanning in CI
 
-**Status**: Partially done; open item.
+**Status**: Done (October 2026).
 
-The `backend-security` job in `.github/workflows/ci.yml` (pull requests only) runs:
-- `pip-audit --desc` (Python CVE scan)
-- `bandit -r backend/app backend/pipeline -ll` (Python SAST)
+The `backend-security` job in `.github/workflows/ci.yml` (pull requests only) runs, and fails the PR on any finding that is not listed under [Accepted scanner findings](#accepted-scanner-findings):
+- `pip-audit --desc` over the `dev` + `cpu` environment (Python CVE scan; accepted IDs are passed as `--ignore-vuln` with a comment)
+- `bandit -r backend/app backend/pipeline -ll` (Python SAST, medium severity and up; accepted findings carry an inline `# nosec BXXX` with a reason)
 
-Both steps have `continue-on-error: true`, so findings never fail CI. They were meant to be made blocking within two weeks of being added (March 2026); that deadline has passed and this remains open. There is no frontend dependency audit (`npm audit` or equivalent) in CI.
+The `frontend-build` job runs `npm audit --omit=dev --audit-level=high` on `frontend/`, so a high or critical advisory in a dependency that ships in the bundle fails the PR. Dev and build tooling (frontend dev deps, the root Electron/electron-builder tree, `docs/`) is not gated; it is kept clean through Dependabot and periodic lockfile refreshes, and what cannot be fixed is listed below.
+
+pip-audit and npm audit query live advisory databases, so a new advisory can turn a PR red without a code change. That is intended: fix it (usually `uv lock --upgrade-package <pkg>` or a targeted `npm update <pkg>`), or add it to the accepted list below with a reason.
 
 ### 6. MEDIUM: Electron IPC Changing Storage Paths
 
@@ -110,10 +112,28 @@ Electron loads the UI from the backend sidecar, so the frontend is always same-o
 
 ---
 
+## Accepted scanner findings
+
+Re-check these whenever the dependency in question is upgraded. Last reviewed 2026-10-17.
+
+| Scanner | Finding | Why accepted |
+|---|---|---|
+| bandit B104 | `api_host = "0.0.0.0"` default in `backend/app/config.py` | Only read when the backend is started with `python -m backend.app.main` (dev, E2E). Electron forces `API_HOST=127.0.0.1`; Docker and the documented uvicorn commands pass `--host` explicitly. Changing the default to loopback is a reasonable follow-up but needs the E2E harness (which probes `localhost`) checked first. |
+| pip-audit | `transformers` <5: PYSEC-2025-217, PYSEC-2026-2288, -2289, -2290, -3929, -4174 (RCE/path traversal when loading untrusted checkpoints, Trainer RNG state, remote code) | Dev-only extra used by `scripts/models/` to export checkpoints we choose. Excluded from the PyInstaller sidecar (`excludes` in `scene_atlas_backend.spec`) and never imported by the app. The fix is transformers 5, a major upgrade of the export pipeline. |
+| Dependabot | `torch` 2.6.0+cu124 (`gpu-dev` extra) | The cu124 PyTorch index stops at 2.6. Dev-only (model export on CUDA); the CPU variant is on a patched release. Fix: move the `pytorch-cuda` index to a newer CUDA (cu126/cu128). |
+| npm audit (frontend, dev) | `braces` (all versions), via `tailwindcss` 3 / `chokidar` / `micromatch` / `knip` | Build-time glob matching over our own patterns. No patched `braces` release exists; removal needs Tailwind 4 / knip 6. |
+| npm audit (frontend, dev) | `postcss-selector-parser` <7.1.6 via `tailwindcss` 3 | Build-time, parses only our own CSS. Fixed only in 7.x, which Tailwind 3 does not accept. |
+| npm audit (frontend, runtime, moderate) | `react-router` 6 open redirect (backslash in `<Link>`/`useNavigate`), `deserializeErrors` constructor injection | Fixed only in React Router 7. The app never navigates to user-supplied URLs and does not use SSR hydration (`deserializeErrors`). |
+| npm audit (root, dev) | `electron` 40.x (sandboxed-iframe/popup and protocol-handler advisories, fixed in 41.10.6) | Electron 40 and 41 are end of life; there is no patched 40.x. The renderer only loads the same-origin UI with navigation blocked, which limits exposure. **Upgrade to a supported major (42+) before the next release.** |
+| npm audit (root, dev) | `sprintf-js` via `roarr` → `global-agent` → `@electron/get` → `electron-builder` | Build-time only; no patched release. |
+| npm audit (docs, dev) | `vite` 5 / `esbuild` via `vitepress` 1.6.4 | Dev-server-only advisories; CI only runs `vitepress build`. vitepress 1.x pins vite 5 (fix needs vitepress 2). |
+
+---
+
 ## Open Items
 
 1. Session-based authentication (Finding 1).
-2. Make `pip-audit` and `bandit` blocking in CI; add a frontend dependency audit (Finding 5).
+2. Upgrade Electron to a supported major (see accepted findings).
 3. Constrain the paths accepted by `system:change-storage-dirs` (Finding 6).
 4. CSRF protection alongside auth (Finding 9).
 
