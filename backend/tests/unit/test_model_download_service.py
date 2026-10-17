@@ -181,7 +181,7 @@ class TestDownloadModel:
         mock_info = MagicMock()
         mock_info.sha = "deadbeef1234"
 
-        def fake_snapshot_download(repo_id, local_dir, ignore_patterns=None):
+        def fake_snapshot_download(repo_id, local_dir, **kwargs):
             # Simulate what a real download would do
             dest = Path(local_dir)
             dest.mkdir(parents=True, exist_ok=True)
@@ -202,17 +202,58 @@ class TestDownloadModel:
                 is_model_downloaded,
             )
 
-            result = download_model("small")
+            # "large" is still published with the bundle at the repo root
+            result = download_model("large")
 
         # version.json must exist (completion marker)
-        model_dir = get_model_dir("small")
+        model_dir = get_model_dir("large")
         assert (model_dir / "version.json").exists()
-        assert is_model_downloaded("small") is True
+        assert is_model_downloaded("large") is True
 
         # Return value should include sha and name
-        assert result["name"] == "small"
+        assert result["name"] == "large"
         assert result["hf_commit_sha"] == "deadbeef1234"
         assert "downloaded_at" in result
+
+    def test_subfolder_model_downloads_only_the_bundle(self, tmp_path, monkeypatch):
+        """Repos with hf_subfolder hold a training checkpoint at the root: fetch only the
+        subfolder, pinned to hf_revision, and install its contents as the model dir."""
+        monkeypatch.setattr(
+            "backend.app.services.model_download_service._settings",
+            _make_settings(tmp_path),
+        )
+        mock_info = MagicMock()
+        mock_info.sha = "cafef00d5678"
+        calls = {}
+
+        def fake_snapshot_download(repo_id, local_dir, **kwargs):
+            calls.update(kwargs)
+            bundle = Path(local_dir) / "onnx"
+            (bundle / "tokenizer").mkdir(parents=True, exist_ok=True)
+            (bundle / "manifest.json").write_text("{}", encoding="utf-8")
+            (bundle / "clip_vision_encoder.onnx").write_bytes(b"fake-onnx")
+            (bundle / "clip_text_encoder.onnx").write_bytes(b"fake-onnx")
+            (bundle / "tokenizer" / "tokenizer.json").write_text("{}", encoding="utf-8")
+
+        with (
+            patch("huggingface_hub.model_info", return_value=mock_info) as info,
+            patch("huggingface_hub.snapshot_download", side_effect=fake_snapshot_download),
+        ):
+            from backend.app.services.model_download_service import download_model, get_model_dir
+            from backend.app.services.model_registry import get_model
+
+            entry = get_model("medium")
+            download_model("medium")
+
+        assert calls["allow_patterns"] == ["onnx/*"]
+        assert calls["revision"] == entry["hf_revision"]
+        assert info.call_args.kwargs["revision"] == entry["hf_revision"]
+        model_dir = get_model_dir("medium")
+        assert (model_dir / "manifest.json").exists()
+        assert (model_dir / "tokenizer" / "tokenizer.json").exists()
+        assert not (model_dir / "onnx").exists()
+        version = json.loads((model_dir / "version.json").read_text())
+        assert version["hf_revision"] == entry["hf_revision"]
 
     def test_version_json_not_written_on_missing_files(self, tmp_path, monkeypatch):
         """If required files are absent after snapshot_download, version.json must NOT be written."""
@@ -224,7 +265,7 @@ class TestDownloadModel:
         mock_info = MagicMock()
         mock_info.sha = "abc"
 
-        def fake_snapshot_download_incomplete(repo_id, local_dir, ignore_patterns=None):
+        def fake_snapshot_download_incomplete(repo_id, local_dir, **kwargs):
             # Only creates manifest.json — missing the ONNX files
             dest = Path(local_dir)
             dest.mkdir(parents=True, exist_ok=True)
@@ -308,10 +349,11 @@ class TestCheckDiskSpace:
         mock_usage.free = 100 * 1024 * 1024 * 1024
         with patch("shutil.disk_usage", return_value=mock_usage):
             from backend.app.services.model_download_service import check_disk_space
+            from backend.app.services.model_registry import get_model
 
             _, needed_mb, _ = check_disk_space("small")
-        # small model is 250 MB, multiplied by 1.5 = 375 MB
-        assert needed_mb == 375
+        # the registry's approximate size, multiplied by 1.5
+        assert needed_mb == int(get_model("small")["approx_size_mb"] * 1.5)
 
 
 class TestDownloadModelDiskSpacePreCheck:

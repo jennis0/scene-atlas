@@ -24,8 +24,8 @@ and publish scripts.
 
 | Name   | HF repo                        | Architecture                    | Size  | Recommended for |
 |--------|--------------------------------|---------------------------------|-------|-----------------|
-| small  | jennis0/scene-atlas-small      | CLIP ViT-B/32, vision fp16, text int8  | ~250 MB | CPU-only machines |
-| medium | jennis0/scene-atlas-medium     | SigLIP2-base-patch16-224, vision fp16, text int8 | ~500 MB | Any hardware (default with GPU) |
+| small  | jennis0/scene-atlas-small      | CLIP ViT-B/32 (LAION-2B) fine-tuned for TTRPG art (scene-atlas-learning), 4-bit GPTQ weights, fp16 activations | ~100 MB | CPU-only machines |
+| medium | jennis0/scene-atlas-medium     | SigLIP2-base-patch16-384 fine-tuned for TTRPG art (scene-atlas-learning), 4-bit GPTQ weights, fp16 activations | ~150 MB | Any hardware (default with GPU) |
 | large  | jennis0/scene-atlas-large      | SigLIP2-so400m-patch14-384, vision fp16/fp16 | ~1 GB   | GPU strongly recommended |
 
 `get_default_model(has_gpu)` returns `"medium"` when a GPU is detected, otherwise
@@ -34,6 +34,25 @@ and publish scripts.
 Both ONNX files use fixed filenames (`clip_vision_encoder.onnx`,
 `clip_text_encoder.onnx`) across all models. `manifest.json` is the HF-side metadata
 file written by the publish script.
+
+**Externally released models.** `small` and `medium` are fine-tuned, quantised, evaluated
+and published by the release pipeline in scene-atlas-learning (`uv run release ...
+--release <name>`), marked by `release_source` in the registry. Its repo holds the full
+`transformers` checkpoint at the root and the ONNX bundle (manifest, encoders,
+`tokenizer/`) under `onnx/`. Registry fields `hf_subfolder` and `hf_revision` make the
+downloader fetch only `onnx/*` at the release tag, so later pushes to `main` never change
+an installed model. `export_model_onnx.py` and `publish_models_hf.py` refuse these
+entries and skip them under `--all`, since re-exporting from the base model would
+overwrite the fine-tune.
+
+`CLIPService` casts every input to the dtype the graph declares (`_cast_feed_to_inputs`):
+exports differ in whether `pixel_values` is float32 or float16, and ONNX Runtime rejects a
+mismatch. The first medium release takes float16.
+
+The fine-tuned SigLIP2 bundle handles two SigLIP2 input pitfalls itself: its text graph
+ignores `attention_mask` (SigLIP2 pools the last, padding, position and is trained
+without a mask; a padding mask collapses retrieval), and its `tokenizer.json` lowercases
+(training text is lowercase). Requires ONNX Runtime >= 1.24 (4-bit `MatMulNBits`).
 
 ---
 
@@ -85,7 +104,8 @@ APP_DATA_DIR/
 
 1. Fetch the HF commit SHA *before* downloading (avoids a post-download race).
 2. Download via `snapshot_download()` into `.tmp/<name>/` (wiping any pre-existing temp
-   dir first).
+   dir first). Entries with `hf_subfolder` fetch only that subfolder (at `hf_revision`)
+   and install its contents as the model directory.
 3. Verify all required files (`manifest.json`, both `.onnx` files) exist in the temp
    dir.
 4. Atomic rename: `tmp_dir.rename(model_dir)` — replaces any previous installation in

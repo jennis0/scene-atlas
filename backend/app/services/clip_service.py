@@ -207,6 +207,24 @@ def _has_real_gpu_provider(providers: list[str]) -> bool:
     return bool(set(providers) & GPU_PROVIDERS)
 
 
+_ORT_FLOAT_TYPES = {"tensor(float)": np.float32, "tensor(float16)": np.float16}
+
+
+def _cast_feed_to_inputs(session, feed: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    """Cast float inputs to the dtype each graph input declares.
+
+    Exports differ: some keep float32 I/O around an fp16 graph, others take
+    float16 pixel_values directly, and ORT rejects a mismatched dtype.
+    """
+    declared = {i.name: _ORT_FLOAT_TYPES.get(i.type) for i in session.get_inputs()}
+    return {
+        name: arr.astype(declared[name])
+        if declared.get(name) is not None and arr.dtype != declared[name]
+        else arr
+        for name, arr in feed.items()
+    }
+
+
 # Module-level LRU cache for text embeddings (avoids lru_cache-on-method leak).
 # Keys are query strings; values are tuple[float, ...].
 # lru_cache maxsize is baked at decoration time — restart required to change.
@@ -450,6 +468,7 @@ class CLIPService:
     ) -> list[np.ndarray]:
         """Run inference, falling back to CPU if GPU provider crashes."""
         session = getattr(self, session_attr)
+        feed = _cast_feed_to_inputs(session, feed)
         try:
             return session.run(output_names, feed)
         except Exception as exc:

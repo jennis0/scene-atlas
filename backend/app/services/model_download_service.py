@@ -141,10 +141,12 @@ def download_model(name: str, progress_fn=None) -> dict:
     # Phase 1: get commit SHA before download (avoids post-download race condition)
     if progress_fn:
         progress_fn(0, 100, "Fetching model info...")
+    subfolder: str | None = entry.get("hf_subfolder")
+    revision: str | None = entry.get("hf_revision")
     try:
         from huggingface_hub import model_info as hf_model_info
 
-        info = hf_model_info(repo_id)
+        info = hf_model_info(repo_id, revision=revision)
         commit_sha: str = info.sha or "unknown"
     except Exception as exc:
         raise ModelDownloadError(f"Could not reach HuggingFace to fetch model info: {exc}") from exc
@@ -168,7 +170,11 @@ def download_model(name: str, progress_fn=None) -> dict:
 
         snapshot_download(
             repo_id=repo_id,
+            revision=revision,
             local_dir=str(tmp_dir),
+            # Repos with a subfolder also hold the full training checkpoint at the root;
+            # fetch only the ONNX bundle.
+            allow_patterns=[f"{subfolder}/*"] if subfolder else None,
             ignore_patterns=["*.md", "*.txt"],
         )
     except Exception as exc:
@@ -181,8 +187,9 @@ def download_model(name: str, progress_fn=None) -> dict:
     if progress_fn:
         progress_fn(90, 100, "Verifying download...")
 
+    bundle_dir = tmp_dir / subfolder if subfolder else tmp_dir
     required = ["manifest.json", "clip_vision_encoder.onnx", "clip_text_encoder.onnx"]
-    missing = [f for f in required if not (tmp_dir / f).exists()]
+    missing = [f for f in required if not (bundle_dir / f).exists()]
     if missing:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise ModelDownloadError(
@@ -193,11 +200,17 @@ def download_model(name: str, progress_fn=None) -> dict:
     if model_dir.exists():
         shutil.rmtree(model_dir)
     model_dir.parent.mkdir(parents=True, exist_ok=True)
-    tmp_dir.rename(model_dir)
+    bundle_dir.rename(model_dir)
+    if subfolder:
+        shutil.rmtree(tmp_dir, ignore_errors=True)  # snapshot leftovers (.cache etc.)
 
     # Phase 5: write version.json (completion marker — written last)
     downloaded_at = datetime.now(UTC).isoformat()
-    version_data = {"hf_commit_sha": commit_sha, "downloaded_at": downloaded_at}
+    version_data = {
+        "hf_commit_sha": commit_sha,
+        "hf_revision": revision,
+        "downloaded_at": downloaded_at,
+    }
     (model_dir / "version.json").write_text(json.dumps(version_data, indent=2), encoding="utf-8")
 
     if progress_fn:
