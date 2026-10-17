@@ -553,3 +553,13 @@ def test_row_deleted_mid_request_is_404_not_500():
     request = Request({"type": "http", "method": "POST", "path": "/", "headers": []})
     response = asyncio.run(not_found_handler(request, NoResultFound()))
     assert response.status_code == 404
+
+
+def test_undo_of_an_import_that_added_nothing(api):
+    """Regression: undo with no images to delete failed with StaleDataError (500)."""
+    job_id = api.create()
+    api.manifest(job_id, [{"relative_path": "A/Map/a.png", "size": 10}])
+    assert api.client.post(f"{BASE}/{job_id}/seal").status_code == 200
+    r = api.client.delete(f"{BASE}/{job_id}")
+    assert r.status_code == 200, r.text
+    assert r.json() == {"affected": 0, "status": "deleted"}

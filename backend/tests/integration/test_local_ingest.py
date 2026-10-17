@@ -347,3 +347,16 @@ def test_undo_never_touches_the_source(local, tmp_path):
     assert local.client.delete(f"{BASE}/{job_id}").status_code == 200
     assert library_files() == []
     assert tree_digest(tmp_path / "Maps") == before
+
+
+def test_undo_of_an_import_that_added_nothing(local, tmp_path):
+    """Regression: undo of a paused import with no images failed with StaleDataError."""
+    write_tree(tmp_path / "Maps", {f"A/Map{i}.png": image_bytes(i) for i in range(3)})
+    job_id = local.create()
+    assert local.client.post(f"{BASE}/{job_id}/pause").status_code == 200
+    add_sources(local, job_id, [tmp_path / "Maps"])
+    assert local.client.post(f"{BASE}/{job_id}/seal").status_code == 200
+    r = local.client.delete(f"{BASE}/{job_id}")
+    assert r.status_code == 200, r.text
+    assert r.json() == {"affected": 0, "status": "deleted"}
+    assert local.client.get(f"{BASE}/{job_id}").status_code == 404

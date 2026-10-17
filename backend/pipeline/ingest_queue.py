@@ -490,6 +490,10 @@ def undo_job(db: Session, job_id: str):
             ImageGroup.id.in_(created_group_ids), ImageGroup.id.not_in(still_used)
         ).delete(synchronize_session=False)
 
+    # Write pending changes to these rows first (the cancel's job.updated_at, when there
+    # were no images to delete): sessions don't autoflush, and once the rows are gone a
+    # flush at commit fails with StaleDataError.
+    db.flush()
     db.query(ImportItem).filter(ImportItem.job_id == job_id).delete(synchronize_session=False)
     db.query(ImportGroup).filter(ImportGroup.job_id == job_id).delete(synchronize_session=False)
     db.query(ImportJob).filter(ImportJob.id == job_id).delete(synchronize_session=False)
