@@ -87,6 +87,7 @@
 
   body {
     @apply bg-background text-foreground;
+
     font-family: 'Figtree Variable', system-ui, sans-serif;
     font-feature-settings: 'ss01';
     /* Faint dot-grid — evokes old survey maps and graph paper */

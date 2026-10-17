@@ -280,8 +280,8 @@ colour. `color_search.color_match_ids` builds the query: a range on `lab_l` that
 box and the exact squared distance, all from the covering index. Targets whose
 `lab_l` ranges overlap share one range scan; separate scans would visit shared rows
 once per target. Search embeds the query as `Image.id IN (subquery)`, so the ids
-are never materialised in Python. L* leads the index because extracted map colours
-are mostly low-chroma, so a*/b* ranges are less selective (checked with
+are never materialised in Python. `L*` leads the index because extracted map colours
+are mostly low-chroma, so `a*`/`b*` ranges are less selective (checked with
 `EXPLAIN QUERY PLAN` and timings on real colour distributions).
 
 **Threshold.** Until migration 024 colour search used distance in an HSL cylinder
@@ -296,7 +296,7 @@ mid grey as close to white; delta E does the opposite.
 
 That default is loose. With real colour distributions a grey target matches ~80% of
 the library at delta E 25 (the old 0.35 matched about as many). Most index rows then
-fall in the L* range, so at 56k images the colour query costs ~40 ms for one colour
+fall in the `L*` range, so at 56k images the colour query costs ~40 ms for one colour
 and ~80 ms for three, and a colour-filtered browse is 70–140 ms slower than with
 the old in-memory index (which was faster per query but reloaded the whole table,
 ~600 ms, every minute). At delta E 12 the query takes 10–30 ms, matches ~30%, and

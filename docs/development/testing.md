@@ -76,6 +76,7 @@ Tests marked with `@pytest.mark.heavy` load the real CLIP ONNX model and run rea
 Quality evaluation is integrated into `scripts/models/export_model_onnx.py` via the `--image-dir` flag. When provided, the export script runs a comprehensive quality assessment using the torch model (still loaded from the export phase) as reference.
 
 **When it runs:**
+
 - Locally: `make evaluate-onnx` or `uv run python scripts/models/export_model_onnx.py large --image-dir /path/to/images` (needs the internal `scripts/quantisation` package; the script exits with an error if it is missing, and small/medium are released by scene-atlas-learning, not this script)
 - Not in CI (requires real images and torch model; CI only does quick export)
 
