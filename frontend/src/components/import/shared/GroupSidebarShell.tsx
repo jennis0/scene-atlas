@@ -1,10 +1,16 @@
 import type { ReactNode } from 'react'
 
+/** The "All" row at the top of the sidebar */
+export interface AllTab {
+  active: boolean
+  /** Files in scope across every group */
+  count: number
+  onSelect: () => void
+}
+
 interface GroupSidebarShellProps {
   headerLabel: string
-  allCount: number
-  isAllActive: boolean
-  onSelectAll: () => void
+  allTab: AllTab
   footer?: ReactNode
   /** Under the header, outside the scrolling list (e.g. a filter) */
   toolbar?: ReactNode
@@ -15,9 +21,7 @@ interface GroupSidebarShellProps {
 
 export function GroupSidebarShell({
   headerLabel,
-  allCount,
-  isAllActive,
-  onSelectAll,
+  allTab,
   footer,
   toolbar,
   scrollRef,
@@ -34,16 +38,16 @@ export function GroupSidebarShell({
       {/* relative: rows are positioned against it (offsetTop) when windowed */}
       <div ref={scrollRef} className="relative flex-1 overflow-y-auto py-1">
         <button
-          onClick={onSelectAll}
+          onClick={allTab.onSelect}
           className={`w-full flex items-center gap-2 px-3 py-2 text-left transition-colors border-l-2 ${
-            isAllActive
+            allTab.active
               ? 'border-primary bg-primary/10 text-primary'
               : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/50'
           }`}
         >
           <span className="font-display text-[15px] font-semibold flex-1">All</span>
           <span className="text-[11px] text-muted-foreground tabular-nums shrink-0">
-            {allCount.toLocaleString()}
+            {allTab.count.toLocaleString()}
           </span>
         </button>
         <div className="h-px bg-border/30 mx-3 my-0.5" />

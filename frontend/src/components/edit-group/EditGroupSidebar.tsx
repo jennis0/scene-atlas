@@ -7,7 +7,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
-import { GroupSidebarShell } from '@/components/import/shared/GroupSidebarShell'
+import { GroupSidebarShell, type AllTab } from '@/components/import/shared/GroupSidebarShell'
 import { DroppableGroupRow, DraggableGroupRow } from '@/components/import/shared/dnd'
 import type { EditableGroupState, GroupSummary } from '@/types'
 import { useEditGroupContext } from './EditGroupContext'
@@ -18,10 +18,8 @@ type GroupClickHandler = (index: number, groupId: string, e: React.MouseEvent) =
 
 interface EditGroupSidebarProps {
   activeTab: number
-  isAllTab: boolean
-  onSelectAll: () => void
+  allTab: AllTab
   onGroupClick: GroupClickHandler
-  totalInScope: number
   /** Mass edit and import review get per-group menus and merge/delete actions. */
   hasGroupActions: boolean
   /** Import review: groups listed from their summaries whose files are still loading */
@@ -53,10 +51,8 @@ function headerLabel(loaded: number, pending: PendingGroups) {
 
 export function EditGroupSidebar({
   activeTab,
-  isAllTab,
-  onSelectAll,
+  allTab,
   onGroupClick,
-  totalInScope,
   hasGroupActions,
   pending = NO_PENDING,
   order = [],
@@ -70,14 +66,12 @@ export function EditGroupSidebar({
     () => sidebarRows(groups, pending.groups, order, query),
     [groups, pending.groups, order, query],
   )
-  const activeIndex = isAllTab ? null : activeTab
+  const activeIndex = allTab.active ? null : activeTab
 
   return (
     <GroupSidebarShell
       headerLabel={headerLabel(groups.length, pending)}
-      allCount={totalInScope}
-      isAllActive={isAllTab}
-      onSelectAll={onSelectAll}
+      allTab={allTab}
       footer={hasGroupActions ? <SidebarFooter canMergeAll={!pending.onDemand} /> : undefined}
       toolbar={total >= FILTER_FROM ? <GroupNameFilter value={query} onChange={setQuery} /> : null}
       scrollRef={setScrollElement}

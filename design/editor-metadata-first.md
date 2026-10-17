@@ -208,7 +208,7 @@ Unloaded groups stay out of editor state in both modes (as in phase 1): they're
 placeholder rows, so no save path can reach a group whose files aren't loaded. The sidebar
 lists groups in summary order whether loaded or not, so opening a group doesn't move it.
 
-### Backend
+### Backend for large imports
 
 1. `POST /images/facets {group_ids, filter?}`: total and counts by type, grid state
    (square / hex / none / unknown), subgroup and tag (top N), from aggregate queries.
@@ -221,7 +221,7 @@ lists groups in summary order whether loaded or not, so opening a group doesn't 
    means the toast's Undo fails). The editor refetches its loaded groups after an edit or
    undo instead of patching them from previous states.
 
-### Frontend
+### Frontend for large imports
 
 1. Large-mode loader: summaries (chunked), then only the opened groups' details.
 2. Sidebar windowed with `@tanstack/react-virtual`, rows merged in summary order (loaded
