@@ -152,7 +152,8 @@ function prepareStorageDirs(appDataDir: string, imageLibraryDir: string): string
 handleTrusted('setup:get-default-dirs', () => getDefaultDirs())
 
 handleTrusted('setup:choose-directory', (event) =>
-  pickDirectory(BrowserWindow.fromWebContents(event.sender), 'Choose Folder'),
+  // Electron 43+ opens dialogs in Downloads unless given a starting folder.
+  pickDirectory(BrowserWindow.fromWebContents(event.sender), 'Choose Folder', app.getPath('home')),
 )
 
 // Synchronous on purpose: mainWindow is assigned before this returns, so a

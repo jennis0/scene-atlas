@@ -25,6 +25,7 @@ The app auto-selects an AI model based on your hardware. You can switch models l
 
 | | Minimum | Recommended |
 |---|---------|-------------|
+| OS | Windows 10 (64-bit), macOS 13 Ventura (Apple Silicon), or a 64-bit Linux desktop | |
 | RAM | 8 GB | 16 GB |
 | App Data Disk | 2 GB + ~50% of your library size (for thumbnails, index, and converted copies) | SSD for faster indexing |
 | Image Data Disk | As much storage as is required for your image files! |  |
