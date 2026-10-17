@@ -136,13 +136,14 @@ def delete_image_rows(db: Session, images: list[Image]) -> PendingFileDeletes:
 def _delete_all_thumbnails(thumbnail_store, thumbnail_key: str) -> None:
     """Delete all thumbnail sizes for a given thumbnail key.
 
-    Thumbnail keys follow the pattern: {stem}_{width}x{height}.jpg
-    We extract the stem and delete all matching size variants.
+    Thumbnail keys follow the pattern: {stem}_{width}x{height}.{jpg|webp}
+    (all sizes of one image share the extension). We extract the stem and
+    extension and delete all matching size variants.
     """
     from ..config import settings
 
-    # Extract the stem from the stored key (e.g., "a1b2c3d4_400x400.jpg" -> "a1b2c3d4")
-    match = re.match(r"^(.+?)_\d+x\d+\.jpg$", thumbnail_key)
+    # "a1b2c3d4_400x400.jpg" -> ("a1b2c3d4", ".jpg")
+    match = re.match(r"^(.+?)_\d+x\d+(\.(?:jpg|webp))$", thumbnail_key)
     if not match:
         # Fallback: just delete the one key we have
         try:
@@ -151,9 +152,9 @@ def _delete_all_thumbnails(thumbnail_store, thumbnail_key: str) -> None:
             logger.warning("Failed to delete thumbnail %s: %s", thumbnail_key, e)
         return
 
-    stem = match.group(1)
+    stem, ext = match.groups()
     for width, height in settings.thumbnail_sizes:
-        key = f"{stem}_{width}x{height}.jpg"
+        key = f"{stem}_{width}x{height}{ext}"
         try:
             thumbnail_store.delete(key)
         except Exception as e:
