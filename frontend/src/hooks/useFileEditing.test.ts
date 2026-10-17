@@ -397,27 +397,4 @@ describe('useFileEditing — Derived values', () => {
     expect(result.current.activeGroup?.id).toBe('g2')
     expect(result.current.activeGroupId).toBe('g2')
   })
-
-  it('allSameAuthor returns author when all groups match', () => {
-    const { result } = renderHook(() => useFileEditing())
-
-    act(() => {
-      result.current.setGroups([
-        makeGroup({ author: 'Same' }),
-        makeGroup({ id: 'g2', author: 'Same' }),
-      ])
-    })
-
-    expect(result.current.allSameAuthor).toBe('Same')
-  })
-
-  it('allSameAuthor returns empty when authors differ', () => {
-    const { result } = renderHook(() => useFileEditing())
-
-    act(() => {
-      result.current.setGroups([makeGroup({ author: 'A' }), makeGroup({ id: 'g2', author: 'B' })])
-    })
-
-    expect(result.current.allSameAuthor).toBe('')
-  })
 })

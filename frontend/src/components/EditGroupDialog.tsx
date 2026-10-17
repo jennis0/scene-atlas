@@ -1,24 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { DndContext, DragOverlay } from '@dnd-kit/core'
-import { AlertCircle, Loader2, X, Pencil } from 'lucide-react'
+import { AlertCircle, Loader2 } from 'lucide-react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import type { EditableFileState, EditableGroupState, SeedImage } from '@/types'
 import { FileCard } from './import/FileCard'
 import { FileToolbar } from './import/FileToolbar'
 import { MetadataForm } from './import/MetadataForm'
-import { applyFileFilter, EMPTY_FILTER } from './import/fileFilter'
-import { useFileEditing, ALL_TAB, MULTI_GROUP_ID, type BulkScope } from '@/hooks/useFileEditing'
+import { EMPTY_FILTER } from './import/fileFilter'
+import { useFileEditing, ALL_TAB, MULTI_GROUP_ID } from '@/hooks/useFileEditing'
 import { useEditGroupLoad } from '@/hooks/useEditGroupLoad'
 import { useEditGroupOperations } from '@/hooks/useEditGroupOperations'
 import { useEditGroupDnd } from '@/hooks/useEditGroupDnd'
 import { useGroupSidebarMultiselect } from '@/hooks/useGroupSidebarMultiselect'
 import { DraggableFileCardWrapper, DragOverlayContent } from './import/shared/dnd'
+import { EditGroupHeader } from './edit-group/EditGroupHeader'
 import { EditGroupSidebar } from './edit-group/EditGroupSidebar'
 import { EditGroupFileGrid } from './edit-group/EditGroupFileGrid'
 import { EditGroupFooter } from './edit-group/EditGroupFooter'
 import { EditGroupConfirmDialogs } from './edit-group/EditGroupConfirmDialogs'
 import type { PendingConfirm } from './edit-group/pendingConfirm'
+import { useEditScope } from './edit-group/useEditScope'
 import { invalidateGalleryQueries } from '@/lib/queryKeys'
 
 interface EditGroupDialogProps {
@@ -85,7 +87,6 @@ export default function EditGroupDialog({
     isAllTab,
     activeGroup,
     activeGroupId,
-    allSameAuthor,
   } = useFileEditing({
     onGroupChange: (affected) => affected.forEach((g) => autoSaveRef.current(g)),
   })
@@ -152,14 +153,15 @@ export default function EditGroupDialog({
     onClose()
   }, [onSave, onClose])
 
-  const isMultiSelect = selectedGroupIds.size >= 2
-  const effectiveActiveGroupId = isMultiSelect ? MULTI_GROUP_ID : activeGroupId
-  const selectedGroupIdArray = useMemo(() => [...selectedGroupIds], [selectedGroupIds])
-  const bulkScope: BulkScope = isMultiSelect
-    ? selectedGroupIdArray
-    : isAllTab
-      ? null
-      : activeGroupId
+  const scope = useEditScope({
+    groups,
+    activeGroup,
+    activeGroupId,
+    isAllTab,
+    selectedGroupIds,
+    fileFilter,
+  })
+  const { isMultiSelect, showsMultipleGroups, selectionId, bulkScope } = scope
 
   // Reset file filter and selections when multi-select composition changes
   const multiSelectKey = useMemo(() => [...selectedGroupIds].sort().join(','), [selectedGroupIds])
@@ -171,83 +173,14 @@ export default function EditGroupDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [multiSelectKey])
 
-  // Common author across selected groups (for multi-select mode)
-  const multiSelectSameAuthor = useMemo(() => {
-    if (!isMultiSelect) return ''
-    const selected = groups.filter((g) => selectedGroupIds.has(g.id))
-    if (selected.length === 0) return ''
-    const first = selected[0].author
-    return selected.every((g) => g.author === first) ? first : ''
-  }, [isMultiSelect, groups, selectedGroupIds])
-
-  // All tab shows only in-scope files; per-group tab shows all (incl. out-of-scope for context)
-  const allInScopeFiles = useMemo(
-    () => groups.flatMap((g) => g.files.filter((f) => !f.outOfScope)),
-    [groups],
-  )
-
-  // Multi-select: files from only the selected groups
-  const multiSelectFiles = useMemo(
-    () =>
-      isMultiSelect
-        ? groups
-            .filter((g) => selectedGroupIds.has(g.id))
-            .flatMap((g) => g.files.filter((f) => !f.outOfScope))
-        : [],
-    [isMultiSelect, groups, selectedGroupIds],
-  )
-
-  // Map from file.relative_path → groupId, so cards on the All/multi tab carry their real group ID
-  // in drag data (relative_path = String(img.id) in EditGroupDialog context).
-  const fileGroupIdMap = useMemo(
-    () => new Map(groups.flatMap((g) => g.files.map((f) => [f.relative_path, g.id]))),
-    [groups],
-  )
-  const perGroupFiles = activeGroup?.files ?? []
-  const sourceFiles = isMultiSelect ? multiSelectFiles : isAllTab ? allInScopeFiles : perGroupFiles
-
-  // Filtered files: for the in-scope section, filter normally; out-of-scope shown separately
-  const inScopeSource = useMemo(() => sourceFiles.filter((f) => !f.outOfScope), [sourceFiles])
-  const filteredInScope = useMemo(
-    () => applyFileFilter(inScopeSource, fileFilter),
-    [inScopeSource, fileFilter],
-  )
-  const outOfScopeFiles = useMemo(
-    () =>
-      !isAllTab && !isMultiSelect ? (activeGroup?.files ?? []).filter((f) => f.outOfScope) : [],
-    [isAllTab, isMultiSelect, activeGroup],
-  )
-
-  const activeSelection = selections[effectiveActiveGroupId] ?? new Set<string>()
-
-  const groupSubVariants = useMemo(
-    () =>
-      [
-        ...new Set(
-          inScopeSource.filter((f) => !f.excluded && f.subgroup).map((f) => f.subgroup as string),
-        ),
-      ].sort(),
-    [inScopeSource],
-  )
-
+  const activeSelection = selections[selectionId] ?? new Set<string>()
   const hasActiveFilter = !!fileFilter.text || fileFilter.active.length > 0
-  const isOriginalGroup =
-    !isAllTab && !isMultiSelect && !isMassEdit && activeGroup?.id === String(groupId)
-  const showsMultipleGroups = isAllTab || isMultiSelect
+  const isOriginalGroup = !showsMultipleGroups && !isMassEdit && activeGroup?.id === String(groupId)
 
   const totalInScope = groups.reduce(
     (s, g) => s + g.files.filter((f) => !f.outOfScope && !f.excluded).length,
     0,
   )
-
-  const scopeGroups = () =>
-    isMultiSelect
-      ? groups.filter((g) => selectedGroupIds.has(g.id))
-      : isAllTab
-        ? groups
-        : activeGroup
-          ? [activeGroup]
-          : []
 
   const setAuthor = (author: string) => {
     if (showsMultipleGroups) {
@@ -263,15 +196,17 @@ export default function EditGroupDialog({
     <DraggableFileCardWrapper
       key={file.relative_path}
       file={file}
-      groupId={showsMultipleGroups ? (fileGroupIdMap.get(file.relative_path) ?? '') : activeGroupId}
+      groupId={
+        showsMultipleGroups ? (scope.fileGroupIds.get(file.relative_path) ?? '') : activeGroupId
+      }
       isDndEnabled={!file.excluded && !file.outOfScope}
     >
       <FileCard
         file={file}
         vocab={tagVocab}
-        existingSubgroups={groupSubVariants}
+        existingSubgroups={scope.subgroups}
         selected={activeSelection.has(file.relative_path)}
-        onToggleSelect={() => toggleFileSelection(effectiveActiveGroupId, file.relative_path)}
+        onToggleSelect={() => toggleFileSelection(selectionId, file.relative_path)}
         onUpdate={(updates) =>
           showsMultipleGroups
             ? updateFileAnyGroup(file.relative_path, updates)
@@ -293,31 +228,16 @@ export default function EditGroupDialog({
         data-testid="edit-group-dialog"
         className="max-w-5xl h-[85vh] overflow-hidden flex flex-col p-0 gap-0"
       >
-        <div className="absolute top-0 inset-x-0 h-0.5 bg-gradient-to-r from-primary/70 via-primary/30 to-transparent pointer-events-none rounded-t-xl" />
-
-        <div className="flex items-center justify-between px-6 pt-6 pb-3 shrink-0">
-          <div>
-            <h2 className="font-display text-lg font-semibold flex items-center gap-2 text-foreground">
-              <Pencil className="h-5 w-5 text-primary shrink-0" />
-              {isMassEdit ? 'Edit Search Results' : 'Edit Group'}
-            </h2>
-            {isMassEdit && !loading && !loadError && groups.length > 0 && (
-              <p className="text-[11px] text-muted-foreground/60 mt-0.5 ml-7">
-                {totalInScope} image{totalInScope !== 1 ? 's' : ''} across {groups.length} group
-                {groups.length !== 1 ? 's' : ''}
-                {ungroupedCount > 0 && ` · ${ungroupedCount} ungrouped skipped`}
-              </p>
-            )}
-          </div>
-          <button
-            onClick={handleDone}
-            disabled={saving}
-            className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors disabled:opacity-40"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <div className="h-px bg-gradient-to-r from-primary/60 via-primary/20 to-transparent mx-6 shrink-0" />
+        <EditGroupHeader
+          isMassEdit={isMassEdit}
+          summary={
+            isMassEdit && !loading && !loadError && groups.length > 0
+              ? { images: totalInScope, groups: groups.length, ungrouped: ungroupedCount }
+              : null
+          }
+          onDone={handleDone}
+          saving={saving}
+        />
 
         {loading && (
           <div className="flex items-center justify-center flex-1">
@@ -365,18 +285,12 @@ export default function EditGroupDialog({
               <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
                 <div className="px-5 pt-4 pb-3 border-b border-border/30 shrink-0">
                   <MetadataForm
-                    author={
-                      isMultiSelect
-                        ? multiSelectSameAuthor
-                        : isAllTab
-                          ? allSameAuthor
-                          : (activeGroup?.author ?? '')
-                    }
+                    author={scope.scopeAuthor}
                     groupName={showsMultipleGroups ? '' : (activeGroup?.group_name ?? '')}
                     authorPlaceholder={
-                      isMultiSelect && !multiSelectSameAuthor
+                      isMultiSelect && !scope.scopeAuthor
                         ? 'Multiple — type to set for selected groups'
-                        : isAllTab && !allSameAuthor
+                        : isAllTab && !scope.scopeAuthor
                           ? 'Multiple — type to set for all groups'
                           : 'Author name'
                     }
@@ -396,21 +310,21 @@ export default function EditGroupDialog({
                     onGroupNameChange={(val) =>
                       !showsMultipleGroups && updateGroup(activeGroupId, { group_name: val })
                     }
-                    onBlur={() => scopeGroups().forEach(ops.autoSaveGroup)}
+                    onBlur={() => scope.scopeGroups.forEach(ops.autoSaveGroup)}
                     groupNameRef={groupNameRef}
                   />
                 </div>
 
                 <div className="px-5 shrink-0">
                   <FileToolbar
-                    files={inScopeSource}
-                    filteredFiles={filteredInScope}
+                    files={scope.inScopeFiles}
+                    filteredFiles={scope.filteredFiles}
                     selection={activeSelection}
                     filter={fileFilter}
                     vocab={tagVocab}
                     onFilterChange={setFileFilter}
-                    onSelectAll={() => selectAllVisible(effectiveActiveGroupId, filteredInScope)}
-                    onDeselectAll={() => deselectAll(effectiveActiveGroupId)}
+                    onSelectAll={() => selectAllVisible(selectionId, scope.filteredFiles)}
+                    onDeselectAll={() => deselectAll(selectionId)}
                     onBulkAddTag={(tag) => bulkAddTag(bulkScope, tag)}
                     onBulkSetGrid={(gridded, gridType) => bulkSetGrid(bulkScope, gridded, gridType)}
                     onBulkSetImageType={(v) => bulkSetImageType(bulkScope, v)}
@@ -430,12 +344,12 @@ export default function EditGroupDialog({
                 </div>
 
                 <EditGroupFileGrid
-                  files={filteredInScope}
-                  outOfScopeFiles={outOfScopeFiles}
+                  files={scope.filteredFiles}
+                  outOfScopeFiles={scope.outOfScopeFiles}
                   renderCard={renderCard}
                   hasActiveFilter={hasActiveFilter}
                   activeDrag={dnd.activeDrag}
-                  existingSubgroups={groupSubVariants}
+                  existingSubgroups={scope.subgroups}
                   canEditSubgroups={!showsMultipleGroups}
                   editingSubgroup={editingSvHeading}
                   onEditingSubgroupChange={setEditingSvHeading}

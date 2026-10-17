@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { EMPTY_FILTER } from '@/components/import/fileFilter'
 import type { FileFilter } from '@/components/import/fileFilter'
 import type { EditableFileState, EditableGroupState, TagData, ParsedTagVocab } from '@/types'
@@ -66,7 +66,6 @@ export interface UseFileEditingReturn {
   isAllTab: boolean
   activeGroup: EditableGroupState | null
   activeGroupId: string
-  allSameAuthor: string
 }
 
 export function useFileEditing({
@@ -280,12 +279,6 @@ export function useFileEditing({
   const activeGroup = isAllTab ? null : (groups[activeTab] ?? null)
   const activeGroupId = isAllTab ? ALL_GROUP_ID : (activeGroup?.id ?? '')
 
-  const allSameAuthor = useMemo(() => {
-    if (groups.length === 0) return ''
-    const first = groups[0].author
-    return groups.every((g) => g.author === first) ? first : ''
-  }, [groups])
-
   return {
     groups,
     setGroups,
@@ -318,6 +311,5 @@ export function useFileEditing({
     isAllTab,
     activeGroup,
     activeGroupId,
-    allSameAuthor,
   }
 }
