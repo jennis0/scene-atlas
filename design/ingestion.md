@@ -219,7 +219,8 @@ Rules, checked in order:
 | "could not read image" (OpenCV) | Image could not be read for processing | `file` |
 | "cannot open video" / "cannot read first frame" | Video is corrupt or not a supported format | `file` |
 | `OSError` with `ENOSPC` | Not enough disk space to process image | `system` |
-| `FileNotFoundError` | File was not found | `file` |
+| `FileNotFoundError` at stage `db_save` | The image library or thumbnail folder became unavailable | `system` |
+| `FileNotFoundError` (other stages) | A working file went missing; will retry | `transient` |
 | `PermissionError` | File could not be accessed (permission denied) | `file` |
 | SQLite "locked" / "busy" | The database was busy; will retry | `transient` |
 | `MemoryError` | Image is too large to process (out of memory) | `transient` |
@@ -227,6 +228,8 @@ Rules, checked in order:
 | stage `db_save` | Failed to save image to database | `transient` |
 | stage `vector_save` | Failed to save image embedding to search index | `transient` |
 | anything else | Processing failed during {stage} | `transient` |
+
+A missing file is never a property of the upload. `prepare_item` turns a missing staged file into `bytes_lost` (checked before decoding and again when a `FileNotFoundError` escapes). At commit the staged file isn't read; `_place` renaming out of `.incoming/` fails only when a store folder vanished (drive unplugged, folder deleted), so the batch is refunded and the queue pauses until the probe passes, instead of failing every item or asking for a needless re-upload.
 
 Unknown errors are transient so a flaky failure recovers and a deterministic one costs at most three attempts. `record_failures` applies the kind: `file` → `failed`; `transient` → `ready` with backoff, or `failed` after 3 attempts; `system` → `ready` with the attempt refunded and the queue paused; `bytes_lost` → `awaiting_bytes`. API-side validation failures use stage `validate`; crash-limit failures use stage `processing`.
 

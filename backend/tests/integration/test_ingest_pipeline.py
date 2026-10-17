@@ -14,6 +14,7 @@ from __future__ import annotations
 import errno
 import hashlib
 import io
+import shutil
 import sqlite3
 import uuid
 from datetime import timedelta
@@ -550,6 +551,46 @@ def test_missing_staged_bytes_asks_for_reupload(env):
     assert (item.state, item.staging_key) == (st.AWAITING_BYTES, None)
     assert item.error_reason == "The uploaded file is missing; upload it again"
     assert job_status(env, job_id) == st.JOB_ACTIVE
+
+
+def test_staged_file_vanishing_during_prepare_asks_for_reupload(env, monkeypatch):
+    real_plan = ingest_process.plan_decode
+
+    def staging_cleaned(staged, item, cfg):
+        staged.unlink()
+        return real_plan(staged, item, cfg)
+
+    monkeypatch.setattr(ingest_process, "plan_decode", staging_cleaned)
+    job_id = make_job(env, {"A/Map/a.png": image_bytes(21)})
+    env.worker.drain()
+    item = items_by_path(env, job_id)["A/Map/a.png"]
+    assert (item.state, item.error_kind, item.staging_key) == (
+        st.AWAITING_BYTES,
+        "bytes_lost",
+        None,
+    )
+
+
+def test_store_vanishing_before_commit_pauses_instead_of_failing(env, monkeypatch):
+    real_commit = ingest_process.commit_batch
+
+    def incoming_wiped(prepared):
+        for store in (env.library, env.thumbnails):
+            shutil.rmtree(ingest_process.incoming_dir(store.base_dir))
+        return real_commit(prepared)
+
+    monkeypatch.setattr(ingest_process, "commit_batch", incoming_wiped)
+    job_id = make_job(env, {"A/Map/a.png": image_bytes(22), "A/Map/b.png": image_bytes(23)})
+    assert env.worker.run_once()
+    items = items_by_path(env, job_id).values()
+    assert {(i.state, i.attempts) for i in items} == {(st.READY, 0)}
+    assert all(staged_path(job_id, i.staging_key).exists() for i in items)
+    assert env.worker.status().system_paused
+
+    monkeypatch.setattr(ingest_process, "commit_batch", real_commit)
+    assert env.worker.probe_now() is None
+    env.worker.drain()
+    assert {i.state for i in items_by_path(env, job_id).values()} == {st.DONE}
 
 
 # ---------------------------------------------------------------------------

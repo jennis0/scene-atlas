@@ -99,8 +99,13 @@ def _classify(exc: Exception, stage: str) -> tuple[str, str]:
     if isinstance(exc, OSError) and getattr(exc, "errno", None) == errno.ENOSPC:
         return "Not enough disk space to process image", KIND_SYSTEM
 
+    # A missing file is never a property of the upload itself: the staged copy is
+    # checked separately (bytes_lost), so this is a temp file or store folder
+    # that vanished. At commit that means a store went away mid-batch.
     if isinstance(exc, FileNotFoundError):
-        return "File was not found", KIND_FILE
+        if stage == "db_save":
+            return "The image library or thumbnail folder became unavailable", KIND_SYSTEM
+        return "A working file went missing; will retry", KIND_TRANSIENT
 
     if isinstance(exc, PermissionError):
         return "File could not be accessed (permission denied)", KIND_FILE
