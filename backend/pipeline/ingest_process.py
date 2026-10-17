@@ -41,6 +41,7 @@ from .image_hashes import file_sha256, perceptual_hash, pixel_hash
 from .ingest_queue import (
     KIND_BYTES_LOST,
     KIND_SOURCE_UNAVAILABLE,
+    REFUNDED_KINDS,
     ClaimedItem,
     EarlyDuplicate,
     ItemFailure,
@@ -715,6 +716,12 @@ class BatchOutcome:
     duplicates: int = 0
     failures: list[ItemFailure] = field(default_factory=list)
     system_reason: str | None = None
+
+
+def settled_count(items: list[ClaimedItem], outcome: BatchOutcome) -> int:
+    """Files the batch finished with (imported, duplicate or failed). Refunded ones (a
+    system pause, a missing folder) go back to the queue and weren't processed."""
+    return len(items) - sum(1 for f in outcome.failures if f.kind in REFUNDED_KINDS)
 
 
 def _split(

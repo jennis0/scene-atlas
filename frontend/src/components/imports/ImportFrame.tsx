@@ -57,7 +57,7 @@ export function ImportFrame({
         <div className="relative flex-1 min-h-0 flex flex-col">{children}</div>
 
         {footer && (
-          <footer className="shrink-0 flex items-center gap-2 px-6 py-3 border-t border-border/30 bg-popover">
+          <footer className="shrink-0 flex flex-wrap items-center gap-2 px-6 py-3 border-t border-border/30 bg-popover">
             {footer}
           </footer>
         )}
@@ -94,7 +94,7 @@ export function TextButton({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-md border text-[12.5px] transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${toneClass}`}
+      className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-md border text-[12.5px] whitespace-nowrap transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${toneClass}`}
     >
       {children}
     </button>

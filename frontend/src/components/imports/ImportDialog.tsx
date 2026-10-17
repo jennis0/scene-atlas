@@ -28,10 +28,9 @@ import { getImportManager } from '@/lib/import/ImportManager'
 import { useImportJob, useImportManagerSnapshot } from '@/lib/import/useImports'
 import type { ImageType, PickedFile } from '@/lib/import/types'
 import { ConfirmOverlay, ImportFrame, Notice, TextButton } from './ImportFrame'
-import { GroupLedger } from './GroupLedger'
+import { NowImporting, ProblemsLine, ProgressSummary } from './ImportProgress'
 import { ResultView } from './ImportResultView'
 import {
-  finishedCount,
   formatBytes,
   isFinished,
   jobStatusText,
@@ -318,7 +317,7 @@ function ProgressView({
 }) {
   const manager = getImportManager()
   const { queue, connection } = useImportManagerSnapshot()
-  const { job, upload, detail } = useImportJob(jobId, { watch: open })
+  const { job, upload, detail } = useImportJob(jobId, { watch: open, scope: 'active' })
   const [confirmingCancel, setConfirmingCancel] = useState(false)
   const [busy, setBusy] = useState(false)
   const resumeFiles = useRef<HTMLInputElement>(null)
@@ -358,6 +357,12 @@ function ProgressView({
 
   const label = job?.label ?? upload?.label ?? 'Import'
   const finished = job ? isFinished(job) : upload?.phase === 'failed'
+
+  // The editor on every group with images so far; more can be added from there later
+  const reviewSoFar = async () => {
+    const ids = reviewableGroupIds((await manager.getDetail(jobId)).groups)
+    if (ids.length > 0) onReviewGroups?.(ids)
+  }
   const counts = job?.counts
   const statusLine = job ? jobStatusText(job, upload) : (uploadPhaseText(upload) ?? 'Starting')
 
@@ -386,22 +391,21 @@ function ProgressView({
           )}
           <span className="flex-1" />
           {!finished && (
-            <span className="text-[11.5px] text-muted-foreground mr-1">
+            <span className="hidden sm:inline text-[11.5px] text-muted-foreground mr-1">
               Keeps running if you close this
             </span>
+          )}
+          {onReviewGroups && job && job.groups_with_images > 0 && (
+            <TextButton tone="solid" onClick={() => void run(reviewSoFar)} disabled={busy}>
+              Review {plural(job.groups_with_images, 'group')}
+            </TextButton>
           )}
           <TextButton onClick={onClose}>Close</TextButton>
         </>
       }
     >
       <div className="px-6 pb-4 space-y-3 shrink-0">
-        {counts && (
-          <ProgressMeter
-            received={counts.total - counts.awaiting_bytes}
-            finished={finishedCount(counts)}
-            total={counts.total}
-          />
-        )}
+        {job && <ProgressSummary job={job} secondsPerItem={queue?.seconds_per_item} />}
         {upload && upload.totalBytes > 0 && !finished && upload.phase !== 'finished' && (
           <p className="font-mono text-[10.5px] text-muted-foreground tabular-nums">
             {formatBytes(upload.sentBytes)} of {formatBytes(upload.totalBytes)} sent
@@ -508,15 +512,9 @@ function ProgressView({
         onChange={onResumePicked}
       />
 
-      <div className="flex-1 min-h-[180px] flex flex-col border-t border-border/30 pt-2">
-        <GroupLedger
-          groups={detail?.groups ?? []}
-          onOpenGroup={
-            onReviewGroups
-              ? (groupId) => onReviewGroups(reviewableGroupIds(detail?.groups ?? []), groupId)
-              : undefined
-          }
-        />
+      <div className="px-6 pb-4 space-y-3 border-t border-border/30 pt-3">
+        <NowImporting groups={detail?.groups ?? []} planned={!!job?.planned} />
+        {counts && <ProblemsLine counts={counts} />}
       </div>
 
       {confirmingCancel && (
@@ -543,49 +541,5 @@ function ProgressView({
         />
       )}
     </ImportFrame>
-  )
-}
-
-/**
- * One track, two layers: how much the server has received (quiet) and how much
- * is finished (amber). The gap between them is work waiting to be processed.
- */
-function ProgressMeter({
-  received,
-  finished,
-  total,
-}: {
-  received: number
-  finished: number
-  total: number
-}) {
-  const pct = (n: number) => (total > 0 ? `${Math.round((n / total) * 100)}%` : '0%')
-  return (
-    <div>
-      <div
-        className="relative h-1 rounded-full bg-border/40 overflow-hidden"
-        role="progressbar"
-        aria-valuemin={0}
-        aria-valuemax={total}
-        aria-valuenow={finished}
-        aria-label="Files processed"
-      >
-        <div
-          className="absolute inset-y-0 left-0 bg-foreground/15 transition-[width] duration-500"
-          style={{ width: pct(received) }}
-        />
-        <div
-          className="absolute inset-y-0 left-0 bg-primary/80 transition-[width] duration-700 ease-out"
-          style={{ width: pct(finished) }}
-        />
-      </div>
-      <div className="mt-1.5 flex justify-between font-mono text-[10.5px] tabular-nums text-muted-foreground">
-        <span>{received.toLocaleString()} received</span>
-        <span>
-          {finished.toLocaleString()}
-          <span className="text-muted-foreground"> / {total.toLocaleString()} processed</span>
-        </span>
-      </div>
-    </div>
   )
 }
