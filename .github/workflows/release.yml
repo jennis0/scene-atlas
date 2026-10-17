@@ -305,6 +305,9 @@ jobs:
       - name: Build sidecar
         run: uv run python scripts/build/build_sidecar.py
 
+      - name: Smoke-test sidecar
+        run: uv run python scripts/build/smoke_sidecar.py
+
       # ── Build Electron app ───────────────────────────────────────────────
       - name: Build Electron app (publish)
         if: inputs.publish
