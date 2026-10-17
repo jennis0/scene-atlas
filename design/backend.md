@@ -351,7 +351,7 @@ Other environment variables: `EMBEDDING_MODEL` (operator override of the active 
 8. Create the JobRunner. A daemon thread waits for the model, calls `IngestWorker.probe_now()`, then submits `reconcile_vectors` if the model loaded.
 9. If `ingest_worker_enabled`: `ingest_worker.recover()`, then `ingest_worker.start()`.
 10. If `scheduler_enabled`: register the four scheduler tasks and start the scheduler.
-11. Log the CORS warning if applicable; print `SCENE_ATLAS_READY port=…` (Electron waits for this line).
+11. Log the CORS warning if applicable. (The desktop sidecar prints `SCENE_ATLAS_READY` from `backend/pyinstaller/entry.py` once uvicorn is listening, not from here; see [electron.md](electron.md#sidecar-lifecycle).)
 12. Start the 15 s event-loop heartbeat (logs thread count and RSS); install a SIGUSR1 thread-dump handler on non-Windows.
 
 Shutdown: cancel heartbeat → stop scheduler → `ingest_worker.stop(60s)` → `shutdown_job_runner()` → `shutdown_prepare_pool()` → `shutdown_lancedb_service()` → release the storage locks (the OS also drops them if the process dies).

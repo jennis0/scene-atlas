@@ -214,11 +214,9 @@ async def lifespan(app: FastAPI):
             "Set CORS_ORIGINS in your .env to your actual frontend origin."
         )
 
-    logger.info("Server ready on %s:%s", settings.api_host, settings.api_port)
-    # Signal to desktop shell (Electron) that the backend is ready.
     # CLIP is still loading in the background — the app is usable immediately;
     # searches with a query will wait for CLIP; empty queries use SQL only.
-    print(f"SCENE_ATLAS_READY port={settings.api_port}", flush=True)
+    logger.info("Startup complete")
 
     # Diagnostic: event loop heartbeat
     # Logs every 15s from the event loop. If these lines stop appearing in the

@@ -21,7 +21,6 @@ import signal
 import socket
 import subprocess
 import sys
-import threading
 import time
 import traceback
 from dataclasses import dataclass, field
@@ -155,7 +154,7 @@ class StressTestServer:
                     shutil.copytree(model, target)
 
     def start(self, timeout: float = 90) -> str:
-        """Start the server; ready once it prints ``SCENE_ATLAS_READY`` to stdout."""
+        """Start the server; ready once ``/health`` answers."""
         self.port = self._reserve_port()
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.library_dir.mkdir(parents=True, exist_ok=True)
@@ -199,32 +198,30 @@ class StressTestServer:
 
         self._proc = subprocess.Popen(
             cmd,
-            stdout=subprocess.PIPE,
-            stderr=self._log_fh,
+            stdout=self._log_fh,
+            stderr=subprocess.STDOUT,
             env=env,
             cwd=str(REPO_ROOT),
-            text=True,
-            bufsize=1,
             **kwargs,
         )
 
+        base_url = f"http://127.0.0.1:{self.port}"
         deadline = time.monotonic() + timeout
         ready = False
-        while time.monotonic() < deadline:
-            if self._proc.poll() is not None:
-                self._log_fh.flush()
-                raise RuntimeError(
-                    f"Server exited prematurely (code {self._proc.returncode}). "
-                    f"Check {self.log_path}"
-                )
-            line = self._proc.stdout.readline()
-            if not line:
-                time.sleep(0.05)
-                continue
-            if "SCENE_ATLAS_READY" in line:
-                self._release_port()
-                ready = True
-                break
+        with httpx.Client(base_url=base_url, timeout=5) as client:
+            while time.monotonic() < deadline:
+                if self._proc.poll() is not None:
+                    self._log_fh.flush()
+                    raise RuntimeError(
+                        f"Server exited prematurely (code {self._proc.returncode}). "
+                        f"Check {self.log_path}"
+                    )
+                with contextlib.suppress(httpx.TransportError):  # Not listening yet.
+                    ready = client.get("/health").status_code == 200
+                if ready:
+                    self._release_port()
+                    break
+                time.sleep(0.1)
 
         if not ready:
             self.stop(force=True)
@@ -232,19 +229,7 @@ class StressTestServer:
                 f"Server did not become ready within {timeout}s. Check {self.log_path}"
             )
 
-        self.base_url = f"http://127.0.0.1:{self.port}"
-
-        # Bound to locals: stop() clears self._log_fh and may close it mid-drain.
-        def _drain(proc_stdout=self._proc.stdout, log_fh=self._log_fh) -> None:
-            for line in proc_stdout:
-                try:
-                    log_fh.write(f"[stdout] {line}")
-                    log_fh.flush()
-                except ValueError:
-                    break
-
-        threading.Thread(target=_drain, daemon=True, name="stdout-drain").start()
-
+        self.base_url = base_url
         return self.base_url
 
     def wait_for_clip(self, timeout: float = 120) -> None:

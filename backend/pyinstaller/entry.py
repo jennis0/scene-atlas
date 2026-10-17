@@ -7,6 +7,8 @@ computes all derived paths from app_data_dir / image_library_dir.
 Includes crash supervision: if uvicorn crashes, it restarts with
 exponential backoff. Gives up after 10 crashes in 5 minutes and exits
 with code 1 so Electron can show a fatal error dialog.
+
+Prints SCENE_ATLAS_READY once uvicorn is listening; Electron waits for it.
 """
 
 import argparse
@@ -18,6 +20,7 @@ import time
 MAX_RESTARTS = 10
 WINDOW_SECS = 300
 MAX_BACKOFF = 30
+STARTUP_FAILURE = 3  # uvicorn's exit code when startup fails
 
 
 def main():
@@ -68,6 +71,12 @@ def main():
 
     from backend.app.main import app
 
+    class SidecarServer(uvicorn.Server):
+        async def startup(self, sockets=None) -> None:
+            await super().startup(sockets)
+            if self.started:
+                print(f"SCENE_ATLAS_READY port={self.config.port}", flush=True)
+
     restarts: list[float] = []
     backoff = 1
 
@@ -76,8 +85,11 @@ def main():
     # connection pools) will persist across restarts. This is the correct tradeoff
     # for a PyInstaller bundle where subprocess spawning is unreliable.
     while True:
+        server = SidecarServer(uvicorn.Config(app, host="127.0.0.1", port=args.port))
         try:
-            uvicorn.run(app, host="127.0.0.1", port=args.port)
+            server.run()
+            if not server.started:
+                sys.exit(STARTUP_FAILURE)
             break  # Clean exit (e.g. graceful shutdown from Electron)
         except SystemExit:
             # Propagate the code: uvicorn exits non-zero when startup fails (e.g. the
