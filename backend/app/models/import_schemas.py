@@ -53,6 +53,8 @@ class ImportJobSummary(BaseModel):
     waiting_for: list[str] = []  # derived: a local import's folders that are missing
     counts: ImportCounts
     group_count: int
+    groups_done: int = 0  # groups with no open items (planned jobs)
+    groups_with_images: int = 0  # groups with at least one imported image: what to review
     created_at: datetime | None
     updated_at: datetime | None
     completed_at: datetime | None
@@ -68,6 +70,9 @@ class QueueStatus(BaseModel):
     system_paused: bool
     reason: str | None
     current_job_id: str | None
+    # Rolling average time to import one file this session; None until measured
+    # (design/import-progress.md §4)
+    seconds_per_item: float | None = None
 
 
 class ImportJobList(BaseModel):

@@ -14,7 +14,7 @@ import {
 } from '@/test/importFakes'
 import type { ImportManager } from '@/lib/import/ImportManager'
 import { ImportDialog } from './ImportDialog'
-import { jobStatusText, outcomeText } from './format'
+import { jobStatusText, outcomeText, timeLeftText } from './format'
 
 let manager: ImportManager | undefined
 let client: FakeImportClient
@@ -42,6 +42,15 @@ describe('format', () => {
     expect(outcomeText(counts({ done: 412, failed: 3, duplicate: 12 }))).toBe(
       '412 imported, 3 failed, 12 already in your library',
     )
+  })
+
+  it('estimates the time left from the measured time per file', () => {
+    expect(timeLeftText(counts({ ready: 10 }), null)).toBeNull()
+    expect(timeLeftText(counts({ done: 10 }), 2)).toBeNull() // nothing left
+    expect(timeLeftText(counts({ ready: 20 }), 2)).toBe('under a minute left')
+    expect(timeLeftText(counts({ ready: 200, awaiting_bytes: 100 }), 2)).toBe('about 10 min left')
+    expect(timeLeftText(counts({ ready: 1000 }), 1.6)).toBe('about 25 min left') // 26.7 → 25
+    expect(timeLeftText(counts({ processing: 16, ready: 4484 }), 2)).toBe('about 2 h 30 min left')
   })
 
   it('prefers what this tab is sending over server progress', () => {
@@ -139,29 +148,86 @@ describe('ImportDialog: progress', () => {
     groups: [group(), group({ id: 2, group_name: 'Swamp Hut', merged_into_existing: true })],
   })
 
-  it('shows the group ledger and overall progress', async () => {
+  it('shows overall progress, groups done, time left and the groups importing now', async () => {
+    const running = counts({ done: 3, ready: 900 })
     ;({ manager, client } = await installFakeImportManager({
-      jobs: [jobSummary({ counts: counts({ ready: 2, done: 3 }) })],
-      details: { job1: detail({ counts: counts({ ready: 2, done: 3 }) }) },
+      jobs: [jobSummary({ counts: running, group_count: 347, groups_done: 103 })],
+      queue: { ...idleQueue, seconds_per_item: 2 },
+      details: {
+        job1: {
+          ...jobSummary(),
+          groups: [
+            group({ group_name: 'Forest Ponds', counts: counts({ done: 12, ready: 6 }) }),
+            group({ id: 2, group_name: 'Frozen Lake', counts: counts({ awaiting_bytes: 4 }) }),
+          ],
+        },
+      },
     }))
     renderWithProviders(<ImportDialog jobId="job1" open onClose={noop} onStarted={noop} />)
-    await waitFor(() => expect(screen.getByText('Island Fort')).toBeInTheDocument())
-    expect(screen.getByText(/adds to an existing group/)).toBeInTheDocument()
+    const now = await screen.findByRole('region', { name: 'Now importing' })
+    const rows = within(now).getAllByRole('listitem')
+    expect(rows[0]).toHaveTextContent('Forest Ponds')
+    expect(rows[0]).toHaveTextContent('12/18')
+    expect(rows[1]).toHaveTextContent('waiting')
+    expect(screen.getByText('103 of 347 groups done · about 30 min left')).toBeInTheDocument()
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '3')
+    expect(client.get).toHaveBeenCalledWith('job1', 'active')
     expect(screen.getByText('Keeps running if you close this')).toBeInTheDocument()
   })
 
   it('counts a group against what it could import, not files already in the library', async () => {
-    // A settled group in a job that's still running other groups
-    const settled = group({ counts: counts({ done: 3, duplicate: 3, skipped: 1 }) })
+    const partly = group({ counts: counts({ done: 3, duplicate: 3, skipped: 1, ready: 2 }) })
     ;({ manager, client } = await installFakeImportManager({
-      jobs: [jobSummary({ counts: counts({ ...settled.counts, processing: 2 }) })],
-      details: { job1: { ...jobSummary(), groups: [settled] } },
+      jobs: [jobSummary({ counts: partly.counts })],
+      details: { job1: { ...jobSummary(), groups: [partly] } },
     }))
     renderWithProviders(<ImportDialog jobId="job1" open onClose={noop} onStarted={noop} />)
     const row = await screen.findByRole('listitem')
-    expect(row).toHaveTextContent('3 in library')
-    expect(row).toHaveTextContent('3/3')
+    expect(row).toHaveTextContent('3/5')
+  })
+
+  it('sums up problems in one line while importing', async () => {
+    ;({ manager, client } = await installFakeImportManager({
+      jobs: [jobSummary({ counts: counts({ ready: 5, duplicate: 98, failed: 3 }) })],
+      details: { job1: detail() },
+    }))
+    renderWithProviders(<ImportDialog jobId="job1" open onClose={noop} onStarted={noop} />)
+    expect(await screen.findByText(/98 already in your library/)).toHaveTextContent(
+      '98 already in your library · 3 failed. The report lists them when the import finishes.',
+    )
+  })
+
+  it('reviews the groups imported so far', async () => {
+    const onReviewGroups = vi.fn()
+    ;({ manager, client } = await installFakeImportManager({
+      jobs: [jobSummary({ counts: counts({ ready: 5, done: 6 }), groups_with_images: 2 })],
+      details: {
+        job1: detail({ counts: counts({ ready: 5, done: 6 }) }),
+      },
+    }))
+    renderWithProviders(
+      <ImportDialog
+        jobId="job1"
+        open
+        onClose={noop}
+        onStarted={noop}
+        onReviewGroups={onReviewGroups}
+      />,
+    )
+    await userEvent.click(await screen.findByRole('button', { name: 'Review 2 groups' }))
+    await waitFor(() => expect(onReviewGroups).toHaveBeenCalledWith([41])) // two import groups, one gallery group
+  })
+
+  it('offers no review before any group has images', async () => {
+    ;({ manager, client } = await installFakeImportManager({
+      jobs: [jobSummary({ counts: counts({ ready: 5 }) })],
+      details: { job1: detail() },
+    }))
+    renderWithProviders(
+      <ImportDialog jobId="job1" open onClose={noop} onStarted={noop} onReviewGroups={vi.fn()} />,
+    )
+    await screen.findByText('Keeps running if you close this')
+    expect(screen.queryByRole('button', { name: /^Review/ })).not.toBeInTheDocument()
   })
 
   it('offers resume or finishing without missing files after an interrupted upload', async () => {

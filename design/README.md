@@ -27,6 +27,7 @@ How individual features and subsystems are designed.
 | [editor-metadata-first.md](editor-metadata-first.md) | Plan: group editor loads summaries first and details on demand, bulk edits by id, virtualised All view (with measurements) |
 | [ingestion.md](ingestion.md) | Ingestion pipeline (ADR-018) -- import data model, item state machine, upload protocol, ingest worker, duplicate tiers, stored format, maintenance, recovery |
 | [local-ingest.md](local-ingest.md) | Plan: local folder import (desktop app), linked library in place, drop folder |
+| [import-progress.md](import-progress.md) | Import progress view (overall bar, now importing, time left) and the editor's import-running strip |
 | [parser.md](parser.md) | ImageParser -- filename parsing, tag extraction, image group detection |
 | [tag-packs.md](tag-packs.md) | Tag packs -- genre-specific vocabularies, import mechanics, settings integration |
 | [dialog-focus-management.md](dialog-focus-management.md) | Focus management across dialog and modal components |

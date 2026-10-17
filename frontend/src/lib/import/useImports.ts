@@ -11,6 +11,7 @@ import {
   type LocalUpload,
 } from './ImportManager'
 import type { ImportJobDetail, ImportJobSummary } from './types'
+import type { DetailScope } from './importClient'
 
 export function useImportManagerSnapshot(
   manager: ImportManager = getImportManager(),
@@ -29,18 +30,23 @@ export interface ImportJobView {
  * One job's server summary plus this tab's upload progress for it. With
  * ``watch``, also keeps its per-group detail fresh while mounted.
  */
+interface ImportJobOptions {
+  /** Keep the job's detail fresh while mounted */
+  watch?: boolean
+  /** Which groups the detail needs (the progress view needs only those importing now) */
+  scope?: DetailScope
+  manager?: ImportManager
+}
+
 export function useImportJob(
   jobId: string | null,
-  {
-    watch = false,
-    manager = getImportManager(),
-  }: { watch?: boolean; manager?: ImportManager } = {},
+  { watch = false, scope = 'all', manager = getImportManager() }: ImportJobOptions = {},
 ): ImportJobView {
   const snapshot = useImportManagerSnapshot(manager)
   useEffect(() => {
     if (!watch || !jobId) return
-    return manager.watchJob(jobId)
-  }, [watch, jobId, manager])
+    return manager.watchJob(jobId, scope)
+  }, [watch, scope, jobId, manager])
   if (!jobId) return { job: undefined, upload: undefined, detail: undefined }
   return {
     job: snapshot.jobs.find((j) => j.id === jobId),

@@ -47,6 +47,8 @@ export function jobSummary(partial: Partial<ImportJobSummary> = {}): ImportJobSu
     planned: true,
     dismissed: false,
     upload_interrupted: false,
+    groups_done: 0,
+    groups_with_images: 0,
     local: false,
     waiting_for: [],
     counts: counts(),

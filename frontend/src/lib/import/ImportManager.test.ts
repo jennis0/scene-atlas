@@ -41,6 +41,8 @@ function summary(id: string, status: ImportJobSummary['status'] = 'active'): Imp
     planned: true,
     dismissed: false,
     upload_interrupted: false,
+    groups_done: 0,
+    groups_with_images: 0,
     local: false,
     waiting_for: [],
     counts,
@@ -211,6 +213,28 @@ describe('localLabel', () => {
     expect(localLabel(['D:\\Maps\\Forest Pack'])).toBe('Forest Pack')
     expect(localLabel(['/home/me/Maps/Cave.zip'])).toBe('Cave.zip')
     expect(localLabel(['/a', '/b'])).toBe('2 folders and files')
+  })
+})
+
+describe('watchJob', () => {
+  it('fetches only the groups importing now until a watcher needs them all', async () => {
+    const calls: Calls = []
+    const client = fakeClient(calls, {
+      get: vi.fn(async (jobId: string, scope: string) => ({
+        ...summary(jobId),
+        groups: [],
+        scope,
+      })),
+    })
+    const { manager } = track(makeManager(client))
+    const releaseActive = manager.watchJob('job1', 'active')
+    await vi.waitFor(() => expect(client.get).toHaveBeenLastCalledWith('job1', 'active'))
+    const releaseAll = manager.watchJob('job1', 'all')
+    await vi.waitFor(() => expect(client.get).toHaveBeenLastCalledWith('job1', 'all'))
+    expect(client.get).toHaveBeenCalledTimes(2)
+    releaseAll()
+    releaseActive()
+    expect(manager.getSnapshot().details.job1).toBeUndefined()
   })
 })
 

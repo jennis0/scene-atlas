@@ -27,8 +27,9 @@ from backend.app.config import settings
 from backend.app.services import get_image_store, get_thumbnail_store
 from backend.app.services.prepare_pool import get_prepare_pool
 
-from .ingest_process import BatchOutcome, clear_incoming, process_batch
+from .ingest_process import BatchOutcome, clear_incoming, process_batch, settled_count
 from .ingest_queue import claim_next_batch, recover_interrupted
+from .ingest_rate import ProcessingRate
 from .pipeline_config import PipelineConfig, load_pipeline_config
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,8 @@ class WorkerStatus:
     system_reason: str | None
     current_job_id: str | None
     version: int
+    # Rolling average time to import one file this session (None until measured)
+    seconds_per_item: float | None = None
 
 
 class IngestWorker:
@@ -100,6 +103,7 @@ class IngestWorker:
         self._busy = False
         self._last_probe = 0.0
         self._version = 0
+        self._rate = ProcessingRate()
 
     # --- lifecycle -----------------------------------------------------------
 
@@ -142,6 +146,7 @@ class IngestWorker:
                 system_reason=reason,
                 current_job_id=self._current_job_id,
                 version=self._version,
+                seconds_per_item=self._rate.seconds_per_item(),
             )
 
     @contextmanager
@@ -223,8 +228,10 @@ class IngestWorker:
         self._cursor = job_id
         with self._lock:
             self._current_job_id = job_id
+        started = time.monotonic()
         try:
             outcome: BatchOutcome = process_batch(items, cfg, self._pool_getter())
+            self._rate.record(settled_count(items, outcome), time.monotonic() - started)
         finally:
             with self._lock:
                 self._current_job_id = None

@@ -682,6 +682,7 @@ _REFUNDED = {
     KIND_SYSTEM: ItemEvent.SYSTEM_ERROR,
     KIND_SOURCE_UNAVAILABLE: ItemEvent.SOURCE_UNAVAILABLE,
 }
+REFUNDED_KINDS = frozenset(_REFUNDED)
 
 
 def record_failures(failures: list[ItemFailure], now: datetime | None = None) -> set[str]:

@@ -563,3 +563,29 @@ def test_undo_of_an_import_that_added_nothing(api):
     r = api.client.delete(f"{BASE}/{job_id}")
     assert r.status_code == 200, r.text
     assert r.json() == {"affected": 0, "status": "deleted"}
+
+
+def test_progress_fields(api):
+    """Group totals, the active-groups detail and the measured rate (design/import-progress.md)."""
+    files = {f"A/Group{g}/Map{i}.png": image_bytes(g * 10 + i) for g in range(4) for i in range(2)}
+    job_id = api.create()
+    result = api.manifest(job_id, [{"relative_path": p, "size": len(d)} for p, d in files.items()])
+    ids = {i["relative_path"]: i["item_id"] for i in result["items"]}
+    assert api.client.post(f"{BASE}/{job_id}/seal").status_code == 200
+    for path in ("A/Group0/Map0.png", "A/Group0/Map1.png", "A/Group1/Map0.png"):
+        assert api.put(job_id, ids[path], files[path]).status_code == 200
+    api.worker.drain()
+
+    def summary():
+        return next(j for j in api.client.get(BASE).json()["jobs"] if j["id"] == job_id)
+
+    assert summary()["group_count"] == 4
+    assert summary()["groups_done"] == 1  # Group0 has both files; the rest await bytes
+    assert summary()["groups_with_images"] == 2
+
+    active = api.client.get(f"{BASE}/{job_id}", params={"groups": "active", "limit": 2}).json()
+    assert [g["group_name"] for g in active["groups"]] == ["Group 1", "Group 2"]  # parser spacing
+    assert len(api.detail(job_id)["groups"]) == 4
+
+    queue = api.client.get(BASE).json()["queue"]
+    assert queue["seconds_per_item"] is not None and queue["seconds_per_item"] > 0

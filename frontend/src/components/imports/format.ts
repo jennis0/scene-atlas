@@ -19,6 +19,26 @@ export function processedRatio(c: ImportCounts): number {
   return c.total > 0 ? finishedCount(c) / c.total : 0
 }
 
+/** Files still to import: waiting for bytes, ready or being processed. */
+export const openCount = (c: ImportCounts) => c.awaiting_bytes + c.ready + c.processing
+
+/**
+ * "about 25 min left", from the measured time to import one file (design/import-progress.md
+ * §4) times the files left. Null until there's a rate, or when nothing is left. Long waits
+ * are rounded to five minutes so the estimate doesn't flicker.
+ */
+export function timeLeftText(c: ImportCounts, secondsPerItem: number | null | undefined) {
+  const open = openCount(c)
+  if (!secondsPerItem || open === 0) return null
+  const exact = (open * secondsPerItem) / 60
+  if (exact < 1) return 'under a minute left'
+  const minutes = exact < 15 ? Math.round(exact) : Math.round(exact / 5) * 5
+  if (minutes < 60) return `about ${minutes} min left`
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  return rest ? `about ${hours} h ${rest} min left` : `about ${hours} h left`
+}
+
 export const isFinished = (job: ImportJobSummary) =>
   job.status === 'completed' || job.status === 'cancelled'
 
@@ -35,9 +55,17 @@ export const isCleanFinish = (job: ImportJobSummary) =>
   job.counts.duplicate === 0 &&
   !job.upload_interrupted
 
-/** The image groups an import has added images to, for opening in the editor. */
-export const reviewableGroupIds = (groups: ImportGroupSummary[]) =>
-  groups.filter((g) => g.image_group_id !== null && g.counts.done > 0).map((g) => g.image_group_id!)
+/**
+ * The image groups an import has added images to, for opening in the editor. Each once:
+ * several import groups can add to the same gallery group.
+ */
+export const reviewableGroupIds = (groups: ImportGroupSummary[]) => [
+  ...new Set(
+    groups
+      .filter((g) => g.image_group_id !== null && g.counts.done > 0)
+      .map((g) => g.image_group_id!),
+  ),
+]
 
 export function uploadPhaseText(upload: LocalUpload | undefined): string | null {
   if (!upload) return null

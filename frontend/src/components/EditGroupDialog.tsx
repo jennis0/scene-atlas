@@ -29,6 +29,7 @@ import type { PendingConfirm } from './edit-group/pendingConfirm'
 import { useEditScope } from './edit-group/useEditScope'
 import { EditGroupContext, type EditGroupContextValue } from './edit-group/EditGroupContext'
 import { invalidateGalleryQueries } from '@/lib/queryKeys'
+import { ImportRunningStrip } from './edit-group/ImportRunningStrip'
 
 interface EditGroupDialogProps {
   // Single-group mode: pass groupId
@@ -40,6 +41,12 @@ interface EditGroupDialogProps {
   groupIds?: number[]
   /** Import-review mode: the group to open on, instead of all groups */
   startGroupId?: number
+  /** Import-review mode: the import the groups came from, to follow while it runs */
+  importJobId?: string
+  /** Add groups the import finished since the editor opened */
+  onAddGroups?: (groupIds: number[]) => void
+  /** Leave the editor for the import's progress */
+  onShowImportProgress?: (jobId: string) => void
   open: boolean
   onClose: () => void
   /** Called after editing is done (changes are auto-saved as you go). */
@@ -51,6 +58,9 @@ export default function EditGroupDialog({
   seedImages,
   groupIds,
   startGroupId,
+  importJobId,
+  onAddGroups,
+  onShowImportProgress,
   open,
   onClose,
   onSave,
@@ -294,6 +304,22 @@ export default function EditGroupDialog({
             onDone={handleDone}
             saving={saving}
           />
+
+          {importJobId && groupIds && (
+            <ImportRunningStrip
+              jobId={importJobId}
+              reviewedGroupIds={groupIds}
+              onAddGroups={onAddGroups}
+              onShowProgress={
+                onShowImportProgress
+                  ? () => {
+                      onSave()
+                      onShowImportProgress(importJobId)
+                    }
+                  : undefined
+              }
+            />
+          )}
 
           {loading && (
             <div className="flex items-center justify-center flex-1">

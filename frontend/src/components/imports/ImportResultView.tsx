@@ -196,7 +196,6 @@ export function ResultView({ jobId, open, onClose, onReviewGroups, onUndone }: R
         {active === 'groups' && (
           <GroupLedger
             groups={groups}
-            variant={finished ? 'report' : 'progress'}
             showAuthor={!sharedAuthor}
             onOpenGroup={
               onReviewGroups ? (groupId) => onReviewGroups(reviewIds, groupId) : undefined
