@@ -3,7 +3,7 @@
  * (model downloads, rebuilds). Hidden when there's nothing to show.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   AlertCircle,
   Check,
@@ -22,6 +22,7 @@ import { ImportJobRow } from '@/components/imports/ImportJobRow'
 import { isFinished } from '@/components/imports/format'
 import type { BackgroundJob } from '@/types'
 import { PanelTitle } from '@/components/ui/panel-title'
+import { isAnyDialogOpen } from '@/components/ui/dialogStack'
 
 interface ActivityDockProps {
   backgroundJobs: BackgroundJob[]
@@ -31,13 +32,26 @@ interface ActivityDockProps {
 
 export function ActivityDock({ backgroundJobs, onOpenImport }: ActivityDockProps) {
   const [expanded, setExpanded] = useState(false)
+  // The pill and the panel replace each other, so move focus across on every toggle
+  // (but not on first mount) instead of dropping it on <body>.
+  const pillRef = useRef<HTMLButtonElement>(null)
+  const collapseRef = useRef<HTMLButtonElement>(null)
+  const toggledRef = useRef(false)
+  useEffect(() => {
+    if (!toggledRef.current) {
+      toggledRef.current = true
+      return
+    }
+    ;(expanded ? collapseRef : pillRef).current?.focus()
+  }, [expanded])
   const manager = getImportManager()
   const { jobs, uploads, connection, queue } = useImportManagerSnapshot()
 
   useEffect(() => {
     if (!expanded) return
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setExpanded(false)
+      // A dialog above the dock owns Escape.
+      if (e.key === 'Escape' && !isAnyDialogOpen()) setExpanded(false)
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
@@ -62,7 +76,9 @@ export function ActivityDock({ backgroundJobs, onOpenImport }: ActivityDockProps
   if (!expanded) {
     return (
       <button
+        ref={pillRef}
         data-testid="activity-dock-pill"
+        aria-expanded={false}
         onClick={() => setExpanded(true)}
         className="fixed bottom-6 right-6 z-30
           flex items-center gap-2 py-2 px-3.5
@@ -73,7 +89,7 @@ export function ActivityDock({ backgroundJobs, onOpenImport }: ActivityDockProps
           hover:bg-secondary hover:border-border/60
           hover:shadow-xl hover:shadow-black/50
           hover:-translate-y-px
-          focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+"
         title={
           connectionLost
             ? "Can't reach Scene Atlas"
@@ -116,7 +132,9 @@ export function ActivityDock({ backgroundJobs, onOpenImport }: ActivityDockProps
       <div className="fixed bottom-6 right-6 z-30">
         <div
           data-testid="activity-dock-panel"
-          className="w-[320px] flex flex-col bg-card rounded-xl border border-border/30
+          role="region"
+          aria-label="Activity"
+          className="w-[min(320px,calc(100vw-2rem))] flex flex-col bg-card rounded-xl border border-border/30
             shadow-2xl shadow-black/60 overflow-hidden"
           style={{ maxHeight: 'min(520px, 65vh)' }}
         >
@@ -144,10 +162,13 @@ export function ActivityDock({ backgroundJobs, onOpenImport }: ActivityDockProps
                 Activity
               </PanelTitle>
               <button
+                ref={collapseRef}
+                aria-expanded
+                aria-label="Collapse activity"
                 onClick={() => setExpanded(false)}
                 className="h-7 w-7 rounded flex items-center justify-center
                   text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors
-                  focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+"
                 title="Collapse"
               >
                 <ChevronDown className="h-3.5 w-3.5" />
@@ -231,12 +252,10 @@ function BackgroundJobCard({ job }: { job: BackgroundJob }) {
             {job.name}
           </span>
           {job.progress_pct != null && !isTerminal && (
-            <span className="text-[10px] text-muted-foreground/55 tabular-nums shrink-0">
-              {pct}%
-            </span>
+            <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">{pct}%</span>
           )}
           {expanded && (
-            <ChevronDown className="h-3 w-3 text-muted-foreground/40 shrink-0 mt-0.5 rotate-180" />
+            <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0 mt-0.5 rotate-180" />
           )}
         </div>
 
@@ -261,7 +280,7 @@ function BackgroundJobCard({ job }: { job: BackgroundJob }) {
           </div>
         )}
 
-        <div className="mt-1 text-[10px] text-muted-foreground/45 leading-tight">
+        <div className="mt-1 text-[10px] text-muted-foreground leading-tight">
           {job.status === 'queued' && <span>Queued</span>}
           {job.status === 'running' && <span>{job.progress ?? 'Processing...'}</span>}
           {job.status === 'completed' && <span>{formatResult(job.result)}</span>}
@@ -279,17 +298,17 @@ function BackgroundJobCard({ job }: { job: BackgroundJob }) {
               <div className="space-y-0.5">
                 {Object.entries(job.result).map(([key, val]) => (
                   <div key={key} className="flex justify-between text-[10px]">
-                    <span className="text-muted-foreground/35 font-medium uppercase tracking-[0.08em]">
+                    <span className="text-muted-foreground font-medium uppercase tracking-[0.08em]">
                       {key.replace(/_/g, ' ')}
                     </span>
-                    <span className="text-muted-foreground/55 tabular-nums">{String(val)}</span>
+                    <span className="text-muted-foreground tabular-nums">{String(val)}</span>
                   </div>
                 ))}
               </div>
             )}
             {job.status === 'failed' && job.error && (
               <div className="flex justify-between text-[10px] gap-4">
-                <span className="text-muted-foreground/35 font-medium uppercase tracking-[0.08em] shrink-0">
+                <span className="text-muted-foreground font-medium uppercase tracking-[0.08em] shrink-0">
                   Error
                 </span>
                 <span className="text-destructive/65 text-right">{job.error}</span>
@@ -314,7 +333,7 @@ function JobStatusIcon({ status }: { status: BackgroundJob['status'] }) {
       return <AlertCircle className="h-3.5 w-3.5 text-destructive/70 shrink-0 mt-0.5" />
     case 'queued':
     default:
-      return <Clock className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0 mt-0.5" />
+      return <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
   }
 }
 

@@ -37,8 +37,9 @@ export function TagChip({
         <button
           onClick={onRemove}
           disabled={removeDisabled}
-          className="ml-0.5 opacity-40 hover:opacity-100 transition-opacity disabled:cursor-not-allowed"
+          className="relative target-24 ml-1 opacity-70 hover:opacity-100 transition-opacity disabled:cursor-not-allowed"
           title={`Remove ${category}: ${value}`}
+          aria-label={`Remove ${category}: ${value}`}
         >
           <X className={icon} />
         </button>

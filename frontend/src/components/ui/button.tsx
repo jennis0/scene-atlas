@@ -3,18 +3,18 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@/lib/utils'
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 disabled:pointer-events-none disabled:opacity-40',
+  'inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-40',
   {
     variants: {
       variant: {
         // Amber — the one strong CTA. Use sparingly.
         default: 'bg-primary text-primary-foreground hover:bg-primary/85',
         destructive:
-          'bg-destructive/20 text-destructive border border-destructive/30 hover:bg-destructive/30',
+          'bg-destructive/10 text-destructive border border-destructive/30 hover:bg-destructive/15',
         outline:
           'border border-border bg-transparent text-foreground hover:bg-secondary hover:border-border/70',
         secondary: 'bg-secondary text-foreground hover:bg-secondary/70',
-        ghost: 'text-foreground/60 hover:bg-secondary hover:text-foreground',
+        ghost: 'text-muted-foreground hover:bg-secondary hover:text-foreground',
         link: 'text-primary underline-offset-4 hover:underline',
       },
       size: {

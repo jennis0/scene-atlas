@@ -139,7 +139,7 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
             className="border-t border-border flex-shrink-0 bg-popover flex items-center justify-between"
             style={{ padding: '8px 16px' }}
           >
-            <span className="text-[11px] text-muted-foreground italic" style={{ opacity: 0.7 }}>
+            <span className="text-[11px] text-muted-foreground italic">
               Click a value to rename · click aliases to edit
             </span>
             <button
@@ -260,11 +260,7 @@ function CategoryList({
               />
               <span className="flex-1 truncate">{cat.name}</span>
               {valueCount > 0 && (
-                <span
-                  className={`text-[10px] tabular-nums flex-shrink-0 ${isActive ? 'opacity-60' : 'opacity-40'}`}
-                >
-                  {valueCount}
-                </span>
+                <span className={`text-[10px] tabular-nums flex-shrink-0 `}>{valueCount}</span>
               )}
             </button>
           )
@@ -483,7 +479,7 @@ function CategoryEditor({
               {!editingName && (
                 <button
                   onClick={() => setEditingName(true)}
-                  className="opacity-0 group-hover/catname:opacity-60 hover:!opacity-100 transition-opacity text-muted-foreground shrink-0"
+                  className="relative target-24 opacity-0 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 group-hover/catname:opacity-60 hover:!opacity-100 transition-opacity text-muted-foreground shrink-0"
                   title="Rename"
                 >
                   <Pencil className="h-3 w-3" />
@@ -537,7 +533,7 @@ function CategoryEditor({
             }
             placeholder="Add a description…"
             rows={1}
-            className="w-full text-[11.5px] text-muted-foreground placeholder:text-muted-foreground/50 bg-transparent border-b border-border/50 focus:border-primary/70 focus:outline-none focus:text-foreground resize-none py-1 transition-colors"
+            className="w-full text-[11.5px] text-muted-foreground placeholder:text-muted-foreground bg-transparent border-b border-border/50 focus:border-primary/70 focus:outline-none focus:text-foreground resize-none py-1 transition-colors"
             style={{
               height: 28,
               lineHeight: 1.4,
@@ -741,14 +737,9 @@ function TagValueRow({
             }}
             className={`text-left text-[10.5px] leading-[1.3] mt-0.5 block w-full transition-colors ${
               entry.aliases.length > 0
-                ? 'text-muted-foreground capitalize italic opacity-70 hover:opacity-100'
-                : 'italic'
+                ? 'text-muted-foreground capitalize italic hover:text-foreground'
+                : 'italic text-muted-foreground hover:text-foreground'
             }`}
-            style={
-              entry.aliases.length === 0
-                ? { color: 'hsl(var(--muted-foreground) / 0.4)' }
-                : undefined
-            }
           >
             {entry.aliases.length > 0 ? entry.aliases.join(', ') : 'No aliases'}
           </button>
@@ -792,7 +783,7 @@ function TagValueRow({
                   })
                 }
                 placeholder="add alias…"
-                className="flex-1 max-w-[155px] bg-transparent border-b border-border focus:border-primary/70 text-[11.5px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none py-0.5 transition-colors"
+                className="flex-1 max-w-[155px] bg-transparent border-b border-border focus:border-primary/70 text-[11.5px] text-foreground placeholder:text-muted-foreground focus:outline-none py-0.5 transition-colors"
               />
               <button
                 onClick={() => {
@@ -813,18 +804,18 @@ function TagValueRow({
         {editMode !== 'name' && (
           <button
             onClick={() => setEditMode('name')}
-            className="opacity-0 group-hover/valrow:opacity-50 hover:!opacity-100 transition-opacity text-muted-foreground shrink-0"
+            className="relative target-24 opacity-0 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 group-hover/valrow:opacity-50 hover:!opacity-100 transition-opacity text-muted-foreground shrink-0"
             title="Rename"
           >
             <Pencil className="h-2.5 w-2.5" />
           </button>
         )}
         {count > 0 && (
-          <span className="text-[11px] text-muted-foreground/60 tabular-nums">{count}</span>
+          <span className="text-[11px] text-muted-foreground tabular-nums">{count}</span>
         )}
         <button
           onClick={onDelete}
-          className="flex items-center justify-center rounded-[3px] transition-colors hover:bg-destructive/10"
+          className="relative target-24 flex items-center justify-center rounded-[3px] transition-colors hover:bg-destructive/10"
           style={{
             width: 18,
             height: 18,
@@ -845,7 +836,7 @@ const INLINE_ADD_STYLES = {
     row: 'flex items-center gap-1',
     rowStyle: undefined,
     input:
-      'flex-1 min-w-0 bg-secondary border border-border rounded px-1.5 py-0.5 text-[11.5px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/40',
+      'flex-1 min-w-0 bg-secondary border border-border rounded px-1.5 py-0.5 text-[11.5px] text-foreground placeholder:text-muted-foreground',
   },
   list: {
     row: 'flex items-center gap-1.5 rounded-[5px]',
@@ -855,7 +846,7 @@ const INLINE_ADD_STYLES = {
       border: '1px solid hsl(var(--border))',
     },
     input:
-      'flex-1 min-w-0 bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none',
+      'flex-1 min-w-0 bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none',
   },
 } as const
 
@@ -905,7 +896,7 @@ function InlineAddRow({
     return (
       <button
         onClick={() => setAdding(true)}
-        className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground/70 hover:text-muted-foreground transition-colors"
+        className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground hover:text-muted-foreground transition-colors"
       >
         <Plus className="h-[11px] w-[11px]" />
         {label}
@@ -923,10 +914,18 @@ function InlineAddRow({
         placeholder={placeholder}
         className={styles.input}
       />
-      <button onClick={submit} className="p-0.5 text-primary hover:text-primary/80">
+      <button
+        onClick={submit}
+        aria-label="Save"
+        className="p-0.5 text-primary hover:text-primary/80"
+      >
         <Check style={{ width: 11, height: 11 }} />
       </button>
-      <button onClick={cancel} className="p-0.5 text-muted-foreground hover:text-foreground">
+      <button
+        onClick={cancel}
+        aria-label="Cancel"
+        className="p-0.5 text-muted-foreground hover:text-foreground"
+      >
         <X style={{ width: 11, height: 11 }} />
       </button>
     </div>

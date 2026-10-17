@@ -81,17 +81,17 @@ function LedgerRow({
         <span className="text-[11px] text-muted-foreground truncate shrink min-w-0">
           {group.author}
           {group.merged_into_existing && (
-            <span className="italic text-muted-foreground/70">, adds to an existing group</span>
+            <span className="italic text-muted-foreground">, adds to an existing group</span>
           )}
         </span>
         <span className="ml-auto flex items-baseline gap-2 shrink-0 font-mono text-[10.5px] tabular-nums">
           {counts.duplicate > 0 && (
-            <span className="text-muted-foreground/60">{counts.duplicate} in library</span>
+            <span className="text-muted-foreground">{counts.duplicate} in library</span>
           )}
           {counts.failed > 0 && <span className="text-destructive">{counts.failed} failed</span>}
           <span className="text-muted-foreground">
             {counts.done}
-            <span className="text-muted-foreground/50">/{importable}</span>
+            <span className="text-muted-foreground">/{importable}</span>
           </span>
         </span>
       </div>
@@ -114,7 +114,7 @@ function LedgerRow({
         style={{ ...style, left: -8, right: -8 }}
         onClick={() => onOpenGroup(group.image_group_id!)}
         title="Open in the group editor"
-        className="text-left flex flex-col justify-center px-2 rounded-md hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+        className="text-left flex flex-col justify-center px-2 rounded-md hover:bg-muted/30"
       >
         {content}
       </button>

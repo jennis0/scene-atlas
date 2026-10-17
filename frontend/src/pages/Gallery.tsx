@@ -146,6 +146,14 @@ export function Gallery() {
 
   return (
     <div className="flex h-screen flex-col">
+      {/* A button, not an href: the app routes on the URL hash */}
+      <button
+        type="button"
+        onClick={() => document.getElementById('results')?.focus()}
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-md focus:bg-popover focus:px-3 focus:py-2 focus:text-sm focus:text-foreground focus:shadow-lg"
+      >
+        Skip to results
+      </button>
       <GalleryHeader
         search={{ ...search, editAllLoading: dialogs.editAllLoading }}
         embeddingStatus={embedding.status}
@@ -158,12 +166,17 @@ export function Gallery() {
       />
 
       <main
-        className="flex-1 overflow-hidden"
+        id="results"
+        tabIndex={-1}
+        aria-label="Results"
+        className="flex-1 overflow-hidden focus:outline-none"
         style={{ boxShadow: 'inset 0 8px 24px rgba(0,0,0,0.4)' }}
       >
         {search.isSearching ? (
           <div className="flex h-full items-center justify-center">
-            <p className="text-muted-foreground">Searching&hellip;</p>
+            <p role="status" className="text-muted-foreground">
+              Searching&hellip;
+            </p>
           </div>
         ) : !search.hasActiveSearch && (search.facets?.total_images ?? 0) === 0 ? (
           <EmptyLibraryWelcome

@@ -86,7 +86,7 @@ function SaveStatus() {
   }
   if (ops.groupSaving.size > 0) {
     return (
-      <span className="text-xs text-muted-foreground/60 flex items-center gap-1">
+      <span className="text-xs text-muted-foreground flex items-center gap-1">
         <Loader2 className="h-3 w-3 animate-spin" />
         Saving…
       </span>
@@ -114,7 +114,7 @@ function DoneButton({ onDone, primary }: { onDone: () => void; primary: boolean 
       className={
         primary
           ? 'px-4 py-1.5 text-sm rounded font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-40'
-          : 'px-3 py-1.5 text-sm rounded border border-primary/40 bg-primary/20 text-primary hover:bg-primary/30 transition-colors disabled:opacity-40'
+          : 'px-3 py-1.5 text-sm rounded border border-primary/40 bg-primary/10 text-primary hover:bg-primary/30 transition-colors disabled:opacity-40'
       }
     >
       {busy ? (

@@ -47,7 +47,7 @@ export function SubgroupHeading({
         <button
           ref={pencilRef}
           onClick={onStartEdit}
-          className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+          className="text-muted-foreground hover:text-muted-foreground transition-colors"
           title={`Rename "${subgroup}"`}
         >
           <Pencil className="h-3 w-3" />
@@ -56,12 +56,12 @@ export function SubgroupHeading({
 
       <div className="flex-1 h-px bg-border/30" />
 
-      <span className="text-[11px] text-muted-foreground/40 tabular-nums">{count}</span>
+      <span className="text-[11px] text-muted-foreground tabular-nums">{count}</span>
 
       {showActions && (
         <button
           onClick={onClear}
-          className="text-muted-foreground/40 hover:text-primary transition-colors"
+          className="text-muted-foreground hover:text-primary transition-colors"
           title={`Remove "${subgroup}" label from all files`}
         >
           <X className="h-3.5 w-3.5" />

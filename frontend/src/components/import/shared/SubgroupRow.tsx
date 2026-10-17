@@ -15,7 +15,7 @@ export function SubgroupRow({ subgroup, existingSubgroups, disabled, onUpdate }:
 
   return (
     <div className="flex items-center gap-1.5 min-h-5">
-      <span className="w-8 shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/50 text-right leading-none">
+      <span className="w-8 shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground text-right leading-none">
         Sub
       </span>
       <div className="flex-1 min-w-0 flex items-center gap-1 relative">
@@ -33,7 +33,7 @@ export function SubgroupRow({ subgroup, existingSubgroups, disabled, onUpdate }:
                   e.stopPropagation()
                   onUpdate(null)
                 }}
-                className="ml-auto shrink-0 text-muted-foreground/30 hover:text-foreground opacity-0 group-hover/card:opacity-100 transition-opacity"
+                className="ml-auto shrink-0 text-muted-foreground hover:text-foreground opacity-0 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 group-hover/card:opacity-100 transition-opacity"
               >
                 <X className="h-2.5 w-2.5" />
               </button>
@@ -43,7 +43,7 @@ export function SubgroupRow({ subgroup, existingSubgroups, disabled, onUpdate }:
           <button
             ref={triggerRef}
             data-no-select=""
-            className={`flex-1 min-w-0 h-5 px-1.5 text-[10px] bg-secondary border border-border text-muted-foreground/30 italic text-left truncate hover:border-primary/40 transition-colors ${isOpen ? 'rounded-t border-b-0' : 'rounded'}`}
+            className={`flex-1 min-w-0 h-5 px-1.5 text-[10px] bg-secondary border border-border text-muted-foreground italic text-left truncate hover:border-primary/40 transition-colors ${isOpen ? 'rounded-t border-b-0' : 'rounded'}`}
             onClick={() => !disabled && setIsOpen(true)}
             disabled={disabled}
           >

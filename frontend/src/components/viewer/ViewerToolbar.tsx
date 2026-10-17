@@ -7,7 +7,7 @@ import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import type { Image } from '@/types'
 
 const TEXT_ACTION =
-  'flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors'
+  'relative target-24 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors'
 const ICON_ACTION = 'h-7 w-7 rounded flex items-center justify-center text-muted-foreground'
 
 interface ViewerToolbarProps {

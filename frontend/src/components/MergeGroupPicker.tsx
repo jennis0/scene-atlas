@@ -93,10 +93,10 @@ export function MergeGroupPicker({
     >
       {isLoading ? (
         <div className="flex items-center justify-center h-[200px]">
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground/50" />
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
       ) : groups.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-[200px] text-muted-foreground/60">
+        <div className="flex flex-col items-center justify-center h-[200px] text-muted-foreground">
           <Layers className="h-8 w-8 mb-2 opacity-40" />
           <p className="text-sm">
             {debouncedQuery || currentGroupName ? 'No groups found' : 'Type to search groups'}
@@ -117,7 +117,7 @@ export function MergeGroupPicker({
                 <div className="h-8 w-8 shrink-0 rounded overflow-hidden bg-muted/60 border border-border/30 relative">
                   {/* Fallback icon — always present, covered by image if loaded */}
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <ImageIcon className="h-3.5 w-3.5 text-muted-foreground/30" />
+                    <ImageIcon className="h-3.5 w-3.5 text-muted-foreground" />
                   </div>
                   {group.primary_image_id && (
                     <img
@@ -141,7 +141,7 @@ export function MergeGroupPicker({
                     {group.base_name}
                   </p>
                   {group.author && (
-                    <p className="text-[11px] text-muted-foreground/60 truncate mt-0.5">
+                    <p className="text-[11px] text-muted-foreground truncate mt-0.5">
                       {group.author}
                     </p>
                   )}

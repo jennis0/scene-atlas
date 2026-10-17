@@ -5,6 +5,7 @@ import { downloadFile } from '@/lib/download'
 import { getThumbnailUrl, getGroupDownloadUrl } from '@/lib/api'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { VideoIndicator } from '@/components/ui/video-indicator'
+import { isAnyDialogOpen } from '@/components/ui/dialogStack'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -50,27 +51,37 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
   return (
     <div
       data-testid="group-card"
-      className="group/card relative cursor-pointer overflow-hidden rounded-lg border border-border/30 bg-card transition-[transform,box-shadow] duration-200 hover:border-primary/40 hover:shadow-xl hover:shadow-black/40"
-      onClick={onClick}
+      className="focus-ring-within group/card relative overflow-hidden rounded-lg border border-border/30 bg-card transition-[transform,box-shadow] duration-200 hover:border-primary/40 hover:shadow-xl hover:shadow-black/40"
     >
-      {/* Action menu — top-right, visible on hover */}
+      {/* Covers the whole card: the card's single click and keyboard target. The action
+          menu sits above it as a sibling, so neither button is nested in the other. */}
+      <button
+        type="button"
+        aria-label={[baseName, author && `by ${author}`, totalScenes > 1 && `${totalScenes} scenes`]
+          .filter(Boolean)
+          .join(', ')}
+        onClick={onClick}
+        className="absolute inset-0 z-[1] cursor-pointer rounded-lg focus-visible:outline-none"
+      />
+
+      {/* Action menu — top-right; shown on hover, on keyboard focus, and always on touch */}
       {hasActions && (
         <div className="absolute top-2 right-2 z-10">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
                 data-testid="group-card-menu"
-                className="opacity-0 group-hover/card:opacity-100 h-7 w-7 rounded-md flex items-center justify-center bg-black/50 text-white/80 hover:text-white hover:bg-black/70 backdrop-blur-sm transition-all"
-                onClick={(e) => e.stopPropagation()}
-                onPointerDown={(e) => e.stopPropagation()}
+                aria-label={`Actions for ${baseName}`}
+                className="opacity-0 group-hover/card:opacity-100 group-focus-within/card:opacity-100 [@media(hover:none)]:opacity-100 h-7 w-7 rounded-md flex items-center justify-center bg-black/50 text-white/80 hover:text-white hover:bg-black/70 backdrop-blur-sm transition-all"
               >
                 <MoreHorizontal className="h-4 w-4" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="end"
-              onClick={(e) => e.stopPropagation()}
-              onCloseAutoFocus={(e) => e.preventDefault()}
+              // Leave focus alone when an item opened a dialog: the dialog takes it, and
+              // hands it back to this trigger when it closes.
+              onCloseAutoFocus={(e) => isAnyDialogOpen() && e.preventDefault()}
             >
               <DropdownMenuItem onClick={() => onEdit?.()}>
                 <Pencil className="h-4 w-4 mr-2" />
@@ -104,7 +115,7 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
         >
           <img
             src={getThumbnailUrl(heroImage)}
-            alt={baseName}
+            alt=""
             width={240}
             height={160}
             decoding="async"
@@ -124,7 +135,7 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
                   <div key={img.id} className="relative overflow-hidden">
                     <img
                       src={getThumbnailUrl(img)}
-                      alt={img.subgroup || img.name}
+                      alt=""
                       width={96}
                       height={80}
                       decoding="async"
@@ -142,7 +153,7 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
                     {isOverflowTile && (
                       <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-[2px]">
                         <span className="text-lg font-bold text-white">+{overflowCount}</span>
-                        <span className="text-[10px] text-white/70">more</span>
+                        <span className="text-[11px] text-white/90">more</span>
                       </div>
                     )}
                     <div className="absolute inset-0 pointer-events-none ring-[0.5px] ring-inset ring-black/20" />
@@ -155,16 +166,19 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
       </div>
 
       {/* Gradient overlay — full width for visual continuity, text constrained to hero area */}
-      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/55 to-transparent pt-10 pb-2.5 px-3 pointer-events-none">
+      <div
+        aria-hidden="true"
+        className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/55 to-transparent pt-10 pb-2.5 px-3 pointer-events-none"
+      >
         <div style={{ maxWidth: hasMosaic ? '60%' : '100%' }}>
           <p className="text-[13px] font-medium text-white leading-snug line-clamp-1 drop-shadow truncate">
             {baseName}
           </p>
-          {author && <p className="text-[11px] text-white/60 truncate mt-0.5">{author}</p>}
+          {author && <p className="text-[11px] text-white/85 truncate mt-0.5">{author}</p>}
           {totalScenes > 1 && (
             <div className="flex items-center gap-1 mt-0.5">
-              <Layers className="h-3 w-3 text-white/40" />
-              <span className="text-[11px] tabular-nums text-white/50">
+              <Layers className="h-3 w-3 text-white/70" />
+              <span className="text-[11px] tabular-nums text-white/85">
                 {matchingCount < totalScenes
                   ? `${matchingCount} of ${totalScenes} scenes`
                   : `${totalScenes} scenes`}

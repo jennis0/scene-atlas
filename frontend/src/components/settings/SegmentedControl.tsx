@@ -27,7 +27,7 @@ export function SegmentedControl<T extends string | number>({
             aria-checked={selected}
             title={option.title}
             onClick={() => onChange(option.value)}
-            className={`px-2.5 h-7 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/40 ${
+            className={`px-2.5 h-7 text-xs transition-colors focus-visible:outline-offset-[-2px] ${
               selected
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-secondary text-muted-foreground hover:text-foreground'

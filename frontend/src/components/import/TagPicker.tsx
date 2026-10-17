@@ -107,7 +107,7 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
         <div className="absolute left-0 top-full mt-1.5 z-50 w-[220px] rounded-md border border-border bg-card shadow-2xl shadow-black/40 overflow-hidden flex flex-col">
           <div className="px-2 pt-2 pb-1.5 border-b border-border/50 shrink-0">
             <div className="relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/50 pointer-events-none" />
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
               <input
                 autoFocus
                 value={search}
@@ -116,7 +116,7 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
                   setSelectedCategory(null)
                 }}
                 placeholder="Search tags…"
-                className="w-full h-6 pl-6 pr-5 text-xs bg-secondary border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary/40 text-foreground placeholder:text-muted-foreground"
+                className="w-full h-6 pl-6 pr-5 text-xs bg-secondary border border-border rounded text-foreground placeholder:text-muted-foreground"
                 onKeyDown={(e) => {
                   e.stopPropagation()
                   if (e.key === 'Enter' && searchResults.length === 1) {
@@ -127,7 +127,7 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
               {search && (
                 <button
                   onClick={() => setSearch('')}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-muted-foreground transition-colors"
                 >
                   <X className="h-3 w-3" />
                 </button>
@@ -151,7 +151,7 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
                       className={`flex w-full items-center gap-2 px-3 py-1.5 text-[12px] ${color.text} hover:bg-primary/10 hover:text-primary transition-colors text-left`}
                     >
                       <span className="capitalize flex-1 truncate">{value}</span>
-                      <span className="text-[10px] text-muted-foreground/50 capitalize shrink-0">
+                      <span className="text-[10px] text-muted-foreground capitalize shrink-0">
                         {category}
                       </span>
                     </button>
@@ -173,7 +173,7 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
                     >
                       <CatIcon className={`h-3.5 w-3.5 shrink-0 ${color.text} opacity-60`} />
                       <span className="capitalize flex-1 truncate">{v.category}</span>
-                      <span className="text-[10px] tabular-nums shrink-0 opacity-50">
+                      <span className="text-[10px] tabular-nums shrink-0 opacity-80">
                         {v.values.length}
                       </span>
                     </button>
@@ -197,7 +197,7 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
                   >
                     {selectedCategory}
                   </span>
-                  <span className="ml-auto text-[10px] text-muted-foreground/50 shrink-0">
+                  <span className="ml-auto text-[10px] text-muted-foreground shrink-0">
                     {availableValues.length}
                   </span>
                 </div>

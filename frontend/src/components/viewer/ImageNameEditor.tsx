@@ -60,7 +60,7 @@ export function ImageNameEditor({
           </h2>
           <button
             onClick={startEditing}
-            className="opacity-0 group-hover/name:opacity-60 hover:!opacity-100 transition-opacity mt-1 text-muted-foreground shrink-0"
+            className="relative target-24 opacity-0 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 group-hover/name:opacity-60 hover:!opacity-100 transition-opacity mt-1 text-muted-foreground shrink-0"
             title="Rename"
           >
             <Pencil className="h-3.5 w-3.5" />

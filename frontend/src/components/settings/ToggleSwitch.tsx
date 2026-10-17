@@ -11,7 +11,7 @@ export function ToggleSwitch({ checked, onChange, label }: ToggleSwitchProps) {
       onClick={() => onChange(!checked)}
       aria-label={label}
       aria-pressed={checked}
-      className={`h-6 w-11 rounded-full transition-colors flex items-center px-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 ${
+      className={`h-6 w-11 rounded-full transition-colors flex items-center px-1 ${
         checked ? 'bg-primary' : 'bg-secondary border border-border/50'
       }`}
     >

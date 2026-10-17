@@ -36,10 +36,21 @@ export function ConfirmDialog({
         </DialogHeader>
         <p className="text-sm text-muted-foreground">{description}</p>
         <div className="flex justify-end gap-2 mt-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isLoading}>
+          {/* Destructive confirms start on Cancel, so a stray Enter can't delete */}
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={isLoading}
+            data-autofocus={confirmVariant === 'destructive' || undefined}
+          >
             Cancel
           </Button>
-          <Button variant={confirmVariant} onClick={onConfirm} disabled={isLoading} data-autofocus>
+          <Button
+            variant={confirmVariant}
+            onClick={onConfirm}
+            disabled={isLoading}
+            data-autofocus={confirmVariant !== 'destructive' || undefined}
+          >
             {isLoading ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin mr-1" />

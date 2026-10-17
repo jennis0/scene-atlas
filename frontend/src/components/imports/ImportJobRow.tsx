@@ -49,10 +49,7 @@ export function ImportJobRow({
           : 'border-border/30 bg-secondary/20 hover:bg-secondary/40 hover:border-border/50'
       }`}
     >
-      <button
-        onClick={onOpen}
-        className="block w-full text-left px-2.5 py-2 rounded-md focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
-      >
+      <button onClick={onOpen} className="block w-full text-left px-2.5 py-2 rounded-md">
         <div className="flex items-start gap-[7px] pr-12">
           <StatusIcon job={job} sending={sending} />
           <span
@@ -74,7 +71,7 @@ export function ImportJobRow({
         </div>
         <div
           className={`mt-1 text-[10.5px] leading-tight truncate ${
-            job.upload_interrupted ? 'text-primary' : 'text-muted-foreground/70'
+            job.upload_interrupted ? 'text-primary' : 'text-muted-foreground'
           }`}
         >
           {jobStatusText(job, upload)}
@@ -109,7 +106,7 @@ function RowAction({
     <button
       onClick={onClick}
       title={label}
-      className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-secondary transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+      className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
     >
       {icon}
       <span className="sr-only">{label}</span>
@@ -121,7 +118,7 @@ function StatusIcon({ job, sending }: { job: ImportJobSummary; sending: boolean 
   const cls = 'h-3.5 w-3.5 shrink-0 mt-0.5'
   if (job.upload_interrupted) return <AlertTriangle className={`${cls} text-primary`} />
   if (job.status === 'paused') return <PauseCircle className={`${cls} text-muted-foreground`} />
-  if (job.status === 'cancelled') return <Ban className={`${cls} text-muted-foreground/50`} />
+  if (job.status === 'cancelled') return <Ban className={`${cls} text-muted-foreground`} />
   if (job.status === 'completed') {
     return job.counts.failed > 0 ? (
       <AlertTriangle className={`${cls} text-destructive/70`} />

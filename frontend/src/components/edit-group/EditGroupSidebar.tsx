@@ -72,7 +72,7 @@ function SidebarFooter() {
     <div className="p-2.5 border-t border-border/30 shrink-0">
       {selectedGroupIds.size >= 2 ? (
         <div className="space-y-1.5">
-          <span className="text-[10px] text-muted-foreground/60 font-semibold uppercase tracking-wider">
+          <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">
             {selectedGroupIds.size} selected
           </span>
           <div className="flex gap-1">
@@ -157,11 +157,11 @@ function GroupRowCounts({ group }: { group: EditableGroupState }) {
   const outOfScope = group.files.filter((f) => f.outOfScope).length
 
   return (
-    <span className="text-[11px] text-muted-foreground/40 tabular-nums shrink-0 flex items-center gap-1">
+    <span className="text-[11px] text-muted-foreground tabular-nums shrink-0 flex items-center gap-1">
       {group.files.filter((f) => !f.excluded && !f.outOfScope).length}
-      {outOfScope > 0 && <span className="ml-0.5 opacity-50">+{outOfScope}</span>}
+      {outOfScope > 0 && <span className="ml-0.5 opacity-80">+{outOfScope}</span>}
       {ops.groupSaving.has(group.id) ? (
-        <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/40 ml-1" />
+        <Loader2 className="h-3 w-3 animate-spin text-muted-foreground ml-1" />
       ) : ops.groupSaved.has(group.id) ? (
         <Check className="h-3 w-3 text-emerald-600 dark:text-emerald-400/70 ml-1" />
       ) : null}
@@ -176,7 +176,7 @@ function GroupRowMenu({ groupId }: { groupId: string }) {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
-          className="opacity-0 group-hover/navrow:opacity-100 focus:opacity-100 h-7 w-6 mr-1 flex items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 transition-all shrink-0"
+          className="opacity-0 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 group-hover/navrow:opacity-100 h-7 w-6 mr-1 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 transition-all shrink-0"
           onClick={(e) => e.stopPropagation()}
         >
           <MoreHorizontal className="h-3.5 w-3.5" />

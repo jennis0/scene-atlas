@@ -58,6 +58,14 @@ export default {
         },
         'surface-canvas': 'hsl(var(--surface-canvas))',
       },
+      // text-primary (and icon colour) uses the ink variant, which stays readable on
+      // light surfaces; bg-/border-primary keep the brighter fill colour.
+      textColor: {
+        primary: {
+          DEFAULT: 'hsl(var(--primary-ink))',
+          foreground: 'hsl(var(--primary-foreground))',
+        },
+      },
       borderRadius: {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',

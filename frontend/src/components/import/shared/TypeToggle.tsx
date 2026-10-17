@@ -21,7 +21,7 @@ export function TypeToggle({ value, onChange }: TypeToggleProps) {
           className={`px-1.5 py-0.5 text-[11px] transition-colors ${
             value === opt.val
               ? 'bg-secondary text-foreground font-medium'
-              : 'text-muted-foreground/60 hover:text-muted-foreground hover:bg-secondary/50'
+              : 'text-muted-foreground hover:text-muted-foreground hover:bg-secondary/50'
           }`}
         >
           {opt.label}

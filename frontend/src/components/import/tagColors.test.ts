@@ -33,7 +33,7 @@ describe('getTagColor', () => {
     it('returns correct light TagColor for a known color name', () => {
       const result = getTagColor('red', 'light')
       expect(result.bg).toBe('bg-red-50')
-      expect(result.text).toBe('text-red-700')
+      expect(result.text).toBe('text-red-800')
       expect(result.border).toBe('border-red-200')
       expect(result.dot).toBe('bg-red-400') // dot is theme-independent
     })

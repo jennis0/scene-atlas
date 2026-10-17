@@ -20,7 +20,10 @@ interface ViewerStageProps {
 
 export function ViewerStage({ image, onPrevious, onNext }: ViewerStageProps) {
   return (
-    <div className="flex-1 relative flex items-center justify-center min-w-0" style={CANVAS_STYLE}>
+    <div
+      className="h-[45vh] shrink-0 lg:h-auto lg:flex-1 relative flex items-center justify-center min-w-0"
+      style={CANVAS_STYLE}
+    >
       {/* Amber stripe — canvas half: transparent at left edge, full at join */}
       <div className="absolute top-0 inset-x-0 h-0.5 bg-gradient-to-r from-transparent to-primary/80 pointer-events-none z-10" />
 
@@ -46,6 +49,7 @@ export function ViewerStage({ image, onPrevious, onNext }: ViewerStageProps) {
             e.stopPropagation()
             onPrevious()
           }}
+          aria-label="Previous image"
           className={`left-3 ${NAV_BUTTON}`}
         >
           <ChevronLeft className="h-5 w-5" />
@@ -57,6 +61,7 @@ export function ViewerStage({ image, onPrevious, onNext }: ViewerStageProps) {
             e.stopPropagation()
             onNext()
           }}
+          aria-label="Next image"
           className={`right-3 ${NAV_BUTTON}`}
         >
           <ChevronRight className="h-5 w-5" />

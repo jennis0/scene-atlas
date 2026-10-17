@@ -24,6 +24,18 @@ When a Radix component (DropdownMenu, Popover, etc.) opens, it sets `aria-hidden
 
 **`data-autofocus` attribute:** Elements that should receive focus when the dialog opens are marked with `data-autofocus` instead of the native `autoFocus` HTML attribute. The Dialog's focus effect queries for `[data-autofocus]` first, then falls back to the first focusable element. This works reliably with React's StrictMode double-mount (unlike native `autoFocus` which only fires on initial mount).
 
+## Modal layer: trap, background, and focus return
+
+`useModalLayer` (`frontend/src/components/ui/modalLayer.ts`) makes an open dialog a real modal. `Dialog` uses it, and so does `ImageViewer`, which is portalled to `<body>` for the purpose.
+
+- **Background.** While open, every other child of `<body>` gets the `inert` attribute: unfocusable, unclickable, and hidden from screen readers. That is the focus trap — Tab can't reach the page underneath. Radix popovers opened *from inside* the dialog portal to `<body>` afterwards, so they stay usable. Nested dialogs stack: each one inerts what's beneath it and removes only the attributes it set.
+- **Exemptions.** Body children marked `data-modal-exempt` are left alone. The toaster is portalled out of the app root with that attribute (in `App.tsx`) so toasts stay usable over a dialog.
+- **Focus return.** On close, focus goes back to the element that was focused when the dialog opened. If that was an item in a Radix menu (which unmounts with the menu), it goes to the menu's trigger instead, found through the menu's `aria-labelledby`. `GroupCard` only prevents Radix's own focus return when an item has opened a dialog, so Escape out of the menu still lands on the trigger.
+- **Naming.** `DialogContent` sets `role="dialog"`, `aria-modal` and `aria-labelledby`; a `DialogTitle` or `PanelTitle` inside picks up the id through `DialogTitleIdContext` and becomes the heading. Pass `aria-label` instead when the dialog has no visible title.
+- **Escape** still goes through `dialogStack` (topmost dialog only). The viewer and the activity dock check `isAnyDialogOpen()` before acting on Escape.
+
+The 500ms focus guard described above remains, for the dropdown race at open time.
+
 ### Where this applies
 
 Any custom `Dialog` opened from a Radix-managed component (DropdownMenu, ContextMenu, Popover) is susceptible. The fix is in the shared `Dialog` component, so all consumers benefit automatically. The `onCloseAutoFocus` prop on `DropdownMenuContent` is also applied at trigger sites as a secondary defense:
@@ -34,5 +46,6 @@ Any custom `Dialog` opened from a Radix-managed component (DropdownMenu, Context
 ### Key files
 
 - `frontend/src/components/ui/dialog.tsx` - portal + focus guard implementation
+- `frontend/src/components/ui/modalLayer.ts` - inert background, focus return
 - `frontend/src/components/ui/confirm-dialog.tsx` - uses `data-autofocus` on confirm button
 - `frontend/src/components/GroupPickerShell.tsx` - uses `data-autofocus` on search input
