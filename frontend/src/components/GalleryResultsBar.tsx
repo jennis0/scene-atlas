@@ -42,7 +42,7 @@ export function GalleryResultsBar({
   const { filters, handleFiltersChange, hasActiveSearch, clearAll } = search
   return (
     <div
-      className={`flex flex-wrap items-center gap-y-1 ${inline ? 'ml-auto' : 'pb-4 min-h-[32px]'}`}
+      className={`flex flex-wrap items-center gap-x-4 gap-y-1 ${inline ? 'ml-auto' : 'pb-4 min-h-[32px]'}`}
     >
       <div className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
         <FilterChipList
