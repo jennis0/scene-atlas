@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { DndContext, DragOverlay } from '@dnd-kit/core'
 import {
@@ -14,7 +14,7 @@ import {
   EyeOff,
 } from 'lucide-react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
-import type { EditableGroupState, SeedImage } from '@/types'
+import type { EditableFileState, EditableGroupState, SeedImage } from '@/types'
 import { MergeGroupPicker } from './MergeGroupPicker'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import {
@@ -59,8 +59,6 @@ interface EditGroupDialogProps {
   onSave: () => void
 }
 
-// ── Main component ─────────────────────────────────────────────────────────
-
 export default function EditGroupDialog({
   groupId,
   seedImages,
@@ -70,16 +68,9 @@ export default function EditGroupDialog({
   onSave,
 }: EditGroupDialogProps) {
   const queryClient = useQueryClient()
-  const [focusGroupName, setFocusGroupName] = useState(false)
-
-  // Clear the one-shot focus flag after it's been consumed by a render
-  useEffect(() => {
-    if (focusGroupName) setFocusGroupName(false)
-  }, [focusGroupName])
+  const groupNameRef = useRef<HTMLInputElement>(null)
 
   const invalidateGallery = useCallback(() => invalidateGalleryQueries(queryClient), [queryClient])
-
-  // ── Shared file editing state and mutations ───────────────────────
 
   // Use a ref to break the circular dependency between useFileEditing
   // (needs autoSaveGroup in onGroupChange) and useEditGroupOperations
@@ -124,11 +115,9 @@ export default function EditGroupDialog({
     onGroupChange: (affected) => affected.forEach((g) => autoSaveRef.current(g)),
   })
 
-  // ── Sidebar multiselect ──────────────────────────────────────────────
   const { selectedGroupIds, setSelectedGroupIds, handleGroupClick, resetMultiselect } =
     useGroupSidebarMultiselect({ groups, onSelectTab: setActiveTab })
 
-  // ── Operations (save, merge, delete, split) ─────────────────────
   const ops = useEditGroupOperations({
     groupId,
     groups,
@@ -143,7 +132,6 @@ export default function EditGroupDialog({
   })
   autoSaveRef.current = ops.autoSaveGroup
 
-  // ── Drag & drop ────────────────────────────────────────────────────
   const dnd = useEditGroupDnd({
     groups,
     selections,
@@ -161,7 +149,6 @@ export default function EditGroupDialog({
     resetMultiselect()
   }, [resetOperations, resetDnd, resetMultiselect])
 
-  // ── Data loading (single-group / mass-edit / import-review) ────────
   const { loading, loadError, isMassEdit, ungroupedCount } = useEditGroupLoad({
     open,
     groupId,
@@ -178,8 +165,6 @@ export default function EditGroupDialog({
     },
   })
 
-  // ── Close / Done ────────────────────────────────────────────────
-
   const isImportReview = !!groupIds && groupIds.length > 0
 
   // Called on any close action — changes have already been auto-saved
@@ -188,7 +173,6 @@ export default function EditGroupDialog({
     onClose()
   }, [onSave, onClose])
 
-  // Destructure commonly-used operations for readability in JSX
   const {
     saving,
     saveError,
@@ -221,7 +205,6 @@ export default function EditGroupDialog({
     setConfirmingBulkDelete,
   } = ops
 
-  // Destructure DnD values for readability in JSX
   const {
     sensors,
     activeDrag,
@@ -234,9 +217,6 @@ export default function EditGroupDialog({
     handleDragEnd,
   } = dnd
 
-  // ── Derived values ─────────────────────────────────────────────
-
-  // Multi-select mode: 2+ groups selected in sidebar
   const isMultiSelect = selectedGroupIds.size >= 2
   const effectiveActiveGroupId = isMultiSelect ? MULTI_GROUP_ID : activeGroupId
   const selectedGroupIdArray = useMemo(() => [...selectedGroupIds], [selectedGroupIds])
@@ -244,7 +224,7 @@ export default function EditGroupDialog({
   // Reset file filter and selections when multi-select composition changes
   const multiSelectKey = useMemo(() => [...selectedGroupIds].sort().join(','), [selectedGroupIds])
   useEffect(() => {
-    if (selectedGroupIds.size >= 2) {
+    if (isMultiSelect) {
       setFileFilter(EMPTY_FILTER)
       deselectAll(MULTI_GROUP_ID)
     }
@@ -338,7 +318,28 @@ export default function EditGroupDialog({
 
   const isBusy = saving || groupSaving.size > 0
 
-  // ── Render ─────────────────────────────────────────────────────
+  const renderCard = (file: EditableFileState) => (
+    <DraggableFileCardWrapper
+      key={file.relative_path}
+      file={file}
+      groupId={showsMultipleGroups ? (fileGroupIdMap.get(file.relative_path) ?? '') : activeGroupId}
+      isDndEnabled={!file.excluded && !file.outOfScope}
+    >
+      <FileCard
+        file={file}
+        vocab={tagVocab}
+        existingSubgroups={groupSubVariants}
+        selected={activeSelection.has(file.relative_path)}
+        onToggleSelect={() => toggleFileSelection(effectiveActiveGroupId, file.relative_path)}
+        onUpdate={(updates) =>
+          showsMultipleGroups
+            ? updateFileAnyGroup(file.relative_path, updates)
+            : updateFile(activeTab, file.relative_path, updates)
+        }
+        excludeTooltip={isMassEdit ? 'Remove from group' : 'Mark for deletion'}
+      />
+    </DraggableFileCardWrapper>
+  )
 
   return (
     <Dialog
@@ -351,10 +352,8 @@ export default function EditGroupDialog({
         data-testid="edit-group-dialog"
         className="max-w-5xl h-[85vh] overflow-hidden flex flex-col p-0 gap-0"
       >
-        {/* Amber stripe */}
         <div className="absolute top-0 inset-x-0 h-0.5 bg-gradient-to-r from-primary/70 via-primary/30 to-transparent pointer-events-none rounded-t-xl" />
 
-        {/* ── Header ── */}
         <div className="flex items-center justify-between px-6 pt-6 pb-3 shrink-0">
           <div>
             <h2 className="font-display text-lg font-semibold flex items-center gap-2 text-foreground">
@@ -377,17 +376,14 @@ export default function EditGroupDialog({
             <X className="h-4 w-4" />
           </button>
         </div>
-        {/* Amber rule */}
         <div className="h-px bg-gradient-to-r from-primary/60 via-primary/20 to-transparent mx-6 shrink-0" />
 
-        {/* ── Loading ── */}
         {loading && (
           <div className="flex items-center justify-center flex-1">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         )}
 
-        {/* ── Load error ── */}
         {!loading && loadError && (
           <div className="mx-6 mt-4 flex items-center gap-2 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2">
             <AlertCircle className="h-4 w-4 flex-shrink-0" />
@@ -395,11 +391,9 @@ export default function EditGroupDialog({
           </div>
         )}
 
-        {/* ── Main content ── */}
         {!loading && !loadError && groups.length > 0 && (
           <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
             <div className="flex min-h-0 flex-1 overflow-hidden">
-              {/* ── Left: groups nav (only when >1 group, or when stubs are present) ── */}
               {groups.length > 1 && (
                 <GroupSidebarShell
                   headerLabel={`${groups.length} groups`}
@@ -407,9 +401,9 @@ export default function EditGroupDialog({
                   isAllActive={isAllTab}
                   onSelectAll={() => setActiveTab(ALL_TAB)}
                   footer={
-                    (isMassEdit || isImportReview) && groups.length >= 2 ? (
+                    isMassEdit || isImportReview ? (
                       <div className="p-2.5 border-t border-border/30 shrink-0">
-                        {selectedGroupIds.size >= 2 ? (
+                        {isMultiSelect ? (
                           <div className="space-y-1.5">
                             <span className="text-[10px] text-muted-foreground/60 font-semibold uppercase tracking-wider">
                               {selectedGroupIds.size} selected
@@ -449,10 +443,7 @@ export default function EditGroupDialog({
                 >
                   {groups.map((g, i) => (
                     <DroppableGroupRow key={g.id} groupId={g.id} activeDrag={activeDrag}>
-                      <DraggableGroupRow
-                        groupId={g.id}
-                        isDndEnabled={isMassEdit || isImportReview || groups.length > 1}
-                      >
+                      <DraggableGroupRow groupId={g.id} isDndEnabled>
                         <div className="group/navrow">
                           {deleteConfirmGroupId === g.id ? (
                             <div className="px-3 py-2 border-l-2 border-destructive/50 bg-destructive/5">
@@ -547,9 +538,7 @@ export default function EditGroupDialog({
                 </GroupSidebarShell>
               )}
 
-              {/* ── Right: active group content ── */}
               <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-                {/* Group metadata */}
                 <div className="px-5 pt-4 pb-3 border-b border-border/30 shrink-0">
                   <MetadataForm
                     author={
@@ -602,11 +591,10 @@ export default function EditGroupDialog({
                         ops.autoSaveGroup(activeGroup)
                       }
                     }}
-                    groupNameAutoFocus={focusGroupName}
+                    groupNameRef={groupNameRef}
                   />
                 </div>
 
-                {/* File toolbar */}
                 <div className="px-5 shrink-0">
                   <FileToolbar
                     files={inScopeSource}
@@ -664,7 +652,7 @@ export default function EditGroupDialog({
                       !showsMultipleGroups && !isMassEdit && activeGroup?.id
                         ? async () => {
                             await moveToNewGroup(activeGroup.id)
-                            setFocusGroupName(true)
+                            groupNameRef.current?.focus()
                           }
                         : undefined
                     }
@@ -673,7 +661,6 @@ export default function EditGroupDialog({
                   />
                 </div>
 
-                {/* File gallery */}
                 <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
                   {showSubVariantHeadings ? (
                     subVariantGroups.map((svGroup) => {
@@ -703,71 +690,13 @@ export default function EditGroupDialog({
                             canEdit={!showsMultipleGroups}
                           />
                           <div className="grid grid-cols-2 gap-2 pt-1.5 pb-2">
-                            {svGroup.files.map((file) => (
-                              <DraggableFileCardWrapper
-                                key={file.relative_path}
-                                file={file}
-                                groupId={
-                                  showsMultipleGroups
-                                    ? (fileGroupIdMap.get(file.relative_path) ?? '')
-                                    : activeGroupId
-                                }
-                                isDndEnabled={!file.excluded && !file.outOfScope}
-                              >
-                                <FileCard
-                                  file={file}
-                                  vocab={tagVocab}
-                                  existingSubgroups={groupSubVariants}
-                                  selected={activeSelection.has(file.relative_path)}
-                                  onToggleSelect={() =>
-                                    toggleFileSelection(effectiveActiveGroupId, file.relative_path)
-                                  }
-                                  onUpdate={(updates) =>
-                                    showsMultipleGroups
-                                      ? updateFileAnyGroup(file.relative_path, updates)
-                                      : updateFile(activeTab, file.relative_path, updates)
-                                  }
-                                  excludeTooltip={
-                                    isMassEdit ? 'Remove from group' : 'Mark for deletion'
-                                  }
-                                />
-                              </DraggableFileCardWrapper>
-                            ))}
+                            {svGroup.files.map(renderCard)}
                           </div>
                         </DroppableSubgroupSection>
                       )
                     })
                   ) : (
-                    <div className="grid grid-cols-2 gap-2">
-                      {filteredInScope.map((file) => (
-                        <DraggableFileCardWrapper
-                          key={file.relative_path}
-                          file={file}
-                          groupId={
-                            showsMultipleGroups
-                              ? (fileGroupIdMap.get(file.relative_path) ?? '')
-                              : activeGroupId
-                          }
-                          isDndEnabled={!file.excluded && !file.outOfScope}
-                        >
-                          <FileCard
-                            file={file}
-                            vocab={tagVocab}
-                            existingSubgroups={groupSubVariants}
-                            selected={activeSelection.has(file.relative_path)}
-                            onToggleSelect={() =>
-                              toggleFileSelection(effectiveActiveGroupId, file.relative_path)
-                            }
-                            onUpdate={(updates) =>
-                              showsMultipleGroups
-                                ? updateFileAnyGroup(file.relative_path, updates)
-                                : updateFile(activeTab, file.relative_path, updates)
-                            }
-                            excludeTooltip={isMassEdit ? 'Remove from group' : 'Mark for deletion'}
-                          />
-                        </DraggableFileCardWrapper>
-                      ))}
-                    </div>
+                    <div className="grid grid-cols-2 gap-2">{filteredInScope.map(renderCard)}</div>
                   )}
 
                   {filteredInScope.length === 0 && hasActiveFilter && (
@@ -806,7 +735,6 @@ export default function EditGroupDialog({
                   )}
                 </div>
 
-                {/* ── Footer ── */}
                 <div className="px-5 py-3 border-t border-border/30 shrink-0 flex items-center justify-between gap-3">
                   {/* Delete group (single-group mode only, for the original persisted group) */}
                   {isOriginalGroup ? (
@@ -851,7 +779,6 @@ export default function EditGroupDialog({
                     <div />
                   )}
 
-                  {/* Save status + Done */}
                   <div className="flex items-center gap-2">
                     {saveError && (
                       <span className="text-xs text-destructive flex items-center gap-1 max-w-xs truncate">
@@ -899,7 +826,6 @@ export default function EditGroupDialog({
               </div>
             </div>
 
-            {/* ── Drag overlay ── */}
             <DragOverlay dropAnimation={null} modifiers={dragModifiers}>
               <DragOverlayContent activeDrag={activeDrag} />
             </DragOverlay>

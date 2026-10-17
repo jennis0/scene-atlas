@@ -29,7 +29,6 @@ export function EmptyLibraryWelcome({ embeddingReady, onImport }: EmptyLibraryWe
   return (
     <div className="flex h-full items-center justify-center">
       <div className="w-full max-w-lg text-center space-y-8 px-6">
-        {/* Heading */}
         <div className="space-y-2">
           <h2 className="text-2xl font-bold text-foreground">Welcome to Scene Atlas</h2>
           <p className="text-sm text-muted-foreground">
@@ -37,7 +36,6 @@ export function EmptyLibraryWelcome({ embeddingReady, onImport }: EmptyLibraryWe
           </p>
         </div>
 
-        {/* Three-step guide */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {steps.map(({ Icon, title, description }) => (
             <div
@@ -55,7 +53,6 @@ export function EmptyLibraryWelcome({ embeddingReady, onImport }: EmptyLibraryWe
           ))}
         </div>
 
-        {/* Import CTA */}
         <div className="space-y-2">
           <Button onClick={onImport} disabled={!embeddingReady} className="gap-1.5">
             <Upload className="h-4 w-4" />

@@ -28,11 +28,6 @@ function makeGroup(overrides: Partial<EditableGroupState> = {}): EditableGroupSt
     author: 'Author A',
     group_name: 'Test Group',
     files: [makeFile()],
-    skip: false,
-    status: 'pending',
-    processed: 0,
-    failed: 0,
-    total: 1,
     ...overrides,
   }
 }

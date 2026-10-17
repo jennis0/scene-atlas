@@ -63,7 +63,6 @@ export function LoadingScreen({
     <div
       className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-background ${isApp ? 'drag-region' : ''}`}
     >
-      {/* Dot-grid background */}
       <div
         className="absolute inset-0 opacity-60"
         style={{
@@ -72,7 +71,6 @@ export function LoadingScreen({
         }}
       />
 
-      {/* Radial glow */}
       <div
         className="absolute inset-0"
         style={{
@@ -80,9 +78,7 @@ export function LoadingScreen({
         }}
       />
 
-      {/* Content */}
       <div className="relative flex flex-col items-center gap-8">
-        {/* Compass with layered rings */}
         <div className="relative flex h-36 w-36 items-center justify-center">
           {/* Outermost sonar-ping ring — expands outward and fades */}
           {!isError && (
@@ -104,7 +100,6 @@ export function LoadingScreen({
             />
           )}
 
-          {/* Static reference ring */}
           <div
             className="absolute h-20 w-20 rounded-full border"
             style={{ borderColor: accent(0.25) }}
@@ -120,7 +115,6 @@ export function LoadingScreen({
             ].join(' ')}
           />
 
-          {/* Compass icon */}
           <Compass
             className={[
               'relative h-8 w-8',
@@ -130,7 +124,6 @@ export function LoadingScreen({
           />
         </div>
 
-        {/* Title + rule */}
         <div className="flex flex-col items-center gap-2">
           <h1 className="font-display text-2xl tracking-[0.2em] text-foreground/90">Scene Atlas</h1>
           <div
@@ -141,7 +134,6 @@ export function LoadingScreen({
           />
         </div>
 
-        {/* Status line */}
         <div className="flex flex-col items-center gap-3">
           <p className="font-mono text-xs tracking-wider">
             {isError ? (
@@ -154,7 +146,6 @@ export function LoadingScreen({
             )}
           </p>
 
-          {/* Error detail toggle */}
           {isError &&
             errorDetail &&
             (() => {
@@ -187,7 +178,6 @@ export function LoadingScreen({
               )
             })()}
 
-          {/* First-run hint */}
           {!isError && (
             <p className="font-mono text-[10px] tracking-wider text-muted-foreground/30">
               First launch may take a moment to set up

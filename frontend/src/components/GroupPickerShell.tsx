@@ -31,7 +31,6 @@ export function GroupPickerShell({
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-[440px] bg-card border-border/50 p-0 gap-0 overflow-hidden flex flex-col relative">
-        {/* Amber top stripe */}
         <div className="absolute top-0 inset-x-0 h-0.5 bg-gradient-to-r from-primary/70 via-primary/30 to-transparent pointer-events-none rounded-t-lg" />
 
         {/* Header: bg-popover strip with title and close button */}
@@ -51,7 +50,6 @@ export function GroupPickerShell({
           </button>
         </div>
 
-        {/* Search input */}
         <div className="px-4 pt-3 pb-2 shrink-0">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/60 pointer-events-none" />
@@ -67,12 +65,10 @@ export function GroupPickerShell({
           </div>
         </div>
 
-        {/* Groups list */}
         <div className="min-h-[200px] max-h-[320px] overflow-y-auto px-2 pb-2 scrollbar-thin flex-1">
           {children}
         </div>
 
-        {/* Footer with buttons */}
         <div className="flex justify-end gap-2 px-4 py-3 border-t border-border/30 bg-muted/5 shrink-0">
           <button
             onClick={onClose}

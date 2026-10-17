@@ -1,16 +1,11 @@
 import { api } from './_client'
-import type { Tag, TagCategory, TagPack, TagValue, TagStats } from '@/types'
+import type { Tag, TagCategory, TagPack } from '@/types'
 
 export const tagApi = {
-  // ── Category CRUD ──────────────────────────────────────────────────────
+  // Category CRUD
 
   getCategories: async (): Promise<TagCategory[]> => {
     const { data } = await api.get<TagCategory[]>('/tags/categories')
-    return data
-  },
-
-  getCategory: async (category: string): Promise<TagCategory> => {
-    const { data } = await api.get<TagCategory>(`/tags/categories/${category}`)
     return data
   },
 
@@ -46,7 +41,7 @@ export const tagApi = {
     return data
   },
 
-  // ── Tag value management within categories ─────────────────────────────
+  // Tag value management within categories
 
   upsertTagValue: async (
     categoryName: string,
@@ -84,17 +79,7 @@ export const tagApi = {
     return data
   },
 
-  // ── Per-image tag operations ───────────────────────────────────────────
-
-  getValues: async (category: string): Promise<TagValue[]> => {
-    const { data } = await api.get<TagValue[]>(`/tags/values/${category}`)
-    return data
-  },
-
-  getStats: async (): Promise<TagStats> => {
-    const { data } = await api.get<TagStats>('/tags/stats')
-    return data
-  },
+  // Per-image tag operations
 
   addToImage: async (imageId: number, tag: { category: string; value: string }): Promise<Tag> => {
     const { data } = await api.post<Tag>(`/tags/image/${imageId}`, {
@@ -114,7 +99,7 @@ export const tagApi = {
     return data
   },
 
-  // ── Tag Packs ─────────────────────────────────────────────────────────
+  // Tag Packs
 
   getTagPacks: async (): Promise<TagPack[]> => {
     const { data } = await api.get<TagPack[]>('/tags/packs')

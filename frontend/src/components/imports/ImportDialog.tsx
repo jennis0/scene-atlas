@@ -68,9 +68,7 @@ export function ImportDialog({
   )
 }
 
-// ---------------------------------------------------------------------------
 // Start
-// ---------------------------------------------------------------------------
 
 function StartView({
   open,
@@ -268,9 +266,7 @@ function BrowseButton({
   )
 }
 
-// ---------------------------------------------------------------------------
 // Progress
-// ---------------------------------------------------------------------------
 
 function ProgressView({
   jobId,
@@ -316,6 +312,13 @@ function ProgressView({
         description: `${plural(result.missing, 'file')} still weren't found in what you chose.`,
       })
     }
+  }
+
+  const onResumePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = filesFromInput(e.target.files)
+    // Clear the input so picking the same folder again (e.g. after a failure) fires onChange.
+    e.target.value = ''
+    void run(() => resumeWith(files))
   }
 
   const label = job?.label ?? upload?.label ?? 'Import'
@@ -451,13 +454,7 @@ function ProgressView({
         )}
       </div>
 
-      <input
-        ref={resumeFiles}
-        type="file"
-        multiple
-        className="hidden"
-        onChange={(e) => void resumeWith(filesFromInput(e.target.files))}
-      />
+      <input ref={resumeFiles} type="file" multiple className="hidden" onChange={onResumePicked} />
       <input
         ref={resumeFolder}
         type="file"
@@ -465,7 +462,7 @@ function ProgressView({
         webkitdirectory=""
         multiple
         className="hidden"
-        onChange={(e) => void resumeWith(filesFromInput(e.target.files))}
+        onChange={onResumePicked}
       />
 
       <div className="flex-1 min-h-[180px] flex flex-col border-t border-border/30 pt-2">

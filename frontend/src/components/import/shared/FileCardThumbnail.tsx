@@ -57,7 +57,6 @@ export function FileCardThumbnail({
       {file.media_type === 'video' && !dimmed && (
         <VideoIndicator size="sm" className="bottom-1 left-1" />
       )}
-      {/* Selection checkbox overlay */}
       {!dimmed && !hideCheckbox && (
         <div
           className={`absolute top-1.5 left-1.5 w-4 h-4 rounded-[3px] flex items-center justify-center text-[9px] transition-all backdrop-blur-sm ${

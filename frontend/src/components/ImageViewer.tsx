@@ -16,13 +16,14 @@ import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { SceneTile } from '@/components/SceneTile'
 import { SubgroupDropdown } from '@/components/SubgroupDropdown'
-import axios from 'axios'
+import { downloadFile } from '@/lib/download'
 import { toast } from 'sonner'
 import { imageApi, tagApi, getImageUrl, getGroupDownloadUrl } from '@/lib/api'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { MAX_NAME_LENGTH } from '@/lib/constants'
 import { QUERY_KEYS, invalidateGalleryQueries } from '@/lib/queryKeys'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { isAnyDialogOpen } from '@/components/ui/dialogStack'
 import { useGetTagColor } from '@/contexts/TagColorContext'
 import { TagPicker } from '@/components/import/TagPicker'
 import { GridToggle } from '@/components/import/GridToggle'
@@ -84,15 +85,13 @@ export function ImageViewer({
     staleTime: 5 * 60_000,
   })
 
-  // ── Refs ──────────────────────────────────────────────────────────────────
   const scrollContainerRef = useRef<HTMLDivElement>(null)
-  // Set to the target image ID before a within-group variant click so the reset effect skips.
+  // Set before a within-group variant click so the reset effect keeps the UI state.
   const preserveStateRef = useRef(false)
   // Tracks the image.id we last processed in the reset effect.
   // Prevents React Strict Mode's double-invocation from running the reset twice.
   const lastProcessedIdRef = useRef<number | null>(null)
 
-  // ── Local UI state ────────────────────────────────────────────────────────
   const [sceneSearch, setSceneSearch] = useState('')
   const [sceneTypeFilter, setSceneTypeFilter] = useState<ImageTypeFilter>('all')
   const [sceneFilters, setSceneFilters] = useState<ActiveFilter[]>([])
@@ -129,17 +128,18 @@ export function ImageViewer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [image.id])
 
-  // Sync drafts when fresh image data arrives (e.g. after a patch succeeds)
+  // Sync the name draft when fresh image data arrives (e.g. after a patch succeeds)
   useEffect(() => {
     if (!editingName) setNameDraft(displayImage?.name ?? '')
-    // editingName/editingSV intentionally omitted: adding them would overwrite in-progress edits
+    // editingName is read but not tracked: only a new server name should reset the draft.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [displayImage?.name, displayImage?.subgroup])
+  }, [displayImage?.name])
 
   // Keyboard shortcuts — skip when any input/select/textarea is focused
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (editingName || editingSV) return
+      // A dialog over the viewer (e.g. delete confirmation) owns the keyboard.
+      if (editingName || editingSV || isAnyDialogOpen()) return
       const target = e.target as HTMLElement
       if (
         target.tagName === 'INPUT' ||
@@ -155,7 +155,6 @@ export function ImageViewer({
     return () => window.removeEventListener('keydown', handleKey)
   }, [onClose, onNext, onPrevious, editingName, editingSV])
 
-  // ── Mutations ─────────────────────────────────────────────────────────────
   const invalidateImage = () => {
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.image(image.id) })
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scenes(image.id) })
@@ -226,7 +225,6 @@ export function ImageViewer({
     },
   })
 
-  // ── Derived data ──────────────────────────────────────────────────────────
   const img = displayImage ?? image
 
   // Build tag vocabulary from full category list (not facets) so new vocabulary
@@ -236,7 +234,6 @@ export function ImageViewer({
     [tagCategories],
   )
 
-  // Convert Image tags → TagData for TagPicker deduplication
   const existingTagData = useMemo(
     (): TagData[] =>
       (img.tags ?? []).map((t) => ({
@@ -262,10 +259,7 @@ export function ImageViewer({
     if (!scenes || scenes.length <= 1) return []
     const groups: FilterOptionGroup[] = []
 
-    // Sub-scenes
-    const subVariants = [
-      ...new Set(scenes.map((v) => v.subgroup).filter((sv): sv is string => sv != null)),
-    ].sort()
+    const subVariants = existingSubgroups
     if (subVariants.length > 0) {
       groups.push({
         id: 'subgroup',
@@ -280,7 +274,6 @@ export function ImageViewer({
       })
     }
 
-    // Media type (image vs video)
     const mediaTypes = [...new Set(scenes.map((v) => v.media_type ?? 'image'))]
     if (mediaTypes.length > 1) {
       groups.push({
@@ -296,7 +289,6 @@ export function ImageViewer({
       })
     }
 
-    // Tag categories present across scenes
     const tagMap = new Map<string, Map<string, number>>()
     for (const v of scenes) {
       for (const tag of v.tags ?? []) {
@@ -320,7 +312,7 @@ export function ImageViewer({
     }
 
     return groups
-  }, [scenes])
+  }, [scenes, existingSubgroups])
 
   const hasMixedSceneTypes = useMemo(() => {
     if (!scenes || scenes.length <= 1) return false
@@ -362,7 +354,6 @@ export function ImageViewer({
   const hasFilterableData = sceneFilterGroups.length > 0
   const hasActiveFilters = sceneFilters.length > 0
 
-  // ── Handlers ─────────────────────────────────────────────────────────────
   const handleSceneClick = (variant: Image) => {
     preserveStateRef.current = true
     onImageChange?.(variant)
@@ -371,16 +362,7 @@ export function ImageViewer({
   const handleDownload = async () => {
     setDownloading(true)
     try {
-      const resp = await axios.get(getImageUrl(img), { responseType: 'blob' })
-      const blob = resp.data as Blob
-      const objectUrl = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = objectUrl
-      a.download = buildDownloadFilename(img)
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(objectUrl)
+      await downloadFile(getImageUrl(img), buildDownloadFilename(img))
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Download failed'))
     } finally {
@@ -392,16 +374,7 @@ export function ImageViewer({
     if (!img.group_id) return
     setDownloadingGroup(true)
     try {
-      const resp = await axios.get(getGroupDownloadUrl(img.group_id), { responseType: 'blob' })
-      const blob = resp.data as Blob
-      const objectUrl = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = objectUrl
-      a.download = `${img.group_name ?? 'Group'}.zip`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(objectUrl)
+      await downloadFile(getGroupDownloadUrl(img.group_id), `${img.group_name ?? 'Group'}.zip`)
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Group download failed'))
     } finally {
@@ -423,7 +396,6 @@ export function ImageViewer({
     }
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div
       data-testid="image-viewer"
@@ -436,7 +408,6 @@ export function ImageViewer({
         style={{ maxWidth: '1600px', height: '88vh' }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* ── Image canvas ── */}
         <div
           className="flex-1 relative flex items-center justify-center min-w-0"
           style={CANVAS_STYLE}
@@ -484,14 +455,12 @@ export function ImageViewer({
           )}
         </div>
 
-        {/* ── Sidebar ── */}
         <div className="w-[440px] shrink-0 flex flex-col border-l border-border/20 bg-card overflow-hidden">
           {/* Amber stripe — sidebar half: full at join, transparent at right edge */}
           <div className="h-0.5 shrink-0 bg-gradient-to-l from-transparent to-primary/80" />
 
-          {/* ── Image info (fixed — stays visible while scenes scroll) ── */}
+          {/* Fixed: stays visible while the variants below scroll */}
           <div className="px-4 pt-3 pb-2 shrink-0 border-b border-border/30">
-            {/* Controls row: group actions (left) · image actions + close (right) */}
             <div className="flex items-center justify-between mb-1.5">
               <div className="flex items-center gap-3">
                 {img.group_id !== null && onEditGroup && (
@@ -541,14 +510,12 @@ export function ImageViewer({
               </div>
             </div>
 
-            {/* Group name — shown when the image belongs to a named group */}
             {img.group_name && img.group_name !== img.name && (
               <p className="font-display text-2xl font-semibold text-muted-foreground truncate mb-0.5">
                 {img.group_name}
               </p>
             )}
 
-            {/* Name (inline-editable) */}
             <div className="group/name flex items-start gap-2 mb-0.5">
               {editingName ? (
                 <input
@@ -586,10 +553,8 @@ export function ImageViewer({
               )}
             </div>
 
-            {/* Author */}
             <p className="text-sm text-muted-foreground">by {img.author}</p>
 
-            {/* File metadata — filename, dimensions, size */}
             <p
               className="text-[10px] text-muted-foreground/40 font-mono truncate mt-1"
               title={img.filename}
@@ -600,7 +565,6 @@ export function ImageViewer({
               {img.width}×{img.height} · {(img.file_size / 1024 / 1024).toFixed(1)} MB
             </p>
 
-            {/* Sub-variant — inline editable property row */}
             <div className="group/sv relative flex items-center gap-2 mb-2 min-w-0">
               <span className="section-label w-[72px] shrink-0">Subgroup</span>
               <div className="relative flex-1 min-w-0">
@@ -642,7 +606,6 @@ export function ImageViewer({
               </div>
             </div>
 
-            {/* Image type toggle */}
             <div className="flex items-center gap-2 mb-2">
               <span className="section-label w-[72px] shrink-0">Type</span>
               <div className="inline-flex rounded border border-border p-px bg-secondary/50">
@@ -696,11 +659,10 @@ export function ImageViewer({
               </div>
             )}
 
-            {/* Divider + color swatches + tags */}
             <div className="border-t border-border/30 pt-3 mt-1">
               {img.colors && img.colors.length > 0 && (
                 <div className="flex gap-1 mb-2">
-                  {img.colors
+                  {[...img.colors]
                     .sort((a, b) => a.color_order - b.color_order)
                     .map((color) => (
                       <div
@@ -746,10 +708,9 @@ export function ImageViewer({
             </div>
           </div>
 
-          {/* ── Variants section (only this scrolls) ── */}
+          {/* The only scrolling region */}
           {hasScenes && (
             <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto">
-              {/* Sticky header: label + search + filter button */}
               <div className="sticky top-0 z-10 bg-card border-b border-border/30">
                 <div className="px-4 py-2 flex items-center gap-2">
                   <span className="text-sm font-semibold shrink-0">
@@ -763,7 +724,6 @@ export function ImageViewer({
                     </span>
                   </span>
 
-                  {/* Search */}
                   <div className="relative flex-1">
                     <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
                     <Input
@@ -854,7 +814,6 @@ export function ImageViewer({
                   </Popover>
                 </div>
 
-                {/* Active filter chips */}
                 {hasActiveFilters && (
                   <div className="px-4 pb-2">
                     <FilterChipList filters={sceneFilters} onFiltersChange={setSceneFilters} />
@@ -862,7 +821,6 @@ export function ImageViewer({
                 )}
               </div>
 
-              {/* Variant grid */}
               <div className="px-4 pt-3 pb-4">
                 {filteredScenes.length === 0 ? (
                   <p className="text-xs text-muted-foreground text-center py-6">No scenes match</p>
@@ -917,8 +875,6 @@ export function ImageViewer({
     </div>
   )
 }
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 interface SceneSection {
   label: string

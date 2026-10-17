@@ -26,7 +26,6 @@ export function GroupSidebarShell({
       </div>
 
       <div className="flex-1 overflow-y-auto py-1">
-        {/* "All" entry */}
         <button
           onClick={onSelectAll}
           className={`w-full flex items-center gap-2 px-3 py-2 text-left transition-colors border-l-2 ${

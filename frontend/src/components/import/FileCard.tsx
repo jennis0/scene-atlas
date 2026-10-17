@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { X, Pencil, Plus } from 'lucide-react'
 import type { EditableFileState, TagData } from '@/types'
 import { MAX_NAME_LENGTH } from '@/lib/constants'
+import { onInlineEditKey } from '@/lib/inlineEditKeys'
 import { TagPicker } from './TagPicker'
 import { GridToggle } from './GridToggle'
 import { GridSizeInput } from './GridSizeInput'
@@ -50,7 +51,7 @@ export function FileCard({
     onToggleSelect()
   }
 
-  // ── Out-of-scope state ──
+  // Out-of-scope state
   if (file.outOfScope) {
     return (
       <div className="group/card flex rounded-lg border border-border/20 bg-card/40 opacity-50 hover:opacity-70 transition-opacity overflow-hidden">
@@ -101,7 +102,7 @@ export function FileCard({
     )
   }
 
-  // ── Excluded state ──
+  // Excluded state
   if (file.excluded) {
     return (
       <FileCardExcludedState
@@ -115,7 +116,7 @@ export function FileCard({
     )
   }
 
-  // ── Normal state: horizontal card with labeled property rows ──
+  // Normal state: horizontal card with labeled property rows
   return (
     <>
       <div
@@ -128,7 +129,6 @@ export function FileCard({
         }`}
         onClick={handleCardClick}
       >
-        {/* Thumbnail */}
         <FileCardThumbnail
           file={file}
           previewUrl={previewUrl}
@@ -137,9 +137,7 @@ export function FileCard({
           onOpenLightbox={() => setLightboxOpen(true)}
         />
 
-        {/* Content */}
         <div className="flex-1 min-w-0 flex flex-col py-[7px] px-[9px]">
-          {/* Name row */}
           <div className="flex items-center gap-1 mb-px">
             {isEditingName && !disabled ? (
               <input
@@ -149,19 +147,15 @@ export function FileCard({
                   onUpdate({ name: nameDraft })
                   setIsEditingName(false)
                 }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    onUpdate({ name: nameDraft })
-                    setIsEditingName(false)
-                  }
-                  if (e.key === 'Escape') {
-                    e.preventDefault()
-                    e.nativeEvent.stopImmediatePropagation()
-                    setIsEditingName(false)
-                  }
-                }}
+                onKeyDown={(e) =>
+                  onInlineEditKey(e, {
+                    onEnter: () => {
+                      onUpdate({ name: nameDraft })
+                      setIsEditingName(false)
+                    },
+                    onEscape: () => setIsEditingName(false),
+                  })
+                }
                 maxLength={MAX_NAME_LENGTH}
                 className="font-display text-[12px] font-semibold text-foreground bg-transparent border-b border-primary/70 focus:outline-none flex-1 min-w-0 pb-px leading-snug"
                 autoFocus
@@ -198,7 +192,6 @@ export function FileCard({
             )}
           </div>
 
-          {/* Filename */}
           <div
             className="font-mono text-[9px] text-muted-foreground/40 truncate leading-relaxed mb-1"
             title={file.filename}
@@ -206,9 +199,7 @@ export function FileCard({
             {file.filename}
           </div>
 
-          {/* Property rows */}
           <div className="flex flex-col gap-1">
-            {/* SUB prop-row */}
             <SubgroupRow
               subgroup={file.subgroup}
               existingSubgroups={existingSubgroups}
@@ -216,7 +207,6 @@ export function FileCard({
               onUpdate={(subgroup) => onUpdate({ subgroup })}
             />
 
-            {/* TYPE prop-row */}
             <div className="flex items-center gap-1.5 min-h-5">
               <span className="w-8 shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/50 text-right leading-none">
                 Type
@@ -261,12 +251,9 @@ export function FileCard({
               </div>
             </div>
           </div>
-          {/* end property rows */}
 
-          {/* Divider */}
           <div className="h-px bg-gradient-to-r from-border/50 to-transparent my-1" />
 
-          {/* Tags */}
           <div className="flex flex-wrap items-center gap-1 mt-auto pt-0.5">
             {file.tags.map((tag: TagData, i: number) => {
               const color = getTagColor(tag.category)
@@ -299,7 +286,6 @@ export function FileCard({
         </div>
       </div>
 
-      {/* Lightbox */}
       <FileCardLightbox
         open={lightboxOpen}
         onOpenChange={setLightboxOpen}

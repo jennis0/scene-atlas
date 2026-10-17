@@ -63,9 +63,6 @@ export interface UseFileEditingReturn {
   ) => void
   bulkExcludeInGroups: (groupIds: string[], selectionId: string) => void
 
-  // Move ops
-  moveFilesToGroup: (sourceGroupId: string, targetGroupId: string, paths: string[]) => void
-
   // Subgroup ops
   clearSubgroupLabel: (groupId: string, subgroup: string) => void
   renameSubgroup: (groupId: string, oldVal: string, newVal: string) => void
@@ -94,7 +91,7 @@ export function useFileEditing({
     setEditingSvHeading(null)
   }, [activeTab])
 
-  // ── Deferred onGroupChange callback ────────────────────────────
+  // Deferred onGroupChange callback
   // React 18 batches state updates, so updater fns inside setGroups()
   // may not execute synchronously. We accumulate affected groups in a
   // ref (keyed by ID to deduplicate) and flush via useEffect after render.
@@ -115,7 +112,7 @@ export function useFileEditing({
     for (const g of groups) pendingGroupChanges.current.set(g.id, g)
   }
 
-  // ── Helpers ──────────────────────────────────────────────────────
+  // Helpers
 
   /** Transforms files in a single group by ID, notifies onGroupChange. */
   const updateGroupFiles = (
@@ -133,7 +130,7 @@ export function useFileEditing({
     })
   }
 
-  // ── CRUD ──────────────────────────────────────────────────────────
+  // CRUD
 
   const updateGroup = (groupId: string, updates: Partial<EditableGroupState>) => {
     setGroups((prev) => prev.map((g) => (g.id === groupId ? { ...g, ...updates } : g)))
@@ -181,53 +178,7 @@ export function useFileEditing({
     updateGroupFiles(groupId, (f) => (pathSet.has(f.relative_path) ? { ...f, ...updates } : f))
   }
 
-  // ── Move ops ────────────────────────────────────────────────────────
-
-  const moveFilesToGroup = (sourceGroupId: string, targetGroupId: string, paths: string[]) => {
-    if (sourceGroupId === targetGroupId) return
-    const pathSet = new Set(paths)
-    setGroups((prev) => {
-      const sourceGroup = prev.find((g) => g.id === sourceGroupId)
-      if (!sourceGroup) return prev
-
-      const movedFiles = sourceGroup.files.filter((f) => pathSet.has(f.relative_path))
-      if (movedFiles.length === 0) return prev
-
-      const remainingFiles = sourceGroup.files.filter((f) => !pathSet.has(f.relative_path))
-      const sourceEmpty = remainingFiles.length === 0
-
-      let newGroups = prev.map((g) => {
-        if (g.id === sourceGroupId) {
-          return { ...g, files: remainingFiles, total: remainingFiles.length }
-        }
-        if (g.id === targetGroupId) {
-          return {
-            ...g,
-            files: [...g.files, ...movedFiles],
-            total: g.files.length + movedFiles.length,
-          }
-        }
-        return g
-      })
-
-      if (sourceEmpty) {
-        newGroups = newGroups.filter((g) => g.id !== sourceGroupId)
-      }
-
-      const affected = newGroups.filter((g) => g.id === sourceGroupId || g.id === targetGroupId)
-      if (affected.length > 0) notifyGroupChange(affected)
-      return newGroups
-    })
-
-    // Clear selections for source group
-    setSelections((prev) => {
-      const next = { ...prev }
-      delete next[sourceGroupId]
-      return next
-    })
-  }
-
-  // ── Selection ─────────────────────────────────────────────────────
+  // Selection
 
   const toggleFileSelection = (groupId: string, relativePath: string) => {
     setSelections((prev) => {
@@ -252,7 +203,7 @@ export function useFileEditing({
     setSelections((prev) => ({ ...prev, [groupId]: new Set<string>() }))
   }
 
-  // ── Bulk ops ──────────────────────────────────────────────────────
+  // Bulk ops
 
   // Applies `transform` to the selected, non-excluded, in-scope files of every group matching
   // `inScope`, then saves those groups.
@@ -322,7 +273,7 @@ export function useFileEditing({
     deselectAll(groupId ?? ALL_GROUP_ID)
   }
 
-  // ── Subgroup ops ──────────────────────────────────────────────────
+  // Subgroup ops
 
   const clearSubgroupLabel = (groupId: string, subgroup: string) =>
     updateGroupFiles(groupId, (f) =>
@@ -336,7 +287,7 @@ export function useFileEditing({
         : f,
     )
 
-  // ── Derived values ────────────────────────────────────────────────
+  // Derived values
 
   const isAllTab = activeTab === ALL_TAB
   const activeGroup = isAllTab ? null : (groups[activeTab] ?? null)
@@ -367,7 +318,6 @@ export function useFileEditing({
     updateFile,
     updateFileAnyGroup,
     updateFilesInGroup,
-    moveFilesToGroup,
     toggleFileSelection,
     selectAllVisible,
     deselectAll,

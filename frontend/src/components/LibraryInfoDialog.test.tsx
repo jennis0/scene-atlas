@@ -96,8 +96,8 @@ describe('LibraryInfoDialog', () => {
     await waitFor(() => {
       expect(screen.getByText('1.8 MB')).toBeInTheDocument() // total in stat card
       expect(screen.getByText('1.0 MB')).toBeInTheDocument() // images in storage bar
-      expect(screen.getByText('512.0 KB')).toBeInTheDocument() // vectors in storage bar
-      expect(screen.getByText('256.0 KB')).toBeInTheDocument() // metadata in storage bar
+      expect(screen.getByText('512 KB')).toBeInTheDocument() // vectors in storage bar
+      expect(screen.getByText('256 KB')).toBeInTheDocument() // metadata in storage bar
     })
   })
 

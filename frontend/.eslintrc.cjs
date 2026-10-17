@@ -15,7 +15,10 @@ module.exports = {
     // Downgrade any to warn — we have existing any usage to fix incrementally
     '@typescript-eslint/no-explicit-any': 'warn',
     // Allow unused vars with _ prefix convention
-    '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+    '@typescript-eslint/no-unused-vars': [
+      'error',
+      { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+    ],
     // react-hooks v7 introduced new strict rules not present in v4.
     // "refs" flags the well-established "latest ref" pattern (useRef + assign in render)
     // which React docs endorse — disable as a false positive for this codebase.

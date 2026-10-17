@@ -1,10 +1,10 @@
-// ── Gallery / image grid layout ─────────────────────────────────────────────
+// Gallery / image grid layout
 export const IMAGE_SIZE = 240
 export const CARD_HEIGHT = 180
 export const GRID_GAP = 16
 export const GRID_PADDING = 16
 
-// ── Relevance / search scoring ───────────────────────────────────────────────
+// Relevance / search scoring
 // Scores are RRF (Reciprocal Rank Fusion) combining text + semantic relevance.
 // Max possible ≈ 2.6/60 ≈ 0.043 (rank 0 in all three lists). Set ceiling at
 // 0.05 for headroom. In single-signal modes (semantic-only, text-only fallback)
@@ -21,11 +21,12 @@ export function relevanceToPercent(minScore: number): number {
   return Math.round(((minScore - RELEVANCE_MIN) / (RELEVANCE_MAX - RELEVANCE_MIN)) * 100)
 }
 
-// ── Polling ──────────────────────────────────────────────────────────────────
+// Polling
 export const ACTIVE_POLL_INTERVAL_MS = 10_000
+export const IDLE_POLL_INTERVAL_MS = 60_000
 export const SAVED_INDICATOR_DURATION_MS = 1_500
 
-// ── Input length limits ──────────────────────────────────────────────────────
+// Input length limits
 export const MAX_AUTHOR_LENGTH = 256
 export const MAX_NAME_LENGTH = 512
 export const MAX_SEARCH_LENGTH = 2048

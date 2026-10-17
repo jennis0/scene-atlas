@@ -43,16 +43,9 @@ import type { UseGallerySearchReturn } from '@/hooks/useGallerySearch'
 import type { EmbeddingStatus } from '@/hooks/useEmbeddingStatus'
 import type { ImageTypeFilter } from '@/components/import/fileFilter'
 
-// ---------------------------------------------------------------------------
 // Platform helpers for borderless window layout
-// ---------------------------------------------------------------------------
-
 const isMac = isApp && window.electronAPI?.platform === 'darwin'
 const needsOverlayPadding = isApp && !isMac // Windows/Linux titlebar overlay
-
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
 
 export interface GalleryHeaderProps {
   search: UseGallerySearchReturn & {
@@ -66,10 +59,6 @@ export interface GalleryHeaderProps {
   onOpenMassEdit: () => void
   displayImageCount: number
 }
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
 
 export function GalleryHeader({
   search,
@@ -175,7 +164,6 @@ export function GalleryHeader({
       {/* Windows/Linux: draggable titlebar strip matching the OS overlay zone */}
       {needsOverlayPadding && <div className="h-8 drag-region" />}
       <div className={`container mx-auto px-4 ${isMac ? 'pl-20' : ''}`}>
-        {/* Title row */}
         <div
           className={`${needsOverlayPadding ? 'pt-2 pb-2' : 'pt-4 pb-3'} flex ${needsOverlayPadding ? 'items-center' : 'items-start'} justify-between border-b border-border/70 ${isApp ? 'drag-region' : ''}`}
         >
@@ -217,7 +205,6 @@ export function GalleryHeader({
             >
               {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
-            {/* Spacer */}
             <div className="w-4 shrink-0" />
             <Button
               size="sm"
@@ -236,13 +223,10 @@ export function GalleryHeader({
           </div>
         </div>
 
-        {/* Tab strip -- mode selector */}
         {tabStrip}
 
-        {/* Search + controls row */}
         <div className="flex items-center gap-2 pt-3 pb-3">
           <form onSubmit={handleSubmit} className="flex flex-1 min-w-0">
-            {/* Input with inline clear button */}
             <div className="relative flex-1 min-w-0">
               {isSemantic ? (
                 <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
@@ -280,7 +264,6 @@ export function GalleryHeader({
             </Button>
           </form>
 
-          {/* Embedding status badge */}
           {embeddingStatus === 'loading' && (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 shrink-0">
               <Loader2 className="h-3 w-3 animate-spin" />
@@ -326,11 +309,13 @@ export function GalleryHeader({
           </div>
         </div>
 
-        {/* Chips + status row */}
         <div className="flex items-center pb-4 min-h-[32px]">
-          {/* Filter chips + clear all */}
           <div className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
-            <FilterChipList filters={filters} onFiltersChange={handleFiltersChange} />
+            <FilterChipList
+              filters={filters}
+              onFiltersChange={handleFiltersChange}
+              showClearAll={false}
+            />
             {hasActiveSearch && (
               <button
                 onClick={clearAll}
@@ -344,7 +329,6 @@ export function GalleryHeader({
 
           {/* Right cluster: count + sort + edit all + relevance */}
           <div className="flex items-center ml-auto shrink-0 text-xs text-muted-foreground gap-0">
-            {/* Count */}
             {!isSearching && (
               <span className="tabular-nums">
                 {viewMode === 'grouped'
@@ -357,7 +341,6 @@ export function GalleryHeader({
               </span>
             )}
 
-            {/* Sort */}
             <span className="text-border/60 px-1.5">&middot;</span>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -384,7 +367,6 @@ export function GalleryHeader({
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {/* Edit all -- contextual */}
             {viewMode === 'grouped'
               ? totalGroups > 0 && (
                   <>
@@ -432,7 +414,6 @@ export function GalleryHeader({
                   </>
                 )}
 
-            {/* Relevance slider -- contextual */}
             {showRelevanceSlider && (
               <>
                 <span className="text-border/60 px-1.5">&middot;</span>

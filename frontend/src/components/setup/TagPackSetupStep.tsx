@@ -9,9 +9,7 @@ interface TagPackSetupStepProps {
   modelProgressMessage: string | null
   /** Current model download progress percentage (0-100), null = indeterminate */
   modelProgressPct: number | null
-  /** Whether the model activation job has finished */
   modelComplete: boolean
-  /** Called when the user finishes the tag pack step */
   onComplete: () => void
 }
 
@@ -35,7 +33,6 @@ export function TagPackSetupStep({
   const [importDone, setImportDone] = useState(false)
   const [fetchError, setFetchError] = useState(false)
 
-  // Fetch available tag packs on mount
   const fetchPacks = () => {
     setLoading(true)
     setFetchError(false)
@@ -102,7 +99,6 @@ export function TagPackSetupStep({
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-6">
       <div className="w-full max-w-2xl space-y-6">
-        {/* Model download status bar */}
         <div className="space-y-1.5">
           {!modelComplete && (
             <>
@@ -132,7 +128,6 @@ export function TagPackSetupStep({
           )}
         </div>
 
-        {/* Header */}
         <div className="text-center space-y-2">
           <h1 className="text-2xl font-bold">Choose Your Tag Packs</h1>
           <p className="text-muted-foreground text-sm">
@@ -141,7 +136,6 @@ export function TagPackSetupStep({
           </p>
         </div>
 
-        {/* Loading skeleton */}
         {loading && (
           <div className="grid grid-cols-2 gap-3">
             {[...Array(6)].map((_, i) => (
@@ -150,7 +144,6 @@ export function TagPackSetupStep({
           </div>
         )}
 
-        {/* Fetch error */}
         {fetchError && !loading && !packs && (
           <div className="text-center space-y-3 py-6">
             <p className="text-sm text-destructive">
@@ -166,7 +159,6 @@ export function TagPackSetupStep({
           </div>
         )}
 
-        {/* Tag pack grid */}
         {packs && (
           <div className="grid grid-cols-2 gap-3">
             {packs.map((pack) => {
@@ -187,7 +179,6 @@ export function TagPackSetupStep({
                         : 'border-border/50 bg-card hover:border-border'
                   }`}
                 >
-                  {/* Checkbox indicator */}
                   <div className="flex items-start gap-2.5">
                     <div
                       className={`mt-0.5 shrink-0 h-4 w-4 rounded border flex items-center justify-center transition-colors ${
@@ -223,7 +214,6 @@ export function TagPackSetupStep({
           </div>
         )}
 
-        {/* Actions */}
         <div className="flex flex-col items-center gap-2">
           {importDone && !modelComplete ? (
             <>

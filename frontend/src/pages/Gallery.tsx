@@ -27,42 +27,11 @@ import { useImportManagerSnapshot, useImportPollingLifecycle } from '@/lib/impor
 import { useBackgroundJobs } from '@/hooks/useBackgroundJobs'
 import { Button } from '@/components/ui/button'
 
-// ---------------------------------------------------------------------------
-
 export function Gallery() {
   const queryClient = useQueryClient()
   const search = useGallerySearch()
-  const {
-    showMassEdit,
-    setShowMassEdit,
-    editAllSeedImages,
-    setEditAllSeedImages,
-    editAllLoading,
-    setEditAllLoading,
-    ...restDialogs
-  } = useGalleryDialogs(search.displayImages)
-
-  // For backward compatibility
-  const dialogs = useMemo(
-    () => ({
-      showMassEdit,
-      setShowMassEdit,
-      editAllSeedImages,
-      setEditAllSeedImages,
-      editAllLoading,
-      setEditAllLoading,
-      ...restDialogs,
-    }),
-    [
-      showMassEdit,
-      setShowMassEdit,
-      editAllSeedImages,
-      setEditAllSeedImages,
-      editAllLoading,
-      setEditAllLoading,
-      restDialogs,
-    ],
-  )
+  const dialogs = useGalleryDialogs(search.displayImages)
+  const { setReportJobId } = dialogs
 
   // Memoize seedImages so useEditGroupLoad doesn't re-fire on every render
   const seedImages = useMemo(
@@ -122,7 +91,7 @@ export function Gallery() {
     return getImportManager().onJobFinished((job) => {
       invalidateGalleryQueries(queryClient)
       if (job.status === 'cancelled' || watchedJobRef.current === job.id) return
-      const action = { label: 'View report', onClick: () => dialogs.setReportJobId(job.id) }
+      const action = { label: 'View report', onClick: () => setReportJobId(job.id) }
       const description = outcomeText(job.counts)
       if (job.counts.failed > 0) {
         toast.warning(`${job.label ?? 'Import'} finished with problems`, {
@@ -134,7 +103,7 @@ export function Gallery() {
         toast.success(`${job.label ?? 'Import'} finished`, { description, duration: 8000, action })
       }
     })
-  }, [queryClient, dialogs])
+  }, [queryClient, setReportJobId])
 
   // The dock opens a running import's progress, or a finished import's report.
   const openImportFromDock = (jobId: string) => {
@@ -144,10 +113,8 @@ export function Gallery() {
   }
 
   const handleOpenMassEdit = async () => {
-    // Guard against multiple concurrent requests
     if (dialogs.editAllLoading) return
 
-    // If individual view, just open the dialog with current images
     if (search.viewMode === 'individual') {
       dialogs.setShowMassEdit(true)
       return
@@ -179,7 +146,6 @@ export function Gallery() {
 
   return (
     <div className="flex h-screen flex-col">
-      {/* Header */}
       <GalleryHeader
         search={{ ...search, editAllLoading: dialogs.editAllLoading }}
         embeddingStatus={embedding.status}
@@ -191,7 +157,6 @@ export function Gallery() {
         displayImageCount={search.displayImages.length}
       />
 
-      {/* Main content */}
       <main
         className="flex-1 overflow-hidden"
         style={{ boxShadow: 'inset 0 8px 24px rgba(0,0,0,0.4)' }}
@@ -259,7 +224,6 @@ export function Gallery() {
               />
             </div>
 
-            {/* Sentinel for infinite scroll */}
             <div ref={sentinelRef} className="flex justify-center py-8">
               {search.isFetchingNextPage ? (
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -273,7 +237,6 @@ export function Gallery() {
         )}
       </main>
 
-      {/* Image viewer modal */}
       {dialogs.selectedImage && (
         <ImageViewer
           image={dialogs.selectedImage.image}
@@ -381,10 +344,8 @@ export function Gallery() {
         onClose={() => dialogs.setShowSystemInfo(false)}
       />
 
-      {/* Activity dock -- bottom-right floating panel showing all jobs */}
       <ActivityDock backgroundJobs={backgroundJobs.jobs} onOpenImport={openImportFromDock} />
 
-      {/* Delete group confirmation */}
       <ConfirmDialog
         open={dialogs.deleteConfirmGroup !== null}
         onOpenChange={(v) => !v && dialogs.setDeleteConfirmGroup(null)}
@@ -400,7 +361,6 @@ export function Gallery() {
         isLoading={dialogs.deleting}
       />
 
-      {/* Merge group picker */}
       <MergeGroupPicker
         open={dialogs.mergeSourceGroup !== null}
         onClose={() => dialogs.setMergeSourceGroup(null)}

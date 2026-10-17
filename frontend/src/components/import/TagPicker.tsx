@@ -105,7 +105,6 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
 
       {open && (
         <div className="absolute left-0 top-full mt-1.5 z-50 w-[220px] rounded-md border border-border bg-card shadow-2xl shadow-black/40 overflow-hidden flex flex-col">
-          {/* Search input */}
           <div className="px-2 pt-2 pb-1.5 border-b border-border/50 shrink-0">
             <div className="relative">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/50 pointer-events-none" />
@@ -136,7 +135,6 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
             </div>
           </div>
 
-          {/* Body */}
           <div className="overflow-y-auto max-h-[240px] py-1">
             {isSearching ? (
               searchResults.length === 0 ? (
@@ -184,7 +182,6 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
               </>
             ) : (
               <>
-                {/* Category detail header */}
                 <div className="px-3 pt-1.5 pb-1.5 border-b border-border/50 flex items-center gap-2">
                   <button
                     onClick={() => setSelectedCategory(null)}

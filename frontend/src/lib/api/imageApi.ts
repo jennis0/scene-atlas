@@ -2,11 +2,6 @@ import { api } from './_client'
 import type { Image } from '@/types'
 
 export const imageApi = {
-  list: async (limit = 100, offset = 0): Promise<Image[]> => {
-    const { data } = await api.get<Image[]>('/images/', { params: { limit, offset } })
-    return data
-  },
-
   get: async (id: number): Promise<Image> => {
     const { data } = await api.get<Image>(`/images/${id}`)
     return data

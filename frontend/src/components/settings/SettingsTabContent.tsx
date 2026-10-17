@@ -2,9 +2,14 @@ import { useCallback, forwardRef, useImperativeHandle, useState, useEffect } fro
 import { AlertCircle, Check } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Input } from '@/components/ui/input'
 import { SettingRow } from '@/components/settings/SettingRow'
+import { SettingsSection } from '@/components/settings/SettingsSection'
+import { ToggleSwitch } from '@/components/settings/ToggleSwitch'
+import { NumberSetting } from '@/components/settings/NumberSetting'
 import { useSettingsDraft } from '@/hooks/useSettingsDraft'
+import { useStorageDirs } from '@/hooks/useStorageDirs'
+import { getApiErrorMessage } from '@/lib/getErrorMessage'
+import { QUERY_KEYS, invalidateTagQueries } from '@/lib/queryKeys'
 import { modelsApi } from '@/lib/api/modelsApi'
 import { useImportManagerSnapshot } from '@/lib/import/useImports'
 import { isFinished } from '@/components/imports/format'
@@ -57,7 +62,7 @@ function TagPacksSection({ dialogOpen }: { dialogOpen: boolean }) {
   const queryClient = useQueryClient()
 
   const { data: packs, isLoading } = useQuery({
-    queryKey: ['tag-packs'],
+    queryKey: QUERY_KEYS.tagPacks,
     queryFn: tagApi.getTagPacks,
     enabled: dialogOpen,
   })
@@ -72,8 +77,8 @@ function TagPacksSection({ dialogOpen }: { dialogOpen: boolean }) {
       } else {
         toast.info(`${label} — all tags already present`)
       }
-      queryClient.invalidateQueries({ queryKey: ['tag-packs'] })
-      queryClient.invalidateQueries({ queryKey: ['tag-categories'] })
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.tagPacks })
+      invalidateTagQueries(queryClient)
     },
     onError: (_err, packName) => {
       toast.error(`Failed to import ${packName}`)
@@ -81,12 +86,10 @@ function TagPacksSection({ dialogOpen }: { dialogOpen: boolean }) {
   })
 
   return (
-    <section className="space-y-3">
-      <p className="section-label mb-3">Tag Packs</p>
-      <p className="text-xs text-muted-foreground -mt-1 mb-2">
-        Import genre-specific tag vocabularies for auto-detection and filtering.
-      </p>
-
+    <SettingsSection
+      title="Tag Packs"
+      description="Import genre-specific tag vocabularies for auto-detection and filtering."
+    >
       {isLoading && (
         <div className="grid grid-cols-2 gap-2">
           {[...Array(6)].map((_, i) => (
@@ -107,9 +110,7 @@ function TagPacksSection({ dialogOpen }: { dialogOpen: boolean }) {
           ))}
         </div>
       )}
-
-      <div className="border-t border-border/30" />
-    </section>
+    </SettingsSection>
   )
 }
 
@@ -130,7 +131,6 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
         enabled: dialogOpen,
       })
 
-    // Pending model switch (requires confirmation)
     const [pendingModel, setPendingModel] = useState<string | null>(null)
     // Imports keep going across a model switch: the server pauses them while
     // the model changes, then they carry on. Just say so.
@@ -152,7 +152,7 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
       isLoading: modelsLoading,
       isError: modelsError,
     } = useQuery({
-      queryKey: ['models'],
+      queryKey: QUERY_KEYS.models,
       queryFn: () => modelsApi.list(),
       enabled: dialogOpen,
     })
@@ -161,12 +161,12 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
       mutationFn: (modelName: string) => modelsApi.setActiveModel(modelName),
       onSuccess: () => {
         toast.info('Model switch started. This may take a while.')
-        queryClient.invalidateQueries({ queryKey: ['models'] })
-        queryClient.invalidateQueries({ queryKey: ['appSettings'] })
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.models })
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.appSettings })
         setPendingModel(null)
       },
       onError: (err) => {
-        toast.error(err instanceof Error ? err.message : 'Failed to switch model.')
+        toast.error(getApiErrorMessage(err, 'Failed to switch model.'))
       },
     })
 
@@ -174,7 +174,7 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
       mutationFn: (modelName: string) => modelsApi.deleteEmbeddings(modelName),
       onSuccess: () => {
         toast.success('Embeddings deleted.')
-        queryClient.invalidateQueries({ queryKey: ['models'] })
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.models })
       },
       onError: () => {
         toast.error('Failed to delete embeddings.')
@@ -193,17 +193,9 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
     )
 
     const isElectron = typeof window !== 'undefined' && !!window.electronAPI
-    const [appDataDir, setAppDataDir] = useState<string | null>(null)
-    const [imageLibraryDir, setImageLibraryDir] = useState<string | null>(null)
+    const { appDataDir, imageLibraryDir } = useStorageDirs(dialogOpen)
     const [pendingAppDataDir, setPendingAppDataDir] = useState<string | null>(null)
     const [pendingImageLibraryDir, setPendingImageLibraryDir] = useState<string | null>(null)
-
-    useEffect(() => {
-      if (dialogOpen && isElectron) {
-        window.electronAPI!.getAppDataDir().then(setAppDataDir)
-        window.electronAPI!.getImageLibraryDir().then(setImageLibraryDir)
-      }
-    }, [dialogOpen, isElectron])
 
     const handleChooseAppDataDir = async () => {
       const chosen = await window.electronAPI?.chooseAppDataDir()
@@ -215,16 +207,17 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
       if (chosen && chosen !== imageLibraryDir) setPendingImageLibraryDir(chosen)
     }
 
-    const handleApplyStorageChange = () => {
+    const handleApplyStorageChange = async () => {
       if (!appDataDir || !imageLibraryDir) return // IPC hasn't loaded yet; wait
-      window.electronAPI?.changeStorageDirs(
+      // On success the app relaunches and this never resolves.
+      const result = await window.electronAPI?.changeStorageDirs(
         pendingAppDataDir ?? appDataDir,
         pendingImageLibraryDir ?? imageLibraryDir,
       )
-      // changeStorageDirs saves config and calls app.relaunch() — no return
+      if (result?.error) toast.error(result.error)
     }
 
-    // Helper to get current value (draft takes precedence over server settings)
+    // Draft takes precedence over server settings
     const val = useCallback(
       <K extends keyof AppSettings>(key: K): AppSettings[K] | undefined => {
         return (key in draft ? draft[key] : settings?.[key]) as AppSettings[K] | undefined
@@ -232,7 +225,6 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
       [draft, settings],
     )
 
-    // Unit conversion: bytes to MB and back (with validation)
     const formatSizeInput = (bytes: number | undefined) => {
       if (bytes === undefined || bytes === 0) return ''
       return Math.round(bytes / 1024 / 1024).toString()
@@ -254,7 +246,6 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
 
     return (
       <div className="min-h-[220px]">
-        {/* Error state */}
         {isError && error && (
           <div className="mb-4 p-3 rounded bg-destructive/10 border border-destructive/30 flex items-start gap-2">
             <AlertCircle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
@@ -265,7 +256,6 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
           </div>
         )}
 
-        {/* Loading skeleton */}
         {isLoading && (
           <div className="space-y-4">
             {[...Array(6)].map((_, i) => (
@@ -278,14 +268,10 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
           </div>
         )}
 
-        {/* Content (hidden during load/error) */}
         {!isLoading && !isError && (
           <div className="space-y-4">
-            {/* ── Storage Locations (Electron only) ───────────────────────────── */}
             {isElectron && (
-              <section className="space-y-3">
-                <p className="section-label mb-3">Storage Locations</p>
-
+              <SettingsSection title="Storage Locations">
                 <StoragePathRow
                   label="App data location"
                   description="Database, thumbnails & search index. SSD recommended."
@@ -319,15 +305,9 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                     </button>
                   </div>
                 )}
-
-                <div className="border-t border-border/30" />
-              </section>
+              </SettingsSection>
             )}
-            {/* ── AI Model ────────────────────────────────────────────────────── */}
-            <section className="space-y-3">
-              <p className="section-label mb-3">AI Model</p>
-
-              {/* Active model display */}
+            <SettingsSection title="AI Model">
               <p className="text-xs text-muted-foreground">
                 Active model:{' '}
                 <span className="font-medium text-foreground">
@@ -335,7 +315,6 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                 </span>
               </p>
 
-              {/* Model cards */}
               {modelsLoading && <p className="text-xs text-muted-foreground">Loading models…</p>}
               {modelsError && <p className="text-xs text-destructive">Could not load model list</p>}
               {modelsData && modelsData.models.length > 0 && (
@@ -366,14 +345,12 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                               : 'border-border bg-card hover:border-border/80 hover:bg-accent/30'
                         }`}
                       >
-                        {/* Active checkmark */}
                         {isActive && (
                           <span className="absolute top-2 right-2 text-primary">
                             <Check className="h-3.5 w-3.5" />
                           </span>
                         )}
 
-                        {/* Label + hardware badge */}
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="font-medium text-xs">{model.label}</span>
                           <span
@@ -388,12 +365,10 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                           )}
                         </div>
 
-                        {/* Description */}
                         <p className="text-[11px] text-muted-foreground leading-relaxed">
                           {model.description}
                         </p>
 
-                        {/* Size */}
                         <p className="text-[10px] text-muted-foreground">
                           ~{model.approx_size_mb} MB
                         </p>
@@ -403,7 +378,6 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                 </div>
               )}
 
-              {/* Pending switch confirmation banner */}
               {pendingModel && (
                 <div className="rounded-md border p-3 text-xs space-y-2 border-border bg-muted/50">
                   <p className="text-muted-foreground">
@@ -435,7 +409,6 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                 </div>
               )}
 
-              {/* Stale embeddings section */}
               {modelsData && modelsData.models.some((m) => !m.active && m.downloaded) && (
                 <div className="space-y-2 pt-1">
                   <p className="text-xs font-medium">Stale Embeddings</p>
@@ -464,184 +437,109 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                   </div>
                 </div>
               )}
+            </SettingsSection>
 
-              <div className="border-t border-border/30" />
-            </section>
-
-            {/* ── General ─────────────────────────────────────────────────────── */}
-            <section className="space-y-3">
-              <p className="section-label mb-3">General</p>
-
+            <SettingsSection title="General">
               <SettingRow
                 label="Grid detection"
                 description="Automatically detect grids on imported battlemaps"
               >
-                <button
-                  type="button"
-                  onClick={() => {
-                    const current = val('enable_image_grid_detection')
-                    setField('enable_image_grid_detection', !current)
-                  }}
-                  aria-label="Toggle grid detection"
-                  aria-pressed={val('enable_image_grid_detection') as boolean}
-                  className={`h-6 w-11 rounded-full transition-colors flex items-center px-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 ${
-                    val('enable_image_grid_detection')
-                      ? 'bg-primary'
-                      : 'bg-secondary border border-border/50'
-                  }`}
-                >
-                  <div
-                    className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
-                      val('enable_image_grid_detection') ? 'translate-x-5' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
+                <ToggleSwitch
+                  label="Toggle grid detection"
+                  checked={!!val('enable_image_grid_detection')}
+                  onChange={(v) => setField('enable_image_grid_detection', v)}
+                />
               </SettingRow>
+            </SettingsSection>
 
-              <div className="border-t border-border/30" />
-            </section>
-
-            {/* ── Tag Packs ──────────────────────────────────────────────────── */}
             <TagPacksSection dialogOpen={dialogOpen} />
 
-            {/* ── Import Limits ───────────────────────────────────────────────── */}
-            <section className="space-y-3">
-              <p className="section-label mb-3">Import Limits</p>
-
+            <SettingsSection title="Import Limits">
               <SettingRow
                 label="Max file size"
                 description="Maximum size for individual image files"
               >
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    inputSize="compact"
-                    min="1"
-                    max="1000"
-                    inputMode="decimal"
-                    value={formatSizeInput(val('max_import_file_size'))}
-                    onChange={(e) =>
-                      setField('max_import_file_size', parseSizeInput(e.target.value))
-                    }
-                    className="w-20 text-right font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    aria-label="Max file size in MB"
-                  />
-                  <span className="w-8 shrink-0 text-xs text-muted-foreground">MB</span>
-                </div>
+                <NumberSetting
+                  min={1}
+                  max={1000}
+                  inputMode="decimal"
+                  unit="MB"
+                  value={formatSizeInput(val('max_import_file_size'))}
+                  onChange={(v) => setField('max_import_file_size', parseSizeInput(v))}
+                  ariaLabel="Max file size in MB"
+                />
               </SettingRow>
 
               <SettingRow label="Max video size" description="Maximum size for video files">
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    inputSize="compact"
-                    min="1"
-                    max="5000"
-                    inputMode="decimal"
-                    value={formatSizeInput(val('max_video_file_size'))}
-                    onChange={(e) =>
-                      setField('max_video_file_size', parseSizeInput(e.target.value))
-                    }
-                    className="w-20 text-right font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    aria-label="Max video size in MB"
-                  />
-                  <span className="w-8 shrink-0 text-xs text-muted-foreground">MB</span>
-                </div>
+                <NumberSetting
+                  min={1}
+                  max={5000}
+                  inputMode="decimal"
+                  unit="MB"
+                  value={formatSizeInput(val('max_video_file_size'))}
+                  onChange={(v) => setField('max_video_file_size', parseSizeInput(v))}
+                  ariaLabel="Max video size in MB"
+                />
               </SettingRow>
 
               <SettingRow
                 label="Max files per import"
                 description="Maximum number of files in a single import"
               >
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    inputSize="compact"
-                    min="1"
-                    max="10000"
-                    inputMode="numeric"
-                    value={(val('max_import_files') as number) ?? ''}
-                    onChange={(e) => setField('max_import_files', parseIntInput(e.target.value))}
-                    className="w-20 text-right font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    aria-label="Max files per import"
-                  />
-                  <span className="w-8 shrink-0" />
-                </div>
+                <NumberSetting
+                  min={1}
+                  max={10000}
+                  inputMode="numeric"
+                  value={val('max_import_files') ?? ''}
+                  onChange={(v) => setField('max_import_files', parseIntInput(v))}
+                  ariaLabel="Max files per import"
+                />
               </SettingRow>
 
               <SettingRow
                 label="Max total upload size"
                 description="Maximum total size for all files in one import"
               >
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    inputSize="compact"
-                    min="1"
-                    max="50000"
-                    inputMode="decimal"
-                    value={formatSizeInput(val('max_import_total_size'))}
-                    onChange={(e) =>
-                      setField('max_import_total_size', parseSizeInput(e.target.value))
-                    }
-                    className="w-20 text-right font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    aria-label="Max total upload size in MB"
-                  />
-                  <span className="w-8 shrink-0 text-xs text-muted-foreground">MB</span>
-                </div>
+                <NumberSetting
+                  min={1}
+                  max={50000}
+                  inputMode="decimal"
+                  unit="MB"
+                  value={formatSizeInput(val('max_import_total_size'))}
+                  onChange={(v) => setField('max_import_total_size', parseSizeInput(v))}
+                  ariaLabel="Max total upload size in MB"
+                />
               </SettingRow>
 
               <SettingRow
                 label="Convert imports to WebP"
                 description="Reduces file size 20–40% with no quality loss. Applies to new imports only."
               >
-                <button
-                  type="button"
-                  onClick={() => setField('convert_to_webp', !val('convert_to_webp'))}
-                  aria-label="Toggle WebP conversion"
-                  aria-pressed={val('convert_to_webp') as boolean}
-                  className={`h-6 w-11 rounded-full transition-colors flex items-center px-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 ${
-                    val('convert_to_webp') ? 'bg-primary' : 'bg-secondary border border-border/50'
-                  }`}
-                >
-                  <div
-                    className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
-                      val('convert_to_webp') ? 'translate-x-5' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
+                <ToggleSwitch
+                  label="Toggle WebP conversion"
+                  checked={!!val('convert_to_webp')}
+                  onChange={(v) => setField('convert_to_webp', v)}
+                />
               </SettingRow>
+            </SettingsSection>
 
-              <div className="border-t border-border/30" />
-            </section>
-
-            {/* ── Performance ─────────────────────────────────────────────────── */}
-            <section className="space-y-3">
-              <p className="section-label mb-3">Performance</p>
-
+            <SettingsSection title="Performance" divider={false}>
               <SettingRow
                 label="Concurrent imports"
                 description="Number of simultaneous import jobs (1-16)"
                 requiresRestart={true}
               >
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    inputSize="compact"
-                    min="1"
-                    max="16"
-                    inputMode="numeric"
-                    value={(val('max_concurrent_prepare') as number) ?? ''}
-                    onChange={(e) =>
-                      setField('max_concurrent_prepare', parseIntInput(e.target.value))
-                    }
-                    className="w-16 text-right font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    aria-label="Concurrent imports (1-16)"
-                  />
-                  <span className="w-8 shrink-0" />
-                </div>
+                <NumberSetting
+                  min={1}
+                  max={16}
+                  inputMode="numeric"
+                  widthClass="w-16"
+                  value={val('max_concurrent_prepare') ?? ''}
+                  onChange={(v) => setField('max_concurrent_prepare', parseIntInput(v))}
+                  ariaLabel="Concurrent imports (1-16)"
+                />
               </SettingRow>
-            </section>
+            </SettingsSection>
           </div>
         )}
       </div>

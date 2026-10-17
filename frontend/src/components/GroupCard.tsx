@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { MoreHorizontal, Pencil, Merge, Trash2, Layers, FolderDown } from 'lucide-react'
 import { toast } from 'sonner'
-import axios from 'axios'
+import { downloadFile } from '@/lib/download'
 import { getThumbnailUrl, getGroupDownloadUrl } from '@/lib/api'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { VideoIndicator } from '@/components/ui/video-indicator'
@@ -39,16 +39,7 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
     if (!groupId || downloading) return
     setDownloading(true)
     try {
-      const resp = await axios.get(getGroupDownloadUrl(groupId), { responseType: 'blob' })
-      const blob = resp.data as Blob
-      const objectUrl = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = objectUrl
-      a.download = `${baseName}.zip`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(objectUrl)
+      await downloadFile(getGroupDownloadUrl(groupId), `${baseName}.zip`)
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Group download failed'))
     } finally {
@@ -106,9 +97,7 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
         </div>
       )}
 
-      {/* Image area */}
       <div className="flex" style={{ height: '160px' }}>
-        {/* Hero image */}
         <div
           className="relative h-full shrink-0 overflow-hidden"
           style={{ width: hasMosaic ? '60%' : '100%' }}
@@ -126,7 +115,6 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
           {hasMosaic && <div className="absolute inset-y-0 right-0 w-px bg-black/30" />}
         </div>
 
-        {/* Mosaic grid */}
         {hasMosaic && (
           <div className="relative h-full shrink-0 overflow-hidden" style={{ width: '40%' }}>
             <div className={`grid h-full ${mosaicGridClasses(visibleMosaic.length)}`}>

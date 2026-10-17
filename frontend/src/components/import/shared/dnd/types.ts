@@ -1,4 +1,4 @@
-// ── Shared DnD types ──────────────────────────────────────────────────────
+// Shared DnD types
 
 export interface DragData {
   type: 'card' | 'group'

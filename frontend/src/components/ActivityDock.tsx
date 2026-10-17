@@ -239,7 +239,6 @@ function BackgroundJobCard({ job }: { job: BackgroundJob }) {
           )}
         </div>
 
-        {/* Progress bar */}
         {(job.status === 'running' || job.status === 'queued' || isTerminal) && (
           <div className="flex items-center gap-2 mt-[7px]">
             <div className="flex-1 h-[3px] rounded-full bg-border/30 overflow-hidden">
@@ -261,7 +260,6 @@ function BackgroundJobCard({ job }: { job: BackgroundJob }) {
           </div>
         )}
 
-        {/* Status text */}
         <div className="mt-1 text-[10px] text-muted-foreground/45 leading-tight">
           {job.status === 'queued' && <span>Queued</span>}
           {job.status === 'running' && <span>{job.progress ?? 'Processing...'}</span>}

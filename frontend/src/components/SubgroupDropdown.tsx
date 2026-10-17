@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { MAX_NAME_LENGTH } from '@/lib/constants'
+import { onInlineEditKey } from '@/lib/inlineEditKeys'
 
 interface SubgroupDropdownProps {
-  /** Whether the dropdown is visible */
   isOpen: boolean
   /** All existing subgroup labels — shown as quick-pick options */
   existingSubgroups: string[]
@@ -90,20 +90,19 @@ export function SubgroupDropdown({
             maxLength={MAX_NAME_LENGTH}
             autoFocus
             className="flex-1 min-w-0 h-6 px-2 text-[12px] bg-secondary border border-border rounded text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && draft.trim()) {
-                e.preventDefault()
-                e.stopPropagation()
-                triggerRef?.current?.focus()
-                onCommit(draft.trim())
-              }
-              if (e.key === 'Escape') {
-                e.preventDefault()
-                e.nativeEvent.stopImmediatePropagation()
-                triggerRef?.current?.focus()
-                onCancel()
-              }
-            }}
+            onKeyDown={(e) =>
+              onInlineEditKey(e, {
+                onEnter: () => {
+                  if (!draft.trim()) return
+                  triggerRef?.current?.focus()
+                  onCommit(draft.trim())
+                },
+                onEscape: () => {
+                  triggerRef?.current?.focus()
+                  onCancel()
+                },
+              })
+            }
           />
           <Button
             type="button"

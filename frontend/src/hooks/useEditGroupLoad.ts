@@ -8,13 +8,12 @@ import { ALL_TAB } from '@/hooks/useFileEditing'
 import type {
   EditableFileState,
   EditableGroupState,
+  GroupDetail,
   Image,
   GroupEditRequest,
   ParsedTagVocab,
   SeedImage,
 } from '@/types'
-
-// ── Pure helpers (exported for use by EditGroupDialog) ────────────────────
 
 export function imageToEditable(img: Image, outOfScope = false): EditableFileState {
   return {
@@ -41,6 +40,30 @@ export function imageToEditable(img: Image, outOfScope = false): EditableFileSta
   }
 }
 
+/**
+ * A group from the API as editor state. `isOutOfScope` marks images that are in the
+ * group but not in the user's selection (mass edit), shown but not edited.
+ */
+export function groupDetailToEditable(
+  detail: GroupDetail,
+  isOutOfScope?: (imageId: number) => boolean,
+): EditableGroupState {
+  return {
+    id: String(detail.id),
+    author: detail.author ?? '',
+    group_name: detail.base_name,
+    files: detail.images.map((img) => imageToEditable(img, isOutOfScope?.(img.id) ?? false)),
+  }
+}
+
+/** The active tab after removing the group at `removedIdx`; `fallback` if it was the active one. */
+export function tabAfterRemoval(tab: number, removedIdx: number, fallback: number): number {
+  if (tab === ALL_TAB) return tab
+  if (removedIdx < tab) return tab - 1
+  if (removedIdx === tab) return fallback
+  return tab
+}
+
 export function toImageEdit(f: EditableFileState): GroupEditRequest['images'][number] {
   return {
     id: Number(f.relative_path),
@@ -63,8 +86,6 @@ export function buildPayload(group: EditableGroupState): GroupEditRequest {
     new_groups: [],
   }
 }
-
-// ── Hook options ──────────────────────────────────────────────────────────
 
 export interface UseEditGroupLoadOptions {
   open: boolean
@@ -95,8 +116,6 @@ export interface UseEditGroupLoadReturn {
   resetLoad: () => void
 }
 
-// ── Hook ──────────────────────────────────────────────────────────────────
-
 export function useEditGroupLoad({
   open,
   groupId,
@@ -125,7 +144,7 @@ export function useEditGroupLoad({
   // reset when the dialog closes/reopens so incremental loads start fresh.
   const loadedGroupIdsRef = useRef(new Set<number>())
 
-  // Ref to avoid stale closure in effects — always points to latest callback
+  // Read through a ref so a new callback identity doesn't re-run the load effects.
   const onResetDialogStateRef = useRef(onResetDialogState)
   onResetDialogStateRef.current = onResetDialogState
 
@@ -140,8 +159,7 @@ export function useEditGroupLoad({
     loadedGroupIdsRef.current = new Set()
   }, [setGroups, setActiveTab, setFileFilter, setEditingSvHeading])
 
-  // ── Load: single-group mode ──────────────────────────────────────
-
+  // Single-group mode
   useEffect(() => {
     if (!open || isMassEdit || isImportReview) return
     const gId = groupId ?? null
@@ -153,27 +171,19 @@ export function useEditGroupLoad({
 
     setLoading(true)
     setLoadError(null)
+    // Ignore a response that lands after the dialog closed or switched group.
+    let cancelled = false
 
     Promise.all([groupApi.get(gId), tagApi.getCategories(), imageApi.getAuthors()])
       .then(([group, categories, authors]) => {
-        setGroups([
-          {
-            id: String(group.id),
-            author: group.author ?? '',
-            group_name: group.base_name,
-            files: group.images.map((img) => imageToEditable(img)),
-            skip: false,
-            status: 'pending',
-            processed: 0,
-            failed: 0,
-            total: group.images.length,
-          },
-        ])
+        if (cancelled) return
+        setGroups([groupDetailToEditable(group)])
         setTagVocab(parseTagVocabulary(categories))
         setAuthorSuggestions(authors)
         setActiveTab(0)
       })
       .catch((err: unknown) => {
+        if (cancelled) return
         if (isNotFoundError(err)) {
           setLoadError('This group no longer exists — it may have been merged or deleted.')
         } else {
@@ -181,8 +191,12 @@ export function useEditGroupLoad({
         }
       })
       .finally(() => {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       })
+
+    return () => {
+      cancelled = true
+    }
   }, [
     open,
     groupId,
@@ -195,15 +209,13 @@ export function useEditGroupLoad({
     setActiveTab,
   ])
 
-  // ── Load: mass-edit mode ─────────────────────────────────────────
-
+  // Mass-edit mode
   useEffect(() => {
     if (!open || !isMassEdit) return
 
     setLoading(true)
     setLoadError(null)
 
-    // Group seed images by group_id
     const byGroup = new Map<number, SeedImage[]>()
     let ungrouped = 0
     for (const img of seedImages!) {
@@ -224,6 +236,7 @@ export function useEditGroupLoad({
     }
 
     setUngroupedCount(ungrouped)
+    let cancelled = false
 
     Promise.all([
       ...groupIdKeys.map((id) => groupApi.get(id)),
@@ -231,28 +244,17 @@ export function useEditGroupLoad({
       imageApi.getAuthors(),
     ])
       .then((results) => {
-        const groupDetails = results.slice(0, groupIdKeys.length) as Awaited<
-          ReturnType<typeof groupApi.get>
-        >[]
+        if (cancelled) return
+        const groupDetails = results.slice(0, groupIdKeys.length) as GroupDetail[]
         const categories = results[groupIdKeys.length] as Awaited<
           ReturnType<typeof tagApi.getCategories>
         >
         const authors = results[groupIdKeys.length + 1] as string[]
 
-        const editableGroups: EditableGroupState[] = groupDetails.map((detail) => {
+        // Every image in each group is loaded; those not in the search results are out of scope.
+        const editableGroups = groupDetails.map((detail) => {
           const seedIds = new Set((byGroup.get(detail.id) ?? []).map((img) => img.id))
-          return {
-            id: String(detail.id),
-            author: detail.author ?? '',
-            group_name: detail.base_name,
-            // ALL images in the group; non-seed ones marked outOfScope
-            files: detail.images.map((img) => imageToEditable(img, !seedIds.has(img.id))),
-            skip: false,
-            status: 'pending',
-            processed: 0,
-            failed: 0,
-            total: detail.images.length,
-          }
+          return groupDetailToEditable(detail, (id) => !seedIds.has(id))
         })
 
         setGroups(editableGroups)
@@ -261,14 +263,18 @@ export function useEditGroupLoad({
         setActiveTab(editableGroups.length > 1 ? ALL_TAB : 0)
       })
       .catch((err: unknown) => {
-        setLoadError(getApiErrorMessage(err, 'Failed to load groups'))
+        if (!cancelled) setLoadError(getApiErrorMessage(err, 'Failed to load groups'))
       })
       .finally(() => {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       })
+
+    return () => {
+      cancelled = true
+    }
   }, [open, seedImages, isMassEdit, setGroups, setTagVocab, setAuthorSuggestions, setActiveTab])
 
-  // ── Load: import-review mode (incremental — only fetch newly-added IDs) ──
+  // Import-review mode: incremental, fetching only newly added IDs
 
   useEffect(() => {
     if (!open || !isImportReview) return
@@ -299,21 +305,8 @@ export function useEditGroupLoad({
       .then((results) => {
         if (cancelled) return
 
-        const groupDetails = results.slice(0, newIds.length) as Awaited<
-          ReturnType<typeof groupApi.get>
-        >[]
-
-        const newEditableGroups: EditableGroupState[] = groupDetails.map((detail) => ({
-          id: String(detail.id),
-          author: detail.author ?? '',
-          group_name: detail.base_name,
-          files: detail.images.map((img) => imageToEditable(img)),
-          skip: false,
-          status: 'pending',
-          processed: 0,
-          failed: 0,
-          total: detail.images.length,
-        }))
+        const groupDetails = results.slice(0, newIds.length) as GroupDetail[]
+        const newEditableGroups = groupDetails.map((detail) => groupDetailToEditable(detail))
 
         newIds.forEach((id) => loadedGroupIdsRef.current.add(id))
         setGroups((prev) => [...prev, ...newEditableGroups])

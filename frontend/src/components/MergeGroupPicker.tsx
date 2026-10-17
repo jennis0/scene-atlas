@@ -112,7 +112,6 @@ export function MergeGroupPicker({
                   isSelected ? 'bg-primary/15 ring-1 ring-primary/40' : 'hover:bg-muted/50'
                 }`}
               >
-                {/* Thumbnail */}
                 <div className="h-8 w-8 shrink-0 rounded overflow-hidden bg-muted/60 border border-border/30 relative">
                   {/* Fallback icon — always present, covered by image if loaded */}
                   <div className="absolute inset-0 flex items-center justify-center">
@@ -131,7 +130,6 @@ export function MergeGroupPicker({
                   )}
                 </div>
 
-                {/* Group info */}
                 <div className="flex-1 min-w-0">
                   <p
                     className={`text-[13px] font-medium leading-tight truncate ${
@@ -147,7 +145,6 @@ export function MergeGroupPicker({
                   )}
                 </div>
 
-                {/* Image count */}
                 <span className="shrink-0 px-1.5 py-px rounded-full bg-primary/15 text-[10px] font-medium text-primary tabular-nums">
                   {group.image_count}
                 </span>

@@ -57,8 +57,6 @@ export const importClient = {
     jobId: string,
     params: {
       state?: ItemState[]
-      groupId?: number
-      errorKind?: string
       after?: number
       limit?: number
     } = {},
@@ -66,8 +64,6 @@ export const importClient = {
     const { data } = await api.get<ImportItemPage>(`${BASE}/${jobId}/items`, {
       params: {
         state: params.state,
-        group_id: params.groupId,
-        error_kind: params.errorKind,
         after: params.after,
         limit: params.limit,
       },

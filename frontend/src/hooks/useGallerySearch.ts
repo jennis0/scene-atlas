@@ -3,14 +3,9 @@ import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { searchApi } from '@/lib/api'
 import { QUERY_KEYS } from '@/lib/queryKeys'
-import { useImageGrouping } from '@/hooks/useImageGrouping'
 import { useGroupSearch } from '@/hooks/useGroupSearch'
 import type { Image, ImageGroup, SearchParams, SortBy, SortDir, ViewMode, FacetData } from '@/types'
 import type { ActiveFilter, ImageTypeFilter } from '@/components/import/fileFilter'
-
-// ---------------------------------------------------------------------------
-// Sort options
-// ---------------------------------------------------------------------------
 
 export const SORT_OPTIONS: { value: SortBy; dir: SortDir; label: string; queryOnly?: boolean }[] = [
   { value: 'created_at', dir: 'desc', label: 'Newest first' },
@@ -32,10 +27,6 @@ export function loadSortKey(): string {
   if (stored && SORT_OPTIONS.some((o) => `${o.value}:${o.dir}` === stored)) return stored
   return DEFAULT_SORT_KEY
 }
-
-// ---------------------------------------------------------------------------
-// URL <-> filter serialisation helpers
-// ---------------------------------------------------------------------------
 
 export function parseFiltersFromUrl(params: URLSearchParams): ActiveFilter[] {
   const result: ActiveFilter[] = []
@@ -86,9 +77,75 @@ export function buildUrlParams(
   return params
 }
 
-// ---------------------------------------------------------------------------
-// Return type
-// ---------------------------------------------------------------------------
+/** Builds the /search request from the gallery state. The query prefix picks the mode: `~` visual, `=` keyword. */
+export function buildSearchParams(
+  submittedQuery: string,
+  filters: ActiveFilter[],
+  imageType: ImageTypeFilter,
+  sortBy: SortBy,
+  sortDir: SortDir,
+): SearchParams {
+  const params: SearchParams = { limit: 500, offset: 0 }
+
+  if (submittedQuery) {
+    if (submittedQuery.startsWith('~')) {
+      params.query = submittedQuery.slice(1).trim()
+      params.semantic_only = true
+    } else if (submittedQuery.startsWith('=')) {
+      params.query = submittedQuery.slice(1).trim()
+      params.text_only = true
+    } else {
+      params.query = submittedQuery
+    }
+  }
+
+  const includeTags = filters.filter((f) => f.type === 'tag' && !f.exclude).map((f) => f.value)
+  const excludeTags = filters.filter((f) => f.type === 'tag' && f.exclude).map((f) => f.value)
+  const includeAuthors = filters
+    .filter((f) => f.type === 'author' && !f.exclude)
+    .map((f) => f.value)
+  const excludeAuthors = filters.filter((f) => f.type === 'author' && f.exclude).map((f) => f.value)
+  const griddedFilter = filters.find((f) => f.type === 'gridded')
+
+  if (includeTags.length) params.tags = includeTags
+  if (excludeTags.length) params.exclude_tags = excludeTags
+  if (includeAuthors.length) params.authors = includeAuthors
+  if (excludeAuthors.length) params.exclude_authors = excludeAuthors
+  if (griddedFilter) {
+    if (griddedFilter.value === 'square') {
+      params.gridded = true
+      params.grid_type = 'square'
+    } else if (griddedFilter.value === 'hex') {
+      params.gridded = true
+      params.grid_type = 'hex'
+    } else if (griddedFilter.value === 'unknown') {
+      params.gridded_unknown = true
+    } else {
+      params.gridded = griddedFilter.value === 'gridded' ? true : false
+    }
+  }
+
+  const colorFilters = filters.filter((f) => f.type === 'color').map((f) => f.value)
+  if (colorFilters.length) params.colors = colorFilters
+
+  if (imageType !== 'all') params.image_types = [imageType]
+
+  const mediaTypeFilters = filters.filter((f) => f.type === 'media_type').map((f) => f.value)
+  if (mediaTypeFilters.length) params.media_types = mediaTypeFilters
+
+  params.sort_by = sortBy
+  params.sort_dir = sortDir
+
+  return params
+}
+
+/** The same filters for /search/groups, which pages itself. */
+export function toGroupSearchParams(
+  searchParams: SearchParams,
+): Omit<SearchParams, 'limit' | 'offset'> {
+  const { limit: _l, offset: _o, ...rest } = searchParams
+  return rest
+}
 
 export interface UseGallerySearchReturn {
   // State
@@ -137,10 +194,6 @@ export interface UseGallerySearchReturn {
   clearAll: () => void
 }
 
-// ---------------------------------------------------------------------------
-// Hook
-// ---------------------------------------------------------------------------
-
 export function useGallerySearch(): UseGallerySearchReturn {
   const [urlParams, setUrlParams] = useSearchParams()
 
@@ -184,156 +237,50 @@ export function useGallerySearch(): UseGallerySearchReturn {
     localStorage.setItem('gallery-view-mode', mode)
   }, [])
 
-  // Facets -- lightweight cached fetch
   const { data: facets } = useQuery({
     queryKey: QUERY_KEYS.searchFacets,
     queryFn: () => searchApi.facets(),
     staleTime: 60_000,
   })
 
-  // Detect search mode from prefix
   const isSemantic = submittedQuery.startsWith('~')
   const isTextOnly = submittedQuery.startsWith('=')
 
-  // Build search params from submitted query + active filters
-  const searchParams: SearchParams = useMemo(() => {
-    const params: SearchParams = { limit: 500, offset: 0 }
+  const searchParams = useMemo(
+    () => buildSearchParams(submittedQuery, filters, imageType, sortBy, sortDir),
+    [submittedQuery, filters, imageType, sortBy, sortDir],
+  )
 
-    if (submittedQuery) {
-      if (submittedQuery.startsWith('~')) {
-        params.query = submittedQuery.slice(1).trim()
-        params.semantic_only = true
-      } else if (submittedQuery.startsWith('=')) {
-        params.query = submittedQuery.slice(1).trim()
-        params.text_only = true
-      } else {
-        params.query = submittedQuery
-      }
-    }
+  const hasActiveSearch = !!searchParams.query || filters.length > 0
 
-    const includeTags = filters.filter((f) => f.type === 'tag' && !f.exclude).map((f) => f.value)
-    const excludeTags = filters.filter((f) => f.type === 'tag' && f.exclude).map((f) => f.value)
-    const includeAuthors = filters
-      .filter((f) => f.type === 'author' && !f.exclude)
-      .map((f) => f.value)
-    const excludeAuthors = filters
-      .filter((f) => f.type === 'author' && f.exclude)
-      .map((f) => f.value)
-    const griddedFilter = filters.find((f) => f.type === 'gridded')
+  const groupSearchParams = useMemo(() => toGroupSearchParams(searchParams), [searchParams])
 
-    if (includeTags.length) params.tags = includeTags
-    if (excludeTags.length) params.exclude_tags = excludeTags
-    if (includeAuthors.length) params.authors = includeAuthors
-    if (excludeAuthors.length) params.exclude_authors = excludeAuthors
-    if (griddedFilter) {
-      if (griddedFilter.value === 'square') {
-        params.gridded = true
-        params.grid_type = 'square'
-      } else if (griddedFilter.value === 'hex') {
-        params.gridded = true
-        params.grid_type = 'hex'
-      } else if (griddedFilter.value === 'unknown') {
-        params.gridded_unknown = true
-      } else {
-        params.gridded = griddedFilter.value === 'gridded' ? true : false
-      }
-    }
-
-    const colorFilters = filters.filter((f) => f.type === 'color').map((f) => f.value)
-    if (colorFilters.length) params.colors = colorFilters
-
-    if (imageType !== 'all') params.image_types = [imageType]
-
-    const mediaTypeFilters = filters.filter((f) => f.type === 'media_type').map((f) => f.value)
-    if (mediaTypeFilters.length) params.media_types = mediaTypeFilters
-
-    params.sort_by = sortBy
-    params.sort_dir = sortDir
-
-    return params
-  }, [submittedQuery, filters, imageType, sortBy, sortDir])
-
-  const hasActiveSearch =
-    !!searchParams.query ||
-    filters.length > 0 ||
-    (searchParams.tags?.length ?? 0) > 0 ||
-    (searchParams.authors?.length ?? 0) > 0
-
-  // Build search params for grouped view (without limit/offset -- handled by useGroupSearch)
-  const groupSearchParams: Omit<SearchParams, 'limit' | 'offset'> = useMemo(() => {
-    const params: Omit<SearchParams, 'limit' | 'offset'> = {}
-    if (searchParams.query) params.query = searchParams.query
-    if (searchParams.semantic_only) params.semantic_only = searchParams.semantic_only
-    if (searchParams.text_only) params.text_only = searchParams.text_only
-    if (searchParams.tags) params.tags = searchParams.tags
-    if (searchParams.exclude_tags) params.exclude_tags = searchParams.exclude_tags
-    if (searchParams.authors) params.authors = searchParams.authors
-    if (searchParams.exclude_authors) params.exclude_authors = searchParams.exclude_authors
-    if (searchParams.colors) params.colors = searchParams.colors
-    if (searchParams.image_types) params.image_types = searchParams.image_types
-    if (searchParams.media_types) params.media_types = searchParams.media_types
-    if (searchParams.gridded !== undefined) params.gridded = searchParams.gridded
-    if (searchParams.grid_type) params.grid_type = searchParams.grid_type
-    params.sort_by = searchParams.sort_by
-    params.sort_dir = searchParams.sort_dir
-    return params
-  }, [searchParams])
-
-  // Image search (individual view)
   const { data: searchResults, isLoading: isSearchingImages } = useQuery({
     queryKey: [...QUERY_KEYS.search, searchParams],
     queryFn: () => searchApi.search(searchParams),
     enabled: viewMode === 'individual',
   })
 
-  // Group search (grouped view)
   // Skip score filtering in text-only mode (scores are 0.0, not null)
-  const groupQuery = useGroupSearch(groupSearchParams, isTextOnly ? 0 : minScore)
+  const groupQuery = useGroupSearch(groupSearchParams, isTextOnly ? 0 : minScore, {
+    enabled: viewMode === 'grouped',
+  })
   const isSearchingGroups = groupQuery.isLoading
   // Destructure reset so the useEffect below depends on a stable function, not the
   // full groupQuery object (which is a new reference every render).
   const { reset: resetGroupQuery } = groupQuery
 
-  // Track previous minScore for debounce direction detection
+  // Debounce minScore changes in grouped view. Raising the threshold is instant (useGroupSearch
+  // filters the loaded pages), but lowering it refetches from page one, since the loaded pages
+  // may hold too few groups above the new threshold.
   const prevScoreRef = useRef(minScore)
-  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>()
-
-  // Debounce minScore changes in grouped view:
-  // Optimization: raising threshold is instant (filters already-loaded results in useGroupSearch's memo),
-  // while lowering threshold requires refetching because we may not have enough results loaded
   useEffect(() => {
-    if (viewMode !== 'grouped' || !submittedQuery) {
-      // Clean up any pending timers when leaving grouped view or losing query
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current)
-      }
-      return
-    }
-
-    const isLoweringThreshold = minScore < (prevScoreRef.current ?? minScore)
-
-    if (isLoweringThreshold) {
-      // Clear any existing timer to avoid race conditions
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current)
-      }
-
-      // Set new debounce timer to reset pagination and refetch
-      debounceTimerRef.current = setTimeout(() => {
-        resetGroupQuery()
-        debounceTimerRef.current = undefined
-      }, 400)
-    }
-
-    // Always update the ref after processing (both instant and debounce cases)
+    if (viewMode !== 'grouped' || !submittedQuery) return
+    const lowered = minScore < prevScoreRef.current
     prevScoreRef.current = minScore
-
-    // Cleanup: cancel pending timer if effect unmounts
-    return () => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current)
-      }
-    }
+    if (!lowered) return
+    const timer = setTimeout(resetGroupQuery, 400)
+    return () => clearTimeout(timer)
   }, [minScore, viewMode, submittedQuery, resetGroupQuery])
 
   const isSearching = viewMode === 'individual' ? isSearchingImages : isSearchingGroups
@@ -352,18 +299,8 @@ export function useGallerySearch(): UseGallerySearchReturn {
   const totalBeforeFilter = searchResults?.images?.length ?? 0
   const filteredCount = displayImages.length
 
-  // Group images for the grouped view (client-side grouping when using image search)
-  // This is used as a fallback when viewing old grouped results
-  const clientGroupedImages = useImageGrouping({
-    images: displayImages,
-    scores: searchResults?.scores,
-    sortBy,
-    sortDir,
-  })
-
-  // In grouped mode, use server-side grouped results; otherwise use client-side grouping
-  const imageGroups = viewMode === 'grouped' ? groupQuery.groups : clientGroupedImages
-  const totalGroups = viewMode === 'grouped' ? groupQuery.totalGroups : clientGroupedImages.length
+  const imageGroups = groupQuery.groups
+  const totalGroups = groupQuery.totalGroups
   const isFetchingNextPage = viewMode === 'grouped' ? groupQuery.isFetchingNextPage : false
   const hasNextPage = viewMode === 'grouped' ? groupQuery.hasNextPage : false
   const fetchNextPage = viewMode === 'grouped' ? groupQuery.fetchNextPage : () => {}
@@ -428,7 +365,6 @@ export function useGallerySearch(): UseGallerySearchReturn {
   const searchModeSuffix = isSemantic ? ' \u00b7 visual' : isTextOnly ? ' \u00b7 keyword' : ''
 
   return {
-    // State
     searchInput,
     setSearchInput,
     submittedQuery,
@@ -439,8 +375,6 @@ export function useGallerySearch(): UseGallerySearchReturn {
     setMinScore,
     viewMode,
     setViewMode,
-
-    // Derived values
     isSemantic,
     isTextOnly,
     hasActiveSearch,
@@ -450,22 +384,16 @@ export function useGallerySearch(): UseGallerySearchReturn {
     filteredCount,
     sortBy,
     sortDir,
-
-    // Data
     facets,
     searchParams,
     groupSearchParams,
     displayImages,
     imageGroups,
     isSearching,
-
-    // Infinite scroll for grouped view
     totalGroups,
     isFetchingNextPage,
     hasNextPage,
     fetchNextPage,
-
-    // Handlers
     handleSubmit,
     handleSortChange,
     handleFiltersChange,

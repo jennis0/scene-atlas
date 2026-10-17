@@ -33,7 +33,6 @@ export function useEmbeddingStatus(): UseEmbeddingStatusReturn {
       }
     }
 
-    // Initial check immediately
     check()
 
     const interval = setInterval(check, 3000)

@@ -112,12 +112,6 @@ export interface ImageGroup {
   aggregatedTags: Tag[]
 }
 
-export interface TagValue {
-  category: string
-  value: string
-  count: number
-}
-
 export interface TagPack {
   name: string
   label: string
@@ -125,17 +119,6 @@ export interface TagPack {
   tag_count: number
   imported: boolean
   new_tags: number
-}
-
-export interface TagStats {
-  total_tags: number
-  categories: Record<
-    string,
-    {
-      total_tags: number
-      unique_values: number
-    }
-  >
 }
 
 // Per-image tag as edited in the group editor
@@ -170,13 +153,6 @@ export interface EditableGroupState {
   author: string
   group_name: string
   files: EditableFileState[]
-  skip: boolean
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
-  processed: number
-  failed: number
-  total: number
-  /** Error message from a failed confirm, displayed in the footer */
-  error?: string
 }
 
 // Group picker/merge types
@@ -284,7 +260,7 @@ export interface BackgroundJob {
   error: string | null
 }
 
-// ── Tag vocabulary (parsed from TagCategory.common_values) ───────────────────
+// Tag vocabulary (parsed from TagCategory.common_values)
 
 export interface ParsedTagVocab {
   category: string
@@ -293,7 +269,7 @@ export interface ParsedTagVocab {
   aliases: Record<string, string[]> // canonical value → alias list
 }
 
-// ── App Settings ──────────────────────────────────────────────────────────────
+// App Settings
 
 export interface AppSettings {
   // AI model selection: "" = auto-detect; "small" | "medium" | "large" once set

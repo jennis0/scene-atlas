@@ -248,9 +248,7 @@ export function ImportReportDialog({
   )
 }
 
-// ---------------------------------------------------------------------------
 // Item lists
-// ---------------------------------------------------------------------------
 
 type Row =
   | { kind: 'header'; key: string; title: string; ids: number[] }

@@ -20,12 +20,6 @@ export interface SetupStatus {
   gpu_provider: string | null // e.g. "CUDAExecutionProvider" or null
 }
 
-export interface EmbeddingStats {
-  collection_name: string
-  vectors_count: number
-  exists: boolean
-}
-
 export const modelsApi = {
   list: async (): Promise<{ models: ModelInfo[] }> => {
     const { data } = await api.get<{ models: ModelInfo[] }>('/models/')
@@ -48,11 +42,6 @@ export const modelsApi = {
     const { data } = await api.post<{ status: string; job_id: string | null }>('/models/active', {
       model_name: modelName,
     })
-    return data
-  },
-
-  getEmbeddingStats: async (name: string): Promise<EmbeddingStats> => {
-    const { data } = await api.get<EmbeddingStats>(`/models/${name}/embeddings`)
     return data
   },
 

@@ -16,7 +16,7 @@ const GPU_PROVIDER_LABELS: Record<string, string> = {
   CoreMLExecutionProvider: 'Apple GPU (Core ML)',
 }
 
-type Phase = 'loading' | 'select' | 'submitting' | 'tag-packs' | 'progress' | 'error'
+type Phase = 'loading' | 'select' | 'submitting' | 'tag-packs' | 'error'
 
 export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupScreenProps) {
   const [phase, setPhase] = useState<Phase>('loading')
@@ -29,14 +29,13 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
   const [errorMessage, setErrorMessage] = useState<string>('')
   const [modelComplete, setModelComplete] = useState(skipModel)
 
-  useEffect(() => {
+  const loadSetup = useCallback(() => {
     Promise.all([modelsApi.setupStatus(), modelsApi.list()])
       .then(([status, list]) => {
         setSetupStatus(status)
         setModels(list.models)
         setSelectedModel(status.recommended)
         if (skipModel) {
-          // Model already configured — go straight to tag packs
           setModelComplete(true)
           setPhase('tag-packs')
         } else {
@@ -49,10 +48,13 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
       })
   }, [skipModel])
 
-  // Poll job when model download is in flight (during tag-packs or progress phase)
   useEffect(() => {
-    if (!jobId || modelComplete) return
-    if (phase !== 'tag-packs' && phase !== 'progress') return
+    loadSetup()
+  }, [loadSetup])
+
+  // The model downloads in the background while the user picks tag packs.
+  useEffect(() => {
+    if (!jobId || modelComplete || phase !== 'tag-packs') return
 
     const interval = setInterval(async () => {
       try {
@@ -90,10 +92,9 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
       const result = await modelsApi.setActiveModel(selectedModel)
       if (result.job_id) {
         setJobId(result.job_id)
-        // Go straight to tag packs while model downloads in background
         setPhase('tag-packs')
       } else {
-        // No async job — model already active, skip to tag packs
+        // No job: the model was already active.
         setModelComplete(true)
         setPhase('tag-packs')
       }
@@ -123,17 +124,7 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
             onClick={() => {
               setPhase('loading')
               setErrorMessage('')
-              Promise.all([modelsApi.setupStatus(), modelsApi.list()])
-                .then(([status, list]) => {
-                  setSetupStatus(status)
-                  setModels(list.models)
-                  setSelectedModel(status.recommended)
-                  setPhase('select')
-                })
-                .catch((err) => {
-                  setErrorMessage(err?.message ?? 'Failed to load model information.')
-                  setPhase('error')
-                })
+              loadSetup()
             }}
             className="px-4 py-2 rounded bg-primary text-primary-foreground text-sm hover:bg-primary/90 transition-colors"
           >
@@ -155,32 +146,6 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
     )
   }
 
-  // The 'progress' phase is now only used as a fallback if tag-packs
-  // somehow doesn't render (shouldn't happen in normal flow)
-  if (phase === 'progress') {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="max-w-sm text-center space-y-4">
-          <p className="font-semibold">Setting up AI model...</p>
-          <p className="text-sm text-muted-foreground">{progressMessage}</p>
-          <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
-            {progressPct != null && progressPct > 0 ? (
-              <div
-                className="h-full bg-primary rounded-full transition-all duration-500"
-                style={{ width: `${progressPct}%` }}
-              />
-            ) : (
-              <div className="h-full bg-primary rounded-full animate-pulse w-1/3" />
-            )}
-          </div>
-          {progressPct != null && progressPct > 0 && (
-            <p className="text-xs text-muted-foreground">{progressPct}%</p>
-          )}
-        </div>
-      </div>
-    )
-  }
-
   const gpuLabel = setupStatus?.gpu_provider
     ? (GPU_PROVIDER_LABELS[setupStatus.gpu_provider] ?? setupStatus.gpu_provider)
     : null
@@ -188,7 +153,6 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-6">
       <div className="w-full max-w-2xl space-y-6">
-        {/* Header */}
         <div className="text-center space-y-2">
           <h1 className="text-2xl font-bold">Welcome to Scene Atlas</h1>
           <p className="text-muted-foreground text-sm">
@@ -197,7 +161,6 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
           </p>
         </div>
 
-        {/* GPU detection badge */}
         <div className="flex justify-center">
           {gpuLabel ? (
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
@@ -212,7 +175,6 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
           )}
         </div>
 
-        {/* Model cards */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {models.map((model) => {
             const isSelected = selectedModel === model.name
@@ -230,14 +192,12 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
                     : 'border-border bg-card hover:border-border/80 hover:bg-accent/30'
                 }`}
               >
-                {/* Recommended badge */}
                 {isRecommended && (
                   <span className="absolute top-2 right-2 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/10 text-primary">
                     Recommended
                   </span>
                 )}
 
-                {/* Label + hardware badge */}
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-semibold text-sm">{model.label}</span>
                   <span
@@ -247,13 +207,10 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
                   </span>
                 </div>
 
-                {/* Description */}
                 <p className="text-xs text-muted-foreground leading-relaxed">{model.description}</p>
 
-                {/* Size */}
                 <p className="text-xs text-muted-foreground">~{model.approx_size_mb} MB</p>
 
-                {/* Technical details collapsible */}
                 <details className="text-xs" onClick={(e) => e.stopPropagation()}>
                   <summary className="cursor-pointer text-muted-foreground hover:text-foreground select-none">
                     Technical details
@@ -267,7 +224,6 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
           })}
         </div>
 
-        {/* Get Started button */}
         <div className="flex justify-center">
           <button
             type="button"

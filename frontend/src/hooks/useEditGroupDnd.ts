@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useMemo } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { PointerSensor, KeyboardSensor, useSensor, useSensors } from '@dnd-kit/core'
 import type { DragStartEvent, DragEndEvent, Modifier } from '@dnd-kit/core'
 import { snapCenterToCursor } from '@dnd-kit/modifiers'
@@ -58,12 +58,6 @@ export function useEditGroupDnd({
     [selections, updateFilesInGroup],
   )
 
-  // Refs to avoid stale closures in handleDragEnd
-  const moveToGroupRef = useRef(handleMoveImagesToGroup)
-  moveToGroupRef.current = handleMoveImagesToGroup
-  const moveToSubgroupRef = useRef(handleMoveImagesToSubgroup)
-  moveToSubgroupRef.current = handleMoveImagesToSubgroup
-
   const handleDragStart = useCallback(
     (event: DragStartEvent) => {
       const data = event.active.data.current as DragData
@@ -111,9 +105,9 @@ export function useEditGroupDnd({
         return
       }
       if (activeDrag.type === 'card' && dropData.type === 'group' && dropData.groupId) {
-        moveToGroupRef.current(activeDrag, dropData.groupId)
+        handleMoveImagesToGroup(activeDrag, dropData.groupId)
       } else if (activeDrag.type === 'card' && dropData.type === 'subgroup') {
-        moveToSubgroupRef.current(activeDrag, dropData.subgroup ?? null)
+        handleMoveImagesToSubgroup(activeDrag, dropData.subgroup ?? null)
       } else if (activeDrag.type === 'group' && dropData.type === 'group' && dropData.groupId) {
         if (activeDrag.selectedGroupIds) {
           // Multi-group drag: merge all selected groups (except the target) into the target
@@ -130,7 +124,7 @@ export function useEditGroupDnd({
       }
       setActiveDrag(null)
     },
-    [activeDrag],
+    [activeDrag, handleMoveImagesToGroup, handleMoveImagesToSubgroup],
   )
 
   // Snap overlay to cursor only for multi-item drags (single drags keep natural feel)
