@@ -1,51 +1,27 @@
 import { useEffect, useMemo, useRef } from 'react'
 import {
-  Search,
-  Sparkles,
-  X,
   Upload,
   LayoutGrid,
   Layers,
-  Pencil,
-  AlignLeft,
   Tag,
   Settings,
-  ArrowUpDown,
   Compass,
   Map,
   Mountain,
   Sun,
   Moon,
   Loader2,
-  Grid2x2,
-  Grid3x3,
 } from 'lucide-react'
 import { GalleryFilterPanel } from '@/components/GalleryFilterPanel'
-import { FilterChipList } from '@/components/FilterMenuContent'
+import { GallerySearchBar } from '@/components/GallerySearchBar'
+import { GalleryResultsBar } from '@/components/GalleryResultsBar'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-} from '@/components/ui/dropdown-menu'
 import { useTheme } from '@/contexts/ThemeContext'
 import { isApp } from '@/lib/appMode'
-import {
-  RELEVANCE_MIN,
-  RELEVANCE_MAX,
-  RELEVANCE_STEP,
-  relevanceToPercent,
-  MAX_SEARCH_LENGTH,
-} from '@/lib/constants'
-import { SORT_OPTIONS } from '@/hooks/useGallerySearch'
 import type { UseGallerySearchReturn } from '@/hooks/useGallerySearch'
 import type { EmbeddingStatus } from '@/hooks/useEmbeddingStatus'
 import type { ImageTypeFilter } from '@/components/import/fileFilter'
 import { isAnyDialogOpen } from '@/components/ui/dialogStack'
-import { TILE_WIDTH } from '@/lib/constants'
 
 // Platform helpers for borderless window layout
 const isMac = isApp && window.electronAPI?.platform === 'darwin'
@@ -101,31 +77,13 @@ export function GalleryHeader({
     return () => window.removeEventListener('keydown', onKey)
   }, [])
   const {
-    searchInput,
-    setSearchInput,
-    submittedQuery,
     filters,
     imageType,
-    sortKey,
-    minScore,
-    setMinScore,
     viewMode,
     setViewMode,
-    isSemantic,
-    isTextOnly,
-    hasActiveSearch,
-    searchModeSuffix,
-    showRelevanceSlider,
-    totalBeforeFilter,
-    filteredCount,
-    totalGroups,
     facets,
-    isSearching,
-    handleSubmit,
-    handleSortChange,
     handleFiltersChange,
     handleImageTypeChange,
-    clearAll,
   } = search
 
   // Tab strip -- memoised so it only recalculates when facets or selection change
@@ -252,60 +210,7 @@ export function GalleryHeader({
         {tabStrip}
 
         <div className="flex flex-wrap md:flex-nowrap items-center gap-2 pt-3 pb-3">
-          <form
-            role="search"
-            onSubmit={handleSubmit}
-            className="focus-ring-within-input rounded-md flex basis-full md:basis-auto flex-1 min-w-0"
-          >
-            <div className="relative flex-1 min-w-0">
-              {isSemantic ? (
-                <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-              ) : isTextOnly ? (
-                <AlignLeft className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-              ) : (
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-              )}
-              <Input
-                ref={searchRef}
-                type="text"
-                aria-keyshortcuts="/"
-                aria-label="Search the library"
-                placeholder={`Search ${imageType === 'all' ? 'scenes' : imageType === 'battlemap' ? 'maps' : 'scenes'}\u2026  "quotes" for exact phrase, ~ visual, = keyword`}
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                maxLength={MAX_SEARCH_LENGTH}
-                className="h-10 w-full pl-9 pr-8 rounded-r-none border-r-0 focus-visible:outline-none"
-              />
-              {!searchInput && (
-                <kbd
-                  aria-hidden="true"
-                  className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 hidden sm:flex h-5 min-w-5 items-center justify-center rounded border border-border px-1 font-mono text-[11px] text-muted-foreground"
-                  title="Press / to search"
-                >
-                  /
-                </kbd>
-              )}
-              {searchInput && (
-                <button
-                  type="button"
-                  onClick={search.clearSearch}
-                  aria-label="Clear search"
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
-
-            <Button
-              type="submit"
-              variant="secondary"
-              disabled={isSearching}
-              className="rounded-l-none h-10 shrink-0 px-5 border border-border"
-            >
-              {isSearching ? 'Searching\u2026' : 'Search'}
-            </Button>
-          </form>
+          <GallerySearchBar search={search} inputRef={searchRef} />
 
           {embeddingStatus === 'loading' && (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 shrink-0">
@@ -354,182 +259,13 @@ export function GalleryHeader({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-y-1 pb-4 min-h-[32px]">
-          <div className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
-            <FilterChipList
-              filters={filters}
-              onFiltersChange={handleFiltersChange}
-              showClearAll={false}
-            />
-            {hasActiveSearch && (
-              <button
-                onClick={clearAll}
-                className="relative target-24 text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 ml-1"
-              >
-                <X className="h-2.5 w-2.5" />
-                Clear all
-              </button>
-            )}
-          </div>
-
-          {/* Right cluster: count + sort + edit all + relevance */}
-          <div className="flex flex-wrap items-center ml-auto shrink-0 text-xs text-muted-foreground gap-0">
-            {/* Always mounted so screen readers hear each new count after a search */}
-            <span role="status" className="tabular-nums">
-              {isSearching
-                ? ''
-                : viewMode === 'grouped'
-                  ? `${totalGroups} group${totalGroups !== 1 ? 's' : ''}`
-                  : hasActiveSearch
-                    ? showRelevanceSlider
-                      ? `${filteredCount} / ${totalBeforeFilter} result${totalBeforeFilter !== 1 ? 's' : ''}${searchModeSuffix}`
-                      : `${filteredCount} result${filteredCount !== 1 ? 's' : ''}${searchModeSuffix}`
-                    : `${facets?.total_images ?? 0} scenes`}
-            </span>
-
-            <span aria-hidden="true" className="text-border/60 px-1.5">
-              &middot;
-            </span>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="relative target-24 flex items-center gap-1 hover:text-foreground transition-colors">
-                  {SORT_OPTIONS.find((o) => `${o.value}:${o.dir}` === sortKey)?.label ?? 'Sort'}
-                  <ArrowUpDown className="h-2.5 w-2.5 opacity-50" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-40">
-                <DropdownMenuRadioGroup value={sortKey} onValueChange={handleSortChange}>
-                  {SORT_OPTIONS.map((opt) => {
-                    const key = `${opt.value}:${opt.dir}`
-                    return (
-                      <DropdownMenuRadioItem
-                        key={key}
-                        value={key}
-                        disabled={opt.queryOnly && !submittedQuery}
-                      >
-                        {opt.label}
-                      </DropdownMenuRadioItem>
-                    )
-                  })}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {viewMode === 'individual' && (
-              <>
-                <span aria-hidden="true" className="text-border/60 px-1.5">
-                  &middot;
-                </span>
-                <div className="flex items-center gap-1.5" title="Tile size">
-                  <Grid3x3 aria-hidden="true" className="h-3 w-3" />
-                  <input
-                    type="range"
-                    min={TILE_WIDTH.min}
-                    max={TILE_WIDTH.max}
-                    step={TILE_WIDTH.step}
-                    value={tileWidth}
-                    onChange={(e) => onTileWidthChange(Number(e.target.value))}
-                    aria-label="Tile size"
-                    aria-valuetext={`${tileWidth} pixels wide`}
-                    className="range w-16"
-                    style={
-                      {
-                        '--fill': `${((tileWidth - TILE_WIDTH.min) / (TILE_WIDTH.max - TILE_WIDTH.min)) * 100}%`,
-                      } as React.CSSProperties
-                    }
-                  />
-                  <Grid2x2 aria-hidden="true" className="h-3.5 w-3.5" />
-                </div>
-              </>
-            )}
-
-            {viewMode === 'grouped'
-              ? totalGroups > 0 && (
-                  <>
-                    <span aria-hidden="true" className="text-border/60 px-1.5">
-                      &middot;
-                    </span>
-                    {totalGroups > 500 ? (
-                      // Focusable, so keyboard users can reach the explanation too
-                      <button
-                        type="button"
-                        aria-disabled="true"
-                        title={`Too many groups (${totalGroups}) — apply filters to narrow below 500`}
-                        className="relative target-24 flex items-center gap-1.5 cursor-not-allowed opacity-50"
-                      >
-                        <Pencil className="h-3 w-3" />
-                        Edit all ({totalGroups})
-                      </button>
-                    ) : (
-                      <button
-                        onClick={onOpenMassEdit}
-                        disabled={search.editAllLoading}
-                        title={
-                          search.editAllLoading
-                            ? 'Loading images...'
-                            : 'Bulk-edit all groups in current results'
-                        }
-                        className="relative target-24 flex items-center gap-1.5 hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {search.editAllLoading ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          <Pencil className="h-3 w-3" />
-                        )}
-                        Edit all ({totalGroups})
-                      </button>
-                    )}
-                  </>
-                )
-              : displayImageCount > 0 && (
-                  <>
-                    <span aria-hidden="true" className="text-border/60 px-1.5">
-                      &middot;
-                    </span>
-                    <button
-                      onClick={onOpenMassEdit}
-                      title="Bulk-edit all scenes in current results"
-                      className="relative target-24 flex items-center gap-1.5 hover:text-foreground transition-colors"
-                    >
-                      <Pencil className="h-3 w-3" />
-                      Edit all ({displayImageCount})
-                    </button>
-                  </>
-                )}
-
-            {showRelevanceSlider && (
-              <>
-                <span aria-hidden="true" className="text-border/60 px-1.5">
-                  &middot;
-                </span>
-                <div className="flex items-center gap-2" title="Minimum relevance threshold">
-                  <span>Relevance</span>
-                  <input
-                    type="range"
-                    min={RELEVANCE_MIN}
-                    max={RELEVANCE_MAX}
-                    step={RELEVANCE_STEP}
-                    value={minScore}
-                    onChange={(e) => setMinScore(parseFloat(e.target.value))}
-                    aria-label="Minimum relevance"
-                    aria-valuetext={
-                      minScore > 0 ? `${relevanceToPercent(minScore)}%` : 'All results'
-                    }
-                    className="range w-20"
-                    style={
-                      {
-                        '--fill': `${((minScore - RELEVANCE_MIN) / (RELEVANCE_MAX - RELEVANCE_MIN)) * 100}%`,
-                      } as React.CSSProperties
-                    }
-                  />
-                  <span className="tabular-nums w-7 text-right">
-                    {minScore > 0 ? `${relevanceToPercent(minScore)}%` : 'All'}
-                  </span>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+        <GalleryResultsBar
+          search={search}
+          displayImageCount={displayImageCount}
+          onOpenMassEdit={onOpenMassEdit}
+          tileWidth={tileWidth}
+          onTileWidthChange={onTileWidthChange}
+        />
       </div>
     </header>
   )

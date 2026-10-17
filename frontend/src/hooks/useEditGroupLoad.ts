@@ -90,6 +90,24 @@ export function buildPayload(group: EditableGroupState): GroupEditRequest {
 /** Import review loads groups this many at a time, showing each batch as it lands. */
 const REVIEW_BATCH_SIZE = 8
 
+/**
+ * Split group ids into the batches import review fetches. A group the user asked to
+ * start on gets a batch of its own, first: groups are appended as batches land, so it
+ * goes first in the sidebar (slotting it in later would shift the selection).
+ */
+export function planReviewBatches(
+  ids: number[],
+  start: number | undefined,
+): { batches: number[][]; startFirst: boolean } {
+  const startFirst = start !== undefined && ids.includes(start)
+  const rest = startFirst ? ids.filter((id) => id !== start) : ids
+  const batches: number[][] = startFirst ? [[start]] : []
+  for (let i = 0; i < rest.length; i += REVIEW_BATCH_SIZE) {
+    batches.push(rest.slice(i, i + REVIEW_BATCH_SIZE))
+  }
+  return { batches, startFirst }
+}
+
 export interface UseEditGroupLoadOptions {
   open: boolean
   groupId?: number | null
@@ -310,16 +328,10 @@ export function useEditGroupLoad({
     // Claim the ids now so a re-run while batches are in flight doesn't fetch them twice
     newIds.forEach((id) => loadedGroupIdsRef.current.add(id))
 
-    // A group the user asked to start on is fetched first and goes first in the sidebar:
-    // groups are appended as batches land, so it can't be slotted in later without
-    // shifting the selection.
-    const start = isFirstLoad ? startGroupIdRef.current : undefined
-    const startFirst = start !== undefined && newIds.includes(start)
-    const rest = startFirst ? newIds.filter((id) => id !== start) : newIds
-    const batches: number[][] = startFirst ? [[start]] : []
-    for (let i = 0; i < rest.length; i += REVIEW_BATCH_SIZE) {
-      batches.push(rest.slice(i, i + REVIEW_BATCH_SIZE))
-    }
+    const { batches, startFirst } = planReviewBatches(
+      newIds,
+      isFirstLoad ? startGroupIdRef.current : undefined,
+    )
     // Ids claimed above but not yet shown; released if this run is abandoned
     const unshown = new Set(newIds)
 

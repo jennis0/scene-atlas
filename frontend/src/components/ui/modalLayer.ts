@@ -16,6 +16,28 @@ function returnTarget(): HTMLElement | null {
   return (triggerId && document.getElementById(triggerId)) || active
 }
 
+/** The child of <body> that contains ``el`` (or ``el`` itself). */
+function bodyLevelAncestor(el: HTMLElement): HTMLElement {
+  let layer = el
+  while (layer.parentElement && layer.parentElement !== document.body) {
+    layer = layer.parentElement
+  }
+  return layer
+}
+
+/** Sets `inert` on every other body child that should go inert; returns those it set. */
+function inertOutside(layer: Element): Element[] {
+  const skip = (child: Element) =>
+    child === layer ||
+    child.hasAttribute('inert') ||
+    child.hasAttribute(MODAL_EXEMPT_ATTR) ||
+    child.tagName === 'SCRIPT' ||
+    child.tagName === 'STYLE'
+  const inerted = Array.from(document.body.children).filter((child) => !skip(child))
+  for (const child of inerted) child.setAttribute('inert', '')
+  return inerted
+}
+
 /**
  * Makes the element a modal layer while `active`: every other child of <body> becomes
  * `inert` (unfocusable, unclickable, hidden from assistive tech), and focus returns to
@@ -34,25 +56,7 @@ export function useModalLayer(ref: RefObject<HTMLElement>, active: boolean) {
     if (!el) return
 
     const restoreFocusTo = returnTarget()
-
-    let layer: HTMLElement = el
-    while (layer.parentElement && layer.parentElement !== document.body) {
-      layer = layer.parentElement
-    }
-
-    const inerted: Element[] = []
-    for (const child of Array.from(document.body.children)) {
-      if (
-        child === layer ||
-        child.hasAttribute('inert') ||
-        child.hasAttribute(MODAL_EXEMPT_ATTR) ||
-        child.tagName === 'SCRIPT' ||
-        child.tagName === 'STYLE'
-      )
-        continue
-      child.setAttribute('inert', '')
-      inerted.push(child)
-    }
+    const inerted = inertOutside(bodyLevelAncestor(el))
 
     return () => {
       for (const child of inerted) child.removeAttribute('inert')

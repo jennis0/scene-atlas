@@ -19,7 +19,12 @@ import { toast } from 'sonner'
 import { getThumbnailUrlById } from '@/lib/api/urls'
 import { getImportManager } from '@/lib/import/ImportManager'
 import { useImportJob } from '@/lib/import/useImports'
-import type { ImportItem, ItemState } from '@/lib/import/types'
+import type {
+  ImportGroupSummary,
+  ImportItem,
+  ImportJobSummary,
+  ItemState,
+} from '@/lib/import/types'
 import { ConfirmOverlay, ImportFrame, TextButton } from './ImportFrame'
 import { GroupLedger } from './GroupLedger'
 import { isFinished, outcomeText, plural, reviewableGroupIds } from './format'
@@ -43,6 +48,34 @@ interface ResultViewProps {
   onUndone?: () => void
 }
 
+/** Groups always; the other sections only when they have entries. */
+function sectionsFor(job: ImportJobSummary | undefined): Section[] {
+  const counts = job?.counts
+  const optional = ['failed', 'duplicate', 'skipped'] as const
+  return ['groups', ...optional.filter((s) => counts?.[s])]
+}
+
+/** The author every group shares, if they all share one. */
+function sharedAuthorOf(groups: ImportGroupSummary[]): string | null {
+  const authors = new Set(groups.map((g) => g.author))
+  return authors.size === 1 ? [...authors][0] : null
+}
+
+/** "454 imported, 3 already in your library in 68 groups · caeora" */
+function statusLine(
+  job: ImportJobSummary,
+  groups: ImportGroupSummary[],
+  sharedAuthor: string | null,
+): string {
+  const prefix =
+    job.status === 'cancelled' ? 'Cancelled. ' : isFinished(job) ? '' : 'Still running. '
+  const skipped = job.counts.skipped ? `, ${job.counts.skipped.toLocaleString()} skipped` : ''
+  // When every group has the same author, say it once here rather than on every row
+  const where = groups.length ? ` in ${plural(groups.length, 'group')}` : ''
+  const author = sharedAuthor ? ` · ${sharedAuthor}` : ''
+  return `${prefix}${outcomeText(job.counts)}${skipped}${where}${author}`
+}
+
 export function ResultView({ jobId, open, onClose, onReviewGroups, onUndone }: ResultViewProps) {
   const manager = getImportManager()
   const { job, detail } = useImportJob(jobId, { watch: open })
@@ -57,11 +90,8 @@ export function ResultView({ jobId, open, onClose, onReviewGroups, onUndone }: R
   }, [open, jobId])
 
   const counts = job?.counts
-  const sections: Section[] = ['groups']
-  if (counts?.failed) sections.push('failed')
-  if (counts?.duplicate) sections.push('duplicate')
-  if (counts?.skipped) sections.push('skipped')
-  const fallback: Section = counts?.failed ? 'failed' : 'groups'
+  const sections = sectionsFor(job)
+  const fallback: Section = job?.counts.failed ? 'failed' : 'groups'
   const active = section && sections.includes(section) ? section : fallback
   const reviewIds = reviewableGroupIds(detail?.groups ?? [])
 
@@ -87,17 +117,9 @@ export function ResultView({ jobId, open, onClose, onReviewGroups, onUndone }: R
       toast.success(`Import undone. ${plural(deleted, 'image')} removed.`)
     })
 
-  // When every group has the same author, say it once here rather than on every row
   const groups = detail?.groups ?? []
-  const authors = new Set(groups.map((g) => g.author))
-  const sharedAuthor = authors.size === 1 ? [...authors][0] : null
+  const sharedAuthor = sharedAuthorOf(groups)
   const finished = !!job && isFinished(job)
-
-  const statusLine = job
-    ? `${job.status === 'cancelled' ? 'Cancelled. ' : finished ? '' : 'Still running. '}${outcomeText(job.counts)}${
-        job.counts.skipped ? `, ${job.counts.skipped.toLocaleString()} skipped` : ''
-      }${groups.length ? ` in ${plural(groups.length, 'group')}` : ''}${sharedAuthor ? ` · ${sharedAuthor}` : ''}`
-    : 'Loading'
 
   const done = () => {
     if (!finished || job.dismissed) return onClose()
@@ -112,7 +134,7 @@ export function ResultView({ jobId, open, onClose, onReviewGroups, onUndone }: R
       open={open}
       onClose={onClose}
       title={job?.label ?? 'Import report'}
-      status={statusLine}
+      status={job ? statusLine(job, groups, sharedAuthor) : 'Loading'}
       footer={
         <>
           <TextButton tone="danger" onClick={() => setConfirmingUndo(true)} disabled={busy || !job}>
