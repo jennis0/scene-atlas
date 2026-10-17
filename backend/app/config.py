@@ -91,7 +91,9 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool = True
 
     # API
-    api_host: str = "0.0.0.0"
+    # Only read by `python -m backend.app.main` (dev/E2E). Electron forces 127.0.0.1 and
+    # Docker/uvicorn pass --host explicitly; see design/security.md (accepted risks).
+    api_host: str = "0.0.0.0"  # nosec B104
     api_port: int = 8000
     api_prefix: str = "/api/v1"
     cors_origins: list[str] = [

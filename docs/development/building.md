@@ -140,7 +140,7 @@ npm run electron:build                        # tsc + electron-builder
 
 Lint and unit tests run locally in the pre-push hook; CI does not repeat them on every push.
 
-- `.github/workflows/ci.yml` (pull requests): pip-audit + bandit, backend unit + integration tests with coverage, frontend `tsc` + Vite build
+- `.github/workflows/ci.yml` (pull requests): pip-audit + bandit, backend unit + integration tests with coverage, frontend npm audit (runtime deps) + `tsc` + Vite build
 - `.github/workflows/release.yml` (manual `workflow_dispatch`): backend lint/unit/integration/heavy tests, frontend lint/test/coverage/build, unit tests on Windows and macOS, Playwright E2E, then Electron builds for Windows x64, macOS arm64, and Linux x64. Run it against `main`, check the artifacts, then re-run with `publish=true` and a `version` to create the GitHub Release.
 - `.github/workflows/docs.yml` (push to `main` touching `docs/`): builds this documentation site and deploys it to GitHub Pages if Pages is enabled
 

@@ -16,7 +16,7 @@ Tests marked `heavy` (real CLIP ONNX model) are excluded by default (`addopts = 
 |---|---|---|
 | Pre-commit (local) | `.husky/pre-commit` | `lint-staged` on staged files |
 | Pre-push (local) | `.husky/pre-push` | ruff check + format check (`backend/`, `scripts/`), pyright, backend unit tests, ESLint, Prettier check, `tsc --noEmit`, knip, Vitest, Electron `tsc`, jscpd duplication threshold |
-| Pull request to `main` | `.github/workflows/ci.yml` | `backend-security` (pip-audit, bandit; non-blocking), `backend-integration` (unit + integration tests with coverage, small ONNX model), `frontend-build` (`npm run build`), `quality` (pyright, knip, jscpd) |
+| Pull request to `main` | `.github/workflows/ci.yml` | `backend-security` (pip-audit, bandit; blocking, accepted findings in [security.md](security.md#accepted-scanner-findings)), `backend-integration` (unit + integration tests with coverage, small ONNX model), `frontend-build` (`npm audit --omit=dev --audit-level=high`, `npm run build`), `quality` (pyright, knip, jscpd) |
 | Release (manual `workflow_dispatch`) | `.github/workflows/release.yml` | full backend suite incl. heavy tests, frontend lint/tests/coverage/build, backend unit tests on Windows and macOS, Playwright E2E, Electron builds per platform, optional publish |
 
 CI does not run lint or unit-only jobs on PRs; the pre-push hook is relied on for those (skippable with `git push --no-verify`).
