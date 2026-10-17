@@ -18,6 +18,7 @@ import { CATEGORY_ICON_MAP, CATEGORY_ICON_NAMES, getCategoryIcon } from '@/lib/c
 import { onInlineEditKey } from '@/lib/inlineEditKeys'
 import { parseCommonValues, type TagValueEntry } from '@/components/import/types'
 import type { TagCategory } from '@/types'
+import { PanelTitle } from '@/components/ui/panel-title'
 
 interface TagManagementDialogProps {
   open: boolean
@@ -88,12 +89,7 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
             style={{ padding: '10px 12px 10px 16px' }}
           >
             <div className="flex items-center justify-between">
-              <div className="flex flex-col">
-                <span className="font-display text-[13px] font-medium tracking-[0.06em] text-foreground leading-none">
-                  Tag Management
-                </span>
-                <div className="mt-[3px] h-px w-7 bg-gradient-to-r from-primary to-transparent" />
-              </div>
+              <PanelTitle>Tag Management</PanelTitle>
               <button
                 onClick={onClose}
                 className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
