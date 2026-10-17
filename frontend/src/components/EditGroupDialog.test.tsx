@@ -225,6 +225,46 @@ describe('EditGroupDialog', () => {
   })
 
   describe('several groups', () => {
+    it('renders only the rows on screen when All holds many files', async () => {
+      const big: GroupDetail = {
+        id: 4,
+        base_name: 'Big Pack',
+        author: 'Cartographer',
+        primary_image_id: 400,
+        images: Array.from({ length: 70 }, (_, i) =>
+          makeImage(400 + i, { name: `Big ${i}`, group_id: 4 }),
+        ),
+      }
+      const all: Record<number, GroupDetail> = { ...GROUPS, 4: big }
+      vi.mocked(groupApi.summaries).mockImplementation(async (ids) =>
+        ids.map((id) => summaryOf(all[id])),
+      )
+      vi.mocked(groupApi.details).mockImplementation(async (ids) =>
+        ids.map((id) => structuredClone(all[id])),
+      )
+      // jsdom has no layout: give the scroll area a height so the list has a window
+      const size = { width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }
+      const rect = vi
+        .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+        .mockReturnValue({ ...size, x: 0, y: 0, toJSON: () => size } as DOMRect)
+      const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600)
+      const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800)
+      try {
+        renderDialog({ groupIds: [1, 4] })
+        // Unlabelled files come first, so the summer/winter subgroups are off screen
+        expect(await within(dialog()).findByText('Big 0')).toBeInTheDocument()
+        expect(within(dialog()).queryByText('Clearing')).not.toBeInTheDocument()
+        const shown = within(dialog()).queryAllByText(/^(Big \d+|Clearing|Brook|Frost)$/)
+        expect(shown.length).toBeGreaterThan(0)
+        expect(shown.length).toBeLessThan(73)
+        expect(within(dialog()).queryByText('Big 69')).not.toBeInTheDocument()
+      } finally {
+        rect.mockRestore()
+        height.mockRestore()
+        width.mockRestore()
+      }
+    })
+
     it('lists groups in the sidebar and switches between them', async () => {
       const { user } = renderDialog({ groupIds: [1, 2] })
       expect(await screen.findByText('2 groups')).toBeInTheDocument()

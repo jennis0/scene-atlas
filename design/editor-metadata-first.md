@@ -1,7 +1,6 @@
 # Group editor: metadata first, details on demand (plan)
 
-Status: **phase 1 done**; phases 2–3 to do. Branch `feature/editor-metadata-first` (stacked on
-`feature/visual-refresh`). Related: [frontend.md](frontend.md) (editor and import review),
+Status: **phases 1–2 done**; phase 3 to do. Branch `feature/editor-metadata-first`. Related: [frontend.md](frontend.md) (editor and import review),
 [ingest-redesign.md](ingest-redesign.md), [search.md](search.md).
 
 ## Why
@@ -128,6 +127,28 @@ Each phase ships on its own and leaves the app working.
 
 Measured on the scratch library (92 groups): summaries for all of them took 5 ms (12 KB).
 Details in batches of 40 took ~150 ms, against ~380 ms for 92 single requests.
+
+## Phase 2 as built
+
+The All view isn't a list of group sections: it's one two-column grid of every in-scope
+file, split by subgroup label (across groups). So the virtualised unit is a **row**: a
+subgroup heading or a pair of cards (`buildFileRows` in `edit-group/fileRows.ts`),
+rendered by `VirtualFileRows` in `EditGroupFileGrid` with `@tanstack/react-virtual`,
+measured as they mount.
+
+- Only from 60 files (`VIRTUALIZE_FROM`). Below that the grid renders whole, as before,
+  keeping sticky subgroup headings and one drop target per subgroup section. Windowed
+  rows lose both: headings scroll with their row, and each row is its own drop target
+  for its subgroup (`DroppableSubgroupSection` `idSuffix`; drops read the subgroup from
+  the target's data, not its id).
+- The scroll container is held in state through a callback ref, not `useRef`: the
+  virtualiser reads it in its first layout effect, which runs before a parent's ref is
+  attached, and with a ref it never measured the viewport and rendered nothing.
+- Applies to every view with many files: All, a multi-selection, or one large group.
+
+Measured: Edit all over 92 groups / 515 files opens in ~1.5 s with 14 images in the DOM,
+against ~2.5 s with all 515 rendered. Per-change re-renders now touch only the visible
+rows, which is what made editing in a large All view sluggish.
 
 ## Decisions (2026-10-17)
 
