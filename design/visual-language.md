@@ -254,8 +254,9 @@ All image cards (`GroupCard`, `SceneTile`) share a **gradient overlay** structur
 │      (thumbnail)        │
 │                         │
 │ ░░░░░░░░░░░░░░░░░░░░░   │ ← gradient overlay: from-black/85 via-black/55 to-transparent
-│  Group – Sub · Variant   │ ← text-[13px]: group font-medium text-white, rest text-white/85
-│  Author                  │ ← text-[11px] text-white/85
+│  Group                   │ ← font-display text-[15px] font-semibold text-white, wraps to 2 lines
+│  Subgroup · Variant      │ ← font-display text-[13px] text-white/85, wraps to 2 lines
+│  Author                  │ ← text-[11px] text-white/85 (sans)
 └─────────────────────────┘
 ```
 
@@ -263,7 +264,9 @@ All image cards (`GroupCard`, `SceneTile`) share a **gradient overlay** structur
 
 **Hover:** nothing moves — the card gains a border tint and shadow only. The thumbnail sits on a `transparency-backdrop` checkerboard so transparent images (stored as RGBA WebP thumbnails) read as transparent rather than black.
 
-**Gallery tile caption (`SceneTile` in `ImageGrid`):** one line `{group} – {subgroup} · {image name}` (subgroup and image name only when present and distinct), then the author. Standalone images show their name, then the author. The individual view has an S/M/L tile-size control (`useTileSize`, 180/240/320px, remembered per device).
+**Gallery tile caption (`SceneTile` in `ImageGrid`):** three lines, set like the viewer — the group in the serif at semibold, then `{subgroup} · {image name}` in the serif at regular weight (each only when present and distinct), then the author in the sans. Names wrap (up to two lines each) rather than truncating. Standalone images show their name, then the author.
+
+**Tile size:** the individual view has a size slider (small-grid icon · `range` slider · large-grid icon) in the results row, 160–360px in 40px steps (`TILE_WIDTH`, `useTileSize`, remembered per device).
 
 **Border on cards:**
 - Default: `border border-border/30`

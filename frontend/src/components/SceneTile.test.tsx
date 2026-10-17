@@ -32,7 +32,7 @@ describe('SceneTile', () => {
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
   })
 
-  it('puts the group and variant on one line, the author below', () => {
+  it('shows group, variant and author on separate lines', () => {
     render(
       <SceneTile
         image={image}
@@ -42,9 +42,9 @@ describe('SceneTile', () => {
         onClick={vi.fn()}
       />,
     )
-    expect(screen.getByText('Czepeku').closest('p')).toHaveTextContent(
-      'Czepeku – Abandoned Mine · Goblin Night',
-    )
+    expect(screen.getByText('Czepeku')).toBeInTheDocument()
+    expect(screen.getByText('Abandoned Mine · Goblin Night')).toBeInTheDocument()
+    expect(screen.getByText('Czepeku Maps')).toBeInTheDocument()
     expect(
       screen.getByRole('button', {
         name: 'Czepeku, Abandoned Mine · Goblin Night, by Czepeku Maps',

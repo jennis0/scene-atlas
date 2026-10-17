@@ -1,27 +1,33 @@
 import { useCallback, useState } from 'react'
-import { TILE_SIZES, type TileSize } from '@/lib/constants'
+import { TILE_WIDTH } from '@/lib/constants'
 
-const STORAGE_KEY = 'gallery-tile-size'
+const STORAGE_KEY = 'gallery-tile-width'
 
-function load(): TileSize {
+function clamp(width: number): number {
+  const stepped = Math.round(width / TILE_WIDTH.step) * TILE_WIDTH.step
+  return Math.min(TILE_WIDTH.max, Math.max(TILE_WIDTH.min, stepped))
+}
+
+function load(): number {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    return stored && stored in TILE_SIZES ? (stored as TileSize) : 'medium'
+    const stored = Number(localStorage.getItem(STORAGE_KEY))
+    return stored ? clamp(stored) : TILE_WIDTH.default
   } catch {
-    return 'medium'
+    return TILE_WIDTH.default
   }
 }
 
-/** The individual view's tile size, remembered on this device. */
+/** The individual view's tile width in px, remembered on this device. */
 export function useTileSize() {
-  const [tileSize, setState] = useState<TileSize>(load)
-  const setTileSize = useCallback((size: TileSize) => {
-    setState(size)
+  const [tileWidth, setState] = useState<number>(load)
+  const setTileWidth = useCallback((width: number) => {
+    const next = clamp(width)
+    setState(next)
     try {
-      localStorage.setItem(STORAGE_KEY, size)
+      localStorage.setItem(STORAGE_KEY, String(next))
     } catch {
       // Storage blocked: the size still applies for this session.
     }
   }, [])
-  return { tileSize, setTileSize }
+  return { tileWidth, setTileWidth }
 }

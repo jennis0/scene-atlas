@@ -77,8 +77,8 @@ export function ImageGrid({ images, tileWidth, onImageClick }: ImageGridProps) {
                 }}
               >
                 {rowImages.map((image, colIdx) => {
-                  // In a group: "{group} – {subgroup} · {image}" (image name only if distinct),
-                  // then the author. Standalone: the image name, then the author.
+                  // In a group: the group, then "{subgroup} · {image}" (image name only if
+                  // distinct), then the author. Standalone: the image name, then the author.
                   const primaryText = image.group_name ?? image.name
                   const variantText = image.group_name
                     ? [image.subgroup, image.name !== image.group_name ? image.name : null]

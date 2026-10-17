@@ -17,6 +17,8 @@ import {
   Sun,
   Moon,
   Loader2,
+  Grid2x2,
+  Grid3x3,
 } from 'lucide-react'
 import { GalleryFilterPanel } from '@/components/GalleryFilterPanel'
 import { FilterChipList } from '@/components/FilterMenuContent'
@@ -43,7 +45,7 @@ import type { UseGallerySearchReturn } from '@/hooks/useGallerySearch'
 import type { EmbeddingStatus } from '@/hooks/useEmbeddingStatus'
 import type { ImageTypeFilter } from '@/components/import/fileFilter'
 import { isAnyDialogOpen } from '@/components/ui/dialogStack'
-import type { TileSize } from '@/lib/constants'
+import { TILE_WIDTH } from '@/lib/constants'
 
 // Platform helpers for borderless window layout
 const isMac = isApp && window.electronAPI?.platform === 'darwin'
@@ -60,15 +62,10 @@ export interface GalleryHeaderProps {
   onOpenSystemInfo: () => void
   onOpenMassEdit: () => void
   displayImageCount: number
-  tileSize: TileSize
-  onTileSizeChange: (size: TileSize) => void
+  /** Individual-view tile width in px */
+  tileWidth: number
+  onTileWidthChange: (width: number) => void
 }
-
-const TILE_SIZE_OPTIONS: { value: TileSize; label: string; name: string }[] = [
-  { value: 'small', label: 'S', name: 'Small tiles' },
-  { value: 'medium', label: 'M', name: 'Medium tiles' },
-  { value: 'large', label: 'L', name: 'Large tiles' },
-]
 
 /** True when a key press should type into whatever has focus, not trigger a shortcut. */
 function isTypingTarget(el: EventTarget | null) {
@@ -85,8 +82,8 @@ export function GalleryHeader({
   onOpenSystemInfo,
   onOpenMassEdit,
   displayImageCount,
-  tileSize,
-  onTileSizeChange,
+  tileWidth,
+  onTileWidthChange,
 }: GalleryHeaderProps) {
   const { theme, toggleTheme } = useTheme()
 
@@ -196,7 +193,7 @@ export function GalleryHeader({
       {needsOverlayPadding && <div className="h-8 drag-region" />}
       <div className={`container mx-auto px-4 ${isMac ? 'pl-20' : ''}`}>
         <div
-          className={`${needsOverlayPadding ? 'pt-2 pb-2' : 'pt-4 pb-3'} flex flex-wrap gap-x-4 gap-y-2 ${needsOverlayPadding ? 'items-center' : 'items-start'} justify-between border-b border-border/70 ${isApp ? 'drag-region' : ''}`}
+          className={`${needsOverlayPadding ? 'pt-2 pb-2' : 'pt-4 pb-3'} flex flex-wrap gap-x-4 gap-y-2 items-center justify-between border-b border-border/70 ${isApp ? 'drag-region' : ''}`}
         >
           <div>
             <h1 className="font-wordmark text-2xl font-medium tracking-wide text-foreground">
@@ -204,9 +201,7 @@ export function GalleryHeader({
             </h1>
           </div>
           {/* Admin cluster: utility actions (ghost) + gap + primary Import CTA */}
-          <div
-            className={`flex items-center gap-1 ${needsOverlayPadding ? '' : 'mt-2'} ${isApp ? 'no-drag-region' : ''}`}
-          >
+          <div className={`flex items-center gap-1 ${isApp ? 'no-drag-region' : ''}`}>
             <Button
               variant="ghost"
               size="sm"
@@ -425,24 +420,25 @@ export function GalleryHeader({
                 <span aria-hidden="true" className="text-border/60 px-1.5">
                   &middot;
                 </span>
-                <div role="group" aria-label="Tile size" className="flex items-center">
-                  {TILE_SIZE_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      aria-pressed={tileSize === opt.value}
-                      aria-label={opt.name}
-                      title={opt.name}
-                      onClick={() => onTileSizeChange(opt.value)}
-                      className={`h-6 w-6 rounded text-[11px] font-medium transition-colors ${
-                        tileSize === opt.value
-                          ? 'bg-secondary text-foreground'
-                          : 'hover:text-foreground'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
+                <div className="flex items-center gap-1.5" title="Tile size">
+                  <Grid3x3 aria-hidden="true" className="h-3 w-3" />
+                  <input
+                    type="range"
+                    min={TILE_WIDTH.min}
+                    max={TILE_WIDTH.max}
+                    step={TILE_WIDTH.step}
+                    value={tileWidth}
+                    onChange={(e) => onTileWidthChange(Number(e.target.value))}
+                    aria-label="Tile size"
+                    aria-valuetext={`${tileWidth} pixels wide`}
+                    className="range w-16"
+                    style={
+                      {
+                        '--fill': `${((tileWidth - TILE_WIDTH.min) / (TILE_WIDTH.max - TILE_WIDTH.min)) * 100}%`,
+                      } as React.CSSProperties
+                    }
+                  />
+                  <Grid2x2 aria-hidden="true" className="h-3.5 w-3.5" />
                 </div>
               </>
             )}

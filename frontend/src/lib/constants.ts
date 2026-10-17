@@ -1,7 +1,6 @@
 // Gallery / image grid layout
-// Tile widths for the individual view's size control; tiles are 4:3.
-export const TILE_SIZES = { small: 180, medium: 240, large: 320 } as const
-export type TileSize = keyof typeof TILE_SIZES
+// Tile width range for the individual view's size slider, in px; tiles are 4:3.
+export const TILE_WIDTH = { min: 160, max: 360, step: 40, default: 240 } as const
 export const GRID_GAP = 16
 export const GRID_PADDING = 16
 

@@ -5,9 +5,9 @@ import type { Image } from '@/types'
 
 export interface SceneTileProps {
   image: Image
-  /** Primary title — group name or image name */
+  /** First line — group name or image name */
   primaryText: string
-  /** Shown after the title on the same line: "{primary} – {variant}" */
+  /** Second line — subgroup · image name, in the same serif as the viewer's title */
   variantText?: string
   /** Second line — subgroup · details, or grid dimensions */
   secondaryText?: string
@@ -82,10 +82,16 @@ export function SceneTile({
         aria-hidden="true"
         className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/50 to-transparent pt-12 pb-3 px-2.5 pointer-events-none"
       >
-        <p className="text-[13px] text-white/85 leading-snug truncate drop-shadow">
-          <span className="font-medium text-white">{primaryText}</span>
-          {variantText && <> &ndash; {variantText}</>}
+        {/* Same type as the viewer: serif names (group heavier than variant), sans details.
+            Names wrap to two lines rather than cutting off mid-word. */}
+        <p className="font-display text-[15px] font-semibold text-white leading-tight line-clamp-2 break-words drop-shadow">
+          {primaryText}
         </p>
+        {variantText && (
+          <p className="font-display text-[13px] text-white/85 leading-snug line-clamp-2 break-words mt-0.5">
+            {variantText}
+          </p>
+        )}
         {secondaryText && (
           <p className="text-[11px] text-white/85 truncate mt-0.5">{secondaryText}</p>
         )}
