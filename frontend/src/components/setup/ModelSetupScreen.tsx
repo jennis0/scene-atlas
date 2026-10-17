@@ -3,6 +3,7 @@ import { modelsApi, type ModelInfo, type SetupStatus } from '@/lib/api/modelsApi
 import { jobApi } from '@/lib/api/jobApi'
 import { GpuStatus } from '@/components/models/GpuStatus'
 import { ModelRatings } from '@/components/models/ModelRatings'
+import { AboutModelsLink } from '@/components/models/AboutModelsLink'
 import { TagPackSetupStep } from '@/components/setup/TagPackSetupStep'
 
 interface ModelSetupScreenProps {
@@ -198,6 +199,10 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
               </button>
             )
           })}
+        </div>
+
+        <div className="flex justify-center">
+          <AboutModelsLink />
         </div>
 
         <div className="flex justify-center">

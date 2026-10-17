@@ -60,7 +60,7 @@ export function EmptyLibraryWelcome({ embeddingReady, onImport }: EmptyLibraryWe
           </Button>
           {!embeddingReady && (
             <p className="text-xs text-muted-foreground">
-              Waiting for AI model to finish loading&hellip;
+              Waiting for the search model to load&hellip;
             </p>
           )}
         </div>

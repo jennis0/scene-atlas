@@ -4,3 +4,6 @@ export const GPU_PROVIDER_LABELS: Record<string, string> = {
   DmlExecutionProvider: 'DirectML',
   CoreMLExecutionProvider: 'Apple (Core ML)',
 }
+
+/** The published models (model cards, versions, licences). */
+export const MODEL_COLLECTION_URL = 'https://huggingface.co/collections/jennis0/scene-atlas-models'

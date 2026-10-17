@@ -110,7 +110,7 @@ export function GalleryHeader({
             key={value}
             aria-pressed={imageType === value}
             onClick={() => handleImageTypeChange(value)}
-            className={`flex items-center gap-2 py-2.5 pr-4 mr-1 text-sm font-medium border-b-2 transition-colors
+            className={`flex items-center gap-2 px-3 first:pl-0 py-2.5 text-sm font-medium border-b-2 transition-colors
               ${
                 imageType === value
                   ? 'border-primary text-foreground'
@@ -190,7 +190,7 @@ export function GalleryHeader({
               disabled={embeddingStatus === 'loading'}
               title={
                 embeddingStatus === 'loading'
-                  ? 'Waiting for AI model to finish loading\u2026'
+                  ? 'Waiting for the search model to load\u2026'
                   : 'Import images'
               }
               className="gap-1.5"
@@ -211,7 +211,7 @@ export function GalleryHeader({
           {embeddingStatus === 'loading' && (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-warning/15 text-warning shrink-0">
               <Loader2 className="h-3 w-3 animate-spin" />
-              AI search loading&hellip;
+              Search model loading&hellip;
             </span>
           )}
           {embeddingStatus === 'error' && (
@@ -219,7 +219,7 @@ export function GalleryHeader({
               className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-destructive/15 text-destructive shrink-0 cursor-help"
               title={embeddingError ?? 'Unknown error'}
             >
-              AI search unavailable
+              Search model unavailable
             </span>
           )}
 

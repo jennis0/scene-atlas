@@ -78,7 +78,7 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
           id={`${tabIdBase}-panel`}
           role="tabpanel"
           aria-labelledby={`${tabIdBase}-${activeTab}`}
-          className="overflow-y-auto h-[22.35rem] min-h-0"
+          className="overflow-y-auto h-[34rem] min-h-0"
         >
           {/* Kept mounted while hidden, so a library purge keeps reporting progress */}
           <div hidden={activeTab !== 'library'}>

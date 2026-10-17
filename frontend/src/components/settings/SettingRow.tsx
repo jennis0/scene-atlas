@@ -5,22 +5,40 @@ interface SettingRowProps {
   label: string
   description?: string
   requiresRestart?: boolean
+  /** Control below the text instead of beside it: for wide controls (segmented choices,
+   * pickers) that would otherwise squeeze the description. */
+  stacked?: boolean
   children: ReactNode
 }
 
-export function SettingRow({ label, description, requiresRestart, children }: SettingRowProps) {
+export function SettingRow({
+  label,
+  description,
+  requiresRestart,
+  stacked = false,
+  children,
+}: SettingRowProps) {
   return (
-    <div className="flex items-start justify-between gap-4 py-3">
+    <div
+      className={
+        stacked
+          ? 'space-y-2 py-0.5'
+          : `flex justify-between gap-4 py-1 ${description || requiresRestart ? 'items-start' : 'items-center'}`
+      }
+    >
       <div className="flex-1 min-w-0">
-        <p className="section-label mb-1">{label}</p>
-        {description && <p className="text-xs text-muted-foreground">{description}</p>}
+        <p className="text-sm font-medium text-foreground">{label}</p>
+        {description && (
+          <p className="mt-0.5 text-xs leading-snug text-muted-foreground">{description}</p>
+        )}
         {requiresRestart && (
           <div className="mt-2">
             <RestartBadge />
           </div>
         )}
       </div>
-      <div className="flex-shrink-0">{children}</div>
+      {/* Stacked: a flex column, so inline controls keep their own width */}
+      <div className={stacked ? 'flex flex-col items-start' : 'flex-shrink-0'}>{children}</div>
     </div>
   )
 }

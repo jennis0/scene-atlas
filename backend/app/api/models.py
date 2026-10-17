@@ -126,7 +126,7 @@ def _download_and_activate(name: str, progress_fn=None) -> None:
         # table change underneath them; no batch spans the switch.
         from backend.pipeline.ingest_worker import get_ingest_worker
 
-        with get_ingest_worker().held("Paused while the AI model changes"):
+        with get_ingest_worker().held("Paused while the search model changes"):
             if progress_fn:
                 progress_fn(steps - 2, steps, "Loading model...")
             reload_clip_service()
