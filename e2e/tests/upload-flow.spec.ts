@@ -35,7 +35,9 @@ test.describe("Gallery interactions on seeded data", () => {
     await searchFor(page, "~fantasy landscape");
 
     // Verify relevance slider appears (indicates semantic mode was activated)
-    await expect(page.locator('input[type="range"]')).toBeVisible({
+    await expect(
+      page.getByRole("slider", { name: "Minimum relevance" }),
+    ).toBeVisible({
       timeout: 15_000,
     });
 

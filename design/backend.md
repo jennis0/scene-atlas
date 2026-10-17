@@ -136,14 +136,16 @@ Shared parameters for `/` and `/groups`:
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/search` | Typeahead group picker (`q`, `exclude_id`, `reference_name`) |
+| POST | `/summaries` | Many groups without image details: name, author, count, `image_ids` (`{ids}`, up to 5,000) |
+| POST | `/details` | Several groups with all members, as `GET /{id}` returns them (`{ids}`, up to 100) |
 | GET | `/{id}` | Group with members |
 | GET | `/{id}/download` | Stream group as ZIP |
-| PUT | `/{id}` | Update group metadata |
+| PUT | `/{id}` | Update group metadata. `images` is the list to keep: images left out are deleted |
 | DELETE | `/{id}` | Delete group |
 | POST | `/{id}/move-images` | Move images between groups |
 | POST | `/{id}/merge` | Merge this group into a target group |
 
-The write endpoints are `@write_locked`, so they serialise with the ingest worker's commits.
+The batch reads return groups in the order asked, de-duplicated, leaving out ids that no longer exist. They are POST because the editor sends thousands of ids. The write endpoints are `@write_locked`, so they serialise with the ingest worker's commits.
 
 ### Tags (`/tags`)
 | Method | Path | Purpose |

@@ -133,7 +133,15 @@ export default function EditGroupDialog({
     setPending(null)
   }, [resetOperations, resetDnd, resetMultiselect])
 
-  const { loading, loadError, isMassEdit, ungroupedCount, pendingGroupCount } = useEditGroupLoad({
+  const {
+    loading,
+    loadError,
+    isMassEdit,
+    ungroupedCount,
+    pendingGroups,
+    prioritizeGroup,
+    awaitedGroupId,
+  } = useEditGroupLoad({
     open,
     groupId,
     seedImages,
@@ -141,6 +149,7 @@ export default function EditGroupDialog({
     startGroupId,
     onResetDialogState: resetDialogState,
     fileEditing: {
+      groups,
       setGroups,
       setActiveTab,
       setFileFilter,
@@ -279,9 +288,13 @@ export default function EditGroupDialog({
               onDragEnd={dnd.handleDragEnd}
             >
               <div className="flex min-h-0 flex-1 overflow-hidden">
-                {(groups.length > 1 || pendingGroupCount > 0) && (
+                {(groups.length > 1 || pendingGroups.length > 0) && (
                   <EditGroupSidebar
-                    pendingCount={pendingGroupCount}
+                    pending={{
+                      groups: pendingGroups,
+                      awaitedId: awaitedGroupId,
+                      onOpen: prioritizeGroup,
+                    }}
                     activeTab={activeTab}
                     isAllTab={isAllTab}
                     onSelectAll={() => setActiveTab(ALL_TAB)}
@@ -352,6 +365,13 @@ export default function EditGroupDialog({
                       excludeLabel={isMassEdit ? 'Remove' : 'Delete'}
                       alwaysShowTypeToggle
                     />
+                    {showsMultipleGroups && pendingGroups.length > 0 && (
+                      <p role="status" className="pb-2 text-xs text-muted-foreground">
+                        Still loading {pendingGroups.length} of{' '}
+                        {groups.length + pendingGroups.length} groups. Changes here apply to the
+                        groups already loaded.
+                      </p>
+                    )}
                   </div>
 
                   <EditGroupFileGrid

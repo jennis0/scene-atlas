@@ -180,6 +180,58 @@ class TestGroupDetail:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# POST /api/v1/groups/summaries and /api/v1/groups/details
+# ---------------------------------------------------------------------------
+
+
+class TestGroupBatchReads:
+    def test_summaries_follow_request_order_and_skip_missing(self, two_groups):
+        client, data = two_groups
+        ids = [data["target_id"], 999_999, data["source_id"]]
+        resp = client.post("/api/v1/groups/summaries", json={"ids": ids})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert [g["id"] for g in body] == [data["target_id"], data["source_id"]]
+        target, source = body
+        assert target["base_name"] == "Forest Cave"
+        assert target["image_ids"] == data["target_img_ids"]
+        assert source["image_ids"] == sorted(data["source_img_ids"])
+        assert source["image_count"] == 2
+        assert source["primary_image_id"] == data["source_img_ids"][0]
+        assert "images" not in source
+
+    def test_summaries_dedupe_repeated_ids(self, seeded_group):
+        client, group_id, _ = seeded_group
+        resp = client.post("/api/v1/groups/summaries", json={"ids": [group_id, group_id]})
+        assert [g["id"] for g in resp.json()] == [group_id]
+
+    def test_details_match_single_group_reads(self, two_groups):
+        client, data = two_groups
+        ids = [data["source_id"], data["target_id"]]
+        resp = client.post("/api/v1/groups/details", json={"ids": ids})
+        assert resp.status_code == 200
+        singles = [client.get(f"/api/v1/groups/{i}").json() for i in ids]
+        assert resp.json() == singles
+
+    def test_details_skip_missing_groups(self, seeded_group):
+        client, group_id, _ = seeded_group
+        resp = client.post("/api/v1/groups/details", json={"ids": [999_999, group_id]})
+        assert [g["id"] for g in resp.json()] == [group_id]
+
+    @pytest.mark.parametrize(
+        ("path", "count"),
+        [
+            ("/api/v1/groups/summaries", 0),
+            ("/api/v1/groups/details", 0),
+            ("/api/v1/groups/details", 101),
+        ],
+    )
+    def test_rejects_empty_or_oversized_requests(self, test_client, path, count):
+        resp = test_client.post(path, json={"ids": list(range(1, count + 1))})
+        assert resp.status_code == 422
+
+
 class TestGroupEdit:
     def test_rename_group(self, seeded_group):
         client, group_id, img_ids = seeded_group

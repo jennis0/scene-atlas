@@ -167,6 +167,27 @@ def test_group_detail_does_not_multiply_rows(library, query_counter):
     assert not any("LEFT OUTER JOIN colors" in s and "JOIN tags" in s for s in q.statements)
 
 
+def test_group_summaries_query_count(library, query_counter):
+    client, lib = library
+    url = "/api/v1/groups/summaries"
+    small = _count_request(client, query_counter, "POST", url, json={"ids": [1, 2, 3]})
+    lib.add_groups(12)
+    ids = list(range(1, lib.groups + 1))
+    large = _count_request(client, query_counter, "POST", url, json={"ids": ids})
+    assert large == small <= 3
+
+
+def test_group_details_query_count(library, query_counter):
+    """One batch costs the same queries as a single group, however many groups it holds."""
+    client, lib = library
+    url = "/api/v1/groups/details"
+    small = _count_request(client, query_counter, "POST", url, json={"ids": [1]})
+    lib.add_groups(12)
+    ids = list(range(1, lib.groups + 1))
+    large = _count_request(client, query_counter, "POST", url, json={"ids": ids})
+    assert large == small <= 5
+
+
 def test_tag_values_query(library, query_counter):
     client, lib = library
     with lib._session_factory() as db:

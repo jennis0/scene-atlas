@@ -17,12 +17,15 @@ from ..models import (
 from ..models.database import GRID_FIELDS, GRID_SOURCE_USER
 from ..models.schemas import (
     GroupDetailResponse,
+    GroupDetailsRequest,
     GroupEditRequest,
     GroupEditResponse,
     GroupMergeRequest,
     GroupMergeResponse,
     GroupPickerItem,
     GroupPickerResponse,
+    GroupSummariesRequest,
+    GroupSummary,
     MoveImagesRequest,
     MoveImagesResponse,
 )
@@ -31,6 +34,13 @@ from ..services.deletion_service import delete_image_rows
 from .dependencies import get_db, write_locked
 
 router = APIRouter()
+
+# A group's images with their tags and colours, as group detail responses carry them.
+# Separate SELECTs: joining both collections returns tags x colours rows per image.
+_WITH_IMAGE_DETAILS = (
+    selectinload(ImageGroup.images).selectinload(Image.tags),
+    selectinload(ImageGroup.images).selectinload(Image.colors),
+)
 
 
 def _tokenize(name: str) -> set[str]:
@@ -132,6 +142,61 @@ def search_groups(
     return GroupPickerResponse(groups=result, total=total)
 
 
+def _in_request_order[T: (ImageGroup, GroupSummary)](rows: list[T], ids: list[int]) -> list[T]:
+    """Rows in the order their ids were asked for; unknown ids are left out."""
+    by_id = {row.id: row for row in rows}
+    return [by_id[i] for i in dict.fromkeys(ids) if i in by_id]
+
+
+@router.post("/summaries", response_model=list[GroupSummary])
+def get_group_summaries(
+    request: GroupSummariesRequest,
+    db: Session = Depends(get_db),
+):
+    """Many groups at once, without image details: names, counts and image ids.
+
+    POST because the editor asks for thousands of ids at a time. Groups that no longer
+    exist are left out, so the client can tell what was merged or deleted meanwhile.
+    """
+    groups = db.query(ImageGroup).filter(ImageGroup.id.in_(request.ids)).all()
+    image_ids: dict[int, list[int]] = {g.id: [] for g in groups}
+    rows = (
+        db.query(Image.group_id, Image.id)
+        .filter(Image.group_id.in_(request.ids))
+        .order_by(Image.id)
+        .all()
+    )
+    for group_id, image_id in rows:
+        image_ids[group_id].append(image_id)
+    summaries = [
+        GroupSummary(
+            id=g.id,
+            base_name=g.base_name,
+            author=g.author,
+            primary_image_id=g.primary_image_id,
+            image_count=g.image_count,
+            image_ids=image_ids[g.id],
+        )
+        for g in groups
+    ]
+    return _in_request_order(summaries, request.ids)
+
+
+@router.post("/details", response_model=list[GroupDetailResponse])
+def get_group_details(
+    request: GroupDetailsRequest,
+    db: Session = Depends(get_db),
+):
+    """Several groups with all their images, in one round trip. Missing groups are left out."""
+    groups = (
+        db.query(ImageGroup)
+        .options(*_WITH_IMAGE_DETAILS)
+        .filter(ImageGroup.id.in_(request.ids))
+        .all()
+    )
+    return _in_request_order(groups, request.ids)
+
+
 @router.get("/{group_id}", response_model=GroupDetailResponse)
 def get_group(
     group_id: int,
@@ -139,14 +204,7 @@ def get_group(
 ):
     """Get a group with all its images."""
     group = (
-        db.query(ImageGroup)
-        .options(
-            # Separate SELECTs: joining both collections returns tags x colours rows per image.
-            selectinload(ImageGroup.images).selectinload(Image.tags),
-            selectinload(ImageGroup.images).selectinload(Image.colors),
-        )
-        .filter(ImageGroup.id == group_id)
-        .first()
+        db.query(ImageGroup).options(*_WITH_IMAGE_DETAILS).filter(ImageGroup.id == group_id).first()
     )
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")

@@ -146,6 +146,35 @@ class GroupDetailResponse(GroupBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+# Caps for the batch group reads: summaries are a few hundred bytes each, details
+# carry every image (~1.2 KB each), so clients page details in smaller batches.
+MAX_GROUP_SUMMARY_IDS = 5000
+MAX_GROUP_DETAIL_IDS = 100
+
+
+class GroupSummariesRequest(BaseModel):
+    """Group ids to summarise, in the order the client wants them back."""
+
+    ids: list[int] = Field(min_length=1, max_length=MAX_GROUP_SUMMARY_IDS)
+
+
+class GroupDetailsRequest(BaseModel):
+    """Group ids to return in full, in the order the client wants them back."""
+
+    ids: list[int] = Field(min_length=1, max_length=MAX_GROUP_DETAIL_IDS)
+
+
+class GroupSummary(BaseModel):
+    """A group without its image details: enough to list it and address its images."""
+
+    id: int
+    base_name: str
+    author: str | None = None
+    primary_image_id: int | None = None
+    image_count: int = 0
+    image_ids: list[int] = []
+
+
 class GroupPickerItem(BaseModel):
     """Lightweight group for group picker/merge results."""
 
