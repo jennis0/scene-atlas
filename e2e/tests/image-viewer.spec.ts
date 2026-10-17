@@ -121,10 +121,15 @@ test.describe("Image Viewer", () => {
     const deleteBtn = viewer.locator('button[title="Delete image"]');
     await deleteBtn.click();
 
-    const confirmDelete = page.getByRole("button", { name: "Delete", exact: true });
-    await confirmDelete.click();
-    // The confirmation stays open until the delete returns; Escape goes to the topmost dialog.
-    await expect(confirmDelete).not.toBeVisible();
+    const confirmDialog = page
+      .getByRole("dialog")
+      .filter({ hasText: "Delete Image" });
+    await confirmDialog
+      .getByRole("button", { name: "Delete", exact: true })
+      .click();
+    // The confirmation stays open (button relabelled "Delete…") until the delete returns,
+    // and Escape goes to the topmost dialog.
+    await expect(confirmDialog).not.toBeVisible();
 
     // Close the viewer to see the gallery
     await page.keyboard.press("Escape");

@@ -15,7 +15,9 @@ const Dialog = ({ open, onOpenChange, children }: DialogProps) => {
   const onOpenChangeRef = React.useRef(onOpenChange)
   onOpenChangeRef.current = onOpenChange
 
-  React.useEffect(() => {
+  // Layout effect: a passive cleanup can run after the dialog has left the DOM, and an
+  // Escape in that gap would go to this dead entry instead of the dialog underneath.
+  React.useLayoutEffect(() => {
     if (open) return pushDialog(() => onOpenChangeRef.current?.(false))
   }, [open])
 
@@ -77,6 +79,8 @@ const DialogContent = React.forwardRef<
 >(({ className, children, onClose, ...props }, ref) => (
   <div
     ref={ref}
+    role="dialog"
+    aria-modal="true"
     className={cn(
       'relative z-50 grid w-full max-w-lg gap-4 border bg-background p-6 shadow-lg sm:rounded-lg',
       className,
