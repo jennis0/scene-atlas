@@ -184,3 +184,36 @@ class TestCastFeedToInputs:
             self._session("tensor(float)"), {"pixel_values": px, "input_ids": ids}
         )
         assert out["pixel_values"] is px and out["input_ids"] is ids
+
+
+class TestToRgb:
+    def test_transparent_pixels_become_white(self):
+        from PIL import Image
+
+        from backend.app.services.clip_service import _to_rgb
+
+        img = Image.new("RGBA", (4, 4), (0, 0, 0, 0))  # transparent black
+        img.putpixel((0, 0), (255, 0, 0, 255))
+        out = _to_rgb(img)
+        assert out.mode == "RGB"
+        assert out.getpixel((1, 1)) == (255, 255, 255)
+        assert out.getpixel((0, 0)) == (255, 0, 0)
+
+    def test_palette_transparency_and_greyscale_alpha(self):
+        from PIL import Image
+
+        from backend.app.services.clip_service import _to_rgb
+
+        pal = Image.new("P", (2, 2), 0)
+        pal.putpalette([0, 0, 0, 10, 20, 30] + [0] * 762)
+        pal.info["transparency"] = 0
+        assert _to_rgb(pal).getpixel((0, 0)) == (255, 255, 255)
+        assert _to_rgb(Image.new("LA", (2, 2), (0, 0))).getpixel((0, 0)) == (255, 255, 255)
+
+    def test_opaque_images_unchanged(self):
+        from PIL import Image
+
+        from backend.app.services.clip_service import _to_rgb
+
+        img = Image.new("RGB", (2, 2), (10, 20, 30))
+        assert _to_rgb(img).getpixel((0, 0)) == (10, 20, 30)

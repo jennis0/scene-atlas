@@ -226,6 +226,24 @@ def _cast_feed_to_inputs(session, feed: dict[str, np.ndarray]) -> dict[str, np.n
     }
 
 
+def _to_rgb(img: Image.Image) -> Image.Image:
+    """Flatten transparency onto white, as the models were trained.
+
+    scene-atlas-learning embeds thumbnails that composite alpha onto white. A plain
+    ``convert("RGB")`` drops alpha instead, exposing whatever colour the transparent
+    pixels store (usually black), which moves embeddings of transparent tokens and
+    cut-outs far enough to misclassify most of them.
+    """
+    if img.mode == "P" and "transparency" in img.info:
+        img = img.convert("RGBA")
+    if img.mode in ("RGBA", "LA", "PA"):
+        rgba = img.convert("RGBA")
+        background = Image.new("RGB", rgba.size, (255, 255, 255))
+        background.paste(rgba, mask=rgba.getchannel("A"))
+        return background
+    return img.convert("RGB")
+
+
 # Module-level LRU cache for text embeddings (avoids lru_cache-on-method leak).
 # Keys are query strings; values are tuple[float, ...].
 # lru_cache maxsize is baked at decoration time — restart required to change.
@@ -478,7 +496,7 @@ class CLIPService:
     def encode_image(self, image_path: str | Path) -> list[float]:
         """L2-normalised embedding for one image."""
         with Image.open(image_path) as img:
-            pixel_values = self._preprocess_image(img.convert("RGB"))
+            pixel_values = self._preprocess_image(_to_rgb(img))
 
         pixel_values = pixel_values[np.newaxis, ...]
 
@@ -530,7 +548,7 @@ class CLIPService:
         pixel_batch = []
         for path in image_paths:
             with Image.open(path) as img:
-                pixel_batch.append(self._preprocess_image(img.convert("RGB")))
+                pixel_batch.append(self._preprocess_image(_to_rgb(img)))
 
         pixel_values = np.stack(pixel_batch, axis=0)
         del pixel_batch
