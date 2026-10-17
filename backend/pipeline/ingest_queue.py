@@ -10,7 +10,7 @@ Callers:
 - the imports API (create, manifest, plan, user actions),
 - tests.
 
-See design/ingest-redesign.md §3–§5.
+See design/ingestion.md §3–§5.
 """
 
 from __future__ import annotations
@@ -501,9 +501,38 @@ class ClaimedItem:
     source_hash: str | None
     attempts: int
     allow_duplicate: bool
+    # Grid sizes (NxM) named by other files in the same import group, both orientations.
+    # Candidates for size-only grid detection, never truth (design/grid-detection-v3.md).
+    sibling_grid_counts: tuple[tuple[int, int], ...] = ()
 
 
-def _snapshot(item: ImportItem) -> ClaimedItem:
+# Enough candidates for any real pack; bounds the per-image scoring work.
+_MAX_SIBLING_GRID_COUNTS = 24
+
+
+def _sibling_grid_counts(
+    db: Session, group_ids: set[int]
+) -> dict[int, tuple[tuple[int, int], ...]]:
+    """Distinct NxM grid sizes parsed from file names, per import group."""
+    found: dict[int, dict[tuple[int, int], None]] = {gid: {} for gid in group_ids}
+    if not group_ids:
+        return {}
+    rows = db.query(ImportItem.import_group_id, ImportItem.parsed).filter(
+        ImportItem.import_group_id.in_(group_ids), ImportItem.parsed.isnot(None)
+    )
+    for group_id, parsed_json in rows:
+        parsed = json.loads(parsed_json)
+        w, h = parsed.get("grid_width"), parsed.get("grid_height")
+        counts = found[group_id]
+        if w and h and len(counts) < _MAX_SIBLING_GRID_COUNTS:
+            counts[(int(w), int(h))] = None
+            counts[(int(h), int(w))] = None
+    return {gid: tuple(counts) for gid, counts in found.items()}
+
+
+def _snapshot(
+    item: ImportItem, sibling_grid_counts: tuple[tuple[int, int], ...] = ()
+) -> ClaimedItem:
     return ClaimedItem(
         id=item.id,
         job_id=item.job_id,
@@ -517,6 +546,7 @@ def _snapshot(item: ImportItem) -> ClaimedItem:
         source_hash=item.source_hash,
         attempts=item.attempts,
         allow_duplicate=bool(item.allow_duplicate),
+        sibling_grid_counts=sibling_grid_counts,
     )
 
 
@@ -573,7 +603,13 @@ def claim_next_batch(
             item.attempts += 1
             item.retry_after = None
         db.flush()
-        return job_id, [_snapshot(item) for item in items]
+        siblings = _sibling_grid_counts(
+            db, {item.import_group_id for item in items if item.import_group_id is not None}
+        )
+        return job_id, [
+            _snapshot(item, siblings.get(item.import_group_id, ()) if item.import_group_id else ())
+            for item in items
+        ]
 
 
 # Failures (worker)

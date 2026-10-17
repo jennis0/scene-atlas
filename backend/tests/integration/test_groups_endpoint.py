@@ -209,6 +209,41 @@ class TestGroupEdit:
         detail = client.get(f"/api/v1/groups/{group_id}").json()
         assert detail["base_name"] == "Renamed Ruins"
 
+    def test_grid_source_marked_user_only_for_changed_grids(self, seeded_group, tmp_db):
+        """The editor re-sends every image's grid; only real changes count as user edits."""
+        from backend.app.models.database import Image
+
+        client, group_id, img_ids = seeded_group
+
+        def payload(img_id):
+            changed = img_id == img_ids[0]
+            return {
+                "id": img_id,
+                "name": f"img{img_id}",
+                "gridded": True if changed else None,
+                "grid_width": 30 if changed else None,
+                "grid_height": 20 if changed else None,
+                "subgroup": None,
+                "image_type": None,
+                "tags": [],
+            }
+
+        resp = client.put(
+            f"/api/v1/groups/{group_id}",
+            json={
+                "base_name": "Ancient Ruins",
+                "author": "TestAuthor",
+                "images": [payload(i) for i in img_ids],
+                "new_groups": [],
+            },
+        )
+        assert resp.status_code == 200
+        _, SessionLocal = tmp_db
+        with SessionLocal() as db:
+            sources = {i.id: i.grid_source for i in db.query(Image).filter(Image.id.in_(img_ids))}
+        assert sources[img_ids[0]] == "user"
+        assert {sources[i] for i in img_ids[1:]} == {None}
+
     def test_delete_one_image_from_group(self, seeded_group):
         client, group_id, img_ids = seeded_group
         # Keep only 2 of 3 images

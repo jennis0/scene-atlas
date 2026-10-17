@@ -6,6 +6,7 @@ import { SettingRow } from '@/components/settings/SettingRow'
 import { SettingsSection } from '@/components/settings/SettingsSection'
 import { ToggleSwitch } from '@/components/settings/ToggleSwitch'
 import { NumberSetting } from '@/components/settings/NumberSetting'
+import { SegmentedControl } from '@/components/settings/SegmentedControl'
 import { useSettingsDraft } from '@/hooks/useSettingsDraft'
 import { useStorageDirs } from '@/hooks/useStorageDirs'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
@@ -17,6 +18,21 @@ import { HARDWARE_BADGE } from '@/lib/modelConstants'
 import { tagApi } from '@/lib/api/tagApi'
 import { TagPackCard } from '@/components/setup/TagPackCard'
 import type { AppSettings } from '@/types'
+
+/** Longest side analysed for grids (0 = full resolution). Lower is faster, but in
+ * evaluation 4096 px missed most thin-line 200 dpi maps (design/grid-detection-v3.md). */
+const GRID_RESOLUTION_OPTIONS = [
+  { value: 0, label: 'Full', title: 'Analyse every map at full resolution (recommended)' },
+  { value: 8192, label: '8K', title: 'Reduce maps larger than 8192 px' },
+  { value: 4096, label: '4K', title: 'Reduce maps larger than 4096 px; misses thin grid lines' },
+] as const
+
+const STORED_FORMAT_OPTIONS = [
+  { value: 'original', label: 'Original', title: 'Keep each file exactly as uploaded' },
+  { value: 'webp', label: 'WebP', title: 'Smallest files; lossless for PNGs' },
+  { value: 'jpeg', label: 'JPEG', title: 'Small files; images with transparency stay as uploaded' },
+  { value: 'png', label: 'PNG', title: 'Lossless, but usually larger than the original' },
+] as const
 
 interface StoragePathRowProps {
   label: string
@@ -450,6 +466,20 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                   onChange={(v) => setField('enable_image_grid_detection', v)}
                 />
               </SettingRow>
+
+              {!!val('enable_image_grid_detection') && (
+                <SettingRow
+                  label="Grid analysis resolution"
+                  description="Full resolution finds thin grid lines on high-resolution maps. A limit is faster but can miss them."
+                >
+                  <SegmentedControl
+                    options={GRID_RESOLUTION_OPTIONS}
+                    value={(val('grid_analysis_max_dim') as number) ?? 0}
+                    onChange={(v) => setField('grid_analysis_max_dim', v)}
+                    label="Grid analysis resolution"
+                  />
+                </SettingRow>
+              )}
             </SettingsSection>
 
             <TagPacksSection dialogOpen={dialogOpen} />
@@ -483,8 +513,8 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
               </SettingRow>
 
               <SettingRow
-                label="Max files per import"
-                description="Maximum number of files in a single import"
+                label="Max files per zip"
+                description="Maximum number of files expanded from one zip archive"
               >
                 <NumberSetting
                   min={1}
@@ -492,13 +522,13 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                   inputMode="numeric"
                   value={val('max_import_files') ?? ''}
                   onChange={(v) => setField('max_import_files', parseIntInput(v))}
-                  ariaLabel="Max files per import"
+                  ariaLabel="Max files per zip"
                 />
               </SettingRow>
 
               <SettingRow
-                label="Max total upload size"
-                description="Maximum total size for all files in one import"
+                label="Max zip size (uncompressed)"
+                description="Maximum total uncompressed size of one zip archive"
               >
                 <NumberSetting
                   min={1}
@@ -507,20 +537,51 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                   unit="MB"
                   value={formatSizeInput(val('max_import_total_size'))}
                   onChange={(v) => setField('max_import_total_size', parseSizeInput(v))}
-                  ariaLabel="Max total upload size in MB"
+                  ariaLabel="Max zip size in MB"
                 />
               </SettingRow>
 
               <SettingRow
-                label="Convert imports to WebP"
-                description="Reduces file size 20–40% with no quality loss. Applies to new imports only."
+                label="Stored format"
+                description="Format new imports are kept in. Files already in that format, animations, and very large images stay as uploaded."
               >
-                <ToggleSwitch
-                  label="Toggle WebP conversion"
-                  checked={!!val('convert_to_webp')}
-                  onChange={(v) => setField('convert_to_webp', v)}
+                <SegmentedControl
+                  options={STORED_FORMAT_OPTIONS}
+                  value={(val('stored_format') as string) ?? 'original'}
+                  onChange={(v) => setField('stored_format', v)}
+                  label="Stored format"
                 />
               </SettingRow>
+
+              {(val('stored_format') === 'webp' || val('stored_format') === 'jpeg') && (
+                <SettingRow
+                  label="Quality"
+                  description="For lossy WebP and JPEG (1-100). JPEG sources always use this."
+                >
+                  <NumberSetting
+                    min={1}
+                    max={100}
+                    inputMode="numeric"
+                    widthClass="w-16"
+                    value={val('stored_quality') ?? ''}
+                    onChange={(v) => setField('stored_quality', parseIntInput(v))}
+                    ariaLabel="Stored quality (1-100)"
+                  />
+                </SettingRow>
+              )}
+
+              {val('stored_format') === 'webp' && (
+                <SettingRow
+                  label="Lossless WebP for PNGs"
+                  description="Keeps PNGs pixel-perfect but imports more slowly. Off uses the quality above."
+                >
+                  <ToggleSwitch
+                    label="Toggle lossless WebP"
+                    checked={!!val('stored_lossless')}
+                    onChange={(v) => setField('stored_lossless', v)}
+                  />
+                </SettingRow>
+              )}
             </SettingsSection>
 
             <SettingsSection title="Performance" divider={false}>

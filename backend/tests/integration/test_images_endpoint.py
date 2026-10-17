@@ -166,6 +166,20 @@ class TestPatchImage:
         assert data["grid_height"] is None
         assert data["grid_type"] is None
 
+    def test_grid_edit_marks_grid_as_user_set(self, images_db):
+        client, ids = images_db
+        resp = client.patch(f"/api/v1/images/{ids['img1']}", json={"grid_width": 21})
+        assert resp.json()["grid_source"] == "user"
+        assert resp.json()["grid_confidence"] is None
+
+    def test_unchanged_grid_values_keep_their_source(self, images_db):
+        client, ids = images_db
+        resp = client.patch(
+            f"/api/v1/images/{ids['img1']}",
+            json={"name": "Renamed", "gridded": True, "grid_width": 20},
+        )
+        assert resp.json()["grid_source"] is None
+
     def test_update_image_type(self, images_db):
         client, ids = images_db
         resp = client.patch(f"/api/v1/images/{ids['img1']}", json={"image_type": "scene"})

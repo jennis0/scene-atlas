@@ -1,5 +1,5 @@
 /**
- * What an import did, and what to do about it (design/ingest-redesign.md §8.2).
+ * What an import did, and what to do about it (design/ingestion.md §8.2).
  *
  * Sections, each shown only when it has entries: groups, problems (grouped by
  * reason, with retry), files already in the library (with "Import as new

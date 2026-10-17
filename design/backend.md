@@ -16,7 +16,7 @@ Concurrency limits are described in [resource-management.md](resource-management
 backend/
 ├── app/
 │   ├── api/                      # Route handlers (one router per module)
-│   │   ├── dependencies.py       # get_db, acquire_heavy_op (admission semaphore)
+│   │   ├── dependencies.py       # get_db, acquire_heavy_op (admission semaphore), write_locked (BEGIN IMMEDIATE)
 │   │   ├── export.py             # Library ZIP export
 │   │   ├── groups.py             # Group detail, edit, merge, move, ZIP download, picker search
 │   │   ├── images.py             # Image CRUD + file/thumbnail serving
@@ -29,6 +29,7 @@ backend/
 │   │   ├── system.py             # Library info, delete library, reset tags
 │   │   └── tags.py               # Tag categories, values, packs
 │   ├── data/
+│   │   ├── grid_models/          # Grid detector v3 ONNX models (presence GBM, hex LR) + meta.json
 │   │   ├── tag_vocabulary.json   # Canonical tag vocabulary + genre packs
 │   │   └── vocabulary.py         # Vocabulary loader
 │   ├── models/
@@ -41,7 +42,8 @@ backend/
 │   │   ├── color_search.py       # Colour proximity search (HSL cylinder distance)
 │   │   ├── deletion_service.py   # Image deletion with ref-counted file cleanup
 │   │   ├── fts_service.py        # SQLite FTS5 helpers, alias expansion
-│   │   ├── grid_detector.py      # Image-based grid detection
+│   │   ├── grid/                 # Grid detector v3: detect_grid entry point, features, ONNX models (ADR-019)
+│   │   ├── grid_detector.py      # Legacy grid detector (maps under 1000 px)
 │   │   ├── image_parser.py       # Filename/path metadata parser
 │   │   ├── image_store.py        # Hash-sharded filesystem store
 │   │   ├── ingest_state.py       # Import item/job state machines (pure)
@@ -69,6 +71,7 @@ backend/
 │   ├── ingest_worker.py          # IngestWorker thread
 │   ├── ingest_maintenance.py     # Scheduled ingest cleanup (state-driven)
 │   ├── image_hashes.py           # SHA-256, pixel hash, perceptual hash
+│   ├── stored_format.py          # Optional conversion to the configured stored format
 │   ├── vector_reconcile.py       # Align LanceDB with SQLite by image id
 │   ├── maintenance.py            # Backups + orphaned store file sweep
 │   ├── error_classifier.py       # Exception → user-facing error kind/reason
@@ -138,6 +141,8 @@ Shared parameters for `/` and `/groups`:
 | POST | `/{id}/move-images` | Move images between groups |
 | POST | `/{id}/merge` | Merge this group into a target group |
 
+The write endpoints are `@write_locked`, so they serialise with the ingest worker's commits.
+
 ### Tags (`/tags`)
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -183,6 +188,8 @@ Defined in `backend/app/api/imports.py`. The flow and state machines are in [ing
 | POST | `/{job_id}/groups/{group_id}/skip` | Skip a planned group |
 | POST | `/{job_id}/dismiss` | Hide a finished job from the activity dock |
 | DELETE | `/{job_id}` | Undo: delete the images this import created, then the job |
+
+Mutating routes are `@write_locked` (`BEGIN IMMEDIATE` on the endpoint's own thread). See [ingestion.md](ingestion.md#7-upload-protocol).
 
 ### Jobs (`/jobs`)
 | Method | Path | Purpose |
@@ -260,6 +267,9 @@ One daemon thread per process. Sleeps until woken (bytes received, seal, resume,
 ### MemoryBudget (`backend/app/services/memory_budget.py`)
 Process-wide byte budget. Each prepare step reserves its estimated peak decode memory before decoding and blocks while the budget is exhausted; an item larger than the whole budget runs alone. Capacity is `ingest_memory_budget_mb` or half of RAM beyond a 2 GiB reserve (minimum 1 GiB).
 
+### Grid detection (`backend/app/services/grid/`)
+`detect_grid` runs detector v3 (harmonic comb plus ONNX presence and hex classifiers from `app/data/grid_models`, CPU onnxruntime) on maps whose longest side is 1000 px or more, and the legacy `grid_detector.py` below that. See [grid-detection-v3.md](grid-detection-v3.md) and ADR-019.
+
 ### PreparePool
 Shared `ThreadPoolExecutor` (`max_concurrent_prepare` workers) for per-image preparation: hashing, decode, thumbnails, colours, grid detection.
 
@@ -327,7 +337,7 @@ Two sources:
 | `api_host` / `api_port` / `api_prefix` | `0.0.0.0` / `8000` / `/api/v1` | |
 | `cors_origins` | `localhost:3000`, `:5173`, `:8000` | Startup warning if unchanged in server mode |
 
-Other environment variables: `EMBEDDING_MODEL` (operator override of the active model, read by `clip_service.py`; otherwise `app_settings.active_model`), `CONVERT_TO_WEBP` (initial value of the `convert_to_webp` setting at first boot).
+Other environment variables: `EMBEDDING_MODEL` (operator override of the active model, read by `clip_service.py`; otherwise `app_settings.active_model`), `CONVERT_TO_WEBP` (`1` seeds the `stored_format` setting as `webp` at first boot).
 
 ## Startup Sequence (`main.py` lifespan)
 

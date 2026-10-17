@@ -26,6 +26,12 @@ class Base(DeclarativeBase):
     pass
 
 
+GRID_SOURCE_FILENAME = "filename"
+GRID_SOURCE_DETECTOR = "detector"
+GRID_SOURCE_USER = "user"
+GRID_FIELDS = ("gridded", "grid_width", "grid_height", "grid_type")
+
+
 class Image(Base):
     """Main image table."""
 
@@ -55,6 +61,9 @@ class Image(Base):
     grid_confidence: Mapped[float | None] = mapped_column(
         Float, nullable=True
     )  # 0.0-1.0, None = filename-detected
+    # Where the grid fields came from: GRID_SOURCE_* (None = no grid information).
+    # Re-detection never overwrites GRID_SOURCE_USER.
+    grid_source: Mapped[str | None] = mapped_column(String, nullable=True)
     subgroup: Mapped[str | None] = mapped_column(
         "sub_variant", String, nullable=True
     )  # e.g. "MA / No Grid"
@@ -323,7 +332,7 @@ class ImportItem(Base):
     retry_after: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     error_kind: Mapped[str | None] = mapped_column(
         String, nullable=True
-    )  # file | transient | system
+    )  # file | transient | system | bytes_lost
     error_stage: Mapped[str | None] = mapped_column(String, nullable=True)
     error_reason: Mapped[str | None] = mapped_column(Text, nullable=True)  # User-facing
     error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)  # Raw exception text
@@ -521,13 +530,7 @@ def seed_default_settings(session):
     defaults = {
         # Grid detection (image analysis)
         "enable_image_grid_detection": True,
-        "grid_min_cell_px": 32,
-        "grid_max_cell_px": 320,
-        "grid_detection_max_dim": 8000,  # Phase 0: ~0.5% accuracy cost, 3-4x less CPU on huge maps
-        "grid_presence_threshold": 0.20,
-        "grid_size_threshold": 0.15,
-        "grid_period_ratio_threshold": 0.98,
-        "grid_hex_rot_conf": 0.20,
+        "grid_analysis_max_dim": 0,  # full resolution
         # Color extraction
         "num_dominant_colors": 5,
         "color_distance_threshold": 0.35,
@@ -545,10 +548,10 @@ def seed_default_settings(session):
         # Job runner — resource-aware default
         "max_job_workers": resource_defaults["max_job_workers"],
         "scheduler_enabled": True,
-        # Import processing — initial value read from env so setup wizard choice is honoured
-        "convert_to_webp": bool(int(os.environ.get("CONVERT_TO_WEBP", "0"))),
-        "webp_lossless": True,
-        "webp_quality": 95,
+        # Storage format — initial value read from env so the setup wizard choice is honoured
+        "stored_format": "webp" if os.environ.get("CONVERT_TO_WEBP", "0") == "1" else "original",
+        "stored_quality": 90,
+        "stored_lossless": True,
     }
 
     for key, value in defaults.items():

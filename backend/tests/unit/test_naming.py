@@ -59,6 +59,7 @@ def _mock_image(**kwargs):
     defaults = {
         "name": "Forest Map",
         "filename": "Forest_Map.jpg",
+        "storage_key": None,
         "subgroup": None,
         "gridded": False,
         "grid_type": None,
@@ -110,6 +111,10 @@ class TestDownloadFilename:
         img = _mock_image(filename="map.png", gridded=False)
         result = download_filename(img, "Forest Map")
         assert result.endswith(".png")
+
+    def test_uses_stored_extension_after_conversion(self):
+        img = _mock_image(filename="map.png", storage_key="0a1b2c.webp")
+        assert download_filename(img, "Forest Map").endswith(".webp")
 
     def test_unsafe_chars_sanitized(self):
         img = _mock_image(name="Map: Night/Day", gridded=False)

@@ -129,12 +129,12 @@ Available in grouped view when the result has at most 500 groups (the `/search/g
 
 All import state lives in `lib/import/`, outside the React tree:
 
-- **ImportManager** — single owner of import state. Describes picked files, uploads archives and files with a small worker pool, resumes interrupted uploads, polls job summaries, and guards `beforeunload` while bytes are outstanding. Nothing is persisted locally; the server owns the lifecycle.
+- **ImportManager** — single owner of import state. Describes picked files, uploads archives and files (the hash worker runs ahead of 3 concurrent `PUT`s, with per-file retry), resumes interrupted uploads, polls job summaries (one ETag-aware `GET /imports` poller: 1 s while active, 5 s when the tab is hidden, 30 s when idle), and guards `beforeunload` while bytes are outstanding. Nothing is persisted locally; the server owns the lifecycle.
 - **importClient** — typed HTTP client for the imports API; only ImportManager calls it.
 - **hasher / hash.worker** — SHA-256 in a Web Worker, used only to skip uploading files the library already has. Skipped outside secure contexts and for very large files; the server always re-hashes.
 - **useImports** — `useSyncExternalStore` bindings. Components read import state only through these hooks.
 
-`components/imports/ImportDialog.tsx` has a start view (pick battlemap or scene, then files, folders or zips) and a progress view (upload/ingest progress, problems, group ledger). Closing the dialog never stops an import. `ActivityDock` shows imports and background jobs and reopens the dialog or the import report. See [ingestion.md](ingestion.md) for the protocol.
+`components/imports/ImportDialog.tsx` has a start view (pick battlemap or scene, then files, folders or zips) and a progress view (upload/ingest progress, problems, group ledger). Closing the dialog never stops an import. `ImportReportDialog` lists Groups, Problems (by reason, Retry), Already in library (Import as new copies) and Skipped, with Undo import (confirmed), Dismiss and Review in editor (opens the created groups in `EditGroupDialog`). A toast with a "View report" action fires when each job finishes. `ActivityDock` shows imports (plus a queue banner when system-paused) and background jobs and reopens the dialog or the import report. See [ingestion.md](ingestion.md) for the protocol.
 
 ## Dialogs
 

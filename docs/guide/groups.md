@@ -13,13 +13,13 @@ A group is a collection of related images representing the same scene. Each grou
 
 ## Auto-Grouping During Import
 
-Scene Atlas detects groups during the [grouping step](/guide/importing#_2-grouping) of an import using two passes:
+Scene Atlas detects groups when you [import](/guide/importing#_2-grouping-and-upload) using two passes:
 
 1. **Folder-based** grouping: if your files are in folders per scene (e.g., `Forest Clearing/summer.jpg`, `Forest Clearing/winter.jpg`), each folder becomes a group.
 
 2. **Prefix-based** grouping: files with a shared naming prefix are grouped together. `TavernBrawl_Grid.jpg`, `TavernBrawl_Gridless.jpg`, and `TavernBrawl_Night.jpg` all share the prefix "TavernBrawl".
 
-Groups are created automatically; there is no review step before processing. To fix a misdetection, edit the group afterwards (see below), or open it from the import report.
+Imports start straight away, so groups are reviewed afterwards: open them from the import report (**Review in editor**) and drag images between groups to fix any misdetections, or edit them as described below.
 
 ## Subgroups
 

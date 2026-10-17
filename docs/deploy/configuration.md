@@ -49,7 +49,7 @@ Scene Atlas has **no built-in authentication**. In server mode, anyone who can r
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CONVERT_TO_WEBP` | `0` | Initial value of the "Convert to WebP" setting, used only when settings are first seeded |
+| `CONVERT_TO_WEBP` | `0` | `1` seeds the Stored format setting as WebP; used only when settings are first seeded |
 | `MAX_IMPORT_ITEMS` | `50000` | Most files a single import job may contain |
 | `MAX_IMAGE_PIXELS` | `1000000000` | Largest image (in pixels) that will be decoded; larger files are rejected |
 | `PIXEL_HASH_MAX_PIXELS` | `100000000` | JPEGs above this size are decoded at reduced scale and skip the decoded-pixel duplicate check |
@@ -73,34 +73,26 @@ Runtime settings are stored in the database and seeded with the defaults below o
 
 | Setting | Key | Default | Where |
 |---------|-----|---------|-------|
-| Convert to WebP | `convert_to_webp` | Off (or `CONVERT_TO_WEBP`) | UI |
-| WebP lossless | `webp_lossless` | On | API |
-| WebP quality | `webp_quality` | 95 | API |
+| Stored format | `stored_format` | Original (WebP if `CONVERT_TO_WEBP=1`) | UI |
+| Quality | `stored_quality` | 90 | UI |
+| Lossless WebP for PNGs | `stored_lossless` | On | UI |
 | Max file size | `max_import_file_size` | 2 GB | UI |
 | Max video file size | `max_video_file_size` | 2 GB | UI |
-| Max files per ZIP | `max_import_files` | 1,000 | UI (labelled "Max files per import") |
-| Max uncompressed ZIP size | `max_import_total_size` | 2 GB | UI (labelled "Max total upload size") |
+| Max files per zip | `max_import_files` | 1,000 | UI |
+| Max zip size (uncompressed) | `max_import_total_size` | 2 GB | UI |
 
-::: warning
-The current import pipeline stores files as uploaded. The WebP settings are saved but not applied.
+Stored format is Original, WebP, JPEG or PNG and applies to new imports only (see [Importing](/guide/importing#stored-format)). Quality applies to WebP and JPEG (1-100); JPEG sources always use it.
 
-`max_import_files` and `max_import_total_size` are only enforced when a ZIP archive is expanded. The overall per-job file limit is the `MAX_IMPORT_ITEMS` environment variable.
-:::
+`max_import_files` and `max_import_total_size` apply to each uploaded ZIP archive. The per-import file limit is the `MAX_IMPORT_ITEMS` environment variable.
 
 ### Grid Detection
 
 | Setting | Key | Default | Where |
 |---------|-----|---------|-------|
-| Enable image grid detection | `enable_image_grid_detection` | On | UI |
-| Grid min cell size | `grid_min_cell_px` | 32 px | API |
-| Grid max cell size | `grid_max_cell_px` | 320 px | API |
-| Grid detection max dimension | `grid_detection_max_dim` | 8,000 px | API |
-| Grid presence threshold | `grid_presence_threshold` | 0.20 | API |
-| Grid size threshold | `grid_size_threshold` | 0.15 | API |
-| Grid period ratio threshold | `grid_period_ratio_threshold` | 0.98 | API |
-| Hex rotation confidence | `grid_hex_rot_conf` | 0.20 | API |
+| Grid detection | `enable_image_grid_detection` | On | UI |
+| Grid analysis resolution | `grid_analysis_max_dim` | 0 (full resolution) | UI |
 
-Image grid detection runs on battlemaps only, in addition to filename-based detection. Larger images are downscaled to `grid_detection_max_dim` for analysis.
+Image grid detection runs on battlemaps only, in addition to filename-based detection. A non-zero `grid_analysis_max_dim` downscales larger images before analysis: faster, but it can miss thin grid lines on high-resolution maps.
 
 ### Colour Extraction
 

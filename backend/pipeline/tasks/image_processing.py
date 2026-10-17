@@ -25,7 +25,7 @@ def write_thumbnails(
     full-resolution image is only resampled once.
 
     Returns ``{size_name: (thumbnail_key, path)}``. The caller moves the files into
-    the thumbnail store (see design/ingest-redesign.md §5.3).
+    the thumbnail store (see design/ingestion.md §5.3).
     """
     dest_dir.mkdir(parents=True, exist_ok=True)
     rgb = image if image.mode == "RGB" else image.convert("RGB")

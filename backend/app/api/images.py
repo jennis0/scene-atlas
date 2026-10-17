@@ -13,6 +13,7 @@ from ..models import (
     Image,
     ImageResponse,
 )
+from ..models.database import GRID_FIELDS, GRID_SOURCE_USER
 from ..services import get_image_store, get_thumbnail_store, safe_delete_image
 from .dependencies import get_db
 from .rate_limits import limiter
@@ -76,6 +77,9 @@ def patch_image(image_id: int, patch: ImagePatch, db: Session = Depends(get_db))
             if grid_field not in updates:
                 updates[grid_field] = None
 
+    if any(f in updates and updates[f] != getattr(image, f) for f in GRID_FIELDS):
+        image.grid_source = GRID_SOURCE_USER
+        image.grid_confidence = None
     for field, value in updates.items():
         setattr(image, field, value)
     db.commit()

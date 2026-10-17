@@ -24,9 +24,8 @@ How individual features and subsystems are designed.
 |------|-------------|
 | [search.md](search.md) | Search system -- hybrid FTS5 + CLIP semantic, RRF fusion, phrase matching, model selection |
 | [frontend.md](frontend.md) | Frontend SPA -- structure, gallery and search state, grouped view, imports client |
-| [ingestion.md](ingestion.md) | Ingestion -- import data model, item state machine, upload protocol, ingest worker, dedup, maintenance, recovery |
+| [ingestion.md](ingestion.md) | Ingestion pipeline (ADR-018) -- import data model, item state machine, upload protocol, ingest worker, duplicate tiers, stored format, maintenance, recovery |
 | [parser.md](parser.md) | ImageParser -- filename parsing, tag extraction, image group detection |
-| [ingest-redesign.md](ingest-redesign.md) | Ingest redesign (ADR-018) history -- why, audit mapping, Phase 0 measurements, status, open questions |
 | [tag-packs.md](tag-packs.md) | Tag packs -- genre-specific vocabularies, import mechanics, settings integration |
 | [dialog-focus-management.md](dialog-focus-management.md) | Focus management across dialog and modal components |
 | [hf-model-management.md](hf-model-management.md) | Hugging Face model download, switching and first-boot setup |
@@ -37,7 +36,7 @@ Design decisions, visual standards, and security posture.
 
 | File | Description |
 |------|-------------|
-| [decisions.md](decisions.md) | **Architecture Decision Log** -- numbered record of all major design decisions (ADRs 001-018) |
+| [decisions.md](decisions.md) | **Architecture Decision Log** -- numbered record of all major design decisions (ADRs 001-019) |
 | [visual-language.md](visual-language.md) | Visual design system -- tokens, typography, components, patterns |
 | [security.md](security.md) | Security evaluation for hosted deployment mode |
 | [testing.md](testing.md) | Testing strategy -- where checks run, fixtures, test conventions |

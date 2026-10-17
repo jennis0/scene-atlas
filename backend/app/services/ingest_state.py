@@ -5,7 +5,7 @@ here is the single source of truth: database code asks ``sources_for(event)``
 which states an event may be applied from, and uses that in its WHERE clauses,
 so illegal transitions can't be written.
 
-See design/ingest-redesign.md §4 for the diagrams.
+See design/ingestion.md §4 for the diagrams.
 """
 
 from __future__ import annotations

@@ -1,60 +1,13 @@
 import { test, expect } from "../fixtures/base";
-import fs from "fs";
 import {
   waitForGalleryLoad,
-  openImportDialog,
-  uploadFiles,
   searchFor,
   clearSearch,
   openFilterPanel,
-  getTestImagePaths,
   openImageViewer,
 } from "../helpers/actions";
-import { IMAGE_DIR } from "../helpers/decrypt-fixtures";
 
-test.describe("Upload & Gallery Interactions", () => {
-  test("upload images via import dialog", async ({ page }) => {
-    test.setTimeout(180_000);
-    // Skip if no test images available
-    if (!fs.existsSync(IMAGE_DIR)) {
-      test.skip();
-      return;
-    }
-
-    const filePaths = getTestImagePaths(IMAGE_DIR, 4);
-    if (filePaths.length === 0) {
-      test.skip();
-      return;
-    }
-
-    await page.goto("/");
-    await waitForGalleryLoad(page);
-
-    await openImportDialog(page);
-    await uploadFiles(page, filePaths, 30_000);
-
-    // Verify the activity dock pill appears (import processing started)
-    await expect(page.getByTestId("activity-dock-pill")).toBeVisible({
-      timeout: 15_000,
-    });
-
-    // Expand the dock and verify the job card appears
-    await page.getByTestId("activity-dock-pill").click();
-    await expect(page.getByTestId("activity-dock-panel")).toBeVisible({
-      timeout: 5_000,
-    });
-
-    // The job row shows progress ("N of M files processed") and then the
-    // outcome. The seeded library already holds these files, so the outcome is
-    // usually "0 imported, N already in your library".
-    await expect(
-      page
-        .getByTestId("import-job-card")
-        .first()
-        .getByText(/processed|imported|already in your library/i),
-    ).toBeVisible({ timeout: 120_000 });
-  });
-
+test.describe("Gallery interactions on seeded data", () => {
   test("search finds uploaded images", async ({ page }) => {
     await page.goto("/");
     await waitForGalleryLoad(page);

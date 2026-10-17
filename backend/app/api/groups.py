@@ -14,6 +14,7 @@ from ..models import (
     ImageGroup,
     Tag,
 )
+from ..models.database import GRID_FIELDS, GRID_SOURCE_USER
 from ..models.schemas import (
     GroupDetailResponse,
     GroupEditRequest,
@@ -27,7 +28,7 @@ from ..models.schemas import (
 )
 from ..services import get_image_store
 from ..services.deletion_service import delete_image_rows
-from .dependencies import get_db, get_write_db
+from .dependencies import get_db, write_locked
 
 router = APIRouter()
 
@@ -190,10 +191,11 @@ def download_group(
 
 
 @router.put("/{group_id}", response_model=GroupEditResponse)
+@write_locked
 def edit_group(
     group_id: int,
     payload: GroupEditRequest,
-    db: Session = Depends(get_write_db),
+    db: Session = Depends(get_db),
 ):
     """Edit a group: update metadata, delete images, update images, split off new groups."""
     group = db.query(ImageGroup).filter(ImageGroup.id == group_id).first()
@@ -224,10 +226,12 @@ def edit_group(
             continue
         image.name = img_payload.name
         image.author = payload.author  # sync author to group
-        image.gridded = img_payload.gridded
-        image.grid_width = img_payload.grid_width
-        image.grid_height = img_payload.grid_height
-        image.grid_type = img_payload.grid_type
+        new_grid = {f: getattr(img_payload, f) for f in GRID_FIELDS}
+        if any(getattr(image, f) != v for f, v in new_grid.items()):
+            for f, v in new_grid.items():
+                setattr(image, f, v)
+            image.grid_source = GRID_SOURCE_USER
+            image.grid_confidence = None
         image.subgroup = img_payload.subgroup
         if img_payload.image_type is not None:
             image.image_type = img_payload.image_type
@@ -286,9 +290,10 @@ def edit_group(
 
 
 @router.delete("/{group_id}")
+@write_locked
 def delete_group(
     group_id: int,
-    db: Session = Depends(get_write_db),
+    db: Session = Depends(get_db),
 ):
     """Delete a group and all its images."""
     group = db.query(ImageGroup).filter(ImageGroup.id == group_id).first()
@@ -306,10 +311,11 @@ def delete_group(
 
 
 @router.post("/{group_id}/move-images", response_model=MoveImagesResponse)
+@write_locked
 def move_images(
     group_id: int,
     payload: MoveImagesRequest,
-    db: Session = Depends(get_write_db),
+    db: Session = Depends(get_db),
 ):
     """Move specific images from source group to target group.
 
@@ -374,10 +380,11 @@ def move_images(
 
 
 @router.post("/{group_id}/merge", response_model=GroupMergeResponse)
+@write_locked
 def merge_group(
     group_id: int,
     payload: GroupMergeRequest,
-    db: Session = Depends(get_write_db),
+    db: Session = Depends(get_db),
 ):
     """Merge source group into target group.
 

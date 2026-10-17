@@ -1,6 +1,5 @@
 import { Page, expect } from "@playwright/test";
-import path from "path";
-import fs from "fs";
+import { listMediaFiles } from "./images";
 
 /** Wait for the gallery to load and show a scene count. */
 export async function waitForGalleryLoad(
@@ -10,25 +9,18 @@ export async function waitForGalleryLoad(
   await expect(page.getByText(/[1-9]\d* scenes/)).toBeVisible({ timeout });
 }
 
-/** Heading of the import dialog's start view (before files are chosen). */
-export const IMPORT_DIALOG_TITLE = "Import maps and scenes";
+export const IMPORT_START_TITLE = "Import maps and scenes";
 
-/** Open the import dialog via the Import button. */
+/** Open the import dialog (start view) via the header Import button. */
 export async function openImportDialog(page: Page): Promise<void> {
   await page.getByTitle("Import images").click();
   await expect(
-    page.getByRole("heading", { name: IMPORT_DIALOG_TITLE }),
+    page.getByRole("heading", { name: IMPORT_START_TITLE }),
   ).toBeVisible({ timeout: 5_000 });
 }
 
-/**
- * Upload files via the file chooser in the import dialog.
- * Assumes the import dialog is already open.
- *
- * Once the import has started the dialog switches to the job's progress view;
- * this then closes the dialog (the import carries on, shown in the activity dock).
- */
-export async function uploadFiles(
+/** Pick files in the start view; the import starts and the progress view opens. */
+export async function importFiles(
   page: Page,
   filePaths: string[],
   timeout = 30_000,
@@ -37,15 +29,37 @@ export async function uploadFiles(
   await page.getByRole("button", { name: "Choose files" }).click();
   const fileChooser = await fileChooserPromise;
   await fileChooser.setFiles(filePaths);
-
-  // The start view is replaced by the progress view when the import starts.
   await expect(
-    page.getByRole("heading", { name: IMPORT_DIALOG_TITLE }),
+    page.getByRole("heading", { name: IMPORT_START_TITLE }),
   ).toBeHidden({ timeout });
-  const dialog = page.getByRole("dialog");
-  await expect(dialog).toBeVisible();
-  await dialog.getByRole("button", { name: "Close" }).first().click();
-  await expect(dialog).toBeHidden({ timeout: 5_000 });
+}
+
+/** Wait for the open progress view to say the import finished. */
+export async function waitForImportFinished(
+  page: Page,
+  timeout = 120_000,
+): Promise<void> {
+  await expect(page.getByRole("dialog").getByText(/^Finished\./)).toBeVisible({
+    timeout,
+  });
+}
+
+/** From an open import report, undo the import and confirm. */
+export async function undoImport(
+  page: Page,
+  imageCount: number,
+): Promise<void> {
+  const noun = imageCount === 1 ? "image" : "images";
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Undo import" })
+    .click();
+  const confirm = page.getByRole("alertdialog", { name: "Undo this import?" });
+  await expect(confirm).toContainText(`${imageCount} ${noun}`);
+  await confirm.getByRole("button", { name: "Delete imported images" }).click();
+  await expect(
+    page.getByText(`Import undone. ${imageCount} ${noun} removed.`),
+  ).toBeVisible({ timeout: 10_000 });
 }
 
 /** Fill the search input and submit the search form. */
@@ -60,19 +74,6 @@ export async function clearSearch(page: Page): Promise<void> {
   const searchInput = page.getByPlaceholder(/Search/);
   await searchInput.clear();
   await page.getByRole("button", { name: "Search", exact: true }).click();
-}
-
-/**
- * Hover a parent element then click a child within it.
- * Useful for elements with opacity-0 group-hover:opacity-100.
- */
-export async function hoverAndClick(
-  page: Page,
-  parentLocator: ReturnType<Page["locator"]>,
-  childLocator: ReturnType<Page["locator"]>,
-): Promise<void> {
-  await parentLocator.hover();
-  await childLocator.click();
 }
 
 /** Switch to grouped view mode. */
@@ -90,25 +91,11 @@ export async function openFilterPanel(page: Page): Promise<void> {
   await page.getByRole("button", { name: /Filters/ }).click();
 }
 
-/**
- * Collect a subset of test image paths for upload.
- * Returns up to `maxFiles` image paths from the test image directory.
- */
+/** Up to `maxFiles` still images under `imageDir`. */
 export function getTestImagePaths(imageDir: string, maxFiles = 4): string[] {
-  const files: string[] = [];
-  const walk = (dir: string) => {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (files.length >= maxFiles) return;
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        walk(full);
-      } else if (/\.(jpe?g|png|webp)$/i.test(entry.name)) {
-        files.push(full);
-      }
-    }
-  };
-  walk(imageDir);
-  return files;
+  return listMediaFiles(imageDir)
+    .filter((f) => /\.(jpe?g|png|webp)$/i.test(f))
+    .slice(0, maxFiles);
 }
 
 /** Get the current scene count from the gallery. */

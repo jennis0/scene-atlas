@@ -11,7 +11,7 @@ Scene Atlas has three deployment modes:
 
 ## Server mode has no built-in authentication
 
-The backend has no authentication or authorisation. Every API endpoint, including uploads, deletion of the whole library and settings changes, is available to anyone who can reach the server. There is no `AUTH_TOKEN` or bearer-token support in the code.
+The backend has no authentication or authorisation. Every API endpoint, including uploads, deletion of the whole library and settings changes, is available to anyone who can reach the server. There is no token or bearer-auth support in the code.
 
 Server mode must therefore only be exposed behind a reverse proxy that authenticates every request — HTTP basic auth, forward-auth (e.g. Authelia, Authentik), an OAuth proxy (e.g. oauth2-proxy), or an access gateway such as Cloudflare Access or Tailscale. Never expose the backend port directly to the internet. Because the frontend loads images with plain `<img src>` requests, the proxy must authenticate with a mechanism the browser sends automatically (cookies or basic auth), not a header the app would have to add.
 
@@ -61,7 +61,7 @@ Staging is per job: `{APP_DATA_DIR}/staging/{job_id}/{staging_key}`. `staging_ke
 
 `RATE_LIMIT_ENABLED=false` disables it.
 
-Import endpoints are not rate limited: a single import makes one request per file. Per-file uploads (`PUT …/items/{item_id}/content`) are bounded by the per-file size limit and require an existing item awaiting bytes; they do not take the heavy-op semaphore. Archive upload and seal are gated by the heavy-op semaphore (`acquire_heavy_op`, see [resource-management.md](resource-management.md)). `POST /tags/packs/import-multiple` is not rate limited.
+Import endpoints are not rate limited: a single import makes one request per file (≈10k for a 10k-file import), so a per-IP limit would throttle legitimate imports. Per-file uploads (`PUT …/items/{item_id}/content`) are bounded by `max_import_file_size` (413 on the streamed body) and require an existing item awaiting bytes; they do not take the heavy-op semaphore. Jobs are capped at `MAX_IMPORT_ITEMS` files and seal checks free disk space. Archive upload and seal are gated by the heavy-op semaphore (`acquire_heavy_op`, see [resource-management.md](resource-management.md)). The client retries 429/5xx up to 5 times per file, then records a resumable local failure, so reverse proxies with their own rate limits must allow for the per-file request volume. `POST /tags/packs/import-multiple` is not rate limited.
 
 **Reverse proxy requirement**: the proxy must overwrite (not append to) `X-Forwarded-For` so the limiter keys on the real client IP; otherwise a client can spoof the header to get fresh buckets.
 
@@ -86,7 +86,7 @@ Both steps have `continue-on-error: true`, so findings never fail CI. They were 
 **Status**: Partially mitigated.
 
 The renderer can call `system:change-storage-dirs` (exposed as `window.electronAPI.changeStorageDirs`) with two paths. The main process (`electron/src/main.ts`) then writes them to the app config and relaunches the app with the backend pointed at the new data and library roots. Current checks:
-- The handler is registered with `handleTrusted`, which rejects calls whose sender frame is not an app URL (`file:`, or the dev server in development).
+- The handler is registered with `handleTrusted`, which rejects calls whose sender frame is not an app URL (the backend sidecar origin, `file:` for `loading.html`, or the dev server in development).
 - Both arguments must be non-empty absolute paths.
 - Both directories are created if needed and must pass a write test.
 
@@ -100,9 +100,9 @@ A warning is logged at startup when `APP_MODE=server` and `CORS_ORIGINS` is stil
 
 ### 8. LOW: CSP `connect-src` Too Broad
 
-**Status**: Open.
+**Status**: Done.
 
-`connect-src 'self' http://localhost:*` is needed in Electron (the backend runs on a localhost port) but is broader than necessary for server mode.
+Electron loads the UI from the backend sidecar, so the frontend is always same-origin with the API and the CSP in `frontend/index.html` uses `connect-src 'self'` in every mode.
 
 ### 9. LOW: No CSRF Protection
 
@@ -115,7 +115,6 @@ A warning is logged at startup when `APP_MODE=server` and `CORS_ORIGINS` is stil
 1. Session-based authentication (Finding 1).
 2. Make `pip-audit` and `bandit` blocking in CI; add a frontend dependency audit (Finding 5).
 3. Constrain the paths accepted by `system:change-storage-dirs` (Finding 6).
-4. CSP hardening for server mode (Finding 8).
-5. CSRF protection alongside auth (Finding 9).
+4. CSRF protection alongside auth (Finding 9).
 
 Backlog priorities are tracked in [status-and-roadmap.md](status-and-roadmap.md).

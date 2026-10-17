@@ -271,8 +271,9 @@ then `... run --db /tmp/lib.db`.
 `color_search.ColorIndex` keeps every `(image_id, colour)` pair in memory as numpy
 arrays (~16 bytes per colour: ~5 MB for 56k images at 5 colours each), reloaded
 from SQLite when `color_cache_ttl_seconds` (60 s) has passed. A colour query is a
-vectorised distance over the arrays (~10 ms at 56k images). A SQL-side search would
-need precomputed colour coordinates in the schema and isn't needed at this size.
+vectorised distance over the arrays (~10 ms at 56k images). The planned replacement
+stores precomputed LAB coordinates per colour row and searches with a SQL distance
+query (see the backlog in [status-and-roadmap.md](status-and-roadmap.md)).
 
 ## FTS5 Index Maintenance
 

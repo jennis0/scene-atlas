@@ -1,64 +1,52 @@
 import { test, expect } from "../fixtures/base";
-import path from "path";
-import fs from "fs";
-import { getTestImagePaths, IMPORT_DIALOG_TITLE } from "../helpers/actions";
+import {
+  IMPORT_START_TITLE,
+  openImportDialog,
+  waitForGalleryLoad,
+} from "../helpers/actions";
 
-test.describe("Import flow", () => {
-  test("import dialog opens and shows upload UI", async ({ page }) => {
+test.describe("Import dialog: start view", () => {
+  test("opens from the header and shows the pickers", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator("h1")).toContainText("Scene Atlas");
+    await waitForGalleryLoad(page);
+    await openImportDialog(page);
 
-    // Click the Import button (has title="Import images")
-    await page.getByTitle("Import images").click();
-
-    // The import dialog should open
+    await expect(page.getByText("Drop files or folders here")).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: IMPORT_DIALOG_TITLE }),
-    ).toBeVisible({ timeout: 5_000 });
-
-    // Should show upload controls
-    await expect(page.getByText(/Drop files or folders here/)).toBeVisible();
+      page.getByRole("button", { name: "Choose a folder" }),
+    ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Choose files" }),
     ).toBeVisible();
   });
 
-  test("upload a file and see it in preview", async ({ page }) => {
+  test("battlemap/scene choice toggles", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator("h1")).toContainText("Scene Atlas");
+    await waitForGalleryLoad(page);
+    await openImportDialog(page);
 
-    // Open import dialog
-    await page.getByTitle("Import images").click();
+    const battlemaps = page.getByRole("button", { name: "Battlemaps" });
+    const scenes = page.getByRole("button", { name: "Scenes", exact: true });
+    await expect(battlemaps).toHaveAttribute("aria-pressed", "true");
+    await expect(scenes).toHaveAttribute("aria-pressed", "false");
     await expect(
-      page.getByRole("heading", { name: IMPORT_DIALOG_TITLE }),
-    ).toBeVisible({ timeout: 5_000 });
+      page.getByText(/Grids are detected automatically/),
+    ).toBeVisible();
 
-    // Find a test image to upload
-    const imageDir =
-      process.env.E2E_IMAGE_DIR || path.resolve(__dirname, "..", ".tmp-images");
+    await scenes.click();
+    await expect(scenes).toHaveAttribute("aria-pressed", "true");
+    await expect(battlemaps).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByText(/No grid detection/)).toBeVisible();
+  });
 
-    const testFiles = getTestImagePaths(imageDir, 1);
-    if (testFiles.length === 0) {
-      if (process.env.CI)
-        throw new Error(`No test images found in ${imageDir}`);
-      test.skip();
-      return;
-    }
+  test("closes with Escape", async ({ page }) => {
+    await page.goto("/");
+    await waitForGalleryLoad(page);
+    await openImportDialog(page);
 
-    // Use the file chooser to upload
-    const fileChooserPromise = page.waitForEvent("filechooser");
-
-    // Click the "Choose files" button to trigger file chooser
-    await page.getByRole("button", { name: "Choose files" }).click();
-
-    const fileChooser = await fileChooserPromise;
-    await fileChooser.setFiles(testFiles[0]);
-
-    // Once the import has been created, sealed and is uploading, the dialog
-    // replaces its start view with the job's progress view.
+    await page.keyboard.press("Escape");
     await expect(
-      page.getByRole("heading", { name: IMPORT_DIALOG_TITLE }),
-    ).toBeHidden({ timeout: 30_000 });
-    await expect(page.getByRole("dialog")).toBeVisible();
+      page.getByRole("heading", { name: IMPORT_START_TITLE }),
+    ).toBeHidden({ timeout: 5_000 });
   });
 });

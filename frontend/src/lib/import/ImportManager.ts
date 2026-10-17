@@ -1,6 +1,6 @@
 /**
  * ImportManager: the single owner of import state in the browser
- * (ADR-018, design/ingest-redesign.md §8.1).
+ * (ADR-018, design/ingestion.md §8.1).
  *
  * Lives outside the React tree. Dialogs and the activity dock are pure views
  * over its snapshot (via useSyncExternalStore), so remounting a component can

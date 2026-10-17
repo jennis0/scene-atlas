@@ -24,6 +24,12 @@ Gates the two import endpoints that do large amounts of synchronous work in `asy
 
 Per-file uploads (`PUT /imports/{job}/items/{item}/content`) do not take the semaphore: they stream to disk asynchronously and only hop to a thread for MIME verification and the row update.
 
+Both endpoints take the semaphore (an async dependency) before the SQLite write lock, so they cannot deadlock against each other.
+
+### SQLite write lock
+
+Mutating import and group endpoints are decorated with `@write_locked` (`api/dependencies.py`), which takes `BEGIN IMMEDIATE` on the endpoint's own thread before the body runs, so a request can't fail on a stale snapshot while the IngestWorker commits. Taking the lock in a dependency instead held it while the request waited for a second thread-pool slot, and under load the waiters filled the pool. `upload_archive` takes the lock inside its worker thread for the same reason.
+
 ### 3. JobRunner
 
 Runs user-triggered and startup maintenance jobs off the event loop: embedding rebuild, startup `reconcile_vectors`, retagging, grid backfill, model download/activation, library deletion. Tracks status, progress and results in memory (records kept for `job_retention_seconds`). Created eagerly in the lifespan via `get_job_runner()`, which reads `max_job_workers` from the DB. `shutdown_job_runner()` sets the `shutting_down` flag, cancels queued jobs and waits for running ones (no job currently checks the flag, so a running job delays shutdown until it finishes). Imports do not run on the JobRunner. Scheduler tasks run in the asyncio default executor, not on the JobRunner.

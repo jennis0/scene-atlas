@@ -24,8 +24,9 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 | Colour search | `backend/app/services/color_search.py` | In-memory numpy index over dominant colours |
 | Import pipeline | `backend/app/api/imports.py`, `backend/pipeline/ingest_*.py`, `frontend/src/lib/import/`, `frontend/src/components/imports/` | Durable per-item queue with a dedicated worker (ADR-018). [ingestion.md](ingestion.md) |
 | Duplicate detection | `backend/pipeline/image_hashes.py`, `ingest_queue.py`, `ingest_process.py` | Byte and pixel tiers auto-skip; "Import as new copy" override; pHash stored but unused |
+| Stored format | `backend/pipeline/stored_format.py` | Optional WebP/JPEG/PNG conversion of new imports (`stored_format`); off by default |
 | Group detection and name parsing | `backend/app/services/image_parser.py` | Folder-based + prefix-based. [parser.md](parser.md) |
-| Grid detection | `backend/app/services/grid_detector.py` | Filename keywords plus image analysis for battlemaps (default on, 8,000 px cap) |
+| Grid detection (ADR-019) | `backend/app/services/grid/`, `backend/app/services/grid_detector.py` | Filename keywords plus image analysis for battlemaps: v3 spectral detector with ONNX classifiers for maps ≥1000 px, legacy detector below; `grid_source` records filename/detector/user. [grid-detection-v3.md](grid-detection-v3.md) |
 | Tag system and tag packs | `backend/app/api/tags.py`, `backend/app/services/tag_packs.py`, `frontend/src/components/TagManagementDialog.tsx` | Categories with aliases, colours, icons; installable packs. [tag-packs.md](tag-packs.md) |
 | Image viewer | `frontend/src/components/ImageViewer.tsx` | Metadata sidebar; scenes partitioned by subgroup |
 | Edit group dialog | `frontend/src/components/EditGroupDialog.tsx` | Drag-and-drop, merge, type toggle, Edit All (up to 500 groups) |
@@ -47,8 +48,7 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 
 | Work | Where | Notes |
 |---|---|---|
-| Pre-release code-quality pass | branch `refactor/sqlalchemy-mapped` | [code-quality-baseline.md](code-quality-baseline.md) |
-| Electron loads the UI from the backend (`http://127.0.0.1:<port>/`) instead of `file://` | — | [electron.md](electron.md) to be updated when it lands |
+| Pre-release code-quality pass | PR #4 (`chore/pre-release-quality`) | [code-quality-baseline.md](code-quality-baseline.md) |
 
 ## Backlog
 
@@ -59,22 +59,21 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 | int8 model export depends on untracked code | `scripts/models/export_model_onnx.py` imports `scripts.quantisation.*`, which is gitignored and absent from a clean checkout. [onnx-int8-quantisation.md](onnx-int8-quantisation.md) | Medium |
 | Electron sidecar parent-death watchdog | If Electron dies without stopping the sidecar, the backend keeps running. Add a stdin-EOF (or parent-PID) watchdog in `backend/pyinstaller/entry.py`. | Medium |
 | Finish the pipeline DB session helper | `backend/pipeline/db.py:pipeline_db` exists and is used by `maintenance.py` and `vector_reconcile.py`; about 15 call sites (`reparse_names`, `retag_all_images`, `backfill_*`, `export_library`, `fix_orphaned_images`, `write_new_embeddings`, `pipeline_config`) still build sessions directly. | Low |
-| Possible-duplicate (pHash) flags | Hashes are stored; flags and report UI not built. Must suppress gridded/gridless siblings. [ingest-redesign.md](ingest-redesign.md#open-questions) | Low |
-| Stored-format conversion | `convert_to_webp` / `webp_*` settings are accepted but ignored; replace with a `stored_format` option or remove. | Low |
+| Possible-duplicate (pHash) flags | Hashes are stored; flags and report UI not built. Must suppress gridded/gridless siblings. [ingestion.md](ingestion.md) | Low |
 | Rate limits behind a reverse proxy | slowapi keys on `get_remote_address`, which is the proxy's address once server mode sits behind one, so all clients share one bucket. Enable uvicorn proxy headers with a trusted `FORWARDED_ALLOW_IPS` and document it. | Medium |
-| Mislabelled import limits in Settings | "Max files per import" / "Max total upload size" (`max_import_files`, `max_import_total_size`) apply per uploaded zip; "Concurrent imports" controls `max_concurrent_prepare`. Relabel or rework. | Low |
+| Mislabelled "Concurrent imports" setting | It controls `max_concurrent_prepare` (images prepared in parallel), not simultaneous import jobs as its description says. Relabel or rework. | Low |
 | Tag-pack wizard rough edges | First boot seeds every pack, so the wizard shows all as imported; it ignores per-pack `errors` in the `import-multiple` response; that endpoint has no rate limit. | Low |
 | Long jobs block shutdown | `JobRunner.shutting_down` is never checked by job functions. | Low |
 | Unused / ineffective settings | `max_image_size`, `vector_collection_name` (only a default), `embedding_model` unused; `DATABASE_URL` and path overrides are recomputed in `Settings.__init__`; `max_import_file_size` default differs between schema (2000 MiB) and seed (2048 MiB). | Low |
 | Setup page fetches Google Fonts | `electron/setup.html` needs the network on first run for fonts; bundling them would allow a stricter CSP. | Low |
 | Deferred frontend extractions | EditGroupDialog / ImageViewer subcomponents, `useSceneFilters`, unifying ImageViewer filtering with `fileFilter.ts`, shared `TagChip` / `PanelHeader` / `ModelCard`, moving confirm flags out of `useEditGroupOperations`. Add component tests first (coverage is low for these). | Low |
-| Ingest error classification | A `FileNotFoundError` while placing files at commit (`_place`, stage `db_save`) is classified `file`, failing the batch permanently instead of retrying; corrupt videos are classified `transient` (stage `thumbnails`) and burn 3 attempts (~1 min) before failing. `backend/pipeline/error_classifier.py` | Medium |
-| Possible lock-order deadlock in seal vs archive upload | `seal_import` takes the SQLite write lock (`get_write_db`) before the heavy-op semaphore; `upload_archive` takes the semaphore first, then the write lock. Under load both can wait out the 10 s busy timeout. Take the semaphore first in `seal_import`. (From code reading; not reproduced.) | Medium |
+| Ingest error classification | A `FileNotFoundError` while placing files at commit (`_place`, stage `db_save`) is classified `file`, failing the batch permanently instead of retrying. `backend/pipeline/error_classifier.py` | Medium |
 | No single-backend guard per data dir | Two backends on one `APP_DATA_DIR` corrupt each other's in-flight ingest (`recover()` clears `.incoming/`). Electron has a single-instance lock; standalone/server mode has none. Add a lock file in `APP_DATA_DIR`. | Low |
+| E2E can run against a developer's backend | Locally, Playwright reuses an already-running backend on :8000 (`reuseExistingServer`), so a dev backend's real data dir would be used. Start the E2E backend on its own port. `e2e/playwright.config.ts` | Medium |
+| ColorIndex loads the whole `colors` table | `color_search.ColorIndex` reloads every colour row into memory on each TTL expiry. Chosen fix: store precomputed LAB columns per colour row and search with a SQL distance query, removing the in-memory index. | Low |
 | `SCENE_ATLAS_READY` printed before the socket is bound | Printed from the lifespan; clients must poll `/health` (Electron and the stress runner do). | Low |
-| Port grid detector v3 | Hybrid: v3 for images ≥1000 px, current detector below. [grid-detection-v3.md](grid-detection-v3.md) | Medium |
 | Session-based authentication | Until then server mode must sit behind an authenticating reverse proxy. [security.md](security.md) | Medium |
-| Bulk import of a local library | Linked folders read in place. [ingest-redesign.md](ingest-redesign.md#open-questions) | Low |
+| Bulk import of a local library | Linked folders read in place, feeding the same item queue. [ingestion.md](ingestion.md) | Low |
 | Real LanceDB in integration tests | Tests mock `get_lancedb_service()` | Low |
 | Dependency upgrades | Tailwind 3 → 4 (needs tailwind-merge v3), ESLint flat config, React 19 (blocked by @dnd-kit), React Router 7, lucide-react | Low |
 

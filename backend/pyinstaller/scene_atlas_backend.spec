@@ -47,6 +47,10 @@ a = Analysis(
         (str(project_root / 'backend' / 'alembic'),  'backend/alembic'),
         # The built UI: Electron loads it from the sidecar (same origin as the API).
         (str(project_root / 'frontend' / 'dist'),    'frontend/dist'),
+        # Data files read relative to their module (Path(__file__).parent): the tag
+        # vocabulary (first-boot tag seeding) and the grid detection models.
+        (str(project_root / 'backend' / 'app' / 'data' / 'tag_vocabulary.json'), 'backend/app/data'),
+        (str(project_root / 'backend' / 'app' / 'data' / 'grid_models'),         'backend/app/data/grid_models'),
     ],
     hiddenimports=[
         # uvicorn internals

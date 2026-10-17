@@ -32,6 +32,8 @@ images
   grid_height      INTEGER             -- Tile count
   grid_type        TEXT                -- "square" | "hex" | NULL
   grid_confidence  FLOAT               -- 0.0–1.0; NULL = from filename
+  grid_source      TEXT                -- filename | detector | user (migration 022);
+                                       --   re-detection never overwrites user
   sub_variant      TEXT                -- ORM: subgroup
   content_hash     TEXT(64)            -- SHA-256 of the original bytes
   stored_hash      TEXT(64)            -- SHA-256 of the stored file
@@ -118,7 +120,7 @@ import_items                           -- One file; all durable ingest state
   source_hash      TEXT(64)            -- SHA-256 of the uploaded bytes
   attempts         INTEGER NOT NULL DEFAULT 0
   retry_after      DATETIME
-  error_kind       TEXT                -- file | transient | system
+  error_kind       TEXT                -- file | transient | system | bytes_lost
   error_stage      TEXT
   error_reason     TEXT                -- User-facing
   error_detail     TEXT                -- Raw exception text
@@ -159,7 +161,7 @@ Some physical names predate renames and are aliased in the ORM (ADR-011): `varia
 ### Seed Data
 
 - **Tag categories:** `seed_tag_categories()` inserts the categories in `backend/app/data/tag_vocabulary.json` when `tag_categories` is empty; afterwards it is a no-op so user edits are kept. Further genre packs are imported via Settings → Tag Packs (see [tag-packs.md](tag-packs.md)).
-- **App settings:** `seed_default_settings()` inserts defaults (grid detection, colour extraction, ingestion performance, import limits, job runner, WebP options) when `app_settings` is empty. See [resource-management.md](resource-management.md).
+- **App settings:** `seed_default_settings()` inserts defaults (grid detection, colour extraction, ingestion performance, import limits, job runner, stored format) when `app_settings` is empty. See [resource-management.md](resource-management.md).
 
 ## LanceDB Vector Store
 
@@ -212,7 +214,7 @@ Bytes uploaded for an import are stored per job at `{APP_DATA_DIR}/staging/{job_
 
 - **Per-file upload** (`PUT …/items/{item_id}/content`) streams to `.{staging_key}.part` in the job directory, hashes and MIME-checks it, then renames it to `{staging_key}`.
 - **Archive upload** (`PUT …/archives`) streams the zip to `.{uuid}.zip.part`, extracts each member to `{staging_key}.part` then `{staging_key}`, and deletes the zip.
-- **Processing** writes the stored original and thumbnails as temp files in `<store>/.incoming/` (same volume as the destination); the commit renames them into place inside the transaction. `IngestWorker.recover()` clears `.incoming/` at startup.
+- **Processing** writes the stored original (or converted output) and thumbnails as temp files in `<store>/.incoming/` (same volume as the destination); the commit renames them into place inside the transaction, so a file is either fully in the library or not at all. `IngestWorker.recover()` clears `.incoming/` at startup.
 
 Cleanup is driven by item state (`ingest_maintenance.py`, every 6 h and on startup when overdue):
 - Staged files of `done` / `skipped` items are removed right after their batch commits; maintenance catches any left by a crash.
@@ -220,6 +222,10 @@ Cleanup is driven by item state (`ingest_maintenance.py`, every 6 h and on start
 - Never-uploaded items of jobs idle for 7 days are skipped.
 - Dismissed jobs' rows and staging directories are deleted 30 days after dismissal (images are kept).
 - Files and directories in staging that no item references and that are older than an hour (e.g. interrupted `.part` uploads) are deleted.
+
+### Stored format
+
+By default the library keeps each upload's original bytes. The `stored_format` setting (`original` | `webp` | `jpeg` | `png`, with `stored_quality` 1–100, default 90, and `stored_lossless` for WebP) converts new imports on the worker's temp copy (`backend/pipeline/stored_format.py`). Conversion is skipped when the image is already in the target format, animated, has transparency with a JPEG target, or exceeds 16,383 px for WebP; JPEGs are never encoded as lossless WebP. Duplicate hashes always come from the source, so dedup works whatever the format; `stored_hash` differs from `content_hash` only for converted files.
 
 ## Backups
 

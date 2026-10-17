@@ -17,14 +17,6 @@ const PROJECT_ROOT = path.resolve(__dirname, "..", "..");
 export const test = base.extend<object, { seedData: void }>({
   seedData: [
     async ({}, use) => {
-      // playwright.config.ts points the backend at a per-run temp directory.
-      // Refuse to seed if that didn't happen, rather than import into a real library.
-      if (!process.env.E2E_RUN_DIR || !process.env.APP_DATA_DIR) {
-        throw new Error(
-          "E2E_RUN_DIR / APP_DATA_DIR not set: run the tests through e2e/playwright.config.ts",
-        );
-      }
-
       // Ensure CLIP ONNX models are present (idempotent, downloads if missing)
       execSync("uv run python scripts/models/setup_models.py", {
         cwd: PROJECT_ROOT,
@@ -57,7 +49,7 @@ export const test = base.extend<object, { seedData: void }>({
         if (verifyFacets.total_images === 0) {
           throw new Error(
             "Seeding failed: no images found in DB after import completed. " +
-              "Check that the ONNX model is present (E2E_MODELS_DIR, default data/models/).",
+              "Check that CLIP ONNX models are present in backend/models/clip-vit-b-32/",
           );
         }
         console.log(

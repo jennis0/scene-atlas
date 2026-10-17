@@ -1,187 +1,97 @@
 # Stress Testing the Import Pipeline
 
-The stress testing suite exercises the Scene Atlas import pipeline under concurrent load, adversarial input, and failure conditions.  It runs against a **real server** (not mocked), testing the actual SQLite WAL mode contention, LanceDB write serialisation, and the ThreadPoolExecutor job runner.
-
-The scenarios drive the imports API described in [design/ingestion.md](../../design/ingestion.md#upload-protocol): create job → manifest → (archive upload) → seal → (client hashes) → per-file `PUT`, then poll `GET /imports/{id}` until the job is `completed` or `cancelled`. Jobs never fail; outcomes are item counts (`done`, `duplicate`, `failed`, `skipped`).
+The stress suite (`stress_tests/`) runs the ingest pipeline ([ADR-018](../../design/decisions.md#adr-018-durable-per-item-ingest-pipeline), [design/ingestion.md](../../design/ingestion.md)) against a **real server process**: the live `IngestWorker` thread, SQLite with its single writer, LanceDB and the prepare pool. It covers what the integration tests (which drive the worker synchronously with `drain()`) can't: concurrency at volume, crashes and restarts, and scheduled maintenance running alongside imports.
 
 ## Quick start
 
 ```bash
 # From the repository root
-uv run python -m stress_tests list                          # show all scenarios
-uv run python -m stress_tests generate-fixtures             # pre-generate test files (~45 MB)
-uv run python -m stress_tests run --scenario endpoint_spam  # single fast scenario
-uv run python -m stress_tests run --all --quick             # all scenarios, reduced load (~6 min)
-uv run python -m stress_tests run --all                     # full suite (~20–35 min)
+uv run python -m stress_tests list                              # all scenarios
+uv run python -m stress_tests generate-fixtures                 # pre-build fixtures (~90 MB)
+uv run python -m stress_tests run --scenario happy_path         # one scenario
+uv run python -m stress_tests run --scenario undo_import --scenario pause_resume
+uv run python -m stress_tests run --all --quick                 # everything, reduced load
+uv run python -m stress_tests run --all                         # full load
 ```
 
 ## Requirements
 
-- **Python / uv** — already a project dependency; run via `uv run python -m stress_tests …`
-- **Pillow** — already a dev dependency (image fixture generation)
-- **The ONNX model** — every scenario processes images. Each server's isolated data directory links `models/` to `data/models/` (where `uv run python scripts/models/setup_models.py` puts it); set `STRESS_MODELS_DIR` to use another models directory.
-- **ffmpeg** — *optional*; only needed for video fixtures (MP4/WebM).  All non-video scenarios work without it.  Install from [ffmpeg.org](https://ffmpeg.org/) and add to `PATH`.
+- **An AI model already downloaded.** Every scenario's server gets a fresh data directory, which has no model, and the ingest worker stays system-paused without one. The harness symlinks each model folder from `$STRESS_MODELS_DIR`, or by default `<repo>/data/models`, into the temp data directory (it copies them if symlinks aren't allowed). Run the app once and download a model if that folder is empty.
+- **ffmpeg** (optional): only for the real-video controls in `malformed_input`.
+- Python dependencies are already in the project (`httpx`, Pillow, numpy).
 
 ## Flags
 
 | Flag | Effect |
 |------|--------|
-| `--quick` | Reduces concurrency and file counts.  Full suite runs in ~6 min instead of ~35 min. |
-| `--large` | Enables 500 MB+ fixture variants and 60 s video files.  Requires ~7 GB free disk. |
+| `--quick` | Smaller file counts and concurrency. |
+| `--large` | Bigger loads: a 40,000-item manifest (beyond SQLite's 32,766 bound-variable limit), 12,000 px images, a 1,000-image zip, 200 MB corrupt files. Needs a few GB of disk. |
 
-## Architecture
+## How it works
 
 Each scenario:
-1. Gets a **fresh server process** (uvicorn subprocess) with its own `APP_DATA_DIR` and `IMAGE_LIBRARY_DIR` under `stress_tests/results/_work_<timestamp>/<scenario>/`, so a run never touches `./data` or `./images`. The work directory is deleted when every scenario passes
-2. Waits for `SCENE_ATLAS_READY` on stdout, then warms the CLIP model
-3. Runs its scenario logic via `httpx.AsyncClient` + `asyncio`
-4. On failure: saves `server.log` + `db.sqlite` to `stress_tests/results/<timestamp>_<name>/`
-5. The server is stopped and the next scenario starts clean
+1. Gets a **fresh server process** (`uvicorn backend.app.main:app` on a free port) with its own `APP_DATA_DIR` and `IMAGE_LIBRARY_DIR` under `stress_tests/results/_work_<timestamp>/<scenario>/`. It never touches the repo's `data/` or `images/`.
+2. Waits for `SCENE_ATLAS_READY`, warms the model with a search, and waits until `GET /imports` reports the queue is not system-paused.
+3. Runs the scenario with `httpx.AsyncClient`, using the real upload protocol (design §7):
 
-No new Python dependencies are required — `httpx` and `Pillow` are already dev deps.
+   ```
+   POST /imports → POST /manifest (chunks of ≤2,000) → PUT /archives (optional) → POST /seal
+     → POST /hashes (skip known files) → PUT /items/{id}/content (4 in flight)
+     → poll GET /imports with If-None-Match until the job settles
+   ```
+
+4. Checks results through the API **and** directly against the server's SQLite database and stores (read-only): image rows, stored files, thumbnails, shared content hashes and leftover `.incoming` temp files must agree.
+5. Stops the server. On failure, it keeps `server.log` and a DB snapshot.
+
+A job counts as settled when it's `completed`, or `cancelled` with nothing `ready` or `processing`. Any 5xx or transport error fails the scenario.
+
+All fixtures are synthetic: random-noise images, zips of them, and corrupt files. **Never point the suite at real maps**; they're commercial content and the runs must be reproducible.
 
 ## Scenarios
 
-### 1. `concurrent_imports` — concurrent full import flows
+| Scenario | What it does | Pass criteria |
+|---|---|---|
+| `happy_path` | One import of 100 / 500 / 2,000 files; reports setup, upload and processing throughput and how many polls got 304. | All `done`; rows = files = images; no shared hashes |
+| `large_manifest` | 5,000 / 10,000 / 40,000 manifest items in 50 groups; re-sends a chunk; seals; pages through every item; uploads a subset, then `finish-upload`. Reports per-step timings. | Re-sent chunk all ignored; 50 groups; subset `done`, rest `skipped` ("Not uploaded"); job `completed` |
+| `concurrent_imports` | 10 / 50 / 100 jobs of 5 files, each run end to end at the same time. | Every job `completed` with 5 `done`; no 5xx |
+| `round_robin_fairness` | Starts a big job, then four 3-file jobs once it's processing. | Small jobs finish while the big job still has work left |
+| `endpoint_spam` | 20 / 100 identical concurrent requests: seal, PUT of one item, manifest after seal, cancel, PUT to a cancelled job, polls with ETag, undo. | Seal idempotent (one group); one image from the PUT race; 409s where expected; one undo succeeds |
+| `cancellation_chaos` | Cancel before seal, after seal, mid-processing, and after completion. | Finished work kept, the rest `skipped`, staged files removed; retry on a cancelled job → 409; cancel of a completed job is a no-op |
+| `pause_resume` | Pause before bytes arrive, and pause mid-processing. | Nothing claimed while paused (at most one batch finishes); resume completes |
+| `reimport_duplicates` | Re-import via client hashes (no bytes sent), via bytes, in-job twins, and the same pixels as differently-compressed PNGs. | All duplicates detected at the right tier; no new images |
+| `import_as_copy` | Import-as-copy for hash-skipped duplicates (need an upload) and receipt-detected ones (staged bytes reused). | 3 independent images per file, each with its own stored file |
+| `undo_import` | Undo a job that merged into an existing group, a job mid-processing, then the original. | Exactly the job's images, files, thumbnails and created groups removed; the merged-into group kept |
+| `retry_failed` | Garbage bytes (fail validation) and corrupt JPEGs (fail in the worker), then retry. | Retry re-opens the job; validation failures go back to `awaiting_bytes` and succeed when re-sent |
+| `interrupted_upload_resume` | One client uploads a third and vanishes; a second client lists `awaiting_bytes` items, resumes some, re-PUTs finished ones, then `finish-upload`. | Re-PUT is a no-op; final `done`/`skipped` counts exact |
+| `zip_archives` | Small and large zips, a zip with a broken member, junk and a `..` path, a malformed zip and a near zip bomb, plus loose files; an archive after seal. | Bad archives become one failed `archive` item each; the job completes; no path contains `..`; 409 after seal |
+| `malformed_input` | Corrupt JPEG/PNG/WebP/MP4/WebM, text named `.png`, a truncated JPEG, an empty upload, a size mismatch, junk files, an oversized manifest entry, and real videos as controls. | Corrupt files `failed` (kind `file`), good files `done`, the job completes, no 5xx |
+| `duplicate_hash_race` | The same bytes uploaded to 10 / 50 jobs at once. | Exactly one image |
+| `concurrent_move_groups` | 20 concurrent `move-images` for the same images. | Exactly one succeeds |
+| `large_uploads` | Four 4,000 px (12,000 px with `--large`) noise JPEGs streamed concurrently; with `--large`, also a 1,000-image zip. | All `done`; reports MB/s |
+| `server_restart_recovery` | SIGKILLs the server while a batch is `processing` and a second job is half uploaded, then restarts on the same data. | Nothing `processing` after restart; re-claimed items complete; the half-uploaded job resumes; integrity holds |
+| `maintenance_during_import` | Trickles uploads until the scheduler's startup maintenance has run (60 s after start). | No items skipped or lost; the job completes |
 
-Runs 100 jobs (quick: 10) concurrently, each doing the full flow for 5 (quick: 3) unique images.
+## Results and artifacts
 
-**What it catches:** SQLite write-lock contention between the API and the ingest worker, round-robin claiming across jobs, LanceDB write path.
-
-**Pass criteria:** Every job `completed` with all its files `done`, zero HTTP 5xx responses.
-
----
-
-### 2. `endpoint_spam` — race condition flooding
-
-Fires many concurrent identical requests (100, quick: 20):
-
-1. Cancels of one sealed job → all 200 (cancel is idempotent), job ends `cancelled`
-2. Detail polls (`GET /imports/{id}`) → all 200, consistent status
-3. `PUT` content to the cancelled job's (now `skipped`) item → all 409
-4. Seals of one job → all 200 (seal is idempotent), every response shows the same single group
-5. `PUT`s of the same item's bytes → all 200, and the job ends with exactly the expected images
-
-**What it catches:** Non-atomic state transitions, duplicate planning or duplicate imports from retried requests.
-
-**Pass criteria:** No 5xx responses, all the above hold.
-
----
-
-### 3. `cancellation_chaos` — cancel at every stage
-
-- (a) Before seal (manifest only) → `cancelled`, items `skipped`
-- (b) After seal, before any bytes → `cancelled`, items `skipped`
-- (c) Right after uploading, while the worker is processing → `cancelled`; once the in-flight batch drains, nothing is left `awaiting_bytes`, `ready` or `processing`
-- (d) After completion → 200, the job stays `completed` and its images are kept
-
-**What it catches:** Items left open after a cancel, cancel undoing finished work.
-
-**Pass criteria:** Correct codes and states, no 5xx.
-
----
-
-### 4. `malformed_input` — corrupted file handling (~2 min)
-
-Puts each malformed fixture (JPEG, PNG, WebP, MP4, WebM: valid magic bytes, corrupt body) into its own job via manifest + `PUT`, and each ZIP (malformed, near-zip-bomb) via `PUT /imports/{id}/archives`. Then seals and waits for the job to finish.
-
-**Expected behaviour:** The corrupt images are rejected by the upload-time content check (`failed`, stage `validate`). The corrupt videos pass it and fail in the worker at the thumbnail stage; they are currently classified `transient`, so each is retried 3 times (about a minute) before failing. A bad ZIP becomes one failed `archive` item (`check_zip_safety()` rejects the near-bomb before extraction).
-
-**What it catches:** Decoder hangs on corrupt data, server crashes, corrupt files being imported.
-
-**Pass criteria:** No 5xx, no timeouts, every job completes, nothing imported.
-
----
-
-### 5. `large_uploads` — big files, sequential then concurrent
-
-Uploads large video and ZIP files, one at a time and then 5 at once (each in its own job, cancelled afterwards). Skipped in `--quick` mode unless `--large` is also given, which enables the 500 MB+ variants.
-
-**What it catches:** OOM from concurrent streaming, partial state left behind after a 413.
-
-**Pass criteria:** All requests complete or reject cleanly (no 5xx, no timeout).
-
----
-
-### 6. `concurrent_move_groups` — simultaneous group mutations
-
-Imports images into two groups, then fires 20 concurrent `move-images` requests for the same image IDs.
-
-**What it catches:** Race conditions in the group-assignment logic.
-
-**Pass criteria:** Exactly one move succeeds (200), the rest return 400/404, every image ends up in the target group.
-
----
-
-### 7. `duplicate_hash_race` — dedup under concurrency
-
-Imports the **same image bytes** in 50 concurrent jobs (quick: 10). Half of them also send the client-side SHA-256 (`POST /hashes`) before uploading, so the client-hint and commit-time dedup paths race.
-
-**What it catches:** Duplicate `Image` rows from concurrent dedup checks.
-
-**Pass criteria:** Every job completes, exactly one copy is imported across all jobs (the rest are `duplicate`), no 5xx.
-
----
-
-### 8. `server_restart_recovery` — crash recovery
-
-Starts 3 imports (8 files each), uploads all their bytes, SIGKILLs the server while the worker is processing, then starts a new server on the same storage. `IngestWorker.recover()` returns items left `processing` to `ready`.
-
-**What it catches:** Items stuck in `processing` after a crash, imports that never finish after a restart.
-
-**Pass criteria:** Every job reaches `completed` with all its files `done`.
-
----
-
-### 9. `large_batch_imports` — sustained heavy load
-
-Runs 10 jobs (quick: 2) of 1 000 files each (quick: 100).
-
-**What it catches:** Memory growth under sustained load, embedding throughput, per-file error isolation.
-
-**Pass criteria:** Every job completes with all files `done`, no 5xx.
-
----
-
-The former `scheduler_interference` scenario was removed: the ingest maintenance task runs every 6 hours, so it never fired during the run and the scenario only repeated `concurrent_imports`. Ingest maintenance is covered by `backend/tests/integration/test_ingest_pipeline.py`.
-
-## Failure artifacts
-
-When a scenario fails, artifacts are saved to:
+Each run writes `stress_tests/results/<timestamp>_run/summary.json`. When a scenario fails:
 
 ```
-stress_tests/results/<timestamp>_<scenario-name>/
-├── server.log      # Full DEBUG-level backend log
-├── db.sqlite       # DB snapshot at the end of the run
-└── summary.json    # Pass/fail, timing, error details (machine-readable)
+stress_tests/results/<timestamp>_<scenario>/
+├── server.log      # backend log (all restarts appended)
+├── db.sqlite       # DB snapshot
+└── summary.json    # pass/fail, timings, failed checks
 ```
 
-These directories are gitignored.
+The work directory (`_work_<timestamp>/`) is deleted when everything passes and kept otherwise. All of `results/` is gitignored.
 
 ## Fixtures
 
-Fixtures are generated into `stress_tests/.fixtures/` (gitignored) on first use.
+Built in `stress_tests/.fixtures/` (gitignored) on first use, and cached by file name. Delete the folder to rebuild. Most scenarios generate small images in memory instead (`fixtures.image_set`, deterministic per seed; use distinct seed ranges for distinct images).
 
-| Fixture | Description | Default size |
-|---------|-------------|--------------|
-| `sample.jpg/png/webp` | Single valid images for basic tests | ~50–200 KB |
-| `small.zip` | ZIP of 10 images | ~3 MB |
-| `large_100.zip` | ZIP of 100 images | ~25 MB |
-| `near_bomb.zip` | 800 entries × 3 MB zeros (DEFLATE) — compressed to ~1.6 MB, uncompressed metadata = 2.4 GB | ~1.6 MB |
-| `malformed_5mb.jpg/png/webp/mp4/webm/zip` | Valid magic bytes + corrupt body | 5 MB each |
-| `video_720p_1s.mp4/webm` | ffmpeg color bars | ~500 KB |
-
-With `--large`: malformed files grow to 500 MB each, videos become 60 s 1080p, ZIP grows to 1 000 images.
-
-Fixtures are cached: if the file already exists it won't be regenerated.  Delete `stress_tests/.fixtures/` to force regeneration.
-
-## Library-scale read benchmark
-
-`stress_tests/library_scale.py` builds a synthetic SQLite library of N images directly (no HTTP, no models; groups of ~7, 4 tags and 5 colours per image, migrated to the current schema) and reports SQL query counts and wall time for the search, gallery, group, and tag read paths. Semantic search is replaced by a fake.
-
-```bash
-uv run python -m stress_tests.library_scale build 56000 --db /tmp/lib.db
-uv run python -m stress_tests.library_scale run --db /tmp/lib.db
-```
-
-Use it to check a change for N+1 queries or slow aggregates at real-library scale. Never point `--db` at a real library database: `build` deletes the file first.
+| Fixture | Description |
+|---|---|
+| `small_10.zip`, `large_100.zip` (`large_1000.zip`) | Zips of noise JPEGs |
+| `near_bomb.zip` | 800 × 3 MB of zeros: 2.4 GB declared, about 2.5 MB on disk |
+| `malformed_5mb.{jpg,png,webp,mp4,webm,zip}` | Valid magic bytes, random body (200 MB with `--large`) |
+| `big_4000px_{0..3}.jpg` | Large valid images (12,000 px with `--large`) |
+| `video_640x360_1s.{mp4,webm}` | ffmpeg test pattern (needs ffmpeg) |

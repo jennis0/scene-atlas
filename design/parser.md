@@ -47,22 +47,19 @@ Given a relative path like `czepeku/Island Fort/Gridded/IslandFort_Night_Rain_30
 - Grid dimensions: `(\d{1,3})\s*[xX]\s*(\d{1,3})` pattern → `grid_width`, `grid_height`
 - **Skipped for `image_type="scene"`** — scenes do not use grid metadata
 
-**Image-analysis-based** (in `backend/pipeline/ingest_process.py` `_detect_grid`, during ingest):
-- Controlled by the app setting `enable_image_grid_detection` (seeded `true`)
-- Only runs for battlemaps (not scenes), non-video files
+**Image-analysis-based** (during ingest, `_detect_grid` in `backend/pipeline/ingest_process.py`):
+- Enabled with the app setting `enable_image_grid_detection` (seeded `true`).
+- Runs only for battlemaps (not scenes), and not for videos.
 - Decision tree:
-  - If the filename says "no grid" (`gridded=False`), or already gives grid dimensions → skip analysis
-  - If the filename says "grid" but no dimensions → run the algorithm for **size only** (`grid_size_threshold`, 0.15)
-  - If no keyword → run the algorithm for **presence + size** (`grid_presence_threshold`, 0.20)
-- Algorithm (`backend/app/services/grid_detector.py`):
-  1. Grayscale read, downscaled so the longest side is at most `grid_detection_max_dim` (default 8,000). JPEGs are read at reduced scale (`cv2.IMREAD_REDUCED_GRAYSCALE_{2,4,8}`) where the cap allows.
-  2. Canny edge detection with adaptive thresholds
-  3. Row/column projections of the edge image; candidate periods via FFT-based autocorrelation
-  4. A second pass on the edges rotated by 30°: a strong signal there (≥ `grid_hex_rot_conf`, 0.20) means hex, since the rotation aligns one set of hex lines with an axis
-  5. Otherwise square if the standard pass is confident and its row/column period ratio is ≥ `grid_period_ratio_threshold` (0.98); tile counts are snapped to clean divisors of the image size. Hex results carry no tile counts.
-- Outputs: `gridded`, `grid_type` ("square"/"hex"), `grid_width`/`grid_height` (tile counts), `grid_confidence` (0.0–1.0)
-- Task wrapper: `backend/pipeline/tasks/grid_detection.py`. Backfill for existing images: `uv run python -m backend.pipeline.backfill_grid_detection`.
-- Accuracy work and a replacement detector: [grid-detection-v3.md](grid-detection-v3.md)
+  - Filename says "no grid", or gives an exact NxM → trust it and skip analysis.
+  - Filename says "grid" but gives no size → **size only**. Grid sizes from other file names in the same import group are scored as candidates, never taken as truth.
+  - No keyword → **presence + size**.
+- Detector: v3 for images whose longest side is 1000 px or more; the legacy detector (`backend/app/services/grid_detector.py`) below that. Analysis is at full resolution unless `grid_analysis_max_dim` is set. See [grid-detection-v3.md](grid-detection-v3.md) and ADR-019.
+- Outputs:
+  - `gridded`, `grid_type` (`square` / `hex`) and `grid_width` / `grid_height` (tile counts);
+  - `grid_confidence`: the model's probability;
+  - `grid_source`: `filename` / `detector`, set to `user` when the grid is edited by hand. Re-detection never overwrites `user`.
+- Service: `backend/app/services/grid/` (`detect_grid`). Task: `backend/pipeline/tasks/grid_detection.py`. Backfill for existing images: `uv run python -m backend.pipeline.backfill_grid_detection`.
 
 ### 3. Folder Hierarchy Parsing
 
@@ -161,7 +158,7 @@ In `backend/pipeline/ingest_process.py` (`commit_batch`), `Image.name` is popula
 
 ## Group Detection (`group_files()`)
 
-Called at seal time (`ingest_queue.plan_job`) to group an import's files into import groups, separately per `image_type`. Groups whose `(name, author)` already exist in the gallery are merged into them; see [ingestion.md](ingestion.md#data-model).
+Called at seal time (`ingest_queue.plan_job`) to group an import's files into import groups, separately per `image_type`. Groups whose `(name, author)` already exist in the gallery are merged into them; see [ingestion.md](ingestion.md#3-data-model).
 
 ### Pass 1: Folder-based grouping
 - Run `parse()` on each file
@@ -206,4 +203,4 @@ The parser is type-aware via the `image_type` field (default: `"battlemap"`):
 | Tag extraction | Full | Full |
 | Name/group parsing | Full | Full |
 
-The `image_type` is chosen per import (per file in the manifest API); see [ingestion.md](ingestion.md#upload-protocol). At the storage level, the `Image` model has an `image_type` column that drives conditional UI behavior (e.g., hiding the grid panel for scenes).
+The `image_type` is chosen per import (per file in the manifest API); see [ingestion.md](ingestion.md#7-upload-protocol). At the storage level, the `Image` model has an `image_type` column that drives conditional UI behavior (e.g., hiding the grid panel for scenes).

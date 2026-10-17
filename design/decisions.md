@@ -190,7 +190,7 @@ This document records all significant architectural decisions for the Scene Atla
 - The `alembic.ini` at project root allows CLI use: `uv run alembic upgrade head`
 - Image store files are not backed up by the script — they are large, append-only blobs and the originals typically exist elsewhere; document this assumption
 - LanceDB embeddings can be regenerated from images via `write_new_embeddings` if the LanceDB backup is unavailable
-- **Status note (2026-10):** `cleanup_staging` no longer exists; staging is cleaned by item state (ADR-018). Scheduled tasks are now `backup_database` (24h), `ingest_maintenance` (6h), `sweep_orphaned_store_files` (24h) and `reconcile_vectors` (24h); see [ingestion.md](ingestion.md#maintenance). There is no `reset_database.py`.
+- **Status note (2026-10):** `cleanup_staging` no longer exists; staging is cleaned by item state (ADR-018). Scheduled tasks are now `backup_database` (24h), `ingest_maintenance` (6h), `sweep_orphaned_store_files` (24h) and `reconcile_vectors` (24h); see [ingestion.md](ingestion.md#9-maintenance-and-recovery). There is no `reset_database.py`.
 
 ---
 
@@ -448,7 +448,7 @@ Key choices:
 ## ADR-018: Durable per-item ingest pipeline
 
 **Date:** 2026-10-15
-**Status:** Accepted and implemented (merged as PR #1). Supersedes the import model in ADR-012 and the earlier import job state machine. Current behaviour: [ingestion.md](ingestion.md). Not yet done: perceptual "possible duplicate" flags (point 6) and the stored-format option (point 8); see [ingest-redesign.md](ingest-redesign.md#status).
+**Status:** Implemented (PR #1; stored format added in the Phase 6 PR). Supersedes the import model in ADR-012 and the earlier import job state machine. Not yet done: perceptual "possible duplicate" flags (point 6). Current behaviour: [ingestion.md](ingestion.md).
 
 **Context:** A reliability audit (2026-10-12) found about 50 issues in the import flow. Three structural causes account for nearly all of them.
 1. **An import job was an all-or-nothing transaction.** A restart, a failed group, or dismissing a failed job deleted every image the job had imported. This existed to avoid false duplicate matches.
@@ -457,7 +457,7 @@ Key choices:
 
 Duplicate detection was also broken under WebP conversion, and imports over ~32k files hit SQLite's variable limit.
 
-**Decision:** Replace the import pipeline with a durable, per-item model. Full design: [ingestion.md](ingestion.md); rationale and measurements: [ingest-redesign.md](ingest-redesign.md).
+**Decision:** Replace the import pipeline with a durable, per-item model. Full design: [ingestion.md](ingestion.md).
 
 1. **A job contains groups, and a group contains items.** Jobs remain the user-facing unit. Every file is an `import_items` row holding its own state (`awaiting_bytes`, `ready`, `processing`, `done`, `duplicate`, `failed`, `skipped`), attempts, classified error and resulting image. Job progress is derived from item counts.
 2. **Jobs have four states (`active`, `paused`, `completed`, `cancelled`) and never fail as a whole.** Cancel keeps finished work. Deleting imported images happens only through an explicit "Undo import". Dismiss only hides.
@@ -471,7 +471,7 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 
    "Import as new copy" processes the file as fully independent (own stored file, thumbnails and embedding). It is the escape hatch for a faulty match, so it shares nothing with the matched image. The shared-storage reuse path is removed.
 7. **The frontend has one `ImportManager` store** outside React. It owns uploads, a hashing Web Worker and a single ETag-aware poller; dialogs and the dock are pure views.
-8. **Stored-file conversion defaults to off.** It becomes a server config option later (`original`/`webp`/`jpeg`/`png` plus quality).
+8. **Stored-file conversion defaults to off.** The `stored_format` setting (`original`/`webp`/`jpeg`/`png`, plus quality and lossless-for-lossless-sources) converts new imports on a worker temp copy; source and pixel hashes always come from the upload.
 
 **Alternatives considered:**
 - **Patch the existing flow finding by finding.** Rejected: the stuck and destructive states are emergent from the all-or-nothing job model and client-driven lifecycle.
@@ -487,3 +487,32 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 - More HTTP requests per import (one per file). Reverse-proxy rate limits must allow for this.
 - The future bulk local-library import becomes another source of bytes for the same item queue.
 - Scene Atlas is unreleased, so no data migration is provided.
+
+---
+
+## ADR-019: Grid detector v3 (spectral comb plus trained classifiers)
+
+**Date:** 2026-10-16
+**Status:** Implemented (PR #2)
+
+**Context:** The original detector (Canny edges plus autocorrelation, 8000 px cap) peaked at about 1.6 GB per map. It called grids on 28% of explicitly gridless maps, and made spurious hex calls. Five evaluation rounds against labels from gridded/gridless "twins" across 28 creators (see [grid-detection-v3.md](grid-detection-v3.md)) showed that a harmonic-comb detector with small trained classifiers is better. Measured by leaving one creator out at a time, v3's worst-creator F1 is .685 against .667 for the current detector, and its median is .944 against .913. It also gets the grid size exactly right more often: .945 vs .875.
+
+**Decision:**
+1. **Detector.** v3 handles maps whose longest side is 1000 px or more. It analyses at full resolution, with a harmonic comb over line-energy profiles, a per-image null distribution, spatial-coverage features and two hex measures. The decisions come from a gradient-boosted presence model and a hex logistic regression, shipped as ONNX in `backend/app/data/grid_models` and run on the CPU through the onnxruntime the app already includes.
+2. **Small maps.** Maps under 1000 px keep the legacy detector, where v3 measured worse.
+3. **One analysis setting.** The old tuning settings are removed. `grid_analysis_max_dim` (0 = full resolution) remains, and lowering it costs accuracy on thin-line, high-dpi maps.
+4. **Grid source.** Each image records where its grid came from: `images.grid_source` is `filename`, `detector` or `user`. Re-detection never overwrites `user`, nor explicit file-name labels ("No Grid", or an exact NxM).
+5. **Sibling sizes.** In size-only mode, NxM sizes from other file names in the same group are scored as candidate tile counts. They are never taken as truth.
+6. **Reproducible models.** `scripts/models/grid/train_grid_models.py` rebuilds the models byte-for-byte from a features file. Images and features stay out of git because the maps are commercial artwork.
+
+**Alternatives considered:**
+- **v3 for every image size.** Rejected: it was worse on small maps in the cross-artist evaluation.
+- **Hand-tuned thresholds without trained models.** Rejected: thresholds tuned on one dev sample did not hold on held-out creators (round 1).
+- **Pickle or JSON models.** Rejected: pickle is unsafe and tied to the scikit-learn version, and the chosen presence model is a tree ensemble, which JSON doesn't suit.
+- **Reduced-resolution analysis by default.** Rejected: 2-4x reduction blurred the 1-2 px lines on 200 dpi maps.
+
+**Consequences:**
+- Fewer false grids on gridless maps.
+- More CPU on very large maps (up to about 28 s for a 761 Mpx map), with memory reserved through the ingest budget's per-format formula.
+- Known limits: very dark thin-line maps, maps with only a few cells, perfectly regular one-directional patterns such as planks, and faint hex.
+- The legacy detector remains only for small images.

@@ -1,4 +1,4 @@
-"""Memory-aware admission for image processing (design/ingest-redesign.md, Phase 0 follow-up).
+"""Memory-aware admission for image processing (design/ingestion.md, Phase 0 follow-up).
 
 The prepare pool bounds how many images are processed at once, but not how big
 they are: a 760 Mpx map needs gigabytes while a typical map needs tens of

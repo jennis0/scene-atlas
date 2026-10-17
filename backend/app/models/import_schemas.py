@@ -1,4 +1,4 @@
-"""Request and response models for the imports API (ADR-018, design/ingest-redesign.md §7)."""
+"""Request and response models for the imports API (ADR-018, design/ingestion.md §7)."""
 
 from datetime import datetime
 from typing import Literal

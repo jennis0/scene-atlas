@@ -19,7 +19,9 @@ Usage in pipeline entry points:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from .stored_format import StoredFormat
 
 
 @dataclass
@@ -28,13 +30,7 @@ class PipelineConfig:
 
     # Grid detection
     enable_image_grid_detection: bool = True
-    grid_min_cell_px: int = 32
-    grid_max_cell_px: int = 320
-    grid_detection_max_dim: int = 8_000
-    grid_presence_threshold: float = 0.20
-    grid_size_threshold: float = 0.15
-    grid_period_ratio_threshold: float = 0.98
-    grid_hex_rot_conf: float = 0.20
+    grid_analysis_max_dim: int = 0  # 0 = full resolution
 
     # Color extraction
     num_dominant_colors: int = 5
@@ -45,27 +41,28 @@ class PipelineConfig:
     ingestion_batch_size: int = 16
     max_concurrent_prepare: int = 4
 
-    # Import processing
-    use_webp: bool = False
+    # Storage format for imported images (design/ingestion.md §10)
+    stored_format: StoredFormat = field(default_factory=StoredFormat)
+
+    @property
+    def grid_max_dim(self) -> int | None:
+        """``grid_analysis_max_dim`` for the detector: None means full resolution."""
+        return self.grid_analysis_max_dim or None
 
     @classmethod
     def from_app_settings(cls, s) -> PipelineConfig:
         """Create a PipelineConfig from an AppSettings instance."""
         return cls(
             enable_image_grid_detection=s.enable_image_grid_detection,
-            grid_min_cell_px=s.grid_min_cell_px,
-            grid_max_cell_px=s.grid_max_cell_px,
-            grid_detection_max_dim=s.grid_detection_max_dim,
-            grid_presence_threshold=s.grid_presence_threshold,
-            grid_size_threshold=s.grid_size_threshold,
-            grid_period_ratio_threshold=s.grid_period_ratio_threshold,
-            grid_hex_rot_conf=s.grid_hex_rot_conf,
+            grid_analysis_max_dim=s.grid_analysis_max_dim,
             num_dominant_colors=s.num_dominant_colors,
             color_clustering_samples=s.color_clustering_samples,
             color_kmeans_n_init=s.color_kmeans_n_init,
             ingestion_batch_size=s.ingestion_batch_size,
             max_concurrent_prepare=s.max_concurrent_prepare,
-            use_webp=s.convert_to_webp,
+            stored_format=StoredFormat(
+                format=s.stored_format, quality=s.stored_quality, lossless=s.stored_lossless
+            ),
         )
 
 

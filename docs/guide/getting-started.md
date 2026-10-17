@@ -92,12 +92,12 @@ See the [Building & Running guide](/development/building) for pre-commit hooks, 
 
 Once Scene Atlas is running:
 
-1. Click **Import**
-2. Choose whether the files are battlemaps or scenes
-3. Drag and drop images, folders, or ZIP archives, or use the folder/file pickers
-4. Images appear in the gallery as they finish processing
+1. Click **Import** in the top-right corner
+2. Choose battlemaps or scenes, then drag and drop images, folders, or ZIP archives onto the dialog
+3. Watch the groups fill in as files are processed (you can close the dialog; the activity dock keeps track)
+4. Browse or search your collection in the gallery
 
-Scene Atlas automatically groups related map variants by folder structure and filename patterns. You can edit groups in the gallery afterwards.
+Scene Atlas automatically groups related map variants by folder structure and filename patterns. You can adjust groups afterwards in the group editor.
 
 ## Troubleshooting
 

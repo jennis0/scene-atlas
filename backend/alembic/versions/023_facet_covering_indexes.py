@@ -10,14 +10,14 @@ The existing ``ix_tags_category_value``, ``ix_colors_color_hex`` and
 ``ix_images_gridded`` are prefixes of the new indexes but are kept: they are
 declared by the models.
 
-Revision ID: 022
-Revises: 021
+Revision ID: 023
+Revises: 022
 """
 
 from alembic import op
 
-revision = "022"
-down_revision = "021"
+revision = "023"
+down_revision = "022"
 branch_labels = None
 depends_on = None
 

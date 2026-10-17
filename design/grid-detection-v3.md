@@ -1,6 +1,6 @@
 # Grid Detection v3: Research and Evaluation
 
-**Status:** research complete (rounds 1–5, 2026-10-15); port not started.
+**Status:** implemented 2026-10-16 on branch `worktree-grid-v3` (ADR-019); see §6 for what was built and how it differs from the plan.
 **Decision proposed (after round 5):** a hybrid.
 - Use **full-resolution** v3 (GBM presence model, ONNX) for images of 1000 px or more.
 - Keep `grid_detector.py` for smaller images.
@@ -281,7 +281,42 @@ Downscaled maps with 6–20 px cells aren't usable as VTT maps. Current's higher
    - A detected scale is useful to VTT users even on gridless maps.
    - Consider storing "has a drawn grid" and "grid scale" as separate fields.
 
-## 6. Port plan (agreed 2026-10-16)
+## 6. Port (implemented 2026-10-16)
+
+### What was built
+
+| Piece | Where |
+|---|---|
+| Analysis: decode, profiles, spectra, comb, null scores | `backend/app/services/grid/analysis.py` |
+| Measurements and feature vector | `backend/app/services/grid/features.py` |
+| ONNX models, validated against `meta.json` at load | `backend/app/services/grid/models.py` |
+| Entry point: hybrid routing, decisions, sibling prior | `backend/app/services/grid/detector.py` (`detect_grid`) |
+| Shipped models | `backend/app/data/grid_models/` |
+| Training, feature extraction, regression recording | `scripts/models/grid/train_grid_models.py` |
+| Synthetic-image tests | `backend/tests/unit/test_grid_v3.py`, `test_grid_pipeline_rules.py` |
+| Opt-in local regression test | `backend/tests/unit/test_grid_regression_local.py`, skipped unless `GRID_REGRESSION_CASES` is set |
+
+### Verification
+
+- **Port vs research:** on 134 real images (67 twin pairs, 22 creators), all 35 model features are bit-identical between `grid_v3_fullres.py` and the port, and every decision matches in both modes. CPU use is the same.
+- **Training script:** retraining from the round-5 features with the committed script gives identical weights and probabilities (0 difference on 4,598 rows). The shipped files were regenerated with deterministic graph names, so rebuilds are byte-identical.
+- **Local regression set:** 134 recorded cases in `scripts/grid_research/parity/`. On that sample v3 finds 61 of 67 gridded maps and makes 1 false call on 67 gridless ones.
+
+### Differences from the plan
+
+- **Weaker-axis guard.** Square presence also requires `min(contrast_x, contrast_y) >= 1.15`. On out-of-fold predictions for 2,080 twin images this lost no true grid and removed 3 of 46 false positives.
+  - It was prompted by a synthetic decoy of vertical planks with no horizontal lines, which v3 called a grid.
+  - Comb-based guards (`min(sx, sy)` and `min(z_x, z_y)`) would also have caught it, but each cost real grids, so they weren't adopted.
+  - Perfectly regular one-directional lines can still pass at some sizes; this is an `xfail` test that documents the limit.
+- **`grid_source` values** are `filename`, `detector` and `user` (not `detector:v3`). Size-only detection keeps `filename`, because "gridded" still comes from the name; a confidence marks that the size was detected.
+  - The backfill never touches `user` grids, explicit "No Grid" names, or a file's own NxM.
+  - With `force`, it re-detects everything else.
+  - Group-editor saves mark `user` only for images whose grid actually changed.
+- **`grid_analysis_max_dim` uses 0 for full resolution,** because settings patches treat `null` as "unchanged".
+- **Model errors pause the queue.** A missing or mismatched model raises `GridModelError`, which ingest classifies as a system error, so the queue pauses instead of marking every map "unknown".
+- **Packaging.** The PyInstaller spec now bundles `backend/app/data/grid_models`, and also `tag_vocabulary.json`, which was read the same way but missing from the spec. That probably broke first-boot tag seeding in frozen builds; unverified without a build.
+
+### Plan as agreed
 
 The port is a separate branch and worktree, started after `worktree-ingest-redesign` is merged. Each step below is a reviewable commit.
 

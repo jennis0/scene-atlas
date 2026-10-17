@@ -1,4 +1,4 @@
-"""Process one claimed batch of import items (ADR-018, design/ingest-redesign.md §5.3).
+"""Process one claimed batch of import items (ADR-018, design/ingestion.md §5.3).
 
     prepare (prepare pool) → embed (one batch) → commit (one BEGIN IMMEDIATE
     transaction) → vectors (LanceDB, after commit) → staging cleanup
@@ -24,6 +24,7 @@ from PIL import Image as PILImage
 
 from backend.app.config import settings
 from backend.app.models import Color, Image, ImageGroup, ImportGroup, ImportItem, Tag
+from backend.app.models.database import GRID_FIELDS, GRID_SOURCE_DETECTOR, GRID_SOURCE_FILENAME
 from backend.app.services import (
     get_image_store,
     get_lancedb_service,
@@ -47,6 +48,7 @@ from .ingest_queue import (
     write_session,
 )
 from .pipeline_config import PipelineConfig
+from .stored_format import convert as convert_stored_format
 from .tasks import color_extraction, embedding_generation, grid_detection
 from .tasks.image_processing import write_thumbnails
 
@@ -106,6 +108,9 @@ def _detect_grid(item: ClaimedItem, staged: Path, width: int, height: int, cfg) 
         "grid_height": parsed.get("grid_height"),
         "grid_type": parsed.get("grid_type"),
         "grid_confidence": None,
+        "grid_source": GRID_SOURCE_FILENAME
+        if any(parsed.get(k) is not None for k in GRID_FIELDS)
+        else None,
     }
     if not cfg.enable_image_grid_detection or item.image_type != "battlemap":
         return grid
@@ -116,7 +121,12 @@ def _detect_grid(item: ClaimedItem, staged: Path, width: int, height: int, cfg) 
     else:
         return grid
     result = grid_detection.detect_grid_from_image(
-        str(staged), width, height, size_only=size_only, pipeline_config=cfg
+        str(staged),
+        width,
+        height,
+        size_only=size_only,
+        pipeline_config=cfg,
+        sibling_counts=item.sibling_grid_counts if size_only else (),
     )
     if result and result.get("confidence", 0) > 0:
         if grid["gridded"] is None:
@@ -126,6 +136,8 @@ def _detect_grid(item: ClaimedItem, staged: Path, width: int, height: int, cfg) 
             grid["grid_height"] = result["grid_height"]
         grid["grid_type"] = result.get("grid_type")
         grid["grid_confidence"] = result.get("confidence")
+        if not size_only:  # size-only: "gridded" still comes from the file name
+            grid["grid_source"] = GRID_SOURCE_DETECTOR
     return grid
 
 
@@ -141,10 +153,19 @@ class DecodePlan:
 
 # Pillow holds RGB(A) at 4 bytes/px; the extra quarter covers thumbnails and strips.
 _DECODE_BYTES_PER_PIXEL = 5
-# Grayscale read plus Canny/FFT/rotation working arrays in grid detection
-# (measured: ~2 GB above baseline for a 400 Mpx read).
-_GRID_BYTES_PER_PIXEL = 5
 _VIDEO_PEAK_BYTES = 256 * 1024 * 1024
+_MB = 1024 * 1024
+
+# Grid detection v3 peak memory, measured per format on 2,400 real maps at full
+# resolution: (fixed MB, MB per megapixel, safety factor covering the worst measured
+# image). Formats Pillow decodes for us (TIFF, AVIF, ...) use the WebP row, the most
+# conservative. See design/grid-detection-v3.md, round 5.
+_GRID_MEMORY = {
+    "JPEG": (42, 2.0, 1.8),
+    "JPEG_PROGRESSIVE": (38, 5.9, 1.15),
+    "PNG": (37, 1.8, 1.2),
+    "WEBP": (24, 3.8, 1.5),
+}
 
 
 # A progressive JPEG's DCT coefficients are buffered for the whole image before
@@ -152,18 +173,26 @@ _VIDEO_PEAK_BYTES = 256 * 1024 * 1024
 _PROGRESSIVE_BYTES_PER_PIXEL = 6
 
 
-def _grid_read_pixels(width: int, height: int, cfg: PipelineConfig, reducible: bool) -> int:
-    """Pixels grid detection will materialise.
+def grid_detection_bytes(
+    width: int, height: int, image_format: str | None, progressive: bool, cfg: PipelineConfig
+) -> int:
+    """Estimated peak memory of grid detection for one image.
 
-    Baseline JPEGs are read at reduced scale when the cap allows; other formats
-    are decoded in full and then downscaled.
+    Only baseline JPEGs benefit from ``grid_analysis_max_dim`` (DCT-scaled decode);
+    progressive JPEGs buffer every coefficient and other formats decode in full.
     """
-    longest = max(width, height)
-    if reducible:
-        for factor in (8, 4, 2):
-            if longest / factor >= cfg.grid_detection_max_dim:
-                return (width // factor) * (height // factor)
-    return width * height
+    from backend.app.services.grid.analysis import reduction_factor
+
+    if image_format == "JPEG":
+        key = "JPEG_PROGRESSIVE" if progressive else "JPEG"
+    else:
+        key = image_format if image_format in _GRID_MEMORY else "WEBP"
+    fixed_mb, per_mpx, safety = _GRID_MEMORY[key]
+    pixels = width * height
+    if key == "JPEG":
+        factor = reduction_factor(max(width, height), cfg.grid_max_dim)
+        pixels //= factor * factor
+    return int((fixed_mb + per_mpx * pixels / 1e6) * safety * _MB)
 
 
 def plan_decode(staged: Path, item: ClaimedItem, cfg: PipelineConfig) -> DecodePlan:
@@ -189,8 +218,7 @@ def plan_decode(staged: Path, item: ClaimedItem, cfg: PipelineConfig) -> DecodeP
     if is_jpeg and progressive:
         peak = max(peak, pixels * _PROGRESSIVE_BYTES_PER_PIXEL)
     if item.image_type == "battlemap" and cfg.enable_image_grid_detection:
-        read = _grid_read_pixels(width, height, cfg, reducible=is_jpeg and not progressive)
-        peak = max(peak, read * _GRID_BYTES_PER_PIXEL)
+        peak = max(peak, grid_detection_bytes(width, height, image_format, progressive, cfg))
     return DecodePlan(width, height, full_decode, peak)
 
 
@@ -285,12 +313,26 @@ def _prepare(
         else {k: item.parsed.get(k) for k in ("gridded", "grid_width", "grid_height")}
     )
 
-    progress.stage = "copy"
     library_temp_dir = incoming_dir(image_store.base_dir)
     library_temp_dir.mkdir(parents=True, exist_ok=True)
-    temp_original = library_temp_dir / storage_key
-    progress.created.append(temp_original)
-    shutil.copyfile(staged, temp_original)
+    progress.stage = "convert"
+    converted = (
+        convert_stored_format(staged, library_temp_dir, stem, cfg.stored_format)
+        if item.kind != "video"
+        else None
+    )
+    if converted is not None:
+        progress.created.append(converted)
+        temp_original = converted
+        storage_key = converted.name
+        stored_hash = file_sha256(converted)
+        file_size = converted.stat().st_size
+    else:
+        progress.stage = "copy"
+        temp_original = library_temp_dir / storage_key
+        progress.created.append(temp_original)
+        shutil.copyfile(staged, temp_original)
+        stored_hash = source_hash
 
     medium_key, medium_path = thumbnails["medium"]
     return PreparedItem(
@@ -305,8 +347,7 @@ def _prepare(
         file_size=file_size,
         media_type="video" if item.kind == "video" else "image",
         source_hash=source_hash,
-        # No stored-format conversion yet (design §10): the stored file is the original.
-        stored_hash=source_hash,
+        stored_hash=stored_hash,
         pixel_hash=image_pixel_hash,
         phash=image_phash,
         colors=colors,
@@ -467,6 +508,7 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
                     grid_height=p.grid.get("grid_height"),
                     grid_type=p.grid.get("grid_type"),
                     grid_confidence=p.grid.get("grid_confidence"),
+                    grid_source=p.grid.get("grid_source"),
                     subgroup=parsed.get("subgroup"),
                     image_type=p.item.image_type,
                     media_type=p.media_type,

@@ -1,86 +1,82 @@
+import path from "path";
 import { test, expect } from "../fixtures/base";
-import fs from "fs";
 import {
-  waitForGalleryLoad,
-  openImportDialog,
-  uploadFiles,
+  getSceneCount,
   getTestImagePaths,
-  IMPORT_DIALOG_TITLE,
+  importFiles,
+  openImportDialog,
+  undoImport,
+  waitForGalleryLoad,
+  waitForImportFinished,
 } from "../helpers/actions";
 import { IMAGE_DIR } from "../helpers/decrypt-fixtures";
+import { writeUniquePng } from "../helpers/images";
 
-test.describe("Import Deep", () => {
-  test("import dialog shows upload controls", async ({ page }) => {
-    await page.goto("/");
-    await waitForGalleryLoad(page);
-
-    // Open import dialog
-    await openImportDialog(page);
-
-    // Verify drop zone is visible
-    await expect(page.getByText(/Drop files or folders here/)).toBeVisible();
-
-    // Verify browse buttons are visible
-    await expect(
-      page.getByRole("button", { name: "Choose files" }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Choose a folder" }),
-    ).toBeVisible();
-
-    // Close dialog
-    await page.keyboard.press("Escape");
-    await expect(
-      page.getByRole("heading", { name: IMPORT_DIALOG_TITLE }),
-    ).not.toBeVisible({ timeout: 5_000 });
-  });
-
-  test("default type toggle is visible", async ({ page }) => {
-    await page.goto("/");
-    await waitForGalleryLoad(page);
-
-    await openImportDialog(page);
-
-    // Verify the "Import these as" toggle (Battlemaps / Scenes) is visible
-    const dialog = page.getByRole("dialog");
-    const mapsButton = dialog.getByRole("button", { name: "Battlemaps" });
-    const scenesButton = dialog.getByRole("button", { name: "Scenes" });
-
-    await expect(mapsButton).toBeVisible({ timeout: 5_000 });
-    await expect(scenesButton).toBeVisible({ timeout: 5_000 });
-
-    // Both buttons should be present and interactable
-    await expect(mapsButton).toBeEnabled();
-    await expect(scenesButton).toBeEnabled();
-
-    // Close dialog
-    await page.keyboard.press("Escape");
-  });
-
-  test("file upload triggers processing", async ({ page }) => {
+test.describe("Import: end to end", () => {
+  test("imports a new file, reports it, and undoes it", async ({ page }) => {
     test.setTimeout(180_000);
-    // Skip if no test images available
-    if (!fs.existsSync(IMAGE_DIR)) {
-      test.skip();
-      return;
-    }
-
-    const filePaths = getTestImagePaths(IMAGE_DIR, 2);
-    if (filePaths.length === 0) {
-      test.skip();
-      return;
-    }
+    const file = writeUniquePng("e2e-new-map.png");
+    const label = path.basename(file);
 
     await page.goto("/");
     await waitForGalleryLoad(page);
+    const before = await getSceneCount(page);
 
-    // Open import dialog and upload files
     await openImportDialog(page);
-    await uploadFiles(page, filePaths, 30_000);
+    await importFiles(page, [file]);
 
-    // Verify the activity dock pill appears (import processing started)
-    await expect(page.getByTestId("activity-dock-pill")).toBeVisible({
-      timeout: 15_000,
-    });
+    // Progress view, titled with the import's label, then the outcome.
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("heading", { name: label })).toBeVisible();
+    await expect(dialog.getByRole("progressbar")).toBeVisible();
+    await waitForImportFinished(page);
+    await expect(dialog.getByText("Finished. 1 imported.")).toBeVisible();
+
+    await expect
+      .poll(() => getSceneCount(page), { timeout: 30_000 })
+      .toBe(before + 1);
+
+    await dialog.getByRole("button", { name: "View report" }).click();
+    const report = page.getByRole("dialog");
+    await expect(report.getByRole("heading", { name: label })).toBeVisible();
+    await expect(report.getByText(/^1 imported$/)).toBeVisible();
+    await undoImport(page, 1);
+    await expect
+      .poll(() => getSceneCount(page), { timeout: 30_000 })
+      .toBe(before);
+  });
+
+  test("re-importing a library file is skipped as a duplicate", async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+    const [existing] = getTestImagePaths(IMAGE_DIR, 1);
+    test.skip(!existing, `No test images in ${IMAGE_DIR}`);
+
+    await page.goto("/");
+    await waitForGalleryLoad(page);
+    const before = await getSceneCount(page);
+
+    await openImportDialog(page);
+    await importFiles(page, [existing]);
+    await waitForImportFinished(page);
+
+    const dialog = page.getByRole("dialog");
+    await expect(
+      dialog.getByText("Finished. 0 imported, 1 already in your library."),
+    ).toBeVisible();
+
+    await dialog.getByRole("button", { name: "View report" }).click();
+    const tab = page.getByRole("tab", { name: /Already in library/ });
+    await expect(tab).toContainText("1");
+    await tab.click();
+    await expect(
+      page.getByText("Identical to a file already in your library"),
+    ).toBeVisible();
+    await expect(
+      page.getByTitle(path.basename(existing), { exact: true }),
+    ).toBeVisible();
+
+    expect(await getSceneCount(page)).toBe(before);
   });
 });

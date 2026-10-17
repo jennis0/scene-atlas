@@ -5,8 +5,10 @@ import path from "path";
 const E2E_DIR = path.resolve(__dirname, "..");
 const ENC_FILE = path.resolve(E2E_DIR, "fixtures", "e2e-images.zip.enc");
 
-/** Resolved path to the extracted test images directory. */
-export const IMAGE_DIR = path.resolve(E2E_DIR, ".tmp-images");
+/** Test images; E2E_IMAGE_DIR points at a local set instead of the fixtures. */
+export const IMAGE_DIR = process.env.E2E_IMAGE_DIR
+  ? path.resolve(process.env.E2E_IMAGE_DIR)
+  : path.resolve(E2E_DIR, ".tmp-images");
 
 /**
  * Decrypt and extract test images from the encrypted fixture zip.

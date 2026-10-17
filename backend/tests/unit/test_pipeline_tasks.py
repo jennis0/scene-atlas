@@ -171,61 +171,67 @@ class TestWriteThumbnails:
 
 
 class TestDetectGridFromImage:
-    def test_delegates_to_detector(self, make_test_image, tmp_path):
+    _RESULT = {
+        "gridded": True,
+        "grid_type": "square",
+        "grid_width": 20,
+        "grid_height": 20,
+        "confidence": 0.85,
+    }
+
+    def test_delegates_to_detector_with_config(self, tmp_path):
+        from backend.pipeline.pipeline_config import PipelineConfig
         from backend.pipeline.tasks.grid_detection import detect_grid_from_image
 
-        img_path = tmp_path / "map.jpg"
-        make_test_image(img_path, width=400, height=400)
+        with patch("backend.pipeline.tasks.grid_detection.detect_grid") as mock_detect:
+            mock_detect.return_value = dict(self._RESULT)
+            result = detect_grid_from_image(
+                str(tmp_path / "map.jpg"),
+                4000,
+                3000,
+                size_only=True,
+                pipeline_config=PipelineConfig(grid_analysis_max_dim=4096),
+                sibling_counts=[(20, 20)],
+            )
 
-        mock_result = {
-            "gridded": True,
-            "grid_type": "square",
-            "grid_width": 20,
-            "grid_height": 20,
-            "confidence": 0.85,
-        }
+        assert result == self._RESULT
+        mock_detect.assert_called_once_with(
+            tmp_path / "map.jpg",
+            4000,
+            3000,
+            size_only=True,
+            sibling_counts=[(20, 20)],
+            max_analysis_dim=4096,
+        )
 
-        with patch("backend.pipeline.tasks.grid_detection.GridDetector") as MockDetector:
-            instance = MockDetector.return_value
-            instance.detect.return_value = mock_result
-
-            result = detect_grid_from_image(str(img_path), 400, 400)
-
-        assert result["gridded"] is True
-        assert result["grid_type"] == "square"
-        instance.detect.assert_called_once()
-
-    def test_size_only_mode(self, make_test_image, tmp_path):
+    def test_zero_max_dim_means_full_resolution(self, tmp_path):
         from backend.pipeline.tasks.grid_detection import detect_grid_from_image
 
-        img_path = tmp_path / "map.jpg"
-        make_test_image(img_path)
+        with patch("backend.pipeline.tasks.grid_detection.detect_grid") as mock_detect:
+            mock_detect.return_value = dict(self._RESULT)
+            detect_grid_from_image(str(tmp_path / "map.jpg"), 4000, 3000)
 
-        mock_result = {
-            "gridded": True,
-            "grid_type": "square",
-            "grid_width": 30,
-            "grid_height": 20,
-            "confidence": 0.9,
-        }
-        with patch("backend.pipeline.tasks.grid_detection.GridDetector") as MockDetector:
-            instance = MockDetector.return_value
-            instance.detect_size_only.return_value = mock_result
+        assert mock_detect.call_args.kwargs["max_analysis_dim"] is None
 
-            result = detect_grid_from_image(str(img_path), 600, 400, size_only=True)
-
-        instance.detect_size_only.assert_called_once()
-        assert result["grid_width"] == 30
-
-    def test_returns_safe_default_on_error(self, tmp_path):
+    def test_returns_unknown_on_analysis_error(self, tmp_path):
         from backend.pipeline.tasks.grid_detection import detect_grid_from_image
 
-        with patch("backend.pipeline.tasks.grid_detection.GridDetector") as MockDetector:
-            MockDetector.side_effect = RuntimeError("boom")
-            result = detect_grid_from_image(str(tmp_path / "nope.jpg"), 100, 100)
+        with patch("backend.pipeline.tasks.grid_detection.detect_grid") as mock_detect:
+            mock_detect.side_effect = RuntimeError("boom")
+            result = detect_grid_from_image(str(tmp_path / "nope.jpg"), 2000, 2000)
 
         assert result["gridded"] is None
         assert result["confidence"] == 0.0
+
+    def test_model_errors_propagate(self, tmp_path):
+        """Missing or mismatched models are a system problem, not 'grid unknown'."""
+        from backend.app.services.grid import GridModelError
+        from backend.pipeline.tasks.grid_detection import detect_grid_from_image
+
+        with patch("backend.pipeline.tasks.grid_detection.detect_grid") as mock_detect:
+            mock_detect.side_effect = GridModelError("missing")
+            with pytest.raises(GridModelError):
+                detect_grid_from_image(str(tmp_path / "map.jpg"), 2000, 2000)
 
 
 # ---------------------------------------------------------------------------
