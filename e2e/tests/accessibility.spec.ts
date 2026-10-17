@@ -21,12 +21,20 @@ async function expectNoViolations(page: Page) {
   expect(summary).toEqual([]);
 }
 
-for (const theme of ["dark", "light"] as const) {
-  test.describe(`axe scan, ${theme} theme`, () => {
+const VARIANTS = (["navy", "verdigris"] as const).flatMap((palette) =>
+  (["dark", "light"] as const).map((theme) => ({ palette, theme })),
+);
+
+for (const { palette, theme } of VARIANTS) {
+  test.describe(`axe scan, ${palette} palette, ${theme} theme`, () => {
     test.beforeEach(async ({ page }) => {
-      await page.addInitScript((t) => {
-        localStorage.setItem("scene-atlas-theme", t);
-      }, theme);
+      await page.addInitScript(
+        ([t, p]) => {
+          localStorage.setItem("scene-atlas-theme", t);
+          localStorage.setItem("scene-atlas-palette", p);
+        },
+        [theme, palette],
+      );
       await page.goto("/");
       await waitForGalleryLoad(page);
     });
@@ -109,6 +117,18 @@ test.describe("keyboard", () => {
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("image-viewer")).toBeHidden();
     await expect(firstTile).toBeFocused();
+  });
+
+  test("/ jumps to search, but not while typing elsewhere", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await waitForGalleryLoad(page);
+    const search = page.getByRole("textbox", { name: "Search the library" });
+    await page.locator("body").click();
+    await page.keyboard.press("/");
+    await expect(search).toBeFocused();
+    await expect(search).toHaveValue("");
   });
 
   test("a skip link moves focus to the results", async ({ page }) => {

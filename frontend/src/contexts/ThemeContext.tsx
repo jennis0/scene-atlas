@@ -1,10 +1,13 @@
 import { createContext, useContext, useState, useCallback, useMemo } from 'react'
+import { applyPalette, getStoredPalette, PALETTE_STORAGE_KEY, type Palette } from '@/lib/palette'
 
 export type Theme = 'light' | 'dark'
 
 interface ThemeContextValue {
   theme: Theme
   toggleTheme: () => void
+  palette: Palette
+  setPalette: (palette: Palette) => void
 }
 
 const STORAGE_KEY = 'scene-atlas-theme'
@@ -21,6 +24,8 @@ function getStoredTheme(): Theme {
 const ThemeContext = createContext<ThemeContextValue>({
   theme: 'dark',
   toggleTheme: () => {},
+  palette: 'navy',
+  setPalette: () => {},
 })
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
@@ -43,7 +48,21 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     })
   }, [])
 
-  const value = useMemo(() => ({ theme, toggleTheme }), [theme, toggleTheme])
+  const [palette, setPaletteState] = useState<Palette>(getStoredPalette)
+  const setPalette = useCallback((next: Palette) => {
+    try {
+      localStorage.setItem(PALETTE_STORAGE_KEY, next)
+    } catch {
+      // Storage blocked: the palette still applies for this session.
+    }
+    applyPalette(next)
+    setPaletteState(next)
+  }, [])
+
+  const value = useMemo(
+    () => ({ theme, toggleTheme, palette, setPalette }),
+    [theme, toggleTheme, palette, setPalette],
+  )
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
 }

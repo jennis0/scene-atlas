@@ -39,7 +39,7 @@ export function SubgroupHeading({
 
   return (
     <div className="sticky top-0 z-10 bg-card rounded relative flex items-center gap-2 py-1.5 pl-2 pr-2 mt-2 first:mt-0">
-      <span className="text-xs font-semibold text-muted-foreground/80 uppercase tracking-wider capitalize whitespace-nowrap">
+      <span className="text-xs font-semibold text-muted-foreground/80 capitalize whitespace-nowrap">
         {subgroup ?? 'Main'}
       </span>
 

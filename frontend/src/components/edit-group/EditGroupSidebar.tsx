@@ -72,7 +72,7 @@ function SidebarFooter() {
     <div className="p-2.5 border-t border-border/30 shrink-0">
       {selectedGroupIds.size >= 2 ? (
         <div className="space-y-1.5">
-          <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">
+          <span className="text-xs text-muted-foreground font-semibold">
             {selectedGroupIds.size} selected
           </span>
           <div className="flex gap-1">

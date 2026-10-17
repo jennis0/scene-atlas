@@ -25,6 +25,8 @@ import { useEmbeddingStatus } from '@/hooks/useEmbeddingStatus'
 import { getImportManager } from '@/lib/import/ImportManager'
 import { useImportManagerSnapshot, useImportPollingLifecycle } from '@/lib/import/useImports'
 import { useBackgroundJobs } from '@/hooks/useBackgroundJobs'
+import { useTileSize } from '@/hooks/useTileSize'
+import { TILE_SIZES } from '@/lib/constants'
 import { Button } from '@/components/ui/button'
 
 export function Gallery() {
@@ -40,6 +42,7 @@ export function Gallery() {
   )
 
   const embedding = useEmbeddingStatus()
+  const { tileSize, setTileSize } = useTileSize()
   const backgroundJobs = useBackgroundJobs()
   useImportPollingLifecycle()
   const importSnapshot = useImportManagerSnapshot()
@@ -163,6 +166,8 @@ export function Gallery() {
         onOpenSystemInfo={() => dialogs.setShowSystemInfo(true)}
         onOpenMassEdit={handleOpenMassEdit}
         displayImageCount={search.displayImages.length}
+        tileSize={tileSize}
+        onTileSizeChange={setTileSize}
       />
 
       <main
@@ -220,6 +225,7 @@ export function Gallery() {
           <div className="h-full max-w-[1400px] mx-auto">
             <ImageGrid
               images={search.displayImages}
+              tileWidth={TILE_SIZES[tileSize]}
               onImageClick={(image, index) => dialogs.setSelectedImage({ image, index })}
             />
           </div>

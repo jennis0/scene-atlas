@@ -1,6 +1,7 @@
 // Gallery / image grid layout
-export const IMAGE_SIZE = 240
-export const CARD_HEIGHT = 180
+// Tile widths for the individual view's size control; tiles are 4:3.
+export const TILE_SIZES = { small: 180, medium: 240, large: 320 } as const
+export type TileSize = keyof typeof TILE_SIZES
 export const GRID_GAP = 16
 export const GRID_PADDING = 16
 

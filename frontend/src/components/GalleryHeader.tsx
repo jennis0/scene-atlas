@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import {
   Search,
   Sparkles,
@@ -42,6 +42,8 @@ import { SORT_OPTIONS } from '@/hooks/useGallerySearch'
 import type { UseGallerySearchReturn } from '@/hooks/useGallerySearch'
 import type { EmbeddingStatus } from '@/hooks/useEmbeddingStatus'
 import type { ImageTypeFilter } from '@/components/import/fileFilter'
+import { isAnyDialogOpen } from '@/components/ui/dialogStack'
+import type { TileSize } from '@/lib/constants'
 
 // Platform helpers for borderless window layout
 const isMac = isApp && window.electronAPI?.platform === 'darwin'
@@ -58,6 +60,20 @@ export interface GalleryHeaderProps {
   onOpenSystemInfo: () => void
   onOpenMassEdit: () => void
   displayImageCount: number
+  tileSize: TileSize
+  onTileSizeChange: (size: TileSize) => void
+}
+
+const TILE_SIZE_OPTIONS: { value: TileSize; label: string; name: string }[] = [
+  { value: 'small', label: 'S', name: 'Small tiles' },
+  { value: 'medium', label: 'M', name: 'Medium tiles' },
+  { value: 'large', label: 'L', name: 'Large tiles' },
+]
+
+/** True when a key press should type into whatever has focus, not trigger a shortcut. */
+function isTypingTarget(el: EventTarget | null) {
+  if (!(el instanceof HTMLElement)) return false
+  return el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName)
 }
 
 export function GalleryHeader({
@@ -69,8 +85,24 @@ export function GalleryHeader({
   onOpenSystemInfo,
   onOpenMassEdit,
   displayImageCount,
+  tileSize,
+  onTileSizeChange,
 }: GalleryHeaderProps) {
   const { theme, toggleTheme } = useTheme()
+
+  // "/" jumps to search from anywhere on the page, unless something else is being typed in.
+  const searchRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return
+      if (isTypingTarget(e.target) || isAnyDialogOpen()) return
+      e.preventDefault()
+      searchRef.current?.focus()
+      searchRef.current?.select()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   const {
     searchInput,
     setSearchInput,
@@ -159,13 +191,7 @@ export function GalleryHeader({
   }, [facets, imageType, handleImageTypeChange])
 
   return (
-    <header
-      className="border-b border-border/70 backdrop-blur-md"
-      style={{
-        background:
-          'linear-gradient(180deg, hsl(var(--primary) / 0.08) 0%, hsl(var(--card) / 0.97) 65%)',
-      }}
-    >
+    <header className="border-b border-border/70 bg-card">
       {/* Windows/Linux: draggable titlebar strip matching the OS overlay zone */}
       {needsOverlayPadding && <div className="h-8 drag-region" />}
       <div className={`container mx-auto px-4 ${isMac ? 'pl-20' : ''}`}>
@@ -173,10 +199,9 @@ export function GalleryHeader({
           className={`${needsOverlayPadding ? 'pt-2 pb-2' : 'pt-4 pb-3'} flex flex-wrap gap-x-4 gap-y-2 ${needsOverlayPadding ? 'items-center' : 'items-start'} justify-between border-b border-border/70 ${isApp ? 'drag-region' : ''}`}
         >
           <div>
-            <h1 className="font-display text-2xl font-medium tracking-wide text-foreground">
+            <h1 className="font-wordmark text-2xl font-medium tracking-wide text-foreground">
               Scene Atlas
             </h1>
-            <div className="mt-0.5 h-[1.5px] w-16 bg-gradient-to-r from-primary/70 to-transparent" />
           </div>
           {/* Admin cluster: utility actions (ghost) + gap + primary Import CTA */}
           <div
@@ -246,7 +271,9 @@ export function GalleryHeader({
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
               )}
               <Input
+                ref={searchRef}
                 type="text"
+                aria-keyshortcuts="/"
                 aria-label="Search the library"
                 placeholder={`Search ${imageType === 'all' ? 'scenes' : imageType === 'battlemap' ? 'maps' : 'scenes'}\u2026  "quotes" for exact phrase, ~ visual, = keyword`}
                 value={searchInput}
@@ -254,6 +281,15 @@ export function GalleryHeader({
                 maxLength={MAX_SEARCH_LENGTH}
                 className="h-10 w-full pl-9 pr-8 rounded-r-none border-r-0 focus-visible:outline-none"
               />
+              {!searchInput && (
+                <kbd
+                  aria-hidden="true"
+                  className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 hidden sm:flex h-5 min-w-5 items-center justify-center rounded border border-border px-1 font-mono text-[11px] text-muted-foreground"
+                  title="Press / to search"
+                >
+                  /
+                </kbd>
+              )}
               {searchInput && (
                 <button
                   type="button"
@@ -268,8 +304,9 @@ export function GalleryHeader({
 
             <Button
               type="submit"
+              variant="secondary"
               disabled={isSearching}
-              className="rounded-l-none h-10 shrink-0 px-5"
+              className="rounded-l-none h-10 shrink-0 px-5 border border-border"
             >
               {isSearching ? 'Searching\u2026' : 'Search'}
             </Button>
@@ -382,6 +419,33 @@ export function GalleryHeader({
                 </DropdownMenuRadioGroup>
               </DropdownMenuContent>
             </DropdownMenu>
+
+            {viewMode === 'individual' && (
+              <>
+                <span aria-hidden="true" className="text-border/60 px-1.5">
+                  &middot;
+                </span>
+                <div role="group" aria-label="Tile size" className="flex items-center">
+                  {TILE_SIZE_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      aria-pressed={tileSize === opt.value}
+                      aria-label={opt.name}
+                      title={opt.name}
+                      onClick={() => onTileSizeChange(opt.value)}
+                      className={`h-6 w-6 rounded text-[11px] font-medium transition-colors ${
+                        tileSize === opt.value
+                          ? 'bg-secondary text-foreground'
+                          : 'hover:text-foreground'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
 
             {viewMode === 'grouped'
               ? totalGroups > 0 && (

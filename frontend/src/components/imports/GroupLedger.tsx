@@ -73,7 +73,7 @@ function LedgerRow({
     <>
       <div className="flex items-baseline gap-3 min-w-0">
         <span
-          className={`font-display text-[13.5px] truncate ${open ? 'text-foreground' : 'text-foreground/80'}`}
+          className={`font-display text-[15px] truncate ${open ? 'text-foreground' : 'text-foreground/80'}`}
           title={group.group_name}
         >
           {group.group_name}

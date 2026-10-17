@@ -253,6 +253,23 @@ describe('ImageViewer', () => {
       expect(screen.getByRole('button', { name: 'Next image' })).toBeInTheDocument()
     })
 
+    it('toggles the detected grid overlay with its button and the G key', async () => {
+      localStorage.removeItem('viewer-grid-overlay')
+      const { user } = setup(makeImage())
+      const toggle = screen.getByRole('button', { name: /Grid 20×15/ })
+      expect(toggle).toHaveAttribute('aria-pressed', 'false')
+      await user.click(toggle)
+      expect(toggle).toHaveAttribute('aria-pressed', 'true')
+      await user.keyboard('g')
+      expect(toggle).toHaveAttribute('aria-pressed', 'false')
+      localStorage.removeItem('viewer-grid-overlay')
+    })
+
+    it('offers no grid overlay without a detected square grid', () => {
+      setup(makeImage({ gridded: false, grid_type: null }))
+      expect(screen.queryByRole('button', { name: /Grid \d/ })).not.toBeInTheDocument()
+    })
+
     it('exposes which type and grid are selected', () => {
       setup(makeImage())
       expect(screen.getByRole('button', { name: 'Map' })).toHaveAttribute('aria-pressed', 'true')

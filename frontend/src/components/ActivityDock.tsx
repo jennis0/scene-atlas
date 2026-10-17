@@ -134,12 +134,10 @@ export function ActivityDock({ backgroundJobs, onOpenImport }: ActivityDockProps
           data-testid="activity-dock-panel"
           role="region"
           aria-label="Activity"
-          className="w-[min(320px,calc(100vw-2rem))] flex flex-col bg-card rounded-xl border border-border/30
+          className="w-[min(320px,calc(100vw-2rem))] flex flex-col bg-card rounded-lg border border-border/30
             shadow-2xl shadow-black/60 overflow-hidden"
           style={{ maxHeight: 'min(520px, 65vh)' }}
         >
-          <div className="h-0.5 shrink-0 bg-gradient-to-r from-transparent to-primary/70" />
-
           <div className="px-3.5 pt-2.5 shrink-0">
             <div className="flex items-center justify-between">
               <PanelTitle
@@ -298,7 +296,7 @@ function BackgroundJobCard({ job }: { job: BackgroundJob }) {
               <div className="space-y-0.5">
                 {Object.entries(job.result).map(([key, val]) => (
                   <div key={key} className="flex justify-between text-[10px]">
-                    <span className="text-muted-foreground font-medium uppercase tracking-[0.08em]">
+                    <span className="text-muted-foreground font-medium">
                       {key.replace(/_/g, ' ')}
                     </span>
                     <span className="text-muted-foreground tabular-nums">{String(val)}</span>
@@ -308,9 +306,7 @@ function BackgroundJobCard({ job }: { job: BackgroundJob }) {
             )}
             {job.status === 'failed' && job.error && (
               <div className="flex justify-between text-[10px] gap-4">
-                <span className="text-muted-foreground font-medium uppercase tracking-[0.08em] shrink-0">
-                  Error
-                </span>
+                <span className="text-muted-foreground font-medium shrink-0">Error</span>
                 <span className="text-destructive/65 text-right">{job.error}</span>
               </div>
             )}

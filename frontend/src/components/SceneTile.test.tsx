@@ -32,6 +32,26 @@ describe('SceneTile', () => {
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
   })
 
+  it('puts the group and variant on one line, the author below', () => {
+    render(
+      <SceneTile
+        image={image}
+        primaryText="Czepeku"
+        variantText="Abandoned Mine · Goblin Night"
+        authorText="Czepeku Maps"
+        onClick={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('Czepeku').closest('p')).toHaveTextContent(
+      'Czepeku – Abandoned Mine · Goblin Night',
+    )
+    expect(
+      screen.getByRole('button', {
+        name: 'Czepeku, Abandoned Mine · Goblin Night, by Czepeku Maps',
+      }),
+    ).toBeInTheDocument()
+  })
+
   it('marks the current scene', () => {
     render(<SceneTile image={image} primaryText="Snow" onClick={vi.fn()} isActive />)
     expect(screen.getByRole('button', { name: 'Snow' })).toHaveAttribute('aria-current', 'true')

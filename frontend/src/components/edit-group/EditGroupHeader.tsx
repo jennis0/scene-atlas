@@ -13,8 +13,6 @@ const plural = (n: number, word: string) => `${n} ${word}${n !== 1 ? 's' : ''}`
 export function EditGroupHeader({ isMassEdit, summary, onDone, saving }: EditGroupHeaderProps) {
   return (
     <>
-      <div className="absolute top-0 inset-x-0 h-0.5 bg-gradient-to-r from-primary/70 via-primary/30 to-transparent pointer-events-none rounded-t-xl" />
-
       <div className="flex items-center justify-between px-6 pt-6 pb-3 shrink-0">
         <div>
           <h2 className="font-display text-lg font-semibold flex items-center gap-2 text-foreground">
@@ -37,7 +35,7 @@ export function EditGroupHeader({ isMassEdit, summary, onDone, saving }: EditGro
           <X className="h-4 w-4" />
         </button>
       </div>
-      <div className="h-px bg-gradient-to-r from-primary/60 via-primary/20 to-transparent mx-6 shrink-0" />
+      <div className="h-px bg-border/60 mx-6 shrink-0" />
     </>
   )
 }

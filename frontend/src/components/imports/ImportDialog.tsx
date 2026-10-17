@@ -168,7 +168,7 @@ function StartView({
           }}
           onDragLeave={() => setDragOver(false)}
           onDrop={(e) => void onDrop(e)}
-          className={`flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-10 transition-colors ${
+          className={`flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed px-6 py-10 transition-colors ${
             busy
               ? 'border-border/40 bg-secondary/20'
               : dragOver
