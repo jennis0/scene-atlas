@@ -1,7 +1,7 @@
 # Import progress
 
-Status: **building** on `feature/import-progress` (stacked on PR #12). Replaces the progress view
-of the import dialog and adds an "import still running" strip to the group editor.
+Status: **built**. Replaces the progress view of the import dialog, adds an "import still running"
+strip to the group editor, and keeps the gallery usable while an import runs (§6).
 
 ## 1. Why
 
@@ -91,8 +91,43 @@ Shown when the editor was opened from an import that hasn't finished:
 - When the import finishes the strip says so ("Import finished · 347 groups") and still offers to
   add the rest.
 
-## 6. Tests
+## 6. Gallery while importing
+
+Found on the user's large library (2026-10-18): the gallery reset its grouped results every 4 s
+while an import ran. Each reset showed "Searching…" for the seconds the search took on a large
+library and threw away the scrolled-in pages, so the app was unusable for the length of an import.
+
+Decisions (user, 2026-10-18):
+
+- **Never clear the grid for an import.** `refreshGalleryInPlace` (`lib/queryKeys.ts`) refetches
+  in the background and swaps the results in when they arrive. Grouped results are trimmed to
+  their first page first, so the refetch is one request and later pages load against the new
+  order. A refetch already running is left to finish (`cancelRefetch: false`) so a search slower
+  than the interval still lands.
+- **Refresh only where new maps would show up.** `useImportGalleryRefresh` refreshes (at most
+  every 4 s) only while the results are scrolled to the top (within 120 px) and the image viewer
+  is closed (it indexes into the results). While an import runs it also needs new maps to land
+  at the top: newest first with no search text, so a name sort or a search isn't reshuffled
+  every few seconds. Once an import finishes, being at the top is enough. Anything else waits
+  until the user is back at the top.
+- **No "N new maps" pill.** The user didn't want one; the gallery catches up silently.
+- **A turn-off threshold (refresh off above N maps) was rejected**: the cost is the reset, not
+  the library size.
+- **Facets refresh when an import finishes**, not on every tick, except while the library is
+  empty, where they gate the welcome screen and must update as soon as the first maps land. The
+  scene count in the results bar therefore holds still during an import; the Activity dock
+  shows progress.
+
+The scroll position is read from the element marked `data-results-scroller` (ImageGrid, and the
+grouped view's container in `Gallery`), via a capture-phase scroll listener on `<main>`.
+
+Grouped pages are fetched by offset, so groups added since a page loaded shift the next page onto
+groups already shown; `useGroupSearch` keeps each group once (`groupKey`).
+
+## 7. Tests
 
 Backend: rate window and refunds; summary group counts; `groups=active`. Frontend: time-left
 formatting, the progress view (now-importing rows, problems line, review count, controls), the
-editor strip (running, ready count, add, show progress, finished).
+editor strip (running, ready count, add, show progress, finished), the gallery refresh rules
+(`useImportGalleryRefresh.test.tsx`), in-place refresh (`queryKeys.test.ts`) and group
+de-duplication across pages (`useGroupSearch.test.tsx`).
