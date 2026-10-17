@@ -174,22 +174,7 @@ def add_local_items(
         raise ManifestSealedError(job.id)
     archives = [f for f in files if kind_for_path(f.relative_path) == "archive"]
     others = [f for f in files if kind_for_path(f.relative_path) != "archive"]
-
-    taken = {path for (path,) in db.query(ImportItem.relative_path).filter_by(job_id=job.id)}
-    new = [f for f in others if f.relative_path not in taken]
-    counts = LocalCounts(ignored=len(others) - len(new))
-    items = add_manifest_items(
-        db,
-        job,
-        [
-            ManifestEntry(f.relative_path, f.size, f.last_modified, source_path=str(f.source_path))
-            for f in new
-        ],
-        max_file_size=max_file_size,
-    )
-    for item in items:
-        _tally(counts, item.state)
-
+    counts = _add_files(db, job, others, max_file_size)
     for archive in archives:
         result = expand_archive(
             db,
@@ -202,11 +187,30 @@ def add_local_items(
             keep_source=True,
         )
         _add_archive_counts(counts, result)
-
-    known = json.loads(job.source_roots) if job.source_roots else []
-    job.source_roots = json.dumps(list(dict.fromkeys([*known, *availability_dirs(roots)])))
+    _remember_roots(job, roots)
     db.flush()
     return counts
+
+
+def _add_files(
+    db: Session, job: ImportJob, files: list[LocalFile], max_file_size: int
+) -> LocalCounts:
+    """Manifest items for the files not already in the job, read in place."""
+    taken = {path for (path,) in db.query(ImportItem.relative_path).filter_by(job_id=job.id)}
+    new = [f for f in files if f.relative_path not in taken]
+    entries = [
+        ManifestEntry(f.relative_path, f.size, f.last_modified, source_path=str(f.source_path))
+        for f in new
+    ]
+    counts = LocalCounts(ignored=len(files) - len(new))
+    for item in add_manifest_items(db, job, entries, max_file_size=max_file_size):
+        _tally(counts, item.state)
+    return counts
+
+
+def _remember_roots(job: ImportJob, roots: list[Path]) -> None:
+    known = json.loads(job.source_roots) if job.source_roots else []
+    job.source_roots = json.dumps(list(dict.fromkeys([*known, *availability_dirs(roots)])))
 
 
 def _tally(counts: LocalCounts, state: str) -> None:

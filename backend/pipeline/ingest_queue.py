@@ -210,19 +210,24 @@ def add_manifest_items(
             image_type=entry.image_type or job.default_image_type,
             state=st.AWAITING_BYTES,
         )
-        if kind_for_path(path) is None:
-            item.state = st.next_item_state(item.state, ItemEvent.SKIP)
-            item.error_stage = "validate"
-            item.error_reason = "Not a supported image, video or archive"
-        elif max_file_size is not None and entry.size is not None and entry.size > max_file_size:
-            _fail_validation(item, "File is larger than the import size limit")
-        elif entry.source_path is not None:
-            item.source_path = entry.source_path
-            item.state = st.next_item_state(item.state, ItemEvent.BYTES_RECEIVED)
+        _settle_new_item(item, entry, max_file_size)
         db.add(item)
         items.append(item)
     db.flush()
     return items
+
+
+def _settle_new_item(item: ImportItem, entry: ManifestEntry, max_file_size: int | None) -> None:
+    """Skip unsupported files, fail oversized ones; a local file's bytes are already here."""
+    if kind_for_path(item.relative_path) is None:
+        item.state = st.next_item_state(item.state, ItemEvent.SKIP)
+        item.error_stage = "validate"
+        item.error_reason = "Not a supported image, video or archive"
+    elif max_file_size is not None and entry.size is not None and entry.size > max_file_size:
+        _fail_validation(item, "File is larger than the import size limit")
+    elif entry.source_path is not None:
+        item.source_path = entry.source_path
+        item.state = st.next_item_state(item.state, ItemEvent.BYTES_RECEIVED)
 
 
 def _fail_validation(item: ImportItem, reason: str) -> None:
@@ -592,21 +597,7 @@ def claim_next_batch(
     """
     now = now or utcnow()
     with write_session() as db:
-        jobs = [
-            (job_id, _roots(source_roots))
-            for job_id, source_roots in db.query(ImportJob.id, ImportJob.source_roots)
-            .filter(
-                ImportJob.status == st.JOB_ACTIVE,
-                ImportJob.planned_at.isnot(None),
-                db.query(ImportItem.id)
-                .filter(ImportItem.job_id == ImportJob.id, _claimable_filter(now))
-                .exists(),
-            )
-            .order_by(ImportJob.created_at, ImportJob.id)
-            .all()
-        ]
-        # A local import whose folder is missing waits; other imports carry on.
-        available = {job_id: roots for job_id, roots in jobs if not missing_roots(roots)}
+        available = _claimable_jobs(db, now)
         if not available:
             return None, []
         job_id = _pick_job(list(available), after_job_id)
@@ -637,6 +628,26 @@ def claim_next_batch(
         ]
 
 
+def _claimable_jobs(db: Session, now: datetime) -> dict[str, list[str]]:
+    """Active, planned jobs with claimable items, oldest first, each with its folders.
+
+    A local import whose folder is missing is left out: it waits, others carry on.
+    """
+    rows = (
+        db.query(ImportJob.id, ImportJob.source_roots)
+        .filter(
+            ImportJob.status == st.JOB_ACTIVE,
+            ImportJob.planned_at.isnot(None),
+            db.query(ImportItem.id)
+            .filter(ImportItem.job_id == ImportJob.id, _claimable_filter(now))
+            .exists(),
+        )
+        .order_by(ImportJob.created_at, ImportJob.id)
+    )
+    jobs = {job_id: _roots(source_roots) for job_id, source_roots in rows}
+    return {job_id: roots for job_id, roots in jobs.items() if not missing_roots(roots)}
+
+
 def _roots(source_roots: str | None) -> list[str]:
     return json.loads(source_roots) if source_roots else []
 
@@ -660,6 +671,13 @@ class ItemFailure:
     stage: str
     reason: str
     detail: str = ""
+
+
+# Failures that aren't the file's fault: the item goes back to ready, attempt refunded.
+_REFUNDED = {
+    KIND_SYSTEM: ItemEvent.SYSTEM_ERROR,
+    KIND_SOURCE_UNAVAILABLE: ItemEvent.SOURCE_UNAVAILABLE,
+}
 
 
 def record_failures(failures: list[ItemFailure], now: datetime | None = None) -> set[str]:
@@ -686,12 +704,9 @@ def record_failures(failures: list[ItemFailure], now: datetime | None = None) ->
             if item is None or item.state != st.PROCESSING:
                 continue
             job_ids.add(item.job_id)
-            if failure.kind == KIND_SYSTEM:
-                item.state = st.next_item_state(item.state, ItemEvent.SYSTEM_ERROR)
-                item.attempts = max(0, item.attempts - 1)
-                continue
-            if failure.kind == KIND_SOURCE_UNAVAILABLE:
-                item.state = st.next_item_state(item.state, ItemEvent.SOURCE_UNAVAILABLE)
+            refund = _REFUNDED.get(failure.kind)
+            if refund is not None:
+                item.state = st.next_item_state(item.state, refund)
                 item.attempts = max(0, item.attempts - 1)
                 continue
             if failure.kind == KIND_BYTES_LOST:

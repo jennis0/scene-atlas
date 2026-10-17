@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 // Remember the last error so a subscriber that registers after it arrived still
 // receives it. The main process re-sends it on every page load.
@@ -34,4 +34,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     imageLibraryDir: string,
   ): Promise<{ error: string | null }> =>
     ipcRenderer.invoke('system:change-storage-dirs', appDataDir, imageLibraryDir),
+
+  // Local imports (design/local-ingest.md): the backend reads these paths itself.
+  // '' for a File with no path on disk.
+  getPathForFile: (file: File): string => webUtils.getPathForFile(file),
+  chooseImportFolders: (): Promise<string[]> => ipcRenderer.invoke('imports:choose-folders'),
+  chooseImportFiles: (): Promise<string[]> => ipcRenderer.invoke('imports:choose-files'),
 })

@@ -41,6 +41,7 @@ import {
   uploadPhaseText,
 } from './format'
 import { filesFromDrop, filesFromInput } from './pickFiles'
+import { canImportLocally, chooseLocalPaths, pathsFromDrop } from '@/lib/import/localPaths'
 
 interface ImportDialogProps {
   /** null: start a new import. Otherwise show that job. */
@@ -100,11 +101,10 @@ function StartView({
   const folderInput = useRef<HTMLInputElement>(null)
   const busy = reading || starting
 
-  const start = async (files: PickedFile[]) => {
-    if (!files.length) return
+  const begin = async (launch: () => Promise<string>) => {
     setStarting(true)
     try {
-      const jobId = await getImportManager().startImport(files, { imageType })
+      const jobId = await launch()
       onStarted(jobId)
     } catch {
       toast.error("Couldn't start the import", {
@@ -115,10 +115,34 @@ function StartView({
     }
   }
 
+  const start = async (files: PickedFile[]) => {
+    if (files.length) await begin(() => getImportManager().startImport(files, { imageType }))
+  }
+
+  // Desktop app: the server reads the files where they are (design/local-ingest.md)
+  const startLocal = async (paths: string[]) => {
+    if (paths.length) await begin(() => getImportManager().startLocalImport(paths, { imageType }))
+  }
+
+  const local = canImportLocally()
+  const choose = (kind: 'folders' | 'files') => {
+    if (local) {
+      void chooseLocalPaths(kind).then(startLocal)
+      return
+    }
+    const input = kind === 'folders' ? folderInput.current : fileInput.current
+    input?.click()
+  }
+
   const onDrop = async (e: React.DragEvent) => {
     e.preventDefault()
     setDragOver(false)
     if (busy) return
+    const paths = pathsFromDrop(e.dataTransfer)
+    if (paths) {
+      await startLocal(paths)
+      return
+    }
     setReading(true)
     let files: PickedFile[] = []
     try {
@@ -212,12 +236,12 @@ function StartView({
               </div>
               <div className="flex items-center gap-2">
                 <BrowseButton
-                  onClick={() => folderInput.current?.click()}
+                  onClick={() => choose('folders')}
                   icon={<FolderOpen className="h-3.5 w-3.5" />}
                   label="Choose a folder"
                 />
                 <BrowseButton
-                  onClick={() => fileInput.current?.click()}
+                  onClick={() => choose('files')}
                   icon={<Files className="h-3.5 w-3.5" />}
                   label="Choose files"
                 />
@@ -410,6 +434,16 @@ function ProgressView({
         {connection === 'lost' && (
           <Notice tone="attention" icon={<WifiOff className="h-4 w-4" />}>
             Can't reach Scene Atlas. Progress will update when the connection returns.
+          </Notice>
+        )}
+
+        {job && job.waiting_for.length > 0 && !finished && (
+          <Notice tone="attention" icon={<FolderOpen className="h-4 w-4" />}>
+            Can't find {job.waiting_for[0]}
+            {job.waiting_for.length > 1 &&
+              ` and ${plural(job.waiting_for.length - 1, 'other folder')}`}
+            . Reconnect the drive or put the folder back and the import carries on; other imports
+            aren't affected.
           </Notice>
         )}
 

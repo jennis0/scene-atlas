@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   classifyError,
   defaultLabel,
+  localLabel,
   ImportManager,
   normaliseRelativePath,
   type ImportManagerOptions,
@@ -40,6 +41,8 @@ function summary(id: string, status: ImportJobSummary['status'] = 'active'): Imp
     planned: true,
     dismissed: false,
     upload_interrupted: false,
+    local: false,
+    waiting_for: [],
     counts,
     group_count: 1,
     created_at: null,
@@ -82,6 +85,10 @@ function fakeClient(calls: Calls, overrides: Partial<Record<keyof ImportClient, 
     seal: vi.fn(async () => {
       calls.push('seal')
       return {}
+    }),
+    localSources: vi.fn(async (_jobId: string, paths: string[]) => {
+      calls.push(`local:${paths.length}`)
+      return { created: 3, skipped: 0, failed: 0, ignored: 0 }
     }),
     hashes: vi.fn(async (_jobId: string, items: { item_id: number; sha256: string }[]) => {
       calls.push(`hashes:${items.length}`)
@@ -198,6 +205,48 @@ describe('classifyError', () => {
 // ---------------------------------------------------------------------------
 // Starting imports
 // ---------------------------------------------------------------------------
+
+describe('localLabel', () => {
+  it('names one folder or file by its last segment, on any platform', () => {
+    expect(localLabel(['D:\\Maps\\Forest Pack'])).toBe('Forest Pack')
+    expect(localLabel(['/home/me/Maps/Cave.zip'])).toBe('Cave.zip')
+    expect(localLabel(['/a', '/b'])).toBe('2 folders and files')
+  })
+})
+
+describe('startLocalImport', () => {
+  it('names the paths, seals, and uploads and hashes nothing', async () => {
+    const calls: Calls = []
+    const client = fakeClient(calls)
+    const { manager, win } = track(makeManager(client))
+    const jobId = await manager.startLocalImport(['/maps/Forest Pack'], { imageType: 'scene' })
+    await manager.whenSettled(jobId)
+
+    expect(calls).toEqual(['create', 'local:1', 'seal'])
+    expect(client.create).toHaveBeenCalledWith('Forest Pack', 'scene')
+    expect(client.uploadContent).not.toHaveBeenCalled()
+    expect(client.hashes).not.toHaveBeenCalled()
+    expect(manager.getSnapshot().uploads[jobId]).toMatchObject({ phase: 'finished', totalFiles: 3 })
+    expect(win.removeEventListener).toHaveBeenCalled() // the unload guard is dropped again
+  })
+
+  it('reports a failure to start and cancels the job', async () => {
+    const calls: Calls = []
+    const client = fakeClient(calls, {
+      localSources: vi.fn(async () => {
+        throw httpError(413, 'An import can contain at most 250,000 files')
+      }),
+    })
+    const { manager } = track(makeManager(client))
+    const jobId = await manager.startLocalImport(['/maps'])
+    await manager.whenSettled(jobId)
+    expect(manager.getSnapshot().uploads[jobId]).toMatchObject({
+      phase: 'failed',
+      error: 'An import can contain at most 250,000 files',
+    })
+    expect(calls).toEqual(['create', 'action:cancel'])
+  })
+})
 
 describe('startImport', () => {
   it('describes, seals, then uploads only files the server wants', async () => {

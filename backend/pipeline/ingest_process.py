@@ -340,10 +340,8 @@ def _prepare(
 ) -> PreparedItem:
     """``owned``: ``staged`` is already this item's temp copy in the library's temp folder
     (named ``stem`` + extension), so it becomes the stored original without another copy."""
-    image_store = get_image_store()
     thumbnail_store = get_thumbnail_store()
     stem = stem or uuid.uuid4().hex
-    storage_key = f"{stem}{staged.suffix.lower()}"
 
     progress.stage = "hash"
     source_hash = item.source_hash or file_sha256(staged)
@@ -391,51 +389,71 @@ def _prepare(
         else {k: item.parsed.get(k) for k in ("gridded", "grid_width", "grid_height")}
     )
 
-    library_temp_dir = incoming_dir(image_store.base_dir)
-    library_temp_dir.mkdir(parents=True, exist_ok=True)
-    progress.stage = "convert"
-    converted = (
-        convert_stored_format(staged, library_temp_dir, stem, cfg.stored_format)
-        if item.kind != "video"
-        else None
-    )
-    if converted is not None:
-        progress.created.append(converted)
-        temp_original = converted
-        storage_key = converted.name
-        stored_hash = file_sha256(converted)
-        file_size = converted.stat().st_size
-        if owned:
-            staged.unlink(missing_ok=True)
-    elif owned:
-        temp_original = staged
-        stored_hash = source_hash
-    else:
-        progress.stage = "copy"
-        temp_original = library_temp_dir / storage_key
-        progress.created.append(temp_original)
-        shutil.copyfile(staged, temp_original)
-        stored_hash = source_hash
+    stored = _store_original(item, cfg, staged, stem, source_hash, file_size, progress, owned=owned)
 
     medium_key, medium_path = thumbnails["medium"]
     return PreparedItem(
         item=item,
-        storage_key=storage_key,
-        temp_original=temp_original,
+        storage_key=stored.storage_key,
+        temp_original=stored.path,
         temp_thumbnails=dict(thumbnails.values()),
         thumbnail_key=medium_key,
         clip_source=medium_path,
         width=width,
         height=height,
-        file_size=file_size,
+        file_size=stored.size,
         media_type="video" if item.kind == "video" else "image",
         source_hash=source_hash,
-        stored_hash=stored_hash,
+        stored_hash=stored.stored_hash,
         pixel_hash=image_pixel_hash,
         phash=image_phash,
         colors=colors,
         grid=grid,
     )
+
+
+@dataclass(frozen=True)
+class _Stored:
+    path: Path  # temp file in the library's temp folder, placed at commit
+    storage_key: str
+    stored_hash: str
+    size: int
+
+
+def _store_original(
+    item: ClaimedItem,
+    cfg: PipelineConfig,
+    staged: Path,
+    stem: str,
+    source_hash: str,
+    file_size: int,
+    progress: _Progress,
+    *,
+    owned: bool,
+) -> _Stored:
+    """The stored original as a temp file next to the library: converted to the configured
+    format, or the bytes as they are (``owned``: ``staged`` already is that copy)."""
+    temp_dir = incoming_dir(get_image_store().base_dir)
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    progress.stage = "convert"
+    converted = (
+        convert_stored_format(staged, temp_dir, stem, cfg.stored_format)
+        if item.kind != "video"
+        else None
+    )
+    if converted is not None:
+        progress.created.append(converted)
+        if owned:
+            staged.unlink(missing_ok=True)
+        return _Stored(converted, converted.name, file_sha256(converted), converted.stat().st_size)
+    key = f"{stem}{staged.suffix.lower()}"
+    if owned:
+        return _Stored(staged, key, source_hash, file_size)
+    progress.stage = "copy"
+    temp = temp_dir / key
+    progress.created.append(temp)
+    shutil.copyfile(staged, temp)
+    return _Stored(temp, key, source_hash, file_size)
 
 
 # Embed
@@ -699,13 +717,20 @@ class BatchOutcome:
     system_reason: str | None = None
 
 
+def _split(
+    results: list[PreparedItem | ItemFailure | EarlyDuplicate],
+) -> tuple[list[PreparedItem], list[ItemFailure], list[EarlyDuplicate]]:
+    prepared = [r for r in results if isinstance(r, PreparedItem)]
+    failures = [r for r in results if isinstance(r, ItemFailure)]
+    return prepared, failures, [r for r in results if isinstance(r, EarlyDuplicate)]
+
+
 def process_batch(items: list[ClaimedItem], cfg: PipelineConfig, pool) -> BatchOutcome:
     """Prepare, embed, commit and index one claimed batch. Never raises for item errors."""
     outcome = BatchOutcome()
-    results = [f.result() for f in [pool.submit(prepare_item, item, cfg) for item in items]]
-    prepared = [r for r in results if isinstance(r, PreparedItem)]
-    outcome.failures = [r for r in results if isinstance(r, ItemFailure)]
-    early = [r for r in results if isinstance(r, EarlyDuplicate)]
+    prepared, outcome.failures, early = _split(
+        [f.result() for f in [pool.submit(prepare_item, item, cfg) for item in items]]
+    )
     record_early_duplicates(early)
 
     if prepared:

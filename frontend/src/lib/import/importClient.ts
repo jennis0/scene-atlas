@@ -9,6 +9,7 @@ import { api } from '@/lib/api/_client'
 import type {
   ActionResult,
   ArchiveResult,
+  LocalSourcesResult,
   ContentResult,
   HashResult,
   ImageType,
@@ -96,6 +97,16 @@ export const importClient = {
       signal: options.signal,
       onUploadProgress: (e) => options.onProgress?.(e.loaded),
     })
+    return data
+  },
+
+  /** Desktop app: add files and folders by path; the server lists and reads them. */
+  async localSources(jobId: string, paths: string[]): Promise<LocalSourcesResult> {
+    const { data } = await api.post<LocalSourcesResult>(
+      `${BASE}/${jobId}/local-sources`,
+      { paths },
+      { timeout: 0 }, // listing a large library takes a few seconds, longer on a slow drive
+    )
     return data
   },
 
