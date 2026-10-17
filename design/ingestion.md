@@ -348,7 +348,7 @@ By default the library stores each file exactly as uploaded. Three settings chan
 
 ## 11. Testing
 
-integration tests drive the worker with `drain()`; the `test_client` fixture swaps the image and thumbnail stores for temp directories and doesn't start the worker. E2E (`e2e/`) seeds through the real import protocol against a backend whose data lives in `e2e/.tmp-data`. The stress suite (`stress_tests/`, [stress-testing.md](../docs/development/stress-testing.md)) runs a live server and checks rows = stored files = vectors with no `.incoming` leftovers. Test strategy overall: [testing.md](testing.md).
+Integration tests (`test_ingest_pipeline.py`, `test_imports_api.py`) drive the worker with `drain()` against real SQLite, LanceDB (`lancedb_service` fixture) and stores in `tmp_path`, faking only the embedding model; the `test_client` fixture swaps the image and thumbnail stores for temp directories and doesn't start the worker. E2E (`e2e/`) seeds through the real import protocol against a backend whose data lives in `e2e/.tmp-data`. The stress suite (`stress_tests/`, [stress-testing.md](../docs/development/stress-testing.md)) runs a live server and checks rows = stored files = vectors with no `.incoming` leftovers. Test strategy overall: [testing.md](testing.md).
 
 ## 12. Settings
 

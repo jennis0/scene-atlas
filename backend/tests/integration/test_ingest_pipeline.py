@@ -1,7 +1,7 @@
 """Integration tests for the per-item ingest pipeline (ADR-018).
 
-Real SQLite, real filesystem, real thumbnails, colours and hashes. Embeddings and
-LanceDB are faked. The worker is driven synchronously with ``drain()``.
+Real SQLite, LanceDB and filesystem; real thumbnails, colours and hashes. Only
+the embedding model is faked. The worker is driven synchronously with ``drain()``.
 
 Covers the behaviour in design/ingestion.md §4–§6 and §9: happy path, group
 resolution, the three dedup tiers, import-as-copy, file/transient/system
@@ -57,31 +57,8 @@ EMBEDDING = [0.1] * 8
 # ---------------------------------------------------------------------------
 
 
-class FakeVectors:
-    """Minimal stand-in for LanceDBService."""
-
-    def __init__(self):
-        self.rows: dict[int, list[float]] = {}
-        self.fail_writes = False
-
-    def batch_add_embeddings(self, items):
-        if self.fail_writes:
-            return False
-        for item in items:
-            self.rows[item["image_id"]] = item["embedding"]
-        return True
-
-    def get_all_ids(self):
-        return set(self.rows)
-
-    def delete_embeddings(self, ids):
-        for image_id in ids:
-            self.rows.pop(image_id, None)
-        return True
-
-
 @pytest.fixture
-def env(tmp_db, tmp_path, monkeypatch):
+def env(tmp_db, tmp_path, monkeypatch, lancedb_service):
     engine, SessionLocal = tmp_db
     from backend.app import services
 
@@ -92,9 +69,6 @@ def env(tmp_db, tmp_path, monkeypatch):
     monkeypatch.setattr(services, "_image_store", library)
     monkeypatch.setattr(services, "_thumbnail_store", thumbnails)
 
-    vectors = FakeVectors()
-    monkeypatch.setattr(ingest_process, "get_lancedb_service", lambda: vectors)
-    monkeypatch.setattr("backend.pipeline.vector_reconcile.get_lancedb_service", lambda: vectors)
     monkeypatch.setattr(
         "backend.pipeline.tasks.embedding_generation.batch_generate_clip_embeddings",
         lambda paths, **kw: [list(EMBEDDING) for _ in paths],
@@ -109,7 +83,7 @@ def env(tmp_db, tmp_path, monkeypatch):
     e.SessionLocal = SessionLocal
     e.library = library
     e.thumbnails = thumbnails
-    e.vectors = vectors
+    e.vectors = lancedb_service
     e.probe_reason = None
     e.config = PipelineConfig(enable_image_grid_detection=False, ingestion_batch_size=4)
     e.worker = IngestWorker(
@@ -209,7 +183,7 @@ def test_happy_path_imports_everything(env):
         assert ("lighting", "night") in {(t.category, t.value) for t in night.tags}
 
     # Every image indexed; staged bytes and temp files cleaned up.
-    assert len(env.vectors.rows) == 3
+    assert len(env.vectors.get_all_ids()) == 3
     assert not any(p.is_file() for p in (env.library.base_dir / ".incoming").rglob("*"))
     assert not any(p.is_file() for p in staged_path(job_id, "x").parent.glob("*"))
 
@@ -411,7 +385,7 @@ def test_import_as_copy_creates_independent_image(env):
         assert copy.storage_key != original.storage_key
         assert copy.thumbnail_key != original.thumbnail_key
         assert copy.group_id != original.group_id
-    assert len(env.vectors.rows) == 2
+    assert len(env.vectors.get_all_ids()) == 2
     assert job_status(env, second) == st.JOB_COMPLETED
 
 
@@ -718,15 +692,21 @@ def test_items_claimed_in_group_order(env):
 # ---------------------------------------------------------------------------
 
 
-def test_vector_write_failure_is_repaired_by_reconciliation(env):
-    env.vectors.fail_writes = True
-    job_id = make_job(env, {"A/Map/a.png": image_bytes(80), "A/Map/b.png": image_bytes(81)})
-    env.worker.drain()
-    assert job_status(env, job_id) == st.JOB_COMPLETED
-    assert env.vectors.rows == {}
+def _without_vector_writes(env, monkeypatch, files: dict[str, bytes]) -> str:
+    with monkeypatch.context() as m:
+        m.setattr(env.vectors, "batch_add_embeddings", lambda items: False)
+        job_id = make_job(env, files)
+        env.worker.drain()
+    return job_id
 
-    env.vectors.fail_writes = False
-    env.vectors.rows[999_999] = list(EMBEDDING)  # orphaned vector
+
+def test_vector_write_failure_is_repaired_by_reconciliation(env, monkeypatch):
+    files = {"A/Map/a.png": image_bytes(80), "A/Map/b.png": image_bytes(81)}
+    job_id = _without_vector_writes(env, monkeypatch, files)
+    assert job_status(env, job_id) == st.JOB_COMPLETED
+    assert env.vectors.get_all_ids() == set()
+
+    env.vectors.add_image_embedding(999_999, list(EMBEDDING))  # orphaned vector
     result = reconcile_vectors()
     assert result == {"missing": 2, "repaired": 2, "unrepairable": 0, "orphaned": 1}
     with env.SessionLocal() as db:
@@ -736,10 +716,9 @@ def test_vector_write_failure_is_repaired_by_reconciliation(env):
 def test_reconciliation_stops_at_batch_boundary_on_shutdown(env, monkeypatch):
     from backend.app.services import shutdown
 
-    env.vectors.fail_writes = True
-    make_job(env, {"A/Map/a.png": image_bytes(82), "A/Map/b.png": image_bytes(83)})
-    env.worker.drain()
-    env.vectors.fail_writes = False
+    _without_vector_writes(
+        env, monkeypatch, {"A/Map/a.png": image_bytes(82), "A/Map/b.png": image_bytes(83)}
+    )
 
     def embed_then_shut_down(paths, **kwargs):
         shutdown.request_shutdown()

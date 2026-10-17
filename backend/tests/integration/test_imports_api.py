@@ -1,7 +1,8 @@
 """Integration tests for the imports API (ADR-018, design/ingestion.md §7).
 
 Drives the real HTTP API with the TestClient, and the ingest worker
-synchronously with ``drain()``. Embeddings and LanceDB are faked.
+synchronously with ``drain()``. LanceDB is real (in ``tmp_path``); embeddings
+are faked.
 """
 
 from __future__ import annotations
@@ -18,37 +19,16 @@ from PIL import Image as PILImage
 
 from backend.app.models import AppSetting, Image, ImageGroup, ImportJob
 from backend.app.services import ingest_state as st
-from backend.pipeline import ingest_process, ingest_queue, ingest_worker
+from backend.pipeline import ingest_queue, ingest_worker
 from backend.pipeline.ingest_worker import IngestWorker
 from backend.pipeline.pipeline_config import PipelineConfig
 
 BASE = "/api/v1/imports"
 
 
-class FakeVectors:
-    def __init__(self):
-        self.rows = {}
-
-    def batch_add_embeddings(self, items):
-        for item in items:
-            self.rows[item["image_id"]] = item["embedding"]
-        return True
-
-    def get_all_ids(self):
-        return set(self.rows)
-
-    def delete_embeddings(self, ids):
-        for i in ids:
-            self.rows.pop(i, None)
-        return True
-
-
 @pytest.fixture
-def api(test_client, tmp_db, monkeypatch):
+def api(test_client, tmp_db, monkeypatch, lancedb_service):
     engine, SessionLocal = tmp_db
-    vectors = FakeVectors()
-    monkeypatch.setattr(ingest_process, "get_lancedb_service", lambda: vectors)
-    monkeypatch.setattr("backend.app.services.lancedb_service.get_lancedb_service", lambda: vectors)
     monkeypatch.setattr(
         "backend.pipeline.tasks.embedding_generation.batch_generate_clip_embeddings",
         lambda paths, **kw: [[0.1] * 8 for _ in paths],
@@ -69,7 +49,7 @@ def api(test_client, tmp_db, monkeypatch):
         def __init__(self):
             self.SessionLocal = SessionLocal
             self.worker = worker
-            self.vectors = vectors
+            self.vectors = lancedb_service
 
         def create(self, label="Test", image_type="battlemap"):
             r = self.client.post(BASE, json={"label": label, "default_image_type": image_type})
@@ -545,6 +525,7 @@ def test_undo_deletes_images_files_and_job(api):
     with api.SessionLocal() as db:
         keys = [(i.storage_key, i.thumbnail_key) for i in db.query(Image)]
     assert len(keys) == 2
+    assert len(api.vectors.get_all_ids()) == 2
 
     r = api.client.delete(f"{BASE}/{job_id}")
     assert r.json() == {"affected": 2, "status": "deleted"}
@@ -555,7 +536,7 @@ def test_undo_deletes_images_files_and_job(api):
     for storage_key, thumbnail_key in keys:
         assert not get_image_store().exists(storage_key)
         assert not get_thumbnail_store().exists(thumbnail_key)
-    assert api.vectors.rows == {}
+    assert api.vectors.get_all_ids() == set()
 
 
 def test_undo_keeps_groups_it_merged_into(api):
