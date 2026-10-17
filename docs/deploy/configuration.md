@@ -108,12 +108,12 @@ Image grid detection runs on battlemaps only, in addition to filename-based dete
 | Setting | Key | Default | Where |
 |---------|-----|---------|-------|
 | Ingestion batch size | `ingestion_batch_size` | 16 | API |
-| Concurrent imports | `max_concurrent_prepare` | min(CPUs, 8, RAM-based cap) | UI |
+| Parallel image processing | `max_concurrent_prepare` | min(CPUs, 8, RAM-based cap) | UI (restart) |
 | Max concurrent heavy requests | `max_concurrent_heavy_requests` | min(max(1, CPUs/2), 6) | API (restart) |
 | Max job workers | `max_job_workers` | min(4, CPUs/2), at least 1 | API |
 | Scheduler enabled | `scheduler_enabled` | On | API (restart) |
 
-The concurrency defaults are computed from the host's CPU count and total RAM when settings are first seeded. The scheduler runs the daily backup and maintenance tasks.
+Parallel image processing is how many images are prepared at once (hashing, thumbnails, colours, grid detection), shared by all running imports rather than a number of simultaneous imports. Import memory use is also capped by `INGEST_MEMORY_BUDGET_MB`. The concurrency defaults are computed from the host's CPU count and total RAM when settings are first seeded. The scheduler runs the daily backup and maintenance tasks.
 
 ## Model Details
 
