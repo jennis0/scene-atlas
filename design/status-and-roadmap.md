@@ -59,16 +59,21 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 | GitHub Actions on Node-20-era major versions | `actions/checkout@v4`, `setup-node@v4`, `setup-python@v5`, `astral-sh/setup-uv@v4`, `upload-artifact@v4`, `cache@v4`, `upload-pages-artifact@v3`. Upgrade to the Node 24 majors and re-test each job. | Medium |
 | int8 model export depends on untracked code | `scripts/models/export_model_onnx.py` imports `scripts.quantisation.*`, which is gitignored and absent from a clean checkout. [onnx-int8-quantisation.md](onnx-int8-quantisation.md) | Medium |
 | Electron sidecar parent-death watchdog | If Electron dies without stopping the sidecar, the backend keeps running. Add a stdin-EOF (or parent-PID) watchdog in `backend/pyinstaller/entry.py`. | Medium |
-| Per-import item cap not enforced for archives | `max_import_items` is checked in `POST /manifest` only; `PUT /archives` (`expand_archive`) can push a job past it. | Low |
 | Finish the pipeline DB session helper | `backend/pipeline/db.py:pipeline_db` exists and is used by `maintenance.py` and `vector_reconcile.py`; about 15 call sites (`reparse_names`, `retag_all_images`, `backfill_*`, `export_library`, `fix_orphaned_images`, `write_new_embeddings`, `pipeline_config`) still build sessions directly. | Low |
 | Possible-duplicate (pHash) flags | Hashes are stored; flags and report UI not built. Must suppress gridded/gridless siblings. [ingest-redesign.md](ingest-redesign.md#open-questions) | Low |
 | Stored-format conversion | `convert_to_webp` / `webp_*` settings are accepted but ignored; replace with a `stored_format` option or remove. | Low |
+| Rate limits behind a reverse proxy | slowapi keys on `get_remote_address`, which is the proxy's address once server mode sits behind one, so all clients share one bucket. Enable uvicorn proxy headers with a trusted `FORWARDED_ALLOW_IPS` and document it. | Medium |
+| Mislabelled import limits in Settings | "Max files per import" / "Max total upload size" (`max_import_files`, `max_import_total_size`) apply per uploaded zip; "Concurrent imports" controls `max_concurrent_prepare`. Relabel or rework. | Low |
+| Tag-pack wizard rough edges | First boot seeds every pack, so the wizard shows all as imported; it ignores per-pack `errors` in the `import-multiple` response; that endpoint has no rate limit. | Low |
+| Long jobs block shutdown | `JobRunner.shutting_down` is never checked by job functions. | Low |
+| Unused / ineffective settings | `max_image_size`, `vector_collection_name` (only a default), `embedding_model` unused; `DATABASE_URL` and path overrides are recomputed in `Settings.__init__`; `max_import_file_size` default differs between schema (2000 MiB) and seed (2048 MiB). | Low |
+| Setup page fetches Google Fonts | `electron/setup.html` needs the network on first run for fonts; bundling them would allow a stricter CSP. | Low |
+| Deferred frontend extractions | EditGroupDialog / ImageViewer subcomponents, `useSceneFilters`, unifying ImageViewer filtering with `fileFilter.ts`, shared `TagChip` / `PanelHeader` / `ModelCard`, moving confirm flags out of `useEditGroupOperations`. Add component tests first (coverage is low for these). | Low |
 | Port grid detector v3 | Hybrid: v3 for images ≥1000 px, current detector below. [grid-detection-v3.md](grid-detection-v3.md) | Medium |
 | Session-based authentication | Until then server mode must sit behind an authenticating reverse proxy. [security.md](security.md) | Medium |
 | Bulk import of a local library | Linked folders read in place. [ingest-redesign.md](ingest-redesign.md#open-questions) | Low |
 | Real LanceDB in integration tests | Tests mock `get_lancedb_service()` | Low |
 | Dependency upgrades | Tailwind 3 → 4 (needs tailwind-merge v3), ESLint flat config, React 19 (blocked by @dnd-kit), React Router 7, lucide-react | Low |
-| Electron session-level CSP narrowing | [security.md](security.md) | Low |
 
 ## Key design constraints
 

@@ -95,6 +95,11 @@ select = [
     "C4",  # flake8-comprehensions
     "UP",  # pyupgrade
     "G",   # flake8-logging-format
+    "SIM", # flake8-simplify
+    "RET", # flake8-return
+    "PIE", # flake8-pie
+    "RUF100",  # unused noqa
+    "TRY400",  # logger.exception (keeps the traceback) inside except blocks
 ]
 ignore = [
     "E501",  # line too long (handled by formatter)

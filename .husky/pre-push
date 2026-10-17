@@ -22,6 +22,13 @@ uv run ruff format --check backend/ scripts/ || {
 }
 
 echo ""
+echo "=== Python type check (pyright) ==="
+PYRIGHT_PYTHON_FORCE_VERSION=1.1.403 uvx pyright@1.1.403 || {
+  echo "❌ Python type check failed."
+  exit 1
+}
+
+echo ""
 echo "=== Backend unit tests ==="
 uv run python -m pytest backend/tests/unit/ -q || {
   echo "❌ Backend unit tests failed."
@@ -57,6 +64,14 @@ npx tsc --noEmit || {
 }
 
 echo ""
+echo "=== Frontend dead code (knip) ==="
+npm run --silent knip || {
+  echo "❌ Unused files, exports or dependencies found."
+  cd ..
+  exit 1
+}
+
+echo ""
 echo "=== Frontend tests (vitest) ==="
 npx vitest run || {
   echo "❌ Frontend tests failed."
@@ -70,6 +85,13 @@ echo ""
 echo "=== Electron type check (tsc) ==="
 npx tsc -p electron/tsconfig.json --noEmit || {
   echo "❌ Electron type check failed."
+  exit 1
+}
+
+echo ""
+echo "=== Duplication (jscpd, threshold in .jscpd.json) ==="
+npx --yes jscpd@4.0.5 --silent || {
+  echo "❌ Copy-paste duplication is above the threshold. Run: npx jscpd@4.0.5"
   exit 1
 }
 

@@ -240,19 +240,20 @@ uv run python scripts/quality/comment_density.py
 - **Stale docs** (`design/ingestion.md` describing the pre-ADR-018 pipeline,
   `design/testing.md` fixtures) — rewritten in the pre-release docs pass.
 
-## Proposed next steps
+## Completed steps
 
-Each step is a separate PR; all must be behaviour-preserving with tests green.
+All five steps landed on one branch (combined PR):
 
-2. **Mechanical cleanup** — delete verified dead code and unused deps; `TRY400` →
-   `logger.exception`; jscpd clones in `GridFilterIcons.tsx`, `groups.py`, `useFileEditing.ts`.
-3. **Per-area review** against the comment rubric above plus semantic duplication and
-   layering: backend API · services · pipeline · frontend components · hooks/lib · electron.
-   Finish the `pipeline_db()` rollout (see [status-and-roadmap.md](status-and-roadmap.md#backlog)).
-   Refactor `search.py`.
-4. **SQLAlchemy `Mapped[]` migration**, then fix remaining pyright errors.
-5. **Gates** — add to pre-push and CI: jscpd threshold (1%), knip, pyright, and the ruff
-   rules `ERA`, `SIM`, `RET`, `PIE`, `RUF100`, `TRY400`.
+2. **Mechanical cleanup**: dead code, unused deps, duplicate logging, jscpd clones.
+3. **Per-area review**: frontend components, hooks/lib, Electron and all design docs were
+   reviewed against the rubric; findings applied (see the commit history). Deferred
+   larger frontend extractions (EditGroupDialog/ImageViewer subcomponents, `useSceneFilters`,
+   unified scene/file filtering) are listed in [status-and-roadmap.md](status-and-roadmap.md#backlog).
+4. **Types**: `Mapped[]` models; pyright at 0 errors.
+5. **Gates**: pre-push and the CI `quality` job run pyright, knip (`frontend/knip.json`) and
+   jscpd (`.jscpd.json`, 1% threshold). Ruff now also enforces `SIM`, `RET`, `PIE`, `RUF100`
+   and `TRY400`. `ERA` (commented-out code) was left out: in this codebase it only flagged
+   section comments and data-layout comments.
 
 The query-scaling items (#6–10, N+1 queries) were resolved or made obsolete on
 `perf/search-and-queries`; query counts are pinned by `integration/test_query_counts.py`.

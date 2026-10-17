@@ -40,5 +40,5 @@ IMPORTANT: It must be possible to build on both windows and linux and run on Win
 - If working on small bugfixes, do so in your current worktree if one is available, otherwise ask the user whether they want you to work on the main branch
 - At the end of each feature or bugfix, commit it with a useful but short message
 - Make sure you are running ruff format/check over all python code and ESLint/Prettier over all JS code prior to commit
-- The pre-push hook validates lint + unit tests locally — CI only runs on PRs (security, integration, frontend build)
+- The pre-push hook validates lint, types (pyright), dead code (knip), duplication (jscpd) and unit tests locally — CI only runs on PRs (security, integration, frontend build, the same quality gates)
 - To release: trigger the Release workflow manually against main → tests → E2E → builds → verify artifacts → re-run with publish=true
