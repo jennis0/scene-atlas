@@ -1,7 +1,7 @@
 """Request and response models for the imports API (ADR-018, design/ingestion.md §7)."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -49,6 +49,8 @@ class ImportJobSummary(BaseModel):
     planned: bool
     dismissed: bool
     upload_interrupted: bool  # derived: waiting on bytes that stopped arriving
+    local: bool = False  # read from folders on this computer (design/local-ingest.md)
+    waiting_for: list[str] = []  # derived: a local import's folders that are missing
     counts: ImportCounts
     group_count: int
     created_at: datetime | None
@@ -134,6 +136,23 @@ class ContentResult(BaseModel):
     state: str
     error_reason: str | None
     duplicate_of_image_id: int | None
+
+
+# Most roots (picked or dropped files and folders) one local-sources call may name.
+MAX_LOCAL_ROOTS = 1000
+
+
+class LocalSourcesRequest(BaseModel):
+    paths: list[Annotated[str, Field(min_length=1, max_length=4096)]] = Field(
+        ..., min_length=1, max_length=MAX_LOCAL_ROOTS
+    )
+
+
+class LocalSourcesResult(BaseModel):
+    created: int
+    skipped: int
+    failed: int
+    ignored: int  # OS junk and paths already in the import
 
 
 class ArchiveResult(BaseModel):

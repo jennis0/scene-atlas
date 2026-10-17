@@ -27,6 +27,7 @@ from .api import models as models_api
 from .api import settings as settings_api
 from .api.rate_limits import limiter
 from .config import settings
+from .host_check import LoopbackHostMiddleware
 from .logging_config import setup_logging
 from .models import (
     get_engine,
@@ -342,6 +343,9 @@ app.add_middleware(SlowAPIMiddleware)
 # Launchers pass --no-proxy-headers so uvicorn's own copy, which reads its trust
 # list only from the process environment, can't apply a different one.
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=settings.forwarded_allow_ips)
+
+# Outermost of all: in the desktop app, refuse requests for any host but loopback.
+app.add_middleware(LoopbackHostMiddleware)
 
 # Include API routers
 app.include_router(images.router, prefix=f"{settings.api_prefix}/images", tags=["images"])

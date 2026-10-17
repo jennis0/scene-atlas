@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import uuid
 from collections.abc import Iterable, Iterator
@@ -40,6 +41,9 @@ logger = logging.getLogger(__name__)
 
 # Items whose bytes went missing are re-requested from the client.
 KIND_BYTES_LOST = "bytes_lost"
+# A local import's folder is missing (drive unplugged): the item goes back to ready and
+# its job waits until the folder is back (design/local-ingest.md §4.4).
+KIND_SOURCE_UNAVAILABLE = "source_unavailable"
 
 ARCHIVE_EXTENSIONS = frozenset({".zip"})
 _IN_CHUNK = 500  # Keep IN (...) lists far below SQLite's bound-variable limit
@@ -150,6 +154,9 @@ class ManifestEntry:
     size: int | None = None
     last_modified: int | None = None
     image_type: str | None = None
+    # Local imports: where the worker reads the file (design/local-ingest.md). The item
+    # starts ready, since its bytes are already available.
+    source_path: str | None = None
 
 
 def create_job(
@@ -209,6 +216,9 @@ def add_manifest_items(
             item.error_reason = "Not a supported image, video or archive"
         elif max_file_size is not None and entry.size is not None and entry.size > max_file_size:
             _fail_validation(item, "File is larger than the import size limit")
+        elif entry.source_path is not None:
+            item.source_path = entry.source_path
+            item.state = st.next_item_state(item.state, ItemEvent.BYTES_RECEIVED)
         db.add(item)
         items.append(item)
     db.flush()
@@ -501,6 +511,10 @@ class ClaimedItem:
     source_hash: str | None
     attempts: int
     allow_duplicate: bool
+    # Local imports: the file to read, and the job's folders (to tell a missing file
+    # from a missing drive).
+    source_path: str | None = None
+    source_roots: tuple[str, ...] = ()
     # Grid sizes (NxM) named by other files in the same import group, both orientations.
     # Candidates for size-only grid detection, never truth (design/grid-detection-v3.md).
     sibling_grid_counts: tuple[tuple[int, int], ...] = ()
@@ -531,7 +545,9 @@ def _sibling_grid_counts(
 
 
 def _snapshot(
-    item: ImportItem, sibling_grid_counts: tuple[tuple[int, int], ...] = ()
+    item: ImportItem,
+    sibling_grid_counts: tuple[tuple[int, int], ...] = (),
+    source_roots: tuple[str, ...] = (),
 ) -> ClaimedItem:
     return ClaimedItem(
         id=item.id,
@@ -547,6 +563,8 @@ def _snapshot(
         attempts=item.attempts,
         allow_duplicate=bool(item.allow_duplicate),
         sibling_grid_counts=sibling_grid_counts,
+        source_path=item.source_path,
+        source_roots=source_roots if item.source_path else (),
     )
 
 
@@ -574,9 +592,9 @@ def claim_next_batch(
     """
     now = now or utcnow()
     with write_session() as db:
-        job_ids = [
-            job_id
-            for (job_id,) in db.query(ImportJob.id)
+        jobs = [
+            (job_id, _roots(source_roots))
+            for job_id, source_roots in db.query(ImportJob.id, ImportJob.source_roots)
             .filter(
                 ImportJob.status == st.JOB_ACTIVE,
                 ImportJob.planned_at.isnot(None),
@@ -587,9 +605,11 @@ def claim_next_batch(
             .order_by(ImportJob.created_at, ImportJob.id)
             .all()
         ]
-        if not job_ids:
+        # A local import whose folder is missing waits; other imports carry on.
+        available = {job_id: roots for job_id, roots in jobs if not missing_roots(roots)}
+        if not available:
             return None, []
-        job_id = _pick_job(job_ids, after_job_id)
+        job_id = _pick_job(list(available), after_job_id)
         items = (
             db.query(ImportItem)
             .outerjoin(ImportGroup, ImportGroup.id == ImportItem.import_group_id)
@@ -606,10 +626,28 @@ def claim_next_batch(
         siblings = _sibling_grid_counts(
             db, {item.import_group_id for item in items if item.import_group_id is not None}
         )
+        roots = tuple(available[job_id])
         return job_id, [
-            _snapshot(item, siblings.get(item.import_group_id, ()) if item.import_group_id else ())
+            _snapshot(
+                item,
+                siblings.get(item.import_group_id, ()) if item.import_group_id else (),
+                roots,
+            )
             for item in items
         ]
+
+
+def _roots(source_roots: str | None) -> list[str]:
+    return json.loads(source_roots) if source_roots else []
+
+
+def missing_roots(roots: Iterable[str]) -> list[str]:
+    """A local import's folders that aren't there right now (drive unplugged, renamed)."""
+    return [root for root in roots if not os.path.isdir(root)]
+
+
+def job_missing_roots(job: ImportJob) -> list[str]:
+    return missing_roots(_roots(job.source_roots))
 
 
 # Failures (worker)
@@ -652,6 +690,10 @@ def record_failures(failures: list[ItemFailure], now: datetime | None = None) ->
                 item.state = st.next_item_state(item.state, ItemEvent.SYSTEM_ERROR)
                 item.attempts = max(0, item.attempts - 1)
                 continue
+            if failure.kind == KIND_SOURCE_UNAVAILABLE:
+                item.state = st.next_item_state(item.state, ItemEvent.SOURCE_UNAVAILABLE)
+                item.attempts = max(0, item.attempts - 1)
+                continue
             if failure.kind == KIND_BYTES_LOST:
                 item.state = st.next_item_state(item.state, ItemEvent.BYTES_LOST)
                 item.staging_key = None
@@ -666,6 +708,47 @@ def record_failures(failures: list[ItemFailure], now: datetime | None = None) ->
             item.error_stage = failure.stage
             item.error_reason = failure.reason
             item.error_detail = failure.detail[:4000] if failure.detail else None
+        for job_id in job_ids:
+            recompute_job_status(db, job_id)
+    return job_ids
+
+
+@dataclass(frozen=True)
+class EarlyDuplicate:
+    """A local item whose bytes are already in the library, found before decoding."""
+
+    item_id: int
+    image_id: int
+    source_hash: str
+
+
+def library_byte_duplicate(source_hash: str) -> int | None:
+    """The library image with these exact bytes, if any (read-only; commit re-checks)."""
+    with _session() as db:
+        return find_byte_duplicates(db, [source_hash]).get(source_hash)
+
+
+def record_early_duplicates(duplicates: list[EarlyDuplicate]) -> set[str]:
+    """Mark processing items as byte duplicates. Returns the affected job ids."""
+    if not duplicates:
+        return set()
+    job_ids: set[str] = set()
+    with write_session() as db:
+        items = {
+            item.id: item
+            for item in db.query(ImportItem).filter(
+                ImportItem.id.in_([d.item_id for d in duplicates])
+            )
+        }
+        for duplicate in duplicates:
+            item = items.get(duplicate.item_id)
+            if item is None or item.state != st.PROCESSING:
+                continue
+            item.state = st.next_item_state(item.state, ItemEvent.DUPLICATE_AT_COMMIT)
+            item.duplicate_of_image_id = duplicate.image_id
+            item.duplicate_tier = "bytes"
+            item.source_hash = duplicate.source_hash
+            job_ids.add(item.job_id)
         for job_id in job_ids:
             recompute_job_status(db, job_id)
     return job_ids
@@ -718,8 +801,15 @@ def _items_in(db: Session, job_id: str, states: Iterable[str], item_ids: list[in
     return query
 
 
+def _has_bytes(item: ImportItem) -> bool:
+    """A local item's bytes are its source (a missing one fails again when it's read)."""
+    if item.source_path:
+        return True
+    return bool(item.staging_key) and staged_path(item.job_id, item.staging_key).exists()
+
+
 def _reopen(item: ImportItem, with_bytes: ItemEvent, without_bytes: ItemEvent) -> None:
-    has_bytes = bool(item.staging_key) and staged_path(item.job_id, item.staging_key).exists()
+    has_bytes = _has_bytes(item)
     item.state = st.next_item_state(item.state, with_bytes if has_bytes else without_bytes)
     if not has_bytes:
         item.staging_key = None

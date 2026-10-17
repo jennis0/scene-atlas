@@ -22,6 +22,7 @@ LEGAL = [
     (st.PROCESSING, ItemEvent.GIVE_UP, st.FAILED),
     (st.PROCESSING, ItemEvent.SYSTEM_ERROR, st.READY),
     (st.PROCESSING, ItemEvent.BYTES_LOST, st.AWAITING_BYTES),
+    (st.PROCESSING, ItemEvent.SOURCE_UNAVAILABLE, st.READY),
     (st.PROCESSING, ItemEvent.RECOVERED, st.READY),
     (st.PROCESSING, ItemEvent.CRASH_LIMIT, st.FAILED),
     (st.FAILED, ItemEvent.RETRY, st.READY),

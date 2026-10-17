@@ -29,6 +29,14 @@ from sqlalchemy.orm import Session
 
 from ...pipeline import ingest_queue as q
 from ...pipeline.ingest_archive import expand_archive
+from ...pipeline.ingest_local import (
+    ArchiveLimits,
+    LocalSourceError,
+    TooManyLocalFilesError,
+    add_local_items,
+    list_roots,
+    resolve_roots,
+)
 from ...pipeline.ingest_worker import get_ingest_worker
 from ..config import settings
 from ..models import ImportGroup, ImportItem, ImportJob, get_session_local
@@ -50,6 +58,8 @@ from ..models.import_schemas import (
     ImportJobSummary,
     ItemActionRequest,
     JobStatus,
+    LocalSourcesRequest,
+    LocalSourcesResult,
     ManifestItemResult,
     ManifestRequest,
     ManifestResponse,
@@ -140,6 +150,12 @@ def _summary(job: ImportJob, counts: ImportCounts, group_count: int, now) -> Imp
         and counts.processing == 0
         and now - last_activity > UPLOAD_STALL
     )
+    open_items = counts.ready + counts.processing + counts.awaiting_bytes
+    waiting_for = (
+        q.job_missing_roots(job)
+        if job.source_roots and open_items and job.status != st.JOB_CANCELLED
+        else []
+    )
     return ImportJobSummary(
         id=job.id,
         label=job.source_label,
@@ -148,6 +164,8 @@ def _summary(job: ImportJob, counts: ImportCounts, group_count: int, now) -> Imp
         planned=job.planned_at is not None,
         dismissed=job.dismissed_at is not None,
         upload_interrupted=interrupted,
+        local=job.source_roots is not None,
+        waiting_for=waiting_for,
         counts=counts,
         group_count=group_count,
         created_at=job.created_at,
@@ -427,6 +445,67 @@ async def upload_archive(
             db.close()
 
     result = await asyncio.to_thread(_expand)
+    _changed()
+    return result
+
+
+@router.post("/{job_id}/local-sources", response_model=LocalSourcesResult)
+async def add_local_sources(
+    job_id: str,
+    body: LocalSourcesRequest,
+    request: Request,
+    _admission: None = Depends(acquire_heavy_op),
+):
+    """Add files and folders on this computer by path (desktop app only; design/local-ingest.md).
+
+    The server lists the folders and the worker reads each file in place, copying it into
+    the library: nothing is uploaded. Only before seal. Not available in server mode,
+    where the client's paths would name files on the server.
+    """
+    if settings.app_mode != "app":
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    def _limits():
+        with _open_session(request) as db:
+            job = _job_or_404(db, job_id)
+            _require_unsealed(job)
+            existing = db.query(func.count(ImportItem.id)).filter_by(job_id=job_id).scalar()
+            return get_app_settings(db), existing
+
+    app_settings, existing = await asyncio.to_thread(_limits)
+
+    def _list():
+        try:
+            roots = resolve_roots(body.paths)
+            return roots, list_roots(roots, settings.max_local_import_items - existing)
+        except LocalSourceError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        except TooManyLocalFilesError as exc:
+            raise HTTPException(status_code=413, detail=str(exc)) from None
+
+    # Listing happens before the write lock is taken: it can take seconds on a slow drive.
+    roots, files = await asyncio.to_thread(_list)
+
+    def _add() -> LocalSourcesResult:
+        with _open_session(request) as db:
+            q.begin_immediate(db)
+            job = _job_or_404(db, job_id)
+            _require_unsealed(job)
+            counts = add_local_items(
+                db,
+                job,
+                roots,
+                files,
+                max_file_size=app_settings.max_import_file_size,
+                archive_limits=ArchiveLimits(
+                    max_files=app_settings.max_import_files,
+                    max_uncompressed_bytes=app_settings.max_import_total_size,
+                ),
+            )
+            db.commit()
+            return LocalSourcesResult(**vars(counts))
+
+    result = await asyncio.to_thread(_add)
     _changed()
     return result
 

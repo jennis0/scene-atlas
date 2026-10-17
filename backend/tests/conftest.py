@@ -210,7 +210,7 @@ def test_client(tmp_db, tmp_path):
     limiter.enabled = False
 
     try:
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://127.0.0.1:8000") as client:
             app.state.db_engine = engine
             yield client
     finally:

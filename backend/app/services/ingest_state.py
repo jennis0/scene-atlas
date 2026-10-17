@@ -55,6 +55,7 @@ class ItemEvent(StrEnum):
     GIVE_UP = "give_up"  # temporary error, attempts exhausted
     SYSTEM_ERROR = "system_error"  # queue pauses, item goes back
     BYTES_LOST = "bytes_lost"  # staged file missing; needs re-upload
+    SOURCE_UNAVAILABLE = "source_unavailable"  # local import's folder is missing; job waits
     RECOVERED = "recovered"  # startup: was processing when the process died
     CRASH_LIMIT = "crash_limit"  # startup: was processing, attempts exhausted
     RETRY = "retry"  # user retry, staged bytes present
@@ -78,6 +79,7 @@ _TRANSITIONS: dict[tuple[str, ItemEvent], str] = {
     (PROCESSING, ItemEvent.GIVE_UP): FAILED,
     (PROCESSING, ItemEvent.SYSTEM_ERROR): READY,
     (PROCESSING, ItemEvent.BYTES_LOST): AWAITING_BYTES,
+    (PROCESSING, ItemEvent.SOURCE_UNAVAILABLE): READY,
     (PROCESSING, ItemEvent.RECOVERED): READY,
     (PROCESSING, ItemEvent.CRASH_LIMIT): FAILED,
     (FAILED, ItemEvent.RETRY): READY,

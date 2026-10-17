@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     ingest_memory_budget_mb: int | None = None
     # Most files one import job may contain (across all manifest chunks).
     max_import_items: int = 50_000
+    # Most files a local import (desktop app, design/local-ingest.md) may contain. Higher:
+    # the browser and the upload protocol, which the cap above protects, aren't involved.
+    max_local_import_items: int = 250_000
     # Start the ingest worker with the app. Tests turn this off and drive the
     # worker synchronously with drain().
     ingest_worker_enabled: bool = True
