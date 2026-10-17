@@ -10,13 +10,13 @@ from pathlib import Path
 import pytest
 from PIL import Image as PILImage
 
-from backend.app.models import (  # noqa: E402
+from backend.app.models import (
     get_engine,
     get_session_local,
     init_db,
     seed_tag_categories,
 )
-from backend.app.services.prepare_pool import (  # noqa: E402
+from backend.app.services.prepare_pool import (
     init_prepare_pool,
     shutdown_prepare_pool,
 )

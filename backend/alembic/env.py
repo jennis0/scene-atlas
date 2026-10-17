@@ -16,7 +16,7 @@ from sqlalchemy import create_engine
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 # Import our SQLAlchemy models metadata
-from backend.app.models.database import Base  # noqa: E402
+from backend.app.models.database import Base
 
 # Alembic Config object — gives access to values in alembic.ini
 config = context.config

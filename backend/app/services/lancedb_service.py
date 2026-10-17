@@ -85,53 +85,45 @@ class LanceDBService:
         that inserts and searches don't fail with shape-mismatch errors.
         """
         with self._lock:
-            try:
-                if self.table_exists(self.collection_name):
-                    table = self._conn.open_table(self.collection_name)
-                    schema = table.schema
-                    vec_field = schema.field("vector")
-                    existing_size = vec_field.type.list_size
-                    if existing_size != self._vector_size:
-                        logger.warning(
-                            "Table %s has vector size %d but model expects %d — recreating",
-                            self.collection_name,
-                            existing_size,
-                            self._vector_size,
-                        )
-                        self._conn.drop_table(self.collection_name)
-                    else:
-                        logger.info(
-                            "Table %s already exists (size=%d)",
-                            self.collection_name,
-                            existing_size,
-                        )
-                        self._table = table
-                        return
+            if self.table_exists(self.collection_name):
+                table = self._conn.open_table(self.collection_name)
+                schema = table.schema
+                vec_field = schema.field("vector")
+                existing_size = vec_field.type.list_size
+                if existing_size != self._vector_size:
+                    logger.warning(
+                        "Table %s has vector size %d but model expects %d — recreating",
+                        self.collection_name,
+                        existing_size,
+                        self._vector_size,
+                    )
+                    self._conn.drop_table(self.collection_name)
+                else:
+                    logger.info(
+                        "Table %s already exists (size=%d)",
+                        self.collection_name,
+                        existing_size,
+                    )
+                    self._table = table
+                    return
 
-                logger.info(
-                    "Creating LanceDB table: %s (size=%d)",
-                    self.collection_name,
-                    self._vector_size,
-                )
-                self._table = self._conn.create_table(
-                    self.collection_name,
-                    schema=_table_schema(self._vector_size),
-                    exist_ok=True,
-                )
-                logger.info("Table %s created successfully", self.collection_name)
-            except Exception as e:
-                logger.error("Error ensuring table exists: %s", e)
-                raise
+            logger.info(
+                "Creating LanceDB table: %s (size=%d)",
+                self.collection_name,
+                self._vector_size,
+            )
+            self._table = self._conn.create_table(
+                self.collection_name,
+                schema=_table_schema(self._vector_size),
+                exist_ok=True,
+            )
+            logger.info("Table %s created successfully", self.collection_name)
 
     def delete_collection(self):
         """Delete the entire table (use with caution)."""
         with self._lock:
-            try:
-                self._conn.drop_table(self.collection_name)
-                logger.info("Table %s deleted successfully", self.collection_name)
-            except Exception as e:
-                logger.error("Error deleting table: %s", e)
-                raise
+            self._conn.drop_table(self.collection_name)
+            logger.info("Table %s deleted successfully", self.collection_name)
 
     def add_image_embedding(
         self, image_id: int, embedding: list[float], metadata: dict | None = None
@@ -154,8 +146,8 @@ class LanceDBService:
                 ).when_matched_update_all().when_not_matched_insert_all().execute([row])
                 logger.debug("Added embedding for image_id=%s", image_id)
                 return True
-            except Exception as e:
-                logger.error("Error adding embedding for image_id=%s: %s", image_id, e)
+            except Exception:
+                logger.exception("Error adding embedding for image_id=%s", image_id)
                 return False
 
     def batch_add_embeddings(self, items: list[dict]) -> bool:
@@ -181,8 +173,8 @@ class LanceDBService:
                 ).when_matched_update_all().when_not_matched_insert_all().execute(rows)
                 logger.debug("Batch added %s embeddings to LanceDB", len(rows))
                 return True
-            except Exception as e:
-                logger.error("Error batch adding embeddings: %s", e)
+            except Exception:
+                logger.exception("Error batch adding embeddings")
                 return False
 
     def search_similar(
@@ -227,8 +219,8 @@ class LanceDBService:
                 )
 
             return output
-        except Exception as e:
-            logger.error("Error searching similar images: %s", e)
+        except Exception:
+            logger.exception("Error searching similar images")
             return []
 
     def delete_image_embedding(self, image_id: int) -> bool:
@@ -238,8 +230,8 @@ class LanceDBService:
                 self._tbl.delete(f"id = {image_id}")
                 logger.debug("Deleted embedding for image_id=%s", image_id)
                 return True
-            except Exception as e:
-                logger.error("Error deleting embedding for image_id=%s: %s", image_id, e)
+            except Exception:
+                logger.exception("Error deleting embedding for image_id=%s", image_id)
                 return False
 
     def delete_embeddings(self, image_ids: list[int]) -> bool:
@@ -305,8 +297,8 @@ class LanceDBService:
                 "points_count": count,
                 "status": "ok",
             }
-        except Exception as e:
-            logger.error("Error getting collection info: %s", e)
+        except Exception:
+            logger.exception("Error getting collection info")
             return {}
 
     def row_count(self, collection_name: str) -> int | None:
@@ -350,9 +342,7 @@ class LanceDBService:
             self.db = None
 
 
-# ---------------------------------------------------------------------------
 # Lazy singleton (same pattern as get_image_store / get_clip_service)
-# ---------------------------------------------------------------------------
 
 _lancedb_service: LanceDBService | None = None
 _init_lock = threading.Lock()

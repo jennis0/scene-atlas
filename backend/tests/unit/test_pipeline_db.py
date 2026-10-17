@@ -51,11 +51,10 @@ def test_pipeline_db_rolls_back_on_exception(tmp_path, monkeypatch):
     init_db(engine)
     monkeypatch.setattr(settings, "database_url", db_url)
 
-    with pytest.raises(RuntimeError):
-        with pipeline_db() as db:
-            job = ImportJob(id="pipe-2", status="staging", source_label="test")
-            db.add(job)
-            raise RuntimeError("simulated failure")
+    with pytest.raises(RuntimeError), pipeline_db() as db:
+        job = ImportJob(id="pipe-2", status="staging", source_label="test")
+        db.add(job)
+        raise RuntimeError("simulated failure")
 
     # Verify NOT committed
     SessionLocal = get_session_local(engine)

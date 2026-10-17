@@ -164,7 +164,7 @@ def generate_model_card(entry: dict, manifest: dict, model_sizes: dict) -> str:
 
     manifest_table = "\n".join(manifest_rows)
 
-    card = f"""---
+    return f"""---
 base_model: {model_id}
 library_name: onnxruntime
 tags:
@@ -226,7 +226,6 @@ hf_hub_download(
 Please refer to the [original model card](https://huggingface.co/{model_id}) for
 licensing information.
 """
-    return card
 
 
 # ── File size helpers ────────────────────────────────────────────────────────

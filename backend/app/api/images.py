@@ -49,8 +49,7 @@ def list_authors(db: Session = Depends(get_db)):
 @router.get("/", response_model=list[ImageResponse])
 def list_images(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     """List all images with pagination."""
-    images = db.query(Image).options(*_WITH_RELATIONS).offset(skip).limit(limit).all()
-    return images
+    return db.query(Image).options(*_WITH_RELATIONS).offset(skip).limit(limit).all()
 
 
 @router.get("/{image_id}", response_model=ImageResponse)
@@ -106,11 +105,7 @@ def get_image_scenes(image_id: int, db: Session = Depends(get_db)):
     if not image.group_id:
         return [image]  # No group, return just this image
 
-    scenes = (
-        db.query(Image).options(*_WITH_RELATIONS).filter(Image.group_id == image.group_id).all()
-    )
-
-    return scenes
+    return db.query(Image).options(*_WITH_RELATIONS).filter(Image.group_id == image.group_id).all()
 
 
 @router.get("/{image_id}/file")

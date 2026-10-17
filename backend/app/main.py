@@ -1,6 +1,7 @@
 """FastAPI application for Scene Atlas."""
 
 import asyncio
+import contextlib
 import logging
 import signal
 import sys
@@ -211,7 +212,7 @@ async def lifespan(app: FastAPI):
 
     # Diagnostic: SIGUSR1 thread dump
     # Send `kill -USR1 <pid>` to dump all thread stack traces to the log.
-    def _dump_threads(signum, frame) -> None:  # noqa: ARG001
+    def _dump_threads(signum, frame) -> None:
         lines = ["\n=== THREAD DUMP (SIGUSR1) ==="]
         for tid, stack in sys._current_frames().items():
             tname = "?"
@@ -224,10 +225,9 @@ async def lifespan(app: FastAPI):
         logger.warning("".join(lines))
 
     if sys.platform != "win32":
-        try:
+        # Raises ValueError outside the main thread (e.g. under the test runner).
+        with contextlib.suppress(ValueError):
             signal.signal(signal.SIGUSR1, _dump_threads)
-        except ValueError:
-            pass  # Not in main thread (e.g. test runner)
 
     yield
 

@@ -49,9 +49,7 @@ def utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
-# ---------------------------------------------------------------------------
 # Sessions
-# ---------------------------------------------------------------------------
 
 
 def _session() -> Session:
@@ -89,9 +87,7 @@ def write_session() -> Iterator[Session]:
         db.close()
 
 
-# ---------------------------------------------------------------------------
 # Paths
-# ---------------------------------------------------------------------------
 
 
 def staging_dir_for(job_id: str) -> Path:
@@ -141,9 +137,7 @@ def normalise_relative_path(relative_path: str) -> str:
     return "/".join(parts)
 
 
-# ---------------------------------------------------------------------------
 # Jobs, manifest and planning
-# ---------------------------------------------------------------------------
 
 
 class ManifestSealedError(Exception):
@@ -326,9 +320,7 @@ def plan_job(db: Session, job_id: str) -> list[ImportGroup]:
     return groups
 
 
-# ---------------------------------------------------------------------------
 # Job status
-# ---------------------------------------------------------------------------
 
 
 def job_counts(db: Session, job_id: str) -> dict[str, int]:
@@ -359,9 +351,7 @@ def recompute_job_status(db: Session, job_id: str) -> str:
     return new_status
 
 
-# ---------------------------------------------------------------------------
 # Byte receipt
-# ---------------------------------------------------------------------------
 
 
 def find_byte_duplicates(db: Session, hashes: Iterable[str]) -> dict[str, int]:
@@ -492,9 +482,7 @@ def undo_job(db: Session, job_id: str):
     return len(images), pending
 
 
-# ---------------------------------------------------------------------------
 # Claiming (worker)
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -588,9 +576,7 @@ def claim_next_batch(
         return job_id, [_snapshot(item) for item in items]
 
 
-# ---------------------------------------------------------------------------
 # Failures (worker)
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -649,9 +635,7 @@ def record_failures(failures: list[ItemFailure], now: datetime | None = None) ->
     return job_ids
 
 
-# ---------------------------------------------------------------------------
 # Recovery (startup)
-# ---------------------------------------------------------------------------
 
 
 def recover_interrupted() -> dict[str, int]:
@@ -686,9 +670,7 @@ def recover_interrupted() -> dict[str, int]:
     return {"recovered": recovered, "crashed": crashed}
 
 
-# ---------------------------------------------------------------------------
 # User actions (imports API)
-# ---------------------------------------------------------------------------
 
 
 def _items_in(db: Session, job_id: str, states: Iterable[str], item_ids: list[int] | None):

@@ -96,9 +96,7 @@ def id_set(ids: Iterable[int]) -> Select:
     return select(values.c.value)
 
 
-# ---------------------------------------------------------------------------
 # Filters
-# ---------------------------------------------------------------------------
 
 
 def _split_tag(tag: str) -> tuple[str, str] | None:
@@ -178,9 +176,7 @@ def group_conditions(db: Session, filters: SearchFilters) -> list[ColumnElement[
     return conditions
 
 
-# ---------------------------------------------------------------------------
 # Ranking
-# ---------------------------------------------------------------------------
 
 
 def _semantic_scores(query: str, limit: int, *, required: bool) -> dict[int, float]:
@@ -246,9 +242,7 @@ def rank_candidates(
     return fuse_rankings(text_scores, alias_scores, semantic_scores)
 
 
-# ---------------------------------------------------------------------------
 # Loading
-# ---------------------------------------------------------------------------
 
 
 def _load_images(db: Session, ids: Collection[int]) -> dict[int, Image]:
@@ -300,9 +294,7 @@ def _order(column, sort_dir: str):
     return column.asc() if sort_dir == "asc" else column.desc()
 
 
-# ---------------------------------------------------------------------------
 # Image search
-# ---------------------------------------------------------------------------
 
 
 def browse_images(
@@ -380,9 +372,7 @@ def search_images(
     )
 
 
-# ---------------------------------------------------------------------------
 # Group search
-# ---------------------------------------------------------------------------
 
 
 def browse_groups(
@@ -528,9 +518,7 @@ def search_groups(
     return GroupSearchResponse(total_groups=len(ranked), limit=limit, offset=offset, groups=results)
 
 
-# ---------------------------------------------------------------------------
 # Facets
-# ---------------------------------------------------------------------------
 
 
 def get_facets(db: Session) -> dict:

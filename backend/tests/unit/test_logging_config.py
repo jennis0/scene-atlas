@@ -61,9 +61,11 @@ def _our_handlers() -> list[logging.Handler]:
     root = logging.getLogger()
     result = []
     for h in root.handlers:
-        if isinstance(h, RotatingFileHandler):
-            result.append(h)
-        elif type(h) is logging.StreamHandler and getattr(h, "stream", None) is sys.stdout:
+        if (
+            isinstance(h, RotatingFileHandler)
+            or type(h) is logging.StreamHandler
+            and getattr(h, "stream", None) is sys.stdout
+        ):
             result.append(h)
     return result
 
@@ -119,7 +121,7 @@ class TestSetupLogging:
 
         monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", Image.MAX_IMAGE_PIXELS)
         setup_logging(tmp_path)
-        assert Image.MAX_IMAGE_PIXELS == settings.max_image_pixels
+        assert settings.max_image_pixels == Image.MAX_IMAGE_PIXELS
         assert settings.max_image_pixels >= 760_000_000
 
     def test_idempotent(self, tmp_path):

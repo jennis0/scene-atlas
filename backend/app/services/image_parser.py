@@ -362,8 +362,7 @@ class ImageParser:
             return t
 
         text = _one_pass(text)
-        text = _one_pass(text)
-        return text
+        return _one_pass(text)
 
     def _get_token_set(self, text: str) -> set[str]:
         """Normalize a string into a set of lowercase words."""
@@ -443,8 +442,7 @@ class ImageParser:
         name = re.sub(r"(?<=[a-zA-Z])-(?=\d)", " - ", name)
         name = re.sub(r"(?<=\d)-(?=[a-zA-Z])", " - ", name)
         name = self._split_camel(name)
-        name = self._abbrev_rejoin_re.sub(r"\1\2", name)
-        return name
+        return self._abbrev_rejoin_re.sub(r"\1\2", name)
 
     def _remove_noise(self, text: str, *, keep_grid: bool = False) -> str:
         """Remove resolution, tier, pricing, platform markers from a normalised string."""

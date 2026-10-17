@@ -228,7 +228,7 @@ class TestColorIndexConcurrency:
                     try:
                         index._loaded_at = 0.0  # Force TTL expiry
                         index._ensure_loaded(db)
-                    except Exception as e:  # noqa: BLE001
+                    except Exception as e:
                         errors.append(e)
 
         threads = [threading.Thread(target=reader) for _ in range(4)]

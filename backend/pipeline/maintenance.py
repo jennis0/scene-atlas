@@ -53,8 +53,7 @@ def backup_vector_db(backup_dir: Path) -> Path | None:
         from backend.app.services.lancedb_service import get_lancedb_service
 
         svc = get_lancedb_service()
-        backup_path = svc.backup_storage(backup_dir)
-        return backup_path
+        return svc.backup_storage(backup_dir)
     except Exception as e:
         logger.warning("LanceDB backup failed: %s", e)
         return None

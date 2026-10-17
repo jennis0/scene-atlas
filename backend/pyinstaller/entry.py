@@ -66,7 +66,7 @@ def main():
 
     import uvicorn
 
-    from backend.app.main import app  # noqa: E402
+    from backend.app.main import app
 
     restarts: list[float] = []
     backoff = 1

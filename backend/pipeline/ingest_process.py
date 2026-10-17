@@ -66,9 +66,7 @@ def clear_incoming() -> None:
         shutil.rmtree(incoming_dir(store.base_dir), ignore_errors=True)
 
 
-# ---------------------------------------------------------------------------
 # Prepare
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -316,9 +314,7 @@ def _prepare(
     )
 
 
-# ---------------------------------------------------------------------------
 # Embed
-# ---------------------------------------------------------------------------
 
 
 def embed(prepared: list[PreparedItem]) -> list[ItemFailure]:
@@ -339,9 +335,7 @@ def embed(prepared: list[PreparedItem]) -> list[ItemFailure]:
     return []
 
 
-# ---------------------------------------------------------------------------
 # Commit
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -535,9 +529,7 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
     return result
 
 
-# ---------------------------------------------------------------------------
 # Vectors
-# ---------------------------------------------------------------------------
 
 
 def write_vectors(done: list[CommittedImage]) -> bool:
@@ -571,9 +563,7 @@ def write_vectors(done: list[CommittedImage]) -> bool:
     return bool(ok)
 
 
-# ---------------------------------------------------------------------------
 # Orchestration
-# ---------------------------------------------------------------------------
 
 
 @dataclass

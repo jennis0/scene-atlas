@@ -71,9 +71,7 @@ SEAL_FREE_SPACE_MARGIN = 512 * 1024 * 1024
 _STREAM_CHUNK = 256 * 1024
 
 
-# ---------------------------------------------------------------------------
 # Dependencies and helpers
-# ---------------------------------------------------------------------------
 
 
 def get_write_db(request: Request):
@@ -212,9 +210,7 @@ def _queue_status() -> QueueStatus:
     )
 
 
-# ---------------------------------------------------------------------------
 # Listing and detail
-# ---------------------------------------------------------------------------
 
 
 @router.post("/queue/probe", response_model=QueueStatus)
@@ -285,9 +281,7 @@ def list_items(
     )
 
 
-# ---------------------------------------------------------------------------
 # Create, manifest, archives, seal, hashes
-# ---------------------------------------------------------------------------
 
 
 @router.post("", response_model=ImportJobSummary, status_code=201)
@@ -503,9 +497,7 @@ def submit_hashes(job_id: str, body: HashRequest, db: Session = Depends(get_writ
     )
 
 
-# ---------------------------------------------------------------------------
 # Bytes
-# ---------------------------------------------------------------------------
 
 _ALREADY_RECEIVED = frozenset({st.READY, st.PROCESSING, st.DONE, st.DUPLICATE})
 
@@ -594,9 +586,7 @@ async def upload_content(job_id: str, item_id: int, request: Request):
     return result
 
 
-# ---------------------------------------------------------------------------
 # Actions
-# ---------------------------------------------------------------------------
 
 
 def _action(db: Session, job_id: str, affected: int, wake: bool = False) -> ActionResult:

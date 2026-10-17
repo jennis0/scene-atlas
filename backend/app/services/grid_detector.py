@@ -205,10 +205,7 @@ class GridDetector:
 
         hp, hs, vp, vs = self._pick_best_periods(h_candidates, v_candidates)
 
-        if hs > 0 and vs > 0:
-            confidence = math.sqrt(hs * vs)
-        else:
-            confidence = max(hs, vs) * 0.5
+        confidence = math.sqrt(hs * vs) if hs > 0 and vs > 0 else max(hs, vs) * 0.5
 
         ratio = min(hp, vp) / max(hp, vp) if hp and vp else 0.0
 

@@ -18,6 +18,7 @@ Usage::
 """
 
 import asyncio
+import contextlib
 import logging
 import time
 from collections.abc import Callable
@@ -66,10 +67,8 @@ class Scheduler:
         for task in self._tasks:
             task.cancel()
         for task in self._tasks:
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
         self._tasks = []
         logger.info("Scheduler stopped")
 

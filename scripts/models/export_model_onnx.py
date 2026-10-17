@@ -194,10 +194,7 @@ class SigLIP2TextONNX(nn.Module):
 
 def export_vision(model, family: str, image_size: int, output_dir: Path) -> Path:
     """Export vision encoder to ONNX."""
-    if family == "clip":
-        wrapper = CLIPVisionONNX(model)
-    else:
-        wrapper = SigLIP2VisionONNX(model)
+    wrapper = CLIPVisionONNX(model) if family == "clip" else SigLIP2VisionONNX(model)
     wrapper.eval()
 
     device = next(wrapper.parameters()).device
@@ -220,10 +217,7 @@ def export_vision(model, family: str, image_size: int, output_dir: Path) -> Path
 
 def export_text(model, family: str, context_length: int, output_dir: Path) -> Path:
     """Export text encoder to ONNX."""
-    if family == "clip":
-        wrapper = CLIPTextONNX(model)
-    else:
-        wrapper = SigLIP2TextONNX(model)
+    wrapper = CLIPTextONNX(model) if family == "clip" else SigLIP2TextONNX(model)
     wrapper.eval()
 
     device = next(wrapper.parameters()).device

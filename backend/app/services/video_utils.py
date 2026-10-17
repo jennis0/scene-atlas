@@ -54,6 +54,4 @@ def verify_video_mime(data: bytes) -> bool:
     if data[4:8] == b"ftyp":
         return True
     # WebM (Matroska EBML header)
-    if data[0:4] == b"\x1a\x45\xdf\xa3":
-        return True
-    return False
+    return data[0:4] == b"\x1a\x45\xdf\xa3"

@@ -52,8 +52,7 @@ def _cascade_tag_change(db: Session, affected_image_ids: list[int]) -> None:
 @router.get("/categories", response_model=list[TagCategoryResponse])
 def list_tag_categories(db: Session = Depends(get_db)):
     """List all tag categories, ordered by display_order."""
-    categories = db.query(TagCategory).order_by(TagCategory.display_order, TagCategory.name).all()
-    return categories
+    return db.query(TagCategory).order_by(TagCategory.display_order, TagCategory.name).all()
 
 
 @router.post("/categories", response_model=TagCategoryResponse, status_code=201)
@@ -312,8 +311,7 @@ def get_tag_values_for_category(category_name: str, db: Session = Depends(get_db
 @router.get("/image/{image_id}", response_model=list[TagResponse])
 def get_image_tags(image_id: int, db: Session = Depends(get_db)):
     """Get all tags for a specific image."""
-    tags = db.query(Tag).filter(Tag.image_id == image_id).all()
-    return tags
+    return db.query(Tag).filter(Tag.image_id == image_id).all()
 
 
 @router.post("/image/{image_id}", response_model=TagResponse)

@@ -186,8 +186,8 @@ def _get_active_model_name() -> str:
 
     # 2. DB setting (deferred import — must stay local)
     try:
-        from backend.app.models import get_engine, get_session_local  # noqa: PLC0415
-        from backend.app.models.database import AppSetting  # noqa: PLC0415
+        from backend.app.models import get_engine, get_session_local
+        from backend.app.models.database import AppSetting
 
         engine = get_engine(_settings.database_url)
         Session = get_session_local(engine)

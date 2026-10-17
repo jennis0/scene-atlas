@@ -17,8 +17,6 @@ class TagBase(BaseModel):
 class TagCreate(TagBase):
     """Tag creation schema."""
 
-    pass
-
 
 class TagResponse(TagBase):
     """Tag response schema."""
@@ -40,8 +38,6 @@ class ColorBase(BaseModel):
 
 class ColorCreate(ColorBase):
     """Color creation schema."""
-
-    pass
 
 
 class ColorResponse(ColorBase):
