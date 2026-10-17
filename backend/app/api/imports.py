@@ -167,7 +167,7 @@ def _detail(db: Session, job: ImportJob) -> ImportJobDetail:
     )
     for group_id, state, count in rows:
         by_group.setdefault(group_id, {})[state] = count
-    covers = dict(
+    cover_rows = (
         db.query(ImportItem.import_group_id, func.min(ImportItem.image_id))
         .filter(
             ImportItem.job_id == job.id,
@@ -175,8 +175,10 @@ def _detail(db: Session, job: ImportJob) -> ImportJobDetail:
             ImportItem.image_id.isnot(None),
         )
         .group_by(ImportItem.import_group_id)
-        .all()
     )
+    covers: dict[int | None, int | None] = {}
+    for group_id, image_id in cover_rows:
+        covers[group_id] = image_id
     groups = (
         db.query(ImportGroup)
         .filter(ImportGroup.job_id == job.id)

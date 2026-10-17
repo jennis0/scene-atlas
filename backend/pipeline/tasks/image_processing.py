@@ -1,6 +1,7 @@
 """Thumbnail generation for the ingest pipeline."""
 
 from pathlib import Path
+from typing import cast
 
 from PIL import Image
 
@@ -34,7 +35,11 @@ def _working_copy(image: Image.Image) -> Image.Image:
 
 
 def _has_transparency(image: Image.Image) -> bool:
-    return image.mode == "RGBA" and image.getchannel("A").getextrema()[0] < 255
+    if image.mode != "RGBA":
+        return False
+    # A single band's extrema is a (min, max) pair of ints
+    low, _high = cast(tuple[int, int], image.getchannel("A").getextrema())
+    return low < 255
 
 
 def write_thumbnails(

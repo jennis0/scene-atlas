@@ -37,7 +37,7 @@ def extract_dominant_colors(
     if image is None:
         raise ValueError(f"Could not read image: {image_path}")
     if image.dtype == np.uint16:
-        image = (image >> 8).astype(np.uint8)
+        image = np.right_shift(np.asarray(image, dtype=np.uint16), 8).astype(np.uint8)
     # Transparent pixels (RGBA WebP thumbnails) are excluded from clustering.
     alpha = None
     if image.ndim == 2:
