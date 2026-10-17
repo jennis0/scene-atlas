@@ -235,7 +235,7 @@ export function GalleryHeader({
           <form
             role="search"
             onSubmit={handleSubmit}
-            className="flex basis-full md:basis-auto flex-1 min-w-0"
+            className="focus-ring-within-input rounded-md flex basis-full md:basis-auto flex-1 min-w-0"
           >
             <div className="relative flex-1 min-w-0">
               {isSemantic ? (
@@ -252,7 +252,7 @@ export function GalleryHeader({
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 maxLength={MAX_SEARCH_LENGTH}
-                className="h-10 w-full pl-9 pr-8 rounded-r-none border-r-0 focus-visible:z-10"
+                className="h-10 w-full pl-9 pr-8 rounded-r-none border-r-0 focus-visible:outline-none"
               />
               {searchInput && (
                 <button
@@ -455,8 +455,12 @@ export function GalleryHeader({
                     aria-valuetext={
                       minScore > 0 ? `${relevanceToPercent(minScore)}%` : 'All results'
                     }
-                    className="w-20 cursor-pointer accent-primary"
-                    style={{ height: '4px' }}
+                    className="range w-20"
+                    style={
+                      {
+                        '--fill': `${((minScore - RELEVANCE_MIN) / (RELEVANCE_MAX - RELEVANCE_MIN)) * 100}%`,
+                      } as React.CSSProperties
+                    }
                   />
                   <span className="tabular-nums w-7 text-right">
                     {minScore > 0 ? `${relevanceToPercent(minScore)}%` : 'All'}

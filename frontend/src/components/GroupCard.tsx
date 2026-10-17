@@ -51,7 +51,7 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
   return (
     <div
       data-testid="group-card"
-      className="group/card relative overflow-hidden rounded-lg border border-border/30 bg-card transition-[transform,box-shadow] duration-200 hover:border-primary/40 hover:shadow-xl hover:shadow-black/40"
+      className="focus-ring-within group/card relative overflow-hidden rounded-lg border border-border/30 bg-card transition-[transform,box-shadow] duration-200 hover:border-primary/40 hover:shadow-xl hover:shadow-black/40"
     >
       {/* Covers the whole card: the card's single click and keyboard target. The action
           menu sits above it as a sibling, so neither button is nested in the other. */}
@@ -61,7 +61,7 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
           .filter(Boolean)
           .join(', ')}
         onClick={onClick}
-        className="absolute inset-0 z-[1] cursor-pointer rounded-lg focus-visible:outline-offset-[-2px]"
+        className="absolute inset-0 z-[1] cursor-pointer rounded-lg focus-visible:outline-none"
       />
 
       {/* Action menu — top-right; shown on hover, on keyboard focus, and always on touch */}

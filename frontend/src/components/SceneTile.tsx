@@ -40,7 +40,7 @@ export function SceneTile({
   return (
     <div
       data-testid="scene-tile"
-      className={`group relative overflow-hidden rounded-lg bg-card transition-[transform,box-shadow] duration-200 ${
+      className={`focus-ring-within group relative overflow-hidden rounded-lg bg-card transition-[transform,box-shadow] duration-200 ${
         isActive
           ? 'border border-primary/60 ring-2 ring-primary/70 shadow-lg shadow-primary/15'
           : 'border border-border/30 hover:border-primary/40 hover:shadow-xl hover:shadow-black/40'
@@ -94,7 +94,7 @@ export function SceneTile({
         aria-label={label}
         aria-current={isActive || undefined}
         onClick={onClick}
-        className="absolute inset-0 z-[1] cursor-pointer rounded-lg focus-visible:outline-offset-[-2px]"
+        className="absolute inset-0 z-[1] cursor-pointer rounded-lg focus-visible:outline-none"
       />
 
       {isActive && (

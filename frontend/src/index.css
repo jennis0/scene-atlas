@@ -14,8 +14,11 @@
     --popover: 36 24% 96%; /* lightest surface */
     --popover-foreground: 30 12% 15%;
 
-    --primary: 36 75% 28%; /* deep amber: 5.6:1 as text on background, passes on its own /15 tint */
-    --primary-foreground: 36 26% 96%; /* light text on amber */
+    --primary: 38 72% 50%; /* bright gold for fills and tints */
+    --primary-foreground: 30 30% 12%; /* dark text on gold: 6.5:1 */
+    /* Amber as text, icons and focus: gold itself is ~2:1 on parchment, so text-primary
+       resolves to this deeper ink (>= 4.5:1 on every surface and on a primary/10 tint) */
+    --primary-ink: 34 85% 30%;
 
     --secondary: 36 18% 87%; /* subtle warm recessed surface */
     --secondary-foreground: 30 12% 15%;
@@ -31,7 +34,7 @@
 
     --border: 36 14% 78%; /* warm visible border, more definition */
     --input: 36 14% 78%;
-    --ring: 36 75% 28%; /* matches primary */
+    --ring: 34 85% 30%; /* matches primary-ink */
     --radius: 0.375rem; /* 6px — precise, cartographic */
 
     --surface-canvas: 36 18% 88%; /* ImageViewer canvas */
@@ -50,6 +53,7 @@
 
     --primary: 38 60% 58%; /* #d4a853 — amber gold */
     --primary-foreground: 222 30% 8%; /* near-black on amber */
+    --primary-ink: 38 60% 58%; /* gold already reads as text on navy */
 
     --secondary: 222 20% 17%; /* #1c2231 */
     --secondary-foreground: 37 27% 89%;
@@ -181,6 +185,94 @@
   /* Section label — small uppercase heading for panel sections */
   .section-label {
     @apply text-[10px] font-semibold tracking-[0.1em] uppercase text-muted-foreground;
+  }
+
+  /* Draw a focused direct child's outline on this container instead: for clickable cards whose
+     cover button would otherwise outline over the artwork, and for joined input+button
+     fields. Give the child focus-visible:outline-none. */
+  .focus-ring-within:has(> :focus-visible),
+  .focus-ring-within-input:has(input:focus-visible) {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  /* Range slider: quiet track that fills to the value (set --fill), a knob that reacts.
+     Tall enough that the knob's shadow isn't clipped. */
+  .range {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 20px;
+    background: transparent;
+    cursor: pointer;
+    --fill: 0%;
+  }
+  .range::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 9999px;
+    background: linear-gradient(
+      to right,
+      hsl(var(--primary-ink)) var(--fill),
+      hsl(var(--border)) var(--fill)
+    );
+  }
+  .range::-moz-range-track {
+    height: 4px;
+    border-radius: 9999px;
+    background: hsl(var(--border));
+  }
+  .range::-moz-range-progress {
+    height: 4px;
+    border-radius: 9999px;
+    background: hsl(var(--primary-ink));
+  }
+  .range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    margin-top: -5px;
+    border-radius: 9999px;
+    border: 2px solid hsl(var(--card));
+    background: hsl(var(--primary-ink));
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+    transition:
+      transform 150ms ease-out,
+      box-shadow 150ms ease-out;
+  }
+  .range::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 9999px;
+    border: 2px solid hsl(var(--card));
+    background: hsl(var(--primary-ink));
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+    transition:
+      transform 150ms ease-out,
+      box-shadow 150ms ease-out;
+  }
+  .range:hover::-webkit-slider-thumb {
+    transform: scale(1.2);
+    box-shadow: 0 2px 6px rgb(0 0 0 / 0.35);
+  }
+  .range:hover::-moz-range-thumb {
+    transform: scale(1.2);
+    box-shadow: 0 2px 6px rgb(0 0 0 / 0.35);
+  }
+  .range:active::-webkit-slider-thumb {
+    transform: scale(1.1);
+  }
+  .range:active::-moz-range-thumb {
+    transform: scale(1.1);
+  }
+  .range:focus-visible {
+    outline: none;
+  }
+  .range:focus-visible::-webkit-slider-thumb {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+  .range:focus-visible::-moz-range-thumb {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
   }
 
   /* Grow a small control's hit area to at least 24x24px (WCAG 2.5.8) without changing
