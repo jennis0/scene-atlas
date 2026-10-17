@@ -99,7 +99,7 @@ Playwright tests validate critical user flows in a real browser against the full
 - Dual webServer config: Playwright starts both backend and frontend automatically
 - Real CLIP model (no mocking) -- loads in a background thread, server responds immediately
 - Test data seeded via the import API using real encrypted fixture images (decrypted at runtime from Git LFS). Without `E2E_IMAGE_KEY`, set `E2E_IMAGE_DIR` to a local folder of your own (non-commercial) images to seed from instead
-- The backend runs against an isolated `e2e/.tmp-data` (`APP_DATA_DIR`; library in `.tmp-data/library`). The project's `data/models` is linked in so the model isn't downloaded twice. `E2E_FRONTEND_PORT` moves the Vite server off 5173
+- The backend runs against an isolated `e2e/.tmp-data` (`APP_DATA_DIR`; library in `.tmp-data/library`). The project's `data/models` is linked in so the model isn't downloaded twice. The suite starts its own backend on port 18000 and Vite on 15173 (`E2E_BACKEND_PORT`, `E2E_FRONTEND_PORT`), with Vite's `/api` proxy pointed at that backend through `API_PROXY_TARGET`, so it never reuses a development backend on :8000 or writes test data into its library. Locally, servers already listening on those ports are reused
 - Serial execution (`workers: 1`) -- tests share backend state
 - Chromium only in CI; Firefox/WebKit available locally via `--project` flag
 
