@@ -205,3 +205,7 @@ class ItemActionRequest(BaseModel):
 class ActionResult(BaseModel):
     affected: int
     status: str
+
+
+class DismissedResult(BaseModel):
+    dismissed: int

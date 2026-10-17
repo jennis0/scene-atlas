@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ctypes
 import logging
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -153,7 +154,7 @@ def get_session_options(providers: list[str]) -> ort.SessionOptions:
     """Create session options tuned for the primary provider.
 
     Thread counts per provider:
-    - CPU:      intra=2, inter=1  (avoid contention with uvicorn)
+    - CPU:      intra=one per physical core, inter=1 (see ``cpu_inference_threads``)
     - CUDA:     intra=4, inter=2  (feed the GPU pipeline)
     - DirectML: intra=1, inter=1  (async GPU dispatch, extra threads wasteful)
     - CoreML:   intra=1, inter=1  (same rationale as DirectML)
@@ -172,11 +173,25 @@ def get_session_options(providers: list[str]) -> ort.SessionOptions:
         sess_opts.intra_op_num_threads = 1
         sess_opts.inter_op_num_threads = 1
     else:
-        # CPU
-        sess_opts.intra_op_num_threads = 2
+        sess_opts.intra_op_num_threads = cpu_inference_threads()
         sess_opts.inter_op_num_threads = 1
 
     return sess_opts
+
+
+def cpu_inference_threads() -> int:
+    """One thread per physical core.
+
+    Was 2, to leave room for the web server; the server is mostly waiting on I/O, and on a
+    6-core Ryzen 9 5900X (WSL) the medium model ran at 1.1 images/s on 2 threads, 2.1 on 6
+    and 1.6 on 12: hyperthreads share the cores' vector units and only add contention.
+    """
+    import psutil
+
+    physical = psutil.cpu_count(logical=False)
+    if not physical:
+        physical = max(1, (os.cpu_count() or 2) // 2)
+    return max(1, physical)
 
 
 def create_session_with_fallback(

@@ -157,7 +157,7 @@ imports pause (shown as a system pause) and no ingest batch spans the switch.
    fails). Safe to call from any thread.
 4. `reload_lancedb_service(f"embeddings_{name}")` — closes the old LanceDBService (freeing
    file handles) and replaces the singleton with one pointed at the new table.
-5. `rebuild_all_embeddings(force=True)` — re-embeds all scenes using the new model.
+5. `rebuild_all_embeddings(force=True)` — clears the new table and re-embeds every scene through `reconcile_vectors`, with per-image progress; a restart part-way resumes at startup.
    `force=True` is required because the embeddings pipeline normally skips scenes that
    already have embeddings; after a model switch the existing embeddings are for the old
    model and must be regenerated.

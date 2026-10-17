@@ -762,6 +762,14 @@ export class ImportManager {
     await this.refresh()
   }
 
+  /** Hide every finished import from the activity dock. */
+  async dismissFinished(): Promise<void> {
+    const finished = this.snapshot.jobs.filter((j) => !OPEN_STATUSES.has(j.status)).map((j) => j.id)
+    await this.client.dismissFinished()
+    finished.forEach((id) => this.forgetUpload(id))
+    await this.refresh()
+  }
+
   async retry(jobId: string, itemIds?: number[]): Promise<number> {
     const result = await this.client.itemAction(jobId, 'retry', itemIds)
     await this.refresh()

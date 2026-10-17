@@ -47,7 +47,8 @@ from backend.pipeline.ingest_queue import (
 from backend.pipeline.ingest_worker import IngestWorker
 from backend.pipeline.pipeline_config import PipelineConfig
 from backend.pipeline.stored_format import StoredFormat
-from backend.pipeline.vector_reconcile import reconcile_vectors
+from backend.pipeline.vector_reconcile import VectorWriteError, reconcile_vectors
+from backend.pipeline.write_new_embeddings import rebuild_all_embeddings
 
 EMBEDDING = [0.1] * 8
 
@@ -759,6 +760,99 @@ def test_reconciliation_stops_at_batch_boundary_on_shutdown(env, monkeypatch):
 
     shutdown.clear_shutdown()
     assert reconcile_vectors()["repaired"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Re-embedding every image (model switch, rebuild)
+# ---------------------------------------------------------------------------
+
+NEW_EMBEDDING = [0.2] * 8
+
+
+def _vectors(env) -> dict[int, list[float]]:
+    rows = env.vectors._tbl.to_arrow().to_pylist()
+    return {row["id"]: [round(v, 4) for v in row["vector"]] for row in rows}
+
+
+def _embed_with(monkeypatch, embedding, seen: list[str] | None = None, after=None):
+    def fake(paths, **kwargs):
+        if seen is not None:
+            seen.extend(paths)
+        if after:
+            after()
+        return [list(embedding) for _ in paths]
+
+    monkeypatch.setattr(
+        "backend.pipeline.tasks.embedding_generation.batch_generate_clip_embeddings", fake
+    )
+
+
+def test_rebuild_re_embeds_every_image_from_its_thumbnail(env, monkeypatch):
+    make_job(env, {f"A/Map/{n}.png": image_bytes(90 + n) for n in range(3)})
+    env.worker.drain()
+    assert all(v == EMBEDDING for v in _vectors(env).values())
+
+    seen: list[str] = []
+    progress: list[tuple[int, int]] = []
+    _embed_with(monkeypatch, NEW_EMBEDDING, seen)
+    result = rebuild_all_embeddings(
+        lambda done, total, _msg: progress.append((done, total)), force=True
+    )
+
+    assert result == {"total": 3, "succeeded": 3, "failed": 0, "skipped": False}
+    with env.SessionLocal() as db:
+        images = db.query(Image).all()
+        assert set(_vectors(env)) == {image.id for image in images}
+        # What imports embed: the medium thumbnail, not the original file
+        assert sorted(seen) == sorted(str(env.thumbnails.get_path(i.thumbnail_key)) for i in images)
+    assert all(v == NEW_EMBEDDING for v in _vectors(env).values())
+    assert progress[0] == (0, 3) and progress[-1] == (3, 3)
+
+
+def test_rebuild_is_skipped_when_every_image_has_a_vector(env, monkeypatch):
+    make_job(env, {"A/Map/a.png": image_bytes(95)})
+    env.worker.drain()
+    _embed_with(monkeypatch, NEW_EMBEDDING)
+    assert rebuild_all_embeddings()["skipped"] is True
+    assert all(v == EMBEDDING for v in _vectors(env).values())
+
+
+def test_interrupted_rebuild_is_finished_by_the_next_reconcile(env, monkeypatch):
+    """A model switch stopped by a restart: what was written stays, the rest follows."""
+    from backend.app.services import shutdown
+    from backend.pipeline import write_new_embeddings
+
+    make_job(env, {f"A/Map/{n}.png": image_bytes(100 + n) for n in range(3)})
+    env.worker.drain()
+    monkeypatch.setattr(
+        write_new_embeddings,
+        "reconcile_vectors",
+        lambda progress_fn=None: reconcile_vectors(batch_size=1, progress_fn=progress_fn),
+    )
+    _embed_with(monkeypatch, NEW_EMBEDDING, after=shutdown.request_shutdown)
+    with pytest.raises(shutdown.ShutdownRequested):
+        rebuild_all_embeddings(force=True)
+    assert len(_vectors(env)) == 1
+
+    shutdown.clear_shutdown()
+    assert reconcile_vectors()["repaired"] == 2
+    assert len(_vectors(env)) == 3
+    assert all(v == NEW_EMBEDDING for v in _vectors(env).values())
+
+
+def test_rebuild_fails_loudly_when_the_index_refuses_writes(env, monkeypatch):
+    """Regression: every batch write failed and the job carried on reporting progress."""
+    make_job(env, {f"A/Map/{n}.png": image_bytes(110 + n) for n in range(4)})
+    env.worker.drain()
+    monkeypatch.setattr(env.vectors, "batch_add_embeddings", lambda items: False)
+    with pytest.raises(VectorWriteError):
+        reconcile_vectors_after_wipe(env, batch_size=1)
+
+
+def reconcile_vectors_after_wipe(env, batch_size: int):
+    env.vectors.delete_collection()
+    env.vectors.ensure_collection()
+    return reconcile_vectors(batch_size=batch_size)
 
 
 # ---------------------------------------------------------------------------

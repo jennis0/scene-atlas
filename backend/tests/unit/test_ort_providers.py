@@ -117,11 +117,23 @@ class TestGetSessionOptions:
     """Test provider-specific session option tuning."""
 
     def test_cpu_thread_counts(self):
-        from backend.app.services.ort_providers import get_session_options
+        from backend.app.services.ort_providers import cpu_inference_threads, get_session_options
 
         opts = get_session_options(["CPUExecutionProvider"])
-        assert opts.intra_op_num_threads == 2
+        assert opts.intra_op_num_threads == cpu_inference_threads()
         assert opts.inter_op_num_threads == 1
+
+    def test_cpu_threads_are_one_per_physical_core(self, monkeypatch):
+        import psutil
+
+        from backend.app.services.ort_providers import cpu_inference_threads
+
+        monkeypatch.setattr(psutil, "cpu_count", lambda logical=True: 12 if logical else 6)
+        assert cpu_inference_threads() == 6
+        # Unknown physical count: half the logical CPUs
+        monkeypatch.setattr(psutil, "cpu_count", lambda logical=True: 12 if logical else None)
+        monkeypatch.setattr("os.cpu_count", lambda: 12)
+        assert cpu_inference_threads() == 6
 
     def test_cuda_thread_counts(self):
         from backend.app.services.ort_providers import get_session_options
@@ -145,10 +157,10 @@ class TestGetSessionOptions:
         assert opts.inter_op_num_threads == 1
 
     def test_empty_list_defaults_to_cpu(self):
-        from backend.app.services.ort_providers import get_session_options
+        from backend.app.services.ort_providers import cpu_inference_threads, get_session_options
 
         opts = get_session_options([])
-        assert opts.intra_op_num_threads == 2
+        assert opts.intra_op_num_threads == cpu_inference_threads()
         assert opts.inter_op_num_threads == 1
 
 

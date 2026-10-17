@@ -195,9 +195,11 @@ LanceDB is the **semantic search index, not the source of truth** — SQLite is 
 - Runs once at startup after the model is ready (via the job runner) and every 24 h via the scheduler
 
 **Full rebuild** (`backend/pipeline/write_new_embeddings.py`):
-- `rebuild_all_embeddings()` — deletes the entire LanceDB table and regenerates all embeddings from stored images
-- Without `force`, skipped when the table already holds one row per image
+- `rebuild_all_embeddings()` — clears the active model's table, then runs `reconcile_vectors`, which re-embeds every image from its medium thumbnail (what imports embed) and writes batch by batch. A rebuild that stops part-way is finished by the next startup reconciliation.
+- Reports per-image progress ("320 of 4,761 images"); stops with `VectorWriteError` if LanceDB refuses `MAX_FAILED_WRITES` (3) batches in a row, rather than reporting progress while saving nothing.
+- Without `force`, skipped when every image already has a vector
 - Used after model changes (`POST /api/v1/models/active` runs it)
+- Until October 2026 it re-encoded the original files and wrote 100-row batches; a model switch on a 4,761-image library saved nothing (every LanceDB merge failed with "Spill has sent an error") while showing 50%.
 
 **Backup:**
 - `lancedb_service.backup_storage(target_dir)` — copies the LanceDB storage directory (called by `maintenance.backup_database()`, scheduled every 24 h)

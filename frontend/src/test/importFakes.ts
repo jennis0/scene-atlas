@@ -137,6 +137,7 @@ export function fakeImportClient(state: FakeImportState) {
       status: 'active',
     })),
     skipGroup: vi.fn(async () => ({ affected: 1, status: 'active' })),
+    dismissFinished: vi.fn(async () => 0),
     undo: vi.fn(async () => ({ affected: 3, status: 'deleted' })),
     probeQueue: vi.fn(async () => ({ ...state.queue, system_paused: false, reason: null })),
   }

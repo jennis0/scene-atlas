@@ -14,6 +14,7 @@ import {
   Package,
   PauseCircle,
   WifiOff,
+  X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { getImportManager } from '@/lib/import/ImportManager'
@@ -33,9 +34,21 @@ interface ActivityDockProps {
   onOpenImport: (jobId: string) => void
   /** An import was undone from the dock (its images deleted). */
   onUndone?: () => void
+  /** Remove a finished background job from the dock */
+  onDismissJob?: (jobId: string) => Promise<void>
+  /** Remove every finished background job from the dock */
+  onClearFinished?: () => Promise<void>
 }
 
-export function ActivityDock({ backgroundJobs, onOpenImport, onUndone }: ActivityDockProps) {
+const isJobFinished = (job: BackgroundJob) => job.status !== 'queued' && job.status !== 'running'
+
+export function ActivityDock({
+  backgroundJobs,
+  onOpenImport,
+  onUndone,
+  onDismissJob,
+  onClearFinished,
+}: ActivityDockProps) {
   const [expanded, setExpanded] = useState(false)
   const [undoing, setUndoing] = useState<ImportJobSummary | null>(null)
   const [undoBusy, setUndoBusy] = useState(false)
@@ -71,6 +84,7 @@ export function ActivityDock({ backgroundJobs, onOpenImport, onUndone }: Activit
     (j) => j.status === 'queued' || j.status === 'running',
   ).length
   const totalActiveCount = activeImportCount + activeJobCount
+  const finishedCount = jobs.length - activeImportCount + backgroundJobs.length - activeJobCount
   const connectionLost = connection === 'lost'
   const systemPaused = !!queue?.system_paused && activeImportCount > 0
 
@@ -130,6 +144,9 @@ export function ActivityDock({ backgroundJobs, onOpenImport, onUndone }: Activit
       </button>
     )
   }
+
+  const clearFinished = () =>
+    act(() => Promise.all([manager.dismissFinished(), onClearFinished?.()]))
 
   const confirmUndo = async () => {
     if (!undoing) return
@@ -197,18 +214,29 @@ export function ActivityDock({ backgroundJobs, onOpenImport, onUndone }: Activit
               >
                 Activity
               </PanelTitle>
-              <button
-                ref={collapseRef}
-                aria-expanded
-                aria-label="Collapse activity"
-                onClick={() => setExpanded(false)}
-                className="h-7 w-7 rounded flex items-center justify-center
+              <div className="flex items-center gap-1">
+                {finishedCount > 0 && (
+                  <button
+                    onClick={clearFinished}
+                    className="h-7 px-2 rounded text-[11px] text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                    title="Remove finished imports and jobs from this list"
+                  >
+                    Clear finished
+                  </button>
+                )}
+                <button
+                  ref={collapseRef}
+                  aria-expanded
+                  aria-label="Collapse activity"
+                  onClick={() => setExpanded(false)}
+                  className="h-7 w-7 rounded flex items-center justify-center
                   text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors
 "
-                title="Collapse"
-              >
-                <ChevronDown className="h-3.5 w-3.5" />
-              </button>
+                  title="Collapse"
+                >
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </button>
+              </div>
             </div>
           </div>
 
@@ -253,7 +281,11 @@ export function ActivityDock({ backgroundJobs, onOpenImport, onUndone }: Activit
             )}
 
             {backgroundJobs.map((job) => (
-              <BackgroundJobCard key={job.id} job={job} />
+              <BackgroundJobCard
+                key={job.id}
+                job={job}
+                onDismiss={onDismissJob && (() => act(() => onDismissJob(job.id)))}
+              />
             ))}
           </div>
         </div>
@@ -264,9 +296,9 @@ export function ActivityDock({ backgroundJobs, onOpenImport, onUndone }: Activit
 
 /* ─── Background jobs ─────────────────────────────────────────────── */
 
-function BackgroundJobCard({ job }: { job: BackgroundJob }) {
+function BackgroundJobCard({ job, onDismiss }: { job: BackgroundJob; onDismiss?: () => void }) {
   const [expanded, setExpanded] = useState(false)
-  const isTerminal = job.status === 'completed' || job.status === 'failed'
+  const isTerminal = isJobFinished(job)
   const pct = job.progress_pct ?? 0
 
   return (
@@ -293,6 +325,19 @@ function BackgroundJobCard({ job }: { job: BackgroundJob }) {
           )}
           {expanded && (
             <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0 mt-0.5 rotate-180" />
+          )}
+          {isTerminal && onDismiss && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onDismiss()
+              }}
+              title="Dismiss"
+              className="-my-0.5 h-5 w-5 shrink-0 rounded flex items-center justify-center text-muted-foreground opacity-0 group-hover/job:opacity-100 focus-visible:opacity-100 hover:text-foreground hover:bg-secondary transition-opacity"
+            >
+              <X className="h-3 w-3" />
+              <span className="sr-only">Dismiss</span>
+            </button>
           )}
         </div>
 
@@ -321,6 +366,7 @@ function BackgroundJobCard({ job }: { job: BackgroundJob }) {
           {job.status === 'queued' && <span>Queued</span>}
           {job.status === 'running' && <span>{job.progress ?? 'Processing...'}</span>}
           {job.status === 'completed' && <span>{formatResult(job.result)}</span>}
+          {job.status === 'interrupted' && <span>Stopped when Scene Atlas closed</span>}
           {job.status === 'failed' && (
             <span className="text-destructive/65">
               {expanded ? 'Failed' : (job.error ?? 'Failed')}
@@ -372,6 +418,17 @@ function JobStatusIcon({ status }: { status: BackgroundJob['status'] }) {
   }
 }
 
+/** Updating image embeddings: how many were re-embedded, or that none needed it. */
+function embeddingsResult(result: Record<string, unknown>): string {
+  const missing = result.missing as number
+  const repaired = result.repaired as number
+  if (missing === 0) return 'Already up to date'
+  const updated = `${repaired.toLocaleString()} ${repaired === 1 ? 'image' : 'images'} updated`
+  return repaired < missing
+    ? `${updated}, ${(missing - repaired).toLocaleString()} couldn't be`
+    : updated
+}
+
 function formatResult(result: Record<string, unknown> | null): string {
   if (!result) return 'Done'
   if ('succeeded' in result && 'failed' in result) {
@@ -381,5 +438,6 @@ function formatResult(result: Record<string, unknown> | null): string {
       : `${result.succeeded} images processed`
   }
   if ('tags_created' in result) return `${result.tags_created} tags created`
+  if ('repaired' in result && 'missing' in result) return embeddingsResult(result)
   return 'Done'
 }

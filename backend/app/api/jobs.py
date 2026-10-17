@@ -14,6 +14,23 @@ def list_jobs():
     return [job.to_dict() for job in runner.list_jobs()]
 
 
+@router.post("/dismiss-finished")
+def dismiss_finished_jobs():
+    """Remove every finished job from the activity dock."""
+    return {"dismissed": get_job_runner().dismiss_finished()}
+
+
+@router.post("/{job_id}/dismiss")
+def dismiss_job(job_id: str):
+    """Remove a finished job from the activity dock."""
+    dismissed = get_job_runner().dismiss(job_id)
+    if dismissed is None:
+        raise HTTPException(status_code=404, detail="Job not found or expired")
+    if not dismissed:
+        raise HTTPException(status_code=409, detail="Only finished jobs can be dismissed")
+    return {"dismissed": 1}
+
+
 @router.get("/{job_id}")
 def get_job(job_id: str):
     """Get status of a specific background job."""

@@ -383,6 +383,8 @@ export function Gallery() {
 
       <ActivityDock
         backgroundJobs={backgroundJobs.jobs}
+        onDismissJob={backgroundJobs.dismiss}
+        onClearFinished={backgroundJobs.dismissFinished}
         onOpenImport={openImportFromDock}
         onUndone={() => dialogs.invalidateGallery()}
       />

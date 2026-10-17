@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { getThumbnailUrlById } from '@/lib/api/urls'
 import { getImportManager } from '@/lib/import/ImportManager'
@@ -137,24 +137,33 @@ export function ResultView({ jobId, open, onClose, onReviewGroups, onUndone }: R
       status={job ? statusLine(job, groups, sharedAuthor) : 'Loading'}
       footer={
         <>
-          <TextButton tone="danger" onClick={() => setConfirmingUndo(true)} disabled={busy || !job}>
+          <TextButton
+            tone="outline-danger"
+            onClick={() => setConfirmingUndo(true)}
+            disabled={busy || !job}
+          >
+            <Undo2 className="h-3.5 w-3.5" aria-hidden />
             Undo import
           </TextButton>
-          <span className="flex-1" />
-          {onReviewGroups && reviewIds.length > 0 && (
-            <TextButton tone="solid" onClick={() => onReviewGroups(reviewIds)}>
-              Review in editor
+          <div className="ml-auto flex gap-2">
+            <TextButton
+              tone="outline"
+              onClick={done}
+              disabled={busy}
+              title={
+                finished
+                  ? 'Close, and clear this import from the activity list'
+                  : 'Close the report'
+              }
+            >
+              Done
             </TextButton>
-          )}
-          <TextButton
-            onClick={done}
-            disabled={busy}
-            title={
-              finished ? 'Close, and clear this import from the activity list' : 'Close the report'
-            }
-          >
-            Done
-          </TextButton>
+            {onReviewGroups && reviewIds.length > 0 && (
+              <TextButton tone="solid" onClick={() => onReviewGroups(reviewIds)}>
+                Review in editor
+              </TextButton>
+            )}
+          </div>
         </>
       }
     >
