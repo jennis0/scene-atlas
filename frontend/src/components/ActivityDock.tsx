@@ -22,16 +22,23 @@ import { ImportJobRow } from '@/components/imports/ImportJobRow'
 import { isFinished } from '@/components/imports/format'
 import type { BackgroundJob } from '@/types'
 import { PanelTitle } from '@/components/ui/panel-title'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { plural } from '@/components/imports/format'
+import type { ImportJobSummary } from '@/lib/import/types'
 import { isAnyDialogOpen } from '@/components/ui/dialogStack'
 
 interface ActivityDockProps {
   backgroundJobs: BackgroundJob[]
-  /** Open an import: its progress while running, its report once finished. */
+  /** Open an import: its progress while running, its result once finished. */
   onOpenImport: (jobId: string) => void
+  /** An import was undone from the dock (its images deleted). */
+  onUndone?: () => void
 }
 
-export function ActivityDock({ backgroundJobs, onOpenImport }: ActivityDockProps) {
+export function ActivityDock({ backgroundJobs, onOpenImport, onUndone }: ActivityDockProps) {
   const [expanded, setExpanded] = useState(false)
+  const [undoing, setUndoing] = useState<ImportJobSummary | null>(null)
+  const [undoBusy, setUndoBusy] = useState(false)
   // The pill and the panel replace each other, so move focus across on every toggle
   // (but not on first mount) instead of dropping it on <body>.
   const pillRef = useRef<HTMLButtonElement>(null)
@@ -124,8 +131,39 @@ export function ActivityDock({ backgroundJobs, onOpenImport }: ActivityDockProps
     )
   }
 
+  const confirmUndo = async () => {
+    if (!undoing) return
+    setUndoBusy(true)
+    try {
+      const deleted = await manager.undo(undoing.id)
+      onUndone?.()
+      toast.success(`Import undone. ${plural(deleted, 'image')} removed.`)
+      setUndoing(null)
+    } catch {
+      toast.error("That didn't work", { description: 'The server could not be reached.' })
+    } finally {
+      setUndoBusy(false)
+    }
+  }
+
   return (
     <>
+      <ConfirmDialog
+        open={undoing !== null}
+        onOpenChange={(v) => !v && setUndoing(null)}
+        title="Undo this import?"
+        description={
+          <>
+            This deletes the {plural(undoing?.counts.done ?? 0, 'image')}{' '}
+            <strong>{undoing?.label ?? 'this import'}</strong> added to your library, and any groups
+            it created. This can't be undone.
+          </>
+        }
+        confirmLabel="Delete imported images"
+        onConfirm={() => void confirmUndo()}
+        isLoading={undoBusy}
+      />
+
       {/* Click-away overlay */}
       <div className="fixed inset-0 z-20" onClick={() => setExpanded(false)} />
 
@@ -204,6 +242,7 @@ export function ActivityDock({ backgroundJobs, onOpenImport }: ActivityDockProps
                 onPause={() => act(() => manager.pause(job.id))}
                 onResume={() => act(() => manager.resume(job.id))}
                 onDismiss={() => act(() => manager.dismiss(job.id))}
+                onUndo={() => setUndoing(job)}
               />
             ))}
 

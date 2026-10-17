@@ -23,7 +23,7 @@ Section numbers are referenced from code comments (`design/ingestion.md §N`); k
 | `backend/app/services/memory_budget.py` | `MemoryBudget`: memory-aware admission for prepare. |
 | `backend/app/api/imports.py`, `backend/app/models/import_schemas.py` | HTTP API and its models. |
 | `frontend/src/lib/import/` | `ImportManager` (client-side owner of uploads and polling), `importClient`, `hasher` + `hash.worker`, `useImports` hooks. |
-| `frontend/src/components/imports/` | `ImportDialog`, `ImportReportDialog`, `GroupLedger`, `ImportJobRow` (activity dock row). |
+| `frontend/src/components/imports/` | `ImportDialog` (with `ImportResultView`), `GroupLedger`, `ImportJobRow` (activity dock row). |
 
 ## 1. Why
 
@@ -307,7 +307,7 @@ create job → manifest chunks → (archives) → seal ──▶ show group plan
 
 ### 8.2 Views
 
-`ImportDialog` (start view, then progress with notices, group ledger, Pause/Resume/Cancel), `ImportJobRow` in the activity dock (queue banner with "Retry now" when system-paused), and `ImportReportDialog` (Groups, Problems, Already in library, Skipped; Retry, Import as new copies, Undo import, Review in editor, Done). All are pure views over `ImportManager`; lists page through `GET /imports/{id}/items`.
+`ImportDialog` (start view; progress with notices, group ledger, Pause/Resume/Cancel; and in the same frame once finished, the result: Groups, Problems, Already in library, Skipped; Retry, Import as new copies, Undo import, Review in editor, Done) and `ImportJobRow` in the activity dock (queue banner with "Retry now" when system-paused; Undo and Dismiss on finished rows). All are pure views over `ImportManager`; lists page through `GET /imports/{id}/items`.
 
 ## 9. Maintenance and recovery
 

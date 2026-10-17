@@ -39,12 +39,13 @@ export async function waitForImportFinished(
   page: Page,
   timeout = 120_000,
 ): Promise<void> {
-  await expect(page.getByRole("dialog").getByText(/^Finished\./)).toBeVisible({
-    timeout,
-  });
+  // The import dialog turns into the result, with Done, once the job finishes
+  await expect(
+    page.getByRole("dialog").getByRole("button", { name: "Done" }),
+  ).toBeVisible({ timeout });
 }
 
-/** From an open import report, undo the import and confirm. */
+/** From an open import result, undo the import and confirm. */
 export async function undoImport(
   page: Page,
   imageCount: number,

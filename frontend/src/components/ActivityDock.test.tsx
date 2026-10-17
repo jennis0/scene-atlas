@@ -78,6 +78,25 @@ describe('ActivityDock', () => {
     expect(client!.action).toHaveBeenCalledWith('job1', 'dismiss')
   })
 
+  it('undoes a finished import from its row, after confirming', async () => {
+    let client
+    ;({ manager, client } = await installFakeImportManager({
+      jobs: [jobSummary({ status: 'completed', counts: counts({ done: 4 }) })],
+    }))
+    const onUndone = vi.fn()
+    renderWithProviders(
+      <ActivityDock backgroundJobs={[]} onOpenImport={vi.fn()} onUndone={onUndone} />,
+    )
+    await userEvent.click(screen.getByTestId('activity-dock-pill'))
+    await userEvent.click(screen.getByTitle('Undo import'))
+    expect(client!.undo).not.toHaveBeenCalled()
+    const confirm = screen.getByRole('dialog', { name: 'Undo this import?' })
+    expect(confirm).toHaveTextContent('deletes the 4 images')
+    await userEvent.click(screen.getByRole('button', { name: 'Delete imported images' }))
+    await waitFor(() => expect(client!.undo).toHaveBeenCalledWith('job1'))
+    expect(onUndone).toHaveBeenCalled()
+  })
+
   it('pauses a running import from its row', async () => {
     let client
     ;({ manager, client } = await installFakeImportManager({

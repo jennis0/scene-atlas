@@ -43,10 +43,6 @@ export interface UseGalleryDialogsReturn {
   openImport: (jobId?: string | null) => void
   closeImport: () => void
 
-  // Import report
-  reportJobId: string | null
-  setReportJobId: (id: string | null) => void
-
   // Tag management dialog
   showTagManagement: boolean
   setShowTagManagement: (show: boolean) => void
@@ -86,7 +82,6 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
     open: false,
     jobId: null,
   })
-  const [reportJobId, setReportJobId] = useState<string | null>(null)
   const [showTagManagement, setShowTagManagement] = useState(false)
   const [showSystemInfo, setShowSystemInfo] = useState(false)
 
@@ -159,8 +154,6 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
     importDialog,
     openImport,
     closeImport,
-    reportJobId,
-    setReportJobId,
     showTagManagement,
     setShowTagManagement,
     showSystemInfo,

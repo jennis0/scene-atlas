@@ -133,7 +133,7 @@ export default function EditGroupDialog({
     setPending(null)
   }, [resetOperations, resetDnd, resetMultiselect])
 
-  const { loading, loadError, isMassEdit, ungroupedCount } = useEditGroupLoad({
+  const { loading, loadError, isMassEdit, ungroupedCount, pendingGroupCount } = useEditGroupLoad({
     open,
     groupId,
     seedImages,
@@ -279,8 +279,9 @@ export default function EditGroupDialog({
               onDragEnd={dnd.handleDragEnd}
             >
               <div className="flex min-h-0 flex-1 overflow-hidden">
-                {groups.length > 1 && (
+                {(groups.length > 1 || pendingGroupCount > 0) && (
                   <EditGroupSidebar
+                    pendingCount={pendingGroupCount}
                     activeTab={activeTab}
                     isAllTab={isAllTab}
                     onSelectAll={() => setActiveTab(ALL_TAB)}

@@ -205,6 +205,43 @@ describe('EditGroupDialog', () => {
       expect(within(dialog()).queryByText('Clearing')).not.toBeInTheDocument()
     })
 
+    it('starts fresh when reopened for a different import', async () => {
+      const onClose = vi.fn()
+      const { rerender } = renderWithProviders(
+        <EditGroupDialog open groupIds={[1, 2]} onClose={onClose} onSave={vi.fn()} />,
+      )
+      expect(await screen.findByText('2 groups')).toBeInTheDocument()
+      rerender(<EditGroupDialog open={false} onClose={onClose} onSave={vi.fn()} />)
+      rerender(<EditGroupDialog open groupIds={[3]} onClose={onClose} onSave={vi.fn()} />)
+      expect(await screen.findByDisplayValue('Town Maps')).toBeInTheDocument()
+      expect(screen.queryByText(/groups/)).not.toBeInTheDocument()
+      expect(within(dialog()).queryByText('Clearing')).not.toBeInTheDocument()
+    })
+
+    it('opens on the group it was asked to start on', async () => {
+      renderDialog({ groupIds: [1, 2, 3], startGroupId: 2 })
+      expect(await screen.findByDisplayValue('Cave Maps')).toBeInTheDocument()
+      expect(within(dialog()).queryByText('Clearing')).not.toBeInTheDocument()
+    })
+
+    it('shows groups as they load instead of waiting for all of them', async () => {
+      // Group 3 is slow; the editor opens on the start group without it
+      let releaseSlow: () => void = () => {}
+      vi.mocked(groupApi.get).mockImplementation((id: number) =>
+        id === 3
+          ? new Promise((resolve) => {
+              releaseSlow = () => resolve(structuredClone(GROUPS[3]))
+            })
+          : Promise.resolve(structuredClone(GROUPS[id])),
+      )
+      renderDialog({ groupIds: [1, 2, 3], startGroupId: 1 })
+      expect(await screen.findByDisplayValue('Forest Maps')).toBeInTheDocument()
+      expect(screen.getByText('1 of 3 groups')).toBeInTheDocument()
+      releaseSlow()
+      expect(await screen.findByText('3 groups')).toBeInTheDocument()
+      expect(sidebarRow('Town Maps')).toBeInTheDocument()
+    })
+
     it('merges all groups into the first after confirmation', async () => {
       const { user } = renderDialog({ groupIds: [1, 2] })
       await screen.findByText('2 groups')

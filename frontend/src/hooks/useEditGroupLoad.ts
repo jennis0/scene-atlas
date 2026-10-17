@@ -87,6 +87,9 @@ export function buildPayload(group: EditableGroupState): GroupEditRequest {
   }
 }
 
+/** Import review loads groups this many at a time, showing each batch as it lands. */
+const REVIEW_BATCH_SIZE = 8
+
 export interface UseEditGroupLoadOptions {
   open: boolean
   groupId?: number | null
@@ -115,6 +118,8 @@ export interface UseEditGroupLoadReturn {
   loadError: string | null
   isMassEdit: boolean
   ungroupedCount: number
+  /** Import review: groups still loading after the editor opened */
+  pendingGroupCount: number
   resetLoad: () => void
 }
 
@@ -143,6 +148,8 @@ export function useEditGroupLoad({
   const isImportReview = !!groupIds && groupIds.length > 0
 
   const [loading, setLoading] = useState(false)
+  // Import review: groups still being fetched after the editor has opened
+  const [pendingGroupCount, setPendingGroupCount] = useState(0)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [ungroupedCount, setUngroupedCount] = useState(0)
 
@@ -163,7 +170,16 @@ export function useEditGroupLoad({
     setFileFilter(EMPTY_FILTER)
     setEditingSvHeading(null)
     loadedGroupIdsRef.current = new Set()
+    setPendingGroupCount(0)
   }, [setGroups, setActiveTab, setFileFilter, setEditingSvHeading])
+
+  // Start every opening fresh. Without this, import review kept the previous
+  // review's groups and appended the next import's after them.
+  useEffect(() => {
+    if (open) return
+    resetLoad()
+    onResetDialogStateRef.current?.()
+  }, [open, resetLoad])
 
   // Single-group mode
   useEffect(() => {
@@ -289,55 +305,68 @@ export function useEditGroupLoad({
     const newIds = allIds.filter((id) => !loadedGroupIdsRef.current.has(id))
     if (newIds.length === 0) return
 
-    // isFirstLoad is captured synchronously before any async work; safe to use in .then/.finally
+    // isFirstLoad is captured synchronously before any async work; safe to use below
     const isFirstLoad = loadedGroupIdsRef.current.size === 0
+    // Claim the ids now so a re-run while batches are in flight doesn't fetch them twice
+    newIds.forEach((id) => loadedGroupIdsRef.current.add(id))
+
+    // A group the user asked to start on is fetched first and goes first in the sidebar:
+    // groups are appended as batches land, so it can't be slotted in later without
+    // shifting the selection.
+    const start = isFirstLoad ? startGroupIdRef.current : undefined
+    const startFirst = start !== undefined && newIds.includes(start)
+    const rest = startFirst ? newIds.filter((id) => id !== start) : newIds
+    const batches: number[][] = startFirst ? [[start]] : []
+    for (let i = 0; i < rest.length; i += REVIEW_BATCH_SIZE) {
+      batches.push(rest.slice(i, i + REVIEW_BATCH_SIZE))
+    }
+    // Ids claimed above but not yet shown; released if this run is abandoned
+    const unshown = new Set(newIds)
+
     if (isFirstLoad) {
       setLoading(true)
       setLoadError(null)
     }
+    setPendingGroupCount((n) => n + newIds.length)
 
     // Cancellation flag — prevents stale responses from mutating state if the dialog
     // closes and reopens (resetting loadedGroupIdsRef) before this fetch resolves.
     let cancelled = false
 
-    // On first load fetch vocab/authors alongside groups; on incremental batches skip
-    // them to avoid re-fetching unchanged global data and overwriting any user edits.
-    const promises: Promise<unknown>[] = newIds.map((id) => groupApi.get(id))
-    if (isFirstLoad) {
-      promises.push(tagApi.getCategories(), imageApi.getAuthors())
-    }
-
-    Promise.all(promises)
-      .then((results) => {
+    // Show the editor as soon as the first batch is in; later batches append. Vocab
+    // and authors are global, so they're fetched once, with the first batch.
+    const run = async () => {
+      for (const [index, batch] of batches.entries()) {
+        const first = isFirstLoad && index === 0
+        const [details, categories, authors] = await Promise.all([
+          Promise.all(batch.map((id) => groupApi.get(id))),
+          first ? tagApi.getCategories() : undefined,
+          first ? imageApi.getAuthors() : undefined,
+        ])
         if (cancelled) return
-
-        const groupDetails = results.slice(0, newIds.length) as GroupDetail[]
-        const newEditableGroups = groupDetails.map((detail) => groupDetailToEditable(detail))
-
-        newIds.forEach((id) => loadedGroupIdsRef.current.add(id))
-        setGroups((prev) => [...prev, ...newEditableGroups])
-
-        if (isFirstLoad) {
-          const categories = results[newIds.length] as Awaited<
-            ReturnType<typeof tagApi.getCategories>
-          >
-          const authors = results[newIds.length + 1] as string[]
-          setTagVocab(parseTagVocabulary(categories))
-          setAuthorSuggestions(authors)
-          const startIndex =
-            startGroupIdRef.current === undefined ? -1 : newIds.indexOf(startGroupIdRef.current)
-          setActiveTab(startIndex >= 0 ? startIndex : allIds.length > 1 ? ALL_TAB : 0)
+        setGroups((prev) => [...prev, ...details.map((detail) => groupDetailToEditable(detail))])
+        batch.forEach((id) => unshown.delete(id))
+        setPendingGroupCount((n) => n - batch.length)
+        if (first) {
+          setTagVocab(parseTagVocabulary(categories!))
+          setAuthorSuggestions(authors!)
+          setActiveTab(startFirst ? 0 : allIds.length > 1 ? ALL_TAB : 0)
+          setLoading(false)
         }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setLoadError(getApiErrorMessage(err, 'Failed to load imported groups'))
-      })
-      .finally(() => {
-        if (!cancelled && isFirstLoad) setLoading(false)
-      })
+      }
+    }
+    run().catch((err: unknown) => {
+      if (cancelled) return
+      setPendingGroupCount((n) => n - unshown.size)
+      setLoading(false)
+      setLoadError(getApiErrorMessage(err, 'Failed to load imported groups'))
+    })
 
     return () => {
       cancelled = true
+      // Let a re-run fetch whatever this run hadn't shown yet
+      unshown.forEach((id) => loadedGroupIdsRef.current.delete(id))
+      setPendingGroupCount((n) => n - unshown.size)
     }
   }, [open, groupIds, isImportReview, setGroups, setTagVocab, setAuthorSuggestions, setActiveTab])
 
@@ -346,6 +375,7 @@ export function useEditGroupLoad({
     loadError,
     isMassEdit,
     ungroupedCount,
+    pendingGroupCount,
     resetLoad,
   }
 }

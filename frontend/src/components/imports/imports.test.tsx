@@ -14,7 +14,6 @@ import {
 } from '@/test/importFakes'
 import type { ImportManager } from '@/lib/import/ImportManager'
 import { ImportDialog } from './ImportDialog'
-import { ImportReportDialog } from './ImportReportDialog'
 import { jobStatusText, outcomeText } from './format'
 
 let manager: ImportManager | undefined
@@ -72,9 +71,7 @@ describe('ImportDialog: start', () => {
   it('starts an import with the chosen type and hands over the job id', async () => {
     ;({ manager, client } = await installFakeImportManager())
     const onStarted = vi.fn()
-    renderWithProviders(
-      <ImportDialog jobId={null} open onClose={noop} onStarted={onStarted} onOpenReport={noop} />,
-    )
+    renderWithProviders(<ImportDialog jobId={null} open onClose={noop} onStarted={onStarted} />)
     await userEvent.click(screen.getByRole('button', { name: /Scenes/ }))
     const input = document.querySelector('input[type="file"][accept]') as HTMLInputElement
     const file = new File([new Uint8Array(4)], 'a.png')
@@ -96,9 +93,7 @@ describe('ImportDialog: progress', () => {
       jobs: [jobSummary({ counts: counts({ ready: 2, done: 3 }) })],
       details: { job1: detail({ counts: counts({ ready: 2, done: 3 }) }) },
     }))
-    renderWithProviders(
-      <ImportDialog jobId="job1" open onClose={noop} onStarted={noop} onOpenReport={noop} />,
-    )
+    renderWithProviders(<ImportDialog jobId="job1" open onClose={noop} onStarted={noop} />)
     await waitFor(() => expect(screen.getByText('Island Fort')).toBeInTheDocument())
     expect(screen.getByText(/adds to an existing group/)).toBeInTheDocument()
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '3')
@@ -106,14 +101,13 @@ describe('ImportDialog: progress', () => {
   })
 
   it('counts a group against what it could import, not files already in the library', async () => {
+    // A settled group in a job that's still running other groups
     const settled = group({ counts: counts({ done: 3, duplicate: 3, skipped: 1 }) })
     ;({ manager, client } = await installFakeImportManager({
-      jobs: [jobSummary({ status: 'completed', counts: settled.counts })],
-      details: { job1: { ...jobSummary({ status: 'completed' }), groups: [settled] } },
+      jobs: [jobSummary({ counts: counts({ ...settled.counts, processing: 2 }) })],
+      details: { job1: { ...jobSummary(), groups: [settled] } },
     }))
-    renderWithProviders(
-      <ImportDialog jobId="job1" open onClose={noop} onStarted={noop} onOpenReport={noop} />,
-    )
+    renderWithProviders(<ImportDialog jobId="job1" open onClose={noop} onStarted={noop} />)
     const row = await screen.findByRole('listitem')
     expect(row).toHaveTextContent('3 in library')
     expect(row).toHaveTextContent('3/3')
@@ -126,9 +120,7 @@ describe('ImportDialog: progress', () => {
       ],
       details: { job1: detail() },
     }))
-    renderWithProviders(
-      <ImportDialog jobId="job1" open onClose={noop} onStarted={noop} onOpenReport={noop} />,
-    )
+    renderWithProviders(<ImportDialog jobId="job1" open onClose={noop} onStarted={noop} />)
     expect(screen.getByText(/still to send/)).toHaveTextContent('7 files')
     await userEvent.click(screen.getByText('Finish without them'))
     expect(client.action).toHaveBeenCalledWith('job1', 'finish-upload')
@@ -139,9 +131,7 @@ describe('ImportDialog: progress', () => {
       jobs: [jobSummary({ counts: counts({ ready: 1 }) })],
       queue: { ...idleQueue, system_paused: true, reason: 'No AI model is available' },
     }))
-    renderWithProviders(
-      <ImportDialog jobId="job1" open onClose={noop} onStarted={noop} onOpenReport={noop} />,
-    )
+    renderWithProviders(<ImportDialog jobId="job1" open onClose={noop} onStarted={noop} />)
     expect(screen.getByText(/Importing is paused: No AI model is available/)).toBeInTheDocument()
   })
 
@@ -149,9 +139,7 @@ describe('ImportDialog: progress', () => {
     ;({ manager, client } = await installFakeImportManager({
       jobs: [jobSummary({ counts: counts({ ready: 2, done: 3 }) })],
     }))
-    renderWithProviders(
-      <ImportDialog jobId="job1" open onClose={noop} onStarted={noop} onOpenReport={noop} />,
-    )
+    renderWithProviders(<ImportDialog jobId="job1" open onClose={noop} onStarted={noop} />)
     await userEvent.click(screen.getByText('Cancel import'))
     expect(screen.getByRole('alertdialog')).toHaveTextContent('3 images already imported stay')
     await userEvent.click(
@@ -160,24 +148,15 @@ describe('ImportDialog: progress', () => {
     await waitFor(() => expect(client.action).toHaveBeenCalledWith('job1', 'cancel'))
   })
 
-  it('links a finished import to its report', async () => {
+  it('turns into the result once the import finishes', async () => {
     ;({ manager, client } = await installFakeImportManager({
       jobs: [jobSummary({ status: 'completed', counts: counts({ done: 5, failed: 1 }) })],
     }))
-    const onOpenReport = vi.fn()
-    renderWithProviders(
-      <ImportDialog
-        jobId="job1"
-        open
-        onClose={noop}
-        onStarted={noop}
-        onOpenReport={onOpenReport}
-      />,
-    )
-    expect(screen.getByText(/Finished\. 5 imported, 1 failed/)).toBeInTheDocument()
+    renderWithProviders(<ImportDialog jobId="job1" open onClose={noop} onStarted={noop} />)
+    expect(screen.getByText(/5 imported, 1 failed/)).toBeInTheDocument()
     expect(screen.queryByText('Cancel import')).not.toBeInTheDocument()
-    await userEvent.click(screen.getByText('View report'))
-    expect(onOpenReport).toHaveBeenCalledWith('job1')
+    expect(screen.getByRole('button', { name: 'Undo import' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Done' })).toBeInTheDocument()
   })
 })
 
@@ -185,7 +164,7 @@ describe('ImportDialog: progress', () => {
 // Report
 // ---------------------------------------------------------------------------
 
-describe('ImportReportDialog', () => {
+describe('ImportDialog: result', () => {
   const finished = jobSummary({
     status: 'completed',
     counts: counts({ done: 5, failed: 2, duplicate: 1 }),
@@ -213,14 +192,14 @@ describe('ImportReportDialog', () => {
 
   it('only shows sections that have entries', async () => {
     await setup()
-    renderWithProviders(<ImportReportDialog jobId="job1" open onClose={noop} />)
+    renderWithProviders(<ImportDialog onStarted={noop} jobId="job1" open onClose={noop} />)
     const tabs = screen.getAllByRole('tab').map((t) => t.textContent)
     expect(tabs).toEqual(['Groups1', 'Problems2', 'Already in library1'])
   })
 
   it('groups problems by reason and retries a group of them', async () => {
     await setup()
-    renderWithProviders(<ImportReportDialog jobId="job1" open onClose={noop} />)
+    renderWithProviders(<ImportDialog onStarted={noop} jobId="job1" open onClose={noop} />)
     await userEvent.click(screen.getByRole('tab', { name: /Problems/ }))
     await waitFor(() => expect(screen.getByText('File was not found')).toBeInTheDocument())
     expect(screen.getByText('Image is corrupt or not a supported format')).toBeInTheDocument()
@@ -230,7 +209,7 @@ describe('ImportReportDialog', () => {
 
   it('imports duplicates as new copies', async () => {
     await setup()
-    renderWithProviders(<ImportReportDialog jobId="job1" open onClose={noop} />)
+    renderWithProviders(<ImportDialog onStarted={noop} jobId="job1" open onClose={noop} />)
     await userEvent.click(screen.getByRole('tab', { name: /Already in library/ }))
     await waitFor(() => expect(screen.getByText('P/c.png')).toBeInTheDocument())
     await userEvent.click(screen.getByText('Import as new copies'))
@@ -241,7 +220,13 @@ describe('ImportReportDialog', () => {
     await setup()
     const onReviewGroups = vi.fn()
     renderWithProviders(
-      <ImportReportDialog jobId="job1" open onClose={noop} onReviewGroups={onReviewGroups} />,
+      <ImportDialog
+        onStarted={noop}
+        jobId="job1"
+        open
+        onClose={noop}
+        onReviewGroups={onReviewGroups}
+      />,
     )
     await waitFor(() => expect(screen.getByText('Review in editor')).toBeInTheDocument())
     await userEvent.click(screen.getByText('Review in editor'))
@@ -253,7 +238,7 @@ describe('ImportReportDialog', () => {
     const onUndone = vi.fn()
     const onClose = vi.fn()
     renderWithProviders(
-      <ImportReportDialog jobId="job1" open onClose={onClose} onUndone={onUndone} />,
+      <ImportDialog onStarted={noop} jobId="job1" open onClose={onClose} onUndone={onUndone} />,
     )
     await userEvent.click(screen.getByText('Undo import'))
     expect(client.undo).not.toHaveBeenCalled()
@@ -267,7 +252,7 @@ describe('ImportReportDialog', () => {
   it('closes with Done, clearing a finished import from the activity list', async () => {
     await setup()
     const onClose = vi.fn()
-    renderWithProviders(<ImportReportDialog jobId="job1" open onClose={onClose} />)
+    renderWithProviders(<ImportDialog onStarted={noop} jobId="job1" open onClose={onClose} />)
     await userEvent.click(screen.getByRole('button', { name: 'Done' }))
     await waitFor(() => expect(client.action).toHaveBeenCalledWith('job1', 'dismiss'))
     expect(onClose).toHaveBeenCalled()
@@ -275,7 +260,7 @@ describe('ImportReportDialog', () => {
 
   it('opens on the problems when some files failed', async () => {
     await setup()
-    renderWithProviders(<ImportReportDialog jobId="job1" open onClose={noop} />)
+    renderWithProviders(<ImportDialog onStarted={noop} jobId="job1" open onClose={noop} />)
     await waitFor(() =>
       expect(screen.getByRole('tab', { name: /Problems/ })).toHaveAttribute(
         'aria-selected',
@@ -288,7 +273,13 @@ describe('ImportReportDialog', () => {
     await setup()
     const onReviewGroups = vi.fn()
     renderWithProviders(
-      <ImportReportDialog jobId="job1" open onClose={noop} onReviewGroups={onReviewGroups} />,
+      <ImportDialog
+        onStarted={noop}
+        jobId="job1"
+        open
+        onClose={noop}
+        onReviewGroups={onReviewGroups}
+      />,
     )
     await userEvent.click(screen.getByRole('tab', { name: /Groups/ }))
     await userEvent.click(await screen.findByText('Island Fort'))
@@ -297,7 +288,7 @@ describe('ImportReportDialog', () => {
 
   it('names the shared author once instead of on every group', async () => {
     await setup()
-    renderWithProviders(<ImportReportDialog jobId="job1" open onClose={noop} />)
+    renderWithProviders(<ImportDialog onStarted={noop} jobId="job1" open onClose={noop} />)
     await userEvent.click(screen.getByRole('tab', { name: /Groups/ }))
     await screen.findByText('Island Fort')
     expect(screen.getByText(/· Czepeku$/)).toBeInTheDocument()
