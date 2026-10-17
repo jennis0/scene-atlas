@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { applyPalette, getStoredPalette, PALETTE_STORAGE_KEY } from './palette'
+import { applyPalette, getStoredPalette, PALETTE_STORAGE_KEY, PALETTES } from './palette'
 
 describe('palette', () => {
   beforeEach(() => {
@@ -13,9 +13,11 @@ describe('palette', () => {
     expect(getStoredPalette()).toBe('navy')
   })
 
-  it('reads a saved palette', () => {
-    localStorage.setItem(PALETTE_STORAGE_KEY, 'verdigris')
-    expect(getStoredPalette()).toBe('verdigris')
+  it('reads every saved palette', () => {
+    for (const { value } of PALETTES) {
+      localStorage.setItem(PALETTE_STORAGE_KEY, value)
+      expect(getStoredPalette()).toBe(value)
+    }
   })
 
   it('sets data-palette for non-default palettes and clears it for navy', () => {

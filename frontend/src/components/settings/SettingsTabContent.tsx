@@ -19,7 +19,7 @@ import { tagApi } from '@/lib/api/tagApi'
 import { TagPackCard } from '@/components/setup/TagPackCard'
 import type { AppSettings } from '@/types'
 import { useTheme } from '@/contexts/ThemeContext'
-import { PALETTES } from '@/lib/palette'
+import { PalettePicker } from '@/components/settings/PalettePicker'
 
 /** Longest side analysed for grids (0 = full resolution). Lower is faster, but in
  * evaluation 4096 px missed most thin-line 200 dpi maps (design/grid-detection-v3.md). */
@@ -619,14 +619,13 @@ function AppearanceSection() {
   const { palette, setPalette } = useTheme()
   return (
     <SettingsSection title="Appearance">
-      <SettingRow label="Palette" description="Applies to both light and dark mode.">
-        <SegmentedControl
-          label="Palette"
-          options={PALETTES}
-          value={palette}
-          onChange={setPalette}
-        />
-      </SettingRow>
+      <div className="space-y-3 py-3">
+        <div>
+          <p className="section-label mb-1">Palette</p>
+          <p className="text-xs text-muted-foreground">Applies to both light and dark mode.</p>
+        </div>
+        <PalettePicker value={palette} onChange={setPalette} />
+      </div>
     </SettingsSection>
   )
 }

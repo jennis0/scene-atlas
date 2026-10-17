@@ -3,8 +3,19 @@
 @tailwind utilities;
 
 @layer base {
-  /* ── Light mode (default) ── warm parchment palette ──────── */
-  :root {
+  /* ── Palettes ──────────────────────────────────────────────
+     Each palette is a light block and a dark block. Selected in Settings → Appearance,
+     which sets data-palette on <html> (navy, the default, sets nothing). The selectors
+     also match any element carrying data-palette, so the palette picker can render each
+     option in its own colours. Every text token keeps >= 4.5:1 on every surface;
+     lib/paletteContrast.test.ts checks this for each palette and mode.
+
+     A palette's dark block must set every token its light block sets: the light block
+     matches <html> in dark mode too, at lower specificity. */
+
+  /* ── Navy & gold, light (default) ── warm parchment ──────── */
+  :root,
+  [data-palette='navy'] {
     --background: 36 28% 91%; /* warm parchment — slightly darker for depth */
     --foreground: 30 12% 15%; /* warm dark brown-charcoal, bolder */
     --card: 36 26% 94%; /* lifted surface, clear hierarchy vs bg */
@@ -32,8 +43,9 @@
     --surface-canvas: 36 18% 88%; /* ImageViewer canvas */
   }
 
-  /* ── Dark mode ── deep navy cartographic palette ─────────── */
-  .dark {
+  /* ── Navy & gold, dark ── deep navy cartographic ─────────── */
+  .dark,
+  .dark [data-palette='navy'] {
     --background: 222 22% 8%; /* #0e1118 deep navy-black */
     --foreground: 37 27% 89%; /* #ede8dc warm parchment */
     --card: 222 22% 12%; /* #161c28 lifted surface */
@@ -57,10 +69,8 @@
     --surface-canvas: 222 22% 6%; /* ImageViewer deep canvas bg */
   }
 
-  /* ── Ink & verdigris palette ── green-black ink, aged-copper accent ──
-     Selected in Settings → Appearance; sets data-palette on <html>. Every text token
-     keeps >= 4.5:1 on every surface, as in the default palette. */
-  :root[data-palette='verdigris'] {
+  /* ── Ink & verdigris ── green-black ink, aged-copper accent ── */
+  [data-palette='verdigris'] {
     --background: 45 20% 93%;
     --foreground: 30 12% 15%;
     --card: 45 25% 96%;
@@ -82,7 +92,8 @@
     --surface-canvas: 45 12% 88%;
   }
 
-  .dark[data-palette='verdigris'] {
+  .dark[data-palette='verdigris'],
+  .dark [data-palette='verdigris'] {
     --background: 200 18% 7%;
     --foreground: 45 18% 90%;
     --card: 200 16% 10%;
@@ -102,6 +113,149 @@
     --input: 200 12% 18%;
     --ring: 166 42% 58%;
     --surface-canvas: 200 18% 5%;
+  }
+
+  /* ── Slate & lapis ── cool grey stone, ultramarine accent ── */
+  [data-palette='lapis'] {
+    --background: 214 14% 91%;
+    --foreground: 220 24% 14%;
+    --card: 214 18% 95%;
+    --card-foreground: 220 24% 14%;
+    --popover: 214 20% 97%;
+    --popover-foreground: 220 24% 14%;
+    --primary: 224 58% 44%;
+    --primary-foreground: 214 30% 98%;
+    --primary-ink: 224 60% 38%;
+    --secondary: 214 12% 86%;
+    --secondary-foreground: 220 24% 14%;
+    --muted: 214 12% 87.5%;
+    --muted-foreground: 218 10% 33%;
+    --accent: 214 12% 86%;
+    --accent-foreground: 220 24% 14%;
+    --border: 214 10% 78%;
+    --input: 214 10% 78%;
+    --ring: 224 60% 38%;
+    --surface-canvas: 214 12% 87%;
+  }
+
+  .dark[data-palette='lapis'],
+  .dark [data-palette='lapis'] {
+    --background: 215 10% 8%;
+    --foreground: 214 16% 90%;
+    --card: 215 10% 11.5%;
+    --card-foreground: 214 16% 90%;
+    --popover: 215 10% 10%;
+    --popover-foreground: 214 16% 90%;
+    --primary: 224 72% 70%;
+    --primary-foreground: 224 40% 9%;
+    --primary-ink: 224 76% 74%;
+    --secondary: 215 9% 16%;
+    --secondary-foreground: 214 16% 90%;
+    --muted: 215 9% 14%;
+    --muted-foreground: 214 7% 61%;
+    --accent: 215 9% 16%;
+    --accent-foreground: 214 16% 90%;
+    --border: 215 8% 19%;
+    --input: 215 8% 19%;
+    --ring: 224 76% 74%;
+    --surface-canvas: 215 10% 5.5%;
+  }
+
+  /* ── Walnut & sienna ── oiled wood, burnt-earth accent ──
+     Destructive shifts to crimson so it stays distinct from the sienna accent. */
+  [data-palette='sienna'] {
+    --background: 32 26% 89%;
+    --foreground: 20 22% 13%;
+    --card: 32 30% 93%;
+    --card-foreground: 20 22% 13%;
+    --popover: 32 30% 95.5%;
+    --popover-foreground: 20 22% 13%;
+    --primary: 20 62% 40%;
+    --primary-foreground: 32 40% 97%;
+    --primary-ink: 18 68% 34%;
+    --secondary: 30 20% 84%;
+    --secondary-foreground: 20 22% 13%;
+    --muted: 30 18% 85.5%;
+    --muted-foreground: 22 12% 31%;
+    --accent: 30 20% 84%;
+    --accent-foreground: 20 22% 13%;
+    --destructive: 348 68% 38%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 30 15% 75%;
+    --input: 30 15% 75%;
+    --ring: 18 68% 34%;
+    --surface-canvas: 30 20% 85%;
+  }
+
+  .dark[data-palette='sienna'],
+  .dark [data-palette='sienna'] {
+    --background: 22 14% 7.5%;
+    --foreground: 34 26% 88%;
+    --card: 22 13% 11%;
+    --card-foreground: 34 26% 88%;
+    --popover: 22 14% 9.5%;
+    --popover-foreground: 34 26% 88%;
+    --primary: 20 64% 60%;
+    --primary-foreground: 22 30% 8%;
+    --primary-ink: 22 68% 64%;
+    --secondary: 22 11% 15.5%;
+    --secondary-foreground: 34 26% 88%;
+    --muted: 22 11% 13.5%;
+    --muted-foreground: 30 9% 60%;
+    --accent: 22 11% 15.5%;
+    --accent-foreground: 34 26% 88%;
+    --destructive: 350 78% 70%;
+    --destructive-foreground: 22 30% 8%;
+    --border: 22 10% 18.5%;
+    --input: 22 10% 18.5%;
+    --ring: 22 68% 64%;
+    --surface-canvas: 22 14% 5%;
+  }
+
+  /* ── Nightshade & amethyst ── dusky plum, muted violet accent ── */
+  [data-palette='nightshade'] {
+    --background: 270 12% 92%;
+    --foreground: 266 22% 14%;
+    --card: 270 16% 95.5%;
+    --card-foreground: 266 22% 14%;
+    --popover: 270 18% 97.5%;
+    --popover-foreground: 266 22% 14%;
+    --primary: 270 36% 46%;
+    --primary-foreground: 270 30% 98%;
+    --primary-ink: 270 40% 39%;
+    --secondary: 268 10% 87%;
+    --secondary-foreground: 266 22% 14%;
+    --muted: 268 10% 88.5%;
+    --muted-foreground: 266 8% 34%;
+    --accent: 268 10% 87%;
+    --accent-foreground: 266 22% 14%;
+    --border: 268 9% 79%;
+    --input: 268 9% 79%;
+    --ring: 270 40% 39%;
+    --surface-canvas: 268 10% 88%;
+  }
+
+  .dark[data-palette='nightshade'],
+  .dark [data-palette='nightshade'] {
+    --background: 266 16% 8%;
+    --foreground: 270 14% 90%;
+    --card: 266 15% 11.5%;
+    --card-foreground: 270 14% 90%;
+    --popover: 266 16% 10%;
+    --popover-foreground: 270 14% 90%;
+    --primary: 272 44% 72%;
+    --primary-foreground: 266 30% 8%;
+    --primary-ink: 272 48% 76%;
+    --secondary: 266 12% 16.5%;
+    --secondary-foreground: 270 14% 90%;
+    --muted: 266 12% 14.5%;
+    --muted-foreground: 268 7% 62%;
+    --accent: 266 12% 16.5%;
+    --accent-foreground: 270 14% 90%;
+    --border: 266 10% 19.5%;
+    --input: 266 10% 19.5%;
+    --ring: 272 48% 76%;
+    --surface-canvas: 266 16% 5.5%;
   }
 
   * {

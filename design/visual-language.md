@@ -8,11 +8,18 @@ A comprehensive reference for the Scene Atlas UI. All new components must confor
 
 **Theme:** Cartographic / archival, carried by the maps themselves rather than by ornament. Surfaces are quiet so the art leads; character comes from type (a book serif for names, the Cinzel wordmark) and a single accent colour.
 
-**Palettes.** Two, each with light and dark mode, chosen in Settings → Appearance and stored per device (`scene-atlas-palette` in localStorage, applied as `data-palette` on `<html>` before first paint):
+**Palettes.** Five, each with light and dark mode, chosen in Settings → Appearance and stored per device (`scene-atlas-palette` in localStorage, applied as `data-palette` on `<html>` before first paint; navy, the default, sets no attribute):
 - **Navy & gold** (default): deep navy and warm parchment, gold accent. Base tokens in `:root` / `.dark`.
-- **Ink & verdigris**: green-black ink and pale paper, aged-copper green accent. Overrides in `[data-palette='verdigris']`.
+- **Ink & verdigris**: green-black ink and pale paper, aged-copper green accent.
+- **Slate & lapis**: near-neutral cool grey stone, ultramarine accent.
+- **Walnut & sienna**: oiled-wood browns and sand, burnt-sienna accent. Overrides `--destructive` to crimson so it stays distinct from the orange-red accent.
+- **Nightshade & amethyst**: dusky plum greys, muted violet accent.
 
-A new palette is a new override block in `index.css` plus an entry in `lib/palette.ts`; it must keep every text token at 4.5:1 (the accessibility spec scans every palette and theme).
+Every palette is a pair of blocks in `index.css`: `[data-palette='x']` (light) and `.dark[data-palette='x'], .dark [data-palette='x']` (dark). The selectors match any element, not only `<html>`, so the Appearance palette picker (`components/settings/PalettePicker.tsx`) renders each option's preview in that palette's real tokens. No colour values are duplicated. Rules for a new palette:
+- Add the two blocks plus an entry in `PALETTES` (`lib/palette.ts`) and in the accessibility spec's `VARIANTS`.
+- The dark block must set every token the light block sets. The light block also matches `<html>` in dark mode, so anything left out leaks a light value into dark.
+- Keep accent hues away from the destructive red (hue 0), or override `--destructive` as sienna does.
+- `lib/paletteContrast.test.ts` parses `index.css` and enforces 4.5:1 for every text token on every surface, 4.5:1 for labels on filled primary/destructive, and 3:1 for the focus ring, per palette and mode. It runs as a unit test, ahead of the e2e axe scan.
 
 **NOT:** decorative ornament — glowing stripes, fading underline rules, dot-grid backgrounds, header washes, blur on surfaces that don't overlap anything, hover zoom on artwork, tiny uppercase letter-spaced labels. These were removed in the 2026-10 refresh because they read as generic generated UI and competed with the maps.
 

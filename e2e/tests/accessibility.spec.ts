@@ -21,7 +21,9 @@ async function expectNoViolations(page: Page) {
   expect(summary).toEqual([]);
 }
 
-const VARIANTS = (["navy", "verdigris"] as const).flatMap((palette) =>
+const VARIANTS = (
+  ["navy", "verdigris", "lapis", "sienna", "nightshade"] as const
+).flatMap((palette) =>
   (["dark", "light"] as const).map((theme) => ({ palette, theme })),
 );
 
