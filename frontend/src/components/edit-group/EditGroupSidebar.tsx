@@ -8,7 +8,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { GroupSidebarShell } from '@/components/import/shared/GroupSidebarShell'
 import { DroppableGroupRow, DraggableGroupRow } from '@/components/import/shared/dnd'
-import type { EditableGroupState } from '@/types'
+import type { EditableGroupState, GroupSummary } from '@/types'
 import { useEditGroupContext } from './EditGroupContext'
 
 type GroupClickHandler = (index: number, groupId: string, e: React.MouseEvent) => void
@@ -21,8 +21,15 @@ interface EditGroupSidebarProps {
   totalInScope: number
   /** Mass edit and import review get per-group menus and merge/delete actions. */
   hasGroupActions: boolean
-  /** Groups still loading (import review shows the editor before all have arrived) */
-  pendingCount?: number
+  /** Import review: groups listed from their summaries whose files are still loading */
+  pending?: PendingGroups
+}
+
+interface PendingGroups {
+  groups: GroupSummary[]
+  /** The one the user clicked: it loads next, then opens */
+  awaitedId: number | null
+  onOpen: (groupId: number) => void
 }
 
 const FOOTER_BUTTON =
@@ -35,9 +42,10 @@ export function EditGroupSidebar({
   onGroupClick,
   totalInScope,
   hasGroupActions,
-  pendingCount = 0,
+  pending,
 }: EditGroupSidebarProps) {
   const { groups, activeDrag } = useEditGroupContext()
+  const pendingCount = pending?.groups.length ?? 0
 
   return (
     <GroupSidebarShell
@@ -65,6 +73,14 @@ export function EditGroupSidebar({
             </div>
           </DraggableGroupRow>
         </DroppableGroupRow>
+      ))}
+      {pending?.groups.map((g) => (
+        <PendingGroupRow
+          key={g.id}
+          group={g}
+          awaited={pending.awaitedId === g.id}
+          onOpen={pending.onOpen}
+        />
       ))}
     </GroupSidebarShell>
   )
@@ -155,6 +171,32 @@ function GroupRow({ group, index, isActive, hasGroupActions, onClick }: GroupRow
       </button>
       {hasGroupActions && <GroupRowMenu groupId={group.id} />}
     </div>
+  )
+}
+
+/** A group whose files haven't arrived yet: listed, and clicking it loads it next. */
+function PendingGroupRow({
+  group,
+  awaited,
+  onOpen,
+}: {
+  group: GroupSummary
+  awaited: boolean
+  onOpen: (groupId: number) => void
+}) {
+  return (
+    <button
+      onClick={() => onOpen(group.id)}
+      aria-busy={awaited}
+      title="Still loading — click to load it next"
+      className="w-full flex items-center gap-2 pl-3 pr-2 py-2 text-left min-w-0 border-l-2 border-transparent text-muted-foreground/70 hover:text-foreground hover:bg-secondary/50 transition-colors"
+    >
+      <span className="flex-1 text-[12px] truncate">{group.base_name}</span>
+      <span className="text-[11px] tabular-nums shrink-0 flex items-center gap-1">
+        {group.image_count}
+        {awaited && <Loader2 className="h-3 w-3 animate-spin ml-1" />}
+      </span>
+    </button>
   )
 }
 

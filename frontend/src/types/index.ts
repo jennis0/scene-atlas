@@ -209,6 +209,16 @@ export interface MoveImagesResponse {
 }
 
 // Group edit types
+/** A group without its images' details (POST /groups/summaries) */
+export interface GroupSummary {
+  id: number
+  base_name: string
+  author: string | null
+  primary_image_id: number | null
+  image_count: number
+  image_ids: number[]
+}
+
 export interface GroupDetail {
   id: number
   base_name: string

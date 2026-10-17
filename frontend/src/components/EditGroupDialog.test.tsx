@@ -3,11 +3,13 @@ import { screen, waitFor, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/renderWithProviders'
 import EditGroupDialog from './EditGroupDialog'
-import type { GroupDetail, Image } from '@/types'
+import type { GroupDetail, GroupSummary, Image } from '@/types'
 
 vi.mock('@/lib/api', () => ({
   groupApi: {
     get: vi.fn(),
+    summaries: vi.fn(),
+    details: vi.fn(),
     edit: vi.fn().mockResolvedValue({ new_group_ids: [] }),
     delete: vi.fn().mockResolvedValue(undefined),
     merge: vi.fn().mockResolvedValue(undefined),
@@ -84,6 +86,30 @@ const GROUPS: Record<number, GroupDetail> = {
   },
 }
 
+function summaryOf(g: GroupDetail): GroupSummary {
+  return {
+    id: g.id,
+    base_name: g.base_name,
+    author: g.author,
+    primary_image_id: g.primary_image_id,
+    image_count: g.images.length,
+    image_ids: g.images.map((img) => img.id),
+  }
+}
+
+/** Make details for any batch holding `slowId` wait until the returned release is called. */
+function holdDetailsFor(slowId: number) {
+  let release: () => void = () => {}
+  vi.mocked(groupApi.details).mockImplementation((ids) => {
+    const result = ids.map((id) => structuredClone(GROUPS[id]))
+    if (!ids.includes(slowId)) return Promise.resolve(result)
+    return new Promise((resolve) => {
+      release = () => resolve(result)
+    })
+  })
+  return () => release()
+}
+
 function renderDialog(props: Partial<React.ComponentProps<typeof EditGroupDialog>>) {
   const onClose = vi.fn()
   const onSave = vi.fn()
@@ -104,6 +130,12 @@ describe('EditGroupDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(groupApi.get).mockImplementation(async (id: number) => structuredClone(GROUPS[id]))
+    vi.mocked(groupApi.summaries).mockImplementation(async (ids) =>
+      ids.filter((id) => GROUPS[id]).map((id) => summaryOf(GROUPS[id])),
+    )
+    vi.mocked(groupApi.details).mockImplementation(async (ids) =>
+      ids.filter((id) => GROUPS[id]).map((id) => structuredClone(GROUPS[id])),
+    )
   })
 
   describe('single group', () => {
@@ -185,7 +217,7 @@ describe('EditGroupDialog', () => {
 
     it('closes on Escape without saving', async () => {
       const { user, onClose, onSave } = renderDialog({ groupIds: [1] })
-      await waitFor(() => expect(groupApi.get).toHaveBeenCalledWith(1))
+      await waitFor(() => expect(groupApi.details).toHaveBeenCalledWith([1]))
       await user.keyboard('{Escape}')
       expect(onClose).toHaveBeenCalled()
       expect(onSave).not.toHaveBeenCalled()
@@ -224,22 +256,40 @@ describe('EditGroupDialog', () => {
       expect(within(dialog()).queryByText('Clearing')).not.toBeInTheDocument()
     })
 
-    it('shows groups as they load instead of waiting for all of them', async () => {
+    it('lists every group at once and fills them in as they load', async () => {
       // Group 3 is slow; the editor opens on the start group without it
-      let releaseSlow: () => void = () => {}
-      vi.mocked(groupApi.get).mockImplementation((id: number) =>
-        id === 3
-          ? new Promise((resolve) => {
-              releaseSlow = () => resolve(structuredClone(GROUPS[3]))
-            })
-          : Promise.resolve(structuredClone(GROUPS[id])),
-      )
-      renderDialog({ groupIds: [1, 2, 3], startGroupId: 1 })
+      const releaseSlow = holdDetailsFor(3)
+      const { user } = renderDialog({ groupIds: [1, 2, 3], startGroupId: 1 })
       expect(await screen.findByDisplayValue('Forest Maps')).toBeInTheDocument()
       expect(screen.getByText('1 of 3 groups')).toBeInTheDocument()
+      // Still loading, but already listed from its summary
+      expect(screen.getByRole('button', { name: /Town Maps/ })).toHaveAttribute(
+        'title',
+        expect.stringMatching(/Still loading/),
+      )
+      await user.click(screen.getByRole('button', { name: /^All\s*\d+$/ }))
+      expect(
+        screen.getByText(/Changes here apply to the groups already loaded/),
+      ).toBeInTheDocument()
       releaseSlow()
       expect(await screen.findByText('3 groups')).toBeInTheDocument()
       expect(sidebarRow('Town Maps')).toBeInTheDocument()
+      expect(screen.queryByText(/Still loading/)).not.toBeInTheDocument()
+    })
+
+    it('opens a still-loading group as soon as it arrives when clicked', async () => {
+      const releaseSlow = holdDetailsFor(3)
+      const { user } = renderDialog({ groupIds: [1, 2, 3], startGroupId: 1 })
+      await screen.findByDisplayValue('Forest Maps')
+      await user.click(screen.getByRole('button', { name: /Town Maps/ }))
+      expect(screen.getByRole('button', { name: /Town Maps/ })).toHaveAttribute('aria-busy', 'true')
+      releaseSlow()
+      expect(await screen.findByDisplayValue('Town Maps')).toBeInTheDocument()
+    })
+
+    it('leaves out groups deleted since the import', async () => {
+      renderDialog({ groupIds: [1, 99, 2] })
+      expect(await screen.findByText('2 groups')).toBeInTheDocument()
     })
 
     it('merges all groups into the first after confirmation', async () => {

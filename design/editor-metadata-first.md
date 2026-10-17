@@ -1,6 +1,6 @@
 # Group editor: metadata first, details on demand (plan)
 
-Status: **planned**, not started. Branch `feature/editor-metadata-first` (stacked on
+Status: **phase 1 done**; phases 2–3 to do. Branch `feature/editor-metadata-first` (stacked on
 `feature/visual-refresh`). Related: [frontend.md](frontend.md) (editor and import review),
 [ingest-redesign.md](ingest-redesign.md), [search.md](search.md).
 
@@ -108,11 +108,32 @@ Each phase ships on its own and leaves the app working.
 - A synthetic large import (e.g. 2,000 groups) as a perf fixture, with the same timings as
   the table above recorded before and after each phase.
 
-## Open questions
+## Phase 1 as built
 
-- Should bulk actions across *all* of a very large import be allowed without a
-  confirmation ("Add tag 'Night' to 13,402 images?")?
-- Undo for bulk edits: today there's none. Worth adding with the new endpoint (return the
-  previous values), or out of scope?
-- The All view at 13k images is still a long scroll. Is All the right default for very
-  large imports, or should the editor open on the first group with All one click away?
+- `POST /groups/summaries` (up to 5,000 ids) and `POST /groups/details` (up to 100) in
+  `backend/app/api/groups.py`. Both return groups in the order asked, de-duplicated, and
+  leave out ids that no longer exist. `groupApi.summaries` and `groupApi.details` split
+  bigger requests into chunks and send them one after another.
+- Import review fetches summaries, then details in a queue (`nextReviewBatch`): the start
+  group or a clicked placeholder goes alone and first, then a batch of 8, then 40s.
+- **Unloaded groups are not editor state.** They're kept in `pendingGroups` and shown as
+  placeholder rows. The plan had a `loaded` flag on `EditableGroupState`. Keeping them out
+  instead means no existing code path (save, bulk actions, scope, counts) can meet an
+  unloaded group, so the save path really is unchanged. Phase 3 brings them into editor
+  state, with the `loaded` flag and the save guard, once bulk edits go by id.
+- While groups are loading, All says its changes apply only to the loaded groups.
+- Opening on All is capped at `ALL_VIEW_IMAGE_LIMIT` (500 images); above it, review opens
+  on the first group.
+- Mass edit uses the details endpoint (500 groups is 5 requests instead of 500).
+
+Measured on the scratch library (92 groups): summaries for all of them took 5 ms (12 KB).
+Details in batches of 40 took ~150 ms, against ~380 ms for 92 single requests.
+
+## Decisions (2026-10-17)
+
+- **Large bulk actions ask first.** A bulk action over many images (threshold to pick in
+  phase 3, e.g. 500) confirms with the count: "Add tag 'Night' to 13,402 images?"
+- **Bulk edits get undo.** `bulk-edit` returns the previous values of the fields it
+  changed, and the editor offers an undo toast that sends them back.
+- **Very large imports open on the first group**, with All one click away (done in phase
+  1, see above).
