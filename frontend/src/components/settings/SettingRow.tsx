@@ -22,8 +22,8 @@ export function SettingRow({
     <div
       className={
         stacked
-          ? 'space-y-2.5 py-2'
-          : `flex justify-between gap-4 py-3 ${description || requiresRestart ? 'items-start' : 'items-center'}`
+          ? 'space-y-2 py-0.5'
+          : `flex justify-between gap-4 py-1 ${description || requiresRestart ? 'items-start' : 'items-center'}`
       }
     >
       <div className="flex-1 min-w-0">
