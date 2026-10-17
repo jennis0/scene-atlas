@@ -22,7 +22,10 @@ vi.mock('@/lib/api', () => ({
   getGroupDownloadUrl: vi.fn((id: number) => `/api/v1/groups/${id}/download`),
 }))
 
-vi.mock('@/lib/download', () => ({ downloadFile: vi.fn().mockResolvedValue(undefined) }))
+vi.mock('@/lib/download', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/download')>()),
+  downloadFile: vi.fn().mockResolvedValue(undefined),
+}))
 
 import { imageApi, tagApi } from '@/lib/api'
 import { downloadFile } from '@/lib/download'
