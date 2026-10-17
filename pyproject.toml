@@ -118,9 +118,8 @@ asyncio_mode = "auto"
 testpaths = [
     "backend/tests/unit",
     "backend/tests/integration",
-    "scripts/labelling/tests",
 ]
-addopts = "--ignore=backend/tests/legacy --ignore=backend/tests/e2e -m 'not heavy'"
+addopts = "-m 'not heavy'"
 markers = [
     "heavy: tests requiring heavy infrastructure (CLIP model, real LanceDB, etc.) — run with -m heavy",
 ]
