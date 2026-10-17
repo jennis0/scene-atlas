@@ -15,7 +15,7 @@ export function SubgroupRow({ subgroup, existingSubgroups, disabled, onUpdate }:
 
   return (
     <div className="flex items-center gap-1.5 min-h-5">
-      <span className="w-8 shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground text-right leading-none">
+      <span className="w-9 shrink-0 text-[11px] font-semibold text-muted-foreground text-right leading-none">
         Sub
       </span>
       <div className="flex-1 min-w-0 flex items-center gap-1 relative">

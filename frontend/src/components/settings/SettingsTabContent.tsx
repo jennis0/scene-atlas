@@ -18,6 +18,8 @@ import { HARDWARE_BADGE } from '@/lib/modelConstants'
 import { tagApi } from '@/lib/api/tagApi'
 import { TagPackCard } from '@/components/setup/TagPackCard'
 import type { AppSettings } from '@/types'
+import { useTheme } from '@/contexts/ThemeContext'
+import { PALETTES } from '@/lib/palette'
 
 /** Longest side analysed for grids (0 = full resolution). Lower is faster, but in
  * evaluation 4096 px missed most thin-line 200 dpi maps (design/grid-detection-v3.md). */
@@ -286,6 +288,7 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
 
         {!isLoading && !isError && (
           <div className="space-y-4">
+            <AppearanceSection />
             {isElectron && (
               <SettingsSection title="Storage Locations">
                 <StoragePathRow
@@ -609,3 +612,21 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
 )
 
 SettingsTabContent.displayName = 'SettingsTabContent'
+
+/** Palette is a per-device display choice: saved locally and applied at once, not part
+ * of the server settings draft. */
+function AppearanceSection() {
+  const { palette, setPalette } = useTheme()
+  return (
+    <SettingsSection title="Appearance">
+      <SettingRow label="Palette" description="Applies to both light and dark mode.">
+        <SegmentedControl
+          label="Palette"
+          options={PALETTES}
+          value={palette}
+          onChange={setPalette}
+        />
+      </SettingRow>
+    </SettingsSection>
+  )
+}

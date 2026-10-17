@@ -54,8 +54,6 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-[480px] bg-card border-border/50 p-0 overflow-hidden">
-        <div className="absolute top-0 inset-x-0 h-0.5 bg-gradient-to-r from-primary/70 via-primary/30 to-transparent pointer-events-none rounded-t-xl" />
-
         <div className="shrink-0 bg-popover">
           <div
             className="px-4 flex items-center justify-between"

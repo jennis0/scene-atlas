@@ -798,6 +798,11 @@ export class ImportManager {
     }
   }
 
+  /** One-off fetch of a job's per-group detail (e.g. to open its groups in the editor). */
+  getDetail(jobId: string): Promise<ImportJobDetail> {
+    return this.client.get(jobId)
+  }
+
   private async fetchDetail(jobId: string): Promise<void> {
     try {
       const detail = await this.client.get(jobId)

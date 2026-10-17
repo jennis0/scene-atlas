@@ -1,6 +1,7 @@
 """Images API endpoints."""
 
 import logging
+import mimetypes
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -19,6 +20,12 @@ from .dependencies import get_db
 from .rate_limits import limiter
 
 logger = logging.getLogger(__name__)
+
+# FileResponse guesses Content-Type from the extension. Python < 3.13 only knows
+# .webp when the OS registry / mime.types does, otherwise it serves
+# application/octet-stream. WebP is used for transparent thumbnails and for
+# originals stored as WebP.
+mimetypes.add_type("image/webp", ".webp")
 
 
 class ImagePatch(BaseModel):

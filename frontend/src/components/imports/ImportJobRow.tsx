@@ -1,7 +1,8 @@
 /**
  * One import in the activity dock: status icon, label, a 3px progress track,
- * and a one-line status. Hover reveals pause/resume, or dismiss once finished.
- * Dismiss only hides the row; it never deletes anything, so it needs no confirm.
+ * and a one-line status. Hover reveals pause/resume, or undo and dismiss once
+ * finished. Dismiss only hides the row, so it needs no confirm; undo deletes
+ * images, so the dock confirms it first.
  */
 
 import {
@@ -12,6 +13,7 @@ import {
   Pause,
   PauseCircle,
   Play,
+  Undo2,
   Upload,
   X,
 } from 'lucide-react'
@@ -26,6 +28,8 @@ interface ImportJobRowProps {
   onPause: () => void
   onResume: () => void
   onDismiss: () => void
+  /** Delete what this import added (the caller confirms first). */
+  onUndo: () => void
 }
 
 export function ImportJobRow({
@@ -35,6 +39,7 @@ export function ImportJobRow({
   onPause,
   onResume,
   onDismiss,
+  onUndo,
 }: ImportJobRowProps) {
   const finished = isFinished(job)
   const ratio = processedRatio(job.counts)
@@ -84,6 +89,9 @@ export function ImportJobRow({
         )}
         {job.status === 'paused' && (
           <RowAction label="Resume" onClick={onResume} icon={<Play className="h-3 w-3" />} />
+        )}
+        {finished && job.counts.done > 0 && (
+          <RowAction label="Undo import" onClick={onUndo} icon={<Undo2 className="h-3 w-3" />} />
         )}
         {finished && (
           <RowAction label="Dismiss" onClick={onDismiss} icon={<X className="h-3 w-3" />} />

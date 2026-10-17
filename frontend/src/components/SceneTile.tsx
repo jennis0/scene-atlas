@@ -5,8 +5,10 @@ import type { Image } from '@/types'
 
 export interface SceneTileProps {
   image: Image
-  /** Primary title line — group name or image name */
+  /** First line — group name or image name */
   primaryText: string
+  /** Second line — subgroup · image name, in the same serif as the viewer's title */
+  variantText?: string
   /** Second line — subgroup · details, or grid dimensions */
   secondaryText?: string
   /** Third line — author */
@@ -19,6 +21,7 @@ export interface SceneTileProps {
 export function SceneTile({
   image,
   primaryText,
+  variantText,
   secondaryText,
   authorText,
   onClick,
@@ -33,7 +36,7 @@ export function SceneTile({
 
   // One spoken name for the tile; the visible caption and image stay out of the
   // accessibility tree so it isn't read twice.
-  const label = [primaryText, secondaryText, authorText && `by ${authorText}`]
+  const label = [primaryText, variantText, secondaryText, authorText && `by ${authorText}`]
     .filter(Boolean)
     .join(', ')
 
@@ -47,7 +50,7 @@ export function SceneTile({
       }`}
     >
       <div
-        className="aspect-[4/3] overflow-hidden"
+        className="transparency-backdrop aspect-[4/3] overflow-hidden"
         style={
           !loaded && !errored && placeholderBg ? { backgroundColor: placeholderBg } : undefined
         }
@@ -62,7 +65,7 @@ export function SceneTile({
           width={240}
           height={180}
           decoding="async"
-          className={`h-full w-full object-cover transition-[transform,opacity] duration-300 group-hover:scale-[1.05] ${
+          className={`h-full w-full object-cover transition-[transform,opacity] duration-300 ${
             loaded ? 'opacity-100' : 'opacity-0'
           }`}
           loading="lazy"
@@ -79,9 +82,16 @@ export function SceneTile({
         aria-hidden="true"
         className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/50 to-transparent pt-12 pb-3 px-2.5 pointer-events-none"
       >
-        <p className="text-[13px] font-medium text-white leading-snug line-clamp-1 drop-shadow">
+        {/* Same type as the viewer: serif names (group heavier than variant), sans details.
+            Names wrap to two lines rather than cutting off mid-word. */}
+        <p className="font-display text-[15px] font-semibold text-white leading-tight line-clamp-2 break-words drop-shadow">
           {primaryText}
         </p>
+        {variantText && (
+          <p className="font-display text-[13px] text-white/85 leading-snug line-clamp-2 break-words mt-0.5">
+            {variantText}
+          </p>
+        )}
         {secondaryText && (
           <p className="text-[11px] text-white/85 truncate mt-0.5">{secondaryText}</p>
         )}

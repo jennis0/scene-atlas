@@ -66,9 +66,7 @@ export function SubgroupDropdown({
     >
       {others.length > 0 && (
         <div className="py-1">
-          <div className="px-3 pt-2 pb-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
-            Existing
-          </div>
+          <div className="px-3 pt-2 pb-1 text-xs font-semibold text-muted-foreground">Existing</div>
           {others.map((sv) => (
             <button
               key={sv}

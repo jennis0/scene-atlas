@@ -19,7 +19,10 @@ export default {
     extend: {
       fontFamily: {
         sans: ['"Figtree Variable"', 'system-ui', 'sans-serif'],
-        display: ['"Cinzel Variable"', 'Georgia', 'serif'],
+        // Titles and map names: a book serif with real lowercase, readable at any size
+        display: ['"Newsreader Variable"', 'Georgia', 'serif'],
+        // The "Scene Atlas" wordmark only
+        wordmark: ['"Cinzel Variable"', 'Georgia', 'serif'],
         mono: ['"JetBrains Mono Variable"', 'Consolas', 'monospace'],
       },
       colors: {

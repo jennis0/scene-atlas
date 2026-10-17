@@ -33,9 +33,18 @@ def extract_dominant_colors(
     _clustering_samples = cfg.color_clustering_samples
     _n_init = cfg.color_kmeans_n_init
 
-    image = cv2.imread(str(image_path))
+    image = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
     if image is None:
         raise ValueError(f"Could not read image: {image_path}")
+    if image.dtype == np.uint16:
+        image = np.right_shift(np.asarray(image, dtype=np.uint16), 8).astype(np.uint8)
+    # Transparent pixels (RGBA WebP thumbnails) are excluded from clustering.
+    alpha = None
+    if image.ndim == 2:
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    elif image.shape[2] == 4:
+        alpha = image[:, :, 3]
+        image = np.ascontiguousarray(image[:, :, :3])
 
     # Downsample to max 512px before processing — color extraction doesn't
     # need full resolution, and this reduces a 4000x4000 image from ~50MB to ~0.8MB.
@@ -43,17 +52,20 @@ def extract_dominant_colors(
     max_dim = 512
     if max(h, w) > max_dim:
         scale = max_dim / max(h, w)
-        image = cv2.resize(
-            image,
-            (max(1, int(w * scale)), max(1, int(h * scale))),
-            interpolation=cv2.INTER_AREA,
-        )
+        new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
+        image = cv2.resize(image, new_size, interpolation=cv2.INTER_AREA)
+        if alpha is not None:
+            alpha = cv2.resize(alpha, new_size, interpolation=cv2.INTER_AREA)
 
     # Convert BGR to RGB
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
     # Reshape image to be a list of pixels
     pixels = image.reshape(-1, 3)
+    if alpha is not None:
+        visible = pixels[alpha.reshape(-1) >= 128]
+        if len(visible) >= _num_colors:  # nearly all transparent: use every pixel
+            pixels = visible
 
     # Sample pixels if image is large
     if len(pixels) > _clustering_samples:

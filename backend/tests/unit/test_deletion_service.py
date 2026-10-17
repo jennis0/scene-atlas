@@ -329,6 +329,20 @@ class TestDeleteAllThumbnails:
         for size in ["150x150", "400x400", "800x800"]:
             assert not store.exists(f"{stem}_{size}.jpg")
 
+    def test_deletes_all_sizes_of_webp_thumbnails(self, tmp_path):
+        """Transparent images get .webp thumbnails; their sizes go too, and only theirs."""
+        store = ImageStore(tmp_path / "thumbs")
+        stem = "e1e2e3e4"
+        for size in ["150x150", "400x400", "800x800"]:
+            store.put_bytes(f"{stem}_{size}.webp", b"thumb")
+        store.put_bytes("other_400x400.jpg", b"thumb")
+
+        _delete_all_thumbnails(store, f"{stem}_400x400.webp")
+
+        for size in ["150x150", "400x400", "800x800"]:
+            assert not store.exists(f"{stem}_{size}.webp")
+        assert store.exists("other_400x400.jpg")
+
     def test_missing_sizes_do_not_raise(self, tmp_path):
         """Only some sizes exist — function must not raise for missing ones."""
         store = ImageStore(tmp_path / "thumbs")

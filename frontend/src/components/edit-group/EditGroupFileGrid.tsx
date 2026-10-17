@@ -127,7 +127,7 @@ function OutOfScopeSection({ files, vocab, existingSubgroups, onUpdate }: OutOfS
     <div className="mt-4">
       <div className="flex items-center gap-2 mb-2">
         <div className="flex-1 h-px bg-border/20" />
-        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+        <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">
           Other images in this group
         </span>
         <div className="flex-1 h-px bg-border/20" />

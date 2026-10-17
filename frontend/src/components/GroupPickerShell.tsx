@@ -32,8 +32,6 @@ export function GroupPickerShell({
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-[440px] bg-card border-border/50 p-0 gap-0 overflow-hidden flex flex-col relative">
-        <div className="absolute top-0 inset-x-0 h-0.5 bg-gradient-to-r from-primary/70 via-primary/30 to-transparent pointer-events-none rounded-t-lg" />
-
         {/* Header: bg-popover strip with title and close button */}
         <div className="px-4 py-2.5 border-b border-border/30 bg-popover flex items-center justify-between shrink-0 relative">
           <PanelTitle className="flex-1">{title}</PanelTitle>

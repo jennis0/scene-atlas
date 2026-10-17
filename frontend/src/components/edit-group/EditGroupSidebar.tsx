@@ -21,6 +21,8 @@ interface EditGroupSidebarProps {
   totalInScope: number
   /** Mass edit and import review get per-group menus and merge/delete actions. */
   hasGroupActions: boolean
+  /** Groups still loading (import review shows the editor before all have arrived) */
+  pendingCount?: number
 }
 
 const FOOTER_BUTTON =
@@ -33,12 +35,17 @@ export function EditGroupSidebar({
   onGroupClick,
   totalInScope,
   hasGroupActions,
+  pendingCount = 0,
 }: EditGroupSidebarProps) {
   const { groups, activeDrag } = useEditGroupContext()
 
   return (
     <GroupSidebarShell
-      headerLabel={`${groups.length} groups`}
+      headerLabel={
+        pendingCount > 0
+          ? `${groups.length} of ${groups.length + pendingCount} groups`
+          : `${groups.length} groups`
+      }
       allCount={totalInScope}
       isAllActive={isAllTab}
       onSelectAll={onSelectAll}
@@ -72,7 +79,7 @@ function SidebarFooter() {
     <div className="p-2.5 border-t border-border/30 shrink-0">
       {selectedGroupIds.size >= 2 ? (
         <div className="space-y-1.5">
-          <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">
+          <span className="text-xs text-muted-foreground font-semibold">
             {selectedGroupIds.size} selected
           </span>
           <div className="flex gap-1">

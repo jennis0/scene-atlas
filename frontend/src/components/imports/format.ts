@@ -4,7 +4,7 @@
  */
 
 import type { LocalUpload } from '@/lib/import/ImportManager'
-import type { ImportCounts, ImportJobSummary } from '@/lib/import/types'
+import type { ImportCounts, ImportGroupSummary, ImportJobSummary } from '@/lib/import/types'
 
 export const plural = (n: number, one: string, many = `${one}s`) =>
   `${n.toLocaleString()} ${n === 1 ? one : many}`
@@ -23,6 +23,22 @@ export const isFinished = (job: ImportJobSummary) =>
   job.status === 'completed' || job.status === 'cancelled'
 
 /** What this tab is doing for the job right now, or null when it isn't sending anything. */
+/**
+ * A finished import with nothing to look at but its groups: completed, every file
+ * imported or skipped (no failures, no files already in the library), and the
+ * upload not cut short. Opening one goes straight to the editor.
+ */
+export const isCleanFinish = (job: ImportJobSummary) =>
+  job.status === 'completed' &&
+  job.counts.done > 0 &&
+  job.counts.failed === 0 &&
+  job.counts.duplicate === 0 &&
+  !job.upload_interrupted
+
+/** The image groups an import has added images to, for opening in the editor. */
+export const reviewableGroupIds = (groups: ImportGroupSummary[]) =>
+  groups.filter((g) => g.image_group_id !== null && g.counts.done > 0).map((g) => g.image_group_id!)
+
 export function uploadPhaseText(upload: LocalUpload | undefined): string | null {
   if (!upload) return null
   switch (upload.phase) {

@@ -167,6 +167,18 @@ def _detail(db: Session, job: ImportJob) -> ImportJobDetail:
     )
     for group_id, state, count in rows:
         by_group.setdefault(group_id, {})[state] = count
+    cover_rows = (
+        db.query(ImportItem.import_group_id, func.min(ImportItem.image_id))
+        .filter(
+            ImportItem.job_id == job.id,
+            ImportItem.state == st.DONE,
+            ImportItem.image_id.isnot(None),
+        )
+        .group_by(ImportItem.import_group_id)
+    )
+    covers: dict[int | None, int | None] = {}
+    for group_id, image_id in cover_rows:
+        covers[group_id] = image_id
     groups = (
         db.query(ImportGroup)
         .filter(ImportGroup.job_id == job.id)
@@ -184,6 +196,7 @@ def _detail(db: Session, job: ImportJob) -> ImportJobDetail:
                 merged_into_existing=bool(g.merged_into_existing),
                 sort_order=g.sort_order,
                 counts=_counts(by_group.get(g.id, {})),
+                cover_image_id=covers.get(g.id),
             )
             for g in groups
         ],

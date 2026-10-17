@@ -193,7 +193,7 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
                 }`}
               >
                 {isRecommended && (
-                  <span className="absolute top-2 right-2 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+                  <span className="absolute top-2 right-2 text-xs font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary">
                     Recommended
                   </span>
                 )}

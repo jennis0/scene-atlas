@@ -2,10 +2,12 @@
  * The import dialog (ADR-018; screens in design/frontend.md "Imports", client
  * sequence in design/ingestion.md §8.1).
  *
- * Two views over the ImportManager:
+ * Three views over the ImportManager, in one frame:
  * - Start: choose battlemap/scene, then drop or browse files, folders or zips.
  * - Progress: what's being sent and imported, any problems, the group ledger,
  *   and controls. Closing never stops anything; reopening shows the same job.
+ * - Result (ImportResultView): once the job finishes the dialog turns into what
+ *   the import did, with Review in editor, Undo import and Done.
  */
 
 import { useRef, useState } from 'react'
@@ -27,6 +29,7 @@ import { useImportJob, useImportManagerSnapshot } from '@/lib/import/useImports'
 import type { ImageType, PickedFile } from '@/lib/import/types'
 import { ConfirmOverlay, ImportFrame, Notice, TextButton } from './ImportFrame'
 import { GroupLedger } from './GroupLedger'
+import { ResultView } from './ImportResultView'
 import {
   finishedCount,
   formatBytes,
@@ -34,6 +37,7 @@ import {
   jobStatusText,
   outcomeText,
   plural,
+  reviewableGroupIds,
   uploadPhaseText,
 } from './format'
 import { filesFromDrop, filesFromInput } from './pickFiles'
@@ -45,8 +49,10 @@ interface ImportDialogProps {
   onClose: () => void
   /** A new import was created; the parent should now show it. */
   onStarted: (jobId: string) => void
-  onOpenReport: (jobId: string) => void
-  onOpenGroup?: (imageGroupId: number) => void
+  /** Open the import's groups in the group editor, optionally on one of them. */
+  onReviewGroups?: (imageGroupIds: number[], startGroupId?: number) => void
+  /** The import was undone (its images deleted). */
+  onUndone?: () => void
 }
 
 export function ImportDialog({
@@ -54,18 +60,24 @@ export function ImportDialog({
   open,
   onClose,
   onStarted,
-  onOpenReport,
-  onOpenGroup,
+  onReviewGroups,
+  onUndone,
 }: ImportDialogProps) {
+  const { job } = useImportJob(jobId)
   if (!jobId) return <StartView open={open} onClose={onClose} onStarted={onStarted} />
+  if (job && isFinished(job)) {
+    return (
+      <ResultView
+        jobId={jobId}
+        open={open}
+        onClose={onClose}
+        onReviewGroups={onReviewGroups}
+        onUndone={onUndone}
+      />
+    )
+  }
   return (
-    <ProgressView
-      jobId={jobId}
-      open={open}
-      onClose={onClose}
-      onOpenReport={onOpenReport}
-      onOpenGroup={onOpenGroup}
-    />
+    <ProgressView jobId={jobId} open={open} onClose={onClose} onReviewGroups={onReviewGroups} />
   )
 }
 
@@ -168,7 +180,7 @@ function StartView({
           }}
           onDragLeave={() => setDragOver(false)}
           onDrop={(e) => void onDrop(e)}
-          className={`flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-10 transition-colors ${
+          className={`flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed px-6 py-10 transition-colors ${
             busy
               ? 'border-border/40 bg-secondary/20'
               : dragOver
@@ -273,14 +285,12 @@ function ProgressView({
   jobId,
   open,
   onClose,
-  onOpenReport,
-  onOpenGroup,
+  onReviewGroups,
 }: {
   jobId: string
   open: boolean
   onClose: () => void
-  onOpenReport: (jobId: string) => void
-  onOpenGroup?: (imageGroupId: number) => void
+  onReviewGroups?: (imageGroupIds: number[], startGroupId?: number) => void
 }) {
   const manager = getImportManager()
   const { queue, connection } = useImportManagerSnapshot()
@@ -355,11 +365,6 @@ function ProgressView({
             <span className="text-[11.5px] text-muted-foreground mr-1">
               Keeps running if you close this
             </span>
-          )}
-          {finished && job && (
-            <TextButton tone="primary" onClick={() => onOpenReport(jobId)}>
-              View report
-            </TextButton>
           )}
           <TextButton onClick={onClose}>Close</TextButton>
         </>
@@ -470,7 +475,14 @@ function ProgressView({
       />
 
       <div className="flex-1 min-h-[180px] flex flex-col border-t border-border/30 pt-2">
-        <GroupLedger groups={detail?.groups ?? []} onOpenGroup={onOpenGroup} />
+        <GroupLedger
+          groups={detail?.groups ?? []}
+          onOpenGroup={
+            onReviewGroups
+              ? (groupId) => onReviewGroups(reviewableGroupIds(detail?.groups ?? []), groupId)
+              : undefined
+          }
+        />
       </div>
 
       {confirmingCancel && (
