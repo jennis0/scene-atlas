@@ -372,6 +372,17 @@ function JobStatusIcon({ status }: { status: BackgroundJob['status'] }) {
   }
 }
 
+/** Updating image embeddings: how many were re-embedded, or that none needed it. */
+function embeddingsResult(result: Record<string, unknown>): string {
+  const missing = result.missing as number
+  const repaired = result.repaired as number
+  if (missing === 0) return 'Already up to date'
+  const updated = `${repaired.toLocaleString()} ${repaired === 1 ? 'image' : 'images'} updated`
+  return repaired < missing
+    ? `${updated}, ${(missing - repaired).toLocaleString()} couldn't be`
+    : updated
+}
+
 function formatResult(result: Record<string, unknown> | null): string {
   if (!result) return 'Done'
   if ('succeeded' in result && 'failed' in result) {
@@ -381,5 +392,6 @@ function formatResult(result: Record<string, unknown> | null): string {
       : `${result.succeeded} images processed`
   }
   if ('tags_created' in result) return `${result.tags_created} tags created`
+  if ('repaired' in result && 'missing' in result) return embeddingsResult(result)
   return 'Done'
 }

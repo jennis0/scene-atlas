@@ -135,7 +135,7 @@ JobRunner jobs and scheduler tasks run on pool threads that can't be killed, and
 | Job | Checks | Resumes by |
 |---|---|---|
 | `reconcile_vectors` | per delete chunk / re-embed batch | next run (startup, 24 h) sees what's still missing |
-| `rebuild_all_embeddings` (also model activation) | per 100-image batch | startup reconciliation re-embeds the images not yet in the new table |
+| `rebuild_all_embeddings` (also model activation) | per 32-image batch (it runs `reconcile_vectors`) | startup reconciliation re-embeds the images not yet in the new table |
 | `backfill_grid_detection` | per image | next run picks up images without grid info (`force` starts over) |
 | `retag_all_images`, `reparse_names`, `backfill_content_hash` | per batch | re-running (idempotent; content-hash backfill only selects missing hashes) |
 | `export_library` (CLI) | per batch | re-running; an interrupted export has no `metadata.json` |

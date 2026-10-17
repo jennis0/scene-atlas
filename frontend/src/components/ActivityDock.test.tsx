@@ -52,6 +52,40 @@ describe('ActivityDock', () => {
     expect(screen.getByTestId('activity-dock-pill')).toHaveTextContent('2')
   })
 
+  it('shows image embedding updates with their progress and outcome', async () => {
+    ;({ manager } = await installFakeImportManager())
+    const embedding = {
+      ...runningBgJob,
+      name: 'Updating image embeddings',
+      progress: '320 of 4,761 images',
+      progress_pct: 6,
+    }
+    const done = (result: Record<string, number>) => ({
+      ...embedding,
+      id: `done-${result.missing}`,
+      status: 'completed' as const,
+      progress_pct: 100,
+      result: { orphaned: 0, unrepairable: 0, ...result },
+    })
+    renderWithProviders(
+      <ActivityDock
+        backgroundJobs={[
+          embedding,
+          done({ missing: 4761, repaired: 4761 }),
+          done({ missing: 0, repaired: 0 }),
+          done({ missing: 10, repaired: 8 }),
+        ]}
+        onOpenImport={vi.fn()}
+      />,
+    )
+    await userEvent.click(screen.getByTestId('activity-dock-pill'))
+    expect(screen.getByText('320 of 4,761 images')).toBeInTheDocument()
+    expect(screen.getByText('6%')).toBeInTheDocument()
+    expect(screen.getByText('4,761 images updated')).toBeInTheDocument()
+    expect(screen.getByText('Already up to date')).toBeInTheDocument()
+    expect(screen.getByText("8 images updated, 2 couldn't be")).toBeInTheDocument()
+  })
+
   it('lists imports with a status line and opens them', async () => {
     ;({ manager } = await installFakeImportManager({
       jobs: [jobSummary({ counts: counts({ processing: 2, done: 3 }) })],

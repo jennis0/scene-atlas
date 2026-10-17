@@ -127,9 +127,8 @@ def _download_and_activate(name: str, progress_fn=None) -> None:
             embedding_dim = model_meta["embedding_dim"] if model_meta else None
             reload_lancedb_service(get_collection_name(name), vector_size=embedding_dim)
 
-            if progress_fn:
-                progress_fn(steps - 1, steps, "Re-building embeddings...")
-            rebuild_all_embeddings(force=True)
+            # Progress from here on is per image: re-embedding is nearly all the time
+            rebuild_all_embeddings(progress_fn=progress_fn, force=True)
 
         if progress_fn:
             progress_fn(steps, steps, "Done")
