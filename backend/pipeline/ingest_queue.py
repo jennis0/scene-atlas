@@ -451,6 +451,22 @@ def dismiss_job(db: Session, job_id: str) -> None:
     job.dismissed_at = job.dismissed_at or utcnow()
 
 
+def dismiss_finished_jobs(db: Session) -> int:
+    """Hide every finished job from the activity dock; returns how many."""
+    jobs = (
+        db.query(ImportJob)
+        .filter(
+            ImportJob.status.in_((st.JOB_COMPLETED, st.JOB_CANCELLED)),
+            ImportJob.dismissed_at.is_(None),
+        )
+        .all()
+    )
+    now = utcnow()
+    for job in jobs:
+        job.dismissed_at = now
+    return len(jobs)
+
+
 class JobBusyError(Exception):
     """Raised when an operation must wait for the batch in progress to finish."""
 

@@ -183,6 +183,53 @@ describe('ActivityDock', () => {
     await waitFor(() => expect(screen.getByText('Offline')).toBeInTheDocument())
   })
 
+  it('dismisses a finished background job, but not a running one', async () => {
+    ;({ manager } = await installFakeImportManager())
+    const onDismissJob = vi.fn(async () => {})
+    const finished = { ...runningBgJob, id: 'bg-2', name: 'Rebuild', status: 'completed' as const }
+    renderWithProviders(
+      <ActivityDock
+        backgroundJobs={[runningBgJob, finished]}
+        onOpenImport={vi.fn()}
+        onDismissJob={onDismissJob}
+      />,
+    )
+    await userEvent.click(screen.getByTestId('activity-dock-pill'))
+    const dismiss = screen.getAllByRole('button', { name: 'Dismiss' })
+    expect(dismiss).toHaveLength(1)
+    await userEvent.click(dismiss[0])
+    expect(onDismissJob).toHaveBeenCalledWith('bg-2')
+  })
+
+  it('clears every finished import and job at once', async () => {
+    let client
+    ;({ manager, client } = await installFakeImportManager({
+      jobs: [
+        jobSummary({ status: 'completed', counts: counts({ done: 4 }) }),
+        jobSummary({ id: 'j2', counts: counts({ ready: 2 }) }),
+      ],
+    }))
+    const onClearFinished = vi.fn(async () => {})
+    renderWithProviders(
+      <ActivityDock
+        backgroundJobs={[runningBgJob]}
+        onOpenImport={vi.fn()}
+        onClearFinished={onClearFinished}
+      />,
+    )
+    await userEvent.click(screen.getByTestId('activity-dock-pill'))
+    await userEvent.click(screen.getByRole('button', { name: 'Clear finished' }))
+    expect(client!.dismissFinished).toHaveBeenCalled()
+    expect(onClearFinished).toHaveBeenCalled()
+  })
+
+  it('offers no clear while everything is still running', async () => {
+    ;({ manager } = await installFakeImportManager())
+    renderWithProviders(<ActivityDock backgroundJobs={[runningBgJob]} onOpenImport={vi.fn()} />)
+    await userEvent.click(screen.getByTestId('activity-dock-pill'))
+    expect(screen.queryByRole('button', { name: 'Clear finished' })).not.toBeInTheDocument()
+  })
+
   it('still shows background jobs', async () => {
     ;({ manager } = await installFakeImportManager())
     renderWithProviders(<ActivityDock backgroundJobs={[runningBgJob]} onOpenImport={vi.fn()} />)

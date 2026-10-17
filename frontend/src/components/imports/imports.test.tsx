@@ -13,8 +13,14 @@ import {
   type FakeImportClient,
 } from '@/test/importFakes'
 import type { ImportManager } from '@/lib/import/ImportManager'
+import { toast } from 'sonner'
 import { ImportDialog } from './ImportDialog'
 import { jobStatusText, outcomeText, timeLeftText } from './format'
+
+vi.mock('sonner', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('sonner')>()
+  return { ...actual, toast: Object.assign(vi.fn(), actual.toast) }
+})
 
 let manager: ImportManager | undefined
 let client: FakeImportClient
@@ -172,7 +178,22 @@ describe('ImportDialog: progress', () => {
     expect(screen.getByText('103 of 347 groups done · about 30 min left')).toBeInTheDocument()
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '3')
     expect(client.get).toHaveBeenCalledWith('job1', 'active')
-    expect(screen.getByText('Keeps running if you close this')).toBeInTheDocument()
+  })
+
+  it('pauses and cancels from the footer, and says the import carries on once closed', async () => {
+    const onClose = vi.fn()
+    ;({ manager, client } = await installFakeImportManager({
+      jobs: [jobSummary({ counts: counts({ ready: 5 }) })],
+      details: { job1: detail() },
+    }))
+    renderWithProviders(<ImportDialog jobId="job1" open onClose={onClose} onStarted={noop} />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Pause' }))
+    expect(client.action).toHaveBeenCalledWith('job1', 'pause')
+    expect(screen.getByRole('button', { name: 'Cancel import' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getAllByRole('button', { name: 'Close' })[1])
+    expect(onClose).toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith('Forest Pack is still importing', expect.anything())
   })
 
   it('counts a group against what it could import, not files already in the library', async () => {
@@ -226,7 +247,7 @@ describe('ImportDialog: progress', () => {
     renderWithProviders(
       <ImportDialog jobId="job1" open onClose={noop} onStarted={noop} onReviewGroups={vi.fn()} />,
     )
-    await screen.findByText('Keeps running if you close this')
+    await screen.findByRole('button', { name: 'Cancel import' })
     expect(screen.queryByRole('button', { name: /^Review/ })).not.toBeInTheDocument()
   })
 

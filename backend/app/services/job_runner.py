@@ -9,7 +9,7 @@ Usage from API endpoints::
     from backend.app.services.job_runner import get_job_runner
 
     runner = get_job_runner()
-    runner.submit(rebuild_all_embeddings, name="Rebuild embeddings", force=True)
+    runner.submit(rebuild_all_embeddings, name="Rebuilding image embeddings", force=True)
 
     # Later — check progress:
     record = runner.get_job(job_id)
@@ -37,6 +37,9 @@ logger = logging.getLogger(__name__)
 
 _job_runner: "JobRunner | None" = None
 _lock = threading.Lock()
+
+
+FINISHED = ("completed", "failed", "interrupted")
 
 
 @dataclass
@@ -178,6 +181,29 @@ class JobRunner:
         with self._lock:
             self._cleanup_old_jobs()
             return list(self._jobs.values())
+
+    def dismiss(self, job_id: str) -> bool | None:
+        """Forget a finished job so it leaves the activity dock.
+
+        Returns True when dismissed, False if it's still queued or running, and None
+        if there's no such job.
+        """
+        with self._lock:
+            record = self._jobs.get(job_id)
+            if record is None:
+                return None
+            if record.status not in FINISHED:
+                return False
+            del self._jobs[job_id]
+            return True
+
+    def dismiss_finished(self) -> int:
+        """Forget every finished job; returns how many."""
+        with self._lock:
+            done = [jid for jid, rec in self._jobs.items() if rec.status in FINISHED]
+            for jid in done:
+                del self._jobs[jid]
+            return len(done)
 
     def has_active_job(self, name: str) -> bool:
         """Return True if a job with the given name is currently queued or running."""

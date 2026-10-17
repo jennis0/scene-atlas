@@ -48,8 +48,12 @@ Found on a real 5,800-file import (2026-10-17):
   is a rate to go on.
 - **Now importing**: the first three groups, in processing order, that still have open items.
 - **Problems** only when there are some.
-- **Controls**: Pause / Resume and Cancel as before; **Review N groups** opens the editor on the
-  groups that have images so far; Close.
+- **Controls**: bordered buttons with icons, Pause / Resume and Cancel on the left; Close and
+  **Review N groups** (the one solid button; opens the editor on the groups that have images so
+  far) on the right. The two sides wrap as units on narrow windows. The report uses the same
+  footer (Undo import | Done, Review in editor).
+- **Closing a running import** shows a toast ("… is still importing; follow it from Activity")
+  rather than a permanent "keeps running if you close this" hint in the footer (user, 2026-10-17).
 - The system-pause, connection, waiting-for-folder, upload-interrupted and send-failure notices
   stay as they are.
 

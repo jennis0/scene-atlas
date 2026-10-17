@@ -46,6 +46,7 @@ from ..models.import_schemas import (
     ArchiveResult,
     ContentResult,
     CreateImportRequest,
+    DismissedResult,
     HashRequest,
     HashResponse,
     HashResult,
@@ -811,6 +812,16 @@ def dismiss_import(job_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409, detail="Only finished imports can be dismissed")
     q.dismiss_job(db, job_id)
     return _action(db, job_id, 0)
+
+
+@router.post("/dismiss-finished", response_model=DismissedResult)
+@write_locked
+def dismiss_finished_imports(db: Session = Depends(get_db)):
+    """Hide every finished import from the activity dock. Deletes nothing."""
+    dismissed = q.dismiss_finished_jobs(db)
+    db.commit()
+    _changed()
+    return DismissedResult(dismissed=dismissed)
 
 
 @router.delete("/{job_id}", response_model=ActionResult)

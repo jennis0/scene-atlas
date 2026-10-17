@@ -172,6 +172,12 @@ export const importClient = {
     return data
   },
 
+  /** Hide every finished import from the activity dock; returns how many */
+  async dismissFinished(): Promise<number> {
+    const { data } = await api.post<{ dismissed: number }>(`${BASE}/dismiss-finished`)
+    return data.dismissed
+  },
+
   async undo(jobId: string): Promise<ActionResult> {
     const { data } = await api.delete<ActionResult>(`${BASE}/${jobId}`)
     return data

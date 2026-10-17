@@ -281,6 +281,7 @@ All routes are under `/api/v1/imports` (`backend/app/api/imports.py`). Mutating 
 | `POST /imports/{id}/import-as-copy` | `{item_ids?}`, default all `duplicate` |
 | `POST /imports/{id}/finish-upload` | `awaiting_bytes` → `skipped` ("Not uploaded") |
 | `POST /imports/{id}/dismiss` | Hide a completed/cancelled job from the dock |
+| `POST /imports/dismiss-finished` | Hide every completed/cancelled job (the dock's "Clear finished") |
 | `DELETE /imports/{id}` | Undo import |
 | `POST /imports/queue/probe` | Re-check system conditions now ("Retry now") |
 
@@ -315,7 +316,7 @@ create job → manifest chunks → (archives) → seal ──▶ show group plan
 
 ### 8.2 Views
 
-`ImportDialog` (start view; progress with notices, group ledger, Pause/Resume/Cancel; and in the same frame once finished, the result: Groups, Problems, Already in library, Skipped; Retry, Import as new copies, Undo import, Review in editor, Done) and `ImportJobRow` in the activity dock (queue banner with "Retry now" when system-paused; Undo and Dismiss on finished rows). All are pure views over `ImportManager`; lists page through `GET /imports/{id}/items`.
+`ImportDialog` (start view; progress with notices, group ledger, Pause/Resume/Cancel; and in the same frame once finished, the result: Groups, Problems, Already in library, Skipped; Retry, Import as new copies, Undo import, Review in editor, Done) and `ImportJobRow` in the activity dock (queue banner with "Retry now" when system-paused; Undo and Dismiss on finished rows; "Clear finished" in the header dismisses every finished import and background job). All are pure views over `ImportManager`; lists page through `GET /imports/{id}/items`.
 
 ## 9. Maintenance and recovery
 

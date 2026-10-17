@@ -307,7 +307,7 @@ export interface GroupEditResponse {
 export interface BackgroundJob {
   id: string
   name: string
-  status: 'queued' | 'running' | 'completed' | 'failed'
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'interrupted'
   submitted_at: string
   started_at: string | null
   finished_at: string | null

@@ -76,19 +76,23 @@ export function TextButton({
 }: {
   children: ReactNode
   onClick: () => void
-  /** solid: the dialog's one main next step */
-  tone?: 'default' | 'primary' | 'solid' | 'danger'
+  /** solid: the dialog's one main next step; outline: a footer control */
+  tone?: 'default' | 'primary' | 'solid' | 'danger' | 'outline' | 'outline-danger'
   disabled?: boolean
   title?: string
 }) {
   const toneClass =
     tone === 'solid'
       ? 'bg-primary text-primary-foreground hover:bg-primary/85 border-transparent font-medium'
-      : tone === 'primary'
-        ? 'text-primary bg-primary/10 hover:bg-primary/20 border-primary/25'
-        : tone === 'danger'
-          ? 'text-muted-foreground hover:text-destructive hover:bg-destructive/10 border-transparent'
-          : 'text-muted-foreground hover:text-foreground hover:bg-secondary border-transparent'
+      : tone === 'outline'
+        ? 'text-foreground border-border hover:bg-secondary'
+        : tone === 'outline-danger'
+          ? 'text-foreground border-border hover:text-destructive hover:border-destructive/40 hover:bg-destructive/10'
+          : tone === 'primary'
+            ? 'text-primary bg-primary/10 hover:bg-primary/20 border-primary/25'
+            : tone === 'danger'
+              ? 'text-muted-foreground hover:text-destructive hover:bg-destructive/10 border-transparent'
+              : 'text-muted-foreground hover:text-foreground hover:bg-secondary border-transparent'
   return (
     <button
       onClick={onClick}

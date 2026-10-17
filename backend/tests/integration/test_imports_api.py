@@ -463,6 +463,17 @@ def test_dismiss_only_when_finished(api):
     assert job_id in [j["id"] for j in listed]
 
 
+def test_dismiss_finished_hides_every_finished_import(api):
+    running = api.create()
+    finished = [api.create(), api.create()]
+    for job_id in finished:
+        api.client.post(f"{BASE}/{job_id}/cancel")
+
+    assert api.client.post(f"{BASE}/dismiss-finished").json() == {"dismissed": 2}
+    assert [j["id"] for j in api.client.get(BASE).json()["jobs"]] == [running]
+    assert api.client.post(f"{BASE}/dismiss-finished").json() == {"dismissed": 0}
+
+
 def test_undo_deletes_images_files_and_job(api):
     from backend.app.services import get_image_store, get_thumbnail_store
 

@@ -195,6 +195,7 @@ Defined in `backend/app/api/imports.py`. The flow and state machines are in [ing
 | POST | `/{job_id}/finish-upload` | Skip items whose bytes never arrived |
 | POST | `/{job_id}/groups/{group_id}/skip` | Skip a planned group |
 | POST | `/{job_id}/dismiss` | Hide a finished job from the activity dock |
+| POST | `/dismiss-finished` | Hide every finished job from the activity dock |
 | DELETE | `/{job_id}` | Undo: delete the images this import created, then the job |
 
 Mutating routes are `@write_locked` (`BEGIN IMMEDIATE` on the endpoint's own thread). See [ingestion.md](ingestion.md#7-upload-protocol).
@@ -204,6 +205,8 @@ Mutating routes are `@write_locked` (`BEGIN IMMEDIATE` on the endpoint's own thr
 |--------|------|---------|
 | GET | `/` | List JobRunner jobs |
 | GET | `/{id}` | JobRunner job status |
+| POST | `/{id}/dismiss` | Forget a finished job (409 while queued/running) |
+| POST | `/dismiss-finished` | Forget every finished job |
 
 ### Export (`/export`)
 | Method | Path | Purpose |

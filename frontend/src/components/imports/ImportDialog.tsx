@@ -13,13 +13,16 @@
 import { useRef, useState } from 'react'
 import {
   AlertTriangle,
+  Ban,
   FileWarning,
   Files,
   FolderOpen,
   Grid3X3,
   Image as ImageIcon,
   Loader2,
+  Pause,
   PauseCircle,
+  Play,
   UploadCloud,
   WifiOff,
 } from 'lucide-react'
@@ -364,43 +367,67 @@ function ProgressView({
     if (ids.length > 0) onReviewGroups?.(ids)
   }
   const counts = job?.counts
+
+  // Closing leaves the import running; say where to find it, once it's out of sight
+  const close = () => {
+    onClose()
+    if (job && !finished) {
+      toast(`${label} is still importing`, {
+        description: 'Follow it, pause it or cancel it from Activity.',
+      })
+    }
+  }
   const statusLine = job ? jobStatusText(job, upload) : (uploadPhaseText(upload) ?? 'Starting')
 
   return (
     <ImportFrame
       open={open}
-      onClose={onClose}
+      onClose={close}
       title={label}
       status={statusLine}
       footer={
         <>
-          {job && !finished && job.status === 'active' && (
-            <TextButton onClick={() => void run(() => manager.pause(jobId))} disabled={busy}>
-              Pause
-            </TextButton>
-          )}
-          {job?.status === 'paused' && (
-            <TextButton onClick={() => void run(() => manager.resume(jobId))} disabled={busy}>
-              Resume
-            </TextButton>
-          )}
           {job && !finished && (
-            <TextButton tone="danger" onClick={() => setConfirmingCancel(true)} disabled={busy}>
-              Cancel import
+            <div className="flex gap-2">
+              {job.status === 'paused' ? (
+                <TextButton
+                  tone="outline"
+                  onClick={() => void run(() => manager.resume(jobId))}
+                  disabled={busy}
+                >
+                  <Play className="h-3.5 w-3.5" aria-hidden />
+                  Resume
+                </TextButton>
+              ) : (
+                <TextButton
+                  tone="outline"
+                  onClick={() => void run(() => manager.pause(jobId))}
+                  disabled={busy}
+                >
+                  <Pause className="h-3.5 w-3.5" aria-hidden />
+                  Pause
+                </TextButton>
+              )}
+              <TextButton
+                tone="outline-danger"
+                onClick={() => setConfirmingCancel(true)}
+                disabled={busy}
+              >
+                <Ban className="h-3.5 w-3.5" aria-hidden />
+                Cancel import
+              </TextButton>
+            </div>
+          )}
+          <div className="ml-auto flex gap-2">
+            <TextButton tone="outline" onClick={close}>
+              Close
             </TextButton>
-          )}
-          <span className="flex-1" />
-          {!finished && (
-            <span className="hidden sm:inline text-[11.5px] text-muted-foreground mr-1">
-              Keeps running if you close this
-            </span>
-          )}
-          {onReviewGroups && job && job.groups_with_images > 0 && (
-            <TextButton tone="solid" onClick={() => void run(reviewSoFar)} disabled={busy}>
-              Review {plural(job.groups_with_images, 'group')}
-            </TextButton>
-          )}
-          <TextButton onClick={onClose}>Close</TextButton>
+            {onReviewGroups && job && job.groups_with_images > 0 && (
+              <TextButton tone="solid" onClick={() => void run(reviewSoFar)} disabled={busy}>
+                Review {plural(job.groups_with_images, 'group')}
+              </TextButton>
+            )}
+          </div>
         </>
       }
     >
