@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useId } from 'react'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { RotateCcw, X, Trash2, Loader2, Download, BookOpen, Settings2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { PanelTitle } from '@/components/ui/panel-title'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { systemApi, getLibraryExportUrl } from '@/lib/api'
@@ -101,7 +102,13 @@ function StorageBar({ storage }: { storage: SystemInfo['storage'] }) {
   )
 }
 
+const TABS = [
+  { id: 'library' as const, label: 'Library', Icon: BookOpen },
+  { id: 'settings' as const, label: 'Settings', Icon: Settings2 },
+]
+
 export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
+  const tabIdBase = useId()
   const isElectron = typeof window !== 'undefined' && !!window.electronAPI
   const queryClient = useQueryClient()
   const { appDataDir, imageLibraryDir } = useStorageDirs(open)
@@ -209,12 +216,7 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
             className="px-4 flex items-center justify-between"
             style={{ padding: '10px 12px 10px 16px' }}
           >
-            <div className="flex flex-col">
-              <span className="font-display text-[13px] font-medium tracking-[0.06em] text-foreground leading-none">
-                {activeTab === 'library' ? 'Library' : 'Settings'}
-              </span>
-              <div className="mt-[3px] h-px w-7 bg-gradient-to-r from-primary to-transparent" />
-            </div>
+            <PanelTitle>{activeTab === 'library' ? 'Library' : 'Settings'}</PanelTitle>
             <button
               onClick={() => handleOpenChange(false)}
               className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
@@ -224,13 +226,25 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
             </button>
           </div>
 
-          <div className="flex border-t border-border/50 px-5">
-            {[
-              { id: 'library' as const, label: 'Library', Icon: BookOpen },
-              { id: 'settings' as const, label: 'Settings', Icon: Settings2 },
-            ].map(({ id, label, Icon }) => (
+          <div
+            role="tablist"
+            aria-label="Sections"
+            className="flex border-t border-border/50 px-5"
+            onKeyDown={(e) => {
+              if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+              const next = activeTab === 'library' ? 'settings' : 'library'
+              handleTabChange(next)
+              document.getElementById(`${tabIdBase}-${next}`)?.focus()
+            }}
+          >
+            {TABS.map(({ id, label, Icon }) => (
               <button
                 key={id}
+                id={`${tabIdBase}-${id}`}
+                role="tab"
+                aria-selected={activeTab === id}
+                aria-controls={`${tabIdBase}-panel`}
+                tabIndex={activeTab === id ? 0 : -1}
                 onClick={() => handleTabChange(id)}
                 className={`flex items-center gap-1.5 py-2.5 pr-5 text-[12px] font-medium border-b-2 -mb-px transition-colors duration-150 ${
                   activeTab === id
@@ -245,7 +259,12 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
           </div>
         </div>
 
-        <div className="overflow-y-auto h-[380px]">
+        <div
+          id={`${tabIdBase}-panel`}
+          role="tabpanel"
+          aria-labelledby={`${tabIdBase}-${activeTab}`}
+          className="overflow-y-auto h-[380px]"
+        >
           {activeTab === 'library' && (
             <div className="px-5 pb-5 pt-4 space-y-5">
               {isError ? (
@@ -295,7 +314,7 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
                       Images: <span className="font-mono">{imageLibraryDir ?? '—'}</span>
                     </p>
                   </div>
-                  <p className="text-xs text-muted-foreground/60">
+                  <p className="text-xs text-muted-foreground">
                     To change, go to Settings → Storage Locations.
                   </p>
                 </div>

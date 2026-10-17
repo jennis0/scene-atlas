@@ -186,7 +186,7 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
                 key={model.name}
                 type="button"
                 onClick={() => setSelectedModel(model.name)}
-                className={`relative text-left rounded-lg border p-4 space-y-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                className={`relative text-left rounded-lg border p-4 space-y-2 transition-colors ${
                   isSelected
                     ? 'border-primary bg-primary/5'
                     : 'border-border bg-card hover:border-border/80 hover:bg-accent/30'

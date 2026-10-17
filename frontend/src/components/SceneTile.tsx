@@ -31,15 +31,20 @@ export function SceneTile({
   // so the card doesn't flash harsh grey before the image appears.
   const placeholderBg = image.colors?.[0]?.color_hex ?? undefined
 
+  // One spoken name for the tile; the visible caption and image stay out of the
+  // accessibility tree so it isn't read twice.
+  const label = [primaryText, secondaryText, authorText && `by ${authorText}`]
+    .filter(Boolean)
+    .join(', ')
+
   return (
     <div
       data-testid="scene-tile"
-      className={`group relative cursor-pointer overflow-hidden rounded-lg bg-card transition-[transform,box-shadow] duration-200 ${
+      className={`group relative overflow-hidden rounded-lg bg-card transition-[transform,box-shadow] duration-200 ${
         isActive
           ? 'border border-primary/60 ring-2 ring-primary/70 shadow-lg shadow-primary/15'
           : 'border border-border/30 hover:border-primary/40 hover:shadow-xl hover:shadow-black/40'
       }`}
-      onClick={onClick}
     >
       <div
         className="aspect-[4/3] overflow-hidden"
@@ -53,7 +58,7 @@ export function SceneTile({
         )}
         <img
           src={getThumbnailUrl(image)}
-          alt={primaryText}
+          alt=""
           width={240}
           height={180}
           decoding="async"
@@ -70,15 +75,27 @@ export function SceneTile({
         {image.media_type === 'video' && <VideoIndicator />}
       </div>
 
-      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/50 to-transparent pt-12 pb-3 px-2.5 pointer-events-none">
+      <div
+        aria-hidden="true"
+        className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/50 to-transparent pt-12 pb-3 px-2.5 pointer-events-none"
+      >
         <p className="text-[13px] font-medium text-white leading-snug line-clamp-1 drop-shadow">
           {primaryText}
         </p>
         {secondaryText && (
-          <p className="text-[11px] text-white/60 truncate mt-0.5">{secondaryText}</p>
+          <p className="text-[11px] text-white/85 truncate mt-0.5">{secondaryText}</p>
         )}
-        {authorText && <p className="text-[11px] text-white/60 truncate mt-0.5">{authorText}</p>}
+        {authorText && <p className="text-[11px] text-white/85 truncate mt-0.5">{authorText}</p>}
       </div>
+
+      {/* Covers the whole tile: the tile's single click and keyboard target */}
+      <button
+        type="button"
+        aria-label={label}
+        aria-current={isActive || undefined}
+        onClick={onClick}
+        className="absolute inset-0 z-[1] cursor-pointer rounded-lg focus-visible:outline-offset-[-2px]"
+      />
 
       {isActive && (
         <div className="absolute inset-0 ring-2 ring-inset ring-primary/40 rounded-lg pointer-events-none" />

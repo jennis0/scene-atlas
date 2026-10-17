@@ -32,12 +32,12 @@ export function FileCardExcludedState({
       <div className="flex-1 min-w-0 py-2 px-2.5 flex items-center gap-2">
         <div className="flex-1 min-w-0">
           <span
-            className="font-display text-[12px] text-muted-foreground/40 line-through truncate block"
+            className="font-display text-[12px] text-muted-foreground line-through truncate block"
             title={file.relative_path}
           >
             {file.name || file.filename}
           </span>
-          <span className="font-mono text-[9px] text-muted-foreground/25 truncate block">
+          <span className="font-mono text-[9px] text-muted-foreground truncate block">
             {file.filename}
           </span>
         </div>

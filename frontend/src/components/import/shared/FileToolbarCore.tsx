@@ -97,17 +97,17 @@ export function FileToolbarCore({
 
         <div className="relative flex-1 min-w-0 flex items-center gap-1">
           <div className="relative flex-1 min-w-0">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/40 pointer-events-none" />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
             <input
               value={filter.text}
               onChange={(e) => onFilterChange({ ...filter, text: e.target.value })}
               placeholder={searchPlaceholder}
-              className="w-full h-7 pl-8 pr-7 text-sm bg-secondary border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary/40 text-foreground placeholder:text-muted-foreground"
+              className="w-full h-7 pl-8 pr-7 text-sm bg-secondary border border-border rounded text-foreground placeholder:text-muted-foreground"
             />
             {(filter.text || filter.imageType !== 'all') && (
               <button
                 onClick={() => onFilterChange({ ...filter, text: '', imageType: 'all' })}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-muted-foreground transition-colors"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -135,7 +135,10 @@ export function FileToolbarCore({
                   <SlidersHorizontal className="h-3.5 w-3.5" />
                 </button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-[400px] p-0 h-[480px] flex flex-col">
+              <PopoverContent
+                align="end"
+                className="w-[min(400px,calc(100vw-2rem))] p-0 h-[min(480px,var(--radix-popover-content-available-height))] flex flex-col"
+              >
                 <FilterMenuContent
                   groups={filterGroups}
                   activeFilters={filter.active}

@@ -83,13 +83,13 @@ function SubgroupRow({
           {image.subgroup ? (
             <span className="text-foreground/80 capitalize truncate pr-3">{image.subgroup}</span>
           ) : (
-            <span className="text-muted-foreground/30 italic">—</span>
+            <span className="text-muted-foreground italic">—</span>
           )}
         </button>
         {image.subgroup && (
           <button
             onClick={() => onPatch({ subgroup: null })}
-            className="absolute right-1 top-1/2 -translate-y-1/2 z-10 opacity-0 group-hover/sv:opacity-40 hover:!opacity-100 transition-opacity text-muted-foreground"
+            className="target-24 absolute right-1 top-1/2 -translate-y-1/2 z-10 opacity-0 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 group-hover/sv:opacity-40 hover:!opacity-100 transition-opacity text-muted-foreground"
             title="Clear subgroup"
           >
             <X className="h-3 w-3" />
@@ -123,12 +123,13 @@ function TypeRow({ image, onPatch, patching }: PatchRowProps) {
     const active = type === 'scene' ? image.image_type === 'scene' : image.image_type !== 'scene'
     return (
       <button
+        aria-pressed={active}
         onClick={() => onPatch({ image_type: type })}
         disabled={patching}
-        className={`px-2 py-0.5 text-[11px] rounded-sm transition-colors ${
+        className={`px-2 py-1 text-[11px] rounded-sm transition-colors ${
           active
-            ? 'bg-primary/20 text-primary font-medium'
-            : 'text-muted-foreground/60 hover:text-muted-foreground'
+            ? 'bg-primary/10 text-primary font-medium'
+            : 'text-muted-foreground hover:text-foreground'
         }`}
       >
         {label}
@@ -138,7 +139,11 @@ function TypeRow({ image, onPatch, patching }: PatchRowProps) {
 
   return (
     <PropertyRow label="Type">
-      <div className="inline-flex rounded border border-border p-px bg-secondary/50">
+      <div
+        role="group"
+        aria-label="Type"
+        className="inline-flex rounded border border-border p-px bg-secondary/50"
+      >
         {typeButton('battlemap', 'Map')}
         {typeButton('scene', 'Scene')}
       </div>

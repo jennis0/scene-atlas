@@ -8,6 +8,8 @@ interface GridToggleProps {
 
 type GridOption = {
   label: string
+  /** Spoken name and tooltip, when the visible label is a symbol */
+  title?: string
   gridded: boolean | null
   gridType: string | null
 }
@@ -16,7 +18,7 @@ const OPTIONS: GridOption[] = [
   { label: 'Square', gridded: true, gridType: 'square' },
   { label: 'Hex', gridded: true, gridType: 'hex' },
   { label: 'None', gridded: false, gridType: null },
-  { label: '?', gridded: null, gridType: null },
+  { label: '?', title: 'Unknown', gridded: null, gridType: null },
 ]
 
 function isActive(opt: GridOption, gridded: boolean | null, gridType: string | null): boolean {
@@ -31,17 +33,24 @@ export function GridToggle({ gridded, gridType, onChange, disabled, compact }: G
   const btnSize = compact ? 'px-1.5 py-0.5 text-[10px]' : 'px-2.5 py-1 text-[11px]'
 
   return (
-    <div className="inline-flex rounded-md overflow-hidden border border-border">
+    <div
+      role="group"
+      aria-label="Grid"
+      className="inline-flex rounded-md overflow-hidden border border-border"
+    >
       {OPTIONS.map((opt, i) => (
         <button
           key={opt.label}
           disabled={disabled}
+          aria-pressed={isActive(opt, gridded, gridType)}
+          aria-label={opt.title}
+          title={opt.title}
           onClick={() => onChange(opt.gridded, opt.gridType)}
-          className={`${btnSize} font-medium transition-all disabled:opacity-40
+          className={`${btnSize} font-medium transition-all disabled:opacity-40 focus-visible:outline-offset-[-2px]
             ${i > 0 ? 'border-l border-border' : ''}
             ${
               isActive(opt, gridded, gridType)
-                ? 'bg-primary/20 text-primary'
+                ? 'bg-primary/10 text-primary'
                 : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
             }`}
         >

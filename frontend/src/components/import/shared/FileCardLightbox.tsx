@@ -14,6 +14,7 @@ export function FileCardLightbox({ open, onOpenChange, src, alt, isVideo }: File
   return (
     <Dialog open onOpenChange={onOpenChange}>
       <DialogContent
+        aria-label={alt || 'Preview'}
         className="max-w-none max-h-none w-[95vw] h-[95vh] bg-black/95 border-0 p-4 flex items-center justify-center [&>button]:text-white [&>button]:hover:bg-white/20 cursor-pointer"
         onClick={() => onOpenChange(false)}
       >

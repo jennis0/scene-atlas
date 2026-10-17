@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { HashRouter as Router, Routes, Route } from 'react-router-dom'
+import { createPortal } from 'react-dom'
 import { Toaster } from 'sonner'
 import { Gallery } from './pages/Gallery'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -86,7 +87,13 @@ function App() {
           </Routes>
         </div>
       </Router>
-      <Toaster position="bottom-right" richColors theme={theme} />
+      {/* Outside the app root so toasts stay usable while a modal inerts the page */}
+      {createPortal(
+        <div data-modal-exempt="">
+          <Toaster position="bottom-right" richColors theme={theme} />
+        </div>,
+        document.body,
+      )}
     </ErrorBoundary>
   )
 }

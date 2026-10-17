@@ -121,10 +121,15 @@ export function GalleryHeader({
       },
     ]
     return (
-      <div className="-mx-4 px-4 flex items-stretch border-b border-border/60">
+      <div
+        role="group"
+        aria-label="Image type"
+        className="-mx-4 px-4 flex items-stretch border-b border-border/60"
+      >
         {tabs.map(({ value, label, Icon, count }) => (
           <button
             key={value}
+            aria-pressed={imageType === value}
             onClick={() => handleImageTypeChange(value)}
             className={`flex items-center gap-2 py-2.5 pr-4 mr-1 text-sm font-medium border-b-2 transition-colors
               ${
@@ -165,7 +170,7 @@ export function GalleryHeader({
       {needsOverlayPadding && <div className="h-8 drag-region" />}
       <div className={`container mx-auto px-4 ${isMac ? 'pl-20' : ''}`}>
         <div
-          className={`${needsOverlayPadding ? 'pt-2 pb-2' : 'pt-4 pb-3'} flex ${needsOverlayPadding ? 'items-center' : 'items-start'} justify-between border-b border-border/70 ${isApp ? 'drag-region' : ''}`}
+          className={`${needsOverlayPadding ? 'pt-2 pb-2' : 'pt-4 pb-3'} flex flex-wrap gap-x-4 gap-y-2 ${needsOverlayPadding ? 'items-center' : 'items-start'} justify-between border-b border-border/70 ${isApp ? 'drag-region' : ''}`}
         >
           <div>
             <h1 className="font-display text-2xl font-medium tracking-wide text-foreground">
@@ -182,10 +187,11 @@ export function GalleryHeader({
               size="sm"
               onClick={onOpenTagManagement}
               title="Manage tag categories and values"
+              aria-label="Manage tags"
               className="gap-1.5 text-muted-foreground hover:text-foreground"
             >
               <Tag className="h-3.5 w-3.5" />
-              Manage Tags
+              <span className="hidden sm:inline">Manage Tags</span>
             </Button>
             <Button
               variant="ghost"
@@ -225,8 +231,12 @@ export function GalleryHeader({
 
         {tabStrip}
 
-        <div className="flex items-center gap-2 pt-3 pb-3">
-          <form onSubmit={handleSubmit} className="flex flex-1 min-w-0">
+        <div className="flex flex-wrap md:flex-nowrap items-center gap-2 pt-3 pb-3">
+          <form
+            role="search"
+            onSubmit={handleSubmit}
+            className="flex basis-full md:basis-auto flex-1 min-w-0"
+          >
             <div className="relative flex-1 min-w-0">
               {isSemantic ? (
                 <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
@@ -237,6 +247,7 @@ export function GalleryHeader({
               )}
               <Input
                 type="text"
+                aria-label="Search the library"
                 placeholder={`Search ${imageType === 'all' ? 'scenes' : imageType === 'battlemap' ? 'maps' : 'scenes'}\u2026  "quotes" for exact phrase, ~ visual, = keyword`}
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
@@ -247,7 +258,7 @@ export function GalleryHeader({
                 <button
                   type="button"
                   onClick={search.clearSearch}
-                  tabIndex={-1}
+                  aria-label="Clear search"
                   className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                 >
                   <X className="h-3.5 w-3.5" />
@@ -289,8 +300,9 @@ export function GalleryHeader({
           <div className="h-5 w-px bg-border/60 shrink-0 mx-0.5" />
 
           {/* View mode toggle -- icon buttons, no outer border */}
-          <div className="flex items-center gap-0.5 shrink-0">
+          <div role="group" aria-label="View" className="flex items-center gap-0.5 shrink-0">
             <button
+              aria-pressed={viewMode === 'individual'}
               onClick={() => setViewMode('individual')}
               title="Individual images"
               className={`h-8 w-8 flex items-center justify-center rounded transition-colors
@@ -299,6 +311,7 @@ export function GalleryHeader({
               <LayoutGrid className="h-4 w-4" />
             </button>
             <button
+              aria-pressed={viewMode === 'grouped'}
               onClick={() => setViewMode('grouped')}
               title="Groups"
               className={`h-8 w-8 flex items-center justify-center rounded transition-colors
@@ -309,7 +322,7 @@ export function GalleryHeader({
           </div>
         </div>
 
-        <div className="flex items-center pb-4 min-h-[32px]">
+        <div className="flex flex-wrap items-center gap-y-1 pb-4 min-h-[32px]">
           <div className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
             <FilterChipList
               filters={filters}
@@ -319,7 +332,7 @@ export function GalleryHeader({
             {hasActiveSearch && (
               <button
                 onClick={clearAll}
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 ml-1"
+                className="relative target-24 text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 ml-1"
               >
                 <X className="h-2.5 w-2.5" />
                 Clear all
@@ -328,23 +341,26 @@ export function GalleryHeader({
           </div>
 
           {/* Right cluster: count + sort + edit all + relevance */}
-          <div className="flex items-center ml-auto shrink-0 text-xs text-muted-foreground gap-0">
-            {!isSearching && (
-              <span className="tabular-nums">
-                {viewMode === 'grouped'
+          <div className="flex flex-wrap items-center ml-auto shrink-0 text-xs text-muted-foreground gap-0">
+            {/* Always mounted so screen readers hear each new count after a search */}
+            <span role="status" className="tabular-nums">
+              {isSearching
+                ? ''
+                : viewMode === 'grouped'
                   ? `${totalGroups} group${totalGroups !== 1 ? 's' : ''}`
                   : hasActiveSearch
                     ? showRelevanceSlider
                       ? `${filteredCount} / ${totalBeforeFilter} result${totalBeforeFilter !== 1 ? 's' : ''}${searchModeSuffix}`
                       : `${filteredCount} result${filteredCount !== 1 ? 's' : ''}${searchModeSuffix}`
                     : `${facets?.total_images ?? 0} scenes`}
-              </span>
-            )}
+            </span>
 
-            <span className="text-border/60 px-1.5">&middot;</span>
+            <span aria-hidden="true" className="text-border/60 px-1.5">
+              &middot;
+            </span>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-1 hover:text-foreground transition-colors">
+                <button className="relative target-24 flex items-center gap-1 hover:text-foreground transition-colors">
                   {SORT_OPTIONS.find((o) => `${o.value}:${o.dir}` === sortKey)?.label ?? 'Sort'}
                   <ArrowUpDown className="h-2.5 w-2.5 opacity-50" />
                 </button>
@@ -370,15 +386,20 @@ export function GalleryHeader({
             {viewMode === 'grouped'
               ? totalGroups > 0 && (
                   <>
-                    <span className="text-border/60 px-1.5">&middot;</span>
+                    <span aria-hidden="true" className="text-border/60 px-1.5">
+                      &middot;
+                    </span>
                     {totalGroups > 500 ? (
-                      <div
+                      // Focusable, so keyboard users can reach the explanation too
+                      <button
+                        type="button"
+                        aria-disabled="true"
                         title={`Too many groups (${totalGroups}) — apply filters to narrow below 500`}
-                        className="flex items-center gap-1.5 cursor-not-allowed opacity-50"
+                        className="relative target-24 flex items-center gap-1.5 cursor-not-allowed opacity-50"
                       >
                         <Pencil className="h-3 w-3" />
                         Edit all ({totalGroups})
-                      </div>
+                      </button>
                     ) : (
                       <button
                         onClick={onOpenMassEdit}
@@ -388,7 +409,7 @@ export function GalleryHeader({
                             ? 'Loading images...'
                             : 'Bulk-edit all groups in current results'
                         }
-                        className="flex items-center gap-1.5 hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="relative target-24 flex items-center gap-1.5 hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {search.editAllLoading ? (
                           <Loader2 className="h-3 w-3 animate-spin" />
@@ -402,11 +423,13 @@ export function GalleryHeader({
                 )
               : displayImageCount > 0 && (
                   <>
-                    <span className="text-border/60 px-1.5">&middot;</span>
+                    <span aria-hidden="true" className="text-border/60 px-1.5">
+                      &middot;
+                    </span>
                     <button
                       onClick={onOpenMassEdit}
                       title="Bulk-edit all scenes in current results"
-                      className="flex items-center gap-1.5 hover:text-foreground transition-colors"
+                      className="relative target-24 flex items-center gap-1.5 hover:text-foreground transition-colors"
                     >
                       <Pencil className="h-3 w-3" />
                       Edit all ({displayImageCount})
@@ -416,7 +439,9 @@ export function GalleryHeader({
 
             {showRelevanceSlider && (
               <>
-                <span className="text-border/60 px-1.5">&middot;</span>
+                <span aria-hidden="true" className="text-border/60 px-1.5">
+                  &middot;
+                </span>
                 <div className="flex items-center gap-2" title="Minimum relevance threshold">
                   <span>Relevance</span>
                   <input
@@ -426,6 +451,10 @@ export function GalleryHeader({
                     step={RELEVANCE_STEP}
                     value={minScore}
                     onChange={(e) => setMinScore(parseFloat(e.target.value))}
+                    aria-label="Minimum relevance"
+                    aria-valuetext={
+                      minScore > 0 ? `${relevanceToPercent(minScore)}%` : 'All results'
+                    }
                     className="w-20 cursor-pointer accent-primary"
                     style={{ height: '4px' }}
                   />

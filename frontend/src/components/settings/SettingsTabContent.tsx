@@ -353,7 +353,7 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                             handleModelSelect(model.name)
                           }
                         }}
-                        className={`relative text-left rounded-lg border p-3 space-y-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                        className={`relative text-left rounded-lg border p-3 space-y-1.5 transition-colors ${
                           isActive
                             ? 'border-primary bg-primary/5 cursor-default'
                             : isPending

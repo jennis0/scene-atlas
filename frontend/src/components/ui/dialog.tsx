@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { pushDialog } from './dialogStack'
+import { useModalLayer } from './modalLayer'
+import { DialogTitleIdContext } from './dialogTitleId'
 
 interface DialogProps {
   open?: boolean
@@ -20,6 +22,9 @@ const Dialog = ({ open, onOpenChange, children }: DialogProps) => {
   React.useLayoutEffect(() => {
     if (open) return pushDialog(() => onOpenChangeRef.current?.(false))
   }, [open])
+
+  // Inert the rest of the page while open, and return focus to the opener on close.
+  useModalLayer(containerRef, !!open)
 
   // Move focus into the dialog when it opens. Looks for an element marked with
   // data-autofocus first, then falls back to the first focusable element.
@@ -76,29 +81,37 @@ const Dialog = ({ open, onOpenChange, children }: DialogProps) => {
 const DialogContent = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement> & { onClose?: () => void }
->(({ className, children, onClose, ...props }, ref) => (
-  <div
-    ref={ref}
-    role="dialog"
-    aria-modal="true"
-    className={cn(
-      'relative z-50 grid w-full max-w-lg gap-4 border bg-background p-6 shadow-lg sm:rounded-lg',
-      className,
-    )}
-    {...props}
-  >
-    {children}
-    {onClose && (
-      <button
-        onClick={onClose}
-        className="absolute right-4 top-4 h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+>(({ className, children, onClose, ...props }, ref) => {
+  // Named by the title rendered inside, unless the caller names it another way.
+  const titleId = React.useId()
+  const named = props['aria-label'] !== undefined || props['aria-labelledby'] !== undefined
+  return (
+    <DialogTitleIdContext.Provider value={named ? undefined : titleId}>
+      <div
+        ref={ref}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={named ? undefined : titleId}
+        className={cn(
+          'relative z-50 grid w-full max-w-lg gap-4 border bg-background p-6 shadow-lg sm:rounded-lg',
+          className,
+        )}
+        {...props}
       >
-        <X className="h-3.5 w-3.5" />
-        <span className="sr-only">Close</span>
-      </button>
-    )}
-  </div>
-))
+        {children}
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="absolute right-4 top-4 h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+          >
+            <X className="h-3.5 w-3.5" />
+            <span className="sr-only">Close</span>
+          </button>
+        )}
+      </div>
+    </DialogTitleIdContext.Provider>
+  )
+})
 DialogContent.displayName = 'DialogContent'
 
 const DialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
@@ -112,6 +125,7 @@ const DialogTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <h2
     ref={ref}
+    id={React.useContext(DialogTitleIdContext)}
     className={cn('text-lg font-semibold leading-none tracking-tight', className)}
     {...props}
   />

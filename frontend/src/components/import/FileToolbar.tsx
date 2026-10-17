@@ -175,7 +175,7 @@ export function FileToolbar({
         >
           {existingSubgroups.length > 0 && (
             <>
-              <div className="px-3 pt-2.5 pb-1 text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">
+              <div className="px-3 pt-2.5 pb-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
                 Existing
               </div>
               {existingSubgroups.map((sv) => (
@@ -196,7 +196,7 @@ export function FileToolbar({
               value={subgroupInput}
               onChange={(e) => setSubgroupInput(e.target.value)}
               placeholder="New subgroup…"
-              className="flex-1 min-w-0 h-7 px-2 text-sm bg-secondary border border-border rounded text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
+              className="flex-1 min-w-0 h-7 px-2 text-sm bg-secondary border border-border rounded text-foreground placeholder:text-muted-foreground"
               onKeyDown={(e) => {
                 e.stopPropagation()
                 onInlineEditKey(e, {

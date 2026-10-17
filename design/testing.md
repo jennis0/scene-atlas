@@ -107,6 +107,7 @@ UPDATE_SEARCH_GOLDEN=1 uv run python -m pytest backend/tests/integration/test_se
 | Search behaviour change | `integration/test_search_endpoint.py`; regenerate the golden file if responses change intentionally |
 | New list/search query | `integration/test_query_counts.py` to pin the query count |
 | New user-facing flow | `e2e/tests/` -- Playwright spec exercising the UI flow |
+| New surface or dialog | Add it to `e2e/tests/accessibility.spec.ts` (axe scan in both themes) |
 
 ## Known quirks
 

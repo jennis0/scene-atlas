@@ -39,7 +39,7 @@ export function GroupPickerShell({
           <PanelTitle className="flex-1">{title}</PanelTitle>
           <button
             onClick={onClose}
-            className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 shrink-0 ml-2"
+            className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors shrink-0 ml-2"
           >
             <X className="h-3.5 w-3.5" />
             <span className="sr-only">Close</span>
@@ -48,7 +48,7 @@ export function GroupPickerShell({
 
         <div className="px-4 pt-3 pb-2 shrink-0">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/60 pointer-events-none" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
             <Input
               data-autofocus
               inputSize="compact"
@@ -68,7 +68,7 @@ export function GroupPickerShell({
         <div className="flex justify-end gap-2 px-4 py-3 border-t border-border/30 bg-muted/5 shrink-0">
           <button
             onClick={onClose}
-            className="px-3 py-1.5 text-sm rounded-md border border-border/50 text-muted-foreground hover:text-foreground hover:border-border transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+            className="px-3 py-1.5 text-sm rounded-md border border-border/50 text-muted-foreground hover:text-foreground hover:border-border transition-colors"
           >
             Cancel
           </button>
@@ -77,7 +77,7 @@ export function GroupPickerShell({
             disabled={confirmDisabled}
             className="px-3.5 py-1.5 text-sm rounded-md border font-medium flex items-center gap-1.5 transition-colors
               border-primary/30 bg-primary/10 text-primary hover:bg-primary/20
-              disabled:opacity-30 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+              disabled:opacity-30 disabled:cursor-not-allowed"
           >
             {confirmIcon ?? <Merge className="h-3.5 w-3.5" />}
             {confirmLabel}

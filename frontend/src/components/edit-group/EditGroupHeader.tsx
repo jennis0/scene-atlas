@@ -22,7 +22,7 @@ export function EditGroupHeader({ isMassEdit, summary, onDone, saving }: EditGro
             {isMassEdit ? 'Edit Search Results' : 'Edit Group'}
           </h2>
           {summary && (
-            <p className="text-[11px] text-muted-foreground/60 mt-0.5 ml-7">
+            <p className="text-[11px] text-muted-foreground mt-0.5 ml-7">
               {plural(summary.images, 'image')} across {plural(summary.groups, 'group')}
               {summary.ungrouped > 0 && ` · ${summary.ungrouped} ungrouped skipped`}
             </p>
@@ -31,6 +31,7 @@ export function EditGroupHeader({ isMassEdit, summary, onDone, saving }: EditGro
         <button
           onClick={onDone}
           disabled={saving}
+          aria-label="Close"
           className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors disabled:opacity-40"
         >
           <X className="h-4 w-4" />

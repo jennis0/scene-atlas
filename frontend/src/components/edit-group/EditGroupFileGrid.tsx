@@ -67,7 +67,7 @@ export function EditGroupFileGrid({
 
       {files.length === 0 && hasActiveFilter && (
         <div className="flex flex-col items-center py-12 text-muted-foreground gap-2">
-          <Search className="h-8 w-8 text-muted-foreground/30" />
+          <Search className="h-8 w-8 text-muted-foreground" />
           <p className="text-sm">No files match the current filter</p>
         </div>
       )}
@@ -127,7 +127,7 @@ function OutOfScopeSection({ files, vocab, existingSubgroups, onUpdate }: OutOfS
     <div className="mt-4">
       <div className="flex items-center gap-2 mb-2">
         <div className="flex-1 h-px bg-border/20" />
-        <span className="text-[10px] font-semibold text-muted-foreground/40 uppercase tracking-wider whitespace-nowrap">
+        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
           Other images in this group
         </span>
         <div className="flex-1 h-px bg-border/20" />

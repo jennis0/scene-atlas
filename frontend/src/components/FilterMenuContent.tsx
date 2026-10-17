@@ -758,7 +758,7 @@ function OptionPill({
     >
       <span className="capitalize max-w-[160px] truncate">{label}</span>
       {count !== undefined && (
-        <span className="ml-0.5 text-[9px] opacity-50 tabular-nums">{count}</span>
+        <span className="ml-0.5 text-[10px] opacity-80 tabular-nums">{count}</span>
       )}
     </button>
   )
@@ -817,7 +817,7 @@ function ColorSwatch({
       {onRemove && (
         <button
           onClick={onRemove}
-          className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+          className="target-24 absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 group-hover:opacity-100 transition-opacity"
           title="Remove custom color"
         >
           <X className="h-2 w-2" />
@@ -886,15 +886,19 @@ function CustomColorPicker({
     return () => el.removeEventListener('change', handler)
   }, [])
 
+  // The colour input sits beside the button, not inside it: a button can't contain
+  // another interactive element.
   return (
-    <button
-      onClick={() => inputRef.current?.click()}
-      title="Pick a custom color"
-      className="aspect-square w-full rounded-full border-2 border-dashed border-border/60 hover:border-foreground/50 transition-all flex items-center justify-center bg-secondary/50 hover:bg-secondary"
-    >
-      <Plus className="h-3.5 w-3.5 text-muted-foreground" />
-      <input ref={inputRef} type="color" className="sr-only" />
-    </button>
+    <>
+      <input ref={inputRef} type="color" tabIndex={-1} aria-hidden="true" className="sr-only" />
+      <button
+        onClick={() => inputRef.current?.click()}
+        title="Pick a custom color"
+        className="aspect-square w-full rounded-full border-2 border-dashed border-border/60 hover:border-foreground/50 transition-all flex items-center justify-center bg-secondary/50 hover:bg-secondary"
+      >
+        <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+      </button>
+    </>
   )
 }
 
@@ -936,15 +940,16 @@ function FilterChip({
       </span>
       <button
         onClick={onToggle}
-        className={`${filter.exclude ? 'opacity-60' : 'opacity-50'} hover:opacity-100 text-[10px] font-medium transition-opacity`}
+        className="relative target-24 opacity-80 hover:opacity-100 text-[10px] font-medium transition-opacity"
         title={filter.exclude ? 'Switch to include' : 'Switch to exclude'}
       >
         {filter.exclude ? 'hidden' : 'only'}
       </button>
       <button
         onClick={onRemove}
-        className="hover:opacity-80 transition-opacity ml-0.5"
+        className="relative target-24 hover:opacity-80 transition-opacity ml-1.5"
         title="Remove"
+        aria-label={`Remove filter: ${filter.label}`}
       >
         <X className="h-2.5 w-2.5" />
       </button>

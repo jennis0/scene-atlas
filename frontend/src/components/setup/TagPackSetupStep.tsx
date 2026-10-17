@@ -189,7 +189,7 @@ export function TagPackSetupStep({
                   type="button"
                   disabled={isCommon || importing}
                   onClick={() => togglePack(pack.name)}
-                  className={`relative text-left rounded-lg border p-3 space-y-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                  className={`relative text-left rounded-lg border p-3 space-y-1 transition-colors ${
                     isCommon
                       ? 'border-border/30 bg-muted/20 cursor-default'
                       : isSelected
@@ -221,7 +221,7 @@ export function TagPackSetupStep({
                       <p className="text-xs text-muted-foreground leading-relaxed mt-0.5">
                         {pack.description}
                       </p>
-                      <p className="text-[10px] text-muted-foreground/60 mt-1">
+                      <p className="text-[10px] text-muted-foreground mt-1">
                         {pack.tag_count} tags
                       </p>
                     </div>

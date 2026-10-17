@@ -145,7 +145,7 @@ export function ImportReportDialog({
                 role="tab"
                 aria-selected={active === s}
                 onClick={() => setSection(s)}
-                className={`inline-flex items-center gap-2 h-8 px-3 text-[12.5px] border-r border-border last:border-r-0 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/40 ${
+                className={`inline-flex items-center gap-2 h-8 px-3 text-[12.5px] border-r border-border last:border-r-0 transition-colors focus-visible:outline-offset-[-2px] ${
                   active === s
                     ? 'bg-secondary text-foreground'
                     : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'

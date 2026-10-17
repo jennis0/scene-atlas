@@ -31,7 +31,7 @@ const COLOR_PALETTE: Record<string, TagColorEntry> = {
     border: 'border-red-400/30',
     dot: 'bg-red-400',
     lightBg: 'bg-red-50',
-    lightText: 'text-red-700',
+    lightText: 'text-red-800',
     lightBorder: 'border-red-200',
   },
   crimson: {
@@ -49,7 +49,7 @@ const COLOR_PALETTE: Record<string, TagColorEntry> = {
     border: 'border-orange-400/30',
     dot: 'bg-orange-400',
     lightBg: 'bg-orange-50',
-    lightText: 'text-orange-700',
+    lightText: 'text-orange-800',
     lightBorder: 'border-orange-200',
   },
   amber: {
@@ -58,7 +58,7 @@ const COLOR_PALETTE: Record<string, TagColorEntry> = {
     border: 'border-amber-400/30',
     dot: 'bg-amber-400',
     lightBg: 'bg-amber-50',
-    lightText: 'text-amber-700',
+    lightText: 'text-amber-800',
     lightBorder: 'border-amber-200',
   },
   brown: {
@@ -76,7 +76,7 @@ const COLOR_PALETTE: Record<string, TagColorEntry> = {
     border: 'border-yellow-400/30',
     dot: 'bg-yellow-400',
     lightBg: 'bg-yellow-50',
-    lightText: 'text-yellow-700',
+    lightText: 'text-yellow-800',
     lightBorder: 'border-yellow-200',
   },
   lime: {
@@ -85,7 +85,7 @@ const COLOR_PALETTE: Record<string, TagColorEntry> = {
     border: 'border-lime-400/30',
     dot: 'bg-lime-400',
     lightBg: 'bg-lime-50',
-    lightText: 'text-lime-700',
+    lightText: 'text-lime-800',
     lightBorder: 'border-lime-200',
   },
   green: {
@@ -94,7 +94,7 @@ const COLOR_PALETTE: Record<string, TagColorEntry> = {
     border: 'border-green-400/30',
     dot: 'bg-green-500',
     lightBg: 'bg-green-50',
-    lightText: 'text-green-700',
+    lightText: 'text-green-800',
     lightBorder: 'border-green-200',
   },
   emerald: {
@@ -103,7 +103,7 @@ const COLOR_PALETTE: Record<string, TagColorEntry> = {
     border: 'border-emerald-400/30',
     dot: 'bg-emerald-500',
     lightBg: 'bg-emerald-50',
-    lightText: 'text-emerald-700',
+    lightText: 'text-emerald-800',
     lightBorder: 'border-emerald-200',
   },
   teal: {
@@ -112,7 +112,7 @@ const COLOR_PALETTE: Record<string, TagColorEntry> = {
     border: 'border-teal-400/30',
     dot: 'bg-teal-500',
     lightBg: 'bg-teal-50',
-    lightText: 'text-teal-700',
+    lightText: 'text-teal-800',
     lightBorder: 'border-teal-200',
   },
   cyan: {
@@ -121,7 +121,7 @@ const COLOR_PALETTE: Record<string, TagColorEntry> = {
     border: 'border-cyan-400/30',
     dot: 'bg-cyan-400',
     lightBg: 'bg-cyan-50',
-    lightText: 'text-cyan-700',
+    lightText: 'text-cyan-800',
     lightBorder: 'border-cyan-200',
   },
   sky: {
@@ -130,7 +130,7 @@ const COLOR_PALETTE: Record<string, TagColorEntry> = {
     border: 'border-sky-400/30',
     dot: 'bg-sky-400',
     lightBg: 'bg-sky-50',
-    lightText: 'text-sky-700',
+    lightText: 'text-sky-800',
     lightBorder: 'border-sky-200',
   },
   blue: {
@@ -139,7 +139,7 @@ const COLOR_PALETTE: Record<string, TagColorEntry> = {
     border: 'border-blue-400/30',
     dot: 'bg-blue-400',
     lightBg: 'bg-blue-50',
-    lightText: 'text-blue-700',
+    lightText: 'text-blue-800',
     lightBorder: 'border-blue-200',
   },
   indigo: {
@@ -148,7 +148,7 @@ const COLOR_PALETTE: Record<string, TagColorEntry> = {
     border: 'border-indigo-400/30',
     dot: 'bg-indigo-400',
     lightBg: 'bg-indigo-50',
-    lightText: 'text-indigo-700',
+    lightText: 'text-indigo-800',
     lightBorder: 'border-indigo-200',
   },
   violet: {
@@ -157,7 +157,7 @@ const COLOR_PALETTE: Record<string, TagColorEntry> = {
     border: 'border-violet-400/30',
     dot: 'bg-violet-500',
     lightBg: 'bg-violet-50',
-    lightText: 'text-violet-700',
+    lightText: 'text-violet-800',
     lightBorder: 'border-violet-200',
   },
   purple: {
@@ -166,7 +166,7 @@ const COLOR_PALETTE: Record<string, TagColorEntry> = {
     border: 'border-purple-400/30',
     dot: 'bg-purple-400',
     lightBg: 'bg-purple-50',
-    lightText: 'text-purple-700',
+    lightText: 'text-purple-800',
     lightBorder: 'border-purple-200',
   },
   fuchsia: {
@@ -175,7 +175,7 @@ const COLOR_PALETTE: Record<string, TagColorEntry> = {
     border: 'border-fuchsia-400/30',
     dot: 'bg-fuchsia-400',
     lightBg: 'bg-fuchsia-50',
-    lightText: 'text-fuchsia-700',
+    lightText: 'text-fuchsia-800',
     lightBorder: 'border-fuchsia-200',
   },
   pink: {
@@ -184,7 +184,7 @@ const COLOR_PALETTE: Record<string, TagColorEntry> = {
     border: 'border-pink-400/30',
     dot: 'bg-pink-400',
     lightBg: 'bg-pink-50',
-    lightText: 'text-pink-700',
+    lightText: 'text-pink-800',
     lightBorder: 'border-pink-200',
   },
   rose: {
@@ -193,7 +193,7 @@ const COLOR_PALETTE: Record<string, TagColorEntry> = {
     border: 'border-rose-400/30',
     dot: 'bg-rose-400',
     lightBg: 'bg-rose-50',
-    lightText: 'text-rose-700',
+    lightText: 'text-rose-800',
     lightBorder: 'border-rose-200',
   },
   stone: {
@@ -202,7 +202,7 @@ const COLOR_PALETTE: Record<string, TagColorEntry> = {
     border: 'border-stone-400/30',
     dot: 'bg-stone-400',
     lightBg: 'bg-stone-100',
-    lightText: 'text-stone-600',
+    lightText: 'text-stone-700',
     lightBorder: 'border-stone-300',
   },
   slate: {
@@ -211,7 +211,7 @@ const COLOR_PALETTE: Record<string, TagColorEntry> = {
     border: 'border-slate-400/30',
     dot: 'bg-slate-400',
     lightBg: 'bg-slate-100',
-    lightText: 'text-slate-600',
+    lightText: 'text-slate-700',
     lightBorder: 'border-slate-300',
   },
   gray: {
@@ -220,7 +220,7 @@ const COLOR_PALETTE: Record<string, TagColorEntry> = {
     border: 'border-gray-400/30',
     dot: 'bg-gray-400',
     lightBg: 'bg-gray-100',
-    lightText: 'text-gray-600',
+    lightText: 'text-gray-700',
     lightBorder: 'border-gray-300',
   },
   zinc: {
@@ -229,7 +229,7 @@ const COLOR_PALETTE: Record<string, TagColorEntry> = {
     border: 'border-zinc-400/30',
     dot: 'bg-zinc-400',
     lightBg: 'bg-zinc-100',
-    lightText: 'text-zinc-600',
+    lightText: 'text-zinc-700',
     lightBorder: 'border-zinc-300',
   },
   neutral: {
@@ -238,7 +238,7 @@ const COLOR_PALETTE: Record<string, TagColorEntry> = {
     border: 'border-neutral-400/30',
     dot: 'bg-neutral-400',
     lightBg: 'bg-neutral-100',
-    lightText: 'text-neutral-600',
+    lightText: 'text-neutral-700',
     lightBorder: 'border-neutral-300',
   },
 }

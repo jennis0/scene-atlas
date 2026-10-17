@@ -194,12 +194,14 @@ describe('ImageViewer', () => {
     it('defers to an open dialog', async () => {
       const { user, onClose, onNext } = setup(makeImage())
       await user.click(screen.getByTitle('Delete image'))
-      expect(screen.getByRole('dialog')).toBeInTheDocument()
+      expect(screen.getByRole('dialog', { name: 'Delete Image' })).toBeInTheDocument()
       await user.keyboard('{ArrowRight}')
       await user.keyboard('{Escape}')
       expect(onNext).not.toHaveBeenCalled()
       expect(onClose).not.toHaveBeenCalled()
-      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+      await waitFor(() =>
+        expect(screen.queryByRole('dialog', { name: 'Delete Image' })).not.toBeInTheDocument(),
+      )
     })
 
     it('closes when the backdrop is clicked but not the content', async () => {
@@ -234,6 +236,32 @@ describe('ImageViewer', () => {
       const { user } = setup(makeImage())
       await user.click(screen.getByRole('button', { name: /Download group/ }))
       expect(downloadFile).toHaveBeenCalledWith('/api/v1/groups/10/download', 'Forest Pack.zip')
+    })
+  })
+
+  describe('accessibility', () => {
+    it('is a modal dialog named after the image, focused on open', () => {
+      setup(makeImage())
+      const dialog = screen.getByRole('dialog', { name: 'Forest Clearing' })
+      expect(dialog).toHaveAttribute('aria-modal', 'true')
+      expect(dialog).toHaveFocus()
+    })
+
+    it('names its icon-only controls', () => {
+      setup(makeImage(), [makeImage()], { onNext: vi.fn(), onPrevious: vi.fn() })
+      expect(screen.getByRole('button', { name: 'Previous image' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Next image' })).toBeInTheDocument()
+    })
+
+    it('exposes which type and grid are selected', () => {
+      setup(makeImage())
+      expect(screen.getByRole('button', { name: 'Map' })).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByRole('button', { name: 'Scene' })).toHaveAttribute('aria-pressed', 'false')
+      expect(screen.getByRole('button', { name: 'Square' })).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByRole('button', { name: 'Unknown' })).toHaveAttribute(
+        'aria-pressed',
+        'false',
+      )
     })
   })
 
@@ -326,7 +354,7 @@ describe('ImageViewer', () => {
     it('switches image when a scene is clicked', async () => {
       const { user, onImageChange } = setup(scenes[0], scenes)
       await screen.findByPlaceholderText('Filter…')
-      await user.click(screen.getByText('Snow'))
+      await user.click(screen.getByRole('button', { name: /Snow/ }))
       expect(onImageChange).toHaveBeenCalledWith(scenes[2])
     })
   })
@@ -337,7 +365,11 @@ describe('ImageViewer', () => {
       const { user, onImageChange, onDelete } = setup(scenes[0], scenes)
       await screen.findByPlaceholderText('Filter…')
       await user.click(screen.getByTitle('Delete image'))
-      await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }))
+      await user.click(
+        within(screen.getByRole('dialog', { name: 'Delete Image' })).getByRole('button', {
+          name: 'Delete',
+        }),
+      )
       await waitFor(() => expect(onImageChange).toHaveBeenCalledWith(scenes[1]))
       expect(imageApi.delete).toHaveBeenCalledWith(1)
       expect(onDelete).not.toHaveBeenCalled()
@@ -347,7 +379,11 @@ describe('ImageViewer', () => {
       const { user, onDelete } = setup(makeImage())
       await waitFor(() => expect(imageApi.getScenes).toHaveBeenCalled())
       await user.click(screen.getByTitle('Delete image'))
-      await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }))
+      await user.click(
+        within(screen.getByRole('dialog', { name: 'Delete Image' })).getByRole('button', {
+          name: 'Delete',
+        }),
+      )
       await waitFor(() => expect(onDelete).toHaveBeenCalledWith(1))
     })
   })

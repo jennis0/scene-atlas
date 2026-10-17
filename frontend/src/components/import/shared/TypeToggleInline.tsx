@@ -9,7 +9,7 @@ interface TypeToggleInlineProps {
 export function TypeToggleInline({ imageType, disabled, onUpdate }: TypeToggleInlineProps) {
   if (disabled) {
     return (
-      <span className="text-[10px] text-muted-foreground/60 capitalize">
+      <span className="text-[10px] text-muted-foreground capitalize">
         {imageType === 'scene' ? 'Scene' : 'Map'}
       </span>
     )
@@ -22,8 +22,8 @@ export function TypeToggleInline({ imageType, disabled, onUpdate }: TypeToggleIn
         onClick={() => onUpdate('battlemap')}
         className={`px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
           imageType !== 'scene'
-            ? 'bg-primary/20 text-primary'
-            : 'text-muted-foreground/50 hover:text-muted-foreground'
+            ? 'bg-primary/10 text-primary'
+            : 'text-muted-foreground hover:text-muted-foreground'
         }`}
       >
         Map
@@ -33,8 +33,8 @@ export function TypeToggleInline({ imageType, disabled, onUpdate }: TypeToggleIn
         onClick={() => onUpdate('scene')}
         className={`px-1.5 py-0.5 text-[10px] font-medium border-l border-border transition-colors ${
           imageType === 'scene'
-            ? 'bg-primary/20 text-primary'
-            : 'text-muted-foreground/50 hover:text-muted-foreground'
+            ? 'bg-primary/10 text-primary'
+            : 'text-muted-foreground hover:text-muted-foreground'
         }`}
       >
         Scene

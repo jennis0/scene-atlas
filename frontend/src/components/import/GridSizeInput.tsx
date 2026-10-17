@@ -9,7 +9,7 @@ interface GridSizeInputProps {
 }
 
 const baseClass =
-  'bg-secondary border border-border rounded text-foreground text-center placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none'
+  'bg-secondary border border-border rounded text-foreground text-center placeholder:text-muted-foreground [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none'
 
 const defaultClass = `w-11 px-1.5 py-0.5 text-[11px] ${baseClass}`
 const compactClass = `w-[30px] h-[18px] px-1 py-0 text-[10px] font-mono ${baseClass}`

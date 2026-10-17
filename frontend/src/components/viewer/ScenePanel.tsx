@@ -99,7 +99,7 @@ function SearchBox({ filter, setFilter }: FilterControlProps) {
       {hasSearch && (
         <button
           onClick={() => setFilter((f) => ({ ...f, text: '', imageType: 'all' }))}
-          className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+          className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-muted-foreground transition-colors"
         >
           <X className="h-3 w-3" />
         </button>
@@ -117,8 +117,8 @@ function TypeToggle({ filter, setFilter }: FilterControlProps) {
           onClick={() => setFilter((f) => ({ ...f, imageType: val }))}
           className={`px-1.5 py-0.5 text-[10px] transition-colors ${
             filter.imageType === val
-              ? 'bg-primary/20 text-primary font-medium'
-              : 'text-muted-foreground/60 hover:text-muted-foreground hover:bg-secondary/50'
+              ? 'bg-primary/10 text-primary font-medium'
+              : 'text-muted-foreground hover:text-muted-foreground hover:bg-secondary/50'
           }`}
         >
           {label}
@@ -144,10 +144,10 @@ function FilterPopover({
 
   const triggerState =
     activeCount > 0
-      ? 'bg-primary/20 text-primary border border-primary/40'
+      ? 'bg-primary/10 text-primary border border-primary/40'
       : hasFilterableData
         ? 'text-muted-foreground hover:text-foreground hover:bg-secondary border border-transparent'
-        : 'text-muted-foreground/25 border border-transparent cursor-not-allowed'
+        : 'text-muted-foreground border border-transparent cursor-not-allowed'
 
   return (
     <Popover
@@ -169,7 +169,11 @@ function FilterPopover({
         </button>
       </PopoverTrigger>
       {hasFilterableData && (
-        <PopoverContent align="end" side="left" className="w-[400px] p-0 h-[480px] flex flex-col">
+        <PopoverContent
+          align="end"
+          side="left"
+          className="w-[min(400px,calc(100vw-2rem))] p-0 h-[min(480px,var(--radix-popover-content-available-height))] flex flex-col"
+        >
           <FilterMenuContent
             groups={filterGroups}
             activeFilters={filter.active}

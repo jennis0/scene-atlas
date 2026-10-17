@@ -159,7 +159,7 @@ export function GalleryFilterPanel({ filters, facets, onFiltersChange }: Gallery
       <PopoverContent
         data-testid="filter-popover"
         align="end"
-        className="w-[400px] p-0 h-[520px] flex flex-col bg-card rounded-lg overflow-hidden"
+        className="w-[min(400px,calc(100vw-2rem))] p-0 h-[min(520px,var(--radix-popover-content-available-height))] flex flex-col bg-card rounded-lg overflow-hidden"
       >
         {groups.length > 0 ? (
           <FilterMenuContent

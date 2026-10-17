@@ -57,8 +57,9 @@ All values sourced from CSS custom properties defined in `frontend/src/index.css
 |-------|------|
 | `text-foreground` | `#ede8dc` warm parchment — primary body text |
 | `text-muted-foreground` | dimmed parchment — secondary text, labels |
-| `text-muted-foreground/60` | very subtle — hints, placeholders, tertiary info |
-| `text-white` with opacity | for text overlaid directly on images |
+| `text-white/85` or brighter | for text overlaid directly on images (on the bottom scrim) |
+
+Never fade text with an opacity modifier (`text-muted-foreground/60`, `opacity-50`): `muted-foreground` is already the lowest-contrast text that passes AA. See [Accessibility](#accessibility).
 
 ---
 
@@ -90,8 +91,8 @@ Amber (`primary`) is the single accent colour. It draws the eye, so it must be u
 |-----|---------|
 | Top-of-viewport stripe | `body::before` in index.css — always present |
 | Top of modal/panel | Split gradient: canvas side `from-transparent to-primary/80`, sidebar side `from-primary/80 to-transparent` — brightest at the join line |
-| Active/selected states | `bg-primary/20 text-primary border border-primary/40` |
-| Focus rings | `focus-visible:ring-1 focus-visible:ring-primary/40` (unified across all components) |
+| Active/selected states | `bg-primary/10 text-primary border border-primary/40` |
+| Focus | The global `:focus-visible` outline in `index.css` — components don't set their own |
 | Hover on interactive text | `hover:text-primary` |
 | Page-level decorative rule | `h-[1.5px] w-16 bg-gradient-to-r from-primary/70 to-transparent` |
 | Panel-level decorative rule | `h-px w-7 bg-gradient-to-r from-primary to-transparent` |
@@ -109,7 +110,7 @@ Applied consistently across all interactive elements:
 |-------|---------|
 | Default (muted) | `text-muted-foreground` |
 | Hover | `hover:text-foreground hover:bg-secondary` |
-| Active / selected | `bg-primary/20 text-primary border border-primary/40` |
+| Active / selected | `bg-primary/10 text-primary border border-primary/40` |
 | Disabled | `opacity-30 cursor-not-allowed` (not `disabled:` if using native button disabled) |
 | Destructive hover | `hover:text-destructive hover:bg-destructive/10` |
 
@@ -123,7 +124,7 @@ Use the `<Input>` component from `ui/input.tsx` which supports CVA variants:
 | `compact` | h-[30px] | text-[12px] | Filter search, panel inputs |
 | `sm` | h-6 | text-xs | Scene search, grid W×H inputs |
 
-Shared base: `bg-secondary border-border rounded-md focus-visible:ring-1 focus-visible:ring-primary/40`
+Shared base: `bg-secondary border-border rounded-md` (focus comes from the global outline)
 
 ```tsx
 <Input inputSize="compact" placeholder="Search filters…" />
@@ -250,7 +251,7 @@ All image cards (`GroupCard`, `SceneTile`) share a **gradient overlay** structur
 │                         │
 │ ░░░░░░░░░░░░░░░░░░░░░   │ ← gradient overlay: from-black/85 via-black/55 to-transparent
 │  Name           [N]  │   │ ← text-[13px] font-medium text-white
-│  Author              │   │ ← text-[11px] text-white/60
+│  Author              │   │ ← text-[11px] text-white/85
 └─────────────────────────┘
 ```
 
@@ -284,7 +285,7 @@ All image cards (`GroupCard`, `SceneTile`) share a **gradient overlay** structur
 ```
 
 ### Filter panel
-Filter chips use `bg-primary/20 border border-primary/40 text-primary` for active state. Clear-all uses plain `text-muted-foreground`.
+Filter chips use `bg-primary/10 border border-primary/40 text-primary` for active state. Clear-all uses plain `text-muted-foreground`.
 
 ---
 
@@ -299,7 +300,7 @@ Shared two-column filter panel used in GalleryFilterPanel (full-page sidebar) an
 ### Active states
 | State | Classes |
 |-------|---------|
-| Include (active) | `bg-primary/20 border border-primary/40 text-primary` |
+| Include (active) | `bg-primary/10 border border-primary/40 text-primary` |
 | Exclude (active) | `bg-destructive/10 border border-destructive/30 text-destructive` |
 | Category nav active | Uses category's `colors.bg colors.text colors.border` (left border stripe) |
 
@@ -309,7 +310,7 @@ Option pills (inside popover): `max-w-[160px] truncate` with `title={label}` on 
 
 ### Filter button states (for variant filter trigger in ImageViewer)
 ```tsx
-hasActiveFilters     → 'bg-primary/20 text-primary border border-primary/40'
+hasActiveFilters     → 'bg-primary/10 text-primary border border-primary/40'
 hasFilterableData    → 'text-muted-foreground hover:text-foreground hover:bg-secondary border border-transparent'
 no filterable data   → 'text-muted-foreground/25 border border-transparent cursor-not-allowed'
 ```
@@ -514,6 +515,22 @@ const editEndedAt = useRef(0)
 ```
 
 This prevents the row click from immediately re-opening the editor when the user clicks outside the input to dismiss it.
+
+---
+
+## Accessibility
+
+Target: WCAG 2.2 AA in both themes. `e2e/tests/accessibility.spec.ts` runs axe over the main surfaces in dark and light and walks the keyboard path through the gallery; keep it passing.
+
+- **Contrast.** The tokens are tuned so `foreground`, `muted-foreground`, `primary` and `destructive` all reach 4.5:1 as text on every surface, and on their own `/10` tint. Opacity modifiers on text break that, so don't use them; tints for selected states stay at `/10` or lighter.
+- **Focus.** One indicator for everything: the 2px `--ring` outline set on `:focus-visible` in `index.css`. Don't add `outline-none` or per-component rings. Inside a clipping parent (`overflow-hidden`, segmented controls), use `focus-visible:outline-offset-[-2px]`. Menu items are the exception: Radix menus show focus as the highlighted row.
+- **Clickable cards** (`SceneTile`, `GroupCard`): the container is plain; a full-cover `<button>` (`absolute inset-0`) is the click and keyboard target and carries the spoken name. Secondary actions (the card menu) are sibling buttons above it, never nested inside. Caption and thumbnail are `aria-hidden` / `alt=""` so the name isn't read twice.
+- **Hover-revealed controls** must also show on keyboard focus and on touch: `opacity-0 group-hover/x:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100` (or `group-focus-within/x:` for a cluster).
+- **Names and state.** Icon-only buttons get an `aria-label`. Toggles and segmented controls set `aria-pressed`; real panel switchers use `role="tablist"`/`tab`/`tabpanel`. Counts and outcomes that change after an action live in a `role="status"` element that stays mounted.
+- **Target size.** Controls are at least 24×24px. For small icons use the `target-24` utility, which grows the hit area with an invisible `::after` (the element must be positioned).
+- **Dialogs** are named by their `DialogTitle` / `PanelTitle` automatically; see [dialog-focus-management.md](dialog-focus-management.md) for the modal layer.
+- **Motion.** `prefers-reduced-motion` collapses transitions and stops looping animations globally.
+- **Reflow.** No fixed widths that exceed the viewport: popovers use `w-[min(400px,calc(100vw-2rem))]`, the header wraps, and the image viewer stacks below `lg`.
 
 ---
 

@@ -136,7 +136,7 @@ function StartView({
               label="Scenes"
             />
           </div>
-          <p className="text-[12px] text-muted-foreground/70">
+          <p className="text-[12px] text-muted-foreground">
             {imageType === 'battlemap'
               ? 'Top-down maps. Grids are detected automatically.'
               : 'Vistas, portraits and encounter art. No grid detection.'}
@@ -186,7 +186,7 @@ function StartView({
           ) : (
             <>
               <UploadCloud
-                className={`h-9 w-9 ${dragOver ? 'text-primary' : 'text-muted-foreground/40'}`}
+                className={`h-9 w-9 ${dragOver ? 'text-primary' : 'text-muted-foreground'}`}
               />
               <div className="text-center">
                 <p
@@ -194,7 +194,7 @@ function StartView({
                 >
                   {dragOver ? 'Drop to import' : 'Drop files or folders here'}
                 </p>
-                <p className="mt-0.5 text-[12px] text-muted-foreground/70">
+                <p className="mt-0.5 text-[12px] text-muted-foreground">
                   Images, videos and .zip archives. Folder names become groups.
                 </p>
               </div>
@@ -234,9 +234,9 @@ function TypeOption({
       type="button"
       aria-pressed={selected}
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 h-8 px-3 text-[12.5px] transition-colors first:border-r first:border-border focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/40 ${
+      className={`inline-flex items-center gap-1.5 h-8 px-3 text-[12.5px] transition-colors focus-visible:outline-offset-[-2px] first:border-r first:border-border ${
         selected
-          ? 'bg-primary/20 text-primary'
+          ? 'bg-primary/10 text-primary'
           : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
       }`}
     >
@@ -259,7 +259,7 @@ function BrowseButton({
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex items-center gap-1.5 h-8 px-3 text-[12.5px] rounded-md border border-border/60 bg-secondary/60 text-muted-foreground hover:text-foreground hover:border-border hover:bg-secondary transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+      className="inline-flex items-center gap-1.5 h-8 px-3 text-[12.5px] rounded-md border border-border/60 bg-secondary/60 text-muted-foreground hover:text-foreground hover:border-border hover:bg-secondary transition-colors"
     >
       {icon}
       {label}
@@ -352,7 +352,7 @@ function ProgressView({
           )}
           <span className="flex-1" />
           {!finished && (
-            <span className="text-[11.5px] text-muted-foreground/60 mr-1">
+            <span className="text-[11.5px] text-muted-foreground mr-1">
               Keeps running if you close this
             </span>
           )}
@@ -374,7 +374,7 @@ function ProgressView({
           />
         )}
         {upload && upload.totalBytes > 0 && !finished && upload.phase !== 'finished' && (
-          <p className="font-mono text-[10.5px] text-muted-foreground/70 tabular-nums">
+          <p className="font-mono text-[10.5px] text-muted-foreground tabular-nums">
             {formatBytes(upload.sentBytes)} of {formatBytes(upload.totalBytes)} sent
           </p>
         )}
@@ -446,13 +446,16 @@ function ProgressView({
           </Notice>
         )}
 
-        {finished && counts && (
-          <p className="text-[13px] text-foreground">
-            {job?.status === 'cancelled' ? 'Cancelled. ' : 'Finished. '}
-            {outcomeText(counts)}
-            {counts.skipped > 0 && `, ${counts.skipped.toLocaleString()} skipped`}.
-          </p>
-        )}
+        {/* Always mounted, so screen readers announce the outcome when it appears */}
+        <div role="status">
+          {finished && counts && (
+            <p className="text-[13px] text-foreground">
+              {job?.status === 'cancelled' ? 'Cancelled. ' : 'Finished. '}
+              {outcomeText(counts)}
+              {counts.skipped > 0 && `, ${counts.skipped.toLocaleString()} skipped`}.
+            </p>
+          )}
+        </div>
       </div>
 
       <input ref={resumeFiles} type="file" multiple className="hidden" onChange={onResumePicked} />
@@ -534,7 +537,7 @@ function ProgressMeter({
         <span>{received.toLocaleString()} received</span>
         <span>
           {finished.toLocaleString()}
-          <span className="text-muted-foreground/50"> / {total.toLocaleString()} processed</span>
+          <span className="text-muted-foreground"> / {total.toLocaleString()} processed</span>
         </span>
       </div>
     </div>

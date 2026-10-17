@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { imageApi, tagApi } from '@/lib/api'
@@ -7,6 +8,7 @@ import { filenameStem } from '@/lib/format'
 import { QUERY_KEYS, invalidateGalleryQueries } from '@/lib/queryKeys'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { isAnyDialogOpen } from '@/components/ui/dialogStack'
+import { useModalLayer } from '@/components/ui/modalLayer'
 import { useSceneFilters } from '@/hooks/useSceneFilters'
 import { ViewerStage } from '@/components/viewer/ViewerStage'
 import { ViewerToolbar } from '@/components/viewer/ViewerToolbar'
@@ -52,6 +54,14 @@ export function ImageViewer({
 
   const sceneFilters = useSceneFilters(scenes)
   const resetSceneFilters = sceneFilters.reset
+
+  const viewerRef = useRef<HTMLDivElement>(null)
+  useModalLayer(viewerRef, true)
+  // Focus the viewer itself on open: screen readers announce the dialog, and the
+  // arrow keys work straight away.
+  useEffect(() => {
+    viewerRef.current?.focus({ preventScroll: true })
+  }, [])
 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   // Set before a within-group variant click so the reset effect keeps the UI state.
@@ -177,21 +187,26 @@ export function ImageViewer({
     onImageChange?.(scene)
   }
 
-  return (
+  return createPortal(
     <div
       data-testid="image-viewer"
-      className="fixed inset-0 z-50 flex items-center justify-center p-8"
+      className="fixed inset-0 z-50 flex items-center justify-center lg:p-8"
       style={{ background: 'hsl(var(--background) / 0.88)' }}
       onClick={onClose}
     >
       <div
-        className="relative flex w-full rounded-xl overflow-hidden border border-border/20 shadow-2xl shadow-black/70"
-        style={{ maxWidth: '1600px', height: '88vh' }}
+        ref={viewerRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={img.name}
+        tabIndex={-1}
+        // Below lg the viewer fills the screen and stacks: image above, details below.
+        className="relative flex flex-col lg:flex-row w-full h-full lg:h-[88vh] max-w-[1600px] lg:rounded-xl overflow-hidden lg:border border-border/20 shadow-2xl shadow-black/70 focus:outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         <ViewerStage image={img} onPrevious={onPrevious} onNext={onNext} />
 
-        <div className="w-[440px] shrink-0 flex flex-col border-l border-border/20 bg-card overflow-hidden">
+        <div className="flex-1 min-h-0 overflow-y-auto lg:flex-none lg:w-[440px] lg:overflow-hidden flex flex-col border-t lg:border-t-0 lg:border-l border-border/20 bg-card">
           {/* Amber stripe — sidebar half: full at join, transparent at right edge */}
           <div className="h-0.5 shrink-0 bg-gradient-to-l from-transparent to-primary/80" />
 
@@ -220,12 +235,12 @@ export function ImageViewer({
             <p className="text-sm text-muted-foreground">by {img.author}</p>
 
             <p
-              className="text-[10px] text-muted-foreground/40 font-mono truncate mt-1"
+              className="text-[10px] text-muted-foreground font-mono truncate mt-1"
               title={img.filename}
             >
               {filenameStem(img.filename)}
             </p>
-            <p className="text-[10px] text-muted-foreground/40 mb-3">
+            <p className="text-[10px] text-muted-foreground mb-3">
               {img.width}×{img.height} · {(img.file_size / 1024 / 1024).toFixed(1)} MB
             </p>
 
@@ -273,6 +288,7 @@ export function ImageViewer({
         onConfirm={() => deleteMutation.mutate()}
         isLoading={deleteMutation.isPending}
       />
-    </div>
+    </div>,
+    document.body,
   )
 }

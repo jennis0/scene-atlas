@@ -65,7 +65,7 @@ export function FileCard({
         <div className="flex-1 min-w-0 py-2 px-2.5 flex items-center gap-2">
           <div className="flex-1 min-w-0">
             <span
-              className="font-display text-[12px] font-semibold text-foreground/60 truncate block"
+              className="font-display text-[12px] font-semibold text-muted-foreground truncate block"
               title={file.relative_path}
             >
               {file.name || file.filename}
@@ -174,14 +174,14 @@ export function FileCard({
                   {file.name || file.filename}
                 </span>
                 {!disabled && (
-                  <Pencil className="h-2.5 w-2.5 text-muted-foreground/40 opacity-0 group-hover/name:opacity-100 shrink-0 transition-opacity" />
+                  <Pencil className="h-2.5 w-2.5 text-muted-foreground opacity-0 group-hover/name:opacity-100 shrink-0 transition-opacity" />
                 )}
               </div>
             )}
             {!disabled && (
               <button
                 onClick={() => onUpdate({ excluded: true })}
-                className="opacity-0 group-hover/card:opacity-100 w-[18px] h-[18px] rounded flex items-center justify-center hover:bg-destructive/10 hover:text-destructive text-muted-foreground/25 transition-all shrink-0"
+                className="opacity-0 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 group-hover/card:opacity-100 w-[18px] h-[18px] rounded flex items-center justify-center hover:bg-destructive/10 hover:text-destructive text-muted-foreground transition-all shrink-0"
                 title={excludeTooltip ?? 'Exclude from import'}
               >
                 <X className="h-3 w-3" />
@@ -190,7 +190,7 @@ export function FileCard({
           </div>
 
           <div
-            className="font-mono text-[9px] text-muted-foreground/40 truncate leading-relaxed mb-1"
+            className="font-mono text-[9px] text-muted-foreground truncate leading-relaxed mb-1"
             title={file.filename}
           >
             {file.filename}
@@ -205,7 +205,7 @@ export function FileCard({
             />
 
             <div className="flex items-center gap-1.5 min-h-5">
-              <span className="w-8 shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/50 text-right leading-none">
+              <span className="w-8 shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground text-right leading-none">
                 Type
               </span>
               <div className="flex-1 min-w-0 flex items-center gap-1">
@@ -219,7 +219,7 @@ export function FileCard({
 
             {/* GRID prop-row (content for maps, dash for scenes) */}
             <div className="flex items-center gap-1.5 min-h-5">
-              <span className="w-8 shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/50 text-right leading-none">
+              <span className="w-8 shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground text-right leading-none">
                 Grid
               </span>
               <div className="flex-1 min-w-0 flex items-center gap-1">
@@ -243,7 +243,7 @@ export function FileCard({
                     )}
                   </>
                 ) : (
-                  <span className="text-[10px] text-muted-foreground/30">—</span>
+                  <span className="text-[10px] text-muted-foreground">—</span>
                 )}
               </div>
             </div>

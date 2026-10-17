@@ -50,7 +50,7 @@ export function ImportFrame({
           </div>
           <button
             onClick={onClose}
-            className="h-7 w-7 shrink-0 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+            className="h-7 w-7 shrink-0 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
           >
             <X className="h-3.5 w-3.5" />
             <span className="sr-only">Close</span>
@@ -94,7 +94,7 @@ export function TextButton({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-md border text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 disabled:opacity-30 disabled:cursor-not-allowed ${toneClass}`}
+      className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-md border text-[12.5px] transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${toneClass}`}
     >
       {children}
     </button>
@@ -138,7 +138,7 @@ export function ConfirmOverlay({
             onClick={onConfirm}
             disabled={busy}
             data-autofocus
-            className={`h-8 px-3 rounded-md border text-[12.5px] transition-colors disabled:opacity-40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 ${confirmClass}`}
+            className={`h-8 px-3 rounded-md border text-[12.5px] transition-colors disabled:opacity-40 ${confirmClass}`}
           >
             {confirmLabel}
           </button>
