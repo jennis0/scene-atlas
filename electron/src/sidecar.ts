@@ -79,15 +79,29 @@ export function spawnSidecar(options: SidecarOptions): ChildProcess {
   const { port, appDataDir, imageLibraryDir, convertToWebp, onReady, onLog, onError } = options
   const child = spawn(
     getSidecarPath(),
-    ['--port', String(port), '--app-data-dir', appDataDir, '--image-library-dir', imageLibraryDir],
+    [
+      '--port',
+      String(port),
+      '--app-data-dir',
+      appDataDir,
+      '--image-library-dir',
+      imageLibraryDir,
+      '--parent-pid',
+      String(process.pid),
+    ],
     {
-      stdio: ['ignore', 'pipe', 'pipe'],
+      // stdin is a pipe we never write to: when this process exits, however it exits,
+      // the OS closes it and the sidecar's watchdog shuts the backend down.
+      stdio: ['pipe', 'pipe', 'pipe'],
       env: {
         ...process.env,
         CONVERT_TO_WEBP: convertToWebp ? '1' : '0',
       },
     },
   )
+
+  // EPIPE if the sidecar has already exited when we close its stdin.
+  child.stdin?.on('error', () => {})
 
   forEachLine(child.stdout, (line) => {
     onLog(`[backend] ${line}`)

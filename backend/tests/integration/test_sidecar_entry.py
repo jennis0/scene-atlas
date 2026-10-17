@@ -10,9 +10,12 @@ from pathlib import Path
 
 import pytest
 
+from backend.tests.unit.test_storage_lock import child_can_lock
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ENTRY = REPO_ROOT / "backend" / "pyinstaller" / "entry.py"
 STARTUP_TIMEOUT = 90
+SHUTDOWN_TIMEOUT = 60
 
 
 def _free_port() -> int:
@@ -94,3 +97,35 @@ def test_ready_is_printed_only_once_listening(sidecar_factory):
     assert "Uvicorn running on" in output
     # No retry: the socket must already be accepting when the marker appears.
     socket.create_connection(("127.0.0.1", sidecar.port), timeout=5).close()
+
+
+def test_closing_stdin_shuts_down_and_releases_the_lock(sidecar_factory):
+    sidecar = sidecar_factory("--parent-pid", str(os.getpid()))
+    sidecar.wait_ready()
+    assert sidecar.proc.stdin is not None
+    sidecar.proc.stdin.close()
+    assert sidecar.proc.wait(timeout=SHUTDOWN_TIMEOUT) == 0
+    assert child_can_lock(sidecar.data_dir)
+
+
+def test_parent_exit_shuts_down(sidecar_factory):
+    parent = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    try:
+        sidecar = sidecar_factory("--parent-pid", str(parent.pid))
+        sidecar.wait_ready()
+        parent.kill()
+        parent.wait()
+        # stdin stays open here: only the PID poll can notice.
+        assert sidecar.proc.wait(timeout=SHUTDOWN_TIMEOUT) == 0
+    finally:
+        parent.kill()
+        parent.wait()
+
+
+def test_without_parent_pid_stdin_eof_is_ignored(sidecar_factory):
+    sidecar = sidecar_factory()
+    sidecar.wait_ready()
+    assert sidecar.proc.stdin is not None
+    sidecar.proc.stdin.close()
+    with pytest.raises(subprocess.TimeoutExpired):
+        sidecar.proc.wait(timeout=3)

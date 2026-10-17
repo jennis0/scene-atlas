@@ -9,6 +9,7 @@ exponential backoff. Gives up after 10 crashes in 5 minutes and exits
 with code 1 so Electron can show a fatal error dialog.
 
 Prints SCENE_ATLAS_READY once uvicorn is listening; Electron waits for it.
+With --parent-pid, shuts down when Electron is gone (see parent_watchdog.py).
 """
 
 import argparse
@@ -37,6 +38,12 @@ def main():
         type=str,
         required=True,
         help="Image library directory (cold storage: originals, backups)",
+    )
+    parser.add_argument(
+        "--parent-pid",
+        type=int,
+        default=None,
+        help="Shut down when this process exits or closes our stdin (set by Electron)",
     )
     args = parser.parse_args()
 
@@ -77,6 +84,18 @@ def main():
             if self.started:
                 print(f"SCENE_ATLAS_READY port={self.config.port}", flush=True)
 
+    server: SidecarServer | None = None
+    watchdog = None
+    if args.parent_pid is not None:
+        from backend.app.parent_watchdog import ParentWatchdog
+
+        def _stop_server() -> None:
+            if server is not None:
+                server.should_exit = True
+
+        watchdog = ParentWatchdog(_stop_server, parent_pid=args.parent_pid)
+        watchdog.start()
+
     restarts: list[float] = []
     backoff = 1
 
@@ -84,8 +103,10 @@ def main():
     # this restarts uvicorn in-process. Corrupted module-level state (singletons,
     # connection pools) will persist across restarts. This is the correct tradeoff
     # for a PyInstaller bundle where subprocess spawning is unreliable.
-    while True:
+    while not (watchdog and watchdog.fired):
         server = SidecarServer(uvicorn.Config(app, host="127.0.0.1", port=args.port))
+        if watchdog and watchdog.fired:
+            break
         try:
             server.run()
             if not server.started:
