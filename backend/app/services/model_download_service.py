@@ -223,34 +223,43 @@ def download_model(name: str, progress_fn=None) -> dict:
     return {"name": name, "hf_commit_sha": commit_sha, "downloaded_at": downloaded_at}
 
 
+def _network_error_types() -> tuple[tuple[type[BaseException], ...], ...]:
+    """(timeouts, connection failures), including huggingface_hub's httpx2 client errors."""
+    try:
+        import httpx2
+    except ImportError:
+        return (TimeoutError,), (ConnectionError,)
+    # NetworkError also covers DNS failures, whose root cause is not a ConnectionError
+    return (TimeoutError, httpx2.TimeoutException), (ConnectionError, httpx2.NetworkError)
+
+
+def _caused_by(exc: BaseException, types: tuple[type[BaseException], ...]) -> bool:
+    """Whether ``exc`` or anything in its cause/context chain is one of ``types``."""
+    seen: set[int] = set()
+    link: BaseException | None = exc
+    while link is not None and id(link) not in seen:
+        if isinstance(link, types):
+            return True
+        seen.add(id(link))
+        link = link.__cause__ or link.__context__
+    return False
+
+
 def _raise_download_error(exc: Exception, repo_id: str) -> NoReturn:
     """Convert various HuggingFace/network exceptions into ModelDownloadError."""
     exc_str = str(exc)
 
-    # ── Timeout errors (check before generic ConnectionError) ──
-    try:
-        import requests
-
-        if isinstance(exc, requests.exceptions.Timeout):
-            raise ModelDownloadError(
-                "Download timed out. Check your internet connection and try again."
-            ) from exc
-        if isinstance(exc, requests.exceptions.ConnectionError):
-            raise ModelDownloadError(
-                "Could not connect to download server. Check your internet connection."
-            ) from exc
-    except ImportError:
-        pass
-
-    try:
-        import urllib3.exceptions
-
-        if isinstance(exc, urllib3.exceptions.TimeoutError):
-            raise ModelDownloadError(
-                "Download timed out. Check your internet connection and try again."
-            ) from exc
-    except ImportError:
-        pass
+    # ── Network errors (before the OSError checks: snapshot_download wraps a dropped
+    # connection in LocalEntryNotFoundError, which is a FileNotFoundError) ──
+    timeouts, connection_failures = _network_error_types()
+    if _caused_by(exc, timeouts):
+        raise ModelDownloadError(
+            "Download timed out. Check your internet connection and try again."
+        ) from exc
+    if _caused_by(exc, connection_failures):
+        raise ModelDownloadError(
+            "Could not connect to download server. Check your internet connection."
+        ) from exc
 
     try:
         from huggingface_hub.errors import HfHubHTTPError

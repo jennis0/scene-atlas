@@ -25,6 +25,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
+from typing import cast
 
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
@@ -386,7 +387,6 @@ def job_counts(db: Session, job_id: str) -> dict[str, int]:
         db.query(ImportItem.state, func.count(ImportItem.id))
         .filter(ImportItem.job_id == job_id)
         .group_by(ImportItem.state)
-        .tuples()
         .all()
     )
     return dict(rows)
@@ -622,8 +622,11 @@ def _sibling_grid_counts(
     found: dict[int, dict[tuple[int, int], None]] = {gid: {} for gid in group_ids}
     if not group_ids:
         return {}
-    rows = db.query(ImportItem.import_group_id, ImportItem.parsed).filter(
-        ImportItem.import_group_id.in_(group_ids), ImportItem.parsed.isnot(None)
+    rows = cast(
+        Iterable[tuple[int, str]],
+        db.query(ImportItem.import_group_id, ImportItem.parsed).filter(
+            ImportItem.import_group_id.in_(group_ids), ImportItem.parsed.isnot(None)
+        ),
     )
     for group_id, parsed_json in rows:
         parsed = json.loads(parsed_json)

@@ -2,7 +2,7 @@
 
 import logging
 import mimetypes
-from typing import Literal
+from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
@@ -64,8 +64,12 @@ _WITH_RELATIONS = (selectinload(Image.tags), selectinload(Image.colors), joinedl
 @router.get("/authors", response_model=list[str])
 def list_authors(db: Session = Depends(get_db)):
     """List all distinct non-empty author values."""
-    rows = (
-        db.query(Image.author).filter(Image.author.isnot(None), Image.author != "").distinct().all()
+    rows = cast(
+        list[tuple[str]],
+        db.query(Image.author)
+        .filter(Image.author.isnot(None), Image.author != "")
+        .distinct()
+        .all(),
     )
     return sorted([r[0] for r in rows])
 

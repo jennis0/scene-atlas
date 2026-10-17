@@ -2,10 +2,13 @@
 
 import errno
 import json
+import socket
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import httpx2
 import pytest
+from huggingface_hub.errors import LocalEntryNotFoundError
 
 
 class TestIsModelDownloaded:
@@ -126,11 +129,9 @@ class TestDownloadModel:
             _make_settings(tmp_path),
         )
 
-        import requests
-
         with patch(
             "huggingface_hub.model_info",
-            side_effect=requests.exceptions.ConnectionError("network unreachable"),
+            side_effect=httpx2.ConnectError("network unreachable"),
         ):
             from backend.app.services.model_download_service import (
                 ModelDownloadError,
@@ -151,8 +152,6 @@ class TestDownloadModel:
             _make_settings(tmp_path),
         )
 
-        import requests
-
         mock_info = MagicMock()
         mock_info.sha = "abc123"
 
@@ -160,7 +159,7 @@ class TestDownloadModel:
             patch("huggingface_hub.model_info", return_value=mock_info),
             patch(
                 "huggingface_hub.snapshot_download",
-                side_effect=requests.exceptions.ConnectionError("Connection refused"),
+                side_effect=httpx2.ConnectError("Connection refused"),
             ),
         ):
             from backend.app.services.model_download_service import (
@@ -378,27 +377,68 @@ class TestDownloadModelDiskSpacePreCheck:
 class TestRaiseDownloadErrorMapping:
     """Tests for specific error type mappings in _raise_download_error."""
 
-    def test_timeout_error_gives_user_friendly_message(self):
-        import requests
-
+    @pytest.mark.parametrize(
+        "exc", [httpx2.ReadTimeout("timed out"), httpx2.ConnectTimeout("slow"), TimeoutError()]
+    )
+    def test_timeout_error_gives_user_friendly_message(self, exc):
         from backend.app.services.model_download_service import (
             ModelDownloadError,
             _raise_download_error,
         )
 
-        with pytest.raises(ModelDownloadError, match="timed out"):
-            _raise_download_error(requests.exceptions.Timeout("timed out"), "repo/test")
+        with pytest.raises(ModelDownloadError, match="^Download timed out"):
+            _raise_download_error(exc, "repo/test")
 
-    def test_connection_error_gives_user_friendly_message(self):
-        import requests
-
+    @pytest.mark.parametrize(
+        "exc", [httpx2.ConnectError("refused"), httpx2.ReadError("reset"), ConnectionResetError()]
+    )
+    def test_connection_error_gives_user_friendly_message(self, exc):
         from backend.app.services.model_download_service import (
             ModelDownloadError,
             _raise_download_error,
         )
 
         with pytest.raises(ModelDownloadError, match="Could not connect"):
-            _raise_download_error(requests.exceptions.ConnectionError("refused"), "repo/test")
+            _raise_download_error(exc, "repo/test")
+
+    def test_wrapped_connection_error_is_not_reported_as_a_file_system_error(self):
+        """snapshot_download wraps a dropped connection in LocalEntryNotFoundError (an OSError)."""
+        from backend.app.services.model_download_service import (
+            ModelDownloadError,
+            _raise_download_error,
+        )
+
+        try:
+            try:
+                raise httpx2.ConnectError("refused")
+            except httpx2.ConnectError as cause:
+                raise LocalEntryNotFoundError("cannot find the requested files") from cause
+        except LocalEntryNotFoundError as exc:
+            with pytest.raises(ModelDownloadError, match="Could not connect"):
+                _raise_download_error(exc, "repo/test")
+
+    @pytest.mark.parametrize("call", ["model_info", "snapshot_download"])
+    def test_real_hub_connection_failure_is_classified(self, call, tmp_path):
+        """Uses the installed huggingface_hub, so a change of HTTP client breaks this test."""
+        from huggingface_hub import HfApi, snapshot_download
+
+        from backend.app.services.model_download_service import (
+            ModelDownloadError,
+            _raise_download_error,
+        )
+
+        with socket.socket() as closed:  # bound but not listening: connections are refused
+            closed.bind(("127.0.0.1", 0))
+            endpoint = f"http://127.0.0.1:{closed.getsockname()[1]}"
+            with pytest.raises(Exception) as caught:
+                if call == "model_info":
+                    HfApi(endpoint=endpoint).model_info("org/repo", timeout=5)
+                else:
+                    snapshot_download(
+                        "org/repo", endpoint=endpoint, cache_dir=tmp_path, local_dir=tmp_path / "d"
+                    )
+        with pytest.raises(ModelDownloadError, match="Could not connect"):
+            _raise_download_error(caught.value, "org/repo")
 
     def test_permission_error_gives_user_friendly_message(self):
         from backend.app.services.model_download_service import (

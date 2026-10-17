@@ -28,9 +28,11 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-def _get(url: str) -> tuple[int, str]:
-    request = urllib.request.Request(url, headers={"Accept": "text/html"})
-    with urllib.request.urlopen(request, timeout=10) as resp:
+def _get(port: int, path: str) -> tuple[int, str]:
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}{path}", headers={"Accept": "text/html"}
+    )
+    with urllib.request.urlopen(request, timeout=10) as resp:  # noqa: S310 - fixed http URL
         return resp.status, resp.read().decode("utf-8", errors="replace")
 
 
@@ -64,8 +66,7 @@ def main() -> int:
         ready = threading.Event()
 
         def pump() -> None:
-            assert proc.stdout is not None
-            for line in proc.stdout:
+            for line in proc.stdout or ():
                 output.append(line)
                 if READY_MARKER in line:
                     ready.set()
@@ -81,12 +82,11 @@ def main() -> int:
                     print("".join(output[-60:]), file=sys.stderr)
                     return 1
 
-            base = f"http://127.0.0.1:{port}"
-            status, _ = _get(f"{base}/health")
+            status, _ = _get(port, "/health")
             if status != 200:
                 print(f"/health returned {status}", file=sys.stderr)
                 return 1
-            status, body = _get(f"{base}/")
+            status, body = _get(port, "/")
             if status != 200 or '<div id="root"' not in body:
                 print(f"/ did not serve the UI (status {status})", file=sys.stderr)
                 return 1

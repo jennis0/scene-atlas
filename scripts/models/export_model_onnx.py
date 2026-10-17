@@ -176,6 +176,8 @@ class CLIPTextONNX(nn.Module):
 
 
 # ── SigLIP2 wrapper modules ─────────────────────────────────────────────────
+# transformers 5 returns get_*_features as a ModelOutput; the projected embedding
+# is its pooler_output.
 
 
 class SigLIP2VisionONNX(nn.Module):
@@ -186,7 +188,7 @@ class SigLIP2VisionONNX(nn.Module):
         self.model = model
 
     def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
-        image_features = self.model.get_image_features(pixel_values=pixel_values)
+        image_features = self.model.get_image_features(pixel_values=pixel_values).pooler_output
         return F.normalize(image_features, p=2, dim=-1)
 
 
@@ -200,7 +202,7 @@ class SigLIP2TextONNX(nn.Module):
     def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         text_features = self.model.get_text_features(
             input_ids=input_ids, attention_mask=attention_mask
-        )
+        ).pooler_output
         return F.normalize(text_features, p=2, dim=-1)
 
 
@@ -340,11 +342,8 @@ def extract_manifest(model, processor, model_id: str, family: str) -> dict:
     tokenizer = processor.tokenizer
 
     # Determine image size
-    size_cfg = img_proc.size
-    if isinstance(size_cfg, dict):
-        image_size = size_cfg.get("shortest_edge", size_cfg.get("height", 224))
-    else:
-        image_size = int(size_cfg)
+    size_cfg = img_proc.size  # a SizeDict: shortest_edge for CLIP, height/width for SigLIP2
+    image_size = size_cfg.shortest_edge or size_cfg.height or 224
 
     # Determine interpolation mode
     resample = getattr(img_proc, "resample", None)
@@ -426,7 +425,7 @@ def sanity_check(
             vo = model.vision_model(pixel_values=dummy_pixels)
             torch_emb = model.visual_projection(vo.pooler_output)
         else:
-            torch_emb = model.get_image_features(pixel_values=dummy_pixels)
+            torch_emb = model.get_image_features(pixel_values=dummy_pixels).pooler_output
         torch_emb = F.normalize(torch_emb, p=2, dim=-1).numpy()
 
     sess = ort.InferenceSession(
@@ -457,7 +456,7 @@ def sanity_check(
             torch_text_emb = model.get_text_features(
                 input_ids=inputs["input_ids"],
                 attention_mask=inputs["attention_mask"],
-            )
+            ).pooler_output
         torch_text_emb = F.normalize(torch_text_emb, p=2, dim=-1).numpy()
 
     text_sess = ort.InferenceSession(
@@ -492,7 +491,7 @@ def _torch_encode_image(model, processor, family: str, image_path: Path) -> np.n
             vo = model.vision_model(**inputs)
             features = model.visual_projection(vo.pooler_output)
         else:
-            features = model.get_image_features(**inputs)
+            features = model.get_image_features(**inputs).pooler_output
         return F.normalize(features, p=2, dim=-1).cpu().numpy().flatten()
 
 
@@ -514,7 +513,7 @@ def _torch_encode_text(model, processor, family: str, text: str, max_length: int
             to = model.text_model(**inputs)
             features = model.text_projection(to.pooler_output)
         else:
-            features = model.get_text_features(**inputs)
+            features = model.get_text_features(**inputs).pooler_output
         return F.normalize(features, p=2, dim=-1).cpu().numpy().flatten()
 
 

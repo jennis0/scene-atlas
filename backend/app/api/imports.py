@@ -376,7 +376,7 @@ def sorted_out_counts(db: Session = Depends(get_db)):
         )
         .group_by(ImportGroup.image_group_id)
     )
-    return SortedOutCounts(counts={gid: n for gid, n in rows.tuples() if gid is not None})
+    return SortedOutCounts(counts={gid: n for gid, n in rows if gid is not None})
 
 
 @router.get("/sorted-out", response_model=SortedOutList)

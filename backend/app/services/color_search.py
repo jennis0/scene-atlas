@@ -21,7 +21,7 @@ def _within(lab: tuple[float, float, float], threshold: float) -> ColumnElement[
     )
 
 
-def color_match_ids(target_hexes: Sequence[str], threshold: float) -> Select[tuple[int]]:
+def color_match_ids(target_hexes: Sequence[str], threshold: float) -> Select[int]:
     """Ids of images with a dominant colour within ``threshold`` delta E of ANY target.
 
     Each scan is a range on L* in ``ix_colors_lab``; the a*/b* box and exact
