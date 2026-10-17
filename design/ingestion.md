@@ -2,7 +2,7 @@
 
 How files get from the user's disk into the library: the import data model, the item state machine, the upload protocol, the ingest worker, duplicate detection, maintenance and recovery.
 
-Rationale: [ADR-018](decisions.md#adr-018-durable-per-item-ingest-pipeline). The pipeline replaced an earlier job-and-confirm design in October 2026 (PR #1; stored format added later); Scene Atlas was unreleased, so the old tables, statuses and endpoints were removed without a data migration. Bulk import of an existing local library is not built (see [§14](#14-open-questions)). Path parsing and grouping: [parser.md](parser.md). Concurrency controls: [resource-management.md](resource-management.md).
+Rationale: [ADR-018](decisions.md#adr-018-durable-per-item-ingest-pipeline). The pipeline replaced an earlier job-and-confirm design in October 2026 (PR #1; stored format added later); Scene Atlas was unreleased, so the old tables, statuses and endpoints were removed without a data migration. In the desktop app, picked and dropped files are read in place rather than uploaded: [local-ingest.md](local-ingest.md). Path parsing and grouping: [parser.md](parser.md). Concurrency controls: [resource-management.md](resource-management.md).
 
 Section numbers are referenced from code comments (`design/ingestion.md §N`); keep them stable.
 
@@ -15,6 +15,7 @@ Section numbers are referenced from code comments (`design/ingestion.md §N`); k
 | `backend/pipeline/ingest_process.py` | One batch: `prepare_item` → `embed` → `commit_batch` → `write_vectors`, orchestrated by `process_batch`. |
 | `backend/pipeline/ingest_worker.py` | `IngestWorker` loop thread and `get_ingest_worker()`. |
 | `backend/pipeline/ingest_archive.py` | Server-side zip expansion into items (before seal). |
+| `backend/pipeline/ingest_local.py` | Local imports (desktop app): list picked folders and files into ready items read in place ([local-ingest.md](local-ingest.md)). |
 | `backend/pipeline/ingest_maintenance.py` | Scheduled, state-based cleanup. |
 | `backend/pipeline/image_hashes.py` | File SHA-256, strip-wise pixel hash, DCT pHash. |
 | `backend/pipeline/stored_format.py` | Optional conversion of new imports to the configured stored format. |
@@ -57,6 +58,7 @@ Defined in `backend/app/models/database.py`; tables created by Alembic `020_inge
 | `default_image_type` | `battlemap` \| `scene`; used for items whose manifest entry has no type |
 | `planned_at` | Set at seal. Items are claimable only after this. |
 | `last_upload_at` | Last byte receipt; drives "upload interrupted" and abandonment |
+| `source_roots` | Local imports: JSON list of the folders the job reads from; the worker skips the job while any is missing |
 | `dismissed_at` | Hidden from the activity dock. Deletes nothing. |
 | `created_at`, `updated_at`, `completed_at` | |
 
@@ -87,6 +89,7 @@ One row per file. All durable ingest state lives here.
 | `state` | See [§4.1](#41-item-states) |
 | `staging_key` | Server-generated staged filename; NULL until received and cleared once no longer needed |
 | `source_hash` | SHA-256 of the original bytes. Client hint before upload; server-computed (authoritative) on receipt |
+| `source_path` | Local imports: absolute path of the original, read by the worker and never written. Exactly one of `staging_key` / `source_path` locates an item's bytes |
 | `attempts`, `retry_after` | Claim counter (crash/poison detection) and transient-error backoff |
 | `error_kind`, `error_stage`, `error_reason`, `error_detail` | `error_kind` ∈ `file` \| `transient` \| `system` \| `bytes_lost`; `error_reason` is user-facing, `error_detail` the raw exception (truncated to 4000 chars) |
 | `image_id` | Set when `done` |
@@ -132,6 +135,7 @@ The table in `ingest_state._TRANSITIONS` is the source of truth:
 | `processing` | `GIVE_UP` (transient, attempts exhausted) | `failed` |
 | `processing` | `SYSTEM_ERROR` (attempt refunded; queue pauses) | `ready` |
 | `processing` | `BYTES_LOST` (staged file missing) | `awaiting_bytes` |
+| `processing` | `SOURCE_UNAVAILABLE` (a local import's folder is missing; attempt refunded, job waits) | `ready` |
 | `processing` | `RECOVERED` (startup, attempts < 3) | `ready` |
 | `processing` | `CRASH_LIMIT` (startup, attempts ≥ 3: "Repeatedly crashed during processing") | `failed` |
 | `failed` | `RETRY` / `RETRY_NEEDS_BYTES` | `ready` / `awaiting_bytes` |
@@ -150,6 +154,8 @@ Terminal: `done`, `duplicate`, `failed`, `skipped`. `failed` and `duplicate` can
 
 Derived in the API, never stored:
 - **`upload_interrupted`**: active, items awaiting bytes, nothing ready or processing, and `last_upload_at` older than 2 minutes (`UPLOAD_STALL`). The UI offers "Choose files to resume" or "Finish without them".
+- **`waiting_for`**: a local import's folders that are missing right now (open, not cancelled). The dock and dialog say "Waiting for …".
+- **`local`**: the job reads from folders on this computer (`source_roots` set); there is nothing to upload or resume.
 - **Queue status** (`running`, `system_paused`, `reason`, `current_job_id`) from the worker.
 
 **Undo import** (`DELETE /imports/{id}`) cancels the job, refuses with 409 while a batch is processing, deletes every image with that `import_job_id`, deletes gallery groups the job created (not merged-into ones) if now empty, then the job, groups, items and staging directory. Rows are deleted and committed first; files and vectors are removed afterwards (`deletion_service.PendingFileDeletes`).
@@ -262,6 +268,7 @@ All routes are under `/api/v1/imports` (`backend/app/api/imports.py`). Mutating 
 | `POST /imports` | `{label, default_image_type}` → job summary (201) |
 | `POST /imports/{id}/manifest` | Chunk of ≤2,000 `{client_ref, relative_path, size, last_modified, image_type?}`. OS junk (`._*`, `__MACOSX`, `.DS_Store`, `Thumbs.db`, `desktop.ini`) is ignored; unsupported files become `skipped`, oversized ones `failed`. Paths already in the job are ignored. 413 above `max_import_items` per import; 409 after seal. |
 | `PUT /imports/{id}/archives?name=…` | Raw zip body, expanded into items (`ingest_archive.expand_archive`). `check_zip_safety` enforces `max_import_files` and `max_import_total_size` per archive; every member is magic-byte checked. A zip that fails becomes one failed `archive` item. Gated by the heavy-op semaphore. 409 after seal. |
+| `POST /imports/{id}/local-sources` | Desktop app only (404 in server mode). `{paths}` (≤1,000 absolute roots): the server lists them and adds `ready` items with `source_path`; zips are expanded in place and kept. 422 for a bad path, 413 above `max_local_import_items` (250k). Listing runs before the write lock. See [local-ingest.md §4](local-ingest.md#4-backend). |
 | `POST /imports/{id}/seal` | Parse and group paths, resolve groups against the gallery (`IN` queries chunked at 500), set `planned_at`, wake the worker. Checks free space on the staging and library volumes (507 if short, with a 512 MB margin). Idempotent. Gated by the heavy-op semaphore. |
 | `POST /imports/{id}/hashes` | Chunk of ≤2,000 `{item_id, sha256}`. Items whose hash matches the library become `duplicate` without uploading. The client hash is only used to skip. |
 | `PUT /imports/{id}/items/{item_id}/content` | Raw body streamed to `staging/{job_id}/.{staging_key}.part` with inline SHA-256, then magic-byte check (`verify_media_mime`) and a size check against the manifest ("File changed size after it was chosen"), rename to `staging/{job_id}/{staging_key}` (`staging_key` = uuid hex + extension) and `mark_bytes_received` (→ `ready` or `duplicate`). Size limit `max_import_file_size` (`max_video_file_size` for videos). Idempotent: an item already past `awaiting_bytes` drains the body and returns its state. |
@@ -302,6 +309,7 @@ create job → manifest chunks → (archives) → seal ──▶ show group plan
 - Hashing runs in a Web Worker. It is skipped in insecure contexts (no `crypto.subtle`, e.g. plain-HTTP LAN) and for files over 256 MB; dedup then happens server-side after upload.
 - Upload retries: network errors back off (cap 30 s) and retry while the tab is open ("waiting for connection"); 5xx/408/429 retry up to 5 times, then the file is a local failure (still `awaiting_bytes` server-side, so it can be resumed); 409/404 stop quietly; other 4xx fail the file.
 - If setup (manifest, archives, seal, hashes) fails, the job is cancelled so it can't sit active forever.
+- **Desktop app**: `startLocalImport(paths)` replaces the whole sequence with create → `local-sources` → seal (phase `reading`, then `sealing`); no hashing, uploads or resume. The dialog takes paths from `electronAPI.getPathForFile` on dropped items and from the native pickers ([local-ingest.md §5](local-ingest.md#5-desktop-app-and-frontend)).
 - One poller for `GET /imports`: 1 s while active, 5 s when the tab is hidden, 30 s idle; error backoff capped at 5 s drives a `degraded` / `lost` connection state.
 - `beforeunload` guard while bytes are outstanding. Nothing is persisted locally: resume works from any tab by re-picking files, matched on `(relative_path, size)` against the job's `awaiting_bytes` items.
 
@@ -393,7 +401,7 @@ App settings (database, seeded on first boot by `seed_default_settings` in `back
 - **Progress moves in batch-sized steps** (up to 16 items commit together).
 - **Library purge deletes `backups/`**, because backups live inside the image library folder.
 - **Shared-storage "add to group"** (put the existing image into the new group instead of importing a copy) needs many-to-many group membership; deferred.
-- **Bulk local-library import**: linked folders read in place would be another source of bytes for the same item queue. Revisit `kind` and `staging_key` vs a `source_path` then.
+- **Linked library and drop folder**: local folder import is built ([local-ingest.md](local-ingest.md)); linked folders read in place and a drop folder are planned there.
 - **Pixel-hash determinism** across Pillow/libjpeg-turbo upgrades: the failure mode is a missed duplicate, never a false skip.
 
 ## 15. Logging and CLI

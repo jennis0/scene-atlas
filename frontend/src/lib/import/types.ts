@@ -47,6 +47,10 @@ export interface ImportJobSummary {
   planned: boolean
   dismissed: boolean
   upload_interrupted: boolean
+  /** Read from folders on this computer (desktop app); nothing to upload or resume. */
+  local: boolean
+  /** A local import's folders that are missing right now; the import waits for them. */
+  waiting_for: string[]
   counts: ImportCounts
   group_count: number
   created_at: string | null
@@ -104,6 +108,14 @@ export interface ContentResult {
   state: ItemState
   error_reason: string | null
   duplicate_of_image_id: number | null
+}
+
+/** What POST /imports/{id}/local-sources added. */
+export interface LocalSourcesResult {
+  created: number
+  skipped: number
+  failed: number
+  ignored: number
 }
 
 export interface ArchiveResult {

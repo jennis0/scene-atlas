@@ -19,6 +19,13 @@ interface ElectronAPI {
    * Resolves (with an error) only if the new locations can't be used.
    */
   changeStorageDirs(appDataDir: string, imageLibraryDir: string): Promise<{ error: string | null }>
+
+  // Local imports (design/local-ingest.md)
+  /** The file's path on disk, or '' if it has none. */
+  getPathForFile(file: File): string
+  /** Native pickers; resolve to [] when cancelled. */
+  chooseImportFolders(): Promise<string[]>
+  chooseImportFiles(): Promise<string[]>
 }
 
 declare global {

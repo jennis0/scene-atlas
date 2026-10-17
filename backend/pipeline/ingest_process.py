@@ -17,7 +17,7 @@ import logging
 import os
 import shutil
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from PIL import Image as PILImage
@@ -34,14 +34,20 @@ from backend.app.services import ingest_state as st
 from backend.app.services.image_parser import build_search_text
 from backend.app.services.ingest_state import ItemEvent
 from backend.app.services.memory_budget import get_memory_budget
+from backend.app.services.validation import verify_media_mime
 
-from .error_classifier import KIND_SYSTEM, classify_ingest_error
+from .error_classifier import KIND_FILE, KIND_SYSTEM, classify_ingest_error
 from .image_hashes import file_sha256, perceptual_hash, pixel_hash
 from .ingest_queue import (
     KIND_BYTES_LOST,
+    KIND_SOURCE_UNAVAILABLE,
     ClaimedItem,
+    EarlyDuplicate,
     ItemFailure,
+    library_byte_duplicate,
+    missing_roots,
     recompute_job_status,
+    record_early_duplicates,
     record_failures,
     remove_staged,
     staged_path,
@@ -56,6 +62,7 @@ logger = logging.getLogger(__name__)
 
 INCOMING_DIRNAME = ".incoming"
 _BYTES_LOST_REASON = "The uploaded file is missing; upload it again"
+_SOURCE_GONE_REASON = "The file was moved or deleted after it was chosen"
 
 
 def incoming_dir(store_base: Path) -> Path:
@@ -223,7 +230,9 @@ def plan_decode(staged: Path, item: ClaimedItem, cfg: PipelineConfig) -> DecodeP
     return DecodePlan(width, height, full_decode, peak)
 
 
-def prepare_item(item: ClaimedItem, cfg: PipelineConfig) -> PreparedItem | ItemFailure:
+def prepare_item(
+    item: ClaimedItem, cfg: PipelineConfig
+) -> PreparedItem | ItemFailure | EarlyDuplicate:
     """Everything except embedding and saving. Runs on the prepare pool.
 
     Reserves the image's estimated peak memory from the shared budget, then
@@ -231,6 +240,8 @@ def prepare_item(item: ClaimedItem, cfg: PipelineConfig) -> PreparedItem | ItemF
     and thumbnails. Colours and the perceptual hash come from the large
     thumbnail; only grid detection re-reads the file.
     """
+    if item.source_path:
+        return _prepare_local(item, cfg)
     staged = staged_path(item.job_id, item.staging_key) if item.staging_key else None
     if staged is None or not staged.exists():
         return ItemFailure(
@@ -262,13 +273,75 @@ class _Progress:
     created: list[Path] = field(default_factory=list)
 
 
+def _missing_source(item: ClaimedItem, detail: str = "") -> ItemFailure:
+    """A local item's file isn't there: its folder is gone (wait), or just the file (fail)."""
+    source = Path(item.source_path or "")
+    gone = [root for root in missing_roots(item.source_roots) if source.is_relative_to(root)]
+    if gone:
+        return ItemFailure(
+            item.id, KIND_SOURCE_UNAVAILABLE, "read", f"Waiting for {gone[0]}", detail
+        )
+    return ItemFailure(item.id, KIND_FILE, "read", _SOURCE_GONE_REASON, detail)
+
+
+def _prepare_local(
+    item: ClaimedItem, cfg: PipelineConfig
+) -> PreparedItem | ItemFailure | EarlyDuplicate:
+    """A local import's file (design/local-ingest.md §4.3): hash it where it is, skip it if
+    the library has those bytes, else copy it into the library's temp folder once and
+    process the copy. The source is read twice at most and never written."""
+    source = Path(item.source_path or "")
+    progress = _Progress(stage="read")
+    try:
+        if not source.is_file():
+            return _missing_source(item)
+        ext = source.suffix.lower()
+        if not verify_media_mime(source, ext):
+            return ItemFailure(
+                item.id, KIND_FILE, "validate", "File content doesn't match its type"
+            )
+        source_hash = file_sha256(source)
+        duplicate_of = None if item.allow_duplicate else library_byte_duplicate(source_hash)
+        if duplicate_of is not None:
+            return EarlyDuplicate(item.id, duplicate_of, source_hash)
+
+        progress.stage = "copy"
+        stem = uuid.uuid4().hex
+        temp_dir = incoming_dir(get_image_store().base_dir)
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        copy = temp_dir / f"{stem}{ext}"
+        progress.created.append(copy)
+        shutil.copyfile(source, copy)
+
+        progress.stage = "decode"
+        plan = plan_decode(copy, item, cfg)
+        with get_memory_budget().reserve(plan.peak_bytes):
+            local = replace(item, source_hash=source_hash)
+            return _prepare(local, cfg, copy, plan, progress, stem=stem, owned=True)
+    except Exception as exc:
+        for path in progress.created:
+            path.unlink(missing_ok=True)
+        if isinstance(exc, FileNotFoundError) and not source.is_file():
+            return _missing_source(item, str(exc))
+        logger.warning("Prepare failed for %s at %s: %s", item.relative_path, progress.stage, exc)
+        info = classify_ingest_error(exc, stage=progress.stage)
+        return ItemFailure(item.id, info["kind"], progress.stage, info["reason"], info["detail"])
+
+
 def _prepare(
-    item: ClaimedItem, cfg: PipelineConfig, staged: Path, plan: DecodePlan, progress: _Progress
+    item: ClaimedItem,
+    cfg: PipelineConfig,
+    staged: Path,
+    plan: DecodePlan,
+    progress: _Progress,
+    *,
+    stem: str | None = None,
+    owned: bool = False,
 ) -> PreparedItem:
-    image_store = get_image_store()
+    """``owned``: ``staged`` is already this item's temp copy in the library's temp folder
+    (named ``stem`` + extension), so it becomes the stored original without another copy."""
     thumbnail_store = get_thumbnail_store()
-    stem = uuid.uuid4().hex
-    storage_key = f"{stem}{staged.suffix.lower()}"
+    stem = stem or uuid.uuid4().hex
 
     progress.stage = "hash"
     source_hash = item.source_hash or file_sha256(staged)
@@ -316,46 +389,71 @@ def _prepare(
         else {k: item.parsed.get(k) for k in ("gridded", "grid_width", "grid_height")}
     )
 
-    library_temp_dir = incoming_dir(image_store.base_dir)
-    library_temp_dir.mkdir(parents=True, exist_ok=True)
-    progress.stage = "convert"
-    converted = (
-        convert_stored_format(staged, library_temp_dir, stem, cfg.stored_format)
-        if item.kind != "video"
-        else None
-    )
-    if converted is not None:
-        progress.created.append(converted)
-        temp_original = converted
-        storage_key = converted.name
-        stored_hash = file_sha256(converted)
-        file_size = converted.stat().st_size
-    else:
-        progress.stage = "copy"
-        temp_original = library_temp_dir / storage_key
-        progress.created.append(temp_original)
-        shutil.copyfile(staged, temp_original)
-        stored_hash = source_hash
+    stored = _store_original(item, cfg, staged, stem, source_hash, file_size, progress, owned=owned)
 
     medium_key, medium_path = thumbnails["medium"]
     return PreparedItem(
         item=item,
-        storage_key=storage_key,
-        temp_original=temp_original,
+        storage_key=stored.storage_key,
+        temp_original=stored.path,
         temp_thumbnails=dict(thumbnails.values()),
         thumbnail_key=medium_key,
         clip_source=medium_path,
         width=width,
         height=height,
-        file_size=file_size,
+        file_size=stored.size,
         media_type="video" if item.kind == "video" else "image",
         source_hash=source_hash,
-        stored_hash=stored_hash,
+        stored_hash=stored.stored_hash,
         pixel_hash=image_pixel_hash,
         phash=image_phash,
         colors=colors,
         grid=grid,
     )
+
+
+@dataclass(frozen=True)
+class _Stored:
+    path: Path  # temp file in the library's temp folder, placed at commit
+    storage_key: str
+    stored_hash: str
+    size: int
+
+
+def _store_original(
+    item: ClaimedItem,
+    cfg: PipelineConfig,
+    staged: Path,
+    stem: str,
+    source_hash: str,
+    file_size: int,
+    progress: _Progress,
+    *,
+    owned: bool,
+) -> _Stored:
+    """The stored original as a temp file next to the library: converted to the configured
+    format, or the bytes as they are (``owned``: ``staged`` already is that copy)."""
+    temp_dir = incoming_dir(get_image_store().base_dir)
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    progress.stage = "convert"
+    converted = (
+        convert_stored_format(staged, temp_dir, stem, cfg.stored_format)
+        if item.kind != "video"
+        else None
+    )
+    if converted is not None:
+        progress.created.append(converted)
+        if owned:
+            staged.unlink(missing_ok=True)
+        return _Stored(converted, converted.name, file_sha256(converted), converted.stat().st_size)
+    key = f"{stem}{staged.suffix.lower()}"
+    if owned:
+        return _Stored(staged, key, source_hash, file_size)
+    progress.stage = "copy"
+    temp = temp_dir / key
+    progress.created.append(temp)
+    shutil.copyfile(staged, temp)
+    return _Stored(temp, key, source_hash, file_size)
 
 
 # Embed
@@ -619,12 +717,21 @@ class BatchOutcome:
     system_reason: str | None = None
 
 
+def _split(
+    results: list[PreparedItem | ItemFailure | EarlyDuplicate],
+) -> tuple[list[PreparedItem], list[ItemFailure], list[EarlyDuplicate]]:
+    prepared = [r for r in results if isinstance(r, PreparedItem)]
+    failures = [r for r in results if isinstance(r, ItemFailure)]
+    return prepared, failures, [r for r in results if isinstance(r, EarlyDuplicate)]
+
+
 def process_batch(items: list[ClaimedItem], cfg: PipelineConfig, pool) -> BatchOutcome:
     """Prepare, embed, commit and index one claimed batch. Never raises for item errors."""
     outcome = BatchOutcome()
-    results = [f.result() for f in [pool.submit(prepare_item, item, cfg) for item in items]]
-    prepared = [r for r in results if isinstance(r, PreparedItem)]
-    outcome.failures = [r for r in results if isinstance(r, ItemFailure)]
+    prepared, outcome.failures, early = _split(
+        [f.result() for f in [pool.submit(prepare_item, item, cfg) for item in items]]
+    )
+    record_early_duplicates(early)
 
     if prepared:
         embed_failures = embed(prepared)
@@ -659,6 +766,7 @@ def process_batch(items: list[ClaimedItem], cfg: PipelineConfig, pool) -> BatchO
             remove_staged(c.prepared.item.job_id, c.prepared.item.staging_key)
         outcome.done = len(commit.done)
         outcome.duplicates = len(commit.duplicates)
+    outcome.duplicates += len(early)
 
     logger.info(
         "Ingest batch: %d done, %d duplicate, %d failed",

@@ -42,6 +42,8 @@ export const reviewableGroupIds = (groups: ImportGroupSummary[]) =>
 export function uploadPhaseText(upload: LocalUpload | undefined): string | null {
   if (!upload) return null
   switch (upload.phase) {
+    case 'reading':
+      return 'Reading the folders'
     case 'describing':
       return 'Reading the file list'
     case 'archives':
@@ -66,6 +68,13 @@ export function outcomeText(c: ImportCounts): string {
 }
 
 /** Short status line for a job row (dock) or dialog header. */
+/** Why an open job isn't moving, if it's waiting on the user. */
+function blockedText(job: ImportJobSummary): string | null {
+  if (job.waiting_for.length && !isFinished(job)) return `Waiting for ${job.waiting_for[0]}`
+  if (job.upload_interrupted) return 'Upload interrupted'
+  return null
+}
+
 export function jobStatusText(job: ImportJobSummary, upload: LocalUpload | undefined): string {
   const sending = uploadPhaseText(upload)
   if (sending && !isFinished(job)) {
@@ -73,7 +82,8 @@ export function jobStatusText(job: ImportJobSummary, upload: LocalUpload | undef
       ? `${sending}. ${job.counts.done.toLocaleString()} imported`
       : sending
   }
-  if (job.upload_interrupted) return 'Upload interrupted'
+  const blocked = blockedText(job)
+  if (blocked) return blocked
   if (job.status === 'paused') return `Paused. ${outcomeText(job.counts)}`
   if (job.status === 'cancelled') return `Cancelled. ${outcomeText(job.counts)}`
   if (job.status === 'completed') return outcomeText(job.counts)

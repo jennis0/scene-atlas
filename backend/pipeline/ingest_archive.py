@@ -88,8 +88,10 @@ def expand_archive(
     max_files: int,
     max_uncompressed_bytes: int,
     max_file_size: int,
+    keep_source: bool = False,
 ) -> ArchiveCounts:
-    """Turn the zip at ``zip_path`` into items of ``job``. Deletes ``zip_path`` afterwards.
+    """Turn the zip at ``zip_path`` into items of ``job``. Deletes ``zip_path`` afterwards
+    unless ``keep_source`` (a local import reads the user's own zip in place).
 
     - A zip that fails the safety check becomes one failed ``archive`` item.
     - Member paths are used as relative paths; if one collides with a path
@@ -172,4 +174,5 @@ def expand_archive(
         db.flush()
         return counts
     finally:
-        zip_path.unlink(missing_ok=True)
+        if not keep_source:
+            zip_path.unlink(missing_ok=True)

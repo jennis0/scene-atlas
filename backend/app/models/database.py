@@ -262,6 +262,9 @@ class ImportJob(Base):
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Local imports (design/local-ingest.md): JSON list of the folders the job reads
+    # from. The job waits while any of them is missing.
+    source_roots: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     import_groups: Mapped[list["ImportGroup"]] = relationship(
         "ImportGroup", back_populates="job", cascade="all, delete-orphan", passive_deletes=True
@@ -350,6 +353,9 @@ class ImportItem(Base):
     source_hash: Mapped[str | None] = mapped_column(
         String(64), nullable=True
     )  # SHA-256 of the original bytes
+    # Local imports: the original file's absolute path, read by the worker (never
+    # written). NULL for uploads, whose bytes are in staging (staging_key).
+    source_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     retry_after: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     error_kind: Mapped[str | None] = mapped_column(

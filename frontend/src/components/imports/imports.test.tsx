@@ -82,6 +82,57 @@ describe('ImportDialog: start', () => {
   })
 })
 
+describe('ImportDialog: start in the desktop app', () => {
+  const electron = (overrides = {}) => {
+    window.electronAPI = {
+      getPathForFile: (file: File) => `/maps/${file.name}`,
+      chooseImportFolders: vi.fn(async () => ['/maps/Forest Pack']),
+      chooseImportFiles: vi.fn(async () => []),
+      ...overrides,
+    } as unknown as NonNullable<Window['electronAPI']>
+  }
+  afterEach(() => {
+    delete window.electronAPI
+  })
+
+  it('imports a chosen folder by path, without uploading', async () => {
+    electron()
+    ;({ manager, client } = await installFakeImportManager())
+    const onStarted = vi.fn()
+    renderWithProviders(<ImportDialog jobId={null} open onClose={noop} onStarted={onStarted} />)
+    await userEvent.click(screen.getByRole('button', { name: /Choose a folder/ }))
+
+    await waitFor(() => expect(onStarted).toHaveBeenCalledWith('new-job'))
+    expect(client.create).toHaveBeenCalledWith('Forest Pack', 'battlemap')
+    await waitFor(() =>
+      expect(client.localSources).toHaveBeenCalledWith('new-job', ['/maps/Forest Pack']),
+    )
+    expect(client.manifest).not.toHaveBeenCalled()
+  })
+
+  it('does nothing when the picker is cancelled', async () => {
+    electron({ chooseImportFolders: vi.fn(async () => []) })
+    ;({ manager, client } = await installFakeImportManager())
+    renderWithProviders(<ImportDialog jobId={null} open onClose={noop} onStarted={noop} />)
+    await userEvent.click(screen.getByRole('button', { name: /Choose a folder/ }))
+    expect(client.create).not.toHaveBeenCalled()
+  })
+
+  it('imports dropped folders by path', async () => {
+    electron()
+    ;({ manager, client } = await installFakeImportManager())
+    renderWithProviders(<ImportDialog jobId={null} open onClose={noop} onStarted={noop} />)
+    const zone = screen.getByText('Drop files or folders here')
+    fireEvent.drop(zone, {
+      dataTransfer: { files: [new File([], 'Forest'), new File([], 'Cave')] },
+    })
+    await waitFor(() =>
+      expect(client.localSources).toHaveBeenCalledWith('new-job', ['/maps/Forest', '/maps/Cave']),
+    )
+    expect(client.create).toHaveBeenCalledWith('2 folders and files', 'battlemap')
+  })
+})
+
 describe('ImportDialog: progress', () => {
   const detail = (partial = {}) => ({
     ...jobSummary(partial),
@@ -124,6 +175,16 @@ describe('ImportDialog: progress', () => {
     expect(screen.getByText(/still to send/)).toHaveTextContent('7 files')
     await userEvent.click(screen.getByText('Finish without them'))
     expect(client.action).toHaveBeenCalledWith('job1', 'finish-upload')
+  })
+
+  it('says which folder a local import is waiting for', async () => {
+    ;({ manager, client } = await installFakeImportManager({
+      jobs: [jobSummary({ local: true, waiting_for: ['D:\\Maps'], counts: counts({ ready: 4 }) })],
+      details: { job1: detail() },
+    }))
+    renderWithProviders(<ImportDialog jobId="job1" open onClose={noop} onStarted={noop} />)
+    expect(screen.getByText(/Can't find D:\\Maps/)).toBeInTheDocument()
+    expect(screen.getByText('Waiting for D:\\Maps')).toBeInTheDocument()
   })
 
   it('explains a system pause', async () => {

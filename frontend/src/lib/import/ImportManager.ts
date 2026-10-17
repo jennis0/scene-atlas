@@ -34,6 +34,7 @@ import type {
 // Public types
 
 export type UploadPhase =
+  | 'reading' // desktop app: the server is listing the chosen folders
   | 'describing' // creating the job and sending the file list
   | 'archives' // uploading zips (expanded server-side before seal)
   | 'sealing' // server is grouping the files
@@ -162,6 +163,7 @@ class Aborted extends Error {}
 
 const OPEN_STATUSES = new Set(['active', 'paused'])
 const ACTIVE_PHASES = new Set<UploadPhase>([
+  'reading',
   'describing',
   'archives',
   'sealing',
@@ -293,7 +295,31 @@ export class ImportManager {
    * (``whenSettled`` waits for them).
    */
   async startImport(files: PickedFile[], options: StartImportOptions = {}): Promise<string> {
-    const label = options.label ?? defaultLabel(files)
+    return this.startRun(
+      options.label ?? defaultLabel(files),
+      options,
+      'describing',
+      (jobId, run) => this.runImport(jobId, files, run),
+    )
+  }
+
+  /**
+   * Desktop app: import files and folders on this computer by path
+   * (design/local-ingest.md). The server lists them and reads each file where it
+   * is, so nothing is hashed or uploaded here and there's nothing to resume.
+   */
+  async startLocalImport(paths: string[], options: StartImportOptions = {}): Promise<string> {
+    return this.startRun(options.label ?? localLabel(paths), options, 'reading', (jobId, run) =>
+      this.runLocalImport(jobId, paths, run),
+    )
+  }
+
+  private async startRun(
+    label: string,
+    options: StartImportOptions,
+    phase: UploadPhase,
+    body: (jobId: string, run: UploadRun) => Promise<void>,
+  ): Promise<string> {
     const job = await this.client.create(label, options.imageType ?? 'battlemap')
     this.set({
       uploads: {
@@ -301,7 +327,7 @@ export class ImportManager {
         [job.id]: {
           jobId: job.id,
           label,
-          phase: 'describing',
+          phase,
           totalFiles: 0,
           sentFiles: 0,
           skippedAsDuplicate: 0,
@@ -314,9 +340,30 @@ export class ImportManager {
     })
     this.syncUnloadGuard()
     const run = this.newRun(job.id)
-    run.settled = this.runImport(job.id, files, run)
+    run.settled = this.settle(job.id, body(job.id, run))
     void this.refresh()
     return job.id
+  }
+
+  /** Record how a run that starts a job ended: finished, cancelled, or failed to start. */
+  private async settle(jobId: string, work: Promise<void>): Promise<void> {
+    try {
+      await work
+      this.updateUpload(jobId, { phase: 'finished' })
+    } catch (err) {
+      if (err instanceof Aborted || classifyError(err).kind === 'aborted') {
+        this.updateUpload(jobId, { phase: 'cancelled' })
+      } else {
+        const error = classifyError(err)
+        const message =
+          error.kind === 'http' ? error.detail : 'Lost connection to the server while starting'
+        this.updateUpload(jobId, { phase: 'failed', error: message })
+        // A job that never got going would otherwise sit active forever.
+        await this.client.action(jobId, 'cancel').catch(() => {})
+      }
+    } finally {
+      void this.refresh()
+    }
   }
 
   /** Resolves when this tab's work for ``jobId`` has finished (tests, callers that wait). */
@@ -337,46 +384,36 @@ export class ImportManager {
   }
 
   private async runImport(jobId: string, files: PickedFile[], run: UploadRun): Promise<void> {
-    try {
-      const archives = files.filter((f) => isArchive(f.relativePath))
-      const others = files.filter((f) => !isArchive(f.relativePath))
+    const archives = files.filter((f) => isArchive(f.relativePath))
+    const others = files.filter((f) => !isArchive(f.relativePath))
 
-      const pending = await this.describe(jobId, others, run)
+    const pending = await this.describe(jobId, others, run)
 
-      if (archives.length) {
-        this.updateUpload(jobId, { phase: 'archives' })
-        for (const archive of archives) {
-          await this.withRetries(run, () =>
-            this.client.uploadArchive(jobId, archive.file, { signal: run.controller.signal }),
-          )
-        }
+    if (archives.length) {
+      this.updateUpload(jobId, { phase: 'archives' })
+      for (const archive of archives) {
+        await this.withRetries(run, () =>
+          this.client.uploadArchive(jobId, archive.file, { signal: run.controller.signal }),
+        )
       }
-
-      this.updateUpload(jobId, { phase: 'sealing' })
-      await this.withRetries(run, () => this.client.seal(jobId))
-      void this.refresh()
-
-      this.updateUpload(jobId, {
-        phase: 'uploading',
-        totalFiles: pending.length,
-        totalBytes: pending.reduce((sum, p) => sum + p.file.size, 0),
-      })
-      await this.uploadAll(jobId, pending, run)
-      this.updateUpload(jobId, { phase: 'finished' })
-    } catch (err) {
-      if (err instanceof Aborted || classifyError(err).kind === 'aborted') {
-        this.updateUpload(jobId, { phase: 'cancelled' })
-      } else {
-        const error = classifyError(err)
-        const message =
-          error.kind === 'http' ? error.detail : 'Lost connection to the server while starting'
-        this.updateUpload(jobId, { phase: 'failed', error: message })
-        // A job that never got going would otherwise sit active forever.
-        await this.client.action(jobId, 'cancel').catch(() => {})
-      }
-    } finally {
-      void this.refresh()
     }
+
+    this.updateUpload(jobId, { phase: 'sealing' })
+    await this.withRetries(run, () => this.client.seal(jobId))
+    void this.refresh()
+
+    this.updateUpload(jobId, {
+      phase: 'uploading',
+      totalFiles: pending.length,
+      totalBytes: pending.reduce((sum, p) => sum + p.file.size, 0),
+    })
+    await this.uploadAll(jobId, pending, run)
+  }
+
+  private async runLocalImport(jobId: string, paths: string[], run: UploadRun): Promise<void> {
+    const added = await this.withRetries(run, () => this.client.localSources(jobId, paths))
+    this.updateUpload(jobId, { phase: 'sealing', totalFiles: added.created })
+    await this.withRetries(run, () => this.client.seal(jobId))
   }
 
   /** Send the file list in chunks; returns the files whose bytes the server wants. */
@@ -945,6 +982,15 @@ export function defaultLabel(files: PickedFile[]): string {
   const roots = new Set(files.map((f) => normaliseRelativePath(f.relativePath).split('/')[0]))
   if (roots.size === 1) return [...roots][0]
   return `${files.length} file${files.length === 1 ? '' : 's'}`
+}
+
+/** "Forest Pack" for one folder or file, else "3 folders and files". */
+export function localLabel(paths: string[]): string {
+  if (paths.length === 1) {
+    const parts = paths[0].split(/[\\/]/).filter(Boolean)
+    return parts[parts.length - 1] ?? paths[0]
+  }
+  return `${paths.length} folders and files`
 }
 
 let instance: ImportManager | null = null

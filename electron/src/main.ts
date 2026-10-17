@@ -107,6 +107,25 @@ async function pickDirectory(
   return result.canceled ? null : result.filePaths[0]
 }
 
+/** Files and folders to import (design/local-ingest.md). Empty when cancelled. */
+async function pickImportPaths(win: BrowserWindow | null, kind: 'folders' | 'files') {
+  const options: Electron.OpenDialogOptions =
+    kind === 'folders'
+      ? { title: 'Import folders', properties: ['openDirectory', 'multiSelections'] }
+      : {
+          title: 'Import files',
+          properties: ['openFile', 'multiSelections'],
+          filters: [{ name: 'Images, videos and zips', extensions: IMPORT_EXTENSIONS }],
+        }
+  options.buttonLabel = 'Import'
+  const result = win
+    ? await dialog.showOpenDialog(win, options)
+    : await dialog.showOpenDialog(options)
+  return result.canceled ? [] : result.filePaths
+}
+
+const IMPORT_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'webm', 'zip']
+
 // IPC
 
 function assertTrusted(event: IpcMainInvokeEvent): void {
@@ -175,6 +194,13 @@ handleTrusted('setup:complete', (_event, appDataDir, imageLibraryDir, convertToW
   setupWindow?.close()
   return { error: null }
 })
+
+handleTrusted('imports:choose-folders', (event) =>
+  pickImportPaths(BrowserWindow.fromWebContents(event.sender), 'folders'),
+)
+handleTrusted('imports:choose-files', (event) =>
+  pickImportPaths(BrowserWindow.fromWebContents(event.sender), 'files'),
+)
 
 handleTrusted('system:get-app-data-dir', () => currentAppDataDir)
 handleTrusted('system:get-image-library-dir', () => currentImageLibraryDir)
