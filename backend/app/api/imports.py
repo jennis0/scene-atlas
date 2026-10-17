@@ -58,7 +58,7 @@ from ..models.import_schemas import (
 from ..services import ingest_state as st
 from ..services.app_settings import get_settings as get_app_settings
 from ..services.validation import verify_media_mime
-from .dependencies import acquire_heavy_op, get_db
+from .dependencies import acquire_heavy_op, get_db, get_write_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -72,16 +72,6 @@ _STREAM_CHUNK = 256 * 1024
 
 
 # Dependencies and helpers
-
-
-def get_write_db(request: Request):
-    """A session whose transaction holds the SQLite write lock from the start."""
-    db = get_session_local(request.app.state.db_engine)()
-    try:
-        q.begin_immediate(db)
-        yield db
-    finally:
-        db.close()
 
 
 def _open_session(request: Request) -> Session:

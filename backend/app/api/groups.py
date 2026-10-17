@@ -27,7 +27,7 @@ from ..models.schemas import (
 )
 from ..services import get_image_store
 from ..services.deletion_service import delete_image_rows
-from .dependencies import get_db
+from .dependencies import get_db, get_write_db
 
 router = APIRouter()
 
@@ -193,7 +193,7 @@ def download_group(
 def edit_group(
     group_id: int,
     payload: GroupEditRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_write_db),
 ):
     """Edit a group: update metadata, delete images, update images, split off new groups."""
     group = db.query(ImageGroup).filter(ImageGroup.id == group_id).first()
@@ -288,7 +288,7 @@ def edit_group(
 @router.delete("/{group_id}")
 def delete_group(
     group_id: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_write_db),
 ):
     """Delete a group and all its images."""
     group = db.query(ImageGroup).filter(ImageGroup.id == group_id).first()
@@ -309,7 +309,7 @@ def delete_group(
 def move_images(
     group_id: int,
     payload: MoveImagesRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_write_db),
 ):
     """Move specific images from source group to target group.
 
@@ -377,7 +377,7 @@ def move_images(
 def merge_group(
     group_id: int,
     payload: GroupMergeRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_write_db),
 ):
     """Merge source group into target group.
 
