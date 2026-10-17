@@ -124,7 +124,6 @@ Re-check these whenever the dependency in question is upgraded. Last reviewed 20
 | npm audit (frontend, dev) | `braces` (all versions), via `tailwindcss` 3 / `chokidar` / `micromatch` / `knip` | Build-time glob matching over our own patterns. No patched `braces` release exists; removal needs Tailwind 4 / knip 6. |
 | npm audit (frontend, dev) | `postcss-selector-parser` <7.1.6 via `tailwindcss` 3 | Build-time, parses only our own CSS. Fixed only in 7.x, which Tailwind 3 does not accept. |
 | npm audit (frontend, runtime, moderate) | `react-router` 6 open redirect (backslash in `<Link>`/`useNavigate`), `deserializeErrors` constructor injection | Fixed only in React Router 7. The app never navigates to user-supplied URLs and does not use SSR hydration (`deserializeErrors`). |
-| npm audit (root, dev) | `electron` 40.x (sandboxed-iframe/popup and protocol-handler advisories, fixed in 41.10.6) | Electron 40 and 41 are end of life; there is no patched 40.x. The renderer only loads the same-origin UI with navigation blocked, which limits exposure. **Upgrade to a supported major (42+) before the next release.** |
 | npm audit (root, dev) | `sprintf-js` via `roarr` → `global-agent` → `@electron/get` → `electron-builder` | Build-time only; no patched release. |
 | npm audit (docs, dev) | `vite` 5 / `esbuild` via `vitepress` 1.6.4 | Dev-server-only advisories; CI only runs `vitepress build`. vitepress 1.x pins vite 5 (fix needs vitepress 2). |
 
@@ -133,8 +132,7 @@ Re-check these whenever the dependency in question is upgraded. Last reviewed 20
 ## Open Items
 
 1. Session-based authentication (Finding 1).
-2. Upgrade Electron to a supported major (see accepted findings).
-3. Constrain the paths accepted by `system:change-storage-dirs` (Finding 6).
-4. CSRF protection alongside auth (Finding 9).
+2. Constrain the paths accepted by `system:change-storage-dirs` (Finding 6).
+3. CSRF protection alongside auth (Finding 9).
 
 Backlog priorities are tracked in [status-and-roadmap.md](status-and-roadmap.md).
