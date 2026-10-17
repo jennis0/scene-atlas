@@ -1,6 +1,6 @@
 """In-process background job runner with bounded concurrency and status tracking.
 
-Submits and executes background work (imports, retagging, backfills) within
+Submits and executes background work (retagging, backfills, embedding rebuilds) within
 the FastAPI process.  Jobs run in a ``ThreadPoolExecutor`` so heavy
 processing (CLIP, thumbnails) doesn't block the async event loop.
 

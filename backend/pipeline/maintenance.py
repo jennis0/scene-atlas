@@ -6,7 +6,7 @@ Functions:
 
 Ingest-related maintenance lives in ``ingest_maintenance``; vector index repair
 in ``vector_reconcile``. Scheduled by the Scheduler (started in the FastAPI
-lifespan). Also runnable from the CLI: ``uv run python -m backend.pipeline.maintenance``
+lifespan).
 """
 
 import logging
@@ -132,9 +132,6 @@ def backup_database() -> dict:
     }
     logger.info("Backup complete: %s", result)
     return result
-
-
-# Staging cleanup tasks
 
 
 # Only files in the store's shard layout (ab/cd/<key>) are ever considered;
