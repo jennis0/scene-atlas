@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { modelsApi, type ModelInfo, type SetupStatus } from '@/lib/api/modelsApi'
 import { jobApi } from '@/lib/api/jobApi'
-import { HARDWARE_BADGE } from '@/lib/modelConstants'
-import { useHueColor } from '@/contexts/TagColorContext'
+import { GpuStatus } from '@/components/models/GpuStatus'
+import { ModelRatings } from '@/components/models/ModelRatings'
 import { TagPackSetupStep } from '@/components/setup/TagPackSetupStep'
 
 interface ModelSetupScreenProps {
@@ -11,16 +11,9 @@ interface ModelSetupScreenProps {
   skipModel?: boolean
 }
 
-const GPU_PROVIDER_LABELS: Record<string, string> = {
-  CUDAExecutionProvider: 'NVIDIA GPU (CUDA)',
-  DmlExecutionProvider: 'DirectML GPU',
-  CoreMLExecutionProvider: 'Apple GPU (Core ML)',
-}
-
 type Phase = 'loading' | 'select' | 'submitting' | 'tag-packs' | 'error'
 
 export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupScreenProps) {
-  const hueColor = useHueColor()
   const [phase, setPhase] = useState<Phase>('loading')
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null)
   const [models, setModels] = useState<ModelInfo[]>([])
@@ -148,9 +141,7 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
     )
   }
 
-  const gpuLabel = setupStatus?.gpu_provider
-    ? (GPU_PROVIDER_LABELS[setupStatus.gpu_provider] ?? setupStatus.gpu_provider)
-    : null
+  const hasGpu = setupStatus?.has_gpu ?? false
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-6">
@@ -158,62 +149,36 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
         <div className="text-center space-y-2">
           <h1 className="text-2xl font-bold">Welcome to Scene Atlas</h1>
           <p className="text-muted-foreground text-sm">
-            Choose an AI model to enable semantic image search. You can change this later in
-            Settings.
+            Pick the model that powers search by description. You can change it later in Settings.
           </p>
         </div>
 
-        <div className="flex justify-center">
-          {gpuLabel ? (
-            <span
-              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${hueColor('purple').bg} ${hueColor('purple').text}`}
-            >
-              <span className="h-1.5 w-1.5 rounded-full bg-purple-500" />
-              GPU detected: {gpuLabel}
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-muted text-muted-foreground">
-              <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-              No GPU detected — CPU mode
-            </span>
-          )}
-        </div>
+        {setupStatus && <GpuStatus hasGpu={hasGpu} provider={setupStatus.gpu_provider} />}
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {models.map((model) => {
             const isSelected = selectedModel === model.name
             const isRecommended = setupStatus?.recommended === model.name
-            const hwBadge = HARDWARE_BADGE[model.recommended_hardware] ?? HARDWARE_BADGE['any']
 
             return (
               <button
                 key={model.name}
                 type="button"
+                aria-pressed={isSelected}
                 onClick={() => setSelectedModel(model.name)}
-                className={`relative text-left rounded-lg border p-4 space-y-2 transition-colors ${
+                className={`relative flex flex-col justify-start text-left rounded-lg border p-4 space-y-2.5 transition-colors ${
                   isSelected
                     ? 'border-primary bg-primary/5'
                     : 'border-border bg-card hover:border-border/80 hover:bg-accent/30'
                 }`}
               >
-                {isRecommended && (
-                  <span className="absolute top-2 right-2 text-xs font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary">
-                    Recommended
-                  </span>
-                )}
-
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-semibold text-sm">{model.label}</span>
-                  <span
-                    className={`text-3xs font-medium px-1.5 py-0.5 rounded ${hueColor(hwBadge.hue).bg} ${hueColor(hwBadge.hue).text}`}
-                  >
-                    {hwBadge.label}
-                  </span>
-                </div>
+                <span className="block font-semibold text-sm">{model.label}</span>
 
                 <p className="text-xs text-muted-foreground leading-relaxed">{model.description}</p>
 
-                <p className="text-xs text-muted-foreground">~{model.approx_size_mb} MB</p>
+                <ModelRatings model={model} hasGpu={hasGpu} />
+
+                <p className="text-2xs text-muted-foreground">{model.approx_size_mb} MB download</p>
 
                 <details className="text-xs" onClick={(e) => e.stopPropagation()}>
                   <summary className="cursor-pointer text-muted-foreground hover:text-foreground select-none">
@@ -223,6 +188,13 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
                     {model.description_technical}
                   </p>
                 </details>
+
+                {/* Last, so the spacing between children doesn't count it */}
+                {isRecommended && (
+                  <span className="absolute top-2 right-2 text-2xs font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+                    Recommended
+                  </span>
+                )}
               </button>
             )
           })}

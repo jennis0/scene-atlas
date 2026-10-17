@@ -47,11 +47,3 @@ export function useGetTagColor(): (categoryName: string | null | undefined) => T
     [map, theme, highContrast],
   )
 }
-
-/** Colours for a tag-palette hue directly (e.g. 'blue'), for badges that aren't tags. */
-// eslint-disable-next-line react-refresh/only-export-components -- context hooks intentionally co-exported with provider
-export function useHueColor(): (hue: string) => TagColor {
-  const { theme } = useTheme()
-  const highContrast = useHighContrast()
-  return useCallback((hue: string) => getTagColor(hue, theme, highContrast), [theme, highContrast])
-}
