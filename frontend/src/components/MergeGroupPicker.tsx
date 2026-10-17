@@ -33,10 +33,7 @@ export function MergeGroupPicker({
   const [selected, setSelected] = useState<GroupPickerItem | null>(null)
 
   const mergeMutation = useMutation({
-    mutationFn: (targetGroup: GroupPickerItem) => {
-      if (!sourceGroupId) throw new Error('Source group ID is required')
-      return groupApi.merge(sourceGroupId, targetGroup.id)
-    },
+    mutationFn: (targetGroup: GroupPickerItem) => groupApi.merge(sourceGroupId!, targetGroup.id),
     onSuccess: async (_, targetGroup) => {
       // Wait for search gallery to update before closing, so user sees fresh data
       await queryClient.refetchQueries({ queryKey: QUERY_KEYS.search })
@@ -87,7 +84,12 @@ export function MergeGroupPicker({
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
       confirmDisabled={!selected || mergeMutation.isPending}
-      onConfirm={() => selected && mergeMutation.mutate(selected)}
+      onConfirm={() => {
+        if (!selected) return
+        // Without a source the caller performs the merge itself.
+        if (sourceGroupId) mergeMutation.mutate(selected)
+        else onSelect?.(selected)
+      }}
     >
       {isLoading ? (
         <div className="flex items-center justify-center h-[200px]">
