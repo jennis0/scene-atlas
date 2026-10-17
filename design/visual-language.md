@@ -35,6 +35,7 @@ Every palette is a pair of blocks in `index.css`: `[data-palette='x']` (light) a
 | Focus ring | ≥ 3:1, 2px | ≥ 3:1, 3px |
 
 How High is built, so it still looks like the same app:
+
 - **Tokens:** per palette and mode, the high-contrast blocks move only lightness (hue and saturation kept), and only as far as each check needs. The values were computed against the tests, not picked by eye; if you retune a palette, nudge lightness until `paletteContrast.test.ts` passes rather than replacing hues.
 - **Text dimmed with opacity** (`text-foreground/80`, `text-primary/70`, …) gets an `hc:` full-strength twin at the same site. Disabled states stay dim (WCAG exempts them). New dimmed text should do the same.
 - **Tag chips** keep their tint; High swaps the text to the least extreme shade of that hue that reaches 7:1 everywhere (`HIGH_CONTRAST_SHADE` in `components/import/tagColors.ts`) and adds a solid outline. Dark mode mostly keeps its standard shade; light mode needs the deep ones. The classes are built at runtime, so they're safelisted in `tailwind.config.js`; `tagContrast.test.ts` checks the safelist matches the hues.
@@ -122,6 +123,7 @@ Three font families, used in distinct roles. **Never mix roles.**
 The Appearance tab offers Small / Default / Large / Larger, set as `data-text-size` on `<html>` (`lib/textSize.ts`), which changes the root font size: 16, 17 (default), 19, 21px, as percentages so a larger browser default still scales up. Everything in rem follows: text, spacing, icons, and the panels that hold text. Images and thumbnails keep their size, so the gallery's density is unchanged, unlike browser zoom.
 
 That only works if sizes are in rem, so:
+
 - **No pixel font sizes.** Use the scale: `text-3xs` (11px at default), `text-2xs` (11.5px), then Tailwind's `text-xs` (12.75px), `text-sm`, `text-base`. The two small steps are CSS variables (`--text-3xs`, `--text-2xs` in `index.css`) with no line height, so they inherit one as the old pixel sizes did.
 - **The floor rises faster than the root.** Large and Larger lift the two small steps more than everything else: small text is at least 12.5px at Large and 14px at Larger, and never below 10.5px at Small. `lib/textScale.test.ts` enforces these floors.
 - **200% zoom is a tested guarantee** (WCAG 1.4.4). `e2e/tests/zoom.spec.ts` runs at 960×480 (200% zoom on 1080p) with Larger text: no horizontal scroll, header controls on screen, and every dialog's controls reachable. Dialogs cap at the window height and scroll their body; use `max-h-[calc(100dvh-1rem)]` plus a `min-h-0` scrolling body rather than a fixed height alone.

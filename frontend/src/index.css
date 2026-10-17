@@ -296,6 +296,7 @@
      (--input) >= 3:1 and dividers 2:1. lib/paletteContrast.test.ts checks all of it.
      Like the palettes, each dark block sets every token its light block sets, and the
      nested selectors let the palette picker preview in high contrast too. */
+
   /* Status at high contrast: >= 7:1, every palette */
   [data-contrast='high'] {
     --success-ink: 152 62% 12.5%;
@@ -686,7 +687,7 @@
     border-radius: 9999px;
     border: 2px solid hsl(var(--card));
     background: hsl(var(--primary-ink));
-    box-shadow: 0 1px 3px hsl(0 0% 0% / calc(0.35 * var(--shadow-strength)));
+    box-shadow: 0 1px 3px hsl(0deg 0% 0% / calc(0.35 * var(--shadow-strength)));
     transition:
       transform 150ms ease-out,
       box-shadow 150ms ease-out;
@@ -698,7 +699,7 @@
     border-radius: 9999px;
     border: 2px solid hsl(var(--card));
     background: hsl(var(--primary-ink));
-    box-shadow: 0 1px 3px hsl(0 0% 0% / calc(0.35 * var(--shadow-strength)));
+    box-shadow: 0 1px 3px hsl(0deg 0% 0% / calc(0.35 * var(--shadow-strength)));
     transition:
       transform 150ms ease-out,
       box-shadow 150ms ease-out;
@@ -706,12 +707,12 @@
 
   .range:hover::-webkit-slider-thumb {
     transform: scale(1.2);
-    box-shadow: 0 2px 6px hsl(0 0% 0% / calc(0.35 * var(--shadow-strength)));
+    box-shadow: 0 2px 6px hsl(0deg 0% 0% / calc(0.35 * var(--shadow-strength)));
   }
 
   .range:hover::-moz-range-thumb {
     transform: scale(1.2);
-    box-shadow: 0 2px 6px hsl(0 0% 0% / calc(0.35 * var(--shadow-strength)));
+    box-shadow: 0 2px 6px hsl(0deg 0% 0% / calc(0.35 * var(--shadow-strength)));
   }
 
   .range:active::-webkit-slider-thumb {

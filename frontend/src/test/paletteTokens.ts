@@ -17,22 +17,30 @@ const css = readFileSync(path.resolve(__dirname, '../index.css'), 'utf8').replac
   '',
 )
 
-/** The block key (palette/mode, plus /hc for high contrast) a selector sets tokens for,
- * or null if it is not a token block. */
-function target(selector: string): string | null {
-  if (selector === ':root') return 'navy/light'
-  if (selector === '.dark') return 'navy/dark'
-  let m = selector.match(/^(\.dark)?\s*\[data-palette='([a-z]+)'\]$/)
-  if (m) return `${m[2]}/${m[1] ? 'dark' : 'light'}`
+const mode = (dark: string | undefined) => (dark ? 'dark' : 'light')
+
+/** Token block selectors, each with the block key (palette/mode, plus /hc for high
+ * contrast) it sets tokens for. */
+const TARGETS: [RegExp, (m: RegExpMatchArray) => string][] = [
+  [/^:root$/, () => 'navy/light'],
+  [/^\.dark$/, () => 'navy/dark'],
+  [/^(\.dark)?\s*\[data-palette='([a-z]+)'\]$/, (m) => `${m[2]}/${mode(m[1])}`],
   // High contrast: on <html> ([data-contrast='high'][data-palette='x'], or :not([data-palette])
   // for navy, the default), or nested ([data-contrast='high'] [data-palette='x'])
-  m = selector.match(
+  [
     /^(\.dark)?\[data-contrast='high'\](?::not\(\[data-palette\]\)|\s*\[data-palette='([a-z]+)'\])$/,
-  )
-  if (m) return `${m[2] ?? 'navy'}/${m[1] ? 'dark' : 'light'}/hc`
+    (m) => `${m[2] ?? 'navy'}/${mode(m[1])}/hc`,
+  ],
   // High contrast for tokens every palette shares (status colours)
-  m = selector.match(/^(\.dark)?\[data-contrast='high'\]$/)
-  if (m) return `all/${m[1] ? 'dark' : 'light'}/hc`
+  [/^(\.dark)?\[data-contrast='high'\]$/, (m) => `all/${mode(m[1])}/hc`],
+]
+
+/** The block key a selector sets tokens for, or null if it is not a token block. */
+function target(selector: string): string | null {
+  for (const [pattern, key] of TARGETS) {
+    const m = selector.match(pattern)
+    if (m) return key(m)
+  }
   return null
 }
 
