@@ -328,7 +328,7 @@ class AppSettings(BaseModel):
     # Color extraction
     num_dominant_colors: int = 5
     # CIE76 delta E between a searched colour and an image's dominant colour.
-    color_distance_threshold: float = Field(25.0, ge=0, le=100)
+    color_distance_threshold: float = Field(default=25.0, ge=0, le=100)
     color_clustering_samples: int = 5000
     color_kmeans_n_init: int = 3
 
