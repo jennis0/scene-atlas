@@ -46,7 +46,7 @@ export function SceneTile({
       className={`focus-ring-within group relative overflow-hidden rounded-lg bg-card transition-[transform,box-shadow] duration-200 ${
         isActive
           ? 'border border-primary/60 ring-2 ring-primary/70 shadow-lg shadow-primary/15'
-          : 'border border-border/30 hover:border-primary/40 hover:shadow-xl hover:shadow-black/40'
+          : 'border border-border/30 hover:border-primary/40 hover:shadow-xl hover:shadow-shade/40'
       }`}
     >
       <div

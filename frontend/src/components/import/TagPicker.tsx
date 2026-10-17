@@ -104,7 +104,7 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full mt-1.5 z-50 w-[12.94rem] rounded-md border border-border bg-card shadow-2xl shadow-black/40 overflow-hidden flex flex-col">
+        <div className="absolute left-0 top-full mt-1.5 z-50 w-[12.94rem] rounded-md border border-border bg-card shadow-2xl shadow-shade/40 overflow-hidden flex flex-col">
           <div className="px-2 pt-2 pb-1.5 border-b border-border/50 shrink-0">
             <div className="relative">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />

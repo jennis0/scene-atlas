@@ -69,6 +69,8 @@ export default {
           foreground: 'hsl(var(--card-foreground))',
         },
         'surface-canvas': 'hsl(var(--surface-canvas))',
+        // Shadow colour: black, its opacity scaled per mode by --shadow-strength (index.css)
+        shade: 'hsl(0 0% 0% / calc(<alpha-value> * var(--shadow-strength)))',
       },
       // Text (and icon) colours use the ink variants, tuned to stay readable as text, also
       // on their own tints; bg-/border- keep the fill colours. See the palette notes in

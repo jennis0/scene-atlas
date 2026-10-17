@@ -40,14 +40,14 @@ export function ViewerStage({
           controls
           autoPlay
           loop
-          className="max-h-full max-w-full object-contain shadow-2xl shadow-black/60"
+          className="max-h-full max-w-full object-contain shadow-2xl shadow-shade/60"
         />
       ) : (
         <img
           ref={imageRef}
           src={getImageUrl(image)}
           alt={image.name}
-          className="max-h-full max-w-full object-contain shadow-2xl shadow-black/60"
+          className="max-h-full max-w-full object-contain shadow-2xl shadow-shade/60"
         />
       )}
       {gridAvailable && showGrid && (

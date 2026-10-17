@@ -105,10 +105,10 @@ export function ActivityDock({
           flex items-center gap-2 py-2 px-3.5
           bg-card/95 backdrop-blur-sm
           border border-border/40 rounded-full
-          shadow-lg shadow-black/40
+          shadow-lg shadow-shade/40
           transition-all duration-200
           hover:bg-secondary hover:border-border/60
-          hover:shadow-xl hover:shadow-black/50
+          hover:shadow-xl hover:shadow-shade/50
           hover:-translate-y-px
 "
         title={
@@ -192,7 +192,7 @@ export function ActivityDock({
           role="region"
           aria-label="Activity"
           className="w-[min(320px,calc(100vw-2rem))] flex flex-col bg-card rounded-lg border border-border/30
-            shadow-2xl shadow-black/60 overflow-hidden"
+            shadow-2xl shadow-shade/60 overflow-hidden"
           style={{ maxHeight: 'min(520px, 65vh)' }}
         >
           <div className="px-3.5 pt-2.5 shrink-0">

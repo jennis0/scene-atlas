@@ -315,7 +315,7 @@ All image cards (`GroupCard`, `SceneTile`) share a **gradient overlay** structur
 
 **Border on cards:**
 - Default: `border border-border/30`
-- Hover: `hover:border-primary/40 hover:shadow-xl hover:shadow-black/40`
+- Hover: `hover:border-primary/40 hover:shadow-xl hover:shadow-shade/40`
 - Active / selected (SceneTile): `border-primary/60 ring-2 ring-primary/70 shadow-lg shadow-primary/15`
 
 ---
@@ -450,7 +450,7 @@ When navigating to a scene within the same group (sidebar click), sidebar scroll
 Two-level dropdown: category → value. Used in both import flow and ImageViewer.
 
 Trigger: `border-dashed border-border/50 text-muted-foreground hover:text-foreground hover:border-border hover:bg-secondary/50`
-Dropdown: `bg-card border-border shadow-2xl shadow-black/40 rounded-xl`
+Dropdown: `bg-card border-border shadow-2xl shadow-shade/40 rounded-xl`
 Category dot: `color.dot` (solid), not `color.bg` (tinted)
 
 ### GridToggle (`frontend/src/components/import/GridToggle.tsx`)
@@ -462,8 +462,8 @@ Container: `inline-flex rounded-md overflow-hidden border border-border`
 
 ### ActivityDock (`frontend/src/components/ActivityDock.tsx`)
 Floating bottom-right card for imports (from the ImportManager) and background jobs.
-**Collapsed pill:** `bg-card/95 backdrop-blur-sm border border-border/40 rounded-full shadow-lg shadow-black/40`. Hover: `bg-secondary hover:-translate-y-px`. Shows Loader2 (spinning) when active, PauseCircle when imports are system-paused, WifiOff when offline, Package when idle. Active count badge uses the solid tier.
-**Expanded card:** `w-[320px] max-h-[min(520px,65vh)] bg-card rounded-xl border border-border/30 shadow-2xl shadow-black/60`. Header follows the panel header pattern (`PanelTitle`). A tinted amber notice row explains a system pause, with "Try again".
+**Collapsed pill:** `bg-card/95 backdrop-blur-sm border border-border/40 rounded-full shadow-lg shadow-shade/40`. Hover: `bg-secondary hover:-translate-y-px`. Shows Loader2 (spinning) when active, PauseCircle when imports are system-paused, WifiOff when offline, Package when idle. Active count badge uses the solid tier.
+**Expanded card:** `w-[320px] max-h-[min(520px,65vh)] bg-card rounded-xl border border-border/30 shadow-2xl shadow-shade/60`. Header follows the panel header pattern (`PanelTitle`). A tinted amber notice row explains a system pause, with "Try again".
 **Import rows (`components/imports/ImportJobRow.tsx`):** `rounded-md border-border/30 bg-secondary/20 hover:bg-secondary/40`. Finished: `opacity-80 hover:opacity-100`. Progress: 3px track. Status text stays muted; failures are signalled by the icon, not by colouring the whole line. Hover reveals Pause/Resume, or Undo import (confirmed) and Dismiss (no confirm: dismiss never deletes) once finished.
 **Visibility:** Hidden when no jobs exist. No auto-expand — user clicks pill to open.
 
@@ -493,8 +493,9 @@ One-line notices inside import dialogs: `rounded-lg border px-3 py-2.5`, attenti
 Styled globally in index.css: 5px wide, `bg-border` thumb, transparent track. Do not override per-component.
 
 ### Shadows
-- Elevation for floating panels/modals: `shadow-2xl shadow-black/70`
-- Dropdowns: `shadow-2xl shadow-black/40`
+Use `shadow-shade/NN`, never `shadow-black/NN`: `shade` is black with its opacity scaled by `--shadow-strength` (index.css: 0.6 light, 0.85 dark), so the same classes don't read as heavy on parchment.
+- Elevation for floating panels/modals: `shadow-2xl shadow-shade/70`
+- Dropdowns: `shadow-2xl shadow-shade/40`
 - Card hover: `shadow-lg shadow-primary/15` (amber tinted)
 
 ### Popovers
@@ -505,7 +506,7 @@ Use Radix `<Popover>` with `<PopoverContent className="p-0 ...">` — do not add
 Inline confirmation (displayed over parent container, not a separate dialog):
 ```tsx
 <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-  <div className="bg-card border border-border rounded-xl p-5 max-w-sm mx-4 shadow-2xl shadow-black/70">
+  <div className="bg-card border border-border rounded-xl p-5 max-w-sm mx-4 shadow-2xl shadow-shade/70">
     {/* AlertTriangle icon (text-primary) + title + detail */}
     {/* Cancel (ghost) + Confirm (tinted: primary for warning, destructive for danger) */}
   </div>
@@ -598,7 +599,7 @@ The following patterns appear in older code (especially FileCard and import-flow
 | Showing `category: value` in tag pills | Value only, capitalised; category in `title` attribute |
 | Hiding filter button when no filterable data | Show it greyed out (`opacity-25 cursor-not-allowed`) |
 | Metadata bar with fixed height below card | Remove; use gradient overlay on card |
-| `rounded-lg border bg-white shadow-black/5` for dropdowns | `rounded-xl border border-border bg-card shadow-2xl shadow-black/40` |
+| `rounded-lg border bg-white shadow-shade/5` for dropdowns | `rounded-xl border border-border bg-card shadow-2xl shadow-shade/40` |
 
 ---
 

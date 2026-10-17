@@ -33,7 +33,7 @@ export function ImportFrame({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className={`${width === 'lg' ? 'max-w-3xl h-[82vh]' : 'max-w-xl max-h-[82vh]'} flex flex-col p-0 gap-0 overflow-hidden bg-card border-border/40 rounded-lg shadow-2xl shadow-black/70`}
+        className={`${width === 'lg' ? 'max-w-3xl h-[82vh]' : 'max-w-xl max-h-[82vh]'} flex flex-col p-0 gap-0 overflow-hidden bg-card border-border/40 rounded-lg shadow-2xl shadow-shade/70`}
       >
         <header className="flex items-start justify-between gap-4 px-6 pt-5 pb-3 shrink-0">
           <div className="min-w-0">
@@ -134,7 +134,7 @@ export function ConfirmOverlay({
       <div
         role="alertdialog"
         aria-label={title}
-        className="bg-card border border-border rounded-lg p-5 max-w-sm mx-4 shadow-2xl shadow-black/70"
+        className="bg-card border border-border rounded-lg p-5 max-w-sm mx-4 shadow-2xl shadow-shade/70"
       >
         <p className="text-sm font-semibold text-foreground">{title}</p>
         <div className="mt-1.5 text-xs text-muted-foreground leading-relaxed">{detail}</div>

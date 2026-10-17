@@ -273,6 +273,18 @@
     --surface-canvas: 266 16% 5.5%;
   }
 
+  /* ── Shadows ────────────────────────────────────────────────
+     shadow-shade/NN (tailwind.config.js) is black at NN% opacity scaled by this
+     strength, so one set of class names reads right in both modes: a shadow strong
+     enough to lift a panel off navy-black is heavy on parchment. Every palette. */
+  :root {
+    --shadow-strength: 0.6;
+  }
+
+  .dark {
+    --shadow-strength: 0.85;
+  }
+
   /* ── High contrast ──────────────────────────────────────────
      Appearance → Contrast sets data-contrast="high" on <html> (lib/contrast.ts). Per
      palette and mode, only lightness moves from the standard tokens: text reaches
@@ -670,7 +682,7 @@
     border-radius: 9999px;
     border: 2px solid hsl(var(--card));
     background: hsl(var(--primary-ink));
-    box-shadow: 0 1px 3px rgb(0 0 0 / 35%);
+    box-shadow: 0 1px 3px hsl(0 0% 0% / calc(0.35 * var(--shadow-strength)));
     transition:
       transform 150ms ease-out,
       box-shadow 150ms ease-out;
@@ -682,7 +694,7 @@
     border-radius: 9999px;
     border: 2px solid hsl(var(--card));
     background: hsl(var(--primary-ink));
-    box-shadow: 0 1px 3px rgb(0 0 0 / 35%);
+    box-shadow: 0 1px 3px hsl(0 0% 0% / calc(0.35 * var(--shadow-strength)));
     transition:
       transform 150ms ease-out,
       box-shadow 150ms ease-out;
@@ -690,12 +702,12 @@
 
   .range:hover::-webkit-slider-thumb {
     transform: scale(1.2);
-    box-shadow: 0 2px 6px rgb(0 0 0 / 35%);
+    box-shadow: 0 2px 6px hsl(0 0% 0% / calc(0.35 * var(--shadow-strength)));
   }
 
   .range:hover::-moz-range-thumb {
     transform: scale(1.2);
-    box-shadow: 0 2px 6px rgb(0 0 0 / 35%);
+    box-shadow: 0 2px 6px hsl(0 0% 0% / calc(0.35 * var(--shadow-strength)));
   }
 
   .range:active::-webkit-slider-thumb {
