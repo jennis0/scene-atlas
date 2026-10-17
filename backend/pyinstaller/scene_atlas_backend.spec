@@ -45,6 +45,8 @@ a = Analysis(
         # database.py detects sys.frozen and reads from sys._MEIPASS instead of __file__
         (str(project_root / 'alembic.ini'),          '.'),
         (str(project_root / 'backend' / 'alembic'),  'backend/alembic'),
+        # The built UI: Electron loads it from the sidecar (same origin as the API).
+        (str(project_root / 'frontend' / 'dist'),    'frontend/dist'),
     ],
     hiddenimports=[
         # uvicorn internals

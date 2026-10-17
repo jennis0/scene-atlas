@@ -24,6 +24,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent.parent.parent
 SPEC = ROOT / "backend" / "pyinstaller" / "scene_atlas_backend.spec"
+FRONTEND_DIST = ROOT / "frontend" / "dist"
 PYINSTALLER_OUT = ROOT / "backend" / "pyinstaller" / "dist" / "scene-atlas-backend"
 SIDECAR_EXE = PYINSTALLER_OUT / (
     "scene-atlas-backend.exe" if sys.platform == "win32" else "scene-atlas-backend"
@@ -44,6 +45,9 @@ def main() -> None:
         "--clean", action="store_true", help="Remove previous build before building"
     )
     args = parser.parse_args()
+
+    if not (FRONTEND_DIST / "index.html").exists():
+        sys.exit(f"{FRONTEND_DIST} not found: build the frontend first (the sidecar serves it)")
 
     system, arch = get_platform_info()
     print(f"Building sidecar for {system} {arch}")

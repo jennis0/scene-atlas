@@ -3,7 +3,6 @@ import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { TagColorProvider } from './contexts/TagColorContext'
-import { DesktopGate } from './components/DesktopGate'
 import App from './App'
 import './index.css'
 
@@ -26,9 +25,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <TagColorProvider>
-          <DesktopGate>
-            <App />
-          </DesktopGate>
+          <App />
         </TagColorProvider>
       </ThemeProvider>
     </QueryClientProvider>

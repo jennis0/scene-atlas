@@ -8,7 +8,7 @@
  * at runtime, so components can import it directly without a context/hook.
  *
  * Usage:
- *   import { appMode, isApp, isServer } from '@/lib/appMode'
+ *   import { appMode, isApp } from '@/lib/appMode'
  */
 
 export type AppMode = 'app' | 'server'
@@ -17,4 +17,3 @@ export const appMode: AppMode =
   typeof window !== 'undefined' && !!window.electronAPI ? 'app' : 'server'
 
 export const isApp = appMode === 'app'
-export const isServer = appMode === 'server'

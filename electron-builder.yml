@@ -10,7 +10,7 @@ directories:
 files:
   - electron/dist/**/*
   - electron/setup.html
-  - frontend/dist/**/*
+  - electron/loading.html
   - "!**/*.map"
   - "!**/node_modules/**"
 

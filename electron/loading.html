@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"
+    />
+    <title>Scene Atlas</title>
+    <style>
+      :root {
+        --bg: #0e1118;
+        --surface: #161c28;
+        --border: #1e2736;
+        --primary: #d4a853;
+        --fg: #ede8dc;
+        --fg-muted: rgba(237, 232, 220, 0.55);
+        --danger: #e5786d;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+      body {
+        background: var(--bg);
+        color: var(--fg);
+        font-family:
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        /* The window is frameless; let the user drag it from anywhere but the error panel. */
+        -webkit-app-region: drag;
+      }
+      main {
+        width: 100%;
+        max-width: 560px;
+        text-align: center;
+      }
+      h1 {
+        font-family: Georgia, 'Times New Roman', serif;
+        font-weight: 500;
+        letter-spacing: 0.08em;
+        font-size: 26px;
+        margin: 0 0 6px;
+      }
+      .rule {
+        width: 28px;
+        height: 1px;
+        margin: 0 auto 20px;
+        background: var(--primary);
+      }
+      #status {
+        color: var(--fg-muted);
+        font-size: 14px;
+        margin: 0;
+      }
+      #error {
+        display: none;
+        text-align: left;
+        -webkit-app-region: no-drag;
+      }
+      #error p {
+        color: var(--danger);
+        font-size: 14px;
+        margin: 0 0 12px;
+      }
+      pre {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 12px;
+        max-height: 260px;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 12px;
+        color: var(--fg-muted);
+        user-select: text;
+      }
+      .hint {
+        color: var(--fg-muted);
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Scene Atlas</h1>
+      <div class="rule"></div>
+      <p id="status">Starting up…</p>
+      <div id="error">
+        <p id="summary"></p>
+        <pre id="detail"></pre>
+        <p class="hint">
+          Restart Scene Atlas to try again. The full log is at the path shown above.
+        </p>
+      </div>
+    </main>
+    <script>
+      const status = document.getElementById('status')
+      const slow = setTimeout(() => {
+        status.textContent = 'First launch takes a little longer than usual…'
+      }, 15000)
+
+      // A Python traceback's last non-empty line is the exception message.
+      function summarise(raw) {
+        if (!raw.includes('Traceback (most recent call last)')) return raw.split('\n')[0]
+        const lines = raw
+          .trimEnd()
+          .split('\n')
+          .filter((l) => l.trim())
+        return lines[lines.length - 1]
+      }
+
+      window.electronAPI?.onBackendError((message) => {
+        clearTimeout(slow)
+        status.style.display = 'none'
+        document.getElementById('summary').textContent = summarise(message)
+        document.getElementById('detail').textContent = message
+        document.getElementById('error').style.display = 'block'
+      })
+    </script>
+  </body>
+</html>

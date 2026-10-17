@@ -6,20 +6,17 @@ import { LibraryInfoDialog } from './LibraryInfoDialog'
 
 // ── Mock electronAPI ──────────────────────────────────────────────────────────
 
-function makeMockElectronAPI() {
+function makeMockElectronAPI(): NonNullable<Window['electronAPI']> {
   return {
-    onBackendReady: vi.fn(),
+    platform: 'win32',
     onBackendError: vi.fn(),
-    getDataDir: vi.fn().mockResolvedValue('C:\\Users\\test\\Scene Atlas\\data'),
     getAppDataDir: vi.fn().mockResolvedValue('C:\\Users\\test\\AppData\\Roaming\\Scene Atlas'),
     getImageLibraryDir: vi
       .fn()
       .mockResolvedValue('C:\\Users\\test\\Scene Atlas\\data\\store\\images'),
-    openDataDir: vi.fn().mockResolvedValue(undefined),
-    chooseDataDir: vi.fn().mockResolvedValue(null),
-    changeDataDir: vi.fn().mockResolvedValue(undefined),
-    readDirectory: vi.fn(),
-    readFileBytes: vi.fn(),
+    chooseAppDataDir: vi.fn().mockResolvedValue(null),
+    chooseImageLibraryDir: vi.fn().mockResolvedValue(null),
+    changeStorageDirs: vi.fn().mockResolvedValue({ error: null }),
   }
 }
 

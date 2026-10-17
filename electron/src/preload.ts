@@ -1,17 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-// Remember the last backend signal so a subscriber that registers after it
-// arrived (React mounts after the main process may already have sent it)
-// still receives it. The main process re-sends on every page load.
-let backendPort: number | null = null
+// Remember the last error so a subscriber that registers after it arrived still
+// receives it. The main process re-sends it on every page load.
 let backendError: string | null = null
-const readyListeners = new Set<(port: number) => void>()
 const errorListeners = new Set<(message: string) => void>()
 
-ipcRenderer.on('backend-ready', (_event, port: number) => {
-  backendPort = port
-  readyListeners.forEach((cb) => cb(port))
-})
 ipcRenderer.on('backend-error', (_event, message: string) => {
   backendError = message
   errorListeners.forEach((cb) => cb(message))
@@ -20,13 +13,6 @@ ipcRenderer.on('backend-error', (_event, message: string) => {
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
 
-  onBackendReady: (callback: (port: number) => void): (() => void) => {
-    readyListeners.add(callback)
-    if (backendPort !== null) callback(backendPort)
-    return () => {
-      readyListeners.delete(callback)
-    }
-  },
   onBackendError: (callback: (message: string) => void): (() => void) => {
     errorListeners.add(callback)
     if (backendError !== null) callback(backendError)

@@ -8,7 +8,8 @@ import { getDefaultDirs, loadConfig, saveConfig } from './config'
 const isDev = !app.isPackaged
 const isMac = process.platform === 'darwin'
 const DEV_SERVER_URL = 'http://localhost:5173'
-const DEV_BACKEND_PORT = 8000
+// A stable port keeps the UI's origin, and so its localStorage, the same across launches.
+const PREFERRED_PORT = 47816
 const MAX_LOG_BYTES = 5 * 1024 * 1024
 
 let mainWindow: BrowserWindow | null = null
@@ -18,9 +19,9 @@ let currentAppDataDir: string | null = null
 let currentImageLibraryDir: string | null = null
 let currentConvertToWebp = false
 
-// Kept so a renderer reload (or a page that finishes loading after the signal)
-// can be re-sent the current backend state on did-finish-load.
-let backendPort: number | null = null
+// The packaged UI is served by the sidecar, so its origin is the backend's.
+let backendOrigin: string | null = null
+// Kept so the loading page can be re-sent the error after a reload.
 let backendError: string | null = null
 
 // Two instances would run two backends against one SQLite/LanceDB store.
@@ -45,12 +46,15 @@ function borderlessOptions(): Partial<Electron.BrowserWindowConstructorOptions> 
   }
 }
 
-/** True for pages that belong to the app: the Vite dev server in dev, file:// when packaged. */
+const LOADING_PAGE = path.join(__dirname, '..', 'loading.html')
+
+/** True for pages that belong to the app: local pages, plus the dev server or the sidecar. */
 function isAppUrl(url: string): boolean {
   try {
     const parsed = new URL(url)
     if (parsed.protocol === 'file:') return true
-    return isDev && parsed.origin === new URL(DEV_SERVER_URL).origin
+    if (isDev) return parsed.origin === new URL(DEV_SERVER_URL).origin
+    return parsed.origin === backendOrigin
   } catch {
     return false
   }
@@ -259,7 +263,6 @@ function createMainWindow(): BrowserWindow {
   hardenWindow(win)
 
   win.webContents.on('did-finish-load', () => {
-    if (backendPort !== null) win.webContents.send('backend-ready', backendPort)
     if (backendError !== null) win.webContents.send('backend-error', backendError)
   })
 
@@ -267,7 +270,8 @@ function createMainWindow(): BrowserWindow {
     win.loadURL(DEV_SERVER_URL)
     win.webContents.openDevTools()
   } else {
-    win.loadFile(path.join(__dirname, '..', '..', 'frontend', 'dist', 'index.html'))
+    // Shown until the sidecar is up; then the window navigates to the UI it serves.
+    win.loadFile(LOADING_PAGE)
   }
 
   win.on('closed', () => {
@@ -276,14 +280,37 @@ function createMainWindow(): BrowserWindow {
   return win
 }
 
-function signalBackendReady(port: number): void {
-  backendPort = port
-  mainWindow?.webContents.send('backend-ready', port)
+async function waitForHealth(origin: string, timeoutMs = 120_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    try {
+      if ((await fetch(`${origin}/health`)).ok) return true
+    } catch {
+      // Not accepting connections yet.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  return false
+}
+
+async function showBackendUi(port: number): Promise<void> {
+  const origin = `http://127.0.0.1:${port}`
+  if (!(await waitForHealth(origin))) {
+    signalBackendError(`The backend did not respond on ${origin}.`)
+    return
+  }
+  backendOrigin = origin
+  await mainWindow?.loadURL(`${origin}/`)
 }
 
 function signalBackendError(message: string): void {
   backendError = message
-  mainWindow?.webContents.send('backend-error', message)
+  const win = mainWindow
+  if (!win) return
+  // A crash after startup leaves the UI on a dead origin; go back to the loading page,
+  // which receives the error on did-finish-load.
+  if (win.webContents.getURL().startsWith('file:')) win.webContents.send('backend-error', message)
+  else void win.loadFile(LOADING_PAGE)
 }
 
 // Backend sidecar
@@ -306,15 +333,12 @@ async function launchApp(
   currentAppDataDir = appDataDir
   currentImageLibraryDir = imageLibraryDir
   currentConvertToWebp = convertToWebp
-  backendPort = null
+  backendOrigin = null
   backendError = null
   mainWindow = createMainWindow()
 
-  if (isDev) {
-    // Dev: the developer runs the backend on port 8000; DesktopGate polls /health.
-    signalBackendReady(DEV_BACKEND_PORT)
-    return
-  }
+  // Dev: the developer runs the backend themselves; Vite proxies /api to it.
+  if (isDev) return
 
   // A config-loaded start can point at a drive that is no longer mounted.
   const dirError = prepareStorageDirs(appDataDir, imageLibraryDir)
@@ -325,7 +349,7 @@ async function launchApp(
 
   let port: number
   try {
-    port = await findFreePort()
+    port = await findFreePort(PREFERRED_PORT)
   } catch (err) {
     console.error('Failed to find a free port:', err)
     signalBackendError('Could not find a free port')
@@ -367,7 +391,7 @@ async function launchApp(
     onReady: (readyPort) => {
       ready = true
       console.log(`[electron] Backend ready on port ${readyPort}`)
-      signalBackendReady(readyPort)
+      void showBackendUi(readyPort)
     },
     onLog: logLine,
     onError: (message) => {

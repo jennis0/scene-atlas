@@ -218,10 +218,9 @@ the main gallery. The overlay guides the user through model selection and downlo
 downloaded. On a fresh install with no DB entry, this means no model is downloaded at
 all. `needs_tag_packs` is true until `setup_completed_at` exists in `app_settings`.
 
-**Electron mode:** The Electron setup window only chooses storage directories. `App.tsx`
-runs the setup-status check only when `isServer` (`frontend/src/lib/appMode.ts`); when
-`window.electronAPI` is present (`isApp`) it skips the check and renders the gallery
-directly, so `ModelSetupScreen` is not shown in Electron.
+**Electron mode:** The Electron setup window only chooses storage directories. The UI is then
+served by the sidecar and `App.tsx` runs the same setup-status check as server mode, so
+`ModelSetupScreen` (model download and tag packs) appears on first boot.
 
 ---
 
@@ -229,7 +228,7 @@ directly, so `ModelSetupScreen` is not shown in Electron.
 
 | Mode | Model storage | First-boot flow | Notes |
 |------|--------------|-----------------|-------|
-| Electron | `APP_DATA_DIR` managed by Electron | None (`App.tsx` skips setup when `isApp`) | See First-Boot Experience |
+| Electron | `APP_DATA_DIR` managed by Electron | `ModelSetupScreen` on first boot, as in server mode | See First-Boot Experience |
 | Web / server | Operator-controlled `APP_DATA_DIR` | `ModelSetupScreen` overlay | `EMBEDDING_MODEL` env var can pre-select |
 | Dev | `APP_DATA_DIR` or `backend/models/<name>/` fallback | Same as web | Fallback path allows testing with locally exported models |
 
@@ -260,9 +259,6 @@ reused and re-embed will regenerate all vectors into it (with `force=True`).
 future update checks — compare the stored SHA against the latest HF commit SHA for the
 repo. No auto-update is currently planned; this would require a polling mechanism and a
 UI affordance to trigger re-download.
-
-**Electron first boot:** Electron needs a model-selection step; the `isServer` gate in
-`App.tsx` currently prevents `ModelSetupScreen` from running there.
 
 **Large model VRAM management:** The large model's ~1 GB footprint is flagged in the
 registry with `recommended_hardware: "gpu"`. ORT session memory management (especially

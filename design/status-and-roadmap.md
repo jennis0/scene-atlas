@@ -55,7 +55,6 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 | Item | Notes | Priority |
 |---|---|---|
 | E2E seeding uses the removed import API | `e2e/helpers/seed.ts` calls `/imports/init`, `/upload-batch`, `/analyse`, `/confirm-all`; `stress_tests/scenarios.py` likewise. Port to the ADR-018 API and add failure-injection specs (aborted PUTs, reload mid-upload). | High |
-| Desktop app skips the model / tag-pack setup wizard | `App.tsx` only checks setup status when `isServer`; see [hf-model-management.md](hf-model-management.md) | High (verify) |
 | Security scans don't fail CI | `continue-on-error: true` on `pip-audit` and `bandit` in `ci.yml`; the target date (2026-03-28) has passed. Triage findings, add targeted exclusions, remove the flag. | Medium |
 | GitHub Actions on Node-20-era major versions | `actions/checkout@v4`, `setup-node@v4`, `setup-python@v5`, `astral-sh/setup-uv@v4`, `upload-artifact@v4`, `cache@v4`, `upload-pages-artifact@v3`. Upgrade to the Node 24 majors and re-test each job. | Medium |
 | int8 model export depends on untracked code | `scripts/models/export_model_onnx.py` imports `scripts.quantisation.*`, which is gitignored and absent from a clean checkout. [onnx-int8-quantisation.md](onnx-int8-quantisation.md) | Medium |

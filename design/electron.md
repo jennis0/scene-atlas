@@ -24,10 +24,22 @@ Scene Atlas ships as a desktop app using Electron. The Electron shell handles wi
 
 - **Main process** — Window lifecycle, IPC handlers, sidecar management. Holds a single-instance lock; a second launch focuses the existing window.
 - **Preload scripts** — Secure IPC bridges (context-isolated, sandboxed, no Node integration)
-- **Renderer** — The React frontend (Vite dev server at `localhost:5173` in dev)
+- **Renderer** — The React frontend. Packaged, it is served by the sidecar at `http://127.0.0.1:<port>/`; in dev, by Vite at `localhost:5173`
 - **Sidecar** — PyInstaller-frozen Python backend (FastAPI + Uvicorn), spawned as a child process
 
-> TODO(coordinator): document how the renderer loads the UI (backend-served at http://127.0.0.1:<port>/).
+### How the UI is loaded
+
+The sidecar bundles `frontend/dist` (PyInstaller datas) and serves it like server mode does, so the
+packaged UI and the API share one origin. There is no CORS configuration, no port injection, and the
+UI's CSP is just `connect-src 'self'`. (Loading the UI from `file://` would send `Origin: null`, which
+the backend's CORS correctly rejects.)
+
+While the backend starts, the window shows `electron/loading.html`, a dependency-free page that
+renders `backend-error` messages. Once `/health` answers, main navigates the window to the sidecar
+origin. If the backend dies later, main sends the window back to `loading.html` with the error.
+
+The sidecar prefers port **47816** and falls back to any free port. A stable port keeps the UI's
+origin, and therefore its localStorage (theme, custom colours, view preferences), the same across launches.
 
 ## Startup Sequence
 
@@ -38,21 +50,22 @@ app.whenReady()  (only if the single-instance lock was acquired)
      ├── YES → launchApp(appDataDir, imageLibraryDir, convertToWebp)
      │         → createMainWindow()
      │         → isDev?
-     │         │   ├── YES → signal 'backend-ready' with port 8000 (developer-run backend)
-     │         │   └── NO  → prepareStorageDirs()  (create + write-test both roots; error screen if unusable)
-     │         │              → findFreePort()
+     │         │   ├── YES → load the Vite dev server (developer runs the backend on port 8000)
+     │         │   └── NO  → load loading.html
+     │         │              → prepareStorageDirs()  (create + write-test both roots; error page if unusable)
+     │         │              → findFreePort(47816)
      │         │              → spawnSidecar(port, appDataDir, imageLibraryDir, convertToWebp)
      │         │              → sidecar prints SCENE_ATLAS_READY
-     │         │              → signal 'backend-ready' to renderer
-     │         └── renderer shows DesktopGate → polls /health → App
+     │         │              → poll /health → loadURL(http://127.0.0.1:<port>/)
+     │         └── App.tsx checks /models/setup-status → ModelSetupScreen or gallery
      └── NO  → showSetupWindow()
               → user picks appDataDir, imageLibraryDir, convertToWebp
               → setup:complete IPC → validate + prepareStorageDirs → saveConfig → launchApp(...)
 ```
 
-The main process remembers the last `backend-ready` / `backend-error` value and re-sends it on every `did-finish-load`, and the preload caches it, so a renderer that subscribes late still receives it.
+The main process remembers the last `backend-error` and re-sends it on every `did-finish-load`, and the preload caches it, so the loading page receives it even after a reload.
 
-The Electron setup window only chooses storage directories. Model and tag-pack setup lives in `App.tsx` / `ModelSetupScreen`, which currently runs only when `isServer` is true, i.e. not inside Electron (see [hf-model-management.md](hf-model-management.md#first-boot-experience)).
+The Electron setup window only chooses storage directories. Model and tag-pack setup runs in the UI (`App.tsx` → `ModelSetupScreen`) in every mode, desktop included (see [hf-model-management.md](hf-model-management.md#first-boot-experience)).
 
 ## IPC Channels
 
@@ -70,8 +83,7 @@ Every handler is registered through `handleTrusted()`, which rejects calls whose
 
 | Channel | Direction | Purpose |
 |---------|-----------|---------|
-| `backend-ready` | main → renderer | Delivers backend port number once sidecar is ready |
-| `backend-error` | main → renderer | Delivers error message if the sidecar fails to start or crashes |
+| `backend-error` | main → loading page | Error message if the sidecar fails to start or crashes |
 | `system:get-app-data-dir` | renderer → main | Returns current app data directory path |
 | `system:get-image-library-dir` | renderer → main | Returns current image library directory path |
 | `system:choose-app-data-dir` | renderer → main | Opens native folder picker for new app data location |
@@ -83,8 +95,7 @@ Every handler is registered through `handleTrusted()`, which rejects calls whose
 ```typescript
 window.electronAPI = {
   platform: string,                                   // 'darwin' | 'win32' | 'linux'
-  onBackendReady: (cb: (port) => void) => () => void, // replays cached value; returns unsubscribe
-  onBackendError: (cb: (msg) => void) => () => void,  // replays cached value; returns unsubscribe
+  onBackendError: (cb: (msg) => void) => () => void,  // replays cached value; used by loading.html
   getAppDataDir: () => Promise<string | null>,
   getImageLibraryDir: () => Promise<string | null>,
   chooseAppDataDir: () => Promise<string | null>,
@@ -97,9 +108,9 @@ File and folder imports use standard browser APIs in the renderer; there is no f
 
 ## Sidecar Lifecycle
 
-1. **Port discovery** — `findFreePort()` binds `127.0.0.1:0`, reads the OS-assigned port, closes the socket
+1. **Port discovery** — `findFreePort(47816)` uses the preferred port if free, otherwise binds `127.0.0.1:0` for an OS-assigned port
 2. **Spawn** — `spawn(sidecarPath, ['--port', port, '--app-data-dir', appDataDir, '--image-library-dir', imageLibraryDir], { env: { ...process.env, CONVERT_TO_WEBP: '1' | '0' } })`, stdout/stderr piped. Sidecar path: `path.join(process.resourcesPath, 'sidecar', 'scene-atlas-backend[.exe]')`
-3. **Ready signal** — The main process scans stdout for `SCENE_ATLAS_READY` and then sends `backend-ready`
+3. **Ready signal** — The main process scans stdout for `SCENE_ATLAS_READY`, polls `/health`, then loads the UI from the sidecar
 4. **Logging** — stdout/stderr appended to `{userData}/backend.log`; the log is rotated to `backend.log.1` when it exceeds 5 MB at startup
 5. **Failure handling** — Spawn errors, any exit before ready, and a non-zero exit after ready send `backend-error` with the last 10 output lines and the log path
 6. **Shutdown** — `stopSidecar()` sends `SIGTERM` and waits up to 5 s; called on `window-all-closed`, `will-quit`, and before relaunching for a storage change
@@ -168,7 +179,7 @@ The PyInstaller spec keeps onnxruntime's `entry_points.txt` (DirectML plugin reg
 | `electron/src/sidecar.ts` | Sidecar spawn, port discovery, stdout parsing |
 | `electron/src/config.ts` | Config load/save/migration, default directories |
 | `electron/setup.html` | Setup window HTML (first-run directory picker) |
+| `electron/loading.html` | Startup / error page shown until the sidecar serves the UI |
 | `electron-builder.yml` | Build targets, sidecar bundling, auto-update config |
 | `backend/pyinstaller/scene_atlas_backend.spec` | PyInstaller spec for freezing the Python backend |
 | `backend/pyinstaller/entry.py` | Sidecar entry point |
-| `frontend/src/components/DesktopGate.tsx` | Waits for `backend-ready`, polls `/health`, shows errors |

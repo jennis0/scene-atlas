@@ -69,7 +69,7 @@ Tests sit next to the code they cover (`*.test.ts(x)`).
 - **EditGroupDialog** — edit one group, or many via Edit All.
 - **ImportDialog**, **ActivityDock**, **TagManagementDialog**, **LibraryInfoDialog**, **EmptyLibraryWelcome**.
 
-Desktop-only: **DesktopGate** waits for the backend-ready IPC signal and shows **LoadingScreen** meanwhile.
+On first run (any mode) `App.tsx` shows **ModelSetupScreen** until a model and tag packs are set up. In Electron the startup screen is `electron/loading.html`, outside React.
 
 ### Search state (`hooks/useGallerySearch.ts`)
 
@@ -142,7 +142,7 @@ All import state lives in `lib/import/`, outside the React tree:
 
 ## API Client (`lib/api/`)
 
-- `_client.ts` — axios instance; base URL from `apiBase.ts`: `/api/v1` in the browser (Vite proxy in dev), `http://localhost:{port}/api/v1` in Electron (port from the backend-ready IPC).
+- `_client.ts` — axios instance with base URL `/api/v1`. Every mode is same-origin: server mode, the Vite dev proxy, and Electron (the sidecar serves the UI).
 - One module per backend area: `searchApi`, `imageApi`, `groupApi`, `tagApi`, `jobApi`, `systemApi`, `settingsApi`, `modelsApi`. Imports use `lib/import/importClient.ts` instead.
 - `urls.ts` — file, thumbnail, group-download and library-export URLs.
 

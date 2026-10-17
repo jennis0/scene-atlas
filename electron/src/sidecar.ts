@@ -5,17 +5,29 @@ import { Readable } from 'stream'
 import { app } from 'electron'
 
 /** Find a free TCP port by binding to port 0 and reading what the OS assigned. */
-export function findFreePort(): Promise<number> {
+/** *preferred* if it is free, otherwise any free port. */
+export async function findFreePort(preferred?: number): Promise<number> {
+  if (preferred !== undefined) {
+    try {
+      return await listenOnce(preferred)
+    } catch {
+      // Taken: fall through to an OS-assigned port.
+    }
+  }
+  return listenOnce(0)
+}
+
+function listenOnce(port: number): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = net.createServer()
-    server.listen(0, '127.0.0.1', () => {
+    server.listen(port, '127.0.0.1', () => {
       const address = server.address()
       if (!address || typeof address === 'string') {
         reject(new Error('Could not determine free port'))
         return
       }
-      const port = address.port
-      server.close(() => resolve(port))
+      const assigned = address.port
+      server.close(() => resolve(assigned))
     })
     server.on('error', reject)
   })

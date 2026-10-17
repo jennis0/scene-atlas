@@ -279,10 +279,6 @@ jobs:
 
       # ONNX models are downloaded at runtime by the app (no build-time bundling)
 
-      # ── Build Python sidecar ─────────────────────────────────────────────
-      - name: Build sidecar
-        run: uv run python scripts/build/build_sidecar.py
-
       # ── Node.js setup ────────────────────────────────────────────────────
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -304,6 +300,10 @@ jobs:
       - name: Build frontend
         run: npm run build
         working-directory: frontend
+
+      # ── Build Python sidecar (bundles frontend/dist) ─────────────────────
+      - name: Build sidecar
+        run: uv run python scripts/build/build_sidecar.py
 
       # ── Build Electron app ───────────────────────────────────────────────
       - name: Build Electron app (publish)

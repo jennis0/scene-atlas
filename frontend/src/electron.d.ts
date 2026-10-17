@@ -6,12 +6,7 @@
 interface ElectronAPI {
   readonly platform: 'darwin' | 'win32' | 'linux'
 
-  /**
-   * Subscribe to the backend port. Fires immediately if the signal already
-   * arrived, and may fire again with the same port. Returns an unsubscribe function.
-   */
-  onBackendReady(callback: (port: number) => void): () => void
-  /** Subscribe to fatal backend errors; same delivery rules as onBackendReady. */
+  /** Subscribe to fatal backend errors (fires immediately if one already arrived). Used by loading.html. */
   onBackendError(callback: (message: string) => void): () => void
 
   // Storage path IPC
@@ -29,8 +24,6 @@ interface ElectronAPI {
 declare global {
   interface Window {
     electronAPI?: ElectronAPI
-    /** Port injected by DesktopGate after the backend signals ready. */
-    __SCENE_ATLAS_PORT__?: number
   }
 }
 

@@ -315,11 +315,17 @@ app.include_router(system.router, prefix=f"{settings.api_prefix}/system", tags=[
 app.include_router(settings_api.router, prefix=f"{settings.api_prefix}/settings", tags=["settings"])
 app.include_router(models_api.router, prefix=f"{settings.api_prefix}/models", tags=["models"])
 
+
 # SPA static file serving
-# When a built frontend exists (Docker / production), serve it from the backend.
-# The frontend build outputs to frontend/dist/ relative to the project root.
+# When a built frontend exists (Docker, the Electron sidecar), serve it from the backend.
 # Must be mounted AFTER API routers so /api/v1/* routes take precedence.
-_FRONTEND_DIR = Path(__file__).parent.parent.parent / "frontend" / "dist"
+def _frontend_dir() -> Path:
+    if getattr(sys, "frozen", False):  # PyInstaller bundles frontend/dist into _MEIPASS
+        return Path(sys._MEIPASS) / "frontend" / "dist"  # pyright: ignore[reportAttributeAccessIssue]
+    return Path(__file__).parent.parent.parent / "frontend" / "dist"
+
+
+_FRONTEND_DIR = _frontend_dir()
 _spa_enabled = _FRONTEND_DIR.is_dir() and (_FRONTEND_DIR / "index.html").exists()
 
 if _spa_enabled:

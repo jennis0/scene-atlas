@@ -164,6 +164,17 @@ def main() -> None:
                 shutil.rmtree(d)
         success("Cleaned")
 
+    # The sidecar bundles frontend/dist, so the frontend must be built first.
+    if args.skip_frontend:
+        warn("Skipping frontend build (--skip-frontend)")
+        if not (ROOT / "frontend" / "dist").exists():
+            die("frontend/dist not found — run without --skip-frontend first")
+        success("Using existing frontend build")
+    else:
+        step("Building frontend (Vite)")
+        npm("run", "build", "--prefix", "frontend")
+        success("Frontend built")
+
     if args.skip_sidecar:
         warn("Skipping sidecar build (--skip-sidecar)")
         if not SIDECAR_EXE.exists():
@@ -174,16 +185,6 @@ def main() -> None:
         info("This may take several minutes on first build...")
         run("uv", "run", "python", "scripts/build/build_sidecar.py")
         success(f"Sidecar built ({dir_size(PYINSTALLER_OUT)})")
-
-    if args.skip_frontend:
-        warn("Skipping frontend build (--skip-frontend)")
-        if not (ROOT / "frontend" / "dist").exists():
-            die("frontend/dist not found — run without --skip-frontend first")
-        success("Using existing frontend build")
-    else:
-        step("Building frontend (Vite)")
-        npm("run", "build", "--prefix", "frontend")
-        success("Frontend built")
 
     step("Compiling Electron main process (TypeScript)")
     npx("tsc", "-p", "electron/tsconfig.json")
