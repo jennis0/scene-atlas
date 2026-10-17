@@ -335,6 +335,7 @@ Two sources:
 | `rate_limit_destructive` | `1/minute` | |
 | `rate_limit_enabled` | `True` | |
 | `api_host` / `api_port` / `api_prefix` | `0.0.0.0` / `8000` / `/api/v1` | |
+| `forwarded_allow_ips` | `127.0.0.1,::1` | Trusted proxies for `ProxyHeadersMiddleware` (see [security.md](security.md#3-high-rate-limiting)) |
 | `cors_origins` | `localhost:3000`, `:5173`, `:8000` | Startup warning if unchanged in server mode |
 
 Other environment variables: `EMBEDDING_MODEL` (operator override of the active model, read by `clip_service.py`; otherwise `app_settings.active_model`), `CONVERT_TO_WEBP` (`1` seeds the `stored_format` setting as `webp` at first boot).
@@ -358,7 +359,7 @@ Shutdown: cancel heartbeat → stop scheduler → `ingest_worker.stop(60s)` → 
 
 ## Middleware
 
-CORS (`cors_origins`), `SecurityHeadersMiddleware` (pure ASGI) and `SlowAPIMiddleware`. A global exception handler logs unhandled exceptions and returns a generic 500. See [security.md](security.md).
+CORS (`cors_origins`), `SecurityHeadersMiddleware` (pure ASGI), `SlowAPIMiddleware` and, outermost, uvicorn's `ProxyHeadersMiddleware` (`forwarded_allow_ips`). A global exception handler logs unhandled exceptions and returns a generic 500. See [security.md](security.md).
 
 ## Dependencies Between Services
 

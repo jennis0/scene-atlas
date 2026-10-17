@@ -94,6 +94,9 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     api_prefix: str = "/api/v1"
+    # Proxies whose X-Forwarded-For / X-Forwarded-Proto are believed: comma-separated
+    # IPs or CIDR networks, or "*". Same name and format as uvicorn's option.
+    forwarded_allow_ips: str = "127.0.0.1,::1"
     cors_origins: list[str] = [
         "http://localhost:3000",
         "http://localhost:5173",

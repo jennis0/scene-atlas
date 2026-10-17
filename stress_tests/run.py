@@ -188,6 +188,7 @@ class StressTestServer:
             "127.0.0.1",
             "--port",
             str(self.port),
+            "--no-proxy-headers",
         ]
 
         kwargs: dict = {}

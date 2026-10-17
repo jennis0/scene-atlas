@@ -45,6 +45,9 @@ IMAGE_DIR=./images
 # CORS origins (set to your domain if behind a reverse proxy)
 CORS_ORIGINS=["http://localhost:8000"]
 
+# Proxies trusted to report the client IP (see Reverse Proxy below)
+FORWARDED_ALLOW_IPS=127.0.0.1,::1
+
 # AI model size: small, medium, or large (optional; overrides the model chosen in the UI)
 EMBEDDING_MODEL=small
 
@@ -123,6 +126,23 @@ After configuring your proxy, update `CORS_ORIGINS`:
 ```bash
 CORS_ORIGINS=["https://atlas.example.com"]
 ```
+
+### Client IP addresses and rate limits
+
+A few expensive and destructive endpoints are rate limited per client IP address. Behind a proxy, every request arrives from the proxy, so Scene Atlas takes the client address from the `X-Forwarded-For` header instead, but only on connections from an address listed in `FORWARDED_ALLOW_IPS`. From any other address the header is ignored, so clients can't fake it.
+
+The default, `127.0.0.1,::1`, suits a proxy on the same machine as a [standalone](/deploy/standalone) install. In Docker, connections from a proxy on the host arrive from the Docker network's gateway, not from `127.0.0.1`, so set `FORWARDED_ALLOW_IPS` in `.env`:
+
+```bash
+# Proxy on the host: the gateway of the compose network
+# (docker network inspect scene-atlas_default --format '{{(index .IPAM.Config 0).Gateway}}')
+FORWARDED_ALLOW_IPS=172.18.0.1
+
+# Proxy in another container on the same network: its address, or the network's subnet
+FORWARDED_ALLOW_IPS=172.18.0.0/16
+```
+
+Entries are IP addresses or CIDR networks, comma-separated. If the proxy isn't listed, Scene Atlas still works, but all users share one rate-limit allowance. Use `*` (trust everyone) only if nothing but the proxy can reach the port.
 
 ## Authentication
 

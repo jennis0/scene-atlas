@@ -20,6 +20,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
 from sqlalchemy.exc import NoResultFound
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from .api import export, groups, images, imports, jobs, search, system, tags
 from .api import models as models_api
@@ -332,6 +333,11 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # pyright: ignore[reportArgumentType]
 app.add_middleware(SlowAPIMiddleware)
 
+# Outermost, so the rate limiter keys on the client behind a trusted reverse proxy.
+# Launchers pass --no-proxy-headers so uvicorn's own copy, which reads its trust
+# list only from the process environment, can't apply a different one.
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=settings.forwarded_allow_ips)
+
 # Include API routers
 app.include_router(images.router, prefix=f"{settings.api_prefix}/images", tags=["images"])
 app.include_router(search.router, prefix=f"{settings.api_prefix}/search", tags=["search"])
@@ -593,4 +599,5 @@ if __name__ == "__main__":
         host=host,
         port=port,
         reload=settings.debug,
+        proxy_headers=False,
     )

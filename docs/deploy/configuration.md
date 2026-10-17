@@ -33,6 +33,7 @@ In Docker, use `IMAGE_DIR` in your `.env` to set the host-side bind mount path. 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `FORWARDED_ALLOW_IPS` | `127.0.0.1,::1` | Reverse proxies (comma-separated IPs or CIDR networks, or `*`) whose `X-Forwarded-For` header is trusted for the client IP used by rate limits. See [Client IP addresses](/deploy/server#client-ip-addresses-and-rate-limits) |
 | `CORS_ORIGINS` | `["http://localhost:3000","http://localhost:5173","http://localhost:8000"]` (Docker Compose: `["http://localhost:8000"]`) | JSON array of allowed origins. Set to your domain when behind a reverse proxy |
 
 ### Authentication

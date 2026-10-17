@@ -56,7 +56,7 @@ For deployment behind a reverse proxy (e.g., nginx, Caddy). See [Docker Server](
 cd frontend && npm run build && cd ..
 
 # Run the backend (API + UI on one port)
-uv run uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
+uv run uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --no-proxy-headers
 ```
 
 ::: danger

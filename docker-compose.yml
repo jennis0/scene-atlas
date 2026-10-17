@@ -34,6 +34,9 @@ x-common: &common
     IMAGE_LIBRARY_DIR: /app/images
     APP_MODE: server
     CORS_ORIGINS: ${CORS_ORIGINS:-'["http://localhost:8000"]'}
+    # Proxies trusted to report the client IP; set to your proxy's address as seen
+    # from the container (see docs/deploy/server.md).
+    FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1,::1}
     INFERENCE_DEVICE: ${INFERENCE_DEVICE:-auto}
     DEBUG: ${DEBUG:-false}
   restart: unless-stopped

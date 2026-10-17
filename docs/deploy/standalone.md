@@ -36,7 +36,7 @@ A bare `uv sync` does not install an inference runtime. You must specify one of 
 ## Running
 
 ```bash
-uv run uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+uv run uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers
 ```
 
 Open `http://localhost:8000` in your browser.
@@ -72,7 +72,7 @@ User=scene-atlas
 WorkingDirectory=/opt/scene-atlas
 Environment=APP_DATA_DIR=/var/lib/scene-atlas
 Environment=IMAGE_LIBRARY_DIR=/var/lib/scene-atlas/images
-ExecStart=/opt/scene-atlas/.venv/bin/uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
+ExecStart=/opt/scene-atlas/.venv/bin/uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --no-proxy-headers
 Restart=on-failure
 RestartSec=5
 
@@ -87,6 +87,8 @@ sudo systemctl enable --now scene-atlas
 ## Reverse Proxy
 
 The same configurations from the [Docker Server guide](/deploy/server#reverse-proxy) apply, including the authentication requirement. Run uvicorn with `--host 127.0.0.1` so only the proxy can reach it, point your proxy at `localhost:8000`, and update `CORS_ORIGINS` to match your domain.
+
+Scene Atlas reads the client IP from `X-Forwarded-For` on connections from `FORWARDED_ALLOW_IPS` (default `127.0.0.1,::1`, which fits a proxy on the same machine); see [Client IP addresses and rate limits](/deploy/server#client-ip-addresses-and-rate-limits). The commands on this page pass `--no-proxy-headers` so that uvicorn leaves those headers to the app; otherwise uvicorn applies its own trust list, which ignores `.env`.
 
 ## Updating
 
@@ -104,7 +106,7 @@ Database migrations run automatically on startup.
 
 ```bash
 # Set the device explicitly
-INFERENCE_DEVICE=cuda uv run uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+INFERENCE_DEVICE=cuda uv run uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers
 ```
 
 The automatic provider chain is: CUDA, DirectML, CoreML, CPU.

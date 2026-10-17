@@ -104,7 +104,9 @@ def main():
     # connection pools) will persist across restarts. This is the correct tradeoff
     # for a PyInstaller bundle where subprocess spawning is unreliable.
     while not (watchdog and watchdog.fired):
-        server = SidecarServer(uvicorn.Config(app, host="127.0.0.1", port=args.port))
+        server = SidecarServer(
+            uvicorn.Config(app, host="127.0.0.1", port=args.port, proxy_headers=False)
+        )
         if watchdog and watchdog.fired:
             break
         try:
