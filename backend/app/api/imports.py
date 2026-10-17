@@ -409,12 +409,14 @@ async def upload_archive(
             q.begin_immediate(db)
             job = _job_or_404(db, job_id)
             _require_unsealed(job)
+            existing = db.query(func.count(ImportItem.id)).filter_by(job_id=job_id).scalar()
             counts = expand_archive(
                 db,
                 job,
                 tmp,
                 name,
-                max_files=app_settings.max_import_files,
+                # The per-import item cap applies to archive members as well as manifests.
+                max_files=min(app_settings.max_import_files, settings.max_import_items - existing),
                 max_uncompressed_bytes=app_settings.max_import_total_size,
                 max_file_size=app_settings.max_import_file_size,
             )

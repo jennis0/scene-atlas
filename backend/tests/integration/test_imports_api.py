@@ -408,6 +408,18 @@ def test_corrupt_archive_becomes_failed_item(api):
     assert (item["kind"], item["state"]) == ("archive", "failed")
 
 
+def test_archive_cannot_exceed_the_per_import_item_cap(api, monkeypatch):
+    from backend.app.config import settings
+
+    monkeypatch.setattr(settings, "max_import_items", 3)
+    job_id = api.create()
+    api.manifest(job_id, [{"relative_path": "a.png"}, {"relative_path": "b.png"}])
+    body = _zip({"c.png": image_bytes(20), "d.png": image_bytes(21)})
+    r = api.client.put(f"{BASE}/{job_id}/archives", params={"name": "More.zip"}, content=body)
+    assert r.json()["created"] == 0
+    assert r.json()["failed"] == 1
+
+
 def test_archive_after_seal_is_rejected(api):
     job_id = api.create()
     api.client.post(f"{BASE}/{job_id}/seal")
