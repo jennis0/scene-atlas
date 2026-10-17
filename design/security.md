@@ -115,6 +115,15 @@ The renderer can call `system:change-storage-dirs` (exposed as `window.electronA
 
 There is no restriction on which absolute paths are accepted, so code running in the renderer could point the backend at any writable location. Renderer windows run with `contextIsolation`, `sandbox` and no `nodeIntegration`, and navigation away from app URLs is blocked, which limits who can reach the channel.
 
+### 6a. MEDIUM: Local imports read paths named by the client
+
+**Status**: Mitigated.
+
+`POST /imports/{id}/local-sources` lists and reads files at paths the client sends ([local-ingest.md](local-ingest.md#6-security)). Controls:
+- Desktop app only: the route returns 404 unless `APP_MODE=app`, where the sidecar binds `127.0.0.1` and any caller is already a local process running as the user.
+- DNS rebinding: in app mode `LoopbackHostMiddleware` (`backend/app/host_check.py`) rejects requests whose `Host` isn't `127.0.0.1`, `localhost` or `[::1]` (400), so a rebound web page can't reach this or any other endpoint.
+- Only media is ingested: each file passes the magic-byte check (`verify_media_mime`) before it's copied; symlinks aren't followed; sources are never written.
+
 ### 7. MEDIUM: CORS Configuration
 
 **Status**: Done.

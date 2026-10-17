@@ -1,12 +1,12 @@
 # Local ingest
 
 Three ways to import files without the browser uploading them. Status: **plan**. Feature 1 is
-specified in detail; features 2 and 3 are outlined so the data model leaves room for them.
+specified in detail and **built** (branch `feature/local-folder-ingest`); features 2 and 3 are outlined so the data model leaves room for them. Feature 2 is desktop-only too: in server mode only the drop folder will read server paths.
 
 | # | Feature | What it is | Status |
 |---|---|---|---|
-| 1 | **Local folder import** | In the desktop app, an import from files or folders on this computer reads them where they are and copies them into the library. No upload. Chosen automatically; the user sees the same import dialog. | Planned (this doc) |
-| 2 | **Linked library** (in-place) | Folders configured at the app level stay where they are; the library references them instead of copying. Rescans pick up new, moved and missing files. | Outline ([§8](#8-feature-2-linked-library-outline)) |
+| 1 | **Local folder import** | In the desktop app, an import from files or folders on this computer reads them where they are and copies them into the library. No upload. Chosen automatically; the user sees the same import dialog. | Built |
+| 2 | **Linked library** (in-place) | Desktop app only. Folders configured at the app level stay where they are; the library references them instead of copying. Rescans pick up new, moved and missing files. | Outline ([§8](#8-feature-2-linked-library-outline)) |
 | 3 | **Drop folder** | A folder watched by the server; files dropped in are imported, then removed. The server-mode replacement for feature 1. | Outline ([§9](#9-feature-3-drop-folder-outline)) |
 
 Features 2 and 3 build on feature 1's server-side reading. Feature 1 also stands alone: a USB
@@ -199,8 +199,10 @@ Reading paths named by a client is the risk this feature adds. Controls:
   **Prerequisite: in app mode, reject requests whose `Host` isn't `127.0.0.1:<port>` or
   `localhost:<port>`** (Starlette `TrustedHostMiddleware`). Cross-origin requests without
   rebinding are already stopped by CORS preflight on the JSON body.
-- **Only media is ingested.** Every local file still passes the magic-byte check
-  (`verify_media_mime`) at enumeration, so the route can't pull arbitrary files into the store.
+- **Only media is ingested.** Every local file passes the magic-byte check
+  (`verify_media_mime`) when the worker reads it, before anything is copied, so the route can't
+  pull arbitrary files into the store. (Checking at listing time would open every file of a 60k
+  library before the import could start.)
 - **Paths are normalised** (`Path.resolve`, absolute, existing) at enumeration; directory
   symlinks aren't followed; `source_path` is re-checked to be a regular file when read.
 - **The source is never written.**
@@ -235,11 +237,24 @@ security.md gets a finding for this route and the `Host` check.
 - **E2E** runs against the web build, where the feature is off; the integration suite covers
   the flow. An Electron smoke test of the pickers is manual for now.
 
+### Measured (2026-10-17, WSL, dev build, CPU, small model)
+
+| | |
+|---|---|
+| List 50,000 files (`list_roots`, ext4) | 2.6 s |
+| `local-sources` + seal over HTTP, 50,000 files | 7.6 s + 8.1 s |
+| Real folder from the target library (`atraxian_bear`, 800 files, read over WSL's `/mnt/d`) | listed in 10.8 s; processed in 11.5 min: 674 imported, 126 duplicates (copies inside the folder), 0 failed |
+| The same folder imported again | 6.5 min, all 800 duplicates, nothing decoded or stored |
+
+Re-import time is the hash read, bound here by WSL's 9p link to `/mnt/d` (~25 MB/s). The
+desktop app on Windows reads at disk speed. A rescan in feature 2 should skip hashing files
+whose path, size and mtime are unchanged.
+
 ## 8. Feature 2: linked library (outline)
 
-Folders configured **at the app level** (Settings in the desktop app; config file / env in
-server mode, where it's safe because the client never names a path) become part of the library
-without being copied.
+Folders configured **at the app level** (Settings in the desktop app) become part of the library
+without being copied. Desktop app only: in server mode the drop folder is the only way the server
+reads its own paths.
 
 - **Images reference their file**: `images.source_root_id` + `source_path` relative to the root;
   `storage_key` NULL for linked images. Thumbnails and embeddings live in the app's store as
@@ -277,5 +292,7 @@ the browser.
 - **Large enumerations**: synchronous `local-sources` is fine at a few seconds; measure on the
   real library (natively on Windows, not over WSL's `/mnt/d`, which is minutes) before deciding
   whether it needs to be a background step.
+- **Re-import cost**: every file is hashed again (one full read). Matching path + size + mtime
+  against earlier local imports would make re-importing a grown library near-instant.
 - **Mixed drops** (some items without a disk path) fall back to upload for the whole drop. Revisit
   only if it happens in practice.

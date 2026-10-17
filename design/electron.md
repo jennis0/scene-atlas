@@ -104,7 +104,7 @@ window.electronAPI = {
 }
 ```
 
-File and folder imports use standard browser APIs in the renderer; there is no filesystem IPC.
+Imports name local files by path ([local-ingest.md](local-ingest.md)): the preload exposes `getPathForFile` (`webUtils.getPathForFile`, for dropped items) and `chooseImportFolders` / `chooseImportFiles` (native pickers via `imports:choose-folders` / `imports:choose-files`, registered with `handleTrusted`). They only return paths the user picked; the backend reads the files.
 
 ## Sidecar Lifecycle
 
