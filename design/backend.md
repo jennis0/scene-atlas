@@ -84,7 +84,7 @@ backend/
 │   ├── backfill_content_hash.py  # content_hash backfill utility
 │   ├── fix_orphaned_images.py    # Assign groupless images utility
 │   ├── reparse_names.py          # Re-run name parsing utility
-│   ├── db.py                     # Session helper for pipeline scripts
+│   ├── db.py                     # pipeline_db() session helper for scripts and jobs
 │   └── tasks/
 │       ├── color_extraction.py   # K-means dominant colours
 │       ├── embedding_generation.py # Embedding generation

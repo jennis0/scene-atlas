@@ -9,13 +9,8 @@ Usage:
 
 import logging
 
-from backend.app.config import settings
-from backend.app.models.database import (
-    Image,
-    ImageGroup,
-    get_engine,
-    get_session_local,
-)
+from backend.app.models.database import Image, ImageGroup
+from backend.pipeline.db import pipeline_db
 
 logger = logging.getLogger(__name__)
 
@@ -24,11 +19,7 @@ UNCATEGORISED_NAME = "Uncategorised"
 
 def fix_orphaned_images():
     """Add all ungrouped images to a single 'Uncategorised' group."""
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
-    db = SessionLocal()
-
-    try:
+    with pipeline_db() as db:
         orphans = db.query(Image).filter(Image.group_id.is_(None)).all()
 
         if not orphans:
@@ -53,11 +44,7 @@ def fix_orphaned_images():
         for img in orphans:
             img.group_id = grp.id
 
-        db.commit()
-        print(f"Done. Assigned {len(orphans)} image(s) to '{UNCATEGORISED_NAME}'.")
-
-    finally:
-        db.close()
+    print(f"Done. Assigned {len(orphans)} image(s) to '{UNCATEGORISED_NAME}'.")
 
 
 if __name__ == "__main__":

@@ -10,11 +10,11 @@ so it shares the server's embedded LanceDB instance.
 
 import logging
 
-from backend.app.config import settings
-from backend.app.models import Image, get_engine, get_session_local
+from backend.app.models import Image
 from backend.app.services import get_image_store
 from backend.app.services.clip_service import get_clip_service
 from backend.app.services.lancedb_service import get_lancedb_service
+from backend.pipeline.db import pipeline_db
 
 logger = logging.getLogger(__name__)
 
@@ -29,12 +29,7 @@ def rebuild_all_embeddings(progress_fn=None, *, force: bool = False) -> dict:
     clip_service = get_clip_service()
     image_store = get_image_store()
 
-    # Count images in SQLite
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
-    db = SessionLocal()
-
-    try:
+    with pipeline_db() as db:
         images = db.query(Image).all()
         image_dicts = [
             {
@@ -46,8 +41,6 @@ def rebuild_all_embeddings(progress_fn=None, *, force: bool = False) -> dict:
             }
             for img in images
         ]
-    finally:
-        db.close()
 
     total = len(image_dicts)
 
