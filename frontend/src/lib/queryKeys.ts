@@ -21,6 +21,7 @@ export const QUERY_KEYS = {
   systemInfo: ['system-info'] as const,
   appSettings: ['app-settings'] as const,
   models: ['models'] as const,
+  modelSetupStatus: ['models', 'setup-status'] as const,
   tagPacks: ['tag-packs'] as const,
   backgroundJobs: ['background-jobs'] as const,
 }

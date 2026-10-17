@@ -26,7 +26,9 @@ export function ProgressSummary({ job, secondsPerItem }: ProgressSummaryProps) {
         finished={finishedCount(counts)}
         total={counts.total}
       />
-      {job.planned && <p className="text-xs text-foreground/90">{parts.join(' · ')}</p>}
+      {job.planned && (
+        <p className="text-xs text-foreground/90 hc:text-foreground">{parts.join(' · ')}</p>
+      )}
     </div>
   )
 }

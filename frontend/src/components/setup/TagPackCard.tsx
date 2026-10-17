@@ -26,7 +26,7 @@ export function TagPackCard({ pack, onImport, isImporting }: TagPackCardProps) {
         <p className="text-3xs text-muted-foreground mt-0.5">
           {pack.tag_count} tags
           {!pack.imported && pack.new_tags > 0 && (
-            <span className="text-primary/70"> &middot; {pack.new_tags} new</span>
+            <span className="text-primary/70 hc:text-primary"> &middot; {pack.new_tags} new</span>
           )}
         </p>
       </div>
@@ -37,7 +37,7 @@ export function TagPackCard({ pack, onImport, isImporting }: TagPackCardProps) {
         aria-label={`Import ${pack.label} tag pack`}
         className={`shrink-0 flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors ${
           pack.imported
-            ? 'text-emerald-500/70 cursor-default'
+            ? 'text-success cursor-default'
             : 'border border-border/50 text-muted-foreground hover:text-foreground hover:border-border disabled:opacity-50'
         }`}
       >

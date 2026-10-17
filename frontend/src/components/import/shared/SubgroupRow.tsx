@@ -23,7 +23,7 @@ export function SubgroupRow({ subgroup, existingSubgroups, disabled, onUpdate }:
           <button
             ref={triggerRef}
             data-no-select=""
-            className={`flex-1 min-w-0 h-5 px-1.5 text-3xs bg-secondary border border-border text-foreground/80 capitalize text-left truncate flex items-center gap-1 hover:border-primary/40 transition-colors ${isOpen ? 'rounded-t border-b-0' : 'rounded'}`}
+            className={`flex-1 min-w-0 h-5 px-1.5 text-3xs bg-secondary border border-border text-foreground/80 hc:text-foreground capitalize text-left truncate flex items-center gap-1 hover:border-primary/40 transition-colors ${isOpen ? 'rounded-t border-b-0' : 'rounded'}`}
             onClick={() => !disabled && setIsOpen(true)}
           >
             <span className="truncate">{subgroup}</span>

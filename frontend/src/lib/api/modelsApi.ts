@@ -7,6 +7,10 @@ export interface ModelInfo {
   description_technical: string
   recommended_hardware: string // "cpu" | "gpu" | "any"
   approx_size_mb: number
+  /** Indicative image processing speed out of 5, without and with a GPU */
+  speed: { cpu: number; gpu: number }
+  /** Indicative search quality out of 5 */
+  search_quality: number
   downloaded: boolean
   version_info: { hf_commit_sha: string; downloaded_at: string } | null
   active: boolean

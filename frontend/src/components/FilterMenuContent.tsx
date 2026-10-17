@@ -558,7 +558,11 @@ function CategoryNavItem({
       {activeCount > 0 && (
         <span
           className={`text-3xs font-semibold tabular-nums flex-shrink-0 ${
-            active ? (colors ? colors.text : 'text-primary/80') : 'text-muted-foreground'
+            active
+              ? colors
+                ? colors.text
+                : 'text-primary/80 hc:text-primary'
+              : 'text-muted-foreground'
           }`}
         >
           {activeCount}
@@ -618,7 +622,7 @@ function AuthorChecklist({
             {opt.count !== undefined && (
               <span
                 className={`text-2xs flex-shrink-0 tabular-nums ${
-                  state === 'include' ? 'text-primary/70' : 'text-muted-foreground'
+                  state === 'include' ? 'text-primary/70 hc:text-primary' : 'text-muted-foreground'
                 }`}
               >
                 {opt.count.toLocaleString()}
@@ -658,11 +662,12 @@ function GridTileSelector({
               onClick={() => onCycle(group, opt, false)}
               onContextMenu={onRightClick(() => onCycle(group, opt, true))}
               title={`${opt.label} — right-click to exclude`}
-              className={`flex flex-col items-center gap-[4px] py-2.5 px-1.5 rounded-lg border-[1.5px] transition-all select-none ${
+              aria-pressed={isActive}
+              className={`relative flex flex-col items-center gap-1 py-2.5 px-1.5 rounded-lg border-[1.5px] transition-all select-none ${
                 isActive
                   ? 'border-primary text-foreground'
                   : isExcluded
-                    ? 'border-destructive/50 text-destructive opacity-80'
+                    ? 'border-destructive/50 text-destructive'
                     : 'border-border text-muted-foreground hover:border-border/80 hover:text-foreground'
               }`}
               style={{
@@ -673,21 +678,34 @@ function GridTileSelector({
                     : 'hsl(var(--secondary))',
               }}
             >
+              {/* Selection shows as a corner badge over the tile, so unselected tiles
+                  don't carry an empty status line */}
+              {(isActive || isExcluded) && (
+                <span
+                  aria-hidden="true"
+                  className={`absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full ring-2 ring-popover ${
+                    isActive
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-destructive text-destructive-foreground'
+                  }`}
+                >
+                  {isActive ? (
+                    <Check className="h-2.5 w-2.5" strokeWidth={3} />
+                  ) : (
+                    <Minus className="h-2.5 w-2.5" strokeWidth={3} />
+                  )}
+                </span>
+              )}
+
               <div className="transition-opacity" style={{ opacity: state ? 1 : 0.65 }}>
                 {config && <config.Icon active={isActive} excluded={isExcluded} />}
               </div>
 
-              <span className="text-2xs font-medium tracking-[0.02em] text-center leading-tight">
-                {config?.label ?? opt.label}
-              </span>
-
-              {/* Status line — always takes space so tiles stay same height */}
               <span
-                className={`text-3xs font-semibold h-[13px] ${
-                  isActive ? 'text-primary' : isExcluded ? 'text-destructive' : 'text-transparent'
-                }`}
+                className={`text-2xs font-medium tracking-[0.02em] text-center leading-tight ${isExcluded ? 'line-through' : ''}`}
               >
-                {isActive ? '✓ included' : isExcluded ? '− excluded' : '·'}
+                {config?.label ?? opt.label}
+                {isExcluded && <span className="sr-only"> (excluded)</span>}
               </span>
             </button>
           )

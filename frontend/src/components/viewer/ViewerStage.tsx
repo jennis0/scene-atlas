@@ -8,7 +8,7 @@ import type { Image } from '@/types'
 const CANVAS_STYLE: React.CSSProperties = { background: 'hsl(var(--surface-canvas))' }
 
 const NAV_BUTTON =
-  'absolute top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-black/50 hover:bg-black/75 text-white/80 hover:text-white flex items-center justify-center transition-all'
+  'absolute top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-black/50 hover:bg-black/75 text-white/80 hc:text-white hover:text-white hc:bg-black/85 hc:text-white hc:ring-1 hc:ring-white/70 flex items-center justify-center transition-all'
 
 interface ViewerStageProps {
   image: Image
@@ -40,14 +40,14 @@ export function ViewerStage({
           controls
           autoPlay
           loop
-          className="max-h-full max-w-full object-contain shadow-2xl shadow-black/60"
+          className="max-h-full max-w-full object-contain shadow-2xl shadow-shade/60"
         />
       ) : (
         <img
           ref={imageRef}
           src={getImageUrl(image)}
           alt={image.name}
-          className="max-h-full max-w-full object-contain shadow-2xl shadow-black/60"
+          className="max-h-full max-w-full object-contain shadow-2xl shadow-shade/60"
         />
       )}
       {gridAvailable && showGrid && (
@@ -69,7 +69,9 @@ export function ViewerStage({
             onToggleGrid()
           }}
           className={`absolute bottom-3 left-3 h-9 px-3 rounded-md flex items-center gap-1.5 text-xs font-medium transition-colors ${
-            showGrid ? 'bg-white/90 text-black' : 'bg-black/50 text-white/90 hover:bg-black/75'
+            showGrid
+              ? 'bg-white/90 text-black'
+              : 'bg-black/50 text-white/90 hc:text-white hover:bg-black/75 hc:bg-black/85 hc:text-white hc:ring-1 hc:ring-white/70'
           }`}
         >
           <Grid3x3 className="h-4 w-4" />

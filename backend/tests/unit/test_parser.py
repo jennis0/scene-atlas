@@ -202,6 +202,21 @@ class TestParseDimensions:
         assert result["grid_width"] == 40
         assert result["grid_height"] == 25
 
+    @pytest.mark.parametrize(
+        ("filename", "size", "alternatives"),
+        [
+            ("Map_30x30.jpg", (30, 30), []),
+            ("WizardLairDestroyed630x50.jpg", (630, 50), [[30, 50]]),
+            ("ForestCamp25x201_Night.jpg", (25, 201), [[25, 20]]),
+            ("Hall123x456.jpg", (123, 456), [[123, 45], [23, 456], [23, 45]]),
+            ("Hall105x30.jpg", (105, 30), []),  # "05" is never a size
+        ],
+    )
+    def test_glued_digits_give_alternative_readings(self, filename, size, alternatives):
+        result = make_parser().parse(f"author/group/{filename}")
+        assert (result["grid_width"], result["grid_height"]) == size
+        assert result["grid_size_alternatives"] == alternatives
+
     def test_no_dimensions(self):
         p = make_parser()
         result = p.parse("author/group/Map_Night.jpg")

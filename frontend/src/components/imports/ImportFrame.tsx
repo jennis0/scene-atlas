@@ -33,7 +33,7 @@ export function ImportFrame({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className={`${width === 'lg' ? 'max-w-3xl h-[82vh]' : 'max-w-xl max-h-[82vh]'} flex flex-col p-0 gap-0 overflow-hidden bg-card border-border/40 rounded-lg shadow-2xl shadow-black/70`}
+        className={`${width === 'lg' ? 'max-w-3xl h-[82vh]' : 'max-w-xl max-h-[82vh]'} flex flex-col p-0 gap-0 overflow-hidden bg-card border-border/40 rounded-lg shadow-2xl shadow-shade/70`}
       >
         <header className="flex items-start justify-between gap-4 px-6 pt-5 pb-3 shrink-0">
           <div className="min-w-0">
@@ -54,7 +54,9 @@ export function ImportFrame({
           </button>
         </header>
 
-        <div className="relative flex-1 min-h-0 flex flex-col">{children}</div>
+        {/* Scrolls when the window is short (zoomed in, large text); views with their own
+            scrolling list fill it exactly and never trigger this */}
+        <div className="relative flex-1 min-h-0 flex flex-col overflow-y-auto">{children}</div>
 
         {footer && (
           <footer className="shrink-0 flex flex-wrap items-center gap-2 px-6 py-3 border-t border-border/30 bg-popover">
@@ -132,7 +134,7 @@ export function ConfirmOverlay({
       <div
         role="alertdialog"
         aria-label={title}
-        className="bg-card border border-border rounded-lg p-5 max-w-sm mx-4 shadow-2xl shadow-black/70"
+        className="bg-card border border-border rounded-lg p-5 max-w-sm mx-4 shadow-2xl shadow-shade/70"
       >
         <p className="text-sm font-semibold text-foreground">{title}</p>
         <div className="mt-1.5 text-xs text-muted-foreground leading-relaxed">{detail}</div>

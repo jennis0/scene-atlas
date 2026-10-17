@@ -1,17 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react'
-import {
-  Upload,
-  LayoutGrid,
-  Layers,
-  Tag,
-  Settings,
-  Compass,
-  Map,
-  Mountain,
-  Sun,
-  Moon,
-  Loader2,
-} from 'lucide-react'
+import { Upload, LayoutGrid, Layers, Tag, Settings, Sun, Moon, Loader2 } from 'lucide-react'
 import { GalleryFilterPanel } from '@/components/GalleryFilterPanel'
 import { GallerySearchBar } from '@/components/GallerySearchBar'
 import { GalleryResultsBar } from '@/components/GalleryResultsBar'
@@ -95,17 +83,15 @@ export function GalleryHeader({
     )
     const total = Object.values(typeCounts).reduce((s, n) => s + n, 0)
     const tabs = [
-      { value: 'all' as ImageTypeFilter, label: 'All', Icon: Compass, count: total },
+      { value: 'all' as ImageTypeFilter, label: 'All', count: total },
       {
         value: 'battlemap' as ImageTypeFilter,
         label: 'Maps',
-        Icon: Map,
         count: typeCounts['battlemap'] ?? 0,
       },
       {
         value: 'scene' as ImageTypeFilter,
         label: 'Scenes',
-        Icon: Mountain,
         count: typeCounts['scene'] ?? 0,
       },
     ]
@@ -116,10 +102,10 @@ export function GalleryHeader({
         className={
           compact
             ? `flex items-stretch self-stretch ${isApp ? 'no-drag-region' : ''}`
-            : '-mx-4 px-4 flex items-stretch border-b border-border/60'
+            : 'flex items-stretch border-b border-border/60'
         }
       >
-        {tabs.map(({ value, label, Icon, count }) => (
+        {tabs.map(({ value, label, count }) => (
           <button
             key={value}
             aria-pressed={imageType === value}
@@ -131,7 +117,6 @@ export function GalleryHeader({
                   : 'border-transparent text-muted-foreground hover:text-foreground'
               }`}
           >
-            <Icon className="h-3.5 w-3.5 shrink-0" />
             {label}
             {count > 0 && (
               <span
@@ -224,14 +209,14 @@ export function GalleryHeader({
           <GallerySearchBar search={search} inputRef={searchRef} />
 
           {embeddingStatus === 'loading' && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 shrink-0">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-warning/15 text-warning shrink-0">
               <Loader2 className="h-3 w-3 animate-spin" />
               AI search loading&hellip;
             </span>
           )}
           {embeddingStatus === 'error' && (
             <span
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 shrink-0 cursor-help"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-destructive/15 text-destructive shrink-0 cursor-help"
               title={embeddingError ?? 'Unknown error'}
             >
               AI search unavailable

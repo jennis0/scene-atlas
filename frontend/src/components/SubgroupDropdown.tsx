@@ -60,8 +60,8 @@ export function SubgroupDropdown({
       ref={ref}
       className={
         isAttached
-          ? 'absolute left-0 top-full z-50 w-full rounded-b border border-border border-t-0 bg-card shadow-2xl shadow-black/40 overflow-hidden'
-          : 'absolute left-0 top-full mt-1 z-50 w-52 rounded-md border border-border bg-card shadow-2xl shadow-black/40 overflow-hidden'
+          ? 'absolute left-0 top-full z-50 w-full rounded-b border border-border border-t-0 bg-card shadow-2xl shadow-shade/40 overflow-hidden'
+          : 'absolute left-0 top-full mt-1 z-50 w-52 rounded-md border border-border bg-card shadow-2xl shadow-shade/40 overflow-hidden'
       }
     >
       {others.length > 0 && (

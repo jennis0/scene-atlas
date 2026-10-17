@@ -145,13 +145,13 @@ export function FileToolbar({
   const duplicateControls =
     duplicateCount > 0 && onBulkSetDuplicateAction ? (
       <div className="flex items-center gap-2 pt-1.5">
-        <Copy className="h-3.5 w-3.5 text-amber-400/70 shrink-0" />
-        <span className="text-xs text-amber-400/80">
+        <Copy className="h-3.5 w-3.5 text-warning shrink-0" />
+        <span className="text-xs text-warning">
           {skippedDuplicateCount}/{duplicateCount} duplicate{duplicateCount !== 1 ? 's' : ''}{' '}
           skipped
         </span>
         <button
-          className="text-2xs rounded border border-amber-500/30 px-1.5 py-0.5 text-amber-400/80 hover:bg-amber-500/10 transition-colors"
+          className="text-2xs rounded border border-warning/30 px-1.5 py-0.5 text-warning hover:bg-warning/10 transition-colors"
           onClick={() => onBulkSetDuplicateAction(skippedDuplicateCount > 0 ? 'import' : 'skip')}
         >
           {skippedDuplicateCount > 0 ? 'Include all duplicates' : 'Skip all duplicates'}

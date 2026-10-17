@@ -225,7 +225,7 @@ export function ImageViewer({
         aria-label={img.name}
         tabIndex={-1}
         // Below lg the viewer fills the screen and stacks: image above, details below.
-        className="relative flex flex-col lg:flex-row w-full h-full lg:h-[88vh] max-w-[1600px] lg:rounded-lg overflow-hidden lg:border border-border/20 shadow-2xl shadow-black/70 focus:outline-none"
+        className="relative flex flex-col lg:flex-row w-full h-full lg:h-[88vh] max-w-[1600px] lg:rounded-lg overflow-hidden lg:border border-border/20 shadow-2xl shadow-shade/70 focus:outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         <ViewerStage

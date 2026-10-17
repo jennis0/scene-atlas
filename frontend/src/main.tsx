@@ -5,6 +5,7 @@ import { ThemeProvider } from './contexts/ThemeContext'
 import { applyPalette, getStoredPalette } from './lib/palette'
 import { applyTextSize, getStoredTextSize } from './lib/textSize'
 import { watchShortWindow } from './lib/compactLayout'
+import { watchContrast } from './lib/contrast'
 import { TagColorProvider } from './contexts/TagColorContext'
 import App from './App'
 // Bundled so the desktop app renders correctly offline.
@@ -22,6 +23,7 @@ if (localStorage.getItem('scene-atlas-theme') !== 'light') {
 applyPalette(getStoredPalette())
 applyTextSize(getStoredTextSize())
 watchShortWindow()
+watchContrast()
 
 const queryClient = new QueryClient({
   defaultOptions: {

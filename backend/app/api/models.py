@@ -42,6 +42,13 @@ router = APIRouter()
 # Response schemas
 
 
+class SpeedRating(BaseModel):
+    """Image processing speed out of 5, on the processor alone and with a GPU."""
+
+    cpu: int
+    gpu: int
+
+
 class ModelInfo(BaseModel):
     name: str
     label: str
@@ -49,6 +56,8 @@ class ModelInfo(BaseModel):
     description_technical: str
     recommended_hardware: str
     approx_size_mb: int
+    speed: SpeedRating
+    search_quality: int
     downloaded: bool
     version_info: dict | None
     active: bool
@@ -162,6 +171,8 @@ def list_models() -> ModelListResponse:
                 description_technical=s["description_technical"],
                 recommended_hardware=s["recommended_hardware"],
                 approx_size_mb=s["approx_size_mb"],
+                speed=SpeedRating(**s["speed"]),
+                search_quality=s["search_quality"],
                 downloaded=s["downloaded"],
                 version_info=s["version_info"],
                 active=(s["name"] == active_name),

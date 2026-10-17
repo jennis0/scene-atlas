@@ -16,11 +16,33 @@ A comprehensive reference for the Scene Atlas UI. All new components must confor
 - **Nightshade & amethyst**: dusky plum greys, muted violet accent.
 
 Every palette is a pair of blocks in `index.css`: `[data-palette='x']` (light) and `.dark[data-palette='x'], .dark [data-palette='x']` (dark). The selectors match any element, not only `<html>`, so the Appearance palette picker (`components/settings/PalettePicker.tsx`) renders each option's preview in that palette's real tokens. No colour values are duplicated. Rules for a new palette:
-- Add the two blocks plus an entry in `PALETTES` (`lib/palette.ts`) and in the accessibility spec's `VARIANTS`.
-- The dark block must set every token the light block sets. The light block also matches `<html>` in dark mode, so anything left out leaks a light value into dark.
-- In dark mode, keep fills saturated and lighten only `--primary-ink`/`--ring` as far as text needs; one light value for both makes fills look pastel.
+- Add the two blocks, the two high-contrast blocks (see Contrast below), an entry in `PALETTES` (`lib/palette.ts`), and one in the accessibility spec's `VARIANTS`.
+- The dark block must set every token the light block sets. The light block also matches `<html>` in dark mode, so anything left out leaks a light value into dark. The same holds for the high-contrast pair.
+- **Fill vs ink.** Accent and status colours come in pairs: a fill (`--primary`, `--destructive`, `--success`, `--warning`) for backgrounds, tints, buttons and outlines, and an ink (`--primary-ink`, `--destructive-ink`, `--success-ink`, `--warning-ink`) for text and icons. `text-primary`, `text-destructive`, `text-success` and `text-warning` resolve to the inks (`textColor` in `tailwind.config.js`). In dark mode keep fills saturated and lighten only the inks as far as text needs: one light value for both makes fills pastel, and text on its own tint drags its tint lighter.
 - Keep accent hues away from the destructive red (hue 0), or override `--destructive` as sienna does.
-- `lib/paletteContrast.test.ts` parses `index.css` and enforces 4.5:1 for every text token on every surface, 4.5:1 for labels on filled primary/destructive, and 3:1 for the focus ring, per palette and mode. It runs as a unit test, ahead of the e2e axe scan.
+- `lib/paletteContrast.test.ts` parses `index.css` and, per palette, mode and contrast level, enforces text contrast for every ink on every surface and on its own tint up to /20, labels on filled buttons, and the focus ring. It rounds colours to 8 bits as browsers render them, so it agrees with axe to the decimal. It runs as a unit test, ahead of the e2e axe scan.
+
+**Contrast (Standard / High).** Appearance → Contrast: Auto (default; follows the system's `prefers-contrast: more`), Standard, High. Stored as `scene-atlas-contrast`; the effective result is `data-contrast="high"` on `<html>` (`lib/contrast.ts`), and components can style it with the `hc:` Tailwind variant. It works with every palette, so nobody trades their palette for legibility.
+
+| | Standard (WCAG AA) | High (WCAG AAA text) |
+|---|---|---|
+| Text, every ink, every surface and own tint | ≥ 4.5:1 | ≥ 7:1 |
+| Labels on filled accent buttons | ≥ 4.5:1 | ≥ 7:1 |
+| Control outlines (`--input`) | not guaranteed | ≥ 3:1 (1.4.11) |
+| Dividers (`--border`) | — | ≥ 2:1 |
+| Names on images, over a pure-white map | ≥ 4.5:1 | ≥ 7:1, full white with a shadow |
+| Tag chips (on chip and bare) | ≥ 4.5:1 | ≥ 7:1 |
+| Focus ring | ≥ 3:1, 2px | ≥ 3:1, 3px |
+
+How High is built, so it still looks like the same app:
+- **Tokens:** per palette and mode, the high-contrast blocks move only lightness (hue and saturation kept), and only as far as each check needs. The values were computed against the tests, not picked by eye; if you retune a palette, nudge lightness until `paletteContrast.test.ts` passes rather than replacing hues.
+- **Text dimmed with opacity** (`text-foreground/80`, `text-primary/70`, …) gets an `hc:` full-strength twin at the same site. Disabled states stay dim (WCAG exempts them). New dimmed text should do the same.
+- **Tag chips** keep their tint; High swaps the text to the least extreme shade of that hue that reaches 7:1 everywhere (`HIGH_CONTRAST_SHADE` in `components/import/tagColors.ts`) and adds a solid outline. Dark mode mostly keeps its standard shade; light mode needs the deep ones. The classes are built at runtime, so they're safelisted in `tailwind.config.js`; `tagContrast.test.ts` checks the safelist matches the hues.
+- **Status colours** are tokens (`success`, `warning`, plus `destructive`), never raw Tailwind colours, so High can lift them.
+- **Captions on images** use `.caption-scrim` / `.caption-band` (`index.css`), whose darkness behind the text is a known minimum (`--scrim-text`, `--band`), checked over pure white by `lib/captionContrast.test.ts`.
+- **Axe:** `e2e/tests/accessibility.spec.ts` scans every palette × theme × contrast level; High also runs axe's AAA `color-contrast-enhanced` rule.
+
+Not covered yet: reflow at 400% zoom (1.4.10), text-spacing overrides (1.4.12), and Windows forced-colors mode.
 
 **NOT:** decorative ornament — glowing stripes, fading underline rules, dot-grid backgrounds, header washes, blur on surfaces that don't overlap anything, hover zoom on artwork, tiny uppercase letter-spaced labels. These were removed in the 2026-10 refresh because they read as generic generated UI and competed with the maps.
 
@@ -100,8 +122,10 @@ Three font families, used in distinct roles. **Never mix roles.**
 The Appearance tab offers Small / Default / Large / Larger, set as `data-text-size` on `<html>` (`lib/textSize.ts`), which changes the root font size: 16, 17 (default), 19, 21px, as percentages so a larger browser default still scales up. Everything in rem follows: text, spacing, icons, and the panels that hold text. Images and thumbnails keep their size, so the gallery's density is unchanged, unlike browser zoom.
 
 That only works if sizes are in rem, so:
-- **No pixel font sizes.** Use the scale: `text-3xs` (10px at default), `text-2xs` (11px), then Tailwind's `text-xs` (12.75px), `text-sm`, `text-base`. The two small steps are defined in `tailwind.config.js` without a line height, so they inherit one as the old pixel sizes did.
-- **Containers that hold text are sized in rem** (dialogs, the viewer's side panel, pickers, sidebars): px ÷ 17, e.g. the Library dialog is `max-w-[28.25rem]` (480px at default). Keep pixels only for things sized to images or the screen: thumbnails, the viewer stage (`max-w-[1600px]`), the gallery page width (`max-w-[1400px]`).
+- **No pixel font sizes.** Use the scale: `text-3xs` (11px at default), `text-2xs` (11.5px), then Tailwind's `text-xs` (12.75px), `text-sm`, `text-base`. The two small steps are CSS variables (`--text-3xs`, `--text-2xs` in `index.css`) with no line height, so they inherit one as the old pixel sizes did.
+- **The floor rises faster than the root.** Large and Larger lift the two small steps more than everything else: small text is at least 12.5px at Large and 14px at Larger, and never below 10.5px at Small. `lib/textScale.test.ts` enforces these floors.
+- **200% zoom is a tested guarantee** (WCAG 1.4.4). `e2e/tests/zoom.spec.ts` runs at 960×480 (200% zoom on 1080p) with Larger text: no horizontal scroll, header controls on screen, and every dialog's controls reachable. Dialogs cap at the window height and scroll their body; use `max-h-[calc(100dvh-1rem)]` plus a `min-h-0` scrolling body rather than a fixed height alone.
+- **Containers that hold text are sized in rem** (dialogs, the viewer's side panel, pickers, sidebars): px ÷ 17, e.g. the Library dialog is `max-w-[28.24rem]` (480px at default). Keep pixels only for things sized to images or the screen: thumbnails, the viewer stage (`max-w-[1600px]`), the gallery page width (`max-w-[1400px]`).
 - Check new dense UI at **Larger** as well as Default.
 
 ### Short windows and the compact header
@@ -291,7 +315,7 @@ All image cards (`GroupCard`, `SceneTile`) share a **gradient overlay** structur
 
 **Border on cards:**
 - Default: `border border-border/30`
-- Hover: `hover:border-primary/40 hover:shadow-xl hover:shadow-black/40`
+- Hover: `hover:border-primary/40 hover:shadow-xl hover:shadow-shade/40`
 - Active / selected (SceneTile): `border-primary/60 ring-2 ring-primary/70 shadow-lg shadow-primary/15`
 
 ---
@@ -426,7 +450,7 @@ When navigating to a scene within the same group (sidebar click), sidebar scroll
 Two-level dropdown: category → value. Used in both import flow and ImageViewer.
 
 Trigger: `border-dashed border-border/50 text-muted-foreground hover:text-foreground hover:border-border hover:bg-secondary/50`
-Dropdown: `bg-card border-border shadow-2xl shadow-black/40 rounded-xl`
+Dropdown: `bg-card border-border shadow-2xl shadow-shade/40 rounded-xl`
 Category dot: `color.dot` (solid), not `color.bg` (tinted)
 
 ### GridToggle (`frontend/src/components/import/GridToggle.tsx`)
@@ -438,8 +462,8 @@ Container: `inline-flex rounded-md overflow-hidden border border-border`
 
 ### ActivityDock (`frontend/src/components/ActivityDock.tsx`)
 Floating bottom-right card for imports (from the ImportManager) and background jobs.
-**Collapsed pill:** `bg-card/95 backdrop-blur-sm border border-border/40 rounded-full shadow-lg shadow-black/40`. Hover: `bg-secondary hover:-translate-y-px`. Shows Loader2 (spinning) when active, PauseCircle when imports are system-paused, WifiOff when offline, Package when idle. Active count badge uses the solid tier.
-**Expanded card:** `w-[320px] max-h-[min(520px,65vh)] bg-card rounded-xl border border-border/30 shadow-2xl shadow-black/60`. Header follows the panel header pattern (`PanelTitle`). A tinted amber notice row explains a system pause, with "Try again".
+**Collapsed pill:** `bg-card/95 backdrop-blur-sm border border-border/40 rounded-full shadow-lg shadow-shade/40`. Hover: `bg-secondary hover:-translate-y-px`. Shows Loader2 (spinning) when active, PauseCircle when imports are system-paused, WifiOff when offline, Package when idle. Active count badge uses the solid tier.
+**Expanded card:** `w-[320px] max-h-[min(520px,65vh)] bg-card rounded-xl border border-border/30 shadow-2xl shadow-shade/60`. Header follows the panel header pattern (`PanelTitle`). A tinted amber notice row explains a system pause, with "Try again".
 **Import rows (`components/imports/ImportJobRow.tsx`):** `rounded-md border-border/30 bg-secondary/20 hover:bg-secondary/40`. Finished: `opacity-80 hover:opacity-100`. Progress: 3px track. Status text stays muted; failures are signalled by the icon, not by colouring the whole line. Hover reveals Pause/Resume, or Undo import (confirmed) and Dismiss (no confirm: dismiss never deletes) once finished.
 **Visibility:** Hidden when no jobs exist. No auto-expand — user clicks pill to open.
 
@@ -469,8 +493,10 @@ One-line notices inside import dialogs: `rounded-lg border px-3 py-2.5`, attenti
 Styled globally in index.css: 5px wide, `bg-border` thumb, transparent track. Do not override per-component.
 
 ### Shadows
-- Elevation for floating panels/modals: `shadow-2xl shadow-black/70`
-- Dropdowns: `shadow-2xl shadow-black/40`
+Use `shadow-shade/NN`, never `shadow-black/NN`: `shade` is black with its opacity scaled by `--shadow-strength` (index.css: 0.7 light, 0.85 dark), so the same classes don't read as heavy on parchment.
+- Header → results inset shadow (Gallery `<main>`): `--results-inset-alpha`, 0.2 light / 0.4 dark. Full-width, so lighter than panel shadows in light mode.
+- Elevation for floating panels/modals: `shadow-2xl shadow-shade/70`
+- Dropdowns: `shadow-2xl shadow-shade/40`
 - Card hover: `shadow-lg shadow-primary/15` (amber tinted)
 
 ### Popovers
@@ -481,7 +507,7 @@ Use Radix `<Popover>` with `<PopoverContent className="p-0 ...">` — do not add
 Inline confirmation (displayed over parent container, not a separate dialog):
 ```tsx
 <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-  <div className="bg-card border border-border rounded-xl p-5 max-w-sm mx-4 shadow-2xl shadow-black/70">
+  <div className="bg-card border border-border rounded-xl p-5 max-w-sm mx-4 shadow-2xl shadow-shade/70">
     {/* AlertTriangle icon (text-primary) + title + detail */}
     {/* Cancel (ghost) + Confirm (tinted: primary for warning, destructive for danger) */}
   </div>
@@ -574,7 +600,7 @@ The following patterns appear in older code (especially FileCard and import-flow
 | Showing `category: value` in tag pills | Value only, capitalised; category in `title` attribute |
 | Hiding filter button when no filterable data | Show it greyed out (`opacity-25 cursor-not-allowed`) |
 | Metadata bar with fixed height below card | Remove; use gradient overlay on card |
-| `rounded-lg border bg-white shadow-black/5` for dropdowns | `rounded-xl border border-border bg-card shadow-2xl shadow-black/40` |
+| `rounded-lg border bg-white shadow-shade/5` for dropdowns | `rounded-xl border border-border bg-card shadow-2xl shadow-shade/40` |
 
 ---
 

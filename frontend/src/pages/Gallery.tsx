@@ -197,7 +197,7 @@ export function Gallery() {
         tabIndex={-1}
         aria-label="Results"
         className="flex-1 overflow-hidden focus:outline-none"
-        style={{ boxShadow: 'inset 0 8px 24px rgba(0,0,0,0.4)' }}
+        style={{ boxShadow: 'inset 0 8px 24px hsl(0 0% 0% / var(--results-inset-alpha))' }}
       >
         {search.isSearching ? (
           <div className="flex h-full items-center justify-center">

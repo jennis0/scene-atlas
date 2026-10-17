@@ -253,6 +253,7 @@ def _parsed_payload(parsed: dict, group_name: str) -> dict:
         "grid_width": parsed.get("grid_width"),
         "grid_height": parsed.get("grid_height"),
         "grid_type": parsed.get("grid_type"),
+        "grid_size_alternatives": parsed.get("grid_size_alternatives") or [],
     }
 
 
@@ -562,10 +563,14 @@ def _sibling_grid_counts(
     for group_id, parsed_json in rows:
         parsed = json.loads(parsed_json)
         w, h = parsed.get("grid_width"), parsed.get("grid_height")
+        if not (w and h):
+            continue
         counts = found[group_id]
-        if w and h and len(counts) < _MAX_SIBLING_GRID_COUNTS:
-            counts[(int(w), int(h))] = None
-            counts[(int(h), int(w))] = None
+        # Glued-digit readings too; candidates are scored against the image, never trusted
+        for gw, gh in [(w, h), *parsed.get("grid_size_alternatives", ())]:
+            if len(counts) < _MAX_SIBLING_GRID_COUNTS:
+                counts[(int(gw), int(gh))] = None
+                counts[(int(gh), int(gw))] = None
     return {gid: tuple(counts) for gid, counts in found.items()}
 
 

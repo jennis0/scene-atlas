@@ -14,7 +14,8 @@ import { QUERY_KEYS, invalidateTagQueries } from '@/lib/queryKeys'
 import { modelsApi } from '@/lib/api/modelsApi'
 import { useImportManagerSnapshot } from '@/lib/import/useImports'
 import { isFinished } from '@/components/imports/format'
-import { HARDWARE_BADGE } from '@/lib/modelConstants'
+import { GpuStatus } from '@/components/models/GpuStatus'
+import { ModelRatings } from '@/components/models/ModelRatings'
 import { tagApi } from '@/lib/api/tagApi'
 import { TagPackCard } from '@/components/setup/TagPackCard'
 import type { AppSettings } from '@/types'
@@ -172,6 +173,13 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
       queryFn: () => modelsApi.list(),
       enabled: dialogOpen,
     })
+    const { data: setupStatus } = useQuery({
+      queryKey: QUERY_KEYS.modelSetupStatus,
+      queryFn: () => modelsApi.setupStatus(),
+      enabled: dialogOpen,
+      staleTime: Infinity, // the hardware doesn't change while the app runs
+    })
+    const hasGpu = setupStatus?.has_gpu ?? false
 
     const switchModelMutation = useMutation({
       mutationFn: (modelName: string) => modelsApi.setActiveModel(modelName),
@@ -307,7 +315,7 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                 />
 
                 {(pendingAppDataDir || pendingImageLibraryDir) && (
-                  <div className="space-y-2 rounded border border-amber-500/20 bg-amber-500/5 p-3">
+                  <div className="space-y-2 rounded border border-warning/30 bg-warning/5 p-3">
                     <p className="text-xs text-muted-foreground">
                       Changing a path does not move your files. Move them manually before
                       restarting.
@@ -331,6 +339,8 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                 </span>
               </p>
 
+              {setupStatus && <GpuStatus hasGpu={hasGpu} provider={setupStatus.gpu_provider} />}
+
               {modelsLoading && <p className="text-xs text-muted-foreground">Loading models…</p>}
               {modelsError && <p className="text-xs text-destructive">Could not load model list</p>}
               {modelsData && modelsData.models.length > 0 && (
@@ -338,8 +348,6 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                   {modelsData.models.map((model) => {
                     const isActive = model.active
                     const isPending = pendingModel === model.name
-                    const hwBadge =
-                      HARDWARE_BADGE[model.recommended_hardware] ?? HARDWARE_BADGE['any']
 
                     return (
                       <button
@@ -353,27 +361,16 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                             handleModelSelect(model.name)
                           }
                         }}
-                        className={`relative text-left rounded-lg border p-3 space-y-1.5 transition-colors ${
+                        className={`relative flex flex-col justify-start text-left rounded-lg border p-3 space-y-1.5 transition-colors ${
                           isActive
                             ? 'border-primary bg-primary/5 cursor-default'
                             : isPending
-                              ? 'border-amber-400 bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-50/80'
+                              ? 'border-warning bg-warning/10 hover:bg-warning/15'
                               : 'border-border bg-card hover:border-border/80 hover:bg-accent/30'
                         }`}
                       >
-                        {isActive && (
-                          <span className="absolute top-2 right-2 text-primary">
-                            <Check className="h-3.5 w-3.5" />
-                          </span>
-                        )}
-
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="font-medium text-xs">{model.label}</span>
-                          <span
-                            className={`text-3xs font-medium px-1 py-0.5 rounded ${hwBadge.className}`}
-                          >
-                            {hwBadge.label}
-                          </span>
                           {!model.downloaded && (
                             <span className="text-3xs font-medium px-1 py-0.5 rounded bg-muted text-muted-foreground">
                               Not downloaded
@@ -385,7 +382,18 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                           {model.description}
                         </p>
 
-                        <p className="text-3xs text-muted-foreground">~{model.approx_size_mb} MB</p>
+                        <ModelRatings model={model} hasGpu={hasGpu} />
+
+                        <p className="text-3xs text-muted-foreground">
+                          {model.approx_size_mb} MB download
+                        </p>
+
+                        {/* Last, so the spacing between children doesn't count it */}
+                        {isActive && (
+                          <span className="absolute top-2 right-2 text-primary">
+                            <Check className="h-3.5 w-3.5" />
+                          </span>
+                        )}
                       </button>
                     )
                   })}

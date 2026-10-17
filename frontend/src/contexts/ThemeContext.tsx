@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useMemo } from 'react'
 import { compactHeaderChoice, type CompactHeader } from '@/lib/compactLayout'
+import { contrastChoice, type Contrast } from '@/lib/contrast'
 import type { DisplayChoice } from '@/lib/displayChoice'
 import { paletteChoice, type Palette } from '@/lib/palette'
 import { textSizeChoice, type TextSize } from '@/lib/textSize'
@@ -16,6 +17,8 @@ interface ThemeContextValue {
   setTextSize: (size: TextSize) => void
   compactHeader: CompactHeader
   setCompactHeader: (value: CompactHeader) => void
+  contrast: Contrast
+  setContrast: (value: Contrast) => void
 }
 
 const STORAGE_KEY = 'scene-atlas-theme'
@@ -39,6 +42,8 @@ const ThemeContext = createContext<ThemeContextValue>({
   setTextSize: () => {},
   compactHeader: 'auto',
   setCompactHeader: () => {},
+  contrast: 'auto',
+  setContrast: () => {},
 })
 
 /** State for a per-device display choice: setting it saves and applies it at once. */
@@ -75,6 +80,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [palette, setPalette] = useDisplayChoice(paletteChoice)
   const [textSize, setTextSize] = useDisplayChoice(textSizeChoice)
   const [compactHeader, setCompactHeader] = useDisplayChoice(compactHeaderChoice)
+  const [contrast, setContrast] = useDisplayChoice(contrastChoice)
 
   const value = useMemo(
     () => ({
@@ -87,6 +93,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       setTextSize,
       compactHeader,
       setCompactHeader,
+      contrast,
+      setContrast,
     }),
     [
       theme,
@@ -98,6 +106,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       setTextSize,
       compactHeader,
       setCompactHeader,
+      contrast,
+      setContrast,
     ],
   )
 

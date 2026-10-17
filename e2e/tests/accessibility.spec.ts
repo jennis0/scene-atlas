@@ -4,8 +4,9 @@ import { test, expect } from "../fixtures/base";
 import { switchToGroupedView, waitForGalleryLoad } from "../helpers/actions";
 
 /**
- * WCAG 2.2 AA checks: an axe scan of each main surface in both themes, and the
- * keyboard path through the core task (find an image, open it, close it).
+ * WCAG 2.2 AA checks: an axe scan of each main surface in every palette, both themes and
+ * both contrast levels, and the keyboard path through the core task (find an image, open
+ * it, close it). High contrast also has to pass AAA text contrast (7:1).
  */
 
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
@@ -14,6 +15,16 @@ async function expectNoViolations(page: Page) {
   const { violations } = await new AxeBuilder({ page })
     .withTags(WCAG_TAGS)
     .analyze();
+  // High contrast promises AAA text contrast; only that AAA rule, not every AAA check
+  const high = await page.evaluate(
+    () => document.documentElement.dataset.contrast === "high",
+  );
+  if (high) {
+    const enhanced = await new AxeBuilder({ page })
+      .withRules(["color-contrast-enhanced"])
+      .analyze();
+    violations.push(...enhanced.violations);
+  }
   const summary = violations.map(
     (v) =>
       `${v.id} (${v.impact}): ${v.nodes.length} node(s), e.g. ${v.nodes[0]?.target.join(" ")}`,
@@ -24,18 +35,25 @@ async function expectNoViolations(page: Page) {
 const VARIANTS = (
   ["navy", "verdigris", "lapis", "sienna", "nightshade"] as const
 ).flatMap((palette) =>
-  (["dark", "light"] as const).map((theme) => ({ palette, theme })),
+  (["dark", "light"] as const).flatMap((theme) =>
+    (["standard", "high"] as const).map((contrast) => ({
+      palette,
+      theme,
+      contrast,
+    })),
+  ),
 );
 
-for (const { palette, theme } of VARIANTS) {
-  test.describe(`axe scan, ${palette} palette, ${theme} theme`, () => {
+for (const { palette, theme, contrast } of VARIANTS) {
+  test.describe(`axe scan, ${palette} palette, ${theme} theme, ${contrast} contrast`, () => {
     test.beforeEach(async ({ page }) => {
       await page.addInitScript(
-        ([t, p]) => {
+        ([t, p, c]) => {
           localStorage.setItem("scene-atlas-theme", t);
           localStorage.setItem("scene-atlas-palette", p);
+          localStorage.setItem("scene-atlas-contrast", c);
         },
-        [theme, palette],
+        [theme, palette, contrast],
       );
       await page.goto("/");
       await waitForGalleryLoad(page);

@@ -55,7 +55,7 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-[28.24rem] bg-card border-border/50 p-0 overflow-hidden">
+      <DialogContent className="flex flex-col max-w-[28.24rem] max-h-[calc(100dvh-1rem)] bg-card border-border/50 p-0 overflow-hidden">
         <div className="shrink-0 bg-popover">
           <div
             className="px-4 flex items-center justify-between"
@@ -78,7 +78,7 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
           id={`${tabIdBase}-panel`}
           role="tabpanel"
           aria-labelledby={`${tabIdBase}-${activeTab}`}
-          className="overflow-y-auto h-[22.35rem]"
+          className="overflow-y-auto h-[22.35rem] min-h-0"
         >
           {/* Kept mounted while hidden, so a library purge keeps reporting progress */}
           <div hidden={activeTab !== 'library'}>

@@ -51,7 +51,7 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
   return (
     <div
       data-testid="group-card"
-      className="focus-ring-within group/card relative overflow-hidden rounded-lg border border-border/30 bg-card transition-[transform,box-shadow] duration-200 hover:border-primary/40 hover:shadow-xl hover:shadow-black/40"
+      className="focus-ring-within group/card relative overflow-hidden rounded-lg border border-border/30 bg-card transition-[transform,box-shadow] duration-200 hover:border-primary/40 hover:shadow-xl hover:shadow-shade/40"
     >
       {/* Covers the whole card: the card's single click and keyboard target. The action
           menu sits above it as a sibling, so neither button is nested in the other. */}
@@ -72,7 +72,7 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
               <button
                 data-testid="group-card-menu"
                 aria-label={`Actions for ${baseName}`}
-                className="opacity-0 group-hover/card:opacity-100 group-focus-within/card:opacity-100 [@media(hover:none)]:opacity-100 h-7 w-7 rounded-md flex items-center justify-center bg-black/50 text-white/80 hover:text-white hover:bg-black/70 backdrop-blur-sm transition-all"
+                className="opacity-0 group-hover/card:opacity-100 group-focus-within/card:opacity-100 [@media(hover:none)]:opacity-100 h-7 w-7 rounded-md flex items-center justify-center bg-black/50 text-white/80 hc:text-white hover:text-white hover:bg-black/70 backdrop-blur-sm transition-all"
               >
                 <MoreHorizontal className="h-4 w-4" />
               </button>
@@ -144,8 +144,8 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
                     />
                     {img.media_type === 'video' && !isOverflowTile && <VideoIndicator size="sm" />}
                     {img.subgroup && !isOverflowTile && (
-                      <div className="absolute bottom-0 left-0 right-0 bg-black/50 px-1.5 py-0.5">
-                        <span className="text-3xs leading-tight text-white/90 line-clamp-1">
+                      <div className="caption-band absolute bottom-0 left-0 right-0 px-1.5 py-0.5">
+                        <span className="text-3xs leading-tight text-white/90 hc:text-white line-clamp-1">
                           {img.subgroup}
                         </span>
                       </div>
@@ -153,7 +153,7 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
                     {isOverflowTile && (
                       <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-[2px]">
                         <span className="text-lg font-bold text-white">+{overflowCount}</span>
-                        <span className="text-2xs text-white/90">more</span>
+                        <span className="text-2xs text-white/90 hc:text-white">more</span>
                       </div>
                     )}
                     <div className="absolute inset-0 pointer-events-none ring-[0.5px] ring-inset ring-black/20" />
@@ -168,17 +168,19 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
       {/* Gradient overlay — full width for visual continuity, text constrained to hero area */}
       <div
         aria-hidden="true"
-        className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/55 to-transparent pt-10 pb-2.5 px-3 pointer-events-none"
+        className="caption-scrim [--scrim-fade:2.5rem] absolute inset-x-0 bottom-0 pb-2.5 px-3 pointer-events-none"
       >
         <div style={{ maxWidth: hasMosaic ? '60%' : '100%' }}>
           <p className="text-xs font-medium text-white leading-snug line-clamp-1 drop-shadow truncate">
             {baseName}
           </p>
-          {author && <p className="text-2xs text-white/85 truncate mt-0.5">{author}</p>}
+          {author && (
+            <p className="text-2xs text-white/85 hc:text-white truncate mt-0.5">{author}</p>
+          )}
           {totalScenes > 1 && (
             <div className="flex items-center gap-1 mt-0.5">
-              <Layers className="h-3 w-3 text-white/70" />
-              <span className="text-2xs tabular-nums text-white/85">
+              <Layers className="h-3 w-3 text-white/70 hc:text-white" />
+              <span className="text-2xs tabular-nums text-white/85 hc:text-white">
                 {matchingCount < totalScenes
                   ? `${matchingCount} of ${totalScenes} scenes`
                   : `${totalScenes} scenes`}

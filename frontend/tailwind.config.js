@@ -17,12 +17,12 @@ export default {
       },
     },
     extend: {
-      // Below Tailwind's text-xs, for dense UI labels. In rem so they follow the text size
-      // setting; the root is 17px, so these render at 10px and 11px by default. Font size
-      // only: line height is inherited, as with the pixel sizes they replaced.
+      // Below Tailwind's text-xs, for dense UI labels: 11px and 11.5px at the default text
+      // size. Variables (index.css), because the larger text sizes raise them faster than
+      // the rest of the scale. Font size only: line height is inherited.
       fontSize: {
-        '3xs': '0.5882rem',
-        '2xs': '0.6471rem',
+        '3xs': 'var(--text-3xs)',
+        '2xs': 'var(--text-2xs)',
       },
       fontFamily: {
         sans: ['"Figtree Variable"', 'system-ui', 'sans-serif'],
@@ -46,6 +46,8 @@ export default {
           DEFAULT: 'hsl(var(--secondary))',
           foreground: 'hsl(var(--secondary-foreground))',
         },
+        success: 'hsl(var(--success))',
+        warning: 'hsl(var(--warning))',
         destructive: {
           DEFAULT: 'hsl(var(--destructive))',
           foreground: 'hsl(var(--destructive-foreground))',
@@ -67,14 +69,23 @@ export default {
           foreground: 'hsl(var(--card-foreground))',
         },
         'surface-canvas': 'hsl(var(--surface-canvas))',
+        // Shadow colour: black, its opacity scaled per mode by --shadow-strength (index.css)
+        shade: 'hsl(0 0% 0% / calc(<alpha-value> * var(--shadow-strength)))',
       },
-      // text-primary (and icon colour) uses the ink variant, which stays readable on
-      // light surfaces; bg-/border-primary keep the brighter fill colour.
+      // Text (and icon) colours use the ink variants, tuned to stay readable as text, also
+      // on their own tints; bg-/border- keep the fill colours. See the palette notes in
+      // design/visual-language.md.
       textColor: {
         primary: {
           DEFAULT: 'hsl(var(--primary-ink))',
           foreground: 'hsl(var(--primary-foreground))',
         },
+        destructive: {
+          DEFAULT: 'hsl(var(--destructive-ink))',
+          foreground: 'hsl(var(--destructive-foreground))',
+        },
+        success: 'hsl(var(--success-ink))',
+        warning: 'hsl(var(--warning-ink))',
       },
       borderRadius: {
         lg: 'var(--radius)',
@@ -97,10 +108,21 @@ export default {
       },
     },
   },
+  // Tag chips' high-contrast classes are built at runtime (toHighContrast in
+  // components/import/tagColors.ts), so Tailwind can't see them in the source. The hue
+  // list must match TAG_HUES there (tagColors.test.ts checks it).
+  safelist: [
+    {
+      pattern:
+        /^(text-(red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|slate|gray|zinc|neutral|stone)-(200|300|700|900|950)|border-(red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|slate|gray|zinc|neutral|stone)-500)$/,
+    },
+  ],
   plugins: [
     require('tailwindcss-animate'),
     // short: windows with little height in lines of text (zoomed in, or large text); see
     // lib/compactLayout.ts
     ({ addVariant }) => addVariant('short', 'html[data-short] &'),
+    // hc: high contrast (Appearance → Contrast); see lib/contrast.ts
+    ({ addVariant }) => addVariant('hc', 'html[data-contrast="high"] &'),
   ],
 }

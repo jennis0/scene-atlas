@@ -103,6 +103,8 @@ class TestAllModelsHaveRequiredFields:
         "description_technical",
         "recommended_hardware",
         "approx_size_mb",
+        "speed",
+        "search_quality",
         "model_id",
         "vision_quant",
         "text_quant",
@@ -120,6 +122,26 @@ class TestAllModelsHaveRequiredFields:
 
         for model in MODELS:
             assert field in model, f"Model '{model.get('name')}' is missing field '{field}'"
+
+    def test_ratings_are_out_of_five(self):
+        from backend.app.services.model_registry import MODELS
+
+        for model in MODELS:
+            for rating in (model["speed"]["cpu"], model["speed"]["gpu"], model["search_quality"]):
+                assert isinstance(rating, int) and 1 <= rating <= 5, model["name"]
+
+    def test_ratings_order_the_models(self):
+        """Small is the quickest, large the best; a GPU never makes a model slower."""
+        from backend.app.services.model_registry import MODEL_BY_NAME as m
+
+        assert m["small"]["speed"]["cpu"] > m["medium"]["speed"]["cpu"] > m["large"]["speed"]["cpu"]
+        assert (
+            m["small"]["search_quality"]
+            < m["medium"]["search_quality"]
+            < m["large"]["search_quality"]
+        )
+        for model in m.values():
+            assert model["speed"]["gpu"] >= model["speed"]["cpu"]
 
     def test_approx_size_mb_is_positive_int(self):
         from backend.app.services.model_registry import MODELS

@@ -20,9 +20,16 @@ MODELS: list[dict] = [
         "hf_revision": "openclip-vitb32-rc3",
         # User-facing
         "label": "Small",
-        "description": "Fast and lightweight (~100 MB download) — works well without a GPU and uses around 160 MB of memory. Tuned for battlemaps and fantasy art.",
+        "description": "Quick on any computer, with good search.",
         "description_technical": "CLIP ViT-B/32 (LAION-2B) fine-tuned for TTRPG art search — 4-bit GPTQ weights with fp16 activations, 30k-token vocabulary. Needs ONNX Runtime 1.24+.",
         "recommended_hardware": "cpu",  # "cpu" | "gpu" | "any"
+        # Ratings out of 5 for the model picker, shown as dots: indicative, since speed varies
+        # a lot by machine. Speed is image processing (imports), on the processor alone and
+        # with a GPU. Basis (scene-atlas-learning
+        # docs/model-compression.md): CPU at 2 threads, small ~24 img/s vs medium ~1.6;
+        # medium on an RTX 3080 ~200 img/s. Large is unmeasured: ~5x medium by compute.
+        "speed": {"cpu": 5, "gpu": 5},
+        "search_quality": 3,
         "approx_size_mb": 98,
         "model_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",  # base model the fine-tune starts from
         "embedding_dim": 512,
@@ -41,9 +48,11 @@ MODELS: list[dict] = [
         "hf_subfolder": "onnx",
         "hf_revision": "siglip2-base-384-rc4",
         "label": "Medium",
-        "description": "Best search quality for most machines (~150 MB download). Tuned for battlemaps and fantasy art; faster with a GPU.",
+        "description": "Better search. Quick with a GPU, much slower without one.",
         "description_technical": "SigLIP2-base-patch16-384 fine-tuned for TTRPG art search — 4-bit GPTQ weights with fp16 activations, 52k-token vocabulary. Needs ONNX Runtime 1.24+.",
         "recommended_hardware": "any",
+        "speed": {"cpu": 2, "gpu": 5},
+        "search_quality": 4,
         "approx_size_mb": 154,
         "model_id": "google/siglip2-base-patch16-384",  # base model the fine-tune starts from
         "embedding_dim": 768,
@@ -55,9 +64,11 @@ MODELS: list[dict] = [
         "name": "large",
         "hf_repo": "jennis0/scene-atlas-large",
         "label": "Large",
-        "description": "Highest search quality, but requires ~1 GB of memory. A GPU is strongly recommended.",
+        "description": "The best search, but the slowest. Needs a GPU and about 1 GB of memory.",
         "description_technical": "SigLIP2-so400m-patch14-384 — vision fp16, text fp16. Best-in-class retrieval; high VRAM requirement.",
         "recommended_hardware": "gpu",
+        "speed": {"cpu": 1, "gpu": 3},
+        "search_quality": 5,
         "approx_size_mb": 1000,
         "model_id": "google/siglip2-so400m-patch14-384",
         "embedding_dim": 1152,
