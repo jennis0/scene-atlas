@@ -10,16 +10,23 @@ export async function waitForGalleryLoad(
   await expect(page.getByText(/[1-9]\d* scenes/)).toBeVisible({ timeout });
 }
 
+/** Heading of the import dialog's start view (before files are chosen). */
+export const IMPORT_DIALOG_TITLE = "Import maps and scenes";
+
 /** Open the import dialog via the Import button. */
 export async function openImportDialog(page: Page): Promise<void> {
   await page.getByTitle("Import images").click();
-  await expect(page.getByText("Import Scenes")).toBeVisible({ timeout: 5_000 });
+  await expect(
+    page.getByRole("heading", { name: IMPORT_DIALOG_TITLE }),
+  ).toBeVisible({ timeout: 5_000 });
 }
 
 /**
  * Upload files via the file chooser in the import dialog.
  * Assumes the import dialog is already open.
- * Waits for the dialog to close (auto-confirm + processing starts).
+ *
+ * Once the import has started the dialog switches to the job's progress view;
+ * this then closes the dialog (the import carries on, shown in the activity dock).
  */
 export async function uploadFiles(
   page: Page,
@@ -27,14 +34,18 @@ export async function uploadFiles(
   timeout = 30_000,
 ): Promise<void> {
   const fileChooserPromise = page.waitForEvent("filechooser");
-  await page.getByText("Browse files").click();
+  await page.getByRole("button", { name: "Choose files" }).click();
   const fileChooser = await fileChooserPromise;
   await fileChooser.setFiles(filePaths);
 
-  // Dialog closes when processing starts
-  await expect(page.getByRole("heading", { name: "Import Scenes" })).toBeHidden(
-    { timeout },
-  );
+  // The start view is replaced by the progress view when the import starts.
+  await expect(
+    page.getByRole("heading", { name: IMPORT_DIALOG_TITLE }),
+  ).toBeHidden({ timeout });
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Close" }).first().click();
+  await expect(dialog).toBeHidden({ timeout: 5_000 });
 }
 
 /** Fill the search input and submit the search form. */

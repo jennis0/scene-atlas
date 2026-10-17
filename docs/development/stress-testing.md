@@ -2,9 +2,7 @@
 
 The stress testing suite exercises the Scene Atlas import pipeline under concurrent load, adversarial input, and failure conditions.  It runs against a **real server** (not mocked), testing the actual SQLite WAL mode contention, LanceDB write serialisation, and the ThreadPoolExecutor job runner.
 
-::: warning Out of date
-The import scenarios in `stress_tests/scenarios.py` still drive the import API that ADR-018 removed (`/imports/init`, `/upload-batch`, `/analyse`, `/confirm-all`, `/check-hashes`) and check for removed behaviour (`mark_interrupted_jobs`, `expire_stale_jobs`, `broken`/`expired` job states). They will fail against the current backend until they are ported to the manifest → seal → per-file `PUT` flow and the `active`/`paused`/`completed`/`cancelled` job states. The descriptions below document the scenarios as written. The [library-scale benchmark](#library-scale-read-benchmark) does not use the import API.
-:::
+The scenarios drive the imports API described in [design/ingestion.md](../../design/ingestion.md#upload-protocol): create job → manifest → (archive upload) → seal → (client hashes) → per-file `PUT`, then poll `GET /imports/{id}` until the job is `completed` or `cancelled`. Jobs never fail; outcomes are item counts (`done`, `duplicate`, `failed`, `skipped`).
 
 ## Quick start
 
@@ -13,27 +11,28 @@ The import scenarios in `stress_tests/scenarios.py` still drive the import API t
 uv run python -m stress_tests list                          # show all scenarios
 uv run python -m stress_tests generate-fixtures             # pre-generate test files (~45 MB)
 uv run python -m stress_tests run --scenario endpoint_spam  # single fast scenario
-uv run python -m stress_tests run --all --quick             # all scenarios, reduced load (~7 min)
-uv run python -m stress_tests run --all                     # full suite (~25–40 min)
+uv run python -m stress_tests run --all --quick             # all scenarios, reduced load (~6 min)
+uv run python -m stress_tests run --all                     # full suite (~20–35 min)
 ```
 
 ## Requirements
 
 - **Python / uv** — already a project dependency; run via `uv run python -m stress_tests …`
 - **Pillow** — already a dev dependency (image fixture generation)
+- **The ONNX model** — every scenario processes images. Each server's isolated data directory links `models/` to `data/models/` (where `uv run python scripts/models/setup_models.py` puts it); set `STRESS_MODELS_DIR` to use another models directory.
 - **ffmpeg** — *optional*; only needed for video fixtures (MP4/WebM).  All non-video scenarios work without it.  Install from [ffmpeg.org](https://ffmpeg.org/) and add to `PATH`.
 
 ## Flags
 
 | Flag | Effect |
 |------|--------|
-| `--quick` | Reduces concurrency and file counts.  Full suite runs in ~7 min instead of ~40 min. |
+| `--quick` | Reduces concurrency and file counts.  Full suite runs in ~6 min instead of ~35 min. |
 | `--large` | Enables 500 MB+ fixture variants and 60 s video files.  Requires ~7 GB free disk. |
 
 ## Architecture
 
 Each scenario:
-1. Gets a **fresh server process** (uvicorn subprocess, isolated temp data directory)
+1. Gets a **fresh server process** (uvicorn subprocess) with its own `APP_DATA_DIR` and `IMAGE_LIBRARY_DIR` under `stress_tests/results/_work_<timestamp>/<scenario>/`, so a run never touches `./data` or `./images`. The work directory is deleted when every scenario passes
 2. Waits for `SCENE_ATLAS_READY` on stdout, then warms the CLIP model
 3. Runs its scenario logic via `httpx.AsyncClient` + `asyncio`
 4. On failure: saves `server.log` + `db.sqlite` to `stress_tests/results/<timestamp>_<name>/`
@@ -45,67 +44,60 @@ No new Python dependencies are required — `httpx` and `Pillow` are already dev
 
 ### 1. `concurrent_imports` — concurrent full import flows
 
-Runs 100 coroutines (quick: 10) each doing a complete import: init → upload → analyse → confirm-all → poll.
+Runs 100 jobs (quick: 10) concurrently, each doing the full flow for 5 (quick: 3) unique images.
 
-**What it catches:** SQLite WAL contention, LanceDB write serialisation bottleneck, ThreadPoolExecutor starvation, zombie jobs.
+**What it catches:** SQLite write-lock contention between the API and the ingest worker, round-robin claiming across jobs, LanceDB write path.
 
-**Pass criteria:** All jobs reach a terminal state (`completed`, `failed`, or `cancelled`), zero HTTP 5xx responses.
+**Pass criteria:** Every job `completed` with all its files `done`, zero HTTP 5xx responses.
 
 ---
 
 ### 2. `endpoint_spam` — race condition flooding
 
-Fires many concurrent requests against the same job to find race conditions:
+Fires many concurrent identical requests (100, quick: 20):
 
-1. 100 concurrent cancels → exactly one returns 200, rest return 409/404
-2. 100 concurrent status polls → all 200, consistent status value
-3. 100 concurrent uploads to a cancelled job → all 409
-4. 100 concurrent confirm-all calls to a staging job → at most one succeeds
+1. Cancels of one sealed job → all 200 (cancel is idempotent), job ends `cancelled`
+2. Detail polls (`GET /imports/{id}`) → all 200, consistent status
+3. `PUT` content to the cancelled job's (now `skipped`) item → all 409
+4. Seals of one job → all 200 (seal is idempotent), every response shows the same single group
+5. `PUT`s of the same item's bytes → all 200, and the job ends with exactly the expected images
 
-**What it catches:** Non-atomic state transitions, duplicate group processing.
+**What it catches:** Non-atomic state transitions, duplicate planning or duplicate imports from retried requests.
 
-**Pass criteria:** No 5xx responses, state transitions atomic.
-
----
-
-### 3. `cancellation_chaos` — cancel at every pipeline stage
-
-Starts four imports and cancels each at a different stage:
-
-- (a) During upload, before analyse
-- (b) In staging state, after analyse but before confirm
-- (c) In active state, immediately after confirm-all (may still be processing)
-- (d) After completion → expects 409
-
-**What it catches:** Orphaned staging directories, jobs stuck in non-terminal states.
-
-**Pass criteria:** Correct HTTP codes, all jobs reach terminal state.
+**Pass criteria:** No 5xx responses, all the above hold.
 
 ---
 
-### 4. `malformed_input` — corrupted file handling
+### 3. `cancellation_chaos` — cancel at every stage
 
-Uploads each malformed fixture (JPEG, PNG, WebP, MP4, WebM, ZIP) and a near-zip-bomb.  Each file has a valid magic-byte header but corrupted body.
+- (a) Before seal (manifest only) → `cancelled`, items `skipped`
+- (b) After seal, before any bytes → `cancelled`, items `skipped`
+- (c) Right after uploading, while the worker is processing → `cancelled`; once the in-flight batch drains, nothing is left `awaiting_bytes`, `ready` or `processing`
+- (d) After completion → 200, the job stays `completed` and its images are kept
 
-**Expected behaviour:**
-- Malformed images/videos: server skips the file (200 with `skipped_invalid` list)
-- Near-zip-bomb: server returns 413 (rejected by `check_zip_safety()` before extraction)
+**What it catches:** Items left open after a cancel, cancel undoing finished work.
 
-**What it catches:** PIL/ffmpeg hangs on corrupt data, server crashes, memory exhaustion.
+**Pass criteria:** Correct codes and states, no 5xx.
 
-**Pass criteria:** No 5xx responses, all requests complete within 30 s.
+---
+
+### 4. `malformed_input` — corrupted file handling (~2 min)
+
+Puts each malformed fixture (JPEG, PNG, WebP, MP4, WebM: valid magic bytes, corrupt body) into its own job via manifest + `PUT`, and each ZIP (malformed, near-zip-bomb) via `PUT /imports/{id}/archives`. Then seals and waits for the job to finish.
+
+**Expected behaviour:** The corrupt images are rejected by the upload-time content check (`failed`, stage `validate`). The corrupt videos pass it and fail in the worker at the thumbnail stage; they are currently classified `transient`, so each is retried 3 times (about a minute) before failing. A bad ZIP becomes one failed `archive` item (`check_zip_safety()` rejects the near-bomb before extraction).
+
+**What it catches:** Decoder hangs on corrupt data, server crashes, corrupt files being imported.
+
+**Pass criteria:** No 5xx, no timeouts, every job completes, nothing imported.
 
 ---
 
 ### 5. `large_uploads` — big files, sequential then concurrent
 
-Uploads large video and ZIP files.  Skipped in `--quick` mode.  Use `--large` to test 500 MB+ variants.
+Uploads large video and ZIP files, one at a time and then 5 at once (each in its own job, cancelled afterwards). Skipped in `--quick` mode unless `--large` is also given, which enables the 500 MB+ variants.
 
-Runs two sub-tests:
-- Sequential upload of each large file
-- 5 concurrent uploads of the same large file
-
-**What it catches:** OOM from concurrent streaming, partial state left behind after 413.
+**What it catches:** OOM from concurrent streaming, partial state left behind after a 413.
 
 **Pass criteria:** All requests complete or reject cleanly (no 5xx, no timeout).
 
@@ -113,53 +105,45 @@ Runs two sub-tests:
 
 ### 6. `concurrent_move_groups` — simultaneous group mutations
 
-Imports images into two groups, then fires 20 concurrent `move-images` requests targeting the same image IDs.
+Imports images into two groups, then fires 20 concurrent `move-images` requests for the same image IDs.
 
 **What it catches:** Race conditions in the group-assignment logic.
 
-**Pass criteria:** Exactly one move succeeds (200), the rest return 400/404.  No duplicate assignments.
+**Pass criteria:** Exactly one move succeeds (200), the rest return 400/404, every image ends up in the target group.
 
 ---
 
-### 7. `duplicate_hash_race` — content-hash dedup under concurrency
+### 7. `duplicate_hash_race` — dedup under concurrency
 
-Uploads the **same image bytes** to 50 concurrent import jobs.  The pipeline's `/check-hashes` dedup should handle this without creating duplicate `Image` rows in the database.
+Imports the **same image bytes** in 50 concurrent jobs (quick: 10). Half of them also send the client-side SHA-256 (`POST /hashes`) before uploading, so the client-hint and commit-time dedup paths race.
 
-**What it catches:** Race conditions in hash-based deduplication.
+**What it catches:** Duplicate `Image` rows from concurrent dedup checks.
 
-**Pass criteria:** All jobs complete, no 5xx responses.
+**Pass criteria:** Every job completes, exactly one copy is imported across all jobs (the rest are `duplicate`), no 5xx.
 
 ---
 
 ### 8. `server_restart_recovery` — crash recovery
 
-Starts 3 imports, leaves them in `active` state, force-kills the server, restarts it, then checks that `mark_interrupted_jobs()` transitioned all in-flight jobs to `broken`.
+Starts 3 imports (8 files each), uploads all their bytes, SIGKILLs the server while the worker is processing, then starts a new server on the same storage. `IngestWorker.recover()` returns items left `processing` to `ready`.
 
-**What it catches:** Jobs stuck in `uploading`/`staging`/`active` after a crash.
+**What it catches:** Items stuck in `processing` after a crash, imports that never finish after a restart.
 
-**Pass criteria:** All jobs are in a terminal state after restart.
+**Pass criteria:** Every job reaches `completed` with all its files `done`.
 
 ---
 
 ### 9. `large_batch_imports` — sustained heavy load
 
-Runs 10 jobs (quick: 2) each uploading 1 000 files (quick: 100) in batches of 50.
+Runs 10 jobs (quick: 2) of 1 000 files each (quick: 100).
 
-**What it catches:** Memory growth under sustained load, CLIP throughput, per-file error isolation.
+**What it catches:** Memory growth under sustained load, embedding throughput, per-file error isolation.
 
-**Pass criteria:** All jobs reach terminal state, no 5xx responses.
-
----
-
-### 10. `scheduler_interference` — maintenance tasks under load
-
-Runs 20 concurrent imports (quick: 5) while the scheduler's periodic tasks (`cleanup_staging`, `expire_stale_jobs`) are running in the background.
-
-**What it catches:** Scheduler prematurely cleaning up staging directories for in-progress jobs, false expiry of slow imports.
-
-**Pass criteria:** No jobs expired (`status == "expired"`), all reach terminal state.
+**Pass criteria:** Every job completes with all files `done`, no 5xx.
 
 ---
+
+The former `scheduler_interference` scenario was removed: the ingest maintenance task runs every 6 hours, so it never fired during the run and the scenario only repeated `concurrent_imports`. Ingest maintenance is covered by `backend/tests/integration/test_ingest_pipeline.py`.
 
 ## Failure artifacts
 

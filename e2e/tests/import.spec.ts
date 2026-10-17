@@ -1,7 +1,7 @@
 import { test, expect } from "../fixtures/base";
 import path from "path";
 import fs from "fs";
-import { getTestImagePaths } from "../helpers/actions";
+import { getTestImagePaths, IMPORT_DIALOG_TITLE } from "../helpers/actions";
 
 test.describe("Import flow", () => {
   test("import dialog opens and shows upload UI", async ({ page }) => {
@@ -11,14 +11,16 @@ test.describe("Import flow", () => {
     // Click the Import button (has title="Import images")
     await page.getByTitle("Import images").click();
 
-    // The import dialog should open — custom Dialog uses div.fixed.inset-0.z-50
-    await expect(page.getByText("Import Scenes")).toBeVisible({
-      timeout: 5_000,
-    });
+    // The import dialog should open
+    await expect(
+      page.getByRole("heading", { name: IMPORT_DIALOG_TITLE }),
+    ).toBeVisible({ timeout: 5_000 });
 
     // Should show upload controls
     await expect(page.getByText(/Drop files or folders here/)).toBeVisible();
-    await expect(page.getByText("Browse files")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Choose files" }),
+    ).toBeVisible();
   });
 
   test("upload a file and see it in preview", async ({ page }) => {
@@ -27,9 +29,9 @@ test.describe("Import flow", () => {
 
     // Open import dialog
     await page.getByTitle("Import images").click();
-    await expect(page.getByText("Import Scenes")).toBeVisible({
-      timeout: 5_000,
-    });
+    await expect(
+      page.getByRole("heading", { name: IMPORT_DIALOG_TITLE }),
+    ).toBeVisible({ timeout: 5_000 });
 
     // Find a test image to upload
     const imageDir =
@@ -46,18 +48,17 @@ test.describe("Import flow", () => {
     // Use the file chooser to upload
     const fileChooserPromise = page.waitForEvent("filechooser");
 
-    // Click the "Browse files" button to trigger file chooser
-    await page.getByText("Browse files").click();
+    // Click the "Choose files" button to trigger file chooser
+    await page.getByRole("button", { name: "Choose files" }).click();
 
     const fileChooser = await fileChooserPromise;
     await fileChooser.setFiles(testFiles[0]);
 
-    // After upload, the dialog auto-confirms all groups and closes itself when
-    // processing starts (ImportDialog closes on state='processing'). Wait for
-    // the 'Import Scenes' heading to disappear — that's the reliable signal
-    // that upload + analysis + auto-confirm all completed successfully.
+    // Once the import has been created, sealed and is uploading, the dialog
+    // replaces its start view with the job's progress view.
     await expect(
-      page.getByRole("heading", { name: "Import Scenes" }),
+      page.getByRole("heading", { name: IMPORT_DIALOG_TITLE }),
     ).toBeHidden({ timeout: 30_000 });
+    await expect(page.getByRole("dialog")).toBeVisible();
   });
 });

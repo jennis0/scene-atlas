@@ -44,13 +44,14 @@ test.describe("Upload & Gallery Interactions", () => {
       timeout: 5_000,
     });
 
-    // Wait for processing to start — auto-confirm means jobs skip staging
-    // and go straight to active/running, showing "Processing…" or "X of Y images processed"
+    // The job row shows progress ("N of M files processed") and then the
+    // outcome. The seeded library already holds these files, so the outcome is
+    // usually "0 imported, N already in your library".
     await expect(
       page
         .getByTestId("import-job-card")
         .first()
-        .getByText(/processing|images processed/i),
+        .getByText(/processed|imported|already in your library/i),
     ).toBeVisible({ timeout: 120_000 });
   });
 

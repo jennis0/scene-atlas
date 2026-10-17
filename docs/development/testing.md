@@ -39,7 +39,7 @@ uv run python -m pytest -m heavy -v
 # Run everything including heavy
 uv run python -m pytest -m '' -v
 
-# E2E tests (requires backend + frontend running, or let Playwright start them)
+# E2E tests (Playwright starts an isolated backend; stop any dev backend on :8000 first)
 make test-e2e                    # headless Chromium
 make test-e2e-ui                 # interactive UI mode for debugging
 npm run test:e2e:headed          # headed Chromium (see the browser)
@@ -52,7 +52,7 @@ make check          # lint + format-check (both backend + frontend)
 make test           # unit tests + frontend tests (fast, ~15s)
 make test-all       # unit + integration + frontend (downloads small model on first run)
 make test-heavy     # CLIP model tests (downloads small model on first run)
-make test-e2e       # Playwright E2E tests (Chromium, ~35s with warm servers)
+make test-e2e       # Playwright E2E tests (Chromium)
 make test-e2e-ui    # Playwright interactive UI mode (for debugging)
 make test-cov       # full suite with coverage reporting
 make lint-fix       # auto-fix all lint + format issues
@@ -101,25 +101,24 @@ Quality evaluation is integrated into `scripts/models/export_model_onnx.py` via 
 
 Playwright tests validate critical user flows in a real browser against the full stack (real backend, real frontend, real CLIP model). They run in the release workflow, not on pull requests.
 
-::: warning
-The seed helper (`e2e/helpers/seed.ts`) still calls the import endpoints removed by ADR-018 (`/imports/init`, `/upload-batch`, `/analyse`, `/confirm-all`). Seeding fails against the current backend until it is ported to the manifest → seal → per-file `PUT` flow.
-:::
-
 **Architecture:**
 - Located in `e2e/` at project root (not inside `frontend/`) -- tests exercise the full stack
 - Dual webServer config: Playwright starts both backend and frontend automatically
 - Real CLIP model (no mocking) -- loads in a background thread, server responds immediately
-- Test data seeded via the import API using real encrypted fixture images (decrypted at runtime from Git LFS)
+- Test data seeded via the imports API (create → manifest → seal → per-file `PUT`, then poll until `completed`) using real encrypted fixture images (decrypted at runtime from Git LFS; needs `E2E_IMAGE_KEY`)
+- Isolated storage: each run gets a fresh `e2e/.tmp-data/run-XXXXXX/` and the backend is started with `APP_DATA_DIR` / `IMAGE_LIBRARY_DIR` pointing into it, so E2E never touches your `./data` or `./images`. The previous run's directory is kept for debugging and deleted when the next run starts
+- The ONNX model is linked into the run directory from `data/models/` (where `setup_models.py` and CI put it); set `E2E_MODELS_DIR` to use another models directory
 - Serial execution (`workers: 1`) -- tests share backend state
 - Chromium only in CI; Firefox/WebKit available locally via `--project` flag
 
 **Key files:**
 - `e2e/playwright.config.ts` -- Dual webServer, serial execution, CI/local reporter config
 - `e2e/fixtures/base.ts` -- Worker-scoped auto fixture that decrypts real images and seeds via API
-- `e2e/helpers/seed.ts` -- Seeds images via the import API and polls until done (see warning above)
+- `e2e/helpers/seed.ts` -- Seeds images via the imports API and polls `GET /imports/{id}` until done
+- `e2e/helpers/isolation.ts` -- Creates the per-run storage directory and exports `APP_DATA_DIR` / `IMAGE_LIBRARY_DIR`
 - `e2e/helpers/decrypt-fixtures.ts` -- Decrypts `e2e-images.zip.enc` (Git LFS) for CI and local dev
 
-**`reuseExistingServer`:** Locally, if you already have the backend and frontend running, Playwright reuses them -- no cold-start overhead. In CI, Playwright starts both servers fresh.
+**`reuseExistingServer`:** The backend is never reused: a running dev backend uses your real library, and the seed would import into it. Stop any backend on port 8000 before running E2E (the frontend proxies to that port, so E2E can't use another). A running frontend dev server is reused locally; in CI both servers start fresh.
 
 **Test coverage (37 tests across 10 files):**
 - `smoke.spec.ts` -- Health check, page load, seeded data visible

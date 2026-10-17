@@ -54,7 +54,6 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 
 | Item | Notes | Priority |
 |---|---|---|
-| E2E seeding uses the removed import API | `e2e/helpers/seed.ts` calls `/imports/init`, `/upload-batch`, `/analyse`, `/confirm-all`; `stress_tests/scenarios.py` likewise. Port to the ADR-018 API and add failure-injection specs (aborted PUTs, reload mid-upload). | High |
 | Security scans don't fail CI | `continue-on-error: true` on `pip-audit` and `bandit` in `ci.yml`; the target date (2026-03-28) has passed. Triage findings, add targeted exclusions, remove the flag. | Medium |
 | GitHub Actions on Node-20-era major versions | `actions/checkout@v4`, `setup-node@v4`, `setup-python@v5`, `astral-sh/setup-uv@v4`, `upload-artifact@v4`, `cache@v4`, `upload-pages-artifact@v3`. Upgrade to the Node 24 majors and re-test each job. | Medium |
 | int8 model export depends on untracked code | `scripts/models/export_model_onnx.py` imports `scripts.quantisation.*`, which is gitignored and absent from a clean checkout. [onnx-int8-quantisation.md](onnx-int8-quantisation.md) | Medium |
@@ -69,6 +68,10 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 | Unused / ineffective settings | `max_image_size`, `vector_collection_name` (only a default), `embedding_model` unused; `DATABASE_URL` and path overrides are recomputed in `Settings.__init__`; `max_import_file_size` default differs between schema (2000 MiB) and seed (2048 MiB). | Low |
 | Setup page fetches Google Fonts | `electron/setup.html` needs the network on first run for fonts; bundling them would allow a stricter CSP. | Low |
 | Deferred frontend extractions | EditGroupDialog / ImageViewer subcomponents, `useSceneFilters`, unifying ImageViewer filtering with `fileFilter.ts`, shared `TagChip` / `PanelHeader` / `ModelCard`, moving confirm flags out of `useEditGroupOperations`. Add component tests first (coverage is low for these). | Low |
+| Ingest error classification | A `FileNotFoundError` while placing files at commit (`_place`, stage `db_save`) is classified `file`, failing the batch permanently instead of retrying; corrupt videos are classified `transient` (stage `thumbnails`) and burn 3 attempts (~1 min) before failing. `backend/pipeline/error_classifier.py` | Medium |
+| Possible lock-order deadlock in seal vs archive upload | `seal_import` takes the SQLite write lock (`get_write_db`) before the heavy-op semaphore; `upload_archive` takes the semaphore first, then the write lock. Under load both can wait out the 10 s busy timeout. Take the semaphore first in `seal_import`. (From code reading; not reproduced.) | Medium |
+| No single-backend guard per data dir | Two backends on one `APP_DATA_DIR` corrupt each other's in-flight ingest (`recover()` clears `.incoming/`). Electron has a single-instance lock; standalone/server mode has none. Add a lock file in `APP_DATA_DIR`. | Low |
+| `SCENE_ATLAS_READY` printed before the socket is bound | Printed from the lifespan; clients must poll `/health` (Electron and the stress runner do). | Low |
 | Port grid detector v3 | Hybrid: v3 for images ≥1000 px, current detector below. [grid-detection-v3.md](grid-detection-v3.md) | Medium |
 | Session-based authentication | Until then server mode must sit behind an authenticating reverse proxy. [security.md](security.md) | Medium |
 | Bulk import of a local library | Linked folders read in place. [ingest-redesign.md](ingest-redesign.md#open-questions) | Low |

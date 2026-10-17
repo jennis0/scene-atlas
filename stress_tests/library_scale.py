@@ -37,10 +37,28 @@ from backend.app.services import search_service
 from backend.app.services.color_search import ColorIndex
 from backend.app.services.search_service import SearchFilters, SearchMode
 
-_WORDS = (
-    "forest cave dungeon tavern castle ruins swamp desert snow river bridge temple "
-    "crypt market harbor ship tower village camp mine"
-).split()
+_WORDS = [
+    "forest",
+    "cave",
+    "dungeon",
+    "tavern",
+    "castle",
+    "ruins",
+    "swamp",
+    "desert",
+    "snow",
+    "river",
+    "bridge",
+    "temple",
+    "crypt",
+    "market",
+    "harbor",
+    "ship",
+    "tower",
+    "village",
+    "camp",
+    "mine",
+]
 _AUTHORS = [f"Author{i}" for i in range(120)]
 _TAGS = {
     "season": ["winter", "summer", "autumn", "spring"],

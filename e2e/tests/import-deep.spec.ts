@@ -5,6 +5,7 @@ import {
   openImportDialog,
   uploadFiles,
   getTestImagePaths,
+  IMPORT_DIALOG_TITLE,
 } from "../helpers/actions";
 import { IMAGE_DIR } from "../helpers/decrypt-fixtures";
 
@@ -20,14 +21,18 @@ test.describe("Import Deep", () => {
     await expect(page.getByText(/Drop files or folders here/)).toBeVisible();
 
     // Verify browse buttons are visible
-    await expect(page.getByText("Browse files")).toBeVisible();
-    await expect(page.getByText("Browse folder")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Choose files" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Choose a folder" }),
+    ).toBeVisible();
 
     // Close dialog
     await page.keyboard.press("Escape");
-    await expect(page.getByText("Import Scenes")).not.toBeVisible({
-      timeout: 5_000,
-    });
+    await expect(
+      page.getByRole("heading", { name: IMPORT_DIALOG_TITLE }),
+    ).not.toBeVisible({ timeout: 5_000 });
   });
 
   test("default type toggle is visible", async ({ page }) => {
@@ -36,9 +41,10 @@ test.describe("Import Deep", () => {
 
     await openImportDialog(page);
 
-    // Verify type toggle buttons are visible (All / Maps / Scenes)
-    const mapsButton = page.getByRole("button", { name: "Maps" });
-    const scenesButton = page.getByRole("button", { name: "Scenes" });
+    // Verify the "Import these as" toggle (Battlemaps / Scenes) is visible
+    const dialog = page.getByRole("dialog");
+    const mapsButton = dialog.getByRole("button", { name: "Battlemaps" });
+    const scenesButton = dialog.getByRole("button", { name: "Scenes" });
 
     await expect(mapsButton).toBeVisible({ timeout: 5_000 });
     await expect(scenesButton).toBeVisible({ timeout: 5_000 });

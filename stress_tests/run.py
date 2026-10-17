@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import os
 import shutil
@@ -37,6 +38,9 @@ REPO_ROOT = Path(__file__).parent.parent
 STRESS_DIR = Path(__file__).parent
 FIXTURES_DIR = STRESS_DIR / ".fixtures"
 RESULTS_DIR = STRESS_DIR / "results"
+# ONNX models are a download cache shared by every stress server (linked into each
+# server's isolated APP_DATA_DIR). Override with STRESS_MODELS_DIR.
+MODELS_DIR = Path(os.environ.get("STRESS_MODELS_DIR", REPO_ROOT / "data" / "models"))
 
 # ---------------------------------------------------------------------------
 # ANSI colours (disabled on Windows without ANSI support, or in non-TTY)
@@ -123,14 +127,33 @@ class ScenarioResult:
 # ---------------------------------------------------------------------------
 
 
-class StressTestServer:
-    """Manages a uvicorn subprocess with an isolated temp data directory."""
+def _link_dir(source: Path, dest: Path) -> None:
+    """Link ``dest`` to the directory ``source`` (a junction on Windows if symlinks need admin)."""
+    try:
+        os.symlink(source, dest, target_is_directory=True)
+    except OSError:
+        if sys.platform != "win32":
+            raise
+        import _winapi
 
-    def __init__(self, work_dir: Path, *, data_dir: Path | None = None) -> None:
+        _winapi.CreateJunction(str(source), str(dest))
+
+
+class StressTestServer:
+    """Manages a uvicorn subprocess with isolated storage.
+
+    The backend's storage roots are APP_DATA_DIR and IMAGE_LIBRARY_DIR
+    (backend/app/config.py); without them it would use the repo's ./data and
+    ./images. Both are set to ``{storage_dir}/data`` and ``{storage_dir}/images``.
+    """
+
+    def __init__(self, work_dir: Path, *, storage_dir: Path | None = None) -> None:
         self.work_dir = work_dir
         self.log_path = work_dir / "server.log"
-        # Allow callers to share a data directory across restarts (server_restart_recovery)
-        self._data_dir = data_dir
+        # Callers can share storage across restarts (server_restart_recovery).
+        self.storage_dir = storage_dir if storage_dir is not None else work_dir
+        self.data_dir = self.storage_dir / "data"
+        self.library_dir = self.storage_dir / "images"
         self.port: int | None = None
         self.base_url: str | None = None
         self._proc: subprocess.Popen | None = None
@@ -155,18 +178,22 @@ class StressTestServer:
         """Start the server and wait for it to signal readiness.
 
         The server prints ``SCENE_ATLAS_READY port=N`` to stdout once the DB,
-        Qdrant, and job runner are up.  We capture that line as our ready signal
+        vector store and job runner are up.  We capture that line as our ready signal
         then drain remaining stdout to the log file.
 
         Returns the base URL, e.g. ``http://127.0.0.1:18423``.
         """
         self.port = self._reserve_port()
         self.work_dir.mkdir(parents=True, exist_ok=True)
-        data_dir = self._data_dir if self._data_dir is not None else (self.work_dir / "data")
-        data_dir.mkdir(parents=True, exist_ok=True)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.library_dir.mkdir(parents=True, exist_ok=True)
+        models_link = self.data_dir / "models"
+        if not models_link.exists() and MODELS_DIR.is_dir():
+            _link_dir(MODELS_DIR.resolve(), models_link)
 
         env = os.environ.copy()
-        env["DATA_DIR"] = str(data_dir)
+        env["APP_DATA_DIR"] = str(self.data_dir)
+        env["IMAGE_LIBRARY_DIR"] = str(self.library_dir)
         env["API_PORT"] = str(self.port)
         # DEBUG=true enables debug-level logging in the server
         env["DEBUG"] = "true"
@@ -178,11 +205,15 @@ class StressTestServer:
         # We keep the scheduler *running* so the interference scenario works.
 
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
-        self._log_fh = open(self.log_path, "w", encoding="utf-8", errors="replace")
+        # Held open for the server's lifetime; closed in stop().
+        self._log_fh = open(self.log_path, "w", encoding="utf-8", errors="replace")  # noqa: SIM115
 
+        # Run uvicorn with this interpreter (the project venv under `uv run`), not via
+        # `uv run`: SIGKILL can't be forwarded through the uv wrapper, so a "killed"
+        # server kept running and raced its replacement on the same storage.
         cmd = [
-            "uv",
-            "run",
+            sys.executable,
+            "-m",
             "uvicorn",
             "backend.app.main:app",
             "--host",
@@ -195,6 +226,9 @@ class StressTestServer:
         if sys.platform == "win32":
             # CREATE_NEW_PROCESS_GROUP allows us to kill the entire process tree
             kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            # Own process group, so stop() can signal the server and any children.
+            kwargs["start_new_session"] = True
 
         self._proc = subprocess.Popen(
             cmd,
@@ -251,6 +285,21 @@ class StressTestServer:
                     break  # File closed by stop() — nothing more to do
 
         threading.Thread(target=_drain, daemon=True, name="stdout-drain").start()
+
+        # The backend prints the ready line from its lifespan, just before uvicorn
+        # binds the socket, so wait until it actually accepts connections.
+        while True:
+            try:
+                httpx.get(f"{self.base_url}/health", timeout=5)
+                break
+            except httpx.TransportError:
+                if time.monotonic() > deadline or self._proc.poll() is not None:
+                    self.stop(force=True)
+                    raise RuntimeError(
+                        f"Server printed its ready line but isn't accepting connections. "
+                        f"Check {self.log_path}"
+                    ) from None
+                time.sleep(0.1)
 
         return self.base_url
 
@@ -309,14 +358,19 @@ class StressTestServer:
         else:
             import signal
 
+            def _signal_group(sig: int) -> None:
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(self._proc.pid, sig)
+
             if force:
-                self._proc.send_signal(signal.SIGKILL)
+                _signal_group(signal.SIGKILL)
+                self._proc.wait()
             else:
-                self._proc.send_signal(signal.SIGTERM)
+                _signal_group(signal.SIGTERM)
                 try:
                     self._proc.wait(timeout=10)
                 except subprocess.TimeoutExpired:
-                    self._proc.send_signal(signal.SIGKILL)
+                    _signal_group(signal.SIGKILL)
                     self._proc.wait()
 
         if self._port_sock:
@@ -333,7 +387,7 @@ class StressTestServer:
         dest.mkdir(parents=True, exist_ok=True)
         if self.log_path.exists():
             shutil.copy2(self.log_path, dest / "server.log")
-        db_path = self.work_dir / "data" / "battlemap.db"
+        db_path = self.data_dir / "battlemap.db"
         if db_path.exists():
             shutil.copy2(db_path, dest / "db.sqlite")
 
@@ -523,7 +577,7 @@ def _cmd_list(args: argparse.Namespace) -> None:
     for name, _fn, default_time, quick_time in scenarios.SCENARIO_REGISTRY:
         print(f"  {name:<30} {default_time:<22} {quick_time}")
     print()
-    print("  Total (default): ~25-40 min   Total (--quick): ~7 min")
+    print("  Total (default): ~20-35 min   Total (--quick): ~6 min")
     print()
 
 
@@ -582,11 +636,16 @@ def _cmd_run(args: argparse.Namespace) -> None:
     results: list[ScenarioResult] = []
     _print_banner()
 
-    for name, fn, _dt, _qt in selected:
-        # Scenarios that test CLIP (most of them) need CLIP loaded.
-        # malformed_input and endpoint_spam don't process images so we skip CLIP wait
-        needs_clip = name not in {"endpoint_spam", "malformed_input"}
+    if not MODELS_DIR.is_dir():
+        print(
+            _yellow(
+                f"  Warning: no models directory at {MODELS_DIR}. Every scenario processes "
+                "images and needs the ONNX model: run `uv run python scripts/models/setup_models.py` "
+                "or set STRESS_MODELS_DIR."
+            )
+        )
 
+    for name, fn, _dt, _qt in selected:
         result = _run_scenario(
             scenario_name=name,
             scenario_fn=fn,
@@ -595,7 +654,6 @@ def _cmd_run(args: argparse.Namespace) -> None:
             large_mode=getattr(args, "large", False),
             quick_mode=getattr(args, "quick", False),
             results_dir=RESULTS_DIR,
-            wait_for_clip=needs_clip,
         )
         results.append(result)
         _print_result(result)

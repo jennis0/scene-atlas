@@ -1,11 +1,16 @@
 import { defineConfig, devices } from '@playwright/test'
 import { config } from 'dotenv'
 import path from 'path'
+import { prepareIsolatedRun } from './helpers/isolation'
 
 // Load .env from project root (parent of e2e/)
 config({ path: path.resolve(__dirname, '..', '.env') })
 
 const isCI = !!process.env.CI
+
+// Fresh APP_DATA_DIR / IMAGE_LIBRARY_DIR per run, exported into process.env so
+// the backend and everything the tests spawn use it (never the repo's ./data).
+const run = prepareIsolatedRun()
 
 export default defineConfig({
   testDir: './tests',
@@ -45,9 +50,12 @@ export default defineConfig({
       url: 'http://localhost:8000/health',
       name: 'Backend',
       timeout: 120_000,
-      reuseExistingServer: !isCI,
+      // Never reuse a running backend: it would be using someone's real library,
+      // and the seed would import into it. Stop any dev backend on :8000 first.
+      reuseExistingServer: false,
       env: {
-        DATA_DIR: path.resolve(__dirname, '.tmp-data'),
+        APP_DATA_DIR: run.appDataDir,
+        IMAGE_LIBRARY_DIR: run.imageLibraryDir,
       },
       cwd: path.resolve(__dirname, '..'),
     },

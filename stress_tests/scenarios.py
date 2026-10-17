@@ -13,17 +13,21 @@ Each scenario is an async function with this signature:
 SCENARIO_REGISTRY is a list of (name, fn, default_time_estimate, quick_time_estimate)
 tuples imported by run.py.
 
-IMPORTANT — parallel-change constraint:
-The /confirm (single-group) endpoint and /finalize endpoint have been removed.
-This file MUST NOT use them.  Only /confirm-all is used.
+The scenarios drive the imports API described in design/ingestion.md (ADR-018):
+create job → manifest → (archives) → seal → (client hashes) → per-file PUT, then
+poll ``GET /imports/{id}``. A job's status is derived from its items: ``active``,
+``paused``, ``completed`` or ``cancelled``. Jobs never fail; outcomes are item
+counts (done / duplicate / failed / skipped).
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
-import json
 import random
+import shutil
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -47,17 +51,27 @@ API_BASE = "/api/v1"
 IMPORTS_BASE = f"{API_BASE}/imports"
 GROUPS_BASE = f"{API_BASE}/groups"
 
-# Job states considered terminal (polling stops when any of these is reached)
-TERMINAL_STATES = frozenset({"completed", "failed", "cancelled", "broken", "expired"})
+# Job states in which nothing more will happen without user action.
+TERMINAL_STATES = frozenset({"completed", "cancelled"})
+# Server-side chunk limits (MAX_MANIFEST_CHUNK / MAX_HASH_CHUNK in import_schemas.py).
+MANIFEST_CHUNK = 2000
+HASH_CHUNK = 2000
+# Concurrent PUTs per job; the frontend uses 3.
+UPLOAD_CONCURRENCY = 4
+
+Images = list[tuple[str, bytes]]
 
 
 # ---------------------------------------------------------------------------
-# ImportFlow — thin async wrapper around the import HTTP API
+# ImportFlow — thin async wrapper around the imports HTTP API
 # ---------------------------------------------------------------------------
 
 
 class ImportFlow:
-    """Wraps the import pipeline API for use within async stress scenarios."""
+    """Wraps the imports API for use within async stress scenarios.
+
+    Every request is recorded in ``stats``; a response >= 500 counts as an error.
+    """
 
     def __init__(
         self,
@@ -69,171 +83,187 @@ class ImportFlow:
         self._base = base_url.rstrip("/")
         self._stats = stats or RequestStats()
 
-    def _url(self, path: str) -> str:
-        return self._base + path
-
-    async def _request(
+    async def request(
         self,
         method: str,
         path: str,
         *,
         json: Any = None,
-        files: Any = None,
-        data: Any = None,
+        content: bytes | None = None,
+        params: dict | None = None,
         timeout: float = 60.0,
     ) -> httpx.Response:
+        headers = {"Content-Type": "application/octet-stream"} if content is not None else None
         t0 = time.monotonic()
         r = await self._client.request(
             method,
-            self._url(path),
+            self._base + path,
             json=json,
-            files=files,
-            data=data,
+            content=content,
+            params=params,
+            headers=headers,
             timeout=timeout,
         )
-        elapsed = time.monotonic() - t0
-        self._stats.record(elapsed, ok=r.status_code < 500)
+        self._stats.record(time.monotonic() - t0, ok=r.status_code < 500)
         return r
 
-    async def init_job(self) -> str:
-        """POST /imports/init → job_id string."""
-        r = await self._request("POST", f"{IMPORTS_BASE}/init")
+    async def create(self, label: str = "stress", image_type: str = "battlemap") -> str:
+        """POST /imports → job id."""
+        r = await self.request(
+            "POST", IMPORTS_BASE, json={"label": label, "default_image_type": image_type}
+        )
         r.raise_for_status()
-        return r.json()["job_id"]
+        return r.json()["id"]
 
-    async def upload_batch(
-        self,
-        job_id: str,
-        files: list[tuple[str, bytes, str]],
-        relative_paths: list[str],
-        timeout: float = 120.0,
-    ) -> dict:
-        """POST /imports/{job_id}/upload-batch.
+    async def manifest(self, job_id: str, images: Images) -> dict[str, dict]:
+        """POST /imports/{id}/manifest in chunks. Returns manifest items by relative path."""
+        by_path: dict[str, dict] = {}
+        for start in range(0, len(images), MANIFEST_CHUNK):
+            chunk = images[start : start + MANIFEST_CHUNK]
+            files = [
+                {"client_ref": rel, "relative_path": rel, "size": len(data)} for rel, data in chunk
+            ]
+            r = await self.request(
+                "POST", f"{IMPORTS_BASE}/{job_id}/manifest", json={"files": files}, timeout=120
+            )
+            r.raise_for_status()
+            for item in r.json()["items"]:
+                by_path[item["client_ref"]] = item
+        return by_path
 
-        Args:
-            files: List of (filename, bytes_data, content_type) tuples.
-            relative_paths: Matching relative path for each file.
-        """
-        multipart_files = [("files", (name, data, mime)) for name, data, mime in files]
-        form_data = {"relative_paths": json.dumps(relative_paths)}
-        r = await self._request(
-            "POST",
-            f"{IMPORTS_BASE}/{job_id}/upload-batch",
-            files=multipart_files,
-            data=form_data,
+    async def seal(self, job_id: str) -> dict:
+        """POST /imports/{id}/seal → job detail (idempotent)."""
+        r = await self.request("POST", f"{IMPORTS_BASE}/{job_id}/seal", timeout=300)
+        r.raise_for_status()
+        return r.json()
+
+    async def submit_hashes(self, job_id: str, hashes: dict[int, str]) -> dict[int, str]:
+        """POST /imports/{id}/hashes → new state per item id."""
+        states: dict[int, str] = {}
+        entries = [{"item_id": i, "sha256": h} for i, h in hashes.items()]
+        for start in range(0, len(entries), HASH_CHUNK):
+            r = await self.request(
+                "POST",
+                f"{IMPORTS_BASE}/{job_id}/hashes",
+                json={"items": entries[start : start + HASH_CHUNK]},
+            )
+            r.raise_for_status()
+            states.update({e["item_id"]: e["state"] for e in r.json()["items"]})
+        return states
+
+    async def put_content(
+        self, job_id: str, item_id: int, data: bytes, timeout: float = 120.0
+    ) -> httpx.Response:
+        """PUT /imports/{id}/items/{item_id}/content (raw body). Caller checks the status."""
+        return await self.request(
+            "PUT", f"{IMPORTS_BASE}/{job_id}/items/{item_id}/content", content=data, timeout=timeout
+        )
+
+    async def upload_archive(
+        self, job_id: str, name: str, data: bytes, timeout: float = 300.0
+    ) -> httpx.Response:
+        """PUT /imports/{id}/archives?name=… (raw zip body). Caller checks the status."""
+        return await self.request(
+            "PUT",
+            f"{IMPORTS_BASE}/{job_id}/archives",
+            content=data,
+            params={"name": name},
             timeout=timeout,
         )
-        r.raise_for_status()
-        return r.json()
 
-    async def analyse(self, job_id: str, image_type: str = "battlemap") -> dict:
-        """POST /imports/{job_id}/analyse."""
-        r = await self._request(
-            "POST",
-            f"{IMPORTS_BASE}/{job_id}/analyse",
-            json={"manifest": [], "image_type": image_type},
-            timeout=300.0,
-        )
-        r.raise_for_status()
-        return r.json()
+    async def cancel(self, job_id: str) -> httpx.Response:
+        """POST /imports/{id}/cancel."""
+        return await self.request("POST", f"{IMPORTS_BASE}/{job_id}/cancel")
 
-    async def confirm_all(
-        self, job_id: str, groups: list[dict], image_type: str = "battlemap"
-    ) -> dict:
-        """POST /imports/{job_id}/confirm-all.
-
-        NOTE: Does NOT include remaining_groups (field being removed by parallel branch).
-        """
-        confirm_groups = []
-        for g in groups:
-            confirm_groups.append(
-                {
-                    "author": g.get("author") or "StressAuthor",
-                    "group_name": g["group_name"],
-                    "files": [
-                        {
-                            "relative_path": f["relative_path"],
-                            "name": f.get("filename") or f["relative_path"].split("/")[-1],
-                            "media_type": "image/jpeg",
-                            "image_type": image_type,
-                            "tags": [],
-                        }
-                        for f in g["files"]
-                    ],
-                    # NO remaining_groups field
-                }
-            )
-        r = await self._request(
-            "POST",
-            f"{IMPORTS_BASE}/{job_id}/confirm-all",
-            json={"groups": confirm_groups},
-            timeout=300.0,
-        )
-        r.raise_for_status()
-        return r.json()
-
-    async def cancel(self, job_id: str) -> dict:
-        """POST /imports/{job_id}/cancel."""
-        r = await self._request("POST", f"{IMPORTS_BASE}/{job_id}/cancel")
-        return r.json()
-
-    async def get_status(self, job_id: str) -> dict:
-        """GET /imports/{job_id}/status."""
-        r = await self._request("GET", f"{IMPORTS_BASE}/{job_id}/status")
+    async def get_job(self, job_id: str) -> dict:
+        """GET /imports/{id} → job detail with counts and groups."""
+        r = await self.request("GET", f"{IMPORTS_BASE}/{job_id}")
         r.raise_for_status()
         return r.json()
 
     async def wait_for_terminal(self, job_id: str, timeout: float = 300.0) -> dict:
-        """Poll status until a terminal state is reached.
-
-        Raises RuntimeError on timeout.  Returns the final status response.
-        """
+        """Poll until the job is completed or cancelled. Raises RuntimeError on timeout."""
         deadline = time.monotonic() + timeout
+        detail: dict = {}
         while time.monotonic() < deadline:
-            status = await self.get_status(job_id)
-            if status["status"] in TERMINAL_STATES:
-                return status
+            detail = await self.get_job(job_id)
+            if detail["status"] in TERMINAL_STATES:
+                return detail
             await asyncio.sleep(0.5)
-        raise RuntimeError(f"Job {job_id} did not reach terminal state within {timeout}s")
+        raise RuntimeError(
+            f"Job {job_id} did not reach a terminal state within {timeout}s "
+            f"(status={detail.get('status')}, counts={detail.get('counts')})"
+        )
+
+    async def upload_all(
+        self, job_id: str, items: dict[str, dict], images: Images, concurrency: int
+    ) -> None:
+        """PUT the bytes of every item still awaiting them, ``concurrency`` at a time."""
+        sem = asyncio.Semaphore(concurrency)
+        data_by_path = dict(images)
+
+        async def one(rel: str, item: dict) -> None:
+            if item["state"] != "awaiting_bytes":
+                return
+            async with sem:
+                r = await self.put_content(job_id, item["item_id"], data_by_path[rel])
+                r.raise_for_status()
+
+        await asyncio.gather(*(one(rel, item) for rel, item in items.items()))
+
+    async def start_import(
+        self,
+        images: Images,
+        image_type: str = "battlemap",
+        *,
+        send_hashes: bool = False,
+        concurrency: int = UPLOAD_CONCURRENCY,
+    ) -> str:
+        """Create → manifest → seal → (hashes) → upload. Returns the job id without waiting."""
+        job_id = await self.create(image_type=image_type)
+        items = await self.manifest(job_id, images)
+        await self.seal(job_id)
+        if send_hashes:
+            data_by_path = dict(images)
+            hashes = {
+                item["item_id"]: hashlib.sha256(data_by_path[rel]).hexdigest()
+                for rel, item in items.items()
+                if item["state"] == "awaiting_bytes"
+            }
+            states = await self.submit_hashes(job_id, hashes)
+            for item in items.values():
+                item["state"] = states.get(item["item_id"], item["state"])
+        await self.upload_all(job_id, items, images, concurrency)
+        return job_id
 
     async def full_import(
         self,
-        images: list[tuple[str, bytes]],
+        images: Images,
         image_type: str = "battlemap",
-        batch_size: int = 50,
+        *,
+        send_hashes: bool = False,
+        concurrency: int = UPLOAD_CONCURRENCY,
+        timeout: float = 300.0,
     ) -> dict:
-        """Run complete init → upload → analyse → confirm-all → poll flow.
+        """Run the complete flow and poll until terminal. Returns the final job detail."""
+        job_id = await self.start_import(
+            images, image_type, send_hashes=send_hashes, concurrency=concurrency
+        )
+        return await self.wait_for_terminal(job_id, timeout=timeout)
 
-        Args:
-            images: List of (relative_path, bytes_data) tuples.
-            image_type: Passed to analyse and confirm.
-            batch_size: Max files per upload-batch call.
 
-        Returns the final status response.
-        """
-        job_id = await self.init_job()
-
-        # Upload in batches
-        for batch_start in range(0, len(images), batch_size):
-            batch = images[batch_start : batch_start + batch_size]
-            files = [(rel.split("/")[-1], data, "image/jpeg") for rel, data in batch]
-            rel_paths = [rel for rel, _ in batch]
-            await self.upload_batch(job_id, files, rel_paths)
-
-        # Analyse
-        analysis = await self.analyse(job_id, image_type=image_type)
-        groups = analysis.get("groups", [])
-
-        if not groups:
-            # Nothing to confirm — job stays in staging; cancel it
-            await self.cancel(job_id)
-            return {"job_id": job_id, "status": "cancelled"}
-
-        # Confirm all groups
-        await self.confirm_all(job_id, groups, image_type=image_type)
-
-        # Poll to completion
-        return await self.wait_for_terminal(job_id)
+def check_complete(detail: dict, label: str) -> str | None:
+    """Return a failure message unless every item of a finished job was imported or deduped."""
+    counts = detail["counts"]
+    if detail["status"] != "completed":
+        return f"{label}: status {detail['status']} (counts {counts})"
+    if (
+        counts["failed"]
+        or counts["skipped"]
+        or counts["done"] + counts["duplicate"] != counts["total"]
+    ):
+        return f"{label}: unexpected outcome {counts}"
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -247,17 +277,17 @@ def generate_unique_images(
     group_tag: str = "0",
     width: int = 160,
     height: int = 120,
-) -> list[tuple[str, bytes]]:
+) -> Images:
     """Return `count` unique (relative_path, bytes_data) JPEG tuples.
 
-    Each image has a unique seed so its SHA-256 hash differs from all others,
-    defeating the /check-hashes dedup logic.  Use non-overlapping base_seed
-    values across concurrent jobs.
+    Each image has a unique seed so its bytes and pixels differ from all others,
+    so dedup never collapses them. Use non-overlapping base_seed values across
+    concurrent jobs.
 
     Relative paths use the convention ``StressAuthor/StressMap_{group_tag}/image_{i}.jpg``
     so the grouping logic bundles them into one group per job.
     """
-    images: list[tuple[str, bytes]] = []
+    images: Images = []
     assert PILImage is not None, "Pillow is required"
     for i in range(count):
         seed = base_seed + i
@@ -269,6 +299,21 @@ def generate_unique_images(
         rel_path = f"StressAuthor/StressMap_{group_tag}/image_{i:04d}.jpg"
         images.append((rel_path, buf.getvalue()))
     return images
+
+
+def _result(
+    name: str, failures: list[str], ok_message: str, stats: RequestStats | None = None
+) -> ScenarioResult:
+    if stats is not None and stats.errors:
+        failures = [*failures, f"{stats.errors} HTTP 5xx response(s)"]
+    return ScenarioResult(
+        name=name,
+        passed=not failures,
+        message=ok_message if not failures else f"{len(failures)} failure(s)",
+        elapsed=0,  # set by _run_scenario
+        stats=stats,
+        failure_details="\n".join(failures[:20]) if failures else None,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -283,61 +328,34 @@ async def concurrent_imports(
     large_mode: bool,
     quick_mode: bool,
 ) -> ScenarioResult:
-    """100 concurrent jobs each running a full import flow.
+    """Many concurrent jobs, each running the full import flow.
 
-    Tests SQLite WAL contention, Qdrant RLock bottleneck, and job runner
-    thread pool under heavy concurrent load.
+    Tests SQLite write-lock contention between the API and the ingest worker,
+    round-robin claiming across jobs, and the LanceDB write path.
 
-    Pass: all jobs reach terminal state, zero 500 errors, no zombie jobs.
+    Pass: every job completes with all its files imported, zero 5xx responses.
     """
     jobs_count = 10 if quick_mode else 100
     files_per_job = 3 if quick_mode else 5
     stats = RequestStats()
 
-    async def run_one_job(job_idx: int) -> tuple[bool, str]:
-        async with httpx.AsyncClient(base_url=base_url, timeout=300) as client:
+    async def run_one_job(job_idx: int) -> str | None:
+        async with httpx.AsyncClient(timeout=300) as client:
             flow = ImportFlow(client, base_url, stats)
-            # Each job uses a unique seed range: job 0 → seeds 0–4, job 1 → 5–9, etc.
-            images = generate_unique_images(files_per_job, base_seed=job_idx * files_per_job)
+            images = generate_unique_images(
+                files_per_job, base_seed=job_idx * files_per_job, group_tag=str(job_idx)
+            )
             try:
-                result = await flow.full_import(images)
-                status = result.get("status", "unknown")
-                if status not in TERMINAL_STATES:
-                    return False, f"Job {job_idx} stuck in '{status}'"
-                return True, status
+                return check_complete(await flow.full_import(images), f"Job {job_idx}")
             except Exception as exc:
-                return False, f"Job {job_idx} raised {type(exc).__name__}: {exc}"
+                return f"Job {job_idx} raised {type(exc).__name__}: {exc}"
 
-    t0 = time.monotonic()
     outcomes = await atqdm.gather(
-        *(run_one_job(i) for i in range(jobs_count)),
-        desc="  jobs",
-        unit="job",
+        *(run_one_job(i) for i in range(jobs_count)), desc="  jobs", unit="job"
     )
-    elapsed = time.monotonic() - t0
-
-    failures = [(ok, msg) for ok, msg in outcomes if not ok]
-    http_errors = stats.errors
-
-    if failures or http_errors:
-        details = "\n".join(msg for _, msg in failures[:10])
-        if http_errors:
-            details += f"\n{http_errors} HTTP 5xx error(s)"
-        return ScenarioResult(
-            name="concurrent_imports",
-            passed=False,
-            message=f"{len(failures)}/{jobs_count} jobs failed, {http_errors} HTTP errors",
-            elapsed=elapsed,
-            stats=stats,
-            failure_details=details,
-        )
-
-    return ScenarioResult(
-        name="concurrent_imports",
-        passed=True,
-        message=f"{jobs_count}/{jobs_count} jobs completed",
-        elapsed=elapsed,
-        stats=stats,
+    failures = [msg for msg in outcomes if msg]
+    return _result(
+        "concurrent_imports", failures, f"{jobs_count}/{jobs_count} jobs completed", stats
     )
 
 
@@ -356,161 +374,112 @@ async def endpoint_spam(
     """Race condition testing via redundant request flooding.
 
     Sub-tests (run sequentially within the scenario):
-    1. 100 concurrent cancels → first succeeds (200), rest 409/404
-    2. 100 concurrent status polls → all 200, consistent data
-    3. 100 concurrent upload-batch to a completed/cancelled job → all 409
-    4. 100 concurrent confirm-all to a staging job → at most one 200
+    1. N concurrent cancels of one sealed job → all 200, job ends cancelled
+    2. N concurrent detail polls → all 200, consistent status
+    3. N concurrent PUTs to a cancelled job's item → all 409
+    4. N concurrent seals of one job → all 200, identical group plan
+    5. N concurrent PUTs of the same item → all 200, exactly one image imported
 
-    Pass: no 500 errors, state transitions consistent, no duplicate images.
+    Pass: no 5xx responses, idempotent endpoints stay idempotent.
     """
     concurrency = 20 if quick_mode else 100
     stats = RequestStats()
     failures: list[str] = []
 
-    with tqdm(total=4, desc="  sub-tests", unit="sub-test", leave=True) as pbar:
-        async with httpx.AsyncClient(base_url=base_url, timeout=60) as client:
+    with tqdm(total=5, desc="  sub-tests", unit="sub-test", leave=True) as pbar:
+        async with httpx.AsyncClient(timeout=60) as client:
             flow = ImportFlow(client, base_url, stats)
 
-            # --- Sub-test 1: concurrent cancels ---
+            # --- 1: concurrent cancels ---
             pbar.set_postfix_str("concurrent-cancels")
-            job_id = await flow.init_job()
-            # Upload a file first so there's something to cancel
             images = generate_unique_images(1, base_seed=900000)
-            files = [(rel.split("/")[-1], data, "image/jpeg") for rel, data in images]
-            await flow.upload_batch(job_id, files, [rel for rel, _ in images])
-
-            async def do_cancel(idx: int) -> int:
-                r = await client.post(f"{IMPORTS_BASE}/{job_id}/cancel", timeout=30)
-                return r.status_code
-
-            cancel_codes = await asyncio.gather(*(do_cancel(i) for i in range(concurrency)))
-            ok_cancels = sum(1 for c in cancel_codes if c == 200)
-            bad_codes = [c for c in cancel_codes if c not in (200, 409, 404)]
-            if ok_cancels == 0:
-                failures.append(f"Sub-test 1: no cancel succeeded (codes: {set(cancel_codes)})")
-            if bad_codes:
-                failures.append(f"Sub-test 1: unexpected cancel status codes: {set(bad_codes)}")
+            job_id = await flow.create()
+            items = await flow.manifest(job_id, images)
+            await flow.seal(job_id)
+            responses = await asyncio.gather(*(flow.cancel(job_id) for _ in range(concurrency)))
+            codes = {r.status_code for r in responses}
+            if codes != {200}:
+                failures.append(f"1: expected only 200 from cancel, got {codes}")
+            if (await flow.get_job(job_id))["status"] != "cancelled":
+                failures.append("1: job not cancelled after concurrent cancels")
             pbar.update(1)
 
-            # --- Sub-test 2: concurrent status polls ---
-            pbar.set_postfix_str("concurrent-status-polls")
-            # Create a job in uploading state
-            job_id2 = await flow.init_job()
+            # --- 2: concurrent detail polls ---
+            pbar.set_postfix_str("concurrent-polls")
+            job_id2 = await flow.create()
 
-            async def do_status(idx: int) -> tuple[int, str]:
-                r = await client.get(f"{IMPORTS_BASE}/{job_id2}/status", timeout=30)
+            async def poll() -> tuple[int, str]:
+                r = await flow.request("GET", f"{IMPORTS_BASE}/{job_id2}", timeout=30)
                 return r.status_code, r.json().get("status", "") if r.status_code == 200 else ""
 
-            poll_results = await asyncio.gather(*(do_status(i) for i in range(concurrency)))
-            poll_errors = [c for c, _ in poll_results if c >= 500]
-            ok_polls = sum(1 for c, _ in poll_results if c == 200)
-            statuses = {s for _, s in poll_results if s}
-            if poll_errors:
-                failures.append(f"Sub-test 2: {len(poll_errors)} 5xx errors in status polls")
-            if ok_polls == 0:
-                failures.append(
-                    f"Sub-test 2: no poll succeeded (codes: { {c for c, _ in poll_results} })"
-                )
-            if len(statuses) > 1:
-                failures.append(f"Sub-test 2: inconsistent status values: {statuses}")
-            # Clean up job2
+            polls = await asyncio.gather(*(poll() for _ in range(concurrency)))
+            if {c for c, _ in polls} != {200}:
+                failures.append(f"2: poll status codes { ({c for c, _ in polls}) }")
+            if len({s for _, s in polls}) > 1:
+                failures.append(f"2: inconsistent status values { ({s for _, s in polls}) }")
             await flow.cancel(job_id2)
             pbar.update(1)
 
-            # --- Sub-test 3: uploads to completed/cancelled job ---
+            # --- 3: uploads to a cancelled job (its item is now skipped) ---
             pbar.set_postfix_str("upload-to-cancelled")
-
-            # job_id is now cancelled; uploading to it should give 409
-            async def do_upload_cancelled(idx: int) -> int:
-                images2 = generate_unique_images(1, base_seed=800000 + idx)
-                files2 = [(rel.split("/")[-1], data, "image/jpeg") for rel, data in images2]
-                r = await client.post(
-                    f"{IMPORTS_BASE}/{job_id}/upload-batch",
-                    files=[("files", (name, data, mime)) for name, data, mime in files2],
-                    data={"relative_paths": json.dumps([rel for rel, _ in images2])},
-                    timeout=30,
-                )
-                return r.status_code
-
-            upload_codes = await asyncio.gather(
-                *(do_upload_cancelled(i) for i in range(concurrency))
+            (item,) = items.values()
+            data = images[0][1]
+            responses = await asyncio.gather(
+                *(flow.put_content(job_id, item["item_id"], data) for _ in range(concurrency))
             )
-            unexpected_upload = [c for c in upload_codes if c not in (409, 404, 422, 400)]
-            if unexpected_upload:
-                failures.append(
-                    f"Sub-test 3: unexpected codes for upload to cancelled job: {set(unexpected_upload)}"
-                )
+            codes = {r.status_code for r in responses}
+            if codes != {409}:
+                failures.append(f"3: expected only 409 for upload to cancelled job, got {codes}")
             pbar.update(1)
 
-            # --- Sub-test 4: concurrent confirm-all to staging job ---
-            pbar.set_postfix_str("concurrent-confirm-all")
-            # Set up a job in staging state
-            job_id3 = await flow.init_job()
-            images3 = generate_unique_images(2, base_seed=700000)
-            files3 = [(rel.split("/")[-1], data, "image/jpeg") for rel, data in images3]
-            await flow.upload_batch(job_id3, files3, [rel for rel, _ in images3])
-            analysis3 = await flow.analyse(job_id3)
-            groups3 = analysis3.get("groups", [])
-
-            confirm_body = {
-                "groups": [
-                    {
-                        "author": g.get("author") or "StressAuthor",
-                        "group_name": g["group_name"],
-                        "files": [
-                            {
-                                "relative_path": f["relative_path"],
-                                "name": f.get("filename") or f["relative_path"].split("/")[-1],
-                                "media_type": "image/jpeg",
-                                "image_type": "battlemap",
-                                "tags": [],
-                            }
-                            for f in g["files"]
-                        ],
-                    }
-                    for g in groups3
-                ]
+            # --- 4: concurrent seals ---
+            pbar.set_postfix_str("concurrent-seals")
+            images4 = generate_unique_images(2, base_seed=700000, group_tag="seal")
+            job_id4 = await flow.create()
+            items4 = await flow.manifest(job_id4, images4)
+            responses = await asyncio.gather(
+                *(
+                    flow.request("POST", f"{IMPORTS_BASE}/{job_id4}/seal", timeout=120)
+                    for _ in range(concurrency)
+                )
+            )
+            codes = {r.status_code for r in responses}
+            if codes != {200}:
+                failures.append(f"4: expected only 200 from seal, got {codes}")
+            plans = {
+                tuple(sorted(g["id"] for g in r.json()["groups"]))
+                for r in responses
+                if r.status_code == 200
             }
-
-            async def do_confirm_all(idx: int) -> int:
-                r = await client.post(
-                    f"{IMPORTS_BASE}/{job_id3}/confirm-all",
-                    json=confirm_body,
-                    timeout=30,
-                )
-                return r.status_code
-
-            confirm_codes = await asyncio.gather(*(do_confirm_all(i) for i in range(concurrency)))
-            ok_confirms = sum(1 for c in confirm_codes if c == 200)
-            bad_confirms = [c for c in confirm_codes if c not in (200, 409, 404, 422)]
-            if ok_confirms > 1:
-                # More than one confirm succeeded — potential duplicate processing
-                failures.append(
-                    f"Sub-test 4: {ok_confirms} concurrent confirms succeeded (expected ≤1)"
-                )
-            if bad_confirms:
-                failures.append(f"Sub-test 4: unexpected confirm-all codes: {set(bad_confirms)}")
-            # Let the job finish (or cancel it)
-            if ok_confirms >= 1:
-                try:
-                    await flow.wait_for_terminal(job_id3, timeout=120)
-                except RuntimeError:
-                    await flow.cancel(job_id3)
-            else:
-                await flow.cancel(job_id3)
+            if len(plans) != 1 or len(next(iter(plans), ())) != 1:
+                failures.append(f"4: concurrent seals produced differing group plans: {plans}")
             pbar.update(1)
-    passed = len(failures) == 0
-    return ScenarioResult(
-        name="endpoint_spam",
-        passed=passed,
-        message=(
-            f"{concurrency * 4} requests across 4 sub-tests"
-            if passed
-            else f"{len(failures)} sub-test(s) failed"
-        ),
-        elapsed=0,  # set by _run_scenario
-        stats=stats,
-        failure_details="\n".join(failures) if failures else None,
+
+            # --- 5: concurrent PUTs of the same item ---
+            pbar.set_postfix_str("concurrent-same-put")
+            rel, data5 = images4[0]
+            responses = await asyncio.gather(
+                *(
+                    flow.put_content(job_id4, items4[rel]["item_id"], data5)
+                    for _ in range(concurrency)
+                )
+            )
+            codes = {r.status_code for r in responses}
+            if codes != {200}:
+                failures.append(f"5: expected only 200 from repeated PUT, got {codes}")
+            await flow.upload_all(job_id4, {images4[1][0]: items4[images4[1][0]]}, images4, 1)
+            try:
+                detail = await flow.wait_for_terminal(job_id4, timeout=120)
+                if msg := check_complete(detail, "5"):
+                    failures.append(msg)
+                elif detail["counts"]["done"] != 2:
+                    failures.append(f"5: expected 2 images imported, got {detail['counts']}")
+            except RuntimeError as exc:
+                failures.append(f"5: {exc}")
+            pbar.update(1)
+
+    return _result(
+        "endpoint_spam", failures, f"{concurrency * 5} requests across 5 sub-tests", stats
     )
 
 
@@ -526,112 +495,88 @@ async def cancellation_chaos(
     large_mode: bool,
     quick_mode: bool,
 ) -> ScenarioResult:
-    """Cancel at every pipeline stage and verify correct terminal states.
+    """Cancel at every stage of an import and check the resulting states.
 
-    Stages tested:
-    (a) Cancel during upload (before analyse)
-    (b) Cancel in staging state (after analyse, before confirm)
-    (c) Cancel in active state (immediately after confirm-all, while processing)
-    (d) Cancel after completion (expects 409 or error response)
+    (a) Before seal (manifest only)              → cancelled, items skipped
+    (b) After seal, before any bytes              → cancelled, items skipped
+    (c) Right after uploading (while processing)  → cancelled; nothing left processing,
+        finished items kept
+    (d) After completion                          → 200, job stays completed, images kept
 
-    Does NOT test cancellation from awaiting_input (state was removed in migration 018).
-
-    Pass: appropriate status codes, all jobs reach terminal state.
+    Pass: correct codes and states, no 5xx.
     """
     stats = RequestStats()
     failures: list[str] = []
+    stages = ["(a) before-seal", "(b) after-seal", "(c) processing", "(d) completed"]
 
-    stages = [
-        "(a) cancel-during-upload",
-        "(b) cancel-in-staging",
-        "(c) cancel-active",
-        "(d) cancel-after-complete",
-    ]
-    async with httpx.AsyncClient(base_url=base_url, timeout=120) as client:
+    async def cancel_ok(flow: ImportFlow, job_id: str, label: str) -> dict:
+        r = await flow.cancel(job_id)
+        if r.status_code != 200:
+            failures.append(f"{label}: cancel returned {r.status_code}")
+        return await flow.get_job(job_id)
+
+    async with httpx.AsyncClient(timeout=120) as client:
         flow = ImportFlow(client, base_url, stats)
 
         with tqdm(total=len(stages), desc="  stages", unit="stage") as pbar:
-            # --- (a) Cancel during upload ---
+            # (a) before seal
             pbar.set_postfix_str(stages[0])
-            job_a = await flow.init_job()
-            images_a = generate_unique_images(2, base_seed=500000)
-            files_a = [(rel.split("/")[-1], data, "image/jpeg") for rel, data in images_a]
-            await flow.upload_batch(job_a, files_a, [rel for rel, _ in images_a])
-            r = await client.post(f"{IMPORTS_BASE}/{job_a}/cancel", timeout=30)
-            if r.status_code not in (200,):
-                failures.append(f"(a) Expected 200 for cancel-during-upload, got {r.status_code}")
-            # Verify terminal
-            status_a = await flow.get_status(job_a)
-            if status_a["status"] not in TERMINAL_STATES:
-                failures.append(f"(a) Job stuck in '{status_a['status']}' after cancel")
+            job_a = await flow.create()
+            await flow.manifest(job_a, generate_unique_images(2, base_seed=500000, group_tag="a"))
+            detail = await cancel_ok(flow, job_a, "(a)")
+            if detail["status"] != "cancelled" or detail["counts"]["skipped"] != 2:
+                failures.append(f"(a) unexpected state {detail['status']} {detail['counts']}")
             pbar.update(1)
 
-            # --- (b) Cancel in staging state (after analyse) ---
+            # (b) after seal, before bytes
             pbar.set_postfix_str(stages[1])
-            job_b = await flow.init_job()
-            images_b = generate_unique_images(2, base_seed=510000)
-            files_b = [(rel.split("/")[-1], data, "image/jpeg") for rel, data in images_b]
-            await flow.upload_batch(job_b, files_b, [rel for rel, _ in images_b])
-            await flow.analyse(job_b)
-            r = await client.post(f"{IMPORTS_BASE}/{job_b}/cancel", timeout=30)
-            if r.status_code not in (200,):
-                failures.append(f"(b) Expected 200 for cancel-in-staging, got {r.status_code}")
-            status_b = await flow.get_status(job_b)
-            if status_b["status"] not in TERMINAL_STATES:
-                failures.append(f"(b) Job stuck in '{status_b['status']}' after cancel")
+            job_b = await flow.create()
+            await flow.manifest(job_b, generate_unique_images(2, base_seed=510000, group_tag="b"))
+            await flow.seal(job_b)
+            detail = await cancel_ok(flow, job_b, "(b)")
+            if detail["status"] != "cancelled" or detail["counts"]["skipped"] != 2:
+                failures.append(f"(b) unexpected state {detail['status']} {detail['counts']}")
             pbar.update(1)
 
-            # --- (c) Cancel in active state (immediately after confirm-all) ---
+            # (c) while processing
             pbar.set_postfix_str(stages[2])
-            job_c = await flow.init_job()
-            images_c = generate_unique_images(3, base_seed=520000)
-            files_c = [(rel.split("/")[-1], data, "image/jpeg") for rel, data in images_c]
-            await flow.upload_batch(job_c, files_c, [rel for rel, _ in images_c])
-            analysis_c = await flow.analyse(job_c)
-            groups_c = analysis_c.get("groups", [])
-            if groups_c:
-                await flow.confirm_all(job_c, groups_c)
-            # Immediately cancel (job may still be processing)
-            r = await client.post(f"{IMPORTS_BASE}/{job_c}/cancel", timeout=30)
-            if r.status_code not in (200, 409):
-                failures.append(f"(c) Unexpected cancel code: {r.status_code}")
-            # Wait for terminal regardless
-            try:
-                status_c = await flow.wait_for_terminal(job_c, timeout=120)
-                if status_c["status"] not in TERMINAL_STATES:
-                    failures.append(f"(c) Job not terminal after cancel: {status_c['status']}")
-            except RuntimeError as exc:
-                failures.append(f"(c) Timeout waiting for terminal: {exc}")
+            job_c = await flow.start_import(
+                generate_unique_images(6, base_seed=520000, group_tag="c")
+            )
+            await cancel_ok(flow, job_c, "(c)")
+            # An in-flight batch finishes and is kept; wait for it to drain.
+            deadline = time.monotonic() + 60
+            while True:
+                detail = await flow.get_job(job_c)
+                counts = detail["counts"]
+                if counts["processing"] == 0 or time.monotonic() > deadline:
+                    break
+                await asyncio.sleep(0.5)
+            if detail["status"] != "cancelled":
+                failures.append(f"(c) status {detail['status']} after cancel")
+            if counts["processing"] or counts["ready"] or counts["awaiting_bytes"]:
+                failures.append(f"(c) open items left after cancel: {counts}")
             pbar.update(1)
 
-            # --- (d) Cancel after completion (should be 409) ---
+            # (d) after completion
             pbar.set_postfix_str(stages[3])
-            job_d = await flow.init_job()
-            images_d = generate_unique_images(1, base_seed=530000)
-            files_d = [(rel.split("/")[-1], data, "image/jpeg") for rel, data in images_d]
-            await flow.upload_batch(job_d, files_d, [rel for rel, _ in images_d])
-            analysis_d = await flow.analyse(job_d)
-            groups_d = analysis_d.get("groups", [])
-            if groups_d:
-                await flow.confirm_all(job_d, groups_d)
-                await flow.wait_for_terminal(job_d, timeout=120)
-            r = await client.post(f"{IMPORTS_BASE}/{job_d}/cancel", timeout=30)
-            if r.status_code not in (409,):
+            done = await flow.full_import(
+                generate_unique_images(1, base_seed=530000, group_tag="d")
+            )
+            if msg := check_complete(done, "(d) setup"):
+                failures.append(msg)
+            detail = await cancel_ok(flow, done["id"], "(d)")
+            if (
+                detail["status"] != "completed"
+                or detail["counts"]["done"] != done["counts"]["done"]
+            ):
                 failures.append(
-                    f"(d) Expected 409 for cancel-after-completion, got {r.status_code}"
+                    f"(d) cancel changed a completed job: {detail['status']} {detail['counts']}"
                 )
             pbar.update(1)
 
-    passed = len(failures) == 0
-    return ScenarioResult(
-        name="cancellation_chaos",
-        passed=passed,
-        message="All 4 cancellation stages handled correctly"
-        if passed
-        else f"{len(failures)} failure(s)",
-        elapsed=0,
-        stats=stats,
-        failure_details="\n".join(failures) if failures else None,
+    return _result(
+        "cancellation_chaos", failures, "All 4 cancellation stages handled correctly", stats
     )
 
 
@@ -647,102 +592,96 @@ async def malformed_input(
     large_mode: bool,
     quick_mode: bool,
 ) -> ScenarioResult:
-    """Upload malformed/corrupt files and verify the server rejects gracefully.
+    """Upload malformed/corrupt files and check they fail cleanly.
 
-    Each file is uploaded as a fresh import job.  Expected outcomes:
-    - Malformed images (JPEG/PNG/WebP): server skips file (skipped_invalid),
-      analyse returns empty groups or group with 0 files, job gets cancelled.
-    - Malformed video (MP4/WebM): same — skipped or 413.
-    - Malformed ZIP: skipped_invalid or 413.
-    - Near-zip-bomb: 413 from upload_batch (check_zip_safety rejects it).
+    Each fixture has a valid magic-byte header and a corrupt body. Corrupt images
+    are rejected by the upload-time content check; corrupt videos pass it and must
+    fail in the worker. Each goes into a fresh job: images and videos via
+    manifest + PUT, zips via the archive route.
 
-    Pass: no 5xx responses, no hangs (30s timeout per request).
+    Pass: no 5xx, no hangs, every job completes, and no corrupt file is imported.
     """
     malformed_mb = 500 if large_mode else 5
     _p = fixtures_dir / f"malformed_{malformed_mb}mb"
     test_files = [
-        ("malformed_jpeg", Path(f"{_p}.jpg"), "image/jpeg"),
-        ("malformed_png", Path(f"{_p}.png"), "image/png"),
-        ("malformed_webp", Path(f"{_p}.webp"), "image/webp"),
-        ("malformed_mp4", Path(f"{_p}.mp4"), "video/mp4"),
-        ("malformed_webm", Path(f"{_p}.webm"), "video/webm"),
-        ("malformed_zip", Path(f"{_p}.zip"), "application/zip"),
-        ("near_zip_bomb", fixtures_dir / "near_bomb.zip", "application/zip"),
+        ("malformed_jpeg", Path(f"{_p}.jpg")),
+        ("malformed_png", Path(f"{_p}.png")),
+        ("malformed_webp", Path(f"{_p}.webp")),
+        ("malformed_mp4", Path(f"{_p}.mp4")),
+        ("malformed_webm", Path(f"{_p}.webm")),
+        ("malformed_zip", Path(f"{_p}.zip")),
+        ("near_zip_bomb", fixtures_dir / "near_bomb.zip"),
     ]
 
     stats = RequestStats()
     failures: list[str] = []
     tested = 0
 
-    async with httpx.AsyncClient(base_url=base_url, timeout=60) as client:
+    async with httpx.AsyncClient(timeout=60) as client:
         flow = ImportFlow(client, base_url, stats)
 
-        for label, path, mime in test_files:
+        for label, path in test_files:
             if not path.exists():
-                # Skip if fixture missing (e.g. large_mode fixture not generated)
-                continue
+                continue  # e.g. video fixtures without ffmpeg
             tested += 1
-            file_data = path.read_bytes()
-            job_id = await flow.init_job()
-            filename = path.name
-
+            data = path.read_bytes()
+            job_id = await flow.create(label=label)
             try:
-                r = await client.post(
-                    f"{IMPORTS_BASE}/{job_id}/upload-batch",
-                    files=[("files", (filename, file_data, mime))],
-                    data={"relative_paths": json.dumps([f"Stress/{filename}"])},
-                    timeout=30,
-                )
+                if path.suffix == ".zip":
+                    r = await flow.upload_archive(job_id, path.name, data, timeout=60)
+                    if r.status_code >= 400:
+                        failures.append(f"{label}: archive upload returned {r.status_code}")
+                        continue
+                    await flow.seal(job_id)
+                else:
+                    images = [(f"Stress/Malformed/{path.name}", data)]
+                    items = await flow.manifest(job_id, images)
+                    await flow.seal(job_id)
+                    (item,) = items.values()
+                    if item["state"] == "awaiting_bytes":
+                        r = await flow.put_content(job_id, item["item_id"], data, timeout=60)
+                        if r.status_code >= 400 and r.status_code != 413:
+                            failures.append(f"{label}: upload returned {r.status_code}")
+                detail = await flow.wait_for_terminal(job_id, timeout=120)
+                if detail["counts"]["done"]:
+                    failures.append(f"{label}: corrupt file was imported ({detail['counts']})")
             except httpx.TimeoutException:
-                failures.append(f"{label}: request timed out (>30s)")
+                failures.append(f"{label}: request timed out")
+            except (httpx.HTTPStatusError, RuntimeError) as exc:
+                failures.append(f"{label}: {exc}")
+            finally:
                 await flow.cancel(job_id)
-                continue
 
-            if r.status_code >= 500:
-                failures.append(f"{label}: got {r.status_code} from upload-batch")
-                await flow.cancel(job_id)
-                continue
-
-            if r.status_code == 413:
-                # Correctly rejected (zip bomb or size limit)
-                await flow.cancel(job_id)
-                continue
-
-            if r.status_code != 200:
-                # 4xx is fine (rejected for other reasons)
-                await flow.cancel(job_id)
-                continue
-
-            # Upload accepted — check analyse doesn't crash
-            try:
-                r2 = await client.post(
-                    f"{IMPORTS_BASE}/{job_id}/analyse",
-                    json={"manifest": [], "image_type": "battlemap"},
-                    timeout=30,
-                )
-                if r2.status_code >= 500:
-                    failures.append(f"{label}: got {r2.status_code} from analyse")
-            except httpx.TimeoutException:
-                failures.append(f"{label}: analyse timed out (>30s)")
-
-            await flow.cancel(job_id)
-
-    passed = len(failures) == 0
-    return ScenarioResult(
-        name="malformed_input",
-        passed=passed,
-        message=f"{tested} malformed fixtures tested, all handled gracefully"
-        if passed
-        else f"{len(failures)} failure(s)",
-        elapsed=0,
-        stats=stats,
-        failure_details="\n".join(failures) if failures else None,
+    return _result(
+        "malformed_input", failures, f"{tested} malformed fixtures tested, all rejected", stats
     )
 
 
 # ---------------------------------------------------------------------------
 # Scenario 5: large_uploads
 # ---------------------------------------------------------------------------
+
+
+async def _upload_one_file(flow: ImportFlow, path: Path, data: bytes) -> str | None:
+    """Put one large file into a fresh job and cancel it. Returns a failure message or None."""
+    job_id = await flow.create(label=path.name)
+    try:
+        if path.suffix == ".zip":
+            r = await flow.upload_archive(job_id, path.name, data)
+        else:
+            items = await flow.manifest(job_id, [(f"Stress/Large/{path.name}", data)])
+            await flow.seal(job_id)
+            (item,) = items.values()
+            if item["state"] != "awaiting_bytes":
+                return None  # rejected at manifest time (e.g. over the size limit)
+            r = await flow.put_content(job_id, item["item_id"], data, timeout=300)
+        if r.status_code >= 500:
+            return f"{path.name}: got {r.status_code}"
+        return None
+    except Exception as exc:
+        return f"{path.name} {type(exc).__name__}: {exc}"
+    finally:
+        await flow.cancel(job_id)
 
 
 async def large_uploads(
@@ -752,12 +691,11 @@ async def large_uploads(
     large_mode: bool,
     quick_mode: bool,
 ) -> ScenarioResult:
-    """Upload large video and ZIP files — single then concurrent.
+    """Upload large video and ZIP files — sequentially, then 5 at once.
 
-    Requires --large flag for the really large variants.  In quick mode
-    this scenario is skipped (not enough disk space on CI machines).
+    Skipped in --quick mode unless --large is given.
 
-    Pass: no OOM, no partial state, all complete or reject cleanly.
+    Pass: no OOM, no 5xx; uploads complete or are rejected cleanly.
     """
     if quick_mode and not large_mode:
         return ScenarioResult(
@@ -769,19 +707,14 @@ async def large_uploads(
 
     stats = RequestStats()
     failures: list[str] = []
-    tested: list[str] = []
 
     malformed_mb = 500 if large_mode else 5
     candidates = [
         fixtures_dir / f"malformed_{malformed_mb}mb.mp4",
         fixtures_dir / f"malformed_{malformed_mb}mb.webm",
+        fixtures_dir / f"large_{1000 if large_mode else 100}.zip",
     ]
-    if large_mode:
-        large_count = 1000
-        candidates.append(fixtures_dir / f"large_{large_count}.zip")
-
     available = [p for p in candidates if p.exists()]
-
     if not available:
         return ScenarioResult(
             name="large_uploads",
@@ -790,70 +723,22 @@ async def large_uploads(
             elapsed=0,
         )
 
-    async with httpx.AsyncClient(base_url=base_url, timeout=600) as client:
+    async with httpx.AsyncClient(timeout=600) as client:
         flow = ImportFlow(client, base_url, stats)
+        cache = {p: p.read_bytes() for p in available}
 
-        # Sequential uploads — cache bytes so the concurrent section can reuse them
-        file_data_cache: dict = {}
         for path in available:
-            tested.append(path.name)
-            file_data = file_data_cache.setdefault(path, path.read_bytes())
-            job_id = await flow.init_job()
-            try:
-                r = await client.post(
-                    f"{IMPORTS_BASE}/{job_id}/upload-batch",
-                    files=[("files", (path.name, file_data, "application/octet-stream"))],
-                    data={"relative_paths": json.dumps([path.name])},
-                    timeout=300,
-                )
-                if r.status_code >= 500:
-                    failures.append(f"Sequential {path.name}: got {r.status_code}")
-            except Exception as exc:
-                failures.append(f"Sequential {path.name} {type(exc).__name__}: {exc}")
-            finally:
-                await flow.cancel(job_id)
+            if msg := await _upload_one_file(flow, path, cache[path]):
+                failures.append(f"Sequential {msg}")
 
-        # Concurrent uploads (up to 5 at once using first available file).
-        # Reuse already-loaded bytes to avoid a second O(500 MB) read in --large mode.
-        if available:
-            big_file_path = available[0]
-            big_file_data = file_data_cache.get(big_file_path) or big_file_path.read_bytes()
+        big = available[0]
+        outcomes = await asyncio.gather(
+            *(_upload_one_file(flow, big, cache[big]) for _ in range(5))
+        )
+        failures.extend(f"Concurrent {msg}" for msg in outcomes if msg)
 
-            async def concurrent_upload(idx: int) -> tuple[bool, str]:
-                jid = await flow.init_job()
-                try:
-                    r = await client.post(
-                        f"{IMPORTS_BASE}/{jid}/upload-batch",
-                        files=[
-                            (
-                                "files",
-                                (big_file_path.name, big_file_data, "application/octet-stream"),
-                            )
-                        ],
-                        data={"relative_paths": json.dumps([big_file_path.name])},
-                        timeout=300,
-                    )
-                    if r.status_code >= 500:
-                        return False, f"Concurrent upload {idx}: {r.status_code}"
-                    return True, "ok"
-                except Exception as exc:
-                    return False, f"Concurrent upload {idx} {type(exc).__name__}: {exc}"
-                finally:
-                    await flow.cancel(jid)
-
-            concurrent_results = await asyncio.gather(*(concurrent_upload(i) for i in range(5)))
-            for ok, msg in concurrent_results:
-                if not ok:
-                    failures.append(msg)
-
-    passed = len(failures) == 0
-    return ScenarioResult(
-        name="large_uploads",
-        passed=passed,
-        message=f"Tested: {', '.join(tested)}" if passed else f"{len(failures)} failure(s)",
-        elapsed=0,
-        stats=stats,
-        failure_details="\n".join(failures) if failures else None,
+    return _result(
+        "large_uploads", failures, f"Tested: {', '.join(p.name for p in available)}", stats
     )
 
 
@@ -871,136 +756,79 @@ async def concurrent_move_groups(
 ) -> ScenarioResult:
     """Concurrent group-mutation race condition test.
 
-    Imports images into two groups (source and target).  Fires 20 concurrent
-    move-images requests targeting the same images in the source group.
-    At most one should succeed; the rest get 400/404.
+    Imports images into two groups (source and target), then fires 20 concurrent
+    move-images requests for the same images. Exactly one should succeed; the
+    rest get 400/404.
 
-    Pass: exactly one move succeeds per image, no 500 errors, no duplicate
-    group assignments.
+    Pass: exactly one move succeeds, no 5xx, every image ends up in the target.
     """
     concurrency = 20
     stats = RequestStats()
     failures: list[str] = []
 
-    async with httpx.AsyncClient(base_url=base_url, timeout=300) as client:
+    async with httpx.AsyncClient(timeout=300) as client:
         flow = ImportFlow(client, base_url, stats)
 
-        # Import source group: 4 images
-        images_src = generate_unique_images(4, base_seed=600000, group_tag="src")
-        src_status = await flow.full_import(images_src)
-        if src_status.get("status") != "completed":
-            return ScenarioResult(
-                name="concurrent_move_groups",
-                passed=False,
-                message=f"Setup import failed: {src_status.get('status')}",
-                elapsed=0,
-                failure_details=str(src_status),
+        group_ids: list[int] = []
+        for tag, seed, count in (("src", 600000, 4), ("tgt", 600100, 2)):
+            detail = await flow.full_import(
+                generate_unique_images(count, base_seed=seed, group_tag=tag)
             )
+            if msg := check_complete(detail, f"{tag} import"):
+                return _result("concurrent_move_groups", [msg], "", stats)
+            ids = [g["image_group_id"] for g in detail["groups"] if g["image_group_id"]]
+            if not ids:
+                return _result(
+                    "concurrent_move_groups", [f"{tag} import has no gallery group"], "", stats
+                )
+            group_ids.append(ids[0])
+        src_group_id, tgt_group_id = group_ids
 
-        # Import target group: 2 images (separate group)
-        images_tgt = generate_unique_images(2, base_seed=600100, group_tag="tgt")
-        tgt_status = await flow.full_import(images_tgt)
-        if tgt_status.get("status") != "completed":
-            return ScenarioResult(
-                name="concurrent_move_groups",
-                passed=False,
-                message=f"Target import failed: {tgt_status.get('status')}",
-                elapsed=0,
-                failure_details=str(tgt_status),
-            )
-
-        # Find the group IDs from the job status responses
-        src_group_id: int | None = None
-        tgt_group_id: int | None = None
-
-        src_job_status = await flow.get_status(src_status.get("job_id", ""))
-        tgt_job_status = await flow.get_status(tgt_status.get("job_id", ""))
-
-        for g in src_job_status.get("groups", []):
-            if g.get("group_id"):
-                src_group_id = g["group_id"]
-                break
-        for g in tgt_job_status.get("groups", []):
-            if g.get("group_id"):
-                tgt_group_id = g["group_id"]
-                break
-
-        if not src_group_id or not tgt_group_id:
-            return ScenarioResult(
-                name="concurrent_move_groups",
-                passed=False,
-                message="Could not find group IDs after import",
-                elapsed=0,
-                failure_details=f"src_group_id={src_group_id}, tgt_group_id={tgt_group_id}",
-            )
-
-        # Get image IDs from source group
-        r = await client.get(f"{GROUPS_BASE}/{src_group_id}", timeout=30)
+        r = await client.get(f"{base_url}{GROUPS_BASE}/{src_group_id}", timeout=30)
         if r.status_code != 200:
-            return ScenarioResult(
-                name="concurrent_move_groups",
-                passed=False,
-                message=f"Could not fetch source group: {r.status_code}",
-                elapsed=0,
+            return _result(
+                "concurrent_move_groups", [f"Could not fetch source group: {r.status_code}"], ""
             )
-        src_images = r.json().get("images", [])
-        image_ids = [img["id"] for img in src_images]
-
+        image_ids = [img["id"] for img in r.json().get("images", [])]
         if not image_ids:
-            return ScenarioResult(
-                name="concurrent_move_groups",
-                passed=False,
-                message="Source group has no images",
-                elapsed=0,
-            )
+            return _result("concurrent_move_groups", ["Source group has no images"], "")
 
-        # Fire concurrent move-images requests targeting the same image_ids
-        async def do_move(idx: int) -> int:
-            r2 = await client.post(
+        async def do_move() -> int:
+            r2 = await flow.request(
+                "POST",
                 f"{GROUPS_BASE}/{src_group_id}/move-images",
                 json={"target_group_id": tgt_group_id, "image_ids": image_ids},
                 timeout=30,
             )
             return r2.status_code
 
-        move_codes = await asyncio.gather(*(do_move(i) for i in range(concurrency)))
+        move_codes = await asyncio.gather(*(do_move() for _ in range(concurrency)))
         ok_moves = sum(1 for c in move_codes if c == 200)
-        bad_codes = [c for c in move_codes if c not in (200, 400, 404, 409)]
-
-        if ok_moves == 0:
+        if ok_moves != 1:
             failures.append(
-                f"No move request succeeded — expected exactly 1 (codes: {sorted(move_codes)})"
+                f"Expected exactly 1 successful move, got {ok_moves} ({sorted(move_codes)})"
             )
-        elif ok_moves > 1:
-            failures.append(
-                f"Expected exactly 1 successful move, got {ok_moves} — possible duplicate processing (codes: {sorted(move_codes)})"
-            )
+        bad_codes = {c for c in move_codes if c not in (200, 400, 404, 409)}
         if bad_codes:
-            failures.append(f"Unexpected move status codes: {set(bad_codes)}")
+            failures.append(f"Unexpected move status codes: {bad_codes}")
 
-        # Verify source group images are all in target (or source is deleted)
-        r3 = await client.get(f"{GROUPS_BASE}/{src_group_id}", timeout=30)
-        r4 = await client.get(f"{GROUPS_BASE}/{tgt_group_id}", timeout=30)
-        if r3.status_code == 200:
-            remaining = r3.json().get("images", [])
-            if any(img["id"] in set(image_ids) for img in remaining):
-                failures.append("Some moved images are still in source group")
+        r3 = await client.get(f"{base_url}{GROUPS_BASE}/{src_group_id}", timeout=30)
+        if r3.status_code == 200 and any(
+            img["id"] in set(image_ids) for img in r3.json().get("images", [])
+        ):
+            failures.append("Some moved images are still in the source group")
+        r4 = await client.get(f"{base_url}{GROUPS_BASE}/{tgt_group_id}", timeout=30)
         if r4.status_code == 200:
             tgt_imgs = {img["id"] for img in r4.json().get("images", [])}
             missing = [iid for iid in image_ids if iid not in tgt_imgs]
             if missing:
                 failures.append(f"Images not found in target group: {missing}")
 
-    passed = len(failures) == 0
-    return ScenarioResult(
-        name="concurrent_move_groups",
-        passed=passed,
-        message=f"1/{concurrency} move succeeded, rest correctly rejected"
-        if passed
-        else f"{len(failures)} failure(s)",
-        elapsed=0,
-        stats=stats,
-        failure_details="\n".join(failures) if failures else None,
+    return _result(
+        "concurrent_move_groups",
+        failures,
+        f"1/{concurrency} move succeeded, rest correctly rejected",
+        stats,
     )
 
 
@@ -1016,70 +844,47 @@ async def duplicate_hash_race(
     large_mode: bool,
     quick_mode: bool,
 ) -> ScenarioResult:
-    """Upload the SAME image bytes to N concurrent import jobs.
+    """Import the SAME image bytes in N concurrent jobs.
 
-    Tests that the pipeline's content-hash deduplication produces correct
-    results under concurrency — no duplicate Image rows with the same
-    content_hash.
+    Half the jobs also send the client-side SHA-256 (``POST /hashes``) before
+    uploading, so both dedup paths (client hint and commit-time check) race.
 
-    Pass: all jobs complete, no 500 errors.
+    Pass: every job completes, exactly one copy is imported across all jobs
+    (the rest are ``duplicate``), no 5xx.
     """
     job_count = 10 if quick_mode else 50
     stats = RequestStats()
 
-    # Generate one image to be used by all jobs (same bytes = same SHA-256)
     assert PILImage is not None, "Pillow is required"
     rng = random.Random(999)
-    data = bytes(rng.randint(0, 255) for _ in range(160 * 120 * 3))
-    img = PILImage.frombytes("RGB", (160, 120), data)
+    pixels = bytes(rng.randint(0, 255) for _ in range(160 * 120 * 3))
     buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=85)
-    shared_image_bytes = buf.getvalue()
-    shared_rel_path = "StressAuthor/StressDedup/dedup_image.jpg"
+    PILImage.frombytes("RGB", (160, 120), pixels).save(buf, format="JPEG", quality=85)
+    images = [("StressAuthor/StressDedup/dedup_image.jpg", buf.getvalue())]
 
-    async def run_dedup_job(idx: int) -> tuple[bool, str]:
-        async with httpx.AsyncClient(base_url=base_url, timeout=180) as client:
+    async def run_dedup_job(idx: int) -> dict | str:
+        async with httpx.AsyncClient(timeout=180) as client:
             flow = ImportFlow(client, base_url, stats)
-            job_id = await flow.init_job()
             try:
-                await flow.upload_batch(
-                    job_id,
-                    [("dedup_image.jpg", shared_image_bytes, "image/jpeg")],
-                    [shared_rel_path],
-                )
-                analysis = await flow.analyse(job_id)
-                groups = analysis.get("groups", [])
-                if groups:
-                    await flow.confirm_all(job_id, groups)
-                    final = await flow.wait_for_terminal(job_id, timeout=120)
-                    status = final.get("status", "unknown")
-                    if status not in TERMINAL_STATES:
-                        return False, f"Job {idx} stuck in '{status}'"
-                else:
-                    # Image was deduped — cancel
-                    await flow.cancel(job_id)
-                return True, "ok"
+                return await flow.full_import(images, send_hashes=idx % 2 == 0, timeout=120)
             except Exception as exc:
-                return False, f"Job {idx} {type(exc).__name__}: {exc}"
+                return f"Job {idx} {type(exc).__name__}: {exc}"
 
     outcomes = await atqdm.gather(
-        *(run_dedup_job(i) for i in range(job_count)),
-        desc="  dedup-jobs",
-        unit="job",
+        *(run_dedup_job(i) for i in range(job_count)), desc="  dedup-jobs", unit="job"
     )
-    failures = [msg for ok, msg in outcomes if not ok]
-    http_errors = stats.errors
+    failures = [o for o in outcomes if isinstance(o, str)]
+    details = [o for o in outcomes if isinstance(o, dict)]
+    failures += [msg for i, d in enumerate(details) if (msg := check_complete(d, f"Job {i}"))]
+    imported = sum(d["counts"]["done"] for d in details)
+    if not failures and imported != 1:
+        failures.append(f"Expected exactly 1 imported copy across {job_count} jobs, got {imported}")
 
-    passed = len(failures) == 0 and http_errors == 0
-    return ScenarioResult(
-        name="duplicate_hash_race",
-        passed=passed,
-        message=f"{job_count} concurrent dedup jobs, no duplicate Image rows"
-        if passed
-        else f"{len(failures)} failures",
-        elapsed=0,
-        stats=stats,
-        failure_details="\n".join(failures) if failures else None,
+    return _result(
+        "duplicate_hash_race",
+        failures,
+        f"{job_count} concurrent jobs, 1 imported, {job_count - 1} deduplicated",
+        stats,
     )
 
 
@@ -1095,98 +900,73 @@ async def server_restart_recovery(
     large_mode: bool,
     quick_mode: bool,
 ) -> ScenarioResult:
-    """Crash the server mid-import and verify recovery on restart.
+    """Kill the server mid-import and check the imports finish after a restart.
 
-    This scenario manages its own server subprocess (separate from the outer
-    _run_scenario server) so it can kill and restart it independently.
+    Manages its own server subprocesses (separate from the outer _run_scenario
+    server) so it can kill and restart them on the same storage.
 
-    Flow:
-    1. Start 3 imports concurrently, leave them in 'active' state (processing)
-    2. Force-kill the server
-    3. Restart the server
-    4. Verify mark_interrupted_jobs() moved all in-flight jobs to 'broken'
-    5. Verify no jobs stuck in 'uploading', 'staging', or 'active'
+    1. Start 3 imports and upload all their bytes
+    2. SIGKILL the server while the worker is processing
+    3. Restart on the same storage; ``IngestWorker.recover()`` re-queues items
+       left ``processing``
+    4. Every job completes with all files imported, none stuck
 
-    Pass: no stuck jobs after restart, server healthy.
+    Pass: all jobs complete with every file done, no 5xx.
     """
-    import tempfile
-
     stats = RequestStats()
     failures: list[str] = []
+    files_per_job = 8
 
     work_dir = Path(tempfile.mkdtemp(prefix="stress_restart_"))
     server = StressTestServer(work_dir)
     server2: StressTestServer | None = None
 
     try:
-        restart_base_url = server.start(timeout=90)
+        url1 = server.start(timeout=90)
+        server.wait_for_clip()
+        async with httpx.AsyncClient(timeout=120) as client:
+            flow = ImportFlow(client, url1, stats)
+            job_ids = await asyncio.gather(
+                *(
+                    flow.start_import(
+                        generate_unique_images(
+                            files_per_job, base_seed=400000 + i * 100, group_tag=str(i)
+                        )
+                    )
+                    for i in range(3)
+                )
+            )
+            before = [(await flow.get_job(j))["counts"] for j in job_ids]
 
-        async with httpx.AsyncClient(base_url=restart_base_url, timeout=120) as client:
-            flow = ImportFlow(client, restart_base_url, stats)
-
-            # Start 3 imports and get them to active state
-            job_ids: list[str] = []
-            for i in range(3):
-                images = generate_unique_images(2, base_seed=400000 + i * 100, group_tag=str(i))
-                job_id = await flow.init_job()
-                files = [(rel.split("/")[-1], data, "image/jpeg") for rel, data in images]
-                await flow.upload_batch(job_id, files, [rel for rel, _ in images])
-                analysis = await flow.analyse(job_id)
-                groups = analysis.get("groups", [])
-                if groups:
-                    await flow.confirm_all(job_id, groups)
-                job_ids.append(job_id)
-
-            # Give processing a moment to start
-            await asyncio.sleep(1)
-
-        # Force-kill the server
         server.stop(force=True)
 
-        # Start a fresh server on a new port, sharing server1's data dir so it sees
-        # the same DB state.  Use a separate work_dir subdirectory to avoid log collision.
-        server2 = StressTestServer(work_dir / "restart", data_dir=work_dir / "data")
-        restart_base_url2 = server2.start(timeout=90)
-
-        async with httpx.AsyncClient(base_url=restart_base_url2, timeout=60) as client:
-            # Check all jobs — they should be 'broken' (mark_interrupted_jobs ran on startup)
-            non_terminal: list[str] = []
-            for job_id in job_ids:
-                r = await client.get(f"{IMPORTS_BASE}/{job_id}/status", timeout=10)
-                if r.status_code == 200:
-                    job_status = r.json()["status"]
-                    if job_status not in TERMINAL_STATES:
-                        non_terminal.append(f"{job_id}: {job_status}")
-                elif r.status_code != 404:
-                    failures.append(f"Unexpected status code for {job_id}: {r.status_code}")
-
-            if non_terminal:
-                failures.append(
-                    f"{len(non_terminal)} job(s) not in terminal state after restart:\n"
-                    + "\n".join(non_terminal)
-                )
-
+        # Same storage root, new process (and port); separate work dir for its log.
+        server2 = StressTestServer(work_dir / "restart", storage_dir=work_dir)
+        url2 = server2.start(timeout=90)
+        async with httpx.AsyncClient(timeout=60) as client:
+            flow = ImportFlow(client, url2, stats)
+            for job_id, counts_before in zip(job_ids, before, strict=True):
+                try:
+                    detail = await flow.wait_for_terminal(job_id, timeout=180)
+                except RuntimeError as exc:
+                    failures.append(f"{job_id} (before kill: {counts_before}): {exc}")
+                    continue
+                if msg := check_complete(detail, f"{job_id} (before kill: {counts_before})"):
+                    failures.append(msg)
     except Exception as exc:
         failures.append(f"Unexpected error {type(exc).__name__}: {exc}")
     finally:
-        # Both servers must be stopped regardless of which step failed
         server.stop(force=True)
         if server2 is not None:
             server2.stop(force=True)
-        import shutil
+        if failures:
+            # Keep both servers' logs and the shared database for post-mortem.
+            failures.append(f"Restart work dir kept: {work_dir}")
+        else:
+            shutil.rmtree(work_dir, ignore_errors=True)
 
-        shutil.rmtree(work_dir, ignore_errors=True)
-
-    passed = len(failures) == 0
-    return ScenarioResult(
-        name="server_restart_recovery",
-        passed=passed,
-        message="All interrupted jobs marked as broken after restart"
-        if passed
-        else f"{len(failures)} failure(s)",
-        elapsed=0,
-        stats=stats,
-        failure_details="\n".join(failures) if failures else None,
+    return _result(
+        "server_restart_recovery", failures, "All interrupted imports finished after restart", stats
     )
 
 
@@ -1204,121 +984,40 @@ async def large_batch_imports(
 ) -> ScenarioResult:
     """Few jobs, very many files each (sustained heavy load).
 
-    Tests OOM resistance, monotonic memory growth, per-file error isolation,
-    and CLIP throughput under prolonged load.
+    Tests memory growth, per-file error isolation and embedding throughput
+    under prolonged load.
 
-    Default: 10 jobs × 1 000 files, uploaded in batches of 50.
-    Quick:    2 jobs × 100 files, batches of 50.
+    Default: 10 jobs × 1 000 files. Quick: 2 jobs × 100 files.
     """
     jobs_count = 2 if quick_mode else 10
     files_per_job = 100 if quick_mode else 1000
-    batch_size = 50
     stats = RequestStats()
 
-    async def run_batch_job(job_idx: int) -> tuple[bool, str]:
-        async with httpx.AsyncClient(base_url=base_url, timeout=600) as client:
+    async def run_batch_job(job_idx: int) -> str | None:
+        async with httpx.AsyncClient(timeout=600) as client:
             flow = ImportFlow(client, base_url, stats)
-            # Use non-overlapping seed ranges
             images = generate_unique_images(
                 files_per_job,
                 base_seed=job_idx * files_per_job + 300000,
+                group_tag=f"batch{job_idx}",
                 width=80,
                 height=60,
             )
             try:
-                result = await flow.full_import(images, batch_size=batch_size)
-                status = result.get("status", "unknown")
-                if status not in TERMINAL_STATES:
-                    return False, f"Job {job_idx} stuck in '{status}'"
-                return True, status
+                detail = await flow.full_import(images, timeout=1800)
+                return check_complete(detail, f"Job {job_idx}")
             except Exception as exc:
-                return False, f"Job {job_idx} {type(exc).__name__}: {exc}"
+                return f"Job {job_idx} {type(exc).__name__}: {exc}"
 
     outcomes = await atqdm.gather(
-        *(run_batch_job(i) for i in range(jobs_count)),
-        desc="  batch-jobs",
-        unit="job",
+        *(run_batch_job(i) for i in range(jobs_count)), desc="  batch-jobs", unit="job"
     )
-    failures = [msg for ok, msg in outcomes if not ok]
-    http_errors = stats.errors
-
-    passed = len(failures) == 0 and http_errors == 0
-    return ScenarioResult(
-        name="large_batch_imports",
-        passed=passed,
-        message=f"{jobs_count} jobs × {files_per_job} files, all completed"
-        if passed
-        else f"{len(failures)} failures",
-        elapsed=0,
-        stats=stats,
-        failure_details="\n".join(failures) if failures else None,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Scenario 10: scheduler_interference
-# ---------------------------------------------------------------------------
-
-
-async def scheduler_interference(
-    *,
-    base_url: str,
-    fixtures_dir: Path,
-    large_mode: bool,
-    quick_mode: bool,
-) -> ScenarioResult:
-    """Run concurrent imports while the scheduler's maintenance tasks are active.
-
-    The scheduler tasks (cleanup_staging, expire_stale_jobs) run periodically
-    in the background.  This scenario runs 20 concurrent imports (quick: 5)
-    and verifies:
-    - No staging directories are cleaned up prematurely for in-progress jobs
-    - No active jobs are incorrectly expired
-    - All jobs reach terminal state
-
-    Note: expire_stale_jobs no longer targets awaiting_input (removed in migration 018).
-
-    Pass: all jobs complete, no jobs expired prematurely.
-    """
-    jobs_count = 5 if quick_mode else 20
-    files_per_job = 3
-    stats = RequestStats()
-
-    async def run_one(job_idx: int) -> tuple[bool, str]:
-        async with httpx.AsyncClient(base_url=base_url, timeout=300) as client:
-            flow = ImportFlow(client, base_url, stats)
-            images = generate_unique_images(
-                files_per_job,
-                base_seed=job_idx * files_per_job + 200000,
-            )
-            try:
-                result = await flow.full_import(images)
-                status = result.get("status", "unknown")
-                if status == "expired":
-                    return False, f"Job {job_idx} was incorrectly expired by scheduler"
-                if status not in TERMINAL_STATES:
-                    return False, f"Job {job_idx} stuck in '{status}'"
-                return True, status
-            except Exception as exc:
-                return False, f"Job {job_idx} {type(exc).__name__}: {exc}"
-
-    outcomes = await atqdm.gather(
-        *(run_one(i) for i in range(jobs_count)),
-        desc="  scheduler-jobs",
-        unit="job",
-    )
-    failures = [msg for ok, msg in outcomes if not ok]
-
-    passed = len(failures) == 0
-    return ScenarioResult(
-        name="scheduler_interference",
-        passed=passed,
-        message=f"{jobs_count} concurrent imports, no scheduler interference"
-        if passed
-        else f"{len(failures)} failures",
-        elapsed=0,
-        stats=stats,
-        failure_details="\n".join(failures) if failures else None,
+    failures = [msg for msg in outcomes if msg]
+    return _result(
+        "large_batch_imports",
+        failures,
+        f"{jobs_count} jobs × {files_per_job} files, all completed",
+        stats,
     )
 
 
@@ -1329,12 +1028,11 @@ async def scheduler_interference(
 SCENARIO_REGISTRY: list[tuple[str, Any, str, str]] = [
     ("concurrent_imports", concurrent_imports, "~3-5 min", "~30s"),
     ("endpoint_spam", endpoint_spam, "~30s", "~15s"),
-    ("cancellation_chaos", cancellation_chaos, "~2 min", "~1 min"),
-    ("malformed_input", malformed_input, "~30s", "~15s"),
+    ("cancellation_chaos", cancellation_chaos, "~1 min", "~1 min"),
+    ("malformed_input", malformed_input, "~2 min", "~2 min"),
     ("large_uploads", large_uploads, "~2-5 min", "skipped"),
     ("concurrent_move_groups", concurrent_move_groups, "~1 min", "~30s"),
     ("duplicate_hash_race", duplicate_hash_race, "~1 min", "~30s"),
-    ("server_restart_recovery", server_restart_recovery, "~1 min", "~30s"),
+    ("server_restart_recovery", server_restart_recovery, "~1 min", "~1 min"),
     ("large_batch_imports", large_batch_imports, "~10-20 min", "~2 min"),
-    ("scheduler_interference", scheduler_interference, "~3 min", "~1 min"),
 ]
