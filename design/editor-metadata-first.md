@@ -1,6 +1,8 @@
 # Group editor: metadata first, details on demand (plan)
 
-Status: **phases 1–2 done**; phase 3 to do. Branch `feature/editor-metadata-first`. Related: [frontend.md](frontend.md) (editor and import review),
+Status: **done** (phases 1–3). Phase 3 shipped bulk edits by id, without lazy details: see
+"Phase 3 as built". Branches `feature/editor-metadata-first` (phases 1–2) and
+`feature/editor-bulk-edit` (phase 3). Related: [frontend.md](frontend.md) (editor and import review),
 [ingest-redesign.md](ingest-redesign.md), [search.md](search.md).
 
 ## Why
@@ -150,11 +152,43 @@ Measured: Edit all over 92 groups / 515 files opens in ~1.5 s with 14 images in 
 against ~2.5 s with all 515 rendered. Per-change re-renders now touch only the visible
 rows, which is what made editing in a large All view sluggish.
 
+## Phase 3 as built
+
+- `POST /images/bulk-edit` and `POST /images/bulk-restore` (undo), and
+  `POST /groups/bulk-update` (author), in `services/bulk_edit_service.py`; see
+  [backend.md](backend.md) for the side effects they share with the single-image endpoints.
+- The toolbar's bulk actions go through `useBulkImageEdit`: one request, applied locally at
+  once (without a group save), reverted if the request fails, a confirmation from 500
+  images, and Undo in the toast.
+- Author and name save on blur only when changed. Before, leaving the author field on All
+  re-saved every group in scope even if nothing changed: 500 `PUT`s, ~20 s, each rewriting
+  the group's tags.
+- The card type toggle got `aria-pressed`.
+
+### Why there are no lazy details
+
+The plan ended with loading a group's files only when it scrolls into view. Measured on a
+synthetic library of 500 groups × 26 images (13,000, the most Edit all can open), production
+build:
+
+| | |
+|---|---|
+| Open Edit all | ~4.8 s: 1.7 s the `/search/groups` id fetch, ~2.1 s five details batches, the rest render |
+| JS heap | ~55–65 MB |
+| Bulk type change, 13,000 images | ~2.6 s (server ~1.7 s); undo ~2.9 s |
+| Three keystrokes in the author field | ~250 ms |
+
+Lazy details could save at most the ~2 s of details. Against that, the All view's file grid is
+sorted by subgroup (unknown until a group's files arrive), and selection and the file filter
+work on file data, so unloaded groups couldn't be selected or filtered. Not worth it at this
+size. If libraries grow past this, the cheaper next steps are virtualising the sidebar (its
+500 rows are most of a keystroke's render) and a faster id fetch for Edit all.
+
 ## Decisions (2026-10-17)
 
-- **Large bulk actions ask first.** A bulk action over many images (threshold to pick in
-  phase 3, e.g. 500) confirms with the count: "Add tag 'Night' to 13,402 images?"
-- **Bulk edits get undo.** `bulk-edit` returns the previous values of the fields it
-  changed, and the editor offers an undo toast that sends them back.
+- **Large bulk actions ask first**, from 500 images: "Set type to scene on 13,000 images?"
+  (done in phase 3).
+- **Bulk edits get undo:** `bulk-edit` returns the previous values, and the toast's Undo
+  sends them back (done in phase 3).
 - **Very large imports open on the first group**, with All one click away (done in phase
   1, see above).

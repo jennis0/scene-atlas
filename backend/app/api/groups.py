@@ -16,6 +16,8 @@ from ..models import (
 )
 from ..models.database import GRID_FIELDS, GRID_SOURCE_USER
 from ..models.schemas import (
+    GroupBulkUpdateRequest,
+    GroupBulkUpdateResponse,
     GroupDetailResponse,
     GroupDetailsRequest,
     GroupEditRequest,
@@ -30,6 +32,7 @@ from ..models.schemas import (
     MoveImagesResponse,
 )
 from ..services import get_image_store
+from ..services.bulk_edit_service import set_groups_author
 from ..services.deletion_service import delete_image_rows
 from .dependencies import get_db, write_locked
 
@@ -195,6 +198,18 @@ def get_group_details(
         .all()
     )
     return _in_request_order(groups, request.ids)
+
+
+@router.post("/bulk-update", response_model=GroupBulkUpdateResponse)
+@write_locked
+def bulk_update_groups(request: GroupBulkUpdateRequest, db: Session = Depends(get_db)):
+    """Set many groups' author in one transaction, instead of a ``PUT`` per group.
+
+    Their images take the author too, as ``PUT /groups/{id}`` does. Unknown ids are skipped.
+    """
+    updated = set_groups_author(db, request.ids, request.author)
+    db.commit()
+    return GroupBulkUpdateResponse(updated=updated)
 
 
 @router.get("/{group_id}", response_model=GroupDetailResponse)

@@ -19,6 +19,7 @@ export function TypeToggleInline({ imageType, disabled, onUpdate }: TypeToggleIn
     <div className="inline-flex rounded-md overflow-hidden border border-border">
       <button
         type="button"
+        aria-pressed={imageType !== 'scene'}
         onClick={() => onUpdate('battlemap')}
         className={`px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
           imageType !== 'scene'
@@ -30,6 +31,7 @@ export function TypeToggleInline({ imageType, disabled, onUpdate }: TypeToggleIn
       </button>
       <button
         type="button"
+        aria-pressed={imageType === 'scene'}
         onClick={() => onUpdate('scene')}
         className={`px-1.5 py-0.5 text-[10px] font-medium border-l border-border transition-colors ${
           imageType === 'scene'

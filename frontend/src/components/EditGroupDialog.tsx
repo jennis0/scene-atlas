@@ -16,6 +16,10 @@ import { useGroupSidebarMultiselect } from '@/hooks/useGroupSidebarMultiselect'
 import { DraggableFileCardWrapper, DragOverlayContent } from './import/shared/dnd'
 import { EditGroupHeader } from './edit-group/EditGroupHeader'
 import { EditGroupSidebar } from './edit-group/EditGroupSidebar'
+import { BulkEditConfirm } from './edit-group/BulkEditConfirm'
+import { useMetadataSave } from './edit-group/useMetadataSave'
+import { useBulkImageEdit } from '@/hooks/useBulkImageEdit'
+import { gridLabel } from '@/lib/bulkEdit'
 import { EditGroupFileGrid } from './edit-group/EditGroupFileGrid'
 import { EditGroupFooter } from './edit-group/EditGroupFooter'
 import { EditGroupConfirmDialogs } from './edit-group/EditGroupConfirmDialogs'
@@ -81,10 +85,8 @@ export default function EditGroupDialog({
     toggleFileSelection,
     selectAllVisible,
     deselectAll,
-    bulkAddTag,
-    bulkSetGrid,
-    bulkSetImageType,
-    bulkSetSubgroup,
+    selectedInScope,
+    patchFiles,
     bulkExclude,
     clearSubgroupLabel,
     renameSubgroup,
@@ -177,6 +179,8 @@ export default function EditGroupDialog({
   })
   const { isMultiSelect, showsMultipleGroups, selectionId, bulkScope } = scope
 
+  const bulk = useBulkImageEdit({ selectedInScope, patchFiles, onSaved: invalidateGallery })
+
   // Reset file filter and selections when multi-select composition changes
   const multiSelectKey = useMemo(() => [...selectedGroupIds].sort().join(','), [selectedGroupIds])
   useEffect(() => {
@@ -209,7 +213,15 @@ export default function EditGroupDialog({
     0,
   )
 
+  const metadata = useMetadataSave({
+    scopeGroups: scope.scopeGroups,
+    showsMultipleGroups,
+    autoSaveGroup: ops.autoSaveGroup,
+    onSaved: invalidateGallery,
+  })
+
   const setAuthor = (author: string) => {
+    metadata.markDirty()
     if (showsMultipleGroups) {
       setGroups((prev) =>
         prev.map((g) => (!isMultiSelect || selectedGroupIds.has(g.id) ? { ...g, author } : g)),
@@ -329,10 +341,12 @@ export default function EditGroupDialog({
                       authorSuggestions={authorSuggestions}
                       suggestionsListId="author-suggestions-edit"
                       onAuthorChange={setAuthor}
-                      onGroupNameChange={(val) =>
-                        !showsMultipleGroups && updateGroup(activeGroupId, { group_name: val })
-                      }
-                      onBlur={() => scope.scopeGroups.forEach(ops.autoSaveGroup)}
+                      onGroupNameChange={(val) => {
+                        if (showsMultipleGroups) return
+                        metadata.markDirty()
+                        updateGroup(activeGroupId, { group_name: val })
+                      }}
+                      onBlur={() => void metadata.save()}
                       groupNameRef={groupNameRef}
                     />
                   </div>
@@ -347,12 +361,31 @@ export default function EditGroupDialog({
                       onFilterChange={setFileFilter}
                       onSelectAll={() => selectAllVisible(selectionId, scope.filteredFiles)}
                       onDeselectAll={() => deselectAll(selectionId)}
-                      onBulkAddTag={(tag) => bulkAddTag(bulkScope, tag)}
-                      onBulkSetGrid={(gridded, gridType) =>
-                        bulkSetGrid(bulkScope, gridded, gridType)
+                      onBulkAddTag={(tag) =>
+                        bulk.request(bulkScope, {
+                          addTags: [tag],
+                          label: `Add tag "${tag.value}"`,
+                        })
                       }
-                      onBulkSetImageType={(v) => bulkSetImageType(bulkScope, v)}
-                      onBulkSetSubgroup={(v) => bulkSetSubgroup(bulkScope, v)}
+                      onBulkSetGrid={(gridded, gridType) =>
+                        bulk.request(bulkScope, {
+                          changes: { gridded, grid_type: gridType },
+                          label: gridLabel(gridded, gridType),
+                        })
+                      }
+                      onBulkSetImageType={(v) =>
+                        bulk.request(bulkScope, {
+                          changes: { image_type: v },
+                          label: `Set type to ${v === 'scene' ? 'scene' : 'map'}`,
+                        })
+                      }
+                      onBulkSetSubgroup={(v) => {
+                        const subgroup = v.trim() || null
+                        bulk.request(bulkScope, {
+                          changes: { subgroup },
+                          label: subgroup ? `Set subgroup to "${subgroup}"` : 'Clear subgroup',
+                        })
+                      }}
                       onBulkExclude={() => bulkExclude(bulkScope)}
                       onMoveToNewGroup={
                         !showsMultipleGroups && !isMassEdit && activeGroup?.id
@@ -408,6 +441,7 @@ export default function EditGroupDialog({
           )}
         </DialogContent>
 
+        <BulkEditConfirm bulk={bulk} />
         <EditGroupConfirmDialogs
           groupId={groupId}
           activeGroup={activeGroup ?? undefined}

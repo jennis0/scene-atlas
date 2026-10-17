@@ -232,6 +232,34 @@ class TestGroupBatchReads:
         assert resp.status_code == 422
 
 
+class TestGroupBulkUpdate:
+    def test_sets_author_on_groups_and_their_images(self, two_groups, tmp_db):
+        client, data = two_groups
+        _, SessionLocal = tmp_db
+        resp = client.post(
+            "/api/v1/groups/bulk-update",
+            json={"ids": [data["source_id"], data["target_id"], 999_999], "author": "Mapmaker"},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {"updated": 2}
+        with SessionLocal() as db:
+            for gid in (data["source_id"], data["target_id"]):
+                group = db.get(ImageGroup, gid)
+                assert group is not None and group.author == "Mapmaker"
+                for img in group.images:
+                    assert img.author == "Mapmaker"
+                    assert "mapmaker" in (img.search_text or "").lower()
+
+    def test_clears_author(self, seeded_group, tmp_db):
+        client, group_id, img_ids = seeded_group
+        _, SessionLocal = tmp_db
+        client.post("/api/v1/groups/bulk-update", json={"ids": [group_id], "author": None})
+        with SessionLocal() as db:
+            group = db.get(ImageGroup, group_id)
+            assert group is not None and group.author is None
+            assert all(db.get(Image, i).author is None for i in img_ids)  # type: ignore[union-attr]
+
+
 class TestGroupEdit:
     def test_rename_group(self, seeded_group):
         client, group_id, img_ids = seeded_group

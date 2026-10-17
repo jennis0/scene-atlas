@@ -143,6 +143,16 @@ is open (`isAnyDialogOpen()` from `ui/dialogStack.ts`). The sidebar has a fixed 
 multi-selected groups, every group (All tab) or the active group. Bulk edits take a `BulkScope`
 (one group id, several, or `null` for all).
 
+Saving: per-file edits, renames, splits and deletions save a group with `PUT /groups/{id}`
+(whose `images` list is the set to keep). The toolbar's bulk actions (tag, grid, type,
+subgroup) don't: `hooks/useBulkImageEdit.ts` sends one `POST /images/bulk-edit` for the
+selected files, shows the change at once (`useFileEditing.patchFiles`, which doesn't trigger
+a group save), puts the files back if the request fails, asks first from 500 images
+(`BULK_CONFIRM_FROM`, `edit-group/BulkEditConfirm`), and offers Undo in its toast
+(`POST /images/bulk-restore` with the states the edit returned). The author and name fields
+save on blur only if they changed (`edit-group/useMetadataSave.ts`); an author set for many
+groups is one `POST /groups/bulk-update`.
+
 Confirmations (inline delete, merge picker, modal merges and deletes) are one `PendingConfirm`
 state in the dialog, so only one is open at a time. Operations a confirmation gates resolve to
 a success flag; the dialog closes the confirmation only on success.

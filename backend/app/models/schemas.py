@@ -118,6 +118,63 @@ class ImageSearchResponse(BaseModel):
     scores: dict[int, float] | None = None  # image_id -> semantic score
 
 
+# Bulk image edits cover a whole import's All view in one request.
+MAX_BULK_IMAGE_IDS = 20000
+
+
+class BulkImageChanges(BaseModel):
+    """Fields a bulk edit sets on every image. Only the fields sent are changed, and
+    null is a value (e.g. ``subgroup: null`` clears it)."""
+
+    image_type: Literal["battlemap", "scene"] | None = None
+    gridded: bool | None = None
+    grid_type: str | None = None
+    grid_width: int | None = None
+    grid_height: int | None = None
+    subgroup: str | None = None
+
+
+class BulkImageEditRequest(BaseModel):
+    """One change applied to many images."""
+
+    image_ids: list[int] = Field(min_length=1, max_length=MAX_BULK_IMAGE_IDS)
+    changes: BulkImageChanges = BulkImageChanges()
+    add_tags: list[TagCreate] = Field(default=[], max_length=50)
+
+
+class ImageRestoreState(BaseModel):
+    """An image's editable fields as they were before a bulk edit (for undo)."""
+
+    id: int
+    image_type: str | None = None
+    subgroup: str | None = None
+    gridded: bool | None = None
+    grid_width: int | None = None
+    grid_height: int | None = None
+    grid_type: str | None = None
+    grid_source: str | None = None
+    grid_confidence: float | None = None
+
+
+class BulkImageEditResponse(BaseModel):
+    """What a bulk edit did, and what ``POST /images/bulk-restore`` needs to undo it."""
+
+    updated: int
+    previous: list[ImageRestoreState]
+    added_tag_ids: list[int]
+
+
+class BulkImageRestoreRequest(BaseModel):
+    """Undo a bulk edit: its ``previous`` states and ``added_tag_ids``."""
+
+    images: list[ImageRestoreState] = Field(min_length=1, max_length=MAX_BULK_IMAGE_IDS)
+    remove_tag_ids: list[int] = Field(default=[], max_length=MAX_BULK_IMAGE_IDS * 50)
+
+
+class BulkImageRestoreResponse(BaseModel):
+    restored: int
+
+
 class GroupBase(BaseModel):
     """Base group schema."""
 
@@ -162,6 +219,17 @@ class GroupDetailsRequest(BaseModel):
     """Group ids to return in full, in the order the client wants them back."""
 
     ids: list[int] = Field(min_length=1, max_length=MAX_GROUP_DETAIL_IDS)
+
+
+class GroupBulkUpdateRequest(BaseModel):
+    """Set the author of many groups (and their images) at once."""
+
+    ids: list[int] = Field(min_length=1, max_length=MAX_GROUP_SUMMARY_IDS)
+    author: str | None = None
+
+
+class GroupBulkUpdateResponse(BaseModel):
+    updated: int
 
 
 class GroupSummary(BaseModel):

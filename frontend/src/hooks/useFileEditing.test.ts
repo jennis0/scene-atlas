@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { useFileEditing, ALL_GROUP_ID, MULTI_GROUP_ID } from './useFileEditing'
-import type { EditableFileState, EditableGroupState, TagData } from '@/types'
+import type { EditableFileState, EditableGroupState } from '@/types'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -204,57 +204,21 @@ describe('useFileEditing — Bulk ops', () => {
     return { hook, onGroupChange }
   }
 
-  it('bulkAddTag adds tag to selected non-excluded files', () => {
+  it('selectedInScope lists the selected files that are not excluded', () => {
     const { hook } = setupBulk()
-    const tag: TagData = { category: 'env', value: 'forest', confidence: 1.0, source: 'manual' }
-
-    act(() => {
-      hook.result.current.bulkAddTag('g1', tag)
-    })
-
-    const files = hook.result.current.groups[0].files
-    expect(files[0].tags).toHaveLength(1)
-    expect(files[0].tags[0].value).toBe('forest')
-    expect(files[1].tags).toHaveLength(1)
-    expect(files[2].tags).toHaveLength(0) // excluded
+    const paths = hook.result.current.selectedInScope('g1').map((f) => f.relative_path)
+    expect(paths).toEqual(['a.jpg', 'b.jpg'])
   })
 
-  it('bulkAddTag skips duplicate tags', () => {
-    const { hook } = setupBulk()
-    const tag: TagData = { category: 'env', value: 'forest', confidence: 1.0, source: 'manual' }
-
+  it('patchFiles changes files without saving their groups', async () => {
+    const { hook, onGroupChange } = setupBulk()
+    onGroupChange.mockClear()
     act(() => {
-      hook.result.current.bulkAddTag('g1', tag)
+      hook.result.current.patchFiles(new Set(['b.jpg']), (f) => ({ ...f, image_type: 'scene' }))
     })
-    act(() => {
-      hook.result.current.bulkAddTag('g1', tag)
-    })
-
-    expect(hook.result.current.groups[0].files[0].tags).toHaveLength(1)
-  })
-
-  it('bulkSetGrid sets gridded and grid_type on selected files', () => {
-    const { hook } = setupBulk()
-
-    act(() => {
-      hook.result.current.bulkSetGrid('g1', true, 'square')
-    })
-
-    expect(hook.result.current.groups[0].files[0].gridded).toBe(true)
-    expect(hook.result.current.groups[0].files[0].grid_type).toBe('square')
-    expect(hook.result.current.groups[0].files[2].gridded).toBeNull() // excluded
-  })
-
-  it('bulkSetImageType sets image_type on selected files', () => {
-    const { hook } = setupBulk()
-
-    act(() => {
-      hook.result.current.bulkSetImageType('g1', 'scene')
-    })
-
-    expect(hook.result.current.groups[0].files[0].image_type).toBe('scene')
-    expect(hook.result.current.groups[0].files[1].image_type).toBe('scene')
-    expect(hook.result.current.groups[0].files[2].image_type).toBe('battlemap') // excluded
+    const types = hook.result.current.groups[0].files.map((f) => f.image_type)
+    expect(types).toEqual(['battlemap', 'scene', 'battlemap'])
+    expect(onGroupChange).not.toHaveBeenCalled()
   })
 
   it('applies a multi-group scope to the multi-select selection only', () => {
@@ -270,13 +234,8 @@ describe('useFileEditing — Bulk ops', () => {
       result.current.toggleFileSelection(MULTI_GROUP_ID, 'a.jpg')
       result.current.toggleFileSelection(MULTI_GROUP_ID, 'c.jpg')
     })
-    act(() => {
-      result.current.bulkSetImageType(['g1', 'g2'], 'scene')
-    })
-    expect(result.current.groups.map((g) => g.files[0].image_type)).toEqual([
-      'scene',
-      'battlemap',
-      'battlemap',
+    expect(result.current.selectedInScope(['g1', 'g2']).map((f) => f.relative_path)).toEqual([
+      'a.jpg',
     ])
 
     act(() => {
@@ -284,20 +243,6 @@ describe('useFileEditing — Bulk ops', () => {
     })
     expect(result.current.groups.map((g) => g.files[0].excluded)).toEqual([true, false, true])
     expect(result.current.selections[MULTI_GROUP_ID]?.size ?? 0).toBe(0)
-  })
-
-  it('bulkSetSubgroup trims whitespace and nulls empty', () => {
-    const { hook } = setupBulk()
-
-    act(() => {
-      hook.result.current.bulkSetSubgroup('g1', '  variant-a  ')
-    })
-    expect(hook.result.current.groups[0].files[0].subgroup).toBe('variant-a')
-
-    act(() => {
-      hook.result.current.bulkSetSubgroup('g1', '   ')
-    })
-    expect(hook.result.current.groups[0].files[0].subgroup).toBeNull()
   })
 
   it('bulkExclude excludes selected files and clears selection', () => {

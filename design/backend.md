@@ -109,6 +109,8 @@ All API routes are mounted under `/api/v1` (`settings.api_prefix`); router prefi
 | GET | `/authors` | Distinct author values |
 | GET | `/{id}` | Get one image |
 | PATCH | `/{id}` | Update image metadata |
+| POST | `/bulk-edit` | One change (fields and/or tags to add) to many images, one transaction; returns their previous state (up to 20,000 ids) |
+| POST | `/bulk-restore` | Undo a bulk edit: put back the returned states, drop the tags it added |
 | DELETE | `/{id}` | Delete image and its files |
 | GET | `/{id}/scenes` | Other images in the same group |
 | GET | `/{id}/file` | Serve the original file |
@@ -138,6 +140,7 @@ Shared parameters for `/` and `/groups`:
 | GET | `/search` | Typeahead group picker (`q`, `exclude_id`, `reference_name`) |
 | POST | `/summaries` | Many groups without image details: name, author, count, `image_ids` (`{ids}`, up to 5,000) |
 | POST | `/details` | Several groups with all members, as `GET /{id}` returns them (`{ids}`, up to 100) |
+| POST | `/bulk-update` | Set many groups' author (and their images'), one transaction |
 | GET | `/{id}` | Group with members |
 | GET | `/{id}/download` | Stream group as ZIP |
 | PUT | `/{id}` | Update group metadata. `images` is the list to keep: images left out are deleted |
@@ -145,7 +148,7 @@ Shared parameters for `/` and `/groups`:
 | POST | `/{id}/move-images` | Move images between groups |
 | POST | `/{id}/merge` | Merge this group into a target group |
 
-The batch reads return groups in the order asked, de-duplicated, leaving out ids that no longer exist. They are POST because the editor sends thousands of ids. The write endpoints are `@write_locked`, so they serialise with the ingest worker's commits.
+Bulk edits (`services/bulk_edit_service.py`) have the single-image endpoints' side effects: a changed grid field sets `grid_source` to user and clears `grid_confidence`, `gridded: false` clears the other grid fields, and `search_text` is rebuilt when tags, subgroup or author change. They write with executemany `UPDATE`s and one `INSERT … RETURNING`, so the statement count doesn't grow with the number of images (pinned in `test_query_counts.py`). The batch reads return groups in the order asked, de-duplicated, leaving out ids that no longer exist. They are POST because the editor sends thousands of ids. The write endpoints are `@write_locked`, so they serialise with the ingest worker's commits.
 
 ### Tags (`/tags`)
 | Method | Path | Purpose |

@@ -10,6 +10,7 @@ vi.mock('@/lib/api', () => ({
     get: vi.fn(),
     summaries: vi.fn(),
     details: vi.fn(),
+    bulkUpdate: vi.fn().mockResolvedValue(undefined),
     edit: vi.fn().mockResolvedValue({ new_group_ids: [] }),
     delete: vi.fn().mockResolvedValue(undefined),
     merge: vi.fn().mockResolvedValue(undefined),
@@ -21,12 +22,17 @@ vi.mock('@/lib/api', () => ({
   },
   imageApi: {
     getAuthors: vi.fn().mockResolvedValue([]),
+    bulkEdit: vi.fn(),
+    bulkRestore: vi.fn().mockResolvedValue(undefined),
   },
   getThumbnailUrlById: vi.fn((id: number) => `/api/v1/images/${id}/thumbnail`),
   getImageUrlById: vi.fn((id: number) => `/api/v1/images/${id}`),
 }))
 
-import { groupApi } from '@/lib/api'
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+
+import { toast } from 'sonner'
+import { groupApi, imageApi } from '@/lib/api'
 
 function makeImage(id: number, overrides: Partial<Image> = {}): Image {
   return {
@@ -435,6 +441,134 @@ describe('EditGroupDialog', () => {
       await user.click(sidebarRow('Forest Maps'))
       expect(screen.getByText('Other images in this group')).toBeInTheDocument()
       expect(within(dialog()).getByText('Frost')).toBeInTheDocument()
+    })
+  })
+  describe('author and name', () => {
+    it('saves nothing when the fields lose focus unchanged', async () => {
+      const { user } = renderDialog({ groupIds: [1, 3] })
+      await screen.findByText('2 groups')
+      await user.click(screen.getByPlaceholderText(/Multiple/))
+      await user.tab()
+      expect(groupApi.edit).not.toHaveBeenCalled()
+      expect(groupApi.bulkUpdate).not.toHaveBeenCalled()
+    })
+
+    it('sets the author of every group in one request', async () => {
+      const { user } = renderDialog({ groupIds: [1, 3] })
+      await screen.findByText('2 groups')
+      await user.type(screen.getByPlaceholderText(/Multiple/), 'Mapmaker')
+      await user.tab()
+      await waitFor(() => expect(groupApi.bulkUpdate).toHaveBeenCalledTimes(1))
+      expect(groupApi.bulkUpdate).toHaveBeenCalledWith([1, 3], 'Mapmaker')
+      expect(groupApi.edit).not.toHaveBeenCalled()
+    })
+
+    it('saves a renamed group on its own', async () => {
+      const { user } = renderDialog({ groupId: 1 })
+      const name = await screen.findByDisplayValue('Forest Maps')
+      await user.type(name, ' II')
+      await user.tab()
+      await waitFor(() =>
+        expect(groupApi.edit).toHaveBeenCalledWith(
+          1,
+          expect.objectContaining({ base_name: 'Forest Maps II' }),
+        ),
+      )
+      expect(groupApi.bulkUpdate).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('bulk actions', () => {
+    /** Select every file on the All tab, then pick Type → Scene from the toolbar. */
+    async function setTypeOfAll(user: ReturnType<typeof userEvent.setup>) {
+      await screen.findByText('2 groups')
+      const toolbar = screen.getByText(/^\d+ files$/).parentElement!
+      await user.click(within(toolbar).getByRole('checkbox'))
+      await user.click(screen.getByRole('button', { name: /^Type/ }))
+      await user.click(await screen.findByRole('menuitem', { name: 'Scene' }))
+    }
+
+    const responseFor = (ids: number[]) => ({
+      updated: ids.length,
+      previous: ids.map((id) => ({
+        id,
+        image_type: 'battlemap',
+        subgroup: null,
+        gridded: null,
+        grid_width: null,
+        grid_height: null,
+        grid_type: null,
+        grid_source: null,
+        grid_confidence: null,
+      })),
+      added_tag_ids: [],
+    })
+
+    it('saves in one bulk request, not by re-saving each group, and can be undone', async () => {
+      vi.mocked(imageApi.bulkEdit).mockImplementation(async (ids) => responseFor(ids))
+      const { user } = renderDialog({ groupIds: [1, 2] })
+      await setTypeOfAll(user)
+
+      await waitFor(() =>
+        expect(imageApi.bulkEdit).toHaveBeenCalledWith(
+          [11, 12, 13, 21],
+          { image_type: 'scene' },
+          [],
+        ),
+      )
+      expect(groupApi.edit).not.toHaveBeenCalled()
+      expect(
+        within(dialog()).getAllByRole('button', { name: 'Scene', pressed: true }),
+      ).toHaveLength(4)
+
+      const [message, options] = vi.mocked(toast.success).mock.lastCall!
+      expect(message).toBe('Set type to scene: 4 images')
+      const action = (options as unknown as { action: { onClick: () => void } }).action
+      action.onClick()
+      await waitFor(() => expect(imageApi.bulkRestore).toHaveBeenCalled())
+      await waitFor(() =>
+        expect(
+          within(dialog()).queryAllByRole('button', { name: 'Scene', pressed: true }),
+        ).toHaveLength(0),
+      )
+    })
+
+    it('asks before editing 500 images or more', async () => {
+      const big: GroupDetail = {
+        id: 5,
+        base_name: 'Huge Pack',
+        author: null,
+        primary_image_id: 1000,
+        images: Array.from({ length: 499 }, (_, i) => makeImage(1000 + i, { group_id: 5 })),
+      }
+      const all: Record<number, GroupDetail> = { ...GROUPS, 5: big }
+      vi.mocked(groupApi.summaries).mockImplementation(async (ids) =>
+        ids.map((id) => summaryOf(all[id])),
+      )
+      vi.mocked(groupApi.details).mockImplementation(async (ids) =>
+        ids.map((id) => structuredClone(all[id])),
+      )
+      vi.mocked(imageApi.bulkEdit).mockImplementation(async (ids) => responseFor(ids))
+      const { user } = renderDialog({ groupIds: [2, 5] })
+      await setTypeOfAll(user)
+
+      const confirm = await screen.findByRole('dialog', { name: 'Edit many images?' })
+      expect(confirm).toHaveTextContent('Set type to scene on 500 images?')
+      expect(imageApi.bulkEdit).not.toHaveBeenCalled()
+      await user.click(within(confirm).getByRole('button', { name: 'Apply' }))
+      await waitFor(() => expect(imageApi.bulkEdit).toHaveBeenCalledTimes(1))
+      expect(vi.mocked(imageApi.bulkEdit).mock.calls[0][0]).toHaveLength(500)
+    })
+
+    it('puts the files back when the request fails', async () => {
+      vi.mocked(imageApi.bulkEdit).mockRejectedValue(new Error('Database is locked'))
+      const { user } = renderDialog({ groupIds: [1, 2] })
+      await setTypeOfAll(user)
+
+      await waitFor(() => expect(toast.error).toHaveBeenCalled())
+      expect(
+        within(dialog()).queryAllByRole('button', { name: 'Scene', pressed: true }),
+      ).toHaveLength(0)
     })
   })
 })

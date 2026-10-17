@@ -1,7 +1,32 @@
 import { api } from './_client'
-import type { Image } from '@/types'
+import type {
+  BulkImageChanges,
+  BulkImageEditResponse,
+  Image,
+  ImageRestoreState,
+  TagData,
+} from '@/types'
 
 export const imageApi = {
+  /** Apply one change to many images in one request; the response is what undo needs. */
+  bulkEdit: async (
+    imageIds: number[],
+    changes: BulkImageChanges,
+    addTags: TagData[] = [],
+  ): Promise<BulkImageEditResponse> => {
+    const { data } = await api.post<BulkImageEditResponse>('/images/bulk-edit', {
+      image_ids: imageIds,
+      changes,
+      add_tags: addTags,
+    })
+    return data
+  },
+
+  /** Undo a bulk edit: its previous states, and the tags it added. */
+  bulkRestore: async (images: ImageRestoreState[], removeTagIds: number[]): Promise<void> => {
+    await api.post('/images/bulk-restore', { images, remove_tag_ids: removeTagIds })
+  },
+
   get: async (id: number): Promise<Image> => {
     const { data } = await api.get<Image>(`/images/${id}`)
     return data

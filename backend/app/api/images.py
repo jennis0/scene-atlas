@@ -15,8 +15,15 @@ from ..models import (
     ImageResponse,
 )
 from ..models.database import GRID_FIELDS, GRID_SOURCE_USER
+from ..models.schemas import (
+    BulkImageEditRequest,
+    BulkImageEditResponse,
+    BulkImageRestoreRequest,
+    BulkImageRestoreResponse,
+)
 from ..services import get_image_store, get_thumbnail_store, safe_delete_image
-from .dependencies import get_db
+from ..services.bulk_edit_service import bulk_edit_images, restore_images
+from .dependencies import get_db, write_locked
 from .rate_limits import limiter
 
 logger = logging.getLogger(__name__)
@@ -58,6 +65,34 @@ def list_authors(db: Session = Depends(get_db)):
 def list_images(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     """List all images with pagination."""
     return db.query(Image).options(*_WITH_RELATIONS).offset(skip).limit(limit).all()
+
+
+@router.post("/bulk-edit", response_model=BulkImageEditResponse)
+@write_locked
+def bulk_edit(request: BulkImageEditRequest, db: Session = Depends(get_db)):
+    """Apply one change (fields and/or tags to add) to many images in one transaction.
+
+    Returns the images' previous state for ``/bulk-restore`` (undo). Unknown ids are skipped.
+    """
+    previous, added_tag_ids = bulk_edit_images(
+        db,
+        request.image_ids,
+        request.changes.model_dump(exclude_unset=True),
+        request.add_tags,
+    )
+    db.commit()
+    return BulkImageEditResponse(
+        updated=len(previous), previous=previous, added_tag_ids=added_tag_ids
+    )
+
+
+@router.post("/bulk-restore", response_model=BulkImageRestoreResponse)
+@write_locked
+def bulk_restore(request: BulkImageRestoreRequest, db: Session = Depends(get_db)):
+    """Undo a bulk edit: put back the states it returned and drop the tags it added."""
+    restored = restore_images(db, request.images, request.remove_tag_ids)
+    db.commit()
+    return BulkImageRestoreResponse(restored=restored)
 
 
 @router.get("/{image_id}", response_model=ImageResponse)

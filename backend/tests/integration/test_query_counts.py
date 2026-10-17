@@ -188,6 +188,34 @@ def test_group_details_query_count(library, query_counter):
     assert large == small <= 5
 
 
+def test_bulk_image_edit_query_count(library, query_counter):
+    """A bulk edit costs the same queries for 18 images as for 90."""
+    client, lib = library
+    body = {
+        "changes": {"subgroup": "Winter", "gridded": True},
+        "add_tags": [{"category": "season", "value": "autumn"}],
+    }
+    url = "/api/v1/images/bulk-edit"
+    ids = list(range(1, lib.images + 1))
+    small = _count_request(client, query_counter, "POST", url, json={**body, "image_ids": ids})
+    lib.add_groups(12)
+    ids = list(range(1, lib.images + 1))
+    large = _count_request(client, query_counter, "POST", url, json={**body, "image_ids": ids})
+    assert large == small, "\n".join(query_counter.statements)
+
+
+def test_group_bulk_update_query_count(library, query_counter):
+    client, lib = library
+    url = "/api/v1/groups/bulk-update"
+    small = _count_request(
+        client, query_counter, "POST", url, json={"ids": [1, 2, 3], "author": "X"}
+    )
+    lib.add_groups(12)
+    ids = list(range(1, lib.groups + 1))
+    large = _count_request(client, query_counter, "POST", url, json={"ids": ids, "author": "Y"})
+    assert large == small, "\n".join(query_counter.statements)
+
+
 def test_tag_values_query(library, query_counter):
     client, lib = library
     with lib._session_factory() as db:

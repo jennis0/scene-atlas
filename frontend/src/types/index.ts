@@ -131,6 +131,35 @@ export interface TagData {
   source: string
 }
 
+/** Fields a bulk edit sets on every image; only those present change, null clears */
+export interface BulkImageChanges {
+  image_type?: 'battlemap' | 'scene'
+  gridded?: boolean | null
+  grid_type?: string | null
+  grid_width?: number | null
+  grid_height?: number | null
+  subgroup?: string | null
+}
+
+/** An image's editable fields before a bulk edit, as POST /images/bulk-restore takes them */
+export interface ImageRestoreState {
+  id: number
+  image_type: string | null
+  subgroup: string | null
+  gridded: boolean | null
+  grid_width: number | null
+  grid_height: number | null
+  grid_type: string | null
+  grid_source: string | null
+  grid_confidence: number | null
+}
+
+export interface BulkImageEditResponse {
+  updated: number
+  previous: ImageRestoreState[]
+  added_tag_ids: number[]
+}
+
 // Group editor state (frontend only)
 export interface EditableFileState {
   relative_path: string
