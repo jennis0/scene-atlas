@@ -22,8 +22,8 @@ export function TagPackCard({ pack, onImport, isImporting }: TagPackCardProps) {
     >
       <div className="min-w-0">
         <p className="text-xs font-medium truncate">{pack.label}</p>
-        <p className="text-[10px] text-muted-foreground truncate">{pack.description}</p>
-        <p className="text-[10px] text-muted-foreground mt-0.5">
+        <p className="text-3xs text-muted-foreground truncate">{pack.description}</p>
+        <p className="text-3xs text-muted-foreground mt-0.5">
           {pack.tag_count} tags
           {!pack.imported && pack.new_tags > 0 && (
             <span className="text-primary/70"> &middot; {pack.new_tags} new</span>

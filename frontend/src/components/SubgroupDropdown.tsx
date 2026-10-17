@@ -71,7 +71,7 @@ export function SubgroupDropdown({
             <button
               key={sv}
               onClick={() => onCommit(sv)}
-              className="flex w-full items-center px-3 py-1.5 text-[12px] text-foreground hover:bg-primary/10 hover:text-primary transition-colors capitalize text-left"
+              className="flex w-full items-center px-3 py-1.5 text-xs text-foreground hover:bg-primary/10 hover:text-primary transition-colors capitalize text-left"
             >
               {sv}
             </button>
@@ -87,7 +87,7 @@ export function SubgroupDropdown({
             placeholder="Rename…"
             maxLength={MAX_NAME_LENGTH}
             autoFocus
-            className="flex-1 min-w-0 h-6 px-2 text-[12px] bg-secondary border border-border rounded text-foreground placeholder:text-muted-foreground"
+            className="flex-1 min-w-0 h-6 px-2 text-xs bg-secondary border border-border rounded text-foreground placeholder:text-muted-foreground"
             onKeyDown={(e) =>
               onInlineEditKey(e, {
                 onEnter: () => {

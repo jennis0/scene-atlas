@@ -56,7 +56,7 @@ export function SubgroupHeading({
 
       <div className="flex-1 h-px bg-border/30" />
 
-      <span className="text-[11px] text-muted-foreground tabular-nums">{count}</span>
+      <span className="text-2xs text-muted-foreground tabular-nums">{count}</span>
 
       {showActions && (
         <button

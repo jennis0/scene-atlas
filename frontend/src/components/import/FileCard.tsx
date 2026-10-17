@@ -65,7 +65,7 @@ export function FileCard({
         <div className="flex-1 min-w-0 py-2 px-2.5 flex items-center gap-2">
           <div className="flex-1 min-w-0">
             <span
-              className="font-display text-[14px] font-semibold text-muted-foreground truncate block"
+              className="font-display text-sm font-semibold text-muted-foreground truncate block"
               title={file.relative_path}
             >
               {file.name || file.filename}
@@ -154,7 +154,7 @@ export function FileCard({
                   })
                 }
                 maxLength={MAX_NAME_LENGTH}
-                className="font-display text-[14px] font-semibold text-foreground bg-transparent border-b border-primary/70 focus:outline-none flex-1 min-w-0 pb-px leading-snug"
+                className="font-display text-sm font-semibold text-foreground bg-transparent border-b border-primary/70 focus:outline-none flex-1 min-w-0 pb-px leading-snug"
                 autoFocus
                 title={file.relative_path}
               />
@@ -170,7 +170,7 @@ export function FileCard({
                 }}
                 title={file.relative_path}
               >
-                <span className="font-display text-[14px] font-semibold text-foreground truncate leading-snug">
+                <span className="font-display text-sm font-semibold text-foreground truncate leading-snug">
                   {file.name || file.filename}
                 </span>
                 {!disabled && (
@@ -190,7 +190,7 @@ export function FileCard({
           </div>
 
           <div
-            className="font-mono text-[9px] text-muted-foreground truncate leading-relaxed mb-1"
+            className="font-mono text-3xs text-muted-foreground truncate leading-relaxed mb-1"
             title={file.filename}
           >
             {file.filename}
@@ -205,7 +205,7 @@ export function FileCard({
             />
 
             <div className="flex items-center gap-1.5 min-h-5">
-              <span className="w-9 shrink-0 text-[11px] font-semibold text-muted-foreground text-right leading-none">
+              <span className="w-9 shrink-0 text-2xs font-semibold text-muted-foreground text-right leading-none">
                 Type
               </span>
               <div className="flex-1 min-w-0 flex items-center gap-1">
@@ -219,7 +219,7 @@ export function FileCard({
 
             {/* GRID prop-row (content for maps, dash for scenes) */}
             <div className="flex items-center gap-1.5 min-h-5">
-              <span className="w-9 shrink-0 text-[11px] font-semibold text-muted-foreground text-right leading-none">
+              <span className="w-9 shrink-0 text-2xs font-semibold text-muted-foreground text-right leading-none">
                 Grid
               </span>
               <div className="flex-1 min-w-0 flex items-center gap-1">
@@ -243,7 +243,7 @@ export function FileCard({
                     )}
                   </>
                 ) : (
-                  <span className="text-[10px] text-muted-foreground">—</span>
+                  <span className="text-3xs text-muted-foreground">—</span>
                 )}
               </div>
             </div>

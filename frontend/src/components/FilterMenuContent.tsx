@@ -219,7 +219,7 @@ export function FilterMenuContent({
         <PanelTitle
           badge={
             totalActive > 0 && (
-              <span className="inline-flex items-center px-1.5 py-px rounded-full bg-primary/15 text-[10px] font-medium text-primary tabular-nums">
+              <span className="inline-flex items-center px-1.5 py-px rounded-full bg-primary/15 text-3xs font-medium text-primary tabular-nums">
                 {totalActive} active
               </span>
             )
@@ -230,7 +230,7 @@ export function FilterMenuContent({
         {totalActive > 0 && (
           <button
             onClick={() => onFiltersChange([])}
-            className="text-[11px] text-muted-foreground hover:text-foreground transition-colors pb-0.5"
+            className="text-2xs text-muted-foreground hover:text-foreground transition-colors pb-0.5"
           >
             Clear all
           </button>
@@ -261,7 +261,7 @@ export function FilterMenuContent({
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Left — category navigator */}
         <div
-          className="w-[116px] flex-shrink-0 border-r border-border/60 overflow-y-auto py-[6px]"
+          className="w-[6.82rem] flex-shrink-0 border-r border-border/60 overflow-y-auto py-[6px]"
           style={{ background: DARK_SURFACE }}
         >
           <CategoryNavItem
@@ -315,14 +315,14 @@ export function FilterMenuContent({
               <div>
                 <p className="section-label mb-0.5">Filter by</p>
                 <div
-                  className={`flex items-center gap-[7px] font-display text-[17px] font-medium leading-none ${selectedColors.text}`}
+                  className={`flex items-center gap-[7px] font-display text-base font-medium leading-none ${selectedColors.text}`}
                 >
                   <SelectedIcon className="h-3.5 w-3.5 flex-shrink-0 opacity-80" />
                   <span className="capitalize">{selectedGroup.label}</span>
                 </div>
               </div>
               {selectedGroup.type !== 'color' && (
-                <span className="text-[11px] text-muted-foreground pb-0.5">
+                <span className="text-2xs text-muted-foreground pb-0.5">
                   {selectedGroup.options.length} options
                 </span>
               )}
@@ -347,7 +347,7 @@ export function FilterMenuContent({
                     <div className={`px-3.5 pb-1.5 ${groupIdx === 0 ? 'pt-3' : 'pt-3.5'}`}>
                       {groupIdx > 0 && <div className="mb-2.5 border-t border-border/30" />}
                       <div
-                        className={`flex items-center gap-[6px] font-display text-[15px] font-medium leading-none ${colors.text}`}
+                        className={`flex items-center gap-[6px] font-display text-sm font-medium leading-none ${colors.text}`}
                       >
                         {(() => {
                           const SectionIcon = getGroupIcon(group.id, group.iconName)
@@ -457,11 +457,11 @@ export function FilterMenuContent({
         className="px-3.5 py-2 border-t border-border/60 flex-shrink-0 flex items-center justify-between"
         style={{ background: DARK_SURFACE }}
       >
-        <span className="text-[10.5px] text-muted-foreground italic">Right-click to exclude</span>
+        <span className="text-2xs text-muted-foreground italic">Right-click to exclude</span>
         {totalActive > 0 && (
           <button
             onClick={() => onFiltersChange([])}
-            className="inline-flex items-center gap-[5px] h-[26px] px-2.5 rounded border border-border/70 text-[11px] text-muted-foreground hover:text-foreground hover:border-border transition-colors"
+            className="inline-flex items-center gap-[5px] h-[26px] px-2.5 rounded border border-border/70 text-2xs text-muted-foreground hover:text-foreground hover:border-border transition-colors"
           >
             <X className="h-[9px] w-[9px]" />
             Clear {totalActive} filter{totalActive !== 1 ? 's' : ''}
@@ -542,7 +542,7 @@ function CategoryNavItem({
     <button
       onClick={onClick}
       style={{ padding: '7px 10px 7px 12px' }}
-      className={`w-full flex items-center gap-[7px] text-left text-[12px] transition-colors border-l-2 ${
+      className={`w-full flex items-center gap-[7px] text-left text-xs transition-colors border-l-2 ${
         active
           ? activeClass
           : 'text-muted-foreground hover:text-foreground hover:bg-muted border-transparent'
@@ -557,7 +557,7 @@ function CategoryNavItem({
       <span className="truncate flex-1 capitalize">{label}</span>
       {activeCount > 0 && (
         <span
-          className={`text-[10px] font-semibold tabular-nums flex-shrink-0 ${
+          className={`text-3xs font-semibold tabular-nums flex-shrink-0 ${
             active ? (colors ? colors.text : 'text-primary/80') : 'text-muted-foreground'
           }`}
         >
@@ -587,7 +587,7 @@ function AuthorChecklist({
             onClick={() => onCycle(group, opt, false)}
             onContextMenu={onRightClick(() => onCycle(group, opt, true))}
             title={`${opt.label}${opt.count !== undefined ? ` (${opt.count})` : ''} — right-click to exclude`}
-            className={`w-full h-8 flex items-center text-left text-[12.5px] border-l-2 transition-colors ${
+            className={`w-full h-8 flex items-center text-left text-xs border-l-2 transition-colors ${
               state === 'include'
                 ? 'border-l-primary text-foreground bg-primary/[0.06]'
                 : state === 'exclude'
@@ -617,7 +617,7 @@ function AuthorChecklist({
 
             {opt.count !== undefined && (
               <span
-                className={`text-[10.5px] flex-shrink-0 tabular-nums ${
+                className={`text-2xs flex-shrink-0 tabular-nums ${
                   state === 'include' ? 'text-primary/70' : 'text-muted-foreground'
                 }`}
               >
@@ -677,13 +677,13 @@ function GridTileSelector({
                 {config && <config.Icon active={isActive} excluded={isExcluded} />}
               </div>
 
-              <span className="text-[11px] font-medium tracking-[0.02em] text-center leading-tight">
+              <span className="text-2xs font-medium tracking-[0.02em] text-center leading-tight">
                 {config?.label ?? opt.label}
               </span>
 
               {/* Status line — always takes space so tiles stay same height */}
               <span
-                className={`text-[9.5px] font-semibold h-[13px] ${
+                className={`text-3xs font-semibold h-[13px] ${
                   isActive ? 'text-primary' : isExcluded ? 'text-destructive' : 'text-transparent'
                 }`}
               >
@@ -694,7 +694,7 @@ function GridTileSelector({
         })}
       </div>
       {!compact && (
-        <p className="px-3.5 pb-3 text-[10.5px] text-muted-foreground italic">
+        <p className="px-3.5 pb-3 text-2xs text-muted-foreground italic">
           Right-click a tile to exclude that grid type
         </p>
       )}
@@ -730,7 +730,7 @@ function OptionPill({
         className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full bg-primary/20 border border-primary/40 text-primary text-xs font-medium hover:bg-primary/30 transition-colors"
       >
         <Check className="h-3 w-3 flex-shrink-0" />
-        <span className="capitalize max-w-[160px] truncate">{label}</span>
+        <span className="capitalize max-w-[9.41rem] truncate">{label}</span>
       </button>
     )
   }
@@ -744,7 +744,7 @@ function OptionPill({
         className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full bg-destructive/10 border border-destructive/30 text-destructive text-xs hover:bg-destructive/20 transition-colors"
       >
         <Minus className="h-3 w-3 flex-shrink-0" />
-        <span className="capitalize max-w-[160px] truncate line-through">{label}</span>
+        <span className="capitalize max-w-[9.41rem] truncate line-through">{label}</span>
       </button>
     )
   }
@@ -756,9 +756,9 @@ function OptionPill({
       title={`${label} — right-click to exclude`}
       className={`inline-flex items-center gap-1 h-6 px-2.5 rounded-full border ${colors.border} ${colors.bg} ${colors.text} text-xs hover:brightness-110 transition-colors`}
     >
-      <span className="capitalize max-w-[160px] truncate">{label}</span>
+      <span className="capitalize max-w-[9.41rem] truncate">{label}</span>
       {count !== undefined && (
-        <span className="ml-0.5 text-[10px] opacity-80 tabular-nums">{count}</span>
+        <span className="ml-0.5 text-3xs opacity-80 tabular-nums">{count}</span>
       )}
     </button>
   )
@@ -934,13 +934,13 @@ function FilterChip({
         />
       )}
       <span
-        className={`capitalize max-w-[130px] truncate ${filter.exclude ? 'opacity-75 line-through' : ''}`}
+        className={`capitalize max-w-[7.65rem] truncate ${filter.exclude ? 'opacity-75 line-through' : ''}`}
       >
         {filter.label}
       </span>
       <button
         onClick={onToggle}
-        className="relative target-24 opacity-80 hover:opacity-100 text-[10px] font-medium transition-opacity"
+        className="relative target-24 opacity-80 hover:opacity-100 text-3xs font-medium transition-opacity"
         title={filter.exclude ? 'Switch to include' : 'Switch to exclude'}
       >
         {filter.exclude ? 'hidden' : 'only'}

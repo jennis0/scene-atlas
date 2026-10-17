@@ -31,7 +31,7 @@ export function GroupPickerShell({
 }: GroupPickerShellProps) {
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-[440px] bg-card border-border/50 p-0 gap-0 overflow-hidden flex flex-col relative">
+      <DialogContent className="max-w-[25.88rem] bg-card border-border/50 p-0 gap-0 overflow-hidden flex flex-col relative">
         {/* Header: bg-popover strip with title and close button */}
         <div className="px-4 py-2.5 border-b border-border/30 bg-popover flex items-center justify-between shrink-0 relative">
           <PanelTitle className="flex-1">{title}</PanelTitle>
@@ -59,7 +59,7 @@ export function GroupPickerShell({
           </div>
         </div>
 
-        <div className="min-h-[200px] max-h-[320px] overflow-y-auto px-2 pb-2 scrollbar-thin flex-1">
+        <div className="min-h-[11.76rem] max-h-[18.82rem] overflow-y-auto px-2 pb-2 scrollbar-thin flex-1">
           {children}
         </div>
 

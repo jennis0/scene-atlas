@@ -18,7 +18,7 @@ export function TypeToggle({ value, onChange }: TypeToggleProps) {
         <button
           key={opt.val}
           onClick={() => onChange(opt.val)}
-          className={`px-1.5 py-0.5 text-[11px] transition-colors ${
+          className={`px-1.5 py-0.5 text-2xs transition-colors ${
             value === opt.val
               ? 'bg-secondary text-foreground font-medium'
               : 'text-muted-foreground hover:text-muted-foreground hover:bg-secondary/50'

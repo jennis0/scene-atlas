@@ -1,9 +1,15 @@
 import { useState, useCallback, useMemo } from 'react'
-import { PointerSensor, KeyboardSensor, useSensor, useSensors } from '@dnd-kit/core'
+import { useSensor, useSensors } from '@dnd-kit/core'
 import type { DragStartEvent, DragEndEvent, Modifier } from '@dnd-kit/core'
 import { snapCenterToCursor } from '@dnd-kit/modifiers'
 import type { EditableGroupState, EditableFileState } from '@/types'
-import type { DragData, DropData, ActiveDragState } from '@/components/import/shared/dnd'
+import {
+  EditableAwareKeyboardSensor,
+  EditableAwarePointerSensor,
+  type DragData,
+  type DropData,
+  type ActiveDragState,
+} from '@/components/import/shared/dnd'
 
 interface UseEditGroupDndOptions {
   groups: EditableGroupState[]
@@ -45,8 +51,8 @@ export function useEditGroupDnd({
   const [dragMergeTarget, setDragMergeTarget] = useState<string | null>(null)
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(KeyboardSensor),
+    useSensor(EditableAwarePointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(EditableAwareKeyboardSensor),
   )
 
   const handleMoveImagesToSubgroup = useCallback(

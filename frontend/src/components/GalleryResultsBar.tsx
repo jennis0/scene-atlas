@@ -26,6 +26,8 @@ interface GalleryResultsBarProps {
   /** Individual-view tile width in px */
   tileWidth: number
   onTileWidthChange: (width: number) => void
+  /** Sits in the search row (compact layout) rather than on its own row below it */
+  inline?: boolean
 }
 
 /** Under the search: active filter chips, then the result count, sort, Edit all and relevance. */
@@ -35,10 +37,13 @@ export function GalleryResultsBar({
   onOpenMassEdit,
   tileWidth,
   onTileWidthChange,
+  inline = false,
 }: GalleryResultsBarProps) {
   const { filters, handleFiltersChange, hasActiveSearch, clearAll } = search
   return (
-    <div className="flex flex-wrap items-center gap-y-1 pb-4 min-h-[32px]">
+    <div
+      className={`flex flex-wrap items-center gap-y-1 ${inline ? 'ml-auto' : 'pb-4 min-h-[32px]'}`}
+    >
       <div className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
         <FilterChipList
           filters={filters}

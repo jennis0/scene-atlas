@@ -213,7 +213,7 @@ export function TagPackSetupStep({
                       <p className="text-sm font-medium truncate">
                         {pack.label}
                         {isCommon && (
-                          <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">
+                          <span className="ml-1.5 text-3xs font-normal text-muted-foreground">
                             (included)
                           </span>
                         )}
@@ -221,9 +221,7 @@ export function TagPackSetupStep({
                       <p className="text-xs text-muted-foreground leading-relaxed mt-0.5">
                         {pack.description}
                       </p>
-                      <p className="text-[10px] text-muted-foreground mt-1">
-                        {pack.tag_count} tags
-                      </p>
+                      <p className="text-3xs text-muted-foreground mt-1">{pack.tag_count} tags</p>
                     </div>
                   </div>
                 </button>

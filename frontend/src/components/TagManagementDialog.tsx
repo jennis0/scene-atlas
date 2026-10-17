@@ -83,7 +83,7 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
   return (
     <>
       <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-        <DialogContent className="max-w-[600px] w-full h-[75vh] flex flex-col gap-0 border-border/50 bg-card p-0 overflow-hidden">
+        <DialogContent className="max-w-[35.29rem] w-full h-[75vh] flex flex-col gap-0 border-border/50 bg-card p-0 overflow-hidden">
           <div
             className="px-4 border-b border-border flex-shrink-0 bg-popover"
             style={{ padding: '10px 12px 10px 16px' }}
@@ -139,7 +139,7 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
             className="border-t border-border flex-shrink-0 bg-popover flex items-center justify-between"
             style={{ padding: '8px 16px' }}
           >
-            <span className="text-[11px] text-muted-foreground italic">
+            <span className="text-2xs text-muted-foreground italic">
               Click a value to rename · click aliases to edit
             </span>
             <button
@@ -157,11 +157,10 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
                 })
               }
               disabled={retagMut.isPending || retagJob.isRunning}
-              className={`flex items-center gap-[5px] transition-colors disabled:opacity-30 ${
+              className={`flex items-center gap-[5px] text-2xs transition-colors disabled:opacity-30 ${
                 vocabDirty ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
               }`}
               style={{
-                fontSize: '11.5px',
                 fontWeight: 500,
                 letterSpacing: '0.02em',
                 ...(vocabDirty
@@ -230,7 +229,7 @@ function CategoryList({
   return (
     <div
       className="flex-shrink-0 border-r border-border flex flex-col overflow-hidden bg-popover"
-      style={{ width: 160 }}
+      style={{ width: '9.4rem' }}
     >
       <p className="flex-shrink-0 section-label" style={{ padding: '9px 14px 5px' }}>
         Categories
@@ -248,7 +247,7 @@ function CategoryList({
               key={cat.name}
               onClick={() => onSelect(cat.name)}
               style={{ padding: '7px 12px 7px 14px' }}
-              className={`w-full flex items-center gap-2 text-left text-[12px] border-l-2 capitalize transition-colors ${
+              className={`w-full flex items-center gap-2 text-left text-xs border-l-2 capitalize transition-colors ${
                 isActive
                   ? `font-medium border-current ${colors.text} bg-muted`
                   : `text-muted-foreground border-transparent hover:bg-muted`
@@ -260,7 +259,7 @@ function CategoryList({
               />
               <span className="flex-1 truncate">{cat.name}</span>
               {valueCount > 0 && (
-                <span className={`text-[10px] tabular-nums flex-shrink-0 `}>{valueCount}</span>
+                <span className={`text-3xs tabular-nums flex-shrink-0 `}>{valueCount}</span>
               )}
             </button>
           )
@@ -466,12 +465,12 @@ function CategoryEditor({
                       },
                     })
                   }
-                  className={`flex-1 min-w-0 bg-transparent border-b border-primary/70 focus:outline-none font-display text-[17px] font-medium leading-[1.2] capitalize ${colors.text}`}
+                  className={`flex-1 min-w-0 bg-transparent border-b border-primary/70 focus:outline-none font-display text-base font-medium leading-[1.2] capitalize ${colors.text}`}
                 />
               ) : (
                 <span
                   onClick={() => setEditingName(true)}
-                  className={`font-display text-[17px] font-medium leading-[1.2] capitalize cursor-text ${colors.text}`}
+                  className={`font-display text-base font-medium leading-[1.2] capitalize cursor-text ${colors.text}`}
                 >
                   {category.name}
                 </span>
@@ -533,7 +532,7 @@ function CategoryEditor({
             }
             placeholder="Add a description…"
             rows={1}
-            className="w-full text-[11.5px] text-muted-foreground placeholder:text-muted-foreground bg-transparent border-b border-border/50 focus:border-primary/70 focus:outline-none focus:text-foreground resize-none py-1 transition-colors"
+            className="w-full text-2xs text-muted-foreground placeholder:text-muted-foreground bg-transparent border-b border-border/50 focus:border-primary/70 focus:outline-none focus:text-foreground resize-none py-1 transition-colors"
             style={{
               height: 28,
               lineHeight: 1.4,
@@ -719,12 +718,10 @@ function TagValueRow({
                 },
               })
             }
-            className="w-full bg-transparent border-b border-primary/70 focus:outline-none text-[13px] font-medium text-foreground capitalize"
+            className="w-full bg-transparent border-b border-primary/70 focus:outline-none text-xs font-medium text-foreground capitalize"
           />
         ) : (
-          <span
-            className={`text-left text-[13px] font-medium capitalize leading-[1.3] ${colors.text}`}
-          >
+          <span className={`text-left text-xs font-medium capitalize leading-[1.3] ${colors.text}`}>
             {entry.value}
           </span>
         )}
@@ -735,7 +732,7 @@ function TagValueRow({
               e.stopPropagation()
               setEditMode('aliases')
             }}
-            className={`text-left text-[10.5px] leading-[1.3] mt-0.5 block w-full transition-colors ${
+            className={`text-left text-2xs leading-[1.3] mt-0.5 block w-full transition-colors ${
               entry.aliases.length > 0
                 ? 'text-muted-foreground capitalize italic hover:text-foreground'
                 : 'italic text-muted-foreground hover:text-foreground'
@@ -752,7 +749,7 @@ function TagValueRow({
                 {entry.aliases.map((alias) => (
                   <span
                     key={alias}
-                    className={`inline-flex items-center gap-[3px] text-[11px] border capitalize ${colors.bg} ${colors.border} ${colors.text}`}
+                    className={`inline-flex items-center gap-[3px] text-2xs border capitalize ${colors.bg} ${colors.border} ${colors.text}`}
                     style={{ padding: '2px 7px', borderRadius: 999 }}
                   >
                     {alias}
@@ -783,14 +780,14 @@ function TagValueRow({
                   })
                 }
                 placeholder="add alias…"
-                className="flex-1 max-w-[155px] bg-transparent border-b border-border focus:border-primary/70 text-[11.5px] text-foreground placeholder:text-muted-foreground focus:outline-none py-0.5 transition-colors"
+                className="flex-1 max-w-[9.12rem] bg-transparent border-b border-border focus:border-primary/70 text-2xs text-foreground placeholder:text-muted-foreground focus:outline-none py-0.5 transition-colors"
               />
               <button
                 onClick={() => {
                   editEndedAt.current = Date.now()
                   setEditMode('none')
                 }}
-                className="text-[10.5px] text-muted-foreground italic hover:text-foreground transition-colors"
+                className="text-2xs text-muted-foreground italic hover:text-foreground transition-colors"
                 style={{ opacity: 0.7 }}
               >
                 done
@@ -810,9 +807,7 @@ function TagValueRow({
             <Pencil className="h-2.5 w-2.5" />
           </button>
         )}
-        {count > 0 && (
-          <span className="text-[11px] text-muted-foreground tabular-nums">{count}</span>
-        )}
+        {count > 0 && <span className="text-2xs text-muted-foreground tabular-nums">{count}</span>}
         <button
           onClick={onDelete}
           className="relative target-24 flex items-center justify-center rounded-[3px] transition-colors hover:bg-destructive/10"
@@ -836,7 +831,7 @@ const INLINE_ADD_STYLES = {
     row: 'flex items-center gap-1',
     rowStyle: undefined,
     input:
-      'flex-1 min-w-0 bg-secondary border border-border rounded px-1.5 py-0.5 text-[11.5px] text-foreground placeholder:text-muted-foreground',
+      'flex-1 min-w-0 bg-secondary border border-border rounded px-1.5 py-0.5 text-2xs text-foreground placeholder:text-muted-foreground',
   },
   list: {
     row: 'flex items-center gap-1.5 rounded-[5px]',
@@ -846,7 +841,7 @@ const INLINE_ADD_STYLES = {
       border: '1px solid hsl(var(--border))',
     },
     input:
-      'flex-1 min-w-0 bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none',
+      'flex-1 min-w-0 bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none',
   },
 } as const
 
@@ -896,7 +891,7 @@ function InlineAddRow({
     return (
       <button
         onClick={() => setAdding(true)}
-        className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground hover:text-muted-foreground transition-colors"
+        className="flex items-center gap-1.5 text-2xs text-muted-foreground hover:text-muted-foreground transition-colors"
       >
         <Plus className="h-[11px] w-[11px]" />
         {label}

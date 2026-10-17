@@ -92,11 +92,11 @@ export function MergeGroupPicker({
       }}
     >
       {isLoading ? (
-        <div className="flex items-center justify-center h-[200px]">
+        <div className="flex items-center justify-center h-[11.76rem]">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
       ) : groups.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-[200px] text-muted-foreground">
+        <div className="flex flex-col items-center justify-center h-[11.76rem] text-muted-foreground">
           <Layers className="h-8 w-8 mb-2 opacity-40" />
           <p className="text-sm">
             {debouncedQuery || currentGroupName ? 'No groups found' : 'Type to search groups'}
@@ -134,20 +134,18 @@ export function MergeGroupPicker({
 
                 <div className="flex-1 min-w-0">
                   <p
-                    className={`text-[13px] font-medium leading-tight truncate ${
+                    className={`text-xs font-medium leading-tight truncate ${
                       isSelected ? 'text-primary' : 'text-foreground'
                     }`}
                   >
                     {group.base_name}
                   </p>
                   {group.author && (
-                    <p className="text-[11px] text-muted-foreground truncate mt-0.5">
-                      {group.author}
-                    </p>
+                    <p className="text-2xs text-muted-foreground truncate mt-0.5">{group.author}</p>
                   )}
                 </div>
 
-                <span className="shrink-0 px-1.5 py-px rounded-full bg-primary/15 text-[10px] font-medium text-primary tabular-nums">
+                <span className="shrink-0 px-1.5 py-px rounded-full bg-primary/15 text-3xs font-medium text-primary tabular-nums">
                   {group.image_count}
                 </span>
               </button>

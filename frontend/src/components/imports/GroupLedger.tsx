@@ -34,7 +34,7 @@ export function GroupLedger({ groups, onOpenGroup, showAuthor = true }: GroupLed
 
   if (groups.length === 0) {
     return (
-      <p className="px-6 py-8 text-center text-[13px] text-muted-foreground">
+      <p className="px-6 py-8 text-center text-xs text-muted-foreground">
         Groups appear here once the file list has been sorted.
       </p>
     )
@@ -94,10 +94,7 @@ function ReportRow({
         )}
       </span>
       <span className="min-w-0 flex-1 flex items-baseline gap-2">
-        <span
-          className="font-display text-[15px] text-foreground truncate"
-          title={group.group_name}
-        >
+        <span className="font-display text-sm text-foreground truncate" title={group.group_name}>
           {group.group_name}
         </span>
         {showAuthor && group.author && (

@@ -1,13 +1,21 @@
 import { createContext, useContext, useState, useCallback, useMemo } from 'react'
-import { applyPalette, getStoredPalette, PALETTE_STORAGE_KEY, type Palette } from '@/lib/palette'
+import { compactHeaderChoice, type CompactHeader } from '@/lib/compactLayout'
+import type { DisplayChoice } from '@/lib/displayChoice'
+import { paletteChoice, type Palette } from '@/lib/palette'
+import { textSizeChoice, type TextSize } from '@/lib/textSize'
 
 export type Theme = 'light' | 'dark'
 
 interface ThemeContextValue {
   theme: Theme
+  setTheme: (theme: Theme) => void
   toggleTheme: () => void
   palette: Palette
   setPalette: (palette: Palette) => void
+  textSize: TextSize
+  setTextSize: (size: TextSize) => void
+  compactHeader: CompactHeader
+  setCompactHeader: (value: CompactHeader) => void
 }
 
 const STORAGE_KEY = 'scene-atlas-theme'
@@ -23,45 +31,74 @@ function getStoredTheme(): Theme {
 
 const ThemeContext = createContext<ThemeContextValue>({
   theme: 'dark',
+  setTheme: () => {},
   toggleTheme: () => {},
   palette: 'navy',
   setPalette: () => {},
+  textSize: 'default',
+  setTextSize: () => {},
+  compactHeader: 'auto',
+  setCompactHeader: () => {},
 })
 
+/** State for a per-device display choice: setting it saves and applies it at once. */
+function useDisplayChoice<T extends string>(choice: DisplayChoice<T>) {
+  const [value, setValue] = useState<T>(choice.read)
+  const set = useCallback(
+    (next: T) => {
+      choice.save(next)
+      setValue(next)
+    },
+    [choice],
+  )
+  return [value, set] as const
+}
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(getStoredTheme)
+  const [theme, setThemeState] = useState<Theme>(getStoredTheme)
 
-  const toggleTheme = useCallback(() => {
-    setTheme((prev) => {
-      const next = prev === 'dark' ? 'light' : 'dark'
-      try {
-        localStorage.setItem(STORAGE_KEY, next)
-      } catch {
-        // Storage blocked (private mode, quota): the theme still applies for this session.
-      }
-      if (next === 'dark') {
-        document.documentElement.classList.add('dark')
-      } else {
-        document.documentElement.classList.remove('dark')
-      }
-      return next
-    })
-  }, [])
-
-  const [palette, setPaletteState] = useState<Palette>(getStoredPalette)
-  const setPalette = useCallback((next: Palette) => {
+  const setTheme = useCallback((next: Theme) => {
     try {
-      localStorage.setItem(PALETTE_STORAGE_KEY, next)
+      localStorage.setItem(STORAGE_KEY, next)
     } catch {
-      // Storage blocked: the palette still applies for this session.
+      // Storage blocked (private mode, quota): the theme still applies for this session.
     }
-    applyPalette(next)
-    setPaletteState(next)
+    document.documentElement.classList.toggle('dark', next === 'dark')
+    setThemeState(next)
   }, [])
+
+  const toggleTheme = useCallback(
+    () => setTheme(theme === 'dark' ? 'light' : 'dark'),
+    [theme, setTheme],
+  )
+
+  const [palette, setPalette] = useDisplayChoice(paletteChoice)
+  const [textSize, setTextSize] = useDisplayChoice(textSizeChoice)
+  const [compactHeader, setCompactHeader] = useDisplayChoice(compactHeaderChoice)
 
   const value = useMemo(
-    () => ({ theme, toggleTheme, palette, setPalette }),
-    [theme, toggleTheme, palette, setPalette],
+    () => ({
+      theme,
+      setTheme,
+      toggleTheme,
+      palette,
+      setPalette,
+      textSize,
+      setTextSize,
+      compactHeader,
+      setCompactHeader,
+    }),
+    [
+      theme,
+      setTheme,
+      toggleTheme,
+      palette,
+      setPalette,
+      textSize,
+      setTextSize,
+      compactHeader,
+      setCompactHeader,
+    ],
   )
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>

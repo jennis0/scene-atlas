@@ -17,6 +17,13 @@ export default {
       },
     },
     extend: {
+      // Below Tailwind's text-xs, for dense UI labels. In rem so they follow the text size
+      // setting; the root is 17px, so these render at 10px and 11px by default. Font size
+      // only: line height is inherited, as with the pixel sizes they replaced.
+      fontSize: {
+        '3xs': '0.5882rem',
+        '2xs': '0.6471rem',
+      },
       fontFamily: {
         sans: ['"Figtree Variable"', 'system-ui', 'sans-serif'],
         // Titles and map names: a book serif with real lowercase, readable at any size
@@ -90,5 +97,10 @@ export default {
       },
     },
   },
-  plugins: [require('tailwindcss-animate')],
+  plugins: [
+    require('tailwindcss-animate'),
+    // short: windows with little height in lines of text (zoomed in, or large text); see
+    // lib/compactLayout.ts
+    ({ addVariant }) => addVariant('short', 'html[data-short] &'),
+  ],
 }

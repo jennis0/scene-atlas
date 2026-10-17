@@ -30,7 +30,7 @@ function isActive(opt: GridOption, gridded: boolean | null, gridType: string | n
 }
 
 export function GridToggle({ gridded, gridType, onChange, disabled, compact }: GridToggleProps) {
-  const btnSize = compact ? 'px-1.5 py-0.5 text-[10px]' : 'px-2.5 py-1 text-[11px]'
+  const btnSize = compact ? 'px-1.5 py-0.5 text-3xs' : 'px-2.5 py-1 text-2xs'
 
   return (
     <div

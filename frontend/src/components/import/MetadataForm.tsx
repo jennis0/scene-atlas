@@ -45,7 +45,7 @@ export function MetadataForm({
   const labelClass = 'text-xs text-muted-foreground mb-1.5 block font-semibold'
   const inputClass =
     'w-full h-8 px-3 text-sm rounded border bg-secondary text-foreground placeholder:text-muted-foreground transition-colors'
-  const hintClass = 'text-[10px] text-muted-foreground mt-1'
+  const hintClass = 'text-3xs text-muted-foreground mt-1'
 
   return (
     <div className="grid grid-cols-2 gap-3">

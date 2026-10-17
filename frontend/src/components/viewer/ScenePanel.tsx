@@ -38,7 +38,10 @@ export function ScenePanel({
   const isFiltered = !!filter.text || filter.imageType !== 'all' || filter.active.length > 0
 
   return (
-    <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto">
+    <div
+      ref={scrollRef}
+      className="flex-1 min-h-0 overflow-y-auto short:lg:flex-none short:lg:overflow-visible"
+    >
       <div className="sticky top-0 z-10 bg-card border-b border-border/30">
         <div className="px-4 py-2 flex items-center gap-2">
           <span className="text-sm font-semibold shrink-0">
@@ -115,7 +118,7 @@ function TypeToggle({ filter, setFilter }: FilterControlProps) {
         <button
           key={val}
           onClick={() => setFilter((f) => ({ ...f, imageType: val }))}
-          className={`px-1.5 py-0.5 text-[10px] transition-colors ${
+          className={`px-1.5 py-0.5 text-3xs transition-colors ${
             filter.imageType === val
               ? 'bg-primary/10 text-primary font-medium'
               : 'text-muted-foreground hover:text-muted-foreground hover:bg-secondary/50'
@@ -162,7 +165,7 @@ function FilterPopover({
         >
           <SlidersHorizontal className="h-3 w-3" />
           {activeCount > 0 && (
-            <span className="absolute -top-1 -right-1 h-4 min-w-4 px-1 rounded-full bg-primary text-[10px] font-bold text-primary-foreground flex items-center justify-center tabular-nums">
+            <span className="absolute -top-1 -right-1 h-4 min-w-4 px-1 rounded-full bg-primary text-3xs font-bold text-primary-foreground flex items-center justify-center tabular-nums">
               {activeCount}
             </span>
           )}
@@ -202,7 +205,7 @@ function SceneSections({
   return sections.map((section) => (
     <div key={section.label} className="mb-3 last:mb-0">
       {sections.length > 1 && (
-        <p className="text-[11px] font-medium text-muted-foreground mb-2">{section.label}</p>
+        <p className="text-2xs font-medium text-muted-foreground mb-2">{section.label}</p>
       )}
       <div className="grid grid-cols-2 gap-2">
         {section.images.map((scene) => (

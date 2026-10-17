@@ -159,7 +159,7 @@ function StartView({
     <ImportFrame open={open} onClose={onClose} title="Import maps and scenes">
       <div className="px-6 pt-2 pb-6 space-y-5">
         <fieldset className="space-y-2" disabled={busy}>
-          <legend className="text-[12px] text-muted-foreground mb-2">Import these as</legend>
+          <legend className="text-xs text-muted-foreground mb-2">Import these as</legend>
           <div className="inline-flex rounded-md overflow-hidden border border-border">
             <TypeOption
               selected={imageType === 'battlemap'}
@@ -174,7 +174,7 @@ function StartView({
               label="Scenes"
             />
           </div>
-          <p className="text-[12px] text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             {imageType === 'battlemap'
               ? 'Top-down maps. Grids are detected automatically.'
               : 'Vistas, portraits and encounter art. No grid detection.'}
@@ -217,7 +217,7 @@ function StartView({
           {busy ? (
             <>
               <Loader2 className="h-8 w-8 animate-spin text-primary/70" />
-              <p className="text-[13px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 {reading ? 'Reading the dropped folders' : 'Starting the import'}
               </p>
             </>
@@ -232,7 +232,7 @@ function StartView({
                 >
                   {dragOver ? 'Drop to import' : 'Drop files or folders here'}
                 </p>
-                <p className="mt-0.5 text-[12px] text-muted-foreground">
+                <p className="mt-0.5 text-xs text-muted-foreground">
                   Images, videos and .zip archives. Folder names become groups.
                 </p>
               </div>
@@ -272,7 +272,7 @@ function TypeOption({
       type="button"
       aria-pressed={selected}
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 h-8 px-3 text-[12.5px] transition-colors focus-visible:outline-offset-[-2px] first:border-r first:border-border ${
+      className={`inline-flex items-center gap-1.5 h-8 px-3 text-xs transition-colors focus-visible:outline-offset-[-2px] first:border-r first:border-border ${
         selected
           ? 'bg-primary/10 text-primary'
           : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
@@ -297,7 +297,7 @@ function BrowseButton({
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex items-center gap-1.5 h-8 px-3 text-[12.5px] rounded-md border border-border/60 bg-secondary/60 text-muted-foreground hover:text-foreground hover:border-border hover:bg-secondary transition-colors"
+      className="inline-flex items-center gap-1.5 h-8 px-3 text-xs rounded-md border border-border/60 bg-secondary/60 text-muted-foreground hover:text-foreground hover:border-border hover:bg-secondary transition-colors"
     >
       {icon}
       {label}
@@ -434,7 +434,7 @@ function ProgressView({
       <div className="px-6 pb-4 space-y-3 shrink-0">
         {job && <ProgressSummary job={job} secondsPerItem={queue?.seconds_per_item} />}
         {upload && upload.totalBytes > 0 && !finished && upload.phase !== 'finished' && (
-          <p className="font-mono text-[10.5px] text-muted-foreground tabular-nums">
+          <p className="font-mono text-2xs text-muted-foreground tabular-nums">
             {formatBytes(upload.sentBytes)} of {formatBytes(upload.totalBytes)} sent
           </p>
         )}
@@ -519,7 +519,7 @@ function ProgressView({
         {/* Always mounted, so screen readers announce the outcome when it appears */}
         <div role="status">
           {finished && counts && (
-            <p className="text-[13px] text-foreground">
+            <p className="text-xs text-foreground">
               {job?.status === 'cancelled' ? 'Cancelled. ' : 'Finished. '}
               {outcomeText(counts)}
               {counts.skipped > 0 && `, ${counts.skipped.toLocaleString()} skipped`}.

@@ -18,8 +18,6 @@ import { HARDWARE_BADGE } from '@/lib/modelConstants'
 import { tagApi } from '@/lib/api/tagApi'
 import { TagPackCard } from '@/components/setup/TagPackCard'
 import type { AppSettings } from '@/types'
-import { useTheme } from '@/contexts/ThemeContext'
-import { PALETTES } from '@/lib/palette'
 
 /** Longest side analysed for grids (0 = full resolution). Lower is faster, but in
  * evaluation 4096 px missed most thin-line 200 dpi maps (design/grid-detection-v3.md). */
@@ -59,7 +57,7 @@ function StoragePathRow({
     <SettingRow label={label} description={description} requiresRestart={requiresRestart}>
       <div className="flex items-center gap-2">
         <span
-          className={`max-w-[180px] truncate text-xs font-mono ${changed ? 'text-primary' : 'text-muted-foreground'}`}
+          className={`max-w-[10.59rem] truncate text-xs font-mono ${changed ? 'text-primary' : 'text-muted-foreground'}`}
           title={display}
         >
           {display}
@@ -263,7 +261,7 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
     }
 
     return (
-      <div className="min-h-[220px]">
+      <div className="min-h-[12.94rem]">
         {isError && error && (
           <div className="mb-4 p-3 rounded bg-destructive/10 border border-destructive/30 flex items-start gap-2">
             <AlertCircle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
@@ -288,7 +286,6 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
 
         {!isLoading && !isError && (
           <div className="space-y-4">
-            <AppearanceSection />
             {isElectron && (
               <SettingsSection title="Storage Locations">
                 <StoragePathRow
@@ -373,24 +370,22 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="font-medium text-xs">{model.label}</span>
                           <span
-                            className={`text-[10px] font-medium px-1 py-0.5 rounded ${hwBadge.className}`}
+                            className={`text-3xs font-medium px-1 py-0.5 rounded ${hwBadge.className}`}
                           >
                             {hwBadge.label}
                           </span>
                           {!model.downloaded && (
-                            <span className="text-[10px] font-medium px-1 py-0.5 rounded bg-muted text-muted-foreground">
+                            <span className="text-3xs font-medium px-1 py-0.5 rounded bg-muted text-muted-foreground">
                               Not downloaded
                             </span>
                           )}
                         </div>
 
-                        <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        <p className="text-2xs text-muted-foreground leading-relaxed">
                           {model.description}
                         </p>
 
-                        <p className="text-[10px] text-muted-foreground">
-                          ~{model.approx_size_mb} MB
-                        </p>
+                        <p className="text-3xs text-muted-foreground">~{model.approx_size_mb} MB</p>
                       </button>
                     )
                   })}
@@ -612,21 +607,3 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
 )
 
 SettingsTabContent.displayName = 'SettingsTabContent'
-
-/** Palette is a per-device display choice: saved locally and applied at once, not part
- * of the server settings draft. */
-function AppearanceSection() {
-  const { palette, setPalette } = useTheme()
-  return (
-    <SettingsSection title="Appearance">
-      <SettingRow label="Palette" description="Applies to both light and dark mode.">
-        <SegmentedControl
-          label="Palette"
-          options={PALETTES}
-          value={palette}
-          onChange={setPalette}
-        />
-      </SettingRow>
-    </SettingsSection>
-  )
-}

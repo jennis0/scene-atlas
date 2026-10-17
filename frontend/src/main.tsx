@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { applyPalette, getStoredPalette } from './lib/palette'
+import { applyTextSize, getStoredTextSize } from './lib/textSize'
+import { watchShortWindow } from './lib/compactLayout'
 import { TagColorProvider } from './contexts/TagColorContext'
 import App from './App'
 // Bundled so the desktop app renders correctly offline.
@@ -13,11 +15,13 @@ import '@fontsource-variable/jetbrains-mono/wght.css'
 import '@fontsource-variable/newsreader/opsz.css'
 import './index.css'
 
-// Apply saved theme and palette before first paint (default = dark, navy)
+// Apply saved display choices before first paint (default = dark, navy)
 if (localStorage.getItem('scene-atlas-theme') !== 'light') {
   document.documentElement.classList.add('dark')
 }
 applyPalette(getStoredPalette())
+applyTextSize(getStoredTextSize())
+watchShortWindow()
 
 const queryClient = new QueryClient({
   defaultOptions: {

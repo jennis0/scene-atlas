@@ -28,7 +28,7 @@ export function GroupSidebarShell({
   children,
 }: GroupSidebarShellProps) {
   return (
-    <div className="w-[190px] shrink-0 border-r border-border/30 flex flex-col overflow-hidden bg-muted/20">
+    <div className="w-[11.18rem] shrink-0 border-r border-border/30 flex flex-col overflow-hidden bg-muted/20">
       <div className="px-3 py-2.5 border-b border-border/30 shrink-0">
         <span className="text-xs text-muted-foreground font-semibold">{headerLabel}</span>
       </div>
@@ -45,8 +45,8 @@ export function GroupSidebarShell({
               : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/50'
           }`}
         >
-          <span className="font-display text-[15px] font-semibold flex-1">All</span>
-          <span className="text-[11px] text-muted-foreground tabular-nums shrink-0">
+          <span className="font-display text-sm font-semibold flex-1">All</span>
+          <span className="text-2xs text-muted-foreground tabular-nums shrink-0">
             {allTab.count.toLocaleString()}
           </span>
         </button>

@@ -41,7 +41,7 @@ export function FileCardThumbnail({
           className="absolute inset-0 w-full h-full object-cover pointer-events-none"
         />
       ) : imgError ? (
-        <span className="absolute inset-0 flex items-center justify-center text-[10px] text-muted-foreground font-medium text-center px-1">
+        <span className="absolute inset-0 flex items-center justify-center text-3xs text-muted-foreground font-medium text-center px-1">
           No preview
         </span>
       ) : (
@@ -59,7 +59,7 @@ export function FileCardThumbnail({
       )}
       {!dimmed && !hideCheckbox && (
         <div
-          className={`absolute top-1.5 left-1.5 w-4 h-4 rounded-[3px] flex items-center justify-center text-[9px] transition-all backdrop-blur-sm ${
+          className={`absolute top-1.5 left-1.5 w-4 h-4 rounded-[3px] flex items-center justify-center text-3xs transition-all backdrop-blur-sm ${
             selected
               ? 'bg-primary/90 border-primary text-primary-foreground font-bold'
               : 'bg-black/35 border-white/20 text-transparent'

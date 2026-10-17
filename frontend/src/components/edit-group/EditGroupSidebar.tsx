@@ -38,7 +38,7 @@ interface PendingGroups {
 }
 
 const FOOTER_BUTTON =
-  'text-[11px] py-1 rounded border transition-colors flex items-center justify-center gap-1 disabled:opacity-40'
+  'text-2xs py-1 rounded border transition-colors flex items-center justify-center gap-1 disabled:opacity-40'
 
 const NO_PENDING: PendingGroups = { groups: [], awaitedId: null, onOpen: () => {} }
 
@@ -221,7 +221,7 @@ function SidebarFooter({ canMergeAll }: SidebarFooterProps) {
         <button
           onClick={() => setPending({ kind: 'mergeAll' })}
           disabled={disabled}
-          className="w-full text-[12px] py-1.5 rounded border border-border/40 bg-secondary/30 text-muted-foreground hover:bg-secondary/60 hover:text-foreground transition-colors flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="w-full text-xs py-1.5 rounded border border-border/40 bg-secondary/30 text-muted-foreground hover:bg-secondary/60 hover:text-foreground transition-colors flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <Merge className="h-3.5 w-3.5" />
           {ops.merging ? 'Merging…' : 'Merge All'}
@@ -266,7 +266,7 @@ function GroupRow({ group, index, isActive, hasGroupActions, onClick }: GroupRow
         onClick={(e) => onClick(index, group.id, e)}
         className="flex-1 flex items-center gap-2 pl-3 pr-1 py-2 text-left min-w-0"
       >
-        <span className="flex-1 text-[12px] truncate">{group.group_name}</span>
+        <span className="flex-1 text-xs truncate">{group.group_name}</span>
         <GroupRowCounts group={group} />
       </button>
       {hasGroupActions && <GroupRowMenu groupId={group.id} />}
@@ -290,8 +290,8 @@ function PendingGroupRow({ group, awaited, onOpen, onDemand }: PendingGroupRowPr
       title={onDemand ? undefined : 'Still loading — click to load it next'}
       className="w-full flex items-center gap-2 pl-3 pr-2 py-2 text-left min-w-0 border-l-2 border-transparent text-muted-foreground/70 hover:text-foreground hover:bg-secondary/50 transition-colors"
     >
-      <span className="flex-1 text-[12px] truncate">{group.base_name}</span>
-      <span className="text-[11px] tabular-nums shrink-0 flex items-center gap-1">
+      <span className="flex-1 text-xs truncate">{group.base_name}</span>
+      <span className="text-2xs tabular-nums shrink-0 flex items-center gap-1">
         {group.image_count.toLocaleString()}
         {awaited && <Loader2 className="h-3 w-3 animate-spin ml-1" />}
       </span>
@@ -305,7 +305,7 @@ function GroupRowCounts({ group }: { group: EditableGroupState }) {
   const outOfScope = group.files.filter((f) => f.outOfScope).length
 
   return (
-    <span className="text-[11px] text-muted-foreground tabular-nums shrink-0 flex items-center gap-1">
+    <span className="text-2xs text-muted-foreground tabular-nums shrink-0 flex items-center gap-1">
       {group.files.filter((f) => !f.excluded && !f.outOfScope).length}
       {outOfScope > 0 && <span className="ml-0.5 opacity-80">+{outOfScope}</span>}
       {ops.groupSaving.has(group.id) ? (
@@ -361,10 +361,10 @@ function RowDeleteConfirm({
   onConfirm: () => void
   onCancel: () => void
 }) {
-  const button = 'px-2 py-0.5 rounded border text-[10px] transition-colors disabled:opacity-50'
+  const button = 'px-2 py-0.5 rounded border text-3xs transition-colors disabled:opacity-50'
   return (
     <div className="px-3 py-2 border-l-2 border-destructive/50 bg-destructive/5">
-      <p className="text-[11px] text-destructive/80 mb-1.5">Delete this group?</p>
+      <p className="text-2xs text-destructive/80 mb-1.5">Delete this group?</p>
       <div className="flex gap-1">
         <button
           onClick={onConfirm}

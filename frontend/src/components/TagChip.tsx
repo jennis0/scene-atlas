@@ -2,8 +2,8 @@ import { X } from 'lucide-react'
 import { useGetTagColor } from '@/contexts/TagColorContext'
 
 const SIZES = {
-  sm: { chip: 'gap-0.5 px-1.5 text-[10px]', icon: 'h-2 w-2' },
-  md: { chip: 'gap-1 px-2 text-[11px]', icon: 'h-2.5 w-2.5' },
+  sm: { chip: 'gap-0.5 px-1.5 text-3xs', icon: 'h-2 w-2' },
+  md: { chip: 'gap-1 px-2 text-2xs', icon: 'h-2.5 w-2.5' },
 }
 
 interface TagChipProps {
