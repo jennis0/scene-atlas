@@ -178,7 +178,7 @@ The PyInstaller spec keeps onnxruntime's `entry_points.txt` (DirectML plugin reg
 | `electron/src/setup.preload.ts` | Setup window preload: exposes `setupAPI` |
 | `electron/src/sidecar.ts` | Sidecar spawn, port discovery, stdout parsing |
 | `electron/src/config.ts` | Config load/save/migration, default directories |
-| `electron/setup.html` | Setup window HTML (first-run directory picker) |
+| `electron/setup.html` | Setup window HTML (first-run directory picker); fonts bundled in `electron/fonts/`, so it needs no network and its CSP has no remote origins |
 | `electron/loading.html` | Startup / error page shown until the sidecar serves the UI |
 | `electron-builder.yml` | Build targets, sidecar bundling, auto-update config |
 | `backend/pyinstaller/scene_atlas_backend.spec` | PyInstaller spec for freezing the Python backend |
