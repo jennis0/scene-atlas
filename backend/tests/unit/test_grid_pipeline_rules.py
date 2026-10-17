@@ -1,11 +1,13 @@
-"""Grid detection plumbing: memory estimates and which images the backfill touches."""
+"""Grid detection plumbing: memory estimates, which images the backfill touches, and
+how file-name grid sizes are oriented."""
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from backend.pipeline.backfill_grid_detection import detection_mode
-from backend.pipeline.ingest_process import grid_detection_bytes
+from backend.pipeline.ingest_process import _detect_grid, grid_detection_bytes, orient_grid
 from backend.pipeline.pipeline_config import PipelineConfig
 
 MB = 1024 * 1024
@@ -102,3 +104,41 @@ def test_detector_results_are_only_redone_with_force():
 )
 def test_non_battlemaps_are_skipped(kw):
     assert detection_mode(_image(**kw), force=True) is None
+
+
+# ---------------------------------------------------------------------------
+# File-name NxM orientation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("grid", "image", "expected"),
+    [
+        ((30, 20), (3000, 2000), (30, 20)),  # already matches a landscape map
+        ((20, 30), (3000, 2000), (30, 20)),  # rows x columns on a landscape map
+        ((30, 20), (2000, 3000), (20, 30)),  # a landscape NxM on a portrait map
+        ((20, 30), (2000, 3000), (20, 30)),
+        ((30, 30), (2000, 3000), (30, 30)),  # square grid: nothing to orient
+        ((30, 20), (3000, 3000), (30, 20)),  # square image: keep the name's order
+        ((30, 20), (2980, 3000), (30, 20)),  # within 2% of square: still ambiguous
+        ((30, 20), (2900, 3000), (20, 30)),  # beyond the tolerance
+    ],
+)
+def test_file_name_grid_follows_the_image_orientation(grid, image, expected):
+    assert orient_grid(*grid, *image) == expected
+
+
+@pytest.mark.parametrize("args", [(None, None, 3000, 2000), (20, 30, None, None), (20, 30, 0, 0)])
+def test_orientation_needs_both_sizes(args):
+    assert orient_grid(*args) == args[:2]
+
+
+def test_ingest_stores_the_file_name_grid_oriented():
+    item = SimpleNamespace(
+        image_type="battlemap",
+        parsed={"gridded": True, "grid_width": 20, "grid_height": 30, "grid_type": None},
+    )
+    cfg = PipelineConfig(enable_image_grid_detection=False)
+    grid = _detect_grid(item, Path("unused.jpg"), 3000, 2000, cfg)
+    assert (grid["grid_width"], grid["grid_height"]) == (30, 20)
+    assert grid["grid_source"] == "filename"

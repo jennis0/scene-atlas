@@ -44,7 +44,15 @@ Given a relative path like `czepeku/Island Fort/Gridded/IslandFort_Night_Rain_30
   - Checked against 179k real paths: 262 files newly become hex, all genuine hex maps apart from one item image (`washer-hex-…`), which is imported as a scene and so never gets grid detection.
 - Check positive regex: `\b(grid(ded)?|gd)\b` → `gridded = True`
 - Also checks path components if filename doesn't match
-- Grid dimensions: `(\d{1,3})\s*[xX]\s*(\d{1,3})` pattern → `grid_width`, `grid_height`
+- Grid dimensions: `(\d{1,3})\s*[xX]\s*(\d{1,3})` pattern → `grid_width`, `grid_height` in name order. The parser has only the path, so it cannot tell columns from rows.
+  - **Orientation is settled at ingest** (`orient_grid` in `backend/pipeline/ingest_process.py`), once the pixel size is known. `grid_width` is the column count. If the longer side of the NxM does not lie along the longer side of the image, the pair is swapped. For example, `…16x12` on a 3600×4800 portrait map is stored as 12 columns × 16 rows, which gives square 300 px cells.
+  - Images within 2% of square keep the name's order.
+  - Migration 026 applied the same rule to existing exact file-name sizes.
+  - Survey of the real library (2026-10): about 2.4% of non-square NxM names are rows-first. Partyoftwo, caeora and some czepeku files write them that way.
+  - Known parser gaps the rule cannot fix:
+    - Digits glued onto the size: `Destroyed630x50` should be 30x50, and `Frozenpass218X27` should be 18x27.
+    - Random-ID filenames such as `4x8ogd.jpg`.
+    - Pack-level sizes on a single piece: `ForestPond30x28…Left` is half of the map.
 - **Skipped for `image_type="scene"`** — scenes do not use grid metadata
 
 **Image-analysis-based** (during ingest, `_detect_grid` in `backend/pipeline/ingest_process.py`):

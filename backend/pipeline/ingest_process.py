@@ -108,13 +108,38 @@ class PreparedItem:
             path.unlink(missing_ok=True)
 
 
+# Images within 2% of square give no reliable orientation; the name's order is kept.
+_SQUARE_TOLERANCE = 50
+
+
+def orient_grid(
+    grid_width: int | None, grid_height: int | None, width: int | None, height: int | None
+) -> tuple[int | None, int | None]:
+    """Order a file name's NxM so the longer side of the grid runs along the longer
+    side of the image. Names disagree on whether N is columns or rows ("30x20" on a
+    portrait map), and cells far from square are never what the creator meant."""
+    if not (grid_width and grid_height and width and height):
+        return grid_width, grid_height
+    if abs(width - height) * _SQUARE_TOLERANCE <= max(width, height):
+        return grid_width, grid_height
+    if (grid_width > grid_height) != (width > height):
+        return grid_height, grid_width
+    return grid_width, grid_height
+
+
+def _filename_grid_counts(parsed: dict, width: int, height: int) -> dict:
+    grid_width, grid_height = orient_grid(
+        parsed.get("grid_width"), parsed.get("grid_height"), width, height
+    )
+    return {"grid_width": grid_width, "grid_height": grid_height}
+
+
 def _detect_grid(item: ClaimedItem, staged: Path, width: int, height: int, cfg) -> dict:
     """Filename-derived grid info, refined by image analysis when enabled (battlemaps only)."""
     parsed = item.parsed
     grid = {
         "gridded": parsed.get("gridded"),
-        "grid_width": parsed.get("grid_width"),
-        "grid_height": parsed.get("grid_height"),
+        **_filename_grid_counts(parsed, width, height),
         "grid_type": parsed.get("grid_type"),
         "grid_confidence": None,
         "grid_source": GRID_SOURCE_FILENAME
@@ -387,7 +412,10 @@ def _prepare(
     grid = (
         _detect_grid(item, staged, width, height, cfg)
         if item.kind != "video"
-        else {k: item.parsed.get(k) for k in ("gridded", "grid_width", "grid_height")}
+        else {
+            "gridded": item.parsed.get("gridded"),
+            **_filename_grid_counts(item.parsed, width, height),
+        }
     )
 
     stored = _store_original(item, cfg, staged, stem, source_hash, file_size, progress, owned=owned)
