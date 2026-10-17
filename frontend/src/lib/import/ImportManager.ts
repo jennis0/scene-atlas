@@ -17,7 +17,7 @@
  * The server owns the lifecycle; nothing here is persisted locally.
  */
 
-import { importClient as defaultClient, type ImportClient } from './importClient'
+import { importClient as defaultClient, type DetailScope, type ImportClient } from './importClient'
 import { createHasher, type Hasher } from './hasher'
 import type {
   ImageType,
@@ -211,7 +211,8 @@ export class ImportManager {
   /** Files this tab gave up on, kept so "Try again" works without re-picking. */
   private failedFiles = new Map<string, PendingFile[]>()
   /** Jobs whose detail a mounted view needs, with a reference count. */
-  private watched = new Map<string, number>()
+  /** Per watched job, one entry per watcher: the groups it needs. */
+  private watched = new Map<string, DetailScope[]>()
 
   private etag: string | null = null
   private pollTimer: ReturnType<typeof setTimeout> | null = null
@@ -761,6 +762,14 @@ export class ImportManager {
     await this.refresh()
   }
 
+  /** Hide every finished import from the activity dock. */
+  async dismissFinished(): Promise<void> {
+    const finished = this.snapshot.jobs.filter((j) => !OPEN_STATUSES.has(j.status)).map((j) => j.id)
+    await this.client.dismissFinished()
+    finished.forEach((id) => this.forgetUpload(id))
+    await this.refresh()
+  }
+
   async retry(jobId: string, itemIds?: number[]): Promise<number> {
     const result = await this.client.itemAction(jobId, 'retry', itemIds)
     await this.refresh()
@@ -814,18 +823,22 @@ export class ImportManager {
   /**
    * Keep ``snapshot.details[jobId]`` fresh while the returned function hasn't
    * been called. Detail is re-fetched only when the summary poll reports a
-   * change, so an idle open dialog costs nothing.
+   * change, so an idle open dialog costs nothing. ``active`` watchers need only
+   * the groups importing now; the detail carries every group if any watcher
+   * asks for ``all``.
    */
-  watchJob(jobId: string): () => void {
-    this.watched.set(jobId, (this.watched.get(jobId) ?? 0) + 1)
-    if (this.watched.get(jobId) === 1) void this.fetchDetail(jobId)
+  watchJob(jobId: string, scope: DetailScope = 'all'): () => void {
+    const before = this.detailScope(jobId)
+    this.watched.set(jobId, [...(this.watched.get(jobId) ?? []), scope])
+    if (this.detailScope(jobId) !== before) void this.fetchDetail(jobId)
     let released = false
     return () => {
       if (released) return
       released = true
-      const count = (this.watched.get(jobId) ?? 1) - 1
-      if (count > 0) {
-        this.watched.set(jobId, count)
+      const scopes = [...(this.watched.get(jobId) ?? [])]
+      scopes.splice(scopes.indexOf(scope), 1)
+      if (scopes.length > 0) {
+        this.watched.set(jobId, scopes)
         return
       }
       this.watched.delete(jobId)
@@ -840,9 +853,15 @@ export class ImportManager {
     return this.client.get(jobId)
   }
 
+  private detailScope(jobId: string): DetailScope | undefined {
+    const scopes = this.watched.get(jobId)
+    if (!scopes?.length) return undefined
+    return scopes.includes('all') ? 'all' : 'active'
+  }
+
   private async fetchDetail(jobId: string): Promise<void> {
     try {
-      const detail = await this.client.get(jobId)
+      const detail = await this.client.get(jobId, this.detailScope(jobId))
       if (this.watched.has(jobId)) {
         this.set({ details: { ...this.snapshot.details, [jobId]: detail } })
       }

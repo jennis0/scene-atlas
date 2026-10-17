@@ -57,7 +57,7 @@ export function ImportFrame({
         <div className="relative flex-1 min-h-0 flex flex-col">{children}</div>
 
         {footer && (
-          <footer className="shrink-0 flex items-center gap-2 px-6 py-3 border-t border-border/30 bg-popover">
+          <footer className="shrink-0 flex flex-wrap items-center gap-2 px-6 py-3 border-t border-border/30 bg-popover">
             {footer}
           </footer>
         )}
@@ -76,25 +76,29 @@ export function TextButton({
 }: {
   children: ReactNode
   onClick: () => void
-  /** solid: the dialog's one main next step */
-  tone?: 'default' | 'primary' | 'solid' | 'danger'
+  /** solid: the dialog's one main next step; outline: a footer control */
+  tone?: 'default' | 'primary' | 'solid' | 'danger' | 'outline' | 'outline-danger'
   disabled?: boolean
   title?: string
 }) {
   const toneClass =
     tone === 'solid'
       ? 'bg-primary text-primary-foreground hover:bg-primary/85 border-transparent font-medium'
-      : tone === 'primary'
-        ? 'text-primary bg-primary/10 hover:bg-primary/20 border-primary/25'
-        : tone === 'danger'
-          ? 'text-muted-foreground hover:text-destructive hover:bg-destructive/10 border-transparent'
-          : 'text-muted-foreground hover:text-foreground hover:bg-secondary border-transparent'
+      : tone === 'outline'
+        ? 'text-foreground border-border hover:bg-secondary'
+        : tone === 'outline-danger'
+          ? 'text-foreground border-border hover:text-destructive hover:border-destructive/40 hover:bg-destructive/10'
+          : tone === 'primary'
+            ? 'text-primary bg-primary/10 hover:bg-primary/20 border-primary/25'
+            : tone === 'danger'
+              ? 'text-muted-foreground hover:text-destructive hover:bg-destructive/10 border-transparent'
+              : 'text-muted-foreground hover:text-foreground hover:bg-secondary border-transparent'
   return (
     <button
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-md border text-[12.5px] transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${toneClass}`}
+      className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-md border text-[12.5px] whitespace-nowrap transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${toneClass}`}
     >
       {children}
     </button>

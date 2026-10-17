@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react'
 import { Check, EyeOff, Loader2, Merge, MoreHorizontal, Trash2 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -6,23 +7,25 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
-import { GroupSidebarShell } from '@/components/import/shared/GroupSidebarShell'
+import { GroupSidebarShell, type AllTab } from '@/components/import/shared/GroupSidebarShell'
 import { DroppableGroupRow, DraggableGroupRow } from '@/components/import/shared/dnd'
 import type { EditableGroupState, GroupSummary } from '@/types'
 import { useEditGroupContext } from './EditGroupContext'
+import { SidebarList } from './SidebarList'
+import { sidebarRows, type LoadedSidebarRow, type SidebarRow } from './sidebarRows'
 
 type GroupClickHandler = (index: number, groupId: string, e: React.MouseEvent) => void
 
 interface EditGroupSidebarProps {
   activeTab: number
-  isAllTab: boolean
-  onSelectAll: () => void
+  allTab: AllTab
   onGroupClick: GroupClickHandler
-  totalInScope: number
   /** Mass edit and import review get per-group menus and merge/delete actions. */
   hasGroupActions: boolean
   /** Import review: groups listed from their summaries whose files are still loading */
   pending?: PendingGroups
+  /** Import review: group ids in sidebar order (see sidebarRows) */
+  order?: number[]
 }
 
 interface PendingGroups {
@@ -30,70 +33,167 @@ interface PendingGroups {
   /** The one the user clicked: it loads next, then opens */
   awaitedId: number | null
   onOpen: (groupId: number) => void
+  /** Large import review: groups load only when opened, so pending isn't "still loading" */
+  onDemand?: boolean
 }
 
 const FOOTER_BUTTON =
   'text-[11px] py-1 rounded border transition-colors flex items-center justify-center gap-1 disabled:opacity-40'
 
+const NO_PENDING: PendingGroups = { groups: [], awaitedId: null, onOpen: () => {} }
+
+/** "12 of 68 groups" while groups are still loading, else "68 groups". */
+function headerLabel(loaded: number, pending: PendingGroups) {
+  const total = (loaded + pending.groups.length).toLocaleString()
+  if (pending.groups.length === 0 || pending.onDemand) return `${total} groups`
+  return `${loaded.toLocaleString()} of ${total} groups`
+}
+
 export function EditGroupSidebar({
   activeTab,
-  isAllTab,
-  onSelectAll,
+  allTab,
   onGroupClick,
-  totalInScope,
   hasGroupActions,
-  pending,
+  pending = NO_PENDING,
+  order = [],
 }: EditGroupSidebarProps) {
-  const { groups, activeDrag } = useEditGroupContext()
-  const pendingCount = pending?.groups.length ?? 0
+  const { groups } = useEditGroupContext()
+  const [query, setQuery] = useState('')
+  // State, not a ref: the list's virtualiser needs it on its first layout effect
+  const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null)
+  const total = groups.length + pending.groups.length
+  const rows = useMemo(
+    () => sidebarRows(groups, pending.groups, order, query),
+    [groups, pending.groups, order, query],
+  )
+  const activeIndex = allTab.active ? null : activeTab
 
   return (
     <GroupSidebarShell
-      headerLabel={
-        pendingCount > 0
-          ? `${groups.length} of ${groups.length + pendingCount} groups`
-          : `${groups.length} groups`
-      }
-      allCount={totalInScope}
-      isAllActive={isAllTab}
-      onSelectAll={onSelectAll}
-      footer={hasGroupActions ? <SidebarFooter /> : undefined}
+      headerLabel={headerLabel(groups.length, pending)}
+      allTab={allTab}
+      footer={hasGroupActions ? <SidebarFooter canMergeAll={!pending.onDemand} /> : undefined}
+      toolbar={total >= FILTER_FROM ? <GroupNameFilter value={query} onChange={setQuery} /> : null}
+      scrollRef={setScrollElement}
     >
-      {groups.map((g, i) => (
-        <DroppableGroupRow key={g.id} groupId={g.id} activeDrag={activeDrag}>
-          <DraggableGroupRow groupId={g.id} isDndEnabled>
-            <div className="group/navrow">
-              <GroupRow
-                group={g}
-                index={i}
-                isActive={activeTab === i}
-                hasGroupActions={hasGroupActions}
-                onClick={onGroupClick}
-              />
-            </div>
-          </DraggableGroupRow>
-        </DroppableGroupRow>
-      ))}
-      {pending?.groups.map((g) => (
-        <PendingGroupRow
-          key={g.id}
-          group={g}
-          awaited={pending.awaitedId === g.id}
-          onOpen={pending.onOpen}
-        />
-      ))}
+      <SidebarList
+        rows={rows}
+        scrollElement={scrollElement}
+        render={(row) => (
+          <SidebarRowView
+            row={row}
+            pending={pending}
+            activeIndex={activeIndex}
+            hasGroupActions={hasGroupActions}
+            onGroupClick={onGroupClick}
+          />
+        )}
+      />
     </GroupSidebarShell>
   )
 }
 
-/** Merge/delete for the multi-selection, or Merge All when nothing is multi-selected. */
-function SidebarFooter() {
+interface SidebarRowViewProps {
+  row: SidebarRow
+  pending: PendingGroups
+  activeIndex: number | null
+  hasGroupActions: boolean
+  onGroupClick: GroupClickHandler
+}
+
+function SidebarRowView({
+  row,
+  pending,
+  activeIndex,
+  hasGroupActions,
+  onGroupClick,
+}: SidebarRowViewProps) {
+  if (row.kind === 'pending') {
+    return (
+      <PendingGroupRow
+        group={row.summary}
+        awaited={pending.awaitedId === row.summary.id}
+        onOpen={pending.onOpen}
+        onDemand={pending.onDemand ?? false}
+      />
+    )
+  }
+  return (
+    <LoadedGroupRow
+      row={row}
+      isActive={activeIndex === row.index}
+      hasGroupActions={hasGroupActions}
+      onClick={onGroupClick}
+    />
+  )
+}
+
+/** From this many groups, the sidebar offers a filter by name. */
+const FILTER_FROM = 30
+
+interface GroupNameFilterProps {
+  value: string
+  onChange: (v: string) => void
+}
+
+function GroupNameFilter({ value, onChange }: GroupNameFilterProps) {
+  return (
+    <div className="px-2 py-1.5 border-b border-border/30 shrink-0">
+      <input
+        type="search"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Filter groups…"
+        aria-label="Filter groups by name"
+        className="w-full h-7 px-2 text-xs rounded border border-border bg-background text-foreground placeholder:text-muted-foreground"
+      />
+    </div>
+  )
+}
+
+interface LoadedGroupRowProps {
+  row: LoadedSidebarRow
+  isActive: boolean
+  hasGroupActions: boolean
+  onClick: GroupClickHandler
+}
+
+function LoadedGroupRow({ row, isActive, hasGroupActions, onClick }: LoadedGroupRowProps) {
+  const { activeDrag } = useEditGroupContext()
+  return (
+    <DroppableGroupRow groupId={row.group.id} activeDrag={activeDrag}>
+      <DraggableGroupRow groupId={row.group.id} isDndEnabled>
+        <div className="group/navrow">
+          <GroupRow
+            group={row.group}
+            index={row.index}
+            isActive={isActive}
+            hasGroupActions={hasGroupActions}
+            onClick={onClick}
+          />
+        </div>
+      </DraggableGroupRow>
+    </DroppableGroupRow>
+  )
+}
+
+/**
+ * Merge/delete for the multi-selection, or Merge All when nothing is multi-selected.
+ * Not in large import review: Merge All only sees the groups opened so far.
+ */
+interface SidebarFooterProps {
+  canMergeAll: boolean
+}
+
+function SidebarFooter({ canMergeAll }: SidebarFooterProps) {
   const { selectedGroupIds, setPending, ops } = useEditGroupContext()
   const disabled = ops.merging || ops.saving
+  const multiSelected = selectedGroupIds.size >= 2
+  if (!multiSelected && !canMergeAll) return null
 
   return (
     <div className="p-2.5 border-t border-border/30 shrink-0">
-      {selectedGroupIds.size >= 2 ? (
+      {multiSelected ? (
         <div className="space-y-1.5">
           <span className="text-xs text-muted-foreground font-semibold">
             {selectedGroupIds.size} selected
@@ -175,25 +275,24 @@ function GroupRow({ group, index, isActive, hasGroupActions, onClick }: GroupRow
 }
 
 /** A group whose files haven't arrived yet: listed, and clicking it loads it next. */
-function PendingGroupRow({
-  group,
-  awaited,
-  onOpen,
-}: {
+interface PendingGroupRowProps {
   group: GroupSummary
   awaited: boolean
   onOpen: (groupId: number) => void
-}) {
+  onDemand: boolean
+}
+
+function PendingGroupRow({ group, awaited, onOpen, onDemand }: PendingGroupRowProps) {
   return (
     <button
       onClick={() => onOpen(group.id)}
       aria-busy={awaited}
-      title="Still loading — click to load it next"
+      title={onDemand ? undefined : 'Still loading — click to load it next'}
       className="w-full flex items-center gap-2 pl-3 pr-2 py-2 text-left min-w-0 border-l-2 border-transparent text-muted-foreground/70 hover:text-foreground hover:bg-secondary/50 transition-colors"
     >
       <span className="flex-1 text-[12px] truncate">{group.base_name}</span>
       <span className="text-[11px] tabular-nums shrink-0 flex items-center gap-1">
-        {group.image_count}
+        {group.image_count.toLocaleString()}
         {awaited && <Loader2 className="h-3 w-3 animate-spin ml-1" />}
       </span>
     </button>

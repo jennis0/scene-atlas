@@ -99,7 +99,7 @@ export function Gallery() {
       try {
         const detail = await getImportManager().getDetail(job.id)
         const ids = reviewableGroupIds(detail.groups)
-        if (ids.length > 0) return setReviewGroupIds(ids)
+        if (ids.length > 0) return setReviewGroupIds(ids, undefined, job.id)
       } catch {
         // Fall back to the dialog, which reports what it can
       }
@@ -323,8 +323,20 @@ export function Gallery() {
 
         {/* Group editor over every group an import created (from the import report) */}
         <EditGroupDialog
-          groupIds={dialogs.reviewGroupIds ?? undefined}
-          startGroupId={dialogs.reviewStartGroupId}
+          importReview={
+            dialogs.reviewGroupIds
+              ? {
+                  groupIds: dialogs.reviewGroupIds,
+                  startGroupId: dialogs.reviewStartGroupId,
+                  jobId: dialogs.reviewJobId,
+                  onAddGroups: dialogs.addReviewGroupIds,
+                  onShowProgress: (jobId) => {
+                    dialogs.setReviewGroupIds(null)
+                    dialogs.openImport(jobId)
+                  },
+                }
+              : undefined
+          }
           open={dialogs.reviewGroupIds !== null}
           onClose={() => dialogs.setReviewGroupIds(null)}
           onSave={() => dialogs.invalidateGallery()}
@@ -352,8 +364,9 @@ export function Gallery() {
         onClose={dialogs.closeImport}
         onStarted={(jobId) => dialogs.openImport(jobId)}
         onReviewGroups={(groupIds, startGroupId) => {
+          const jobId = dialogs.importDialog.jobId ?? undefined
           dialogs.closeImport()
-          dialogs.setReviewGroupIds(groupIds, startGroupId)
+          dialogs.setReviewGroupIds(groupIds, startGroupId, jobId)
         }}
         onUndone={() => dialogs.invalidateGallery()}
       />
@@ -370,6 +383,8 @@ export function Gallery() {
 
       <ActivityDock
         backgroundJobs={backgroundJobs.jobs}
+        onDismissJob={backgroundJobs.dismiss}
+        onClearFinished={backgroundJobs.dismissFinished}
         onOpenImport={openImportFromDock}
         onUndone={() => dialogs.invalidateGallery()}
       />

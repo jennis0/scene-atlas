@@ -137,9 +137,11 @@ def trigger_rebuild_embeddings(request: Request, force: bool = False):
 
     try:
         runner = get_job_runner()
-        if runner.has_active_job("Rebuild embeddings"):
+        if runner.has_active_job("Rebuilding image embeddings"):
             raise HTTPException(status_code=409, detail="Embedding rebuild already in progress")
-        job_id = runner.submit(rebuild_all_embeddings, name="Rebuild embeddings", force=force)
+        job_id = runner.submit(
+            rebuild_all_embeddings, name="Rebuilding image embeddings", force=force
+        )
         return {"job_id": job_id, "message": "Embedding rebuild started"}
     except HTTPException:
         raise

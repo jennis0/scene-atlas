@@ -95,7 +95,7 @@ Set by `get_session_options()` from the primary provider:
 
 | Provider | `intra_op_threads` | `inter_op_threads` | Rationale |
 |----------|--------------------|--------------------|-----------|
-| CPU | 2 | 1 | Avoid contention with uvicorn |
+| CPU | one per physical core | 1 | Was 2; on a 6-core 5900X the medium model ran 1.1 images/s on 2 threads, 2.1 on 6, 1.6 on 12 (hyperthreads only add contention) |
 | CUDA | 4 | 2 | Feed the GPU pipeline |
 | DirectML | 1 | 1 | Async GPU dispatch; extra threads wasteful |
 | CoreML | 1 | 1 | Same rationale as DirectML |

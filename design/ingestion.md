@@ -281,6 +281,7 @@ All routes are under `/api/v1/imports` (`backend/app/api/imports.py`). Mutating 
 | `POST /imports/{id}/import-as-copy` | `{item_ids?}`, default all `duplicate` |
 | `POST /imports/{id}/finish-upload` | `awaiting_bytes` → `skipped` ("Not uploaded") |
 | `POST /imports/{id}/dismiss` | Hide a completed/cancelled job from the dock |
+| `POST /imports/dismiss-finished` | Hide every completed/cancelled job (the dock's "Clear finished") |
 | `DELETE /imports/{id}` | Undo import |
 | `POST /imports/queue/probe` | Re-check system conditions now ("Retry now") |
 
@@ -315,7 +316,7 @@ create job → manifest chunks → (archives) → seal ──▶ show group plan
 
 ### 8.2 Views
 
-`ImportDialog` (start view; progress with notices, group ledger, Pause/Resume/Cancel; and in the same frame once finished, the result: Groups, Problems, Already in library, Skipped; Retry, Import as new copies, Undo import, Review in editor, Done) and `ImportJobRow` in the activity dock (queue banner with "Retry now" when system-paused; Undo and Dismiss on finished rows). All are pure views over `ImportManager`; lists page through `GET /imports/{id}/items`.
+`ImportDialog` (start view; progress with notices, group ledger, Pause/Resume/Cancel; and in the same frame once finished, the result: Groups, Problems, Already in library, Skipped; Retry, Import as new copies, Undo import, Review in editor, Done) and `ImportJobRow` in the activity dock (queue banner with "Retry now" when system-paused; Undo and Dismiss on finished rows; "Clear finished" in the header dismisses every finished import and background job). All are pure views over `ImportManager`; lists page through `GET /imports/{id}/items`.
 
 ## 9. Maintenance and recovery
 
@@ -323,7 +324,7 @@ create job → manifest chunks → (archives) → seal ──▶ show group plan
 |---|---|---|
 | `IngestWorker.recover()` | Startup, after the storage locks are taken (so no other backend is using the stores) | Deletes `.incoming/` in both stores; `recover_interrupted()` returns `processing` items to `ready`, or fails them at 3 attempts. Deletes no images. |
 | `ingest_maintenance` (`run_ingest_maintenance`) | Scheduler, every 6 h | `abandon_stale_uploads`: active/paused jobs with no bytes for 7 days → `awaiting_bytes` items `skipped` ("Not uploaded"). `release_staged_bytes`: staged files of `done`/`skipped` items always; of `failed`/`duplicate` items once the job is dismissed or finished more than 7 days ago. `prune_dismissed_jobs`: job/group/item rows of jobs dismissed over 30 days ago (images untouched). `sweep_stray_staging_files`: unreferenced staging files and directories older than 1 h. |
-| `reconcile_vectors` | Startup (once the model has loaded, via `JobRunner`) and scheduler every 24 h | Compares SQLite and LanceDB id sets; re-embeds missing images from their thumbnails and deletes orphaned vectors. |
+| `reconcile_vectors` | Startup (once the model has loaded, via `JobRunner`, shown as "Updating image embeddings" with progress) and scheduler every 24 h | Compares SQLite and LanceDB id sets; re-embeds missing images from their thumbnails and deletes orphaned vectors. |
 | `sweep_orphaned_store_files` | Scheduler, every 24 h | Deletes store files no image references. Only considers the `xx/yy/<key>` shard layout (so `.incoming/` and `backups/` are never touched), ignores files younger than 1 h, and deletes nothing if more than 25% of the store looks orphaned. |
 | `backup_database` | Scheduler, every 24 h | SQLite + LanceDB snapshot with rotation |
 

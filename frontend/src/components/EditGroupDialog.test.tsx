@@ -10,6 +10,7 @@ vi.mock('@/lib/api', () => ({
     get: vi.fn(),
     summaries: vi.fn(),
     details: vi.fn(),
+    bulkUpdate: vi.fn().mockResolvedValue(undefined),
     edit: vi.fn().mockResolvedValue({ new_group_ids: [] }),
     delete: vi.fn().mockResolvedValue(undefined),
     merge: vi.fn().mockResolvedValue(undefined),
@@ -21,12 +22,18 @@ vi.mock('@/lib/api', () => ({
   },
   imageApi: {
     getAuthors: vi.fn().mockResolvedValue([]),
+    bulkEdit: vi.fn(),
+    bulkRestore: vi.fn().mockResolvedValue(undefined),
+    facets: vi.fn(),
   },
   getThumbnailUrlById: vi.fn((id: number) => `/api/v1/images/${id}/thumbnail`),
   getImageUrlById: vi.fn((id: number) => `/api/v1/images/${id}`),
 }))
 
-import { groupApi } from '@/lib/api'
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+
+import { toast } from 'sonner'
+import { groupApi, imageApi } from '@/lib/api'
 
 function makeImage(id: number, overrides: Partial<Image> = {}): Image {
   return {
@@ -216,7 +223,7 @@ describe('EditGroupDialog', () => {
     })
 
     it('closes on Escape without saving', async () => {
-      const { user, onClose, onSave } = renderDialog({ groupIds: [1] })
+      const { user, onClose, onSave } = renderDialog({ importReview: { groupIds: [1] } })
       await waitFor(() => expect(groupApi.details).toHaveBeenCalledWith([1]))
       await user.keyboard('{Escape}')
       expect(onClose).toHaveBeenCalled()
@@ -250,7 +257,7 @@ describe('EditGroupDialog', () => {
       const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600)
       const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800)
       try {
-        renderDialog({ groupIds: [1, 4] })
+        renderDialog({ importReview: { groupIds: [1, 4] } })
         // Unlabelled files come first, so the summer/winter subgroups are off screen
         expect(await within(dialog()).findByText('Big 0')).toBeInTheDocument()
         expect(within(dialog()).queryByText('Clearing')).not.toBeInTheDocument()
@@ -266,7 +273,7 @@ describe('EditGroupDialog', () => {
     })
 
     it('lists groups in the sidebar and switches between them', async () => {
-      const { user } = renderDialog({ groupIds: [1, 2] })
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2] } })
       expect(await screen.findByText('2 groups')).toBeInTheDocument()
       // The All tab shows every in-scope file
       expect(within(dialog()).getByText('Grotto')).toBeInTheDocument()
@@ -280,18 +287,30 @@ describe('EditGroupDialog', () => {
     it('starts fresh when reopened for a different import', async () => {
       const onClose = vi.fn()
       const { rerender } = renderWithProviders(
-        <EditGroupDialog open groupIds={[1, 2]} onClose={onClose} onSave={vi.fn()} />,
+        <EditGroupDialog
+          open
+          importReview={{ groupIds: [1, 2] }}
+          onClose={onClose}
+          onSave={vi.fn()}
+        />,
       )
       expect(await screen.findByText('2 groups')).toBeInTheDocument()
       rerender(<EditGroupDialog open={false} onClose={onClose} onSave={vi.fn()} />)
-      rerender(<EditGroupDialog open groupIds={[3]} onClose={onClose} onSave={vi.fn()} />)
+      rerender(
+        <EditGroupDialog
+          open
+          importReview={{ groupIds: [3] }}
+          onClose={onClose}
+          onSave={vi.fn()}
+        />,
+      )
       expect(await screen.findByDisplayValue('Town Maps')).toBeInTheDocument()
       expect(screen.queryByText(/groups/)).not.toBeInTheDocument()
       expect(within(dialog()).queryByText('Clearing')).not.toBeInTheDocument()
     })
 
     it('opens on the group it was asked to start on', async () => {
-      renderDialog({ groupIds: [1, 2, 3], startGroupId: 2 })
+      renderDialog({ importReview: { groupIds: [1, 2, 3], startGroupId: 2 } })
       expect(await screen.findByDisplayValue('Cave Maps')).toBeInTheDocument()
       expect(within(dialog()).queryByText('Clearing')).not.toBeInTheDocument()
     })
@@ -299,7 +318,7 @@ describe('EditGroupDialog', () => {
     it('lists every group at once and fills them in as they load', async () => {
       // Group 3 is slow; the editor opens on the start group without it
       const releaseSlow = holdDetailsFor(3)
-      const { user } = renderDialog({ groupIds: [1, 2, 3], startGroupId: 1 })
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2, 3], startGroupId: 1 } })
       expect(await screen.findByDisplayValue('Forest Maps')).toBeInTheDocument()
       expect(screen.getByText('1 of 3 groups')).toBeInTheDocument()
       // Still loading, but already listed from its summary
@@ -319,7 +338,7 @@ describe('EditGroupDialog', () => {
 
     it('opens a still-loading group as soon as it arrives when clicked', async () => {
       const releaseSlow = holdDetailsFor(3)
-      const { user } = renderDialog({ groupIds: [1, 2, 3], startGroupId: 1 })
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2, 3], startGroupId: 1 } })
       await screen.findByDisplayValue('Forest Maps')
       await user.click(screen.getByRole('button', { name: /Town Maps/ }))
       expect(screen.getByRole('button', { name: /Town Maps/ })).toHaveAttribute('aria-busy', 'true')
@@ -328,12 +347,12 @@ describe('EditGroupDialog', () => {
     })
 
     it('leaves out groups deleted since the import', async () => {
-      renderDialog({ groupIds: [1, 99, 2] })
+      renderDialog({ importReview: { groupIds: [1, 99, 2] } })
       expect(await screen.findByText('2 groups')).toBeInTheDocument()
     })
 
     it('merges all groups into the first after confirmation', async () => {
-      const { user } = renderDialog({ groupIds: [1, 2] })
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2] } })
       await screen.findByText('2 groups')
       await user.click(screen.getByRole('button', { name: 'Merge All' }))
       const confirm = confirmDialog('Merge All Groups')
@@ -344,7 +363,7 @@ describe('EditGroupDialog', () => {
     })
 
     it('deletes a group from its row menu after inline confirmation', async () => {
-      const { user } = renderDialog({ groupIds: [1, 2] })
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2] } })
       await screen.findByText('2 groups')
       const row = sidebarRow('Cave Maps').closest('.group\\/navrow') as HTMLElement
       await user.click(within(row).getAllByRole('button')[1])
@@ -362,7 +381,7 @@ describe('EditGroupDialog', () => {
         ],
         total: 1,
       })
-      const { user } = renderDialog({ groupIds: [1, 2, 3] })
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2, 3] } })
       await screen.findByText('3 groups')
       const row = sidebarRow('Town Maps').closest('.group\\/navrow') as HTMLElement
       await user.click(within(row).getAllByRole('button')[1])
@@ -376,7 +395,7 @@ describe('EditGroupDialog', () => {
 
     it('keeps the inline delete confirmation open when the delete fails', async () => {
       vi.mocked(groupApi.delete).mockRejectedValueOnce(new Error('Group is locked'))
-      const { user } = renderDialog({ groupIds: [1, 2] })
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2] } })
       await screen.findByText('2 groups')
       const row = sidebarRow('Cave Maps').closest('.group\\/navrow') as HTMLElement
       await user.click(within(row).getAllByRole('button')[1])
@@ -387,7 +406,7 @@ describe('EditGroupDialog', () => {
     })
 
     it('removes a group from view without touching the server', async () => {
-      const { user } = renderDialog({ groupIds: [1, 2, 3] })
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2, 3] } })
       await screen.findByText('3 groups')
       const row = sidebarRow('Town Maps').closest('.group\\/navrow') as HTMLElement
       await user.click(within(row).getAllByRole('button')[1])
@@ -397,7 +416,7 @@ describe('EditGroupDialog', () => {
     })
 
     it('bulk merges and deletes ctrl-selected groups', async () => {
-      const { user } = renderDialog({ groupIds: [1, 2, 3] })
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2, 3] } })
       await screen.findByText('3 groups')
       await user.keyboard('{Control>}')
       await user.click(sidebarRow('Cave Maps'))
@@ -435,6 +454,207 @@ describe('EditGroupDialog', () => {
       await user.click(sidebarRow('Forest Maps'))
       expect(screen.getByText('Other images in this group')).toBeInTheDocument()
       expect(within(dialog()).getByText('Frost')).toBeInTheDocument()
+    })
+  })
+  describe('large import review', () => {
+    beforeEach(() => {
+      // 3,000 images a group by their summaries: over LARGE_REVIEW_IMAGES in all
+      vi.mocked(groupApi.summaries).mockImplementation(async (ids) =>
+        ids.map((id) => ({ ...summaryOf(GROUPS[id]), image_count: 3000 })),
+      )
+      vi.mocked(imageApi.facets).mockResolvedValue({
+        total: 9000,
+        image_type: [{ value: 'battlemap', count: 9000 }],
+        grid: [
+          { value: 'square', count: 0 },
+          { value: 'gridless', count: 400 },
+          { value: 'unknown', count: 8600 },
+        ],
+        subgroup: [{ value: null, count: 9000 }],
+        tags: [],
+      })
+      vi.mocked(imageApi.bulkEdit).mockResolvedValue({ updated: 400, undo_id: 'u' })
+    })
+
+    it('loads only the group it opens on, and others when they are opened', async () => {
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2, 3] } })
+      expect(await screen.findByDisplayValue('Forest Maps')).toBeInTheDocument()
+      expect(groupApi.details).toHaveBeenCalledTimes(1)
+      expect(groupApi.details).toHaveBeenCalledWith([1])
+
+      await user.click(screen.getByRole('button', { name: /Town Maps/ }))
+      expect(await screen.findByDisplayValue('Town Maps')).toBeInTheDocument()
+      expect(groupApi.details).toHaveBeenLastCalledWith([3])
+      // Cave Maps was never opened, so never fetched
+      expect(groupApi.details).toHaveBeenCalledTimes(2)
+    })
+
+    it('renders only the sidebar rows on screen for thousands of groups', async () => {
+      const ids = Array.from({ length: 2000 }, (_, i) => i + 1)
+      const named = (id: number) => ({ ...summaryOf(GROUPS[1]), id, base_name: `Pack ${id}` })
+      vi.mocked(groupApi.summaries).mockImplementation(async (asked) => asked.map(named))
+      vi.mocked(groupApi.details).mockImplementation(async (asked) =>
+        asked.map((id) => ({ ...structuredClone(GROUPS[1]), id, base_name: `Pack ${id}` })),
+      )
+      const size = { width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }
+      const spies = [
+        vi
+          .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+          .mockReturnValue({ ...size, x: 0, y: 0, toJSON: () => size } as DOMRect),
+        vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600),
+        vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800),
+      ]
+      try {
+        renderDialog({ importReview: { groupIds: ids } })
+        expect(await screen.findByText('2,000 groups')).toBeInTheDocument()
+        const rows = screen.getAllByRole('button', { name: /^Pack \d+/ })
+        expect(rows.length).toBeGreaterThan(0)
+        expect(rows.length).toBeLessThan(100)
+        expect(screen.queryByRole('button', { name: /^Pack 2000/ })).not.toBeInTheDocument()
+      } finally {
+        spies.forEach((spy) => spy.mockRestore())
+      }
+    })
+
+    it('shows All as a panel of counts whose edits go by scope', async () => {
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2, 3] } })
+      await screen.findByDisplayValue('Forest Maps')
+      await user.click(screen.getByRole('button', { name: /^All\s*[\d,]+$/ }))
+
+      expect(await screen.findByText('9,000 images in 3 groups')).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: /^Gridless/ }))
+      expect(screen.getByText(/Change the 400 Gridless images/)).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: /^Type/ }))
+      await user.click(await screen.findByRole('menuitem', { name: 'Scene' }))
+
+      await waitFor(() =>
+        expect(imageApi.bulkEdit).toHaveBeenCalledWith(
+          { scope: { group_ids: [1, 2, 3], filter: { grid: 'gridless' } } },
+          { image_type: 'scene' },
+          [],
+        ),
+      )
+    })
+  })
+
+  describe('author and name', () => {
+    it('saves nothing when the fields lose focus unchanged', async () => {
+      const { user } = renderDialog({ importReview: { groupIds: [1, 3] } })
+      await screen.findByText('2 groups')
+      await user.click(screen.getByPlaceholderText(/Multiple/))
+      await user.tab()
+      expect(groupApi.edit).not.toHaveBeenCalled()
+      expect(groupApi.bulkUpdate).not.toHaveBeenCalled()
+    })
+
+    it('sets the author of every group in one request', async () => {
+      const { user } = renderDialog({ importReview: { groupIds: [1, 3] } })
+      await screen.findByText('2 groups')
+      await user.type(screen.getByPlaceholderText(/Multiple/), 'Mapmaker')
+      await user.tab()
+      await waitFor(() => expect(groupApi.bulkUpdate).toHaveBeenCalledTimes(1))
+      expect(groupApi.bulkUpdate).toHaveBeenCalledWith([1, 3], 'Mapmaker')
+      expect(groupApi.edit).not.toHaveBeenCalled()
+    })
+
+    it('saves a renamed group on its own', async () => {
+      const { user } = renderDialog({ groupId: 1 })
+      const name = await screen.findByDisplayValue('Forest Maps')
+      await user.type(name, ' II')
+      await user.tab()
+      await waitFor(() =>
+        expect(groupApi.edit).toHaveBeenCalledWith(
+          1,
+          expect.objectContaining({ base_name: 'Forest Maps II' }),
+        ),
+      )
+      expect(groupApi.bulkUpdate).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('bulk actions', () => {
+    /** Select every file on the All tab, then pick Type → Scene from the toolbar. */
+    async function setTypeOfAll(user: ReturnType<typeof userEvent.setup>) {
+      await screen.findByText('2 groups')
+      const toolbar = screen.getByText(/^\d+ files$/).parentElement!
+      await user.click(within(toolbar).getByRole('checkbox'))
+      await user.click(screen.getByRole('button', { name: /^Type/ }))
+      await user.click(await screen.findByRole('menuitem', { name: 'Scene' }))
+    }
+
+    const responseFor = (target: { image_ids: number[] } | { scope: unknown }) => ({
+      updated: 'image_ids' in target ? target.image_ids.length : 0,
+      undo_id: 'undo-1',
+    })
+
+    it('saves in one bulk request, not by re-saving each group, and can be undone', async () => {
+      vi.mocked(imageApi.bulkEdit).mockImplementation(async (ids) => responseFor(ids))
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2] } })
+      await setTypeOfAll(user)
+
+      await waitFor(() =>
+        expect(imageApi.bulkEdit).toHaveBeenCalledWith(
+          { image_ids: [11, 12, 13, 21] },
+          { image_type: 'scene' },
+          [],
+        ),
+      )
+      expect(groupApi.edit).not.toHaveBeenCalled()
+      expect(
+        within(dialog()).getAllByRole('button', { name: 'Scene', pressed: true }),
+      ).toHaveLength(4)
+
+      const [message, options] = vi.mocked(toast.success).mock.lastCall!
+      expect(message).toBe('Set type to scene: 4 images')
+      const action = (options as unknown as { action: { onClick: () => void } }).action
+      action.onClick()
+      await waitFor(() => expect(imageApi.bulkRestore).toHaveBeenCalledWith('undo-1'))
+      await waitFor(() =>
+        expect(
+          within(dialog()).queryAllByRole('button', { name: 'Scene', pressed: true }),
+        ).toHaveLength(0),
+      )
+    })
+
+    it('asks before editing 500 images or more', async () => {
+      const big: GroupDetail = {
+        id: 5,
+        base_name: 'Huge Pack',
+        author: null,
+        primary_image_id: 1000,
+        images: Array.from({ length: 499 }, (_, i) => makeImage(1000 + i, { group_id: 5 })),
+      }
+      const all: Record<number, GroupDetail> = { ...GROUPS, 5: big }
+      vi.mocked(groupApi.summaries).mockImplementation(async (ids) =>
+        ids.map((id) => summaryOf(all[id])),
+      )
+      vi.mocked(groupApi.details).mockImplementation(async (ids) =>
+        ids.map((id) => structuredClone(all[id])),
+      )
+      vi.mocked(imageApi.bulkEdit).mockImplementation(async (ids) => responseFor(ids))
+      const { user } = renderDialog({ importReview: { groupIds: [2, 5] } })
+      await setTypeOfAll(user)
+
+      const confirm = await screen.findByRole('dialog', { name: 'Edit many images?' })
+      expect(confirm).toHaveTextContent('Set type to scene on 500 images?')
+      expect(imageApi.bulkEdit).not.toHaveBeenCalled()
+      await user.click(within(confirm).getByRole('button', { name: 'Apply' }))
+      await waitFor(() => expect(imageApi.bulkEdit).toHaveBeenCalledTimes(1))
+      expect(vi.mocked(imageApi.bulkEdit).mock.calls[0][0]).toEqual({
+        image_ids: expect.any(Array),
+      })
+      expect(vi.mocked(toast.success).mock.lastCall![0]).toBe('Set type to scene: 500 images')
+    })
+
+    it('puts the files back when the request fails', async () => {
+      vi.mocked(imageApi.bulkEdit).mockRejectedValue(new Error('Database is locked'))
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2] } })
+      await setTypeOfAll(user)
+
+      await waitFor(() => expect(toast.error).toHaveBeenCalled())
+      expect(
+        within(dialog()).queryAllByRole('button', { name: 'Scene', pressed: true }),
+      ).toHaveLength(0)
     })
   })
 })

@@ -52,6 +52,40 @@ describe('ActivityDock', () => {
     expect(screen.getByTestId('activity-dock-pill')).toHaveTextContent('2')
   })
 
+  it('shows image embedding updates with their progress and outcome', async () => {
+    ;({ manager } = await installFakeImportManager())
+    const embedding = {
+      ...runningBgJob,
+      name: 'Updating image embeddings',
+      progress: '320 of 4,761 images',
+      progress_pct: 6,
+    }
+    const done = (result: Record<string, number>) => ({
+      ...embedding,
+      id: `done-${result.missing}`,
+      status: 'completed' as const,
+      progress_pct: 100,
+      result: { orphaned: 0, unrepairable: 0, ...result },
+    })
+    renderWithProviders(
+      <ActivityDock
+        backgroundJobs={[
+          embedding,
+          done({ missing: 4761, repaired: 4761 }),
+          done({ missing: 0, repaired: 0 }),
+          done({ missing: 10, repaired: 8 }),
+        ]}
+        onOpenImport={vi.fn()}
+      />,
+    )
+    await userEvent.click(screen.getByTestId('activity-dock-pill'))
+    expect(screen.getByText('320 of 4,761 images')).toBeInTheDocument()
+    expect(screen.getByText('6%')).toBeInTheDocument()
+    expect(screen.getByText('4,761 images updated')).toBeInTheDocument()
+    expect(screen.getByText('Already up to date')).toBeInTheDocument()
+    expect(screen.getByText("8 images updated, 2 couldn't be")).toBeInTheDocument()
+  })
+
   it('lists imports with a status line and opens them', async () => {
     ;({ manager } = await installFakeImportManager({
       jobs: [jobSummary({ counts: counts({ processing: 2, done: 3 }) })],
@@ -147,6 +181,53 @@ describe('ActivityDock', () => {
     await manager.refresh()
     renderWithProviders(<ActivityDock backgroundJobs={[]} onOpenImport={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('Offline')).toBeInTheDocument())
+  })
+
+  it('dismisses a finished background job, but not a running one', async () => {
+    ;({ manager } = await installFakeImportManager())
+    const onDismissJob = vi.fn(async () => {})
+    const finished = { ...runningBgJob, id: 'bg-2', name: 'Rebuild', status: 'completed' as const }
+    renderWithProviders(
+      <ActivityDock
+        backgroundJobs={[runningBgJob, finished]}
+        onOpenImport={vi.fn()}
+        onDismissJob={onDismissJob}
+      />,
+    )
+    await userEvent.click(screen.getByTestId('activity-dock-pill'))
+    const dismiss = screen.getAllByRole('button', { name: 'Dismiss' })
+    expect(dismiss).toHaveLength(1)
+    await userEvent.click(dismiss[0])
+    expect(onDismissJob).toHaveBeenCalledWith('bg-2')
+  })
+
+  it('clears every finished import and job at once', async () => {
+    let client
+    ;({ manager, client } = await installFakeImportManager({
+      jobs: [
+        jobSummary({ status: 'completed', counts: counts({ done: 4 }) }),
+        jobSummary({ id: 'j2', counts: counts({ ready: 2 }) }),
+      ],
+    }))
+    const onClearFinished = vi.fn(async () => {})
+    renderWithProviders(
+      <ActivityDock
+        backgroundJobs={[runningBgJob]}
+        onOpenImport={vi.fn()}
+        onClearFinished={onClearFinished}
+      />,
+    )
+    await userEvent.click(screen.getByTestId('activity-dock-pill'))
+    await userEvent.click(screen.getByRole('button', { name: 'Clear finished' }))
+    expect(client!.dismissFinished).toHaveBeenCalled()
+    expect(onClearFinished).toHaveBeenCalled()
+  })
+
+  it('offers no clear while everything is still running', async () => {
+    ;({ manager } = await installFakeImportManager())
+    renderWithProviders(<ActivityDock backgroundJobs={[runningBgJob]} onOpenImport={vi.fn()} />)
+    await userEvent.click(screen.getByTestId('activity-dock-pill'))
+    expect(screen.queryByRole('button', { name: 'Clear finished' })).not.toBeInTheDocument()
   })
 
   it('still shows background jobs', async () => {

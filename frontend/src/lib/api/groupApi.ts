@@ -40,6 +40,11 @@ export const groupApi = {
       return data
     }),
 
+  /** Set many groups' author (and their images') in one request. */
+  bulkUpdate: async (ids: number[], author: string | null): Promise<void> => {
+    await api.post('/groups/bulk-update', { ids, author })
+  },
+
   edit: async (id: number, payload: GroupEditRequest): Promise<GroupEditResponse> => {
     const { data } = await api.put<GroupEditResponse>(`/groups/${id}`, payload)
     return data

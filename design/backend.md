@@ -109,6 +109,9 @@ All API routes are mounted under `/api/v1` (`settings.api_prefix`); router prefi
 | GET | `/authors` | Distinct author values |
 | GET | `/{id}` | Get one image |
 | PATCH | `/{id}` | Update image metadata |
+| POST | `/bulk-edit` | One change (fields and/or tags to add) to many images, one transaction. Images by `image_ids` (up to 20,000) or `scope` (`{group_ids, filter}`, resolved on the server, no cap). Returns `undo_id` |
+| POST | `/bulk-restore` | Undo a bulk edit by `undo_id` (the last 5 are kept in memory; 410 otherwise) |
+| POST | `/facets` | Counts of a scope's images by type, grid state, subgroup and tag (the editor's bulk panel) |
 | DELETE | `/{id}` | Delete image and its files |
 | GET | `/{id}/scenes` | Other images in the same group |
 | GET | `/{id}/file` | Serve the original file |
@@ -138,6 +141,7 @@ Shared parameters for `/` and `/groups`:
 | GET | `/search` | Typeahead group picker (`q`, `exclude_id`, `reference_name`) |
 | POST | `/summaries` | Many groups without image details: name, author, count, `image_ids` (`{ids}`, up to 5,000) |
 | POST | `/details` | Several groups with all members, as `GET /{id}` returns them (`{ids}`, up to 100) |
+| POST | `/bulk-update` | Set many groups' author (and their images'), one transaction |
 | GET | `/{id}` | Group with members |
 | GET | `/{id}/download` | Stream group as ZIP |
 | PUT | `/{id}` | Update group metadata. `images` is the list to keep: images left out are deleted |
@@ -145,7 +149,7 @@ Shared parameters for `/` and `/groups`:
 | POST | `/{id}/move-images` | Move images between groups |
 | POST | `/{id}/merge` | Merge this group into a target group |
 
-The batch reads return groups in the order asked, de-duplicated, leaving out ids that no longer exist. They are POST because the editor sends thousands of ids. The write endpoints are `@write_locked`, so they serialise with the ingest worker's commits.
+Bulk edits (`services/bulk_edit_service.py`) have the single-image endpoints' side effects: a changed grid field sets `grid_source` to user and clears `grid_confidence`, `gridded: false` clears the other grid fields, and `search_text` is rebuilt when tags, subgroup or author change. They write with executemany `UPDATE`s and one `INSERT … RETURNING`, so the statement count doesn't grow with the number of images (pinned in `test_query_counts.py`). The batch reads return groups in the order asked, de-duplicated, leaving out ids that no longer exist. They are POST because the editor sends thousands of ids. The write endpoints are `@write_locked`, so they serialise with the ingest worker's commits.
 
 ### Tags (`/tags`)
 | Method | Path | Purpose |
@@ -191,6 +195,7 @@ Defined in `backend/app/api/imports.py`. The flow and state machines are in [ing
 | POST | `/{job_id}/finish-upload` | Skip items whose bytes never arrived |
 | POST | `/{job_id}/groups/{group_id}/skip` | Skip a planned group |
 | POST | `/{job_id}/dismiss` | Hide a finished job from the activity dock |
+| POST | `/dismiss-finished` | Hide every finished job from the activity dock |
 | DELETE | `/{job_id}` | Undo: delete the images this import created, then the job |
 
 Mutating routes are `@write_locked` (`BEGIN IMMEDIATE` on the endpoint's own thread). See [ingestion.md](ingestion.md#7-upload-protocol).
@@ -200,6 +205,8 @@ Mutating routes are `@write_locked` (`BEGIN IMMEDIATE` on the endpoint's own thr
 |--------|------|---------|
 | GET | `/` | List JobRunner jobs |
 | GET | `/{id}` | JobRunner job status |
+| POST | `/{id}/dismiss` | Forget a finished job (409 while queued/running) |
+| POST | `/dismiss-finished` | Forget every finished job |
 
 ### Export (`/export`)
 | Method | Path | Purpose |

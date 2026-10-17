@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { EMPTY_FILTER } from '@/components/import/fileFilter'
 import type { FileFilter } from '@/components/import/fileFilter'
-import type { EditableFileState, EditableGroupState, TagData, ParsedTagVocab } from '@/types'
+import type { EditableFileState, EditableGroupState, ParsedTagVocab } from '@/types'
 
 export const ALL_TAB = -1
 export const ALL_GROUP_ID = '__all__'
@@ -52,10 +52,11 @@ export interface UseFileEditingReturn {
   deselectAll: (groupId: string) => void
 
   // Bulk ops, applied to the selected files in scope
-  bulkAddTag: (scope: BulkScope, tag: TagData) => void
-  bulkSetGrid: (scope: BulkScope, gridded: boolean | null, gridType: string | null) => void
-  bulkSetImageType: (scope: BulkScope, value: 'battlemap' | 'scene') => void
-  bulkSetSubgroup: (scope: BulkScope, value: string) => void
+  /** The selected, in-scope, not excluded files a bulk action applies to */
+  selectedInScope: (scope: BulkScope) => EditableFileState[]
+  /** Change files (by relative_path) in whichever groups hold them, without saving
+   *  the groups: for edits already saved some other way (bulk image edits) */
+  patchFiles: (paths: Set<string>, transform: (f: EditableFileState) => EditableFileState) => void
   bulkExclude: (scope: BulkScope) => void
 
   // Subgroup ops
@@ -227,32 +228,39 @@ export function useFileEditing({
   const selectionIdFor = (scope: BulkScope) =>
     Array.isArray(scope) ? MULTI_GROUP_ID : (scope ?? ALL_GROUP_ID)
 
+  const inScopeFor = (scope: BulkScope) =>
+    Array.isArray(scope)
+      ? (id: string) => scope.includes(id)
+      : (id: string) => scope === null || id === scope
+
   const bulkUpdateFiles = (
     scope: BulkScope,
     transform: (f: EditableFileState) => EditableFileState,
-  ) => {
-    const inScope = Array.isArray(scope)
-      ? (id: string) => scope.includes(id)
-      : (id: string) => scope === null || id === scope
-    applyToSelected(inScope, selectionIdFor(scope), transform)
-  }
+  ) => applyToSelected(inScopeFor(scope), selectionIdFor(scope), transform)
 
   const exclude = (f: EditableFileState) => ({ ...f, excluded: true })
 
-  const bulkAddTag = (scope: BulkScope, tag: TagData) =>
-    bulkUpdateFiles(scope, (f) => {
-      if (f.tags.some((t) => t.category === tag.category && t.value === tag.value)) return f
-      return { ...f, tags: [...f.tags, tag] }
-    })
+  const selectedInScope = (scope: BulkScope) => {
+    const sel = selections[selectionIdFor(scope)] ?? new Set<string>()
+    const inScope = inScopeFor(scope)
+    return groups
+      .filter((g) => inScope(g.id))
+      .flatMap((g) => g.files)
+      .filter((f) => sel.has(f.relative_path) && !f.excluded && !f.outOfScope)
+  }
 
-  const bulkSetGrid = (scope: BulkScope, gridded: boolean | null, gridType: string | null) =>
-    bulkUpdateFiles(scope, (f) => ({ ...f, gridded, grid_type: gridType }))
-
-  const bulkSetImageType = (scope: BulkScope, value: 'battlemap' | 'scene') =>
-    bulkUpdateFiles(scope, (f) => ({ ...f, image_type: value }))
-
-  const bulkSetSubgroup = (scope: BulkScope, value: string) =>
-    bulkUpdateFiles(scope, (f) => ({ ...f, subgroup: value.trim() || null }))
+  const patchFiles = (
+    paths: Set<string>,
+    transform: (f: EditableFileState) => EditableFileState,
+  ) => {
+    setGroups((prev) =>
+      prev.map((g) =>
+        g.files.some((f) => paths.has(f.relative_path))
+          ? { ...g, files: g.files.map((f) => (paths.has(f.relative_path) ? transform(f) : f)) }
+          : g,
+      ),
+    )
+  }
 
   const bulkExclude = (scope: BulkScope) => {
     bulkUpdateFiles(scope, exclude)
@@ -301,10 +309,8 @@ export function useFileEditing({
     toggleFileSelection,
     selectAllVisible,
     deselectAll,
-    bulkAddTag,
-    bulkSetGrid,
-    bulkSetImageType,
-    bulkSetSubgroup,
+    selectedInScope,
+    patchFiles,
     bulkExclude,
     clearSubgroupLabel,
     renameSubgroup,

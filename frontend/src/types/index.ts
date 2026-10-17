@@ -131,6 +131,51 @@ export interface TagData {
   source: string
 }
 
+/** Fields a bulk edit sets on every image; only those present change, null clears */
+export interface BulkImageChanges {
+  image_type?: 'battlemap' | 'scene'
+  gridded?: boolean | null
+  grid_type?: string | null
+  grid_width?: number | null
+  grid_height?: number | null
+  subgroup?: string | null
+}
+
+/** Narrows an image scope; only fields present apply, `subgroup: null` means none set */
+export interface ImageScopeFilter {
+  image_type?: 'battlemap' | 'scene'
+  grid?: 'square' | 'hex' | 'gridded' | 'gridless' | 'unknown'
+  subgroup?: string | null
+  tag?: { category: string; value: string }
+}
+
+/** Images named by their groups and a filter, resolved on the server */
+export interface ImageScope {
+  group_ids: number[]
+  filter?: ImageScopeFilter
+}
+
+export interface ScopeFacetCount {
+  value: string | null
+  count: number
+}
+
+/** POST /images/facets: how a scope's images break down */
+export interface ImageScopeFacets {
+  total: number
+  image_type: ScopeFacetCount[]
+  grid: ScopeFacetCount[]
+  subgroup: ScopeFacetCount[]
+  /** value is "category:value" */
+  tags: ScopeFacetCount[]
+}
+
+export interface BulkImageEditResponse {
+  updated: number
+  /** POST /images/bulk-restore with this reverts the edit (the last few edits only) */
+  undo_id: string
+}
+
 // Group editor state (frontend only)
 export interface EditableFileState {
   relative_path: string
@@ -262,7 +307,7 @@ export interface GroupEditResponse {
 export interface BackgroundJob {
   id: string
   name: string
-  status: 'queued' | 'running' | 'completed' | 'failed'
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'interrupted'
   submitted_at: string
   started_at: string | null
   finished_at: string | null

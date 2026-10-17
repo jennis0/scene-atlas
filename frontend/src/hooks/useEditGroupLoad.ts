@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, type MutableRefObject } from 'react'
 import { groupApi, tagApi, imageApi, getThumbnailUrlById, getImageUrlById } from '@/lib/api'
+import { toast } from 'sonner'
 import { getApiErrorMessage, isNotFoundError } from '@/lib/getErrorMessage'
 import { parseTagVocabulary } from '@/components/import/types'
 import { EMPTY_FILTER } from '@/components/import/fileFilter'
@@ -103,6 +104,13 @@ const REVIEW_BATCH_SIZE = 40
 export const ALL_VIEW_IMAGE_LIMIT = 500
 
 /**
+ * Above this many images, import review is in large mode: only the summaries load up
+ * front, a group's files load when it's opened, and All is a bulk panel rather than a
+ * file grid (see design/editor-metadata-first.md, phase 4).
+ */
+export const LARGE_REVIEW_IMAGES = 5000
+
+/**
  * The next group ids to fetch from `queue`. A group the user is waiting on (the start
  * group, or a placeholder they clicked) goes alone and first; otherwise a small batch
  * until something is on screen, then large ones.
@@ -149,6 +157,34 @@ async function drainReviewQueue(
   }
 }
 
+/** True when an import is big enough for large-mode review (LARGE_REVIEW_IMAGES). */
+function isLargeImport(summaries: GroupSummary[]) {
+  return summaries.reduce((n, g) => n + g.image_count, 0) > LARGE_REVIEW_IMAGES
+}
+
+/** `order` with the ids of `summaries` it doesn't have yet appended. */
+function withNewIds(order: number[], summaries: GroupSummary[]) {
+  const known = new Set(order)
+  return [...order, ...summaries.map((g) => g.id).filter((id) => !known.has(id))]
+}
+
+interface QueueOptions {
+  large: boolean
+  firstLoad: boolean
+  priority: number | null
+}
+
+/**
+ * The groups import review fetches up front: all of them normally; in large mode only
+ * the one it opens on (the start group, else the first), and only on the first load.
+ */
+function reviewQueue(summaries: GroupSummary[], { large, firstLoad, priority }: QueueOptions) {
+  if (!large) return summaries.map((g) => g.id)
+  const first = priority ?? summaries[0]?.id
+  if (!firstLoad || first === undefined) return []
+  return [first]
+}
+
 export interface UseEditGroupLoadOptions {
   open: boolean
   groupId?: number | null
@@ -182,6 +218,10 @@ export interface UseEditGroupLoadReturn {
   pendingGroups: GroupSummary[]
   /** Fetch this pending group next, and open it when it arrives */
   prioritizeGroup: (groupId: number) => void
+  /** Large mode: files load per group when opened, and All is the bulk panel */
+  isLargeReview: boolean
+  /** Import review: every listed group's id in sidebar order, loaded or not */
+  groupOrder: number[]
   /** The pending group the user clicked and is waiting on */
   awaitedGroupId: number | null
   resetLoad: () => void
@@ -218,6 +258,13 @@ export function useEditGroupLoad({
   // The group to fetch next and then open: the start group, or a placeholder clicked
   const priorityRef = useRef<number | null>(null)
   const [openWhenLoaded, setOpenWhenLoaded] = useState<number | null>(null)
+  const [groupOrder, setGroupOrder] = useState<number[]>([])
+  const [isLargeReview, setIsLargeReview] = useState(false)
+  const largeRef = useRef(false)
+  // Large mode: groups being fetched on demand, and a generation that drops responses
+  // landing after the dialog was reset
+  const fetchingRef = useRef(new Set<number>())
+  const generationRef = useRef(0)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [ungroupedCount, setUngroupedCount] = useState(0)
 
@@ -241,6 +288,11 @@ export function useEditGroupLoad({
     setPendingGroups([])
     priorityRef.current = null
     setOpenWhenLoaded(null)
+    setGroupOrder([])
+    setIsLargeReview(false)
+    largeRef.current = false
+    fetchingRef.current = new Set()
+    generationRef.current++
   }, [setGroups, setActiveTab, setFileFilter, setEditingSvHeading])
 
   // Start every opening fresh. Without this, import review kept the previous
@@ -396,10 +448,22 @@ export function useEditGroupLoad({
       // Groups gone since the import (merged or deleted) are simply not listed
       newIds.filter((id) => !listed.has(id)).forEach((id) => unshown.delete(id))
       setPendingGroups((prev) => [...prev.filter((g) => !listed.has(g.id)), ...summaries])
+      setGroupOrder((prev) => withNewIds(prev, summaries))
       const startFirst = priorityRef.current !== null && listed.has(priorityRef.current)
+      if (isFirstLoad && isLargeImport(summaries)) {
+        largeRef.current = true
+        setIsLargeReview(true)
+      }
+      // Large mode: listed is shown; the rest load when opened, not on a re-run
+      if (largeRef.current) summaries.forEach((g) => unshown.delete(g.id))
+      const queue = reviewQueue(summaries, {
+        large: largeRef.current,
+        firstLoad: isFirstLoad,
+        priority: priorityRef.current,
+      })
 
       await drainReviewQueue(
-        summaries.map((g) => g.id),
+        queue,
         priorityRef,
         () => cancelled,
         (details, batch, first) => {
@@ -415,12 +479,16 @@ export function useEditGroupLoad({
         },
       )
     }
-    run().catch((err: unknown) => {
-      if (cancelled) return
-      setPendingGroups([])
-      setLoading(false)
-      setLoadError(getApiErrorMessage(err, 'Failed to load imported groups'))
-    })
+    run()
+      .then(() => {
+        if (!cancelled && isFirstLoad) setLoading(false)
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        setPendingGroups([])
+        setLoading(false)
+        setLoadError(getApiErrorMessage(err, 'Failed to load imported groups'))
+      })
 
     return () => {
       cancelled = true
@@ -429,6 +497,29 @@ export function useEditGroupLoad({
       unshown.forEach((id) => loadedGroupIdsRef.current.delete(id))
     }
   }, [open, groupIds, isImportReview, setGroups, setTagVocab, setAuthorSuggestions, setActiveTab])
+
+  // Large mode: a placeholder the user clicked loads now (one request for its files).
+  useEffect(() => {
+    const id = openWhenLoaded
+    if (!isLargeReview || id === null || fetchingRef.current.has(id)) return
+    if (groups.some((g) => g.id === String(id))) return
+    fetchingRef.current.add(id)
+    const generation = generationRef.current
+    groupApi
+      .details([id])
+      .then(([detail]) => {
+        if (generation !== generationRef.current) return
+        if (detail) setGroups((prev) => [...prev, groupDetailToEditable(detail)])
+        else setOpenWhenLoaded(null)
+        setPendingGroups((prev) => prev.filter((g) => g.id !== id))
+      })
+      .catch((err: unknown) => {
+        if (generation !== generationRef.current) return
+        setOpenWhenLoaded(null)
+        toast.error(getApiErrorMessage(err, 'Failed to load the group'))
+      })
+      .finally(() => fetchingRef.current.delete(id))
+  }, [isLargeReview, openWhenLoaded, groups, setGroups])
 
   // A placeholder the user clicked has arrived: open it.
   useEffect(() => {
@@ -452,6 +543,8 @@ export function useEditGroupLoad({
     pendingGroups,
     prioritizeGroup,
     awaitedGroupId: openWhenLoaded,
+    isLargeReview,
+    groupOrder,
     resetLoad,
   }
 }

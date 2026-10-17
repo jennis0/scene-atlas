@@ -1,7 +1,39 @@
 import { api } from './_client'
-import type { Image } from '@/types'
+import type {
+  BulkImageChanges,
+  BulkImageEditResponse,
+  Image,
+  ImageScope,
+  ImageScopeFacets,
+  TagData,
+} from '@/types'
 
 export const imageApi = {
+  /** Apply one change to many images in one request: by id, or a scope resolved on the server. */
+  bulkEdit: async (
+    target: { image_ids: number[] } | { scope: ImageScope },
+    changes: BulkImageChanges,
+    addTags: TagData[] = [],
+  ): Promise<BulkImageEditResponse> => {
+    const { data } = await api.post<BulkImageEditResponse>('/images/bulk-edit', {
+      ...target,
+      changes,
+      add_tags: addTags,
+    })
+    return data
+  },
+
+  /** Undo a bulk edit by the id it returned. */
+  bulkRestore: async (undoId: string): Promise<void> => {
+    await api.post('/images/bulk-restore', { undo_id: undoId })
+  },
+
+  /** Counts of a scope's images by type, grid state, subgroup and tag. */
+  facets: async (scope: ImageScope): Promise<ImageScopeFacets> => {
+    const { data } = await api.post<ImageScopeFacets>('/images/facets', scope)
+    return data
+  },
+
   get: async (id: number): Promise<Image> => {
     const { data } = await api.get<Image>(`/images/${id}`)
     return data

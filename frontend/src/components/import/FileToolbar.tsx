@@ -1,15 +1,6 @@
-import { useState } from 'react'
-import { X, ChevronDown, FolderPlus, Copy } from 'lucide-react'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { onInlineEditKey } from '@/lib/inlineEditKeys'
+import { X, FolderPlus, Copy } from 'lucide-react'
 import type { EditableFileState, TagData } from '@/types'
-import { TagPicker } from './TagPicker'
+import { BulkEditControls } from './BulkEditControls'
 import type { ParsedTagVocab } from './types'
 import { buildTagFilterGroups, type FileFilter } from './fileFilter'
 import type { FilterOptionGroup } from '@/components/FilterMenuContent'
@@ -58,18 +49,9 @@ export function FileToolbar({
   onBulkSetDuplicateAction,
   alwaysShowTypeToggle = false,
 }: FileToolbarProps) {
-  const [subgroupInput, setSubgroupInput] = useState('')
-  const [subOpen, setSubOpen] = useState(false)
-
   const existingSubgroups = [
     ...new Set(files.filter((f) => !f.excluded && f.subgroup).map((f) => f.subgroup as string)),
   ].sort()
-
-  const applySubgroup = (value: string) => {
-    onBulkSetSubgroup(value)
-    setSubgroupInput('')
-    setSubOpen(false)
-  }
 
   // Build filter groups
 
@@ -130,94 +112,14 @@ export function FileToolbar({
 
   const bulkActions = (
     <>
-      {vocab.length > 0 && <TagPicker vocab={vocab} existingTags={[]} onAdd={onBulkAddTag} />}
-
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button className="h-7 px-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors flex items-center gap-1">
-            Type <ChevronDown className="h-3 w-3" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={() => onBulkSetImageType('battlemap')}>
-            Battlemap
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => onBulkSetImageType('scene')}>Scene</DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button className="h-7 px-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors flex items-center gap-1">
-            Grid <ChevronDown className="h-3 w-3" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={() => onBulkSetGrid(true, 'square')}>Square</DropdownMenuItem>
-          <DropdownMenuItem onClick={() => onBulkSetGrid(true, 'hex')}>Hex</DropdownMenuItem>
-          <DropdownMenuItem onClick={() => onBulkSetGrid(false, null)}>Gridless</DropdownMenuItem>
-          <DropdownMenuItem onClick={() => onBulkSetGrid(null, null)}>Unknown</DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <Popover open={subOpen} onOpenChange={setSubOpen}>
-        <PopoverTrigger asChild>
-          <button className="h-7 px-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors flex items-center gap-1">
-            Sub <ChevronDown className="h-3 w-3" />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent
-          align="end"
-          className="w-52 p-0"
-          onOpenAutoFocus={(e: Event) => {
-            e.preventDefault()
-          }}
-        >
-          {existingSubgroups.length > 0 && (
-            <>
-              <div className="px-3 pt-2.5 pb-1 text-xs font-semibold text-muted-foreground">
-                Existing
-              </div>
-              {existingSubgroups.map((sv) => (
-                <button
-                  key={sv}
-                  onClick={() => applySubgroup(sv)}
-                  className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-secondary capitalize transition-colors"
-                >
-                  {sv}
-                </button>
-              ))}
-              <div className="h-px bg-border/50 my-1" />
-            </>
-          )}
-          <div className="p-2 flex gap-1.5">
-            <input
-              autoFocus={existingSubgroups.length === 0}
-              value={subgroupInput}
-              onChange={(e) => setSubgroupInput(e.target.value)}
-              placeholder="New subgroup…"
-              className="flex-1 min-w-0 h-7 px-2 text-sm bg-secondary border border-border rounded text-foreground placeholder:text-muted-foreground"
-              onKeyDown={(e) => {
-                e.stopPropagation()
-                onInlineEditKey(e, {
-                  onEnter: () => {
-                    if (subgroupInput.trim()) applySubgroup(subgroupInput.trim())
-                  },
-                  onEscape: () => setSubOpen(false),
-                })
-              }}
-            />
-            <button
-              className="h-7 px-2.5 text-xs shrink-0 rounded border border-border bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-              onClick={() => {
-                if (subgroupInput.trim()) applySubgroup(subgroupInput.trim())
-              }}
-            >
-              Set
-            </button>
-          </div>
-        </PopoverContent>
-      </Popover>
+      <BulkEditControls
+        vocab={vocab}
+        existingSubgroups={existingSubgroups}
+        onAddTag={onBulkAddTag}
+        onSetGrid={onBulkSetGrid}
+        onSetImageType={onBulkSetImageType}
+        onSetSubgroup={onBulkSetSubgroup}
+      />
 
       {onMoveToNewGroup && (
         <button

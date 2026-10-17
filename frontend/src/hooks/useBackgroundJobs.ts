@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { jobApi } from '@/lib/api'
 import { ACTIVE_POLL_INTERVAL_MS, IDLE_POLL_INTERVAL_MS } from '@/lib/constants'
 import { QUERY_KEYS } from '@/lib/queryKeys'
@@ -8,6 +8,10 @@ export interface UseBackgroundJobsReturn {
   jobs: BackgroundJob[]
   hasActive: boolean
   refresh: () => void
+  /** Remove a finished job from the list */
+  dismiss: (jobId: string) => Promise<void>
+  /** Remove every finished job from the list */
+  dismissFinished: () => Promise<void>
 }
 
 const isActive = (j: BackgroundJob) => j.status === 'queued' || j.status === 'running'
@@ -18,6 +22,7 @@ const isActive = (j: BackgroundJob) => j.status === 'queued' || j.status === 'ru
  * jobs started elsewhere (tag management, library settings) still show up.
  */
 export function useBackgroundJobs(): UseBackgroundJobsReturn {
+  const queryClient = useQueryClient()
   const { data: jobs = [], refetch } = useQuery({
     queryKey: QUERY_KEYS.backgroundJobs,
     queryFn: async () => (await jobApi.list()).filter((j) => !j.name.startsWith('Import')),
@@ -26,5 +31,21 @@ export function useBackgroundJobs(): UseBackgroundJobsReturn {
     retry: false,
   })
 
-  return { jobs, hasActive: jobs.some(isActive), refresh: () => void refetch() }
+  // Drop the rows straight away rather than waiting for the next (slow, when idle) poll
+  const forget = (keep: (j: BackgroundJob) => boolean) =>
+    queryClient.setQueryData<BackgroundJob[]>(QUERY_KEYS.backgroundJobs, (old) => old?.filter(keep))
+
+  return {
+    jobs,
+    hasActive: jobs.some(isActive),
+    refresh: () => void refetch(),
+    dismiss: async (jobId) => {
+      await jobApi.dismiss(jobId)
+      forget((j) => j.id !== jobId)
+    },
+    dismissFinished: async () => {
+      await jobApi.dismissFinished()
+      forget(isActive)
+    },
+  }
 }

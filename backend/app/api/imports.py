@@ -17,13 +17,14 @@ import os
 import shutil
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path, PurePosixPath
-from typing import cast
+from typing import Literal, cast
 
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -45,6 +46,7 @@ from ..models.import_schemas import (
     ArchiveResult,
     ContentResult,
     CreateImportRequest,
+    DismissedResult,
     HashRequest,
     HashResponse,
     HashResult,
@@ -117,11 +119,44 @@ def _counts(by_state: dict[str, int]) -> ImportCounts:
     return ImportCounts(**known, total=sum(by_state.values()))
 
 
+@dataclass
+class _GroupTotals:
+    total: int = 0
+    with_images: int = 0  # groups with at least one imported image
+    open: int = 0  # groups with items still awaiting bytes, ready or processing
+
+
+def _group_totals(db: Session, ids: list[str]) -> dict[str, _GroupTotals]:
+    """Per job: its groups, how many have imported images, and how many are still open."""
+    totals = {job_id: _GroupTotals() for job_id in ids}
+    rows = (
+        db.query(ImportGroup.job_id, func.count(ImportGroup.id))
+        .filter(ImportGroup.job_id.in_(ids))
+        .group_by(ImportGroup.job_id)
+    )
+    for job_id, total in rows:
+        totals[job_id].total = total
+    group_id = ImportItem.import_group_id
+    is_open = ImportItem.state.in_(st.OPEN_ITEM_STATES)
+    state_rows = (
+        db.query(
+            ImportItem.job_id,
+            func.count(func.distinct(case((ImportItem.state == st.DONE, group_id)))),
+            func.count(func.distinct(case((is_open, group_id)))),
+        )
+        .filter(ImportItem.job_id.in_(ids))
+        .group_by(ImportItem.job_id)
+    )
+    for job_id, with_images, open_groups in state_rows:
+        totals[job_id].with_images, totals[job_id].open = with_images, open_groups
+    return totals
+
+
 def _summaries(db: Session, jobs: list[ImportJob]) -> list[ImportJobSummary]:
-    """Summaries for many jobs with two grouped queries (no per-job N+1)."""
+    """Summaries for many jobs with three grouped queries (no per-job N+1)."""
     ids = [job.id for job in jobs]
     by_job: dict[str, dict[str, int]] = {job_id: {} for job_id in ids}
-    group_counts: dict[str, int] = dict.fromkeys(ids, 0)
+    groups = {job_id: _GroupTotals() for job_id in ids}
     if ids:
         rows = (
             db.query(ImportItem.job_id, ImportItem.state, func.count(ImportItem.id))
@@ -130,18 +165,20 @@ def _summaries(db: Session, jobs: list[ImportJob]) -> list[ImportJobSummary]:
         )
         for job_id, state, count in rows:
             by_job[job_id][state] = count
-        group_rows = (
-            db.query(ImportGroup.job_id, func.count(ImportGroup.id))
-            .filter(ImportGroup.job_id.in_(ids))
-            .group_by(ImportGroup.job_id)
-            .tuples()
-        )
-        group_counts.update(dict(group_rows))
+        groups = _group_totals(db, ids)
     now = q.utcnow()
-    return [_summary(job, _counts(by_job[job.id]), group_counts[job.id], now) for job in jobs]
+    return [_summary(job, _counts(by_job[job.id]), groups[job.id], now) for job in jobs]
 
 
-def _summary(job: ImportJob, counts: ImportCounts, group_count: int, now) -> ImportJobSummary:
+def _waiting_for(job: ImportJob, counts: ImportCounts) -> list[str]:
+    """A local import's folders that are missing while it still has files to import."""
+    open_items = counts.ready + counts.processing + counts.awaiting_bytes
+    if not job.source_roots or not open_items or job.status == st.JOB_CANCELLED:
+        return []
+    return q.job_missing_roots(job)
+
+
+def _summary(job: ImportJob, counts: ImportCounts, groups: _GroupTotals, now) -> ImportJobSummary:
     last_activity = job.last_upload_at or job.created_at or now
     interrupted = (
         job.status == st.JOB_ACTIVE
@@ -149,12 +186,6 @@ def _summary(job: ImportJob, counts: ImportCounts, group_count: int, now) -> Imp
         and counts.ready == 0
         and counts.processing == 0
         and now - last_activity > UPLOAD_STALL
-    )
-    open_items = counts.ready + counts.processing + counts.awaiting_bytes
-    waiting_for = (
-        q.job_missing_roots(job)
-        if job.source_roots and open_items and job.status != st.JOB_CANCELLED
-        else []
     )
     return ImportJobSummary(
         id=job.id,
@@ -165,9 +196,11 @@ def _summary(job: ImportJob, counts: ImportCounts, group_count: int, now) -> Imp
         dismissed=job.dismissed_at is not None,
         upload_interrupted=interrupted,
         local=job.source_roots is not None,
-        waiting_for=waiting_for,
+        waiting_for=_waiting_for(job, counts),
         counts=counts,
-        group_count=group_count,
+        group_count=groups.total,
+        groups_done=groups.total - groups.open if job.planned_at is not None else 0,
+        groups_with_images=groups.with_images,
         created_at=job.created_at,
         updated_at=job.updated_at,
         completed_at=job.completed_at,
@@ -175,7 +208,9 @@ def _summary(job: ImportJob, counts: ImportCounts, group_count: int, now) -> Imp
     )
 
 
-def _detail(db: Session, job: ImportJob) -> ImportJobDetail:
+def _detail(db: Session, job: ImportJob, active_limit: int | None = None) -> ImportJobDetail:
+    """The job with its groups. ``active_limit``: only the first that many groups that
+    still have open items (the progress view), and no covers."""
     (summary,) = _summaries(db, [job])
     by_group: dict[int | None, dict[str, int]] = {}
     rows = (
@@ -195,14 +230,14 @@ def _detail(db: Session, job: ImportJob) -> ImportJobDetail:
         .group_by(ImportItem.import_group_id)
     )
     covers: dict[int | None, int | None] = {}
-    for group_id, image_id in cover_rows:
-        covers[group_id] = image_id
-    groups = (
-        db.query(ImportGroup)
-        .filter(ImportGroup.job_id == job.id)
-        .order_by(ImportGroup.sort_order, ImportGroup.id)
-        .all()
-    )
+    if active_limit is None:
+        covers = dict(cover_rows.tuples())
+    query = db.query(ImportGroup).filter(ImportGroup.job_id == job.id)
+    if active_limit is not None:
+        open_ids = [gid for gid, by_state in by_group.items() if _is_open(by_state)]
+        query = query.filter(ImportGroup.id.in_(open_ids))
+    query = query.order_by(ImportGroup.sort_order, ImportGroup.id)
+    groups = (query.limit(active_limit) if active_limit is not None else query).all()
     return ImportJobDetail(
         **summary.model_dump(),
         groups=[
@@ -221,6 +256,10 @@ def _detail(db: Session, job: ImportJob) -> ImportJobDetail:
     )
 
 
+def _is_open(by_state: dict[str, int]) -> bool:
+    return any(by_state.get(state) for state in st.OPEN_ITEM_STATES)
+
+
 def _queue_status() -> QueueStatus:
     status = get_ingest_worker().status()
     return QueueStatus(
@@ -228,6 +267,7 @@ def _queue_status() -> QueueStatus:
         system_paused=status.system_paused,
         reason=status.system_reason,
         current_job_id=status.current_job_id,
+        seconds_per_item=status.seconds_per_item,
     )
 
 
@@ -271,8 +311,15 @@ def list_imports(
 
 
 @router.get("/{job_id}", response_model=ImportJobDetail)
-def get_import(job_id: str, db: Session = Depends(get_db)):
-    return _detail(db, _job_or_404(db, job_id))
+def get_import(
+    job_id: str,
+    groups: Literal["all", "active"] = "all",
+    limit: int = Query(3, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    """The job and its groups. ``groups=active``: only the first ``limit`` groups still
+    importing, for the progress view (a big import has thousands of groups)."""
+    return _detail(db, _job_or_404(db, job_id), active_limit=limit if groups == "active" else None)
 
 
 @router.get("/{job_id}/items", response_model=ImportItemPage)
@@ -765,6 +812,16 @@ def dismiss_import(job_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409, detail="Only finished imports can be dismissed")
     q.dismiss_job(db, job_id)
     return _action(db, job_id, 0)
+
+
+@router.post("/dismiss-finished", response_model=DismissedResult)
+@write_locked
+def dismiss_finished_imports(db: Session = Depends(get_db)):
+    """Hide every finished import from the activity dock. Deletes nothing."""
+    dismissed = q.dismiss_finished_jobs(db)
+    db.commit()
+    _changed()
+    return DismissedResult(dismissed=dismissed)
 
 
 @router.delete("/{job_id}", response_model=ActionResult)

@@ -175,7 +175,7 @@ async def lifespan(app: FastAPI):
         # rather than at its next scheduled probe.
         get_ingest_worker().probe_now()
         if get_clip_unavailable_reason() is None:
-            runner.submit(reconcile_vectors, name="Reconcile embeddings")
+            runner.submit(reconcile_vectors, name="Updating image embeddings")
 
     threading.Thread(
         target=_reconcile_embeddings_when_ready, daemon=True, name="embedding-reconcile"

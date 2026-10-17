@@ -47,6 +47,8 @@ export function jobSummary(partial: Partial<ImportJobSummary> = {}): ImportJobSu
     planned: true,
     dismissed: false,
     upload_interrupted: false,
+    groups_done: 0,
+    groups_with_images: 0,
     local: false,
     waiting_for: [],
     counts: counts(),
@@ -135,6 +137,7 @@ export function fakeImportClient(state: FakeImportState) {
       status: 'active',
     })),
     skipGroup: vi.fn(async () => ({ affected: 1, status: 'active' })),
+    dismissFinished: vi.fn(async () => 0),
     undo: vi.fn(async () => ({ affected: 3, status: 'deleted' })),
     probeQueue: vi.fn(async () => ({ ...state.queue, system_paused: false, reason: null })),
   }

@@ -21,7 +21,11 @@ export interface UseGalleryDialogsReturn {
   reviewGroupIds: number[] | null
   /** The group the editor opens on; otherwise it starts on all groups */
   reviewStartGroupId: number | undefined
-  setReviewGroupIds: (ids: number[] | null, startGroupId?: number) => void
+  /** The import the groups came from, while the editor can follow it */
+  reviewJobId: string | undefined
+  setReviewGroupIds: (ids: number[] | null, startGroupId?: number, jobId?: string) => void
+  /** Add groups to the open review (an import that's still running finished more) */
+  addReviewGroupIds: (ids: number[]) => void
 
   // Mass edit dialog
   showMassEdit: boolean
@@ -61,15 +65,26 @@ export interface UseGalleryDialogsReturn {
   invalidateGallery: () => void
 }
 
+interface ReviewState {
+  groupIds: number[]
+  startGroupId?: number
+  jobId?: string
+}
+
 export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsReturn {
   const queryClient = useQueryClient()
 
   const [selectedImage, setSelectedImage] = useState<{ image: Image; index: number } | null>(null)
   const [editGroupId, setEditGroupId] = useState<number | null>(null)
-  const [review, setReview] = useState<{ groupIds: number[]; startGroupId?: number } | null>(null)
+  const [review, setReview] = useState<ReviewState | null>(null)
   const setReviewGroupIds = useCallback(
-    (ids: number[] | null, startGroupId?: number) =>
-      setReview(ids ? { groupIds: ids, startGroupId } : null),
+    (ids: number[] | null, startGroupId?: number, jobId?: string) =>
+      setReview(ids ? { groupIds: ids, startGroupId, jobId } : null),
+    [],
+  )
+  const addReviewGroupIds = useCallback(
+    (ids: number[]) =>
+      setReview((prev) => (prev ? { ...prev, groupIds: [...prev.groupIds, ...ids] } : prev)),
     [],
   )
   const [showMassEdit, setShowMassEdit] = useState(false)
@@ -138,7 +153,9 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
     setEditGroupId,
     reviewGroupIds: review?.groupIds ?? null,
     reviewStartGroupId: review?.startGroupId,
+    reviewJobId: review?.jobId,
     setReviewGroupIds,
+    addReviewGroupIds,
     showMassEdit,
     setShowMassEdit,
     editAllSeedImages,

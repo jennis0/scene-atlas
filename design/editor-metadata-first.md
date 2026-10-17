@@ -1,6 +1,7 @@
 # Group editor: metadata first, details on demand (plan)
 
-Status: **phases 1–2 done**; phase 3 to do. Branch `feature/editor-metadata-first`. Related: [frontend.md](frontend.md) (editor and import review),
+Status: **done** (phases 1–4). Branches
+`feature/editor-metadata-first` (phases 1–2) and `feature/editor-bulk-edit` (phases 3–4). Related: [frontend.md](frontend.md) (editor and import review),
 [ingest-redesign.md](ingest-redesign.md), [search.md](search.md).
 
 ## Why
@@ -150,11 +151,140 @@ Measured: Edit all over 92 groups / 515 files opens in ~1.5 s with 14 images in 
 against ~2.5 s with all 515 rendered. Per-change re-renders now touch only the visible
 rows, which is what made editing in a large All view sluggish.
 
+## Phase 3 as built
+
+- `POST /images/bulk-edit` and `POST /images/bulk-restore` (undo), and
+  `POST /groups/bulk-update` (author), in `services/bulk_edit_service.py`; see
+  [backend.md](backend.md) for the side effects they share with the single-image endpoints.
+- The toolbar's bulk actions go through `useBulkImageEdit`: one request, applied locally at
+  once (without a group save), reverted if the request fails, a confirmation from 500
+  images, and Undo in the toast.
+- Author and name save on blur only when changed. Before, leaving the author field on All
+  re-saved every group in scope even if nothing changed: 500 `PUT`s, ~20 s, each rewriting
+  the group's tags.
+- The card type toggle got `aria-pressed`.
+
+### Why there are no lazy details
+
+The plan ended with loading a group's files only when it scrolls into view. Measured on a
+synthetic library of 500 groups × 26 images (13,000, the most Edit all can open), production
+build:
+
+| | |
+|---|---|
+| Open Edit all | ~4.8 s: 1.7 s the `/search/groups` id fetch, ~2.1 s five details batches, the rest render |
+| JS heap | ~55–65 MB |
+| Bulk type change, 13,000 images | ~2.6 s (server ~1.7 s); undo ~2.9 s |
+| Three keystrokes in the author field | ~250 ms |
+
+Lazy details could save at most the ~2 s of details. Against that, the All view's file grid is
+sorted by subgroup (unknown until a group's files arrive), and selection and the file filter
+work on file data, so unloaded groups couldn't be selected or filtered. Not worth it at this
+size. If libraries grow past this, the cheaper next steps are virtualising the sidebar (its
+500 rows are most of a keystroke's render) and a faster id fetch for Edit all.
+
+## Phase 4: very large imports (plan, 2026-10-17)
+
+Target: review an initial library import of ~50k images (the reference library is ~56k
+images; expect ~5–10k groups). Phase 3 was measured at 13k and is not enough. Extrapolated
+for 50k: ~70 MB of details over 100+ requests (~10 s), ~250 MB heap, an unwindowed sidebar
+of thousands of rows re-rendered per keystroke, client-side filtering over 50k files, and
+bulk edits failing at the 20k id cap. "Why there are no lazy details" above was the wrong
+call for this target.
+
+The user chose (2026-10-17): above a size threshold, **All becomes a bulk panel**, not a
+grid: server-computed counts for the whole import, and bulk actions applied to the whole
+import or a filter. Groups are reviewed one at a time from the sidebar, loading on demand.
+
+### Two modes
+
+- **Normal** (import review up to `LARGE_REVIEW_IMAGES`, 5,000 images; mass edit always,
+  which is capped at 500 groups): as now. Every group's files load in the background, and
+  All is the windowed file grid.
+- **Large** (import review above it): summaries only. A group's files load when it's
+  opened (the start group, or the first, opens at once). All is the bulk panel.
+
+Unloaded groups stay out of editor state in both modes (as in phase 1): they're
+placeholder rows, so no save path can reach a group whose files aren't loaded. The sidebar
+lists groups in summary order whether loaded or not, so opening a group doesn't move it.
+
+### Backend for large imports
+
+1. `POST /images/facets {group_ids, filter?}`: total and counts by type, grid state
+   (square / hex / none / unknown), subgroup and tag (top N), from aggregate queries.
+2. `POST /images/bulk-edit` also takes `scope: {group_ids, filter?}` instead of
+   `image_ids`, resolved on the server: no id cap, and the filter needs no file data on the
+   client. `filter` is `{image_type?, grid?, tag?, subgroup?}`, the same facets.
+3. **Undo kept on the server.** A 50k-image edit's previous states are ~10 MB, too much to
+   send back and forth. `bulk-edit` returns an `undo_id`; `POST /images/bulk-restore
+   {undo_id}` reverts. The last few edits are kept in memory (lost on restart, which only
+   means the toast's Undo fails). The editor refetches its loaded groups after an edit or
+   undo instead of patching them from previous states.
+
+### Frontend for large imports
+
+1. Large-mode loader: summaries (chunked), then only the opened groups' details.
+2. Sidebar windowed with `@tanstack/react-virtual`, rows merged in summary order (loaded
+   rows editable, pending rows placeholders), plus a filter by group name.
+3. `BulkPanel` for All in large mode: facet counts, a filter picked from them, and the
+   toolbar's bulk actions (tag, type, grid, subgroup) for the whole import or the filter,
+   with the confirmation and undo from phase 3.
+4. Normal-mode bulk actions move to the server-side undo too (one undo path).
+
+### Scale test
+
+A synthetic import of ~50k images in ~5k groups (seeded DB plus an import job, so the
+real review entry point is used), timed for: opening review, opening a group, the bulk
+panel's counts, a bulk edit and undo over everything, and typing in the sidebar filter.
+
+### Not covered here
+
+Getting 50k files *into* the library (the deferred bulk local-library import; the import
+dialog uploads every file through the browser) is a separate piece of work.
+
+## Phase 4 as built
+
+As planned above, with these specifics:
+
+- Backend: `services/image_scope.py` (scope conditions, `resolve_scope`, `scope_facets`;
+  grid states mirror the editor's file filter), `POST /images/facets`, and `scope` on
+  `POST /images/bulk-edit`. Undo is `{undo_id}` both ways; the last 5 records are kept in
+  memory (`bulk_edit_service.remember_undo`), and a missing one is 410.
+- The bulk-edit service reads plain rows (`_ImageRow`), not ORM objects, and deletes
+  tags without session sync. At 50k images the ORM version took ~6–9 s per edit, and
+  undoing an added tag ~65 s (each chunked `DELETE` evaluated its `IN` list against
+  every loaded Tag); now both are 3–4 s.
+- Frontend: `LARGE_REVIEW_IMAGES` (5,000) in `useEditGroupLoad`; large mode loads the
+  summaries and the opening group, then a group per click. `useBulkImageEdit` has two
+  targets: selected files (applied at once, reverted on failure) and a scope (applied on
+  the server, then the loaded files are re-read: `useRefreshLoaded`). `BulkPanel` shows
+  the counts as chips; one picked chip narrows the edit.
+- The sidebar lists rows in summary order (`sidebarRows`), windowed from 100 rows,
+  with a name filter from 30. In large mode it doesn't say "N of M" (groups aren't
+  "loading"), and Merge All is hidden: it only sees the groups opened so far.
+- Shared `BulkEditControls` (tag, type, grid, subgroup) between the file toolbar and the
+  panel.
+
+Not handled in large mode: setting the author of the whole import (the author field
+isn't on the panel), and merge or delete of groups that haven't been opened.
+
+Measured 2026-10-17 on a synthetic import of 50,000 images in 5,000 groups (seeded DB
+and import job, opened from the Activity dock), dev build:
+
+| | |
+|---|---|
+| Open review | ~1.4 s; ~30 MB JS heap |
+| Sidebar | ~25 rows in the DOM of 5,000; name filter ~40 ms |
+| Open an unloaded group | ~70 ms |
+| All (bulk panel counts) | ~250 ms (`/images/facets` ~150 ms) |
+| Change type of 10,000 images (filtered) | ~0.9 s; undo ~1.7 s |
+| Server: edit / undo all 50,000 | 2.8–3.9 s each |
+
 ## Decisions (2026-10-17)
 
-- **Large bulk actions ask first.** A bulk action over many images (threshold to pick in
-  phase 3, e.g. 500) confirms with the count: "Add tag 'Night' to 13,402 images?"
-- **Bulk edits get undo.** `bulk-edit` returns the previous values of the fields it
-  changed, and the editor offers an undo toast that sends them back.
+- **Large bulk actions ask first**, from 500 images: "Set type to scene on 13,000 images?"
+  (done in phase 3).
+- **Bulk edits get undo:** `bulk-edit` returns the previous values, and the toast's Undo
+  sends them back (done in phase 3).
 - **Very large imports open on the first group**, with All one click away (done in phase
   1, see above).

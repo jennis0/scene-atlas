@@ -53,6 +53,10 @@ export interface ImportJobSummary {
   waiting_for: string[]
   counts: ImportCounts
   group_count: number
+  /** Groups with nothing left to import (once planned). */
+  groups_done: number
+  /** Groups that have images in the gallery so far: what the editor can review. */
+  groups_with_images: number
   created_at: string | null
   updated_at: string | null
   completed_at: string | null
@@ -68,6 +72,8 @@ export interface QueueStatus {
   system_paused: boolean
   reason: string | null
   current_job_id: string | null
+  /** Rolling average seconds to import one file this session; null until measured. */
+  seconds_per_item?: number | null
 }
 
 export interface ImportJobList {
