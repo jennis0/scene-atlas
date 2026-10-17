@@ -30,6 +30,7 @@ class Image(Base):
     """Main image table."""
 
     __tablename__ = "images"
+    __table_args__ = (Index("ix_images_gridded_grid_type", "gridded", "grid_type"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     filename: Mapped[str] = mapped_column(String, nullable=False, index=True)  # For display
@@ -129,7 +130,9 @@ class ImageGroup(Base):
     image_count: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0
     )  # Maintained by DB triggers
-    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=datetime.utcnow, index=True
+    )
 
     images: Mapped[list["Image"]] = relationship(
         "Image", back_populates="group", foreign_keys="[Image.group_id]"
@@ -143,7 +146,10 @@ class Tag(Base):
     """Tag system for multidimensional variant categorization."""
 
     __tablename__ = "tags"
-    __table_args__ = (Index("ix_tags_category_value", "category", "value"),)
+    __table_args__ = (
+        Index("ix_tags_category_value", "category", "value"),
+        Index("ix_tags_category_value_image", "category", "value", "image_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     image_id: Mapped[int] = mapped_column(
@@ -185,6 +191,7 @@ class Color(Base):
     """Dominant colors extracted from images."""
 
     __tablename__ = "colors"
+    __table_args__ = (Index("ix_colors_color_hex_image", "color_hex", "image_id"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     image_id: Mapped[int] = mapped_column(
