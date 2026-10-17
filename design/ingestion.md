@@ -393,7 +393,7 @@ App settings (database, seeded on first boot by `seed_default_settings` in `back
 - **Progress moves in batch-sized steps** (up to 16 items commit together).
 - **Library purge deletes `backups/`**, because backups live inside the image library folder.
 - **Shared-storage "add to group"** (put the existing image into the new group instead of importing a copy) needs many-to-many group membership; deferred.
-- **Bulk local-library import**: linked folders read in place would be another source of bytes for the same item queue. Revisit `kind` and `staging_key` vs a `source_path` then.
+- **Bulk local-library import**: planned in [local-ingest.md](local-ingest.md): local folder import (desktop app, copies), then linked folders read in place, then a drop folder. Items gain a `source_path`.
 - **Pixel-hash determinism** across Pillow/libjpeg-turbo upgrades: the failure mode is a missed duplicate, never a false skip.
 
 ## 15. Logging and CLI

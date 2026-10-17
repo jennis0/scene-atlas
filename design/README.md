@@ -25,6 +25,7 @@ How individual features and subsystems are designed.
 | [search.md](search.md) | Search system -- hybrid FTS5 + CLIP semantic, RRF fusion, phrase matching, model selection |
 | [frontend.md](frontend.md) | Frontend SPA -- structure, gallery and search state, grouped view, imports client |
 | [ingestion.md](ingestion.md) | Ingestion pipeline (ADR-018) -- import data model, item state machine, upload protocol, ingest worker, duplicate tiers, stored format, maintenance, recovery |
+| [local-ingest.md](local-ingest.md) | Plan: local folder import (desktop app), linked library in place, drop folder |
 | [parser.md](parser.md) | ImageParser -- filename parsing, tag extraction, image group detection |
 | [tag-packs.md](tag-packs.md) | Tag packs -- genre-specific vocabularies, import mechanics, settings integration |
 | [dialog-focus-management.md](dialog-focus-management.md) | Focus management across dialog and modal components |

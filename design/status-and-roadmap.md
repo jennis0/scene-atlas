@@ -71,7 +71,7 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 | E2E first run on a clean machine | The backend can start before the model has downloaded, so the seed import never runs. Download before starting the webServer. | Low |
 | `gpu-dev` torch stuck at 2.6 | The `pytorch-cuda` index is cu124; move to cu126/cu128. | Low |
 | Session-based authentication | Until then server mode must sit behind an authenticating reverse proxy. [security.md](security.md) | Medium |
-| Bulk import of a local library | Linked folders read in place, feeding the same item queue. [ingestion.md](ingestion.md) | Low |
+| Bulk import of a local library | Local folder import (desktop app), then linked folders read in place, then a drop folder. [local-ingest.md](local-ingest.md) | High |
 | Dependency upgrades | Tailwind 3 → 4 (needs tailwind-merge v3), ESLint flat config, React 19 (blocked by @dnd-kit), React Router 7, vitepress 2, lucide-react. A full in-range frontend refresh breaks `imports.test.tsx` (likely @tanstack/react-virtual). | Low |
 
 ## Key design constraints
