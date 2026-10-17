@@ -18,7 +18,6 @@ let setupWindow: BrowserWindow | null = null
 let sidecarProcess: ChildProcess | null = null
 let currentAppDataDir: string | null = null
 let currentImageLibraryDir: string | null = null
-let currentConvertToWebp = false
 
 // The packaged UI is served by the sidecar, so its origin is the backend's.
 let backendOrigin: string | null = null
@@ -189,8 +188,12 @@ handleTrusted('setup:complete', (_event, appDataDir, imageLibraryDir, convertToW
   const dirError = prepareStorageDirs(appDataDir, imageLibraryDir)
   if (dirError) return { error: dirError }
 
-  saveConfig({ appDataDir, imageLibraryDir, convertToWebp })
-  void launchApp(appDataDir, imageLibraryDir, convertToWebp)
+  saveConfig({
+    appDataDir,
+    imageLibraryDir,
+    ...(convertToWebp ? { pendingStoredFormat: 'webp' as const } : {}),
+  })
+  void launchApp(appDataDir, imageLibraryDir)
   setupWindow?.close()
   return { error: null }
 })
@@ -230,11 +233,7 @@ handleTrusted('system:change-storage-dirs', async (_event, newAppDataDir, newIma
   const dirError = prepareStorageDirs(newAppDataDir, newImageLibraryDir)
   if (dirError) return { error: dirError }
 
-  saveConfig({
-    appDataDir: newAppDataDir,
-    imageLibraryDir: newImageLibraryDir,
-    convertToWebp: currentConvertToWebp,
-  })
+  saveConfig({ ...loadConfig(), appDataDir: newAppDataDir, imageLibraryDir: newImageLibraryDir })
   // app.exit() skips will-quit, so stop the old backend explicitly; otherwise it
   // keeps running against the old store while the relaunched app starts a new one.
   await stopSidecar()
@@ -326,8 +325,27 @@ async function showBackendUi(port: number): Promise<void> {
     signalBackendError(`The backend did not respond on ${origin}.`)
     return
   }
+  await applyPendingStoredFormat(origin)
   backendOrigin = origin
   await mainWindow?.loadURL(`${origin}/`)
+}
+
+/** Save the setup wizard's "convert to WebP" choice as the Stored format setting, once.
+ * If the backend refuses, it stays pending and is tried again on the next launch. */
+async function applyPendingStoredFormat(origin: string): Promise<void> {
+  const config = loadConfig()
+  if (!config?.pendingStoredFormat) return
+  try {
+    const response = await fetch(`${origin}/api/v1/settings/`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stored_format: config.pendingStoredFormat }),
+    })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    saveConfig({ appDataDir: config.appDataDir, imageLibraryDir: config.imageLibraryDir })
+  } catch (err) {
+    console.error('[electron] Could not save the Stored format setting:', err)
+  }
 }
 
 function signalBackendError(message: string): void {
@@ -352,14 +370,9 @@ function rotateLog(logPath: string): void {
   }
 }
 
-async function launchApp(
-  appDataDir: string,
-  imageLibraryDir: string,
-  convertToWebp: boolean,
-): Promise<void> {
+async function launchApp(appDataDir: string, imageLibraryDir: string): Promise<void> {
   currentAppDataDir = appDataDir
   currentImageLibraryDir = imageLibraryDir
-  currentConvertToWebp = convertToWebp
   backendOrigin = null
   backendError = null
   mainWindow = createMainWindow()
@@ -414,7 +427,6 @@ async function launchApp(
     port,
     appDataDir,
     imageLibraryDir,
-    convertToWebp,
     onReady: (readyPort) => {
       ready = true
       console.log(`[electron] Backend ready on port ${readyPort}`)
@@ -475,7 +487,7 @@ function stopSidecar(timeoutMs = 5000): Promise<void> {
 function start(): void {
   const config = loadConfig()
   if (config) {
-    void launchApp(config.appDataDir, config.imageLibraryDir, config.convertToWebp)
+    void launchApp(config.appDataDir, config.imageLibraryDir)
   } else {
     showSetupWindow()
   }

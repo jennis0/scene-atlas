@@ -40,6 +40,7 @@ venv.bak/
 
 # Data directories
 /data/
+/images/
 !backend/app/data/
 test_data/*
 

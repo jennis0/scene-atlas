@@ -92,7 +92,7 @@ A zip that fails `check_zip_safety` becomes one failed `archive` item rather tha
 ## Settings Sources
 
 - **`app_settings` table** — all concurrency settings, import limits and algorithm parameters. Seeded once by `seed_default_settings()` (resource defaults above, hardcoded values for the rest). Changed via `PATCH /api/v1/settings` in every deployment mode. `.env` is never used to seed it, so first boot behaves the same in all modes.
-- **`config.py` / env** — infrastructure (paths, ports, CORS, rate limits) and service constants. Server and developer modes use `.env`; the Electron shell passes `--port`, `--app-data-dir`, `--image-library-dir` and `CONVERT_TO_WEBP` to the sidecar.
+- **`config.py` / env** — infrastructure (paths, ports, CORS, rate limits) and service constants. Server and developer modes use `.env`; the Electron shell passes `--port`, `--app-data-dir` and `--image-library-dir` to the sidecar on its command line, and saves the setup wizard's WebP choice through the settings API.
 
 | Setting | Default source | Takes effect |
 |---------|---------------|--------------|

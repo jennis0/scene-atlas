@@ -323,7 +323,7 @@ Two sources:
 | `app_mode` | `server` | `app` when run as the Electron sidecar |
 | `debug` | `False` | Debug logging; uvicorn reload when run via `main.py` |
 | `app_data_dir` | `<repo>/data` | Fast storage root |
-| `image_library_dir` | `<repo>/images` | Originals + backups root |
+| `image_library_dir` | `<repo>/images`; `{app_data_dir}/images` when only `APP_DATA_DIR` is set (`default_image_library_dir`: a data dir with a database but no `images/` keeps `<repo>/images`, with a warning) | Originals + backups root |
 | `validate_roots` | `False` | Fail startup if roots are missing (frozen entry point) |
 | `database_url` | derived | Always `sqlite:///{app_data_dir}/battlemap.db` |
 | `store_thumbnails_dir`, `staging_dir`, `vector_db_path`, `store_images_dir`, `backups_dir` | derived | From the two roots |
@@ -348,7 +348,7 @@ Two sources:
 
 Derived values are `cached_property`s, not fields, so no env var can set them (`DATABASE_URL`, `STAGING_DIR` etc. are ignored). Each is computed once on first access; tests assign them to redirect storage. `__init__` creates the thumbnail, staging and LanceDB directories inside the roots.
 
-Other environment variables: `EMBEDDING_MODEL` (operator override of the active model, read by `clip_service.py`; otherwise `app_settings.active_model`), `CONVERT_TO_WEBP` (`1` seeds the `stored_format` setting as `webp` at first boot).
+Other environment variables: `EMBEDDING_MODEL` (operator override of the active model, read by `clip_service.py`; otherwise `app_settings.active_model`), `CONVERT_TO_WEBP` (server mode: `1` seeds the `stored_format` setting as `webp` at first boot; the desktop app doesn't use it).
 
 ## Startup Sequence (`main.py` lifespan)
 

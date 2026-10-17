@@ -70,7 +70,7 @@ All config via environment variables or `.env` file. Key settings:
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `APP_DATA_DIR` | `data/` | DB, LanceDB, thumbnails, staging, logs |
-| `IMAGE_LIBRARY_DIR` | `images/` | Managed image store and `backups/` |
+| `IMAGE_LIBRARY_DIR` | `images/`, or `<APP_DATA_DIR>/images` when only `APP_DATA_DIR` is set | Managed image store and `backups/` |
 | `CORS_ORIGINS` | `["http://localhost:3000","http://localhost:5173","http://localhost:8000"]` | Allowed CORS origins (JSON array) |
 | `APP_MODE` | `server` | `server`, or `app` when run as the Electron sidecar |
 

@@ -8,6 +8,29 @@ from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_REPO_ROOT = Path(__file__).parent.parent.parent
+_LEGACY_LIBRARY_DIR = _REPO_ROOT / "images"
+
+
+def default_image_library_dir(app_data_dir: Path) -> Path:
+    """Where originals go when IMAGE_LIBRARY_DIR isn't set: beside the data, so setting
+    APP_DATA_DIR alone keeps a whole library in one place.
+
+    Libraries made before this default kept their originals in ``<repo>/images``. A data
+    folder that already has a database but no ``images`` folder is one of those, so it
+    keeps using the old location (with a warning) rather than losing its originals.
+    """
+    library = app_data_dir / "images"
+    if not library.exists() and (app_data_dir / "battlemap.db").exists():
+        logging.getLogger(__name__).warning(
+            "Using the image library at %s. Set IMAGE_LIBRARY_DIR to keep using it, or "
+            "move it to %s",
+            _LEGACY_LIBRARY_DIR,
+            library,
+        )
+        return _LEGACY_LIBRARY_DIR
+    return library
+
 
 class Settings(BaseSettings):
     """Application settings."""
@@ -25,9 +48,11 @@ class Settings(BaseSettings):
     # 'server' when running standalone via uvicorn.  Set via APP_MODE env var.
     app_mode: Literal["app", "server"] = "server"
 
-    # Storage roots — set via APP_DATA_DIR and IMAGE_LIBRARY_DIR env vars
-    app_data_dir: Path = Path(__file__).parent.parent.parent / "data"
-    image_library_dir: Path = Path(__file__).parent.parent.parent / "images"
+    # Storage roots — set via APP_DATA_DIR and IMAGE_LIBRARY_DIR env vars. With neither
+    # set (development), they're data/ and images/ in the checkout; with only
+    # APP_DATA_DIR set, the library goes inside it (default_image_library_dir).
+    app_data_dir: Path = _REPO_ROOT / "data"
+    image_library_dir: Path = _LEGACY_LIBRARY_DIR
 
     # Whether to validate that roots exist on startup.
     # Set to True in production entry points (entry.py).  False by default so
@@ -115,6 +140,10 @@ class Settings(BaseSettings):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        if "app_data_dir" in self.model_fields_set and "image_library_dir" not in (
+            self.model_fields_set
+        ):
+            self.image_library_dir = default_image_library_dir(self.app_data_dir)
 
         # Migration aid: warn if the old CLIP_DEVICE env var is set
         if os.environ.get("CLIP_DEVICE"):

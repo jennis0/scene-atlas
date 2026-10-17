@@ -19,7 +19,9 @@ Set these in your `.env` file, Docker Compose environment, or system environment
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `APP_DATA_DIR` | `./data` | Database (`battlemap.db`), vector index, thumbnails, staging, logs |
-| `IMAGE_LIBRARY_DIR` | `./images` | Managed image storage (Scene Atlas writes its own file structure here) and backups (`backups/`) |
+| `IMAGE_LIBRARY_DIR` | `./images`, or `<APP_DATA_DIR>/images` when only `APP_DATA_DIR` is set | Managed image storage (Scene Atlas writes its own file structure here) and backups (`backups/`) |
+
+A data folder that already has a database but no `images` folder (a library made before that default) keeps using `./images`, and the log says so; set `IMAGE_LIBRARY_DIR` or move the folder.
 
 The database path, vector index, thumbnail and staging directories are always derived from these two roots and cannot be overridden individually.
 

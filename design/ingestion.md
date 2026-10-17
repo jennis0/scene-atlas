@@ -353,7 +353,7 @@ By default the library stores each file exactly as uploaded. Three settings chan
 - WebP is written with `exact=True`, so colour under transparent pixels survives. The ICC profile is carried over.
 - `content_hash` and `pixel_hash` always come from the upload; `stored_hash` and `file_size` describe the stored file. Dedup checks both byte hashes, so re-importing the original of a converted image is still caught.
 - Downloads take their extension from `storage_key` (`backend/pipeline/naming.py`, `ImageViewer.buildDownloadFilename`), so a converted map downloads as `.webp`.
-- The Electron setup wizard's "Convert to WebP" choice passes `CONVERT_TO_WEBP=1`, which only seeds `stored_format = "webp"` on first boot.
+- The Electron setup wizard's "Convert to WebP" choice is saved as `stored_format = "webp"` through `PATCH /settings/` once the backend is up ([electron.md](electron.md)). Server mode can seed it at first boot with `CONVERT_TO_WEBP=1`.
 
 ## 11. Testing
 
@@ -388,7 +388,7 @@ App settings (database, seeded on first boot by `seed_default_settings` in `back
 | `enable_image_grid_detection` | true | Image-analysis grid detection for battlemaps |
 | `grid_analysis_max_dim` | 0 (full resolution) | Longest side analysed by grid detection; lowering it misses thin lines on high-dpi maps |
 | `num_dominant_colors`, `color_clustering_samples`, `color_kmeans_n_init` | 5, 5000, 3 | Colour extraction |
-| `stored_format`, `stored_quality`, `stored_lossless` | `original` (`webp` if `CONVERT_TO_WEBP=1` at first boot), 90, true | See [§10](#10-stored-format) |
+| `stored_format`, `stored_quality`, `stored_lossless` | `original` (`webp` if chosen in the desktop setup wizard, or `CONVERT_TO_WEBP=1` at first boot in server mode), 90, true | See [§10](#10-stored-format) |
 
 ## 13. Implementation notes
 

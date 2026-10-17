@@ -197,7 +197,7 @@ cp .env.example .env
 | Variable | Default | Description |
 |---|---|---|
 | `APP_DATA_DIR` | `./data` | Database, vector index, thumbnails, logs |
-| `IMAGE_LIBRARY_DIR` | `./images` | Managed image store and backups |
+| `IMAGE_LIBRARY_DIR` | `./images`, or `<APP_DATA_DIR>/images` when only `APP_DATA_DIR` is set | Managed image store and backups |
 | `CORS_ORIGINS` | `["http://localhost:3000","http://localhost:5173","http://localhost:8000"]` | JSON array; set to your domain behind a reverse proxy |
 | `INFERENCE_DEVICE` | `auto` | GPU acceleration: `auto`/`cpu`/`cuda`/`directml`/`coreml` |
 

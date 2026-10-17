@@ -66,7 +66,6 @@ export interface SidecarOptions {
   port: number
   appDataDir: string
   imageLibraryDir: string
-  convertToWebp: boolean
   /** Called when the backend prints SCENE_ATLAS_READY on stdout. */
   onReady: (port: number) => void
   onLog: (line: string) => void
@@ -76,7 +75,7 @@ export interface SidecarOptions {
 
 /** Spawn the backend sidecar; calls onReady(port) when it prints SCENE_ATLAS_READY. */
 export function spawnSidecar(options: SidecarOptions): ChildProcess {
-  const { port, appDataDir, imageLibraryDir, convertToWebp, onReady, onLog, onError } = options
+  const { port, appDataDir, imageLibraryDir, onReady, onLog, onError } = options
   const child = spawn(
     getSidecarPath(),
     [
@@ -93,10 +92,6 @@ export function spawnSidecar(options: SidecarOptions): ChildProcess {
       // stdin is a pipe we never write to: when this process exits, however it exits,
       // the OS closes it and the sidecar's watchdog shuts the backend down.
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: {
-        ...process.env,
-        CONVERT_TO_WEBP: convertToWebp ? '1' : '0',
-      },
     },
   )
 

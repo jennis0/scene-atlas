@@ -95,3 +95,40 @@ class TestStartupValidation:
         assert s.store_thumbnails_dir.exists()
         assert s.staging_dir.exists()
         assert s.vector_db_path.exists()
+
+
+class TestImageLibraryDefault:
+    """With only APP_DATA_DIR set, a library stays in one place."""
+
+    @pytest.fixture(autouse=True)
+    def _no_roots_in_env(self, monkeypatch):
+        monkeypatch.delenv("APP_DATA_DIR", raising=False)
+        monkeypatch.delenv("IMAGE_LIBRARY_DIR", raising=False)
+
+    def test_library_goes_inside_the_data_dir(self, tmp_path):
+        s = Settings(app_data_dir=tmp_path)
+        assert s.image_library_dir == tmp_path / "images"
+        assert s.store_images_dir == tmp_path / "images"
+
+    def test_from_the_environment_too(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("APP_DATA_DIR", str(tmp_path))
+        assert Settings().image_library_dir == tmp_path / "images"
+
+    def test_explicit_library_wins(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("APP_DATA_DIR", str(tmp_path / "data"))
+        monkeypatch.setenv("IMAGE_LIBRARY_DIR", str(tmp_path / "library"))
+        assert Settings().image_library_dir == tmp_path / "library"
+
+    def test_existing_library_keeps_its_old_location(self, tmp_path):
+        from backend.app.config import _LEGACY_LIBRARY_DIR
+
+        (tmp_path / "battlemap.db").touch()  # made before the default changed
+        assert Settings(app_data_dir=tmp_path).image_library_dir == _LEGACY_LIBRARY_DIR
+        (tmp_path / "images").mkdir()  # moved beside the data
+        assert Settings(app_data_dir=tmp_path).image_library_dir == tmp_path / "images"
+
+    def test_development_default_is_unchanged(self):
+        from backend.app.config import _LEGACY_LIBRARY_DIR
+
+        # Ignore a developer's own .env
+        assert Settings(_env_file=None).image_library_dir == _LEGACY_LIBRARY_DIR
