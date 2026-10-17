@@ -259,24 +259,15 @@ def get_embeddings_stats(name: str) -> EmbeddingStatsResponse:
     svc = get_lancedb_service()
 
     try:
-        if not svc.table_exists(collection_name):
-            return EmbeddingStatsResponse(
-                collection_name=collection_name,
-                vectors_count=0,
-                exists=False,
-            )
-        table = svc.db.open_table(collection_name)
-        return EmbeddingStatsResponse(
-            collection_name=collection_name,
-            vectors_count=table.count_rows(),
-            exists=True,
-        )
+        count = svc.row_count(collection_name)
     except Exception:
-        return EmbeddingStatsResponse(
-            collection_name=collection_name,
-            vectors_count=0,
-            exists=False,
-        )
+        logger.exception("Could not read embedding stats for %s", collection_name)
+        count = None
+    return EmbeddingStatsResponse(
+        collection_name=collection_name,
+        vectors_count=count or 0,
+        exists=count is not None,
+    )
 
 
 @router.delete("/{name}/embeddings", status_code=204)

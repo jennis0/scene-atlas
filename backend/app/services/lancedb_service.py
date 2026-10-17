@@ -15,6 +15,8 @@ from pathlib import Path
 import lancedb
 import numpy as np
 import pyarrow as pa
+from lancedb.db import DBConnection
+from lancedb.table import Table
 
 from ..config import settings
 
@@ -47,15 +49,28 @@ class LanceDBService:
         self._lock = threading.RLock()
         self._path = Path(path)
         self._vector_size = vector_size or settings.vector_size
-        self.db = lancedb.connect(str(self._path))
+        self.db: DBConnection | None = lancedb.connect(str(self._path))
+        self._table: Table | None = None
         self.collection_name = collection_name
         self.ensure_collection()
+
+    @property
+    def _conn(self) -> DBConnection:
+        if self.db is None:
+            raise RuntimeError("LanceDBService is closed")
+        return self.db
+
+    @property
+    def _tbl(self) -> Table:
+        if self._table is None:
+            raise RuntimeError("LanceDBService is closed")
+        return self._table
 
     def table_exists(self, name: str) -> bool:
         # list_tables() is paginated and returns a response object, not a list of names.
         page_token = None
         while True:
-            page = self.db.list_tables(page_token=page_token)
+            page = self._conn.list_tables(page_token=page_token)
             if name in page.tables:
                 return True
             page_token = page.page_token
@@ -72,7 +87,7 @@ class LanceDBService:
         with self._lock:
             try:
                 if self.table_exists(self.collection_name):
-                    table = self.db.open_table(self.collection_name)
+                    table = self._conn.open_table(self.collection_name)
                     schema = table.schema
                     vec_field = schema.field("vector")
                     existing_size = vec_field.type.list_size
@@ -83,7 +98,7 @@ class LanceDBService:
                             existing_size,
                             self._vector_size,
                         )
-                        self.db.drop_table(self.collection_name)
+                        self._conn.drop_table(self.collection_name)
                     else:
                         logger.info(
                             "Table %s already exists (size=%d)",
@@ -98,7 +113,7 @@ class LanceDBService:
                     self.collection_name,
                     self._vector_size,
                 )
-                self._table = self.db.create_table(
+                self._table = self._conn.create_table(
                     self.collection_name,
                     schema=_table_schema(self._vector_size),
                     exist_ok=True,
@@ -112,7 +127,7 @@ class LanceDBService:
         """Delete the entire table (use with caution)."""
         with self._lock:
             try:
-                self.db.drop_table(self.collection_name)
+                self._conn.drop_table(self.collection_name)
                 logger.info("Table %s deleted successfully", self.collection_name)
             except Exception as e:
                 logger.error("Error deleting table: %s", e)
@@ -134,7 +149,7 @@ class LanceDBService:
                     "base_name": payload.get("base_name", ""),
                 }
 
-                self._table.merge_insert(
+                self._tbl.merge_insert(
                     "id"
                 ).when_matched_update_all().when_not_matched_insert_all().execute([row])
                 logger.debug("Added embedding for image_id=%s", image_id)
@@ -161,7 +176,7 @@ class LanceDBService:
                         }
                     )
 
-                self._table.merge_insert(
+                self._tbl.merge_insert(
                     "id"
                 ).when_matched_update_all().when_not_matched_insert_all().execute(rows)
                 logger.debug("Batch added %s embeddings to LanceDB", len(rows))
@@ -187,11 +202,11 @@ class LanceDBService:
         same semantics as Qdrant's score_threshold parameter.  Callers already
         compensate by requesting inflated limits (e.g. limit * 3).
         """
-        table = self._table
-        if table is None:
-            raise RuntimeError("LanceDBService is closed")
+        table = self._tbl
         try:
-            results = table.search(query_embedding).metric("cosine").limit(limit).to_list()
+            # search() is annotated with the base builder; a vector query returns the vector builder.
+            query = table.search(query_embedding).distance_type("cosine")  # pyright: ignore[reportAttributeAccessIssue]
+            results = query.limit(limit).to_list()
 
             output = []
             for row in results:
@@ -220,7 +235,7 @@ class LanceDBService:
         """Delete an image embedding from LanceDB."""
         with self._lock:
             try:
-                self._table.delete(f"id = {image_id}")
+                self._tbl.delete(f"id = {image_id}")
                 logger.debug("Deleted embedding for image_id=%s", image_id)
                 return True
             except Exception as e:
@@ -234,7 +249,7 @@ class LanceDBService:
         with self._lock:
             try:
                 ids_str = ", ".join(str(i) for i in image_ids)
-                self._table.delete(f"id IN ({ids_str})")
+                self._tbl.delete(f"id IN ({ids_str})")
                 logger.info("Deleted %d embedding(s) from LanceDB", len(image_ids))
                 return True
             except Exception as e:
@@ -243,9 +258,7 @@ class LanceDBService:
 
     def get_embedding(self, image_id: int) -> list[float] | None:
         """Retrieve a stored embedding vector for an image."""
-        table = self._table
-        if table is None:
-            raise RuntimeError("LanceDBService is closed")
+        table = self._tbl
         try:
             results = table.search().where(f"id = {image_id}").limit(1).to_list()
             if results:
@@ -263,9 +276,7 @@ class LanceDBService:
         """
         if not image_ids:
             return {}
-        table = self._table
-        if table is None:
-            raise RuntimeError("LanceDBService is closed")
+        table = self._tbl
         try:
             ids_str = ", ".join(str(i) for i in image_ids)
             results = table.search().where(f"id IN ({ids_str})").limit(len(image_ids)).to_list()
@@ -280,17 +291,13 @@ class LanceDBService:
 
     def get_all_ids(self) -> set[int]:
         """Every image id in the table, without loading vectors (for reconciliation)."""
-        table = self._table
-        if table is None:
-            raise RuntimeError("LanceDBService is closed")
+        table = self._tbl
         rows = table.search().select(["id"]).limit(None).to_arrow()
         return set(rows.column("id").to_pylist())
 
     def get_collection_info(self) -> dict:
         """Get information about the collection."""
-        table = self._table
-        if table is None:
-            raise RuntimeError("LanceDBService is closed")
+        table = self._tbl
         try:
             count = table.count_rows()
             return {
@@ -301,6 +308,12 @@ class LanceDBService:
         except Exception as e:
             logger.error("Error getting collection info: %s", e)
             return {}
+
+    def row_count(self, collection_name: str) -> int | None:
+        """Rows in *collection_name*, or None if the table doesn't exist."""
+        if not self.table_exists(collection_name):
+            return None
+        return self._conn.open_table(collection_name).count_rows()
 
     def backup_storage(self, target_dir: Path) -> Path:
         """Copy the LanceDB storage directory for backup."""
@@ -322,7 +335,7 @@ class LanceDBService:
                 "Switch to a different model first."
             )
         try:
-            self.db.drop_table(collection_name)
+            self._conn.drop_table(collection_name)
             logger.info("Deleted LanceDB table '%s'", collection_name)
         except Exception:
             logger.warning("Failed to delete LanceDB table '%s'", collection_name, exc_info=True)
