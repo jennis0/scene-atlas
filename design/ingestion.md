@@ -307,7 +307,7 @@ create job → manifest chunks → (archives) → seal ──▶ show group plan
 
 ### 8.2 Views
 
-`ImportDialog` (start view, then progress with notices, group ledger, Pause/Resume/Cancel), `ImportJobRow` in the activity dock (queue banner with "Retry now" when system-paused), and `ImportReportDialog` (Groups, Problems, Already in library, Skipped; Retry, Import as new copies, Undo import, Dismiss, Review in editor). All are pure views over `ImportManager`; lists page through `GET /imports/{id}/items`.
+`ImportDialog` (start view, then progress with notices, group ledger, Pause/Resume/Cancel), `ImportJobRow` in the activity dock (queue banner with "Retry now" when system-paused), and `ImportReportDialog` (Groups, Problems, Already in library, Skipped; Retry, Import as new copies, Undo import, Review in editor, Done). All are pure views over `ImportManager`; lists page through `GET /imports/{id}/items`.
 
 ## 9. Maintenance and recovery
 

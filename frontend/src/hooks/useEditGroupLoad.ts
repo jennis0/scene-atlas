@@ -92,6 +92,8 @@ export interface UseEditGroupLoadOptions {
   groupId?: number | null
   seedImages?: SeedImage[]
   groupIds?: number[]
+  /** Import review: open on this group rather than on all groups */
+  startGroupId?: number
   /** Called in addition to resetLoad() when the single-group load effect
    *  detects no group to load (gId === null). Use this to reset dialog-local
    *  state (saving, merging, DnD, etc.) that the hook doesn't own. */
@@ -121,9 +123,13 @@ export function useEditGroupLoad({
   groupId,
   seedImages,
   groupIds,
+  startGroupId,
   onResetDialogState,
   fileEditing,
 }: UseEditGroupLoadOptions): UseEditGroupLoadReturn {
+  // Read when the first batch lands; a ref so a new start group doesn't refetch
+  const startGroupIdRef = useRef(startGroupId)
+  startGroupIdRef.current = startGroupId
   const {
     setGroups,
     setActiveTab,
@@ -318,7 +324,9 @@ export function useEditGroupLoad({
           const authors = results[newIds.length + 1] as string[]
           setTagVocab(parseTagVocabulary(categories))
           setAuthorSuggestions(authors)
-          setActiveTab(allIds.length > 1 ? ALL_TAB : 0)
+          const startIndex =
+            startGroupIdRef.current === undefined ? -1 : newIds.indexOf(startGroupIdRef.current)
+          setActiveTab(startIndex >= 0 ? startIndex : allIds.length > 1 ? ALL_TAB : 0)
         }
       })
       .catch((err: unknown) => {

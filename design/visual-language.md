@@ -423,11 +423,9 @@ Floating bottom-right card for imports (from the ImportManager) and background j
 **Visibility:** Hidden when no jobs exist. No auto-expand — user clicks pill to open.
 
 ### Import ledger (`components/imports/GroupLedger.tsx`)
-The import's groups as ruled rows that fill in as images land:
-- Group name `font-display text-[13.5px]`, author `text-[11px] text-muted-foreground`, counts `font-mono text-[10.5px] tabular-nums` in the right margin (`done/total`, failed count in `text-destructive`).
-- One hairline per row: track `h-px bg-border/40`, fill `bg-primary/80` while open, `bg-primary/35` when finished.
-- Clickable rows (groups with imported images) extend 8px into the gutter by position and use `hover:bg-muted/30`.
-- Virtualised: a folder can plan thousands of groups.
+The import's groups as ruled rows. Virtualised: a folder can plan thousands of groups. Clickable rows (groups with imported images) extend 8px into the gutter and use `hover:bg-muted/30`. Two variants:
+- **progress** (import dialog, and the report while still running): rows fill in as images land. Group name `font-display text-[15px]`, author `text-[11px]`, counts `font-mono text-[10.5px] tabular-nums` in the margin (`done/total`, failed in `text-destructive`), one hairline progress bar per row (`bg-primary/80` while open, `/35` finished). 48px rows.
+- **report** (finished import report): 44px rows, ruled `border-border/40`. A 40×30 cover thumbnail (`cover_image_id` from the job detail, on the transparency backdrop), group name `font-display text-[15px]`, author only when the groups' authors differ (otherwise it's in the dialog's status line), then on the right only the exceptions worth reading — `N failed` (destructive), `N already in library`, `added to an existing group` — and `N images`. No progress bar.
 
 ### Import notices (`components/imports/ImportFrame.tsx`)
 One-line notices inside import dialogs: `rounded-lg border px-3 py-2.5`, attention `border-primary/25 bg-primary/[0.06]` (amber icon), problem `border-destructive/30 bg-destructive/[0.07]` (red icon). Actions go on a row beneath the text, never squeezed beside it.

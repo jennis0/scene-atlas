@@ -19,7 +19,9 @@ export interface UseGalleryDialogsReturn {
 
   // Group editor over every group an import created (from the import report)
   reviewGroupIds: number[] | null
-  setReviewGroupIds: (ids: number[] | null) => void
+  /** The group the editor opens on; otherwise it starts on all groups */
+  reviewStartGroupId: number | undefined
+  setReviewGroupIds: (ids: number[] | null, startGroupId?: number) => void
 
   // Mass edit dialog
   showMassEdit: boolean
@@ -68,7 +70,12 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
 
   const [selectedImage, setSelectedImage] = useState<{ image: Image; index: number } | null>(null)
   const [editGroupId, setEditGroupId] = useState<number | null>(null)
-  const [reviewGroupIds, setReviewGroupIds] = useState<number[] | null>(null)
+  const [review, setReview] = useState<{ groupIds: number[]; startGroupId?: number } | null>(null)
+  const setReviewGroupIds = useCallback(
+    (ids: number[] | null, startGroupId?: number) =>
+      setReview(ids ? { groupIds: ids, startGroupId } : null),
+    [],
+  )
   const [showMassEdit, setShowMassEdit] = useState(false)
   const [editAllSeedImages, setEditAllSeedImages] = useState<SeedImage[]>([])
   const [editAllLoading, setEditAllLoading] = useState(false)
@@ -134,7 +141,8 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
     handlePrevious,
     editGroupId,
     setEditGroupId,
-    reviewGroupIds,
+    reviewGroupIds: review?.groupIds ?? null,
+    reviewStartGroupId: review?.startGroupId,
     setReviewGroupIds,
     showMassEdit,
     setShowMassEdit,

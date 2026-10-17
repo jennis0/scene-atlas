@@ -264,12 +264,43 @@ describe('ImportReportDialog', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
-  it('dismisses a finished import', async () => {
+  it('closes with Done, clearing a finished import from the activity list', async () => {
     await setup()
     const onClose = vi.fn()
     renderWithProviders(<ImportReportDialog jobId="job1" open onClose={onClose} />)
-    await userEvent.click(screen.getByText('Dismiss'))
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }))
     await waitFor(() => expect(client.action).toHaveBeenCalledWith('job1', 'dismiss'))
     expect(onClose).toHaveBeenCalled()
+  })
+
+  it('opens on the problems when some files failed', async () => {
+    await setup()
+    renderWithProviders(<ImportReportDialog jobId="job1" open onClose={noop} />)
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: /Problems/ })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      ),
+    )
+  })
+
+  it('opens the editor on a group when the group is clicked', async () => {
+    await setup()
+    const onReviewGroups = vi.fn()
+    renderWithProviders(
+      <ImportReportDialog jobId="job1" open onClose={noop} onReviewGroups={onReviewGroups} />,
+    )
+    await userEvent.click(screen.getByRole('tab', { name: /Groups/ }))
+    await userEvent.click(await screen.findByText('Island Fort'))
+    expect(onReviewGroups).toHaveBeenCalledWith([41], 41)
+  })
+
+  it('names the shared author once instead of on every group', async () => {
+    await setup()
+    renderWithProviders(<ImportReportDialog jobId="job1" open onClose={noop} />)
+    await userEvent.click(screen.getByRole('tab', { name: /Groups/ }))
+    await screen.findByText('Island Fort')
+    expect(screen.getByText(/· Czepeku$/)).toBeInTheDocument()
+    expect(screen.queryByText('Czepeku', { exact: true })).not.toBeInTheDocument()
   })
 })

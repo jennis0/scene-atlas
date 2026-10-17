@@ -32,6 +32,8 @@ interface EditGroupDialogProps {
   // Import-review mode: pass groupIds to load multiple groups by ID, all images in scope
   // (e.g. every group an import created, from the import report).
   groupIds?: number[]
+  /** Import-review mode: the group to open on, instead of all groups */
+  startGroupId?: number
   open: boolean
   onClose: () => void
   /** Called after editing is done (changes are auto-saved as you go). */
@@ -42,6 +44,7 @@ export default function EditGroupDialog({
   groupId,
   seedImages,
   groupIds,
+  startGroupId,
   open,
   onClose,
   onSave,
@@ -135,6 +138,7 @@ export default function EditGroupDialog({
     groupId,
     seedImages,
     groupIds,
+    startGroupId,
     onResetDialogState: resetDialogState,
     fileEditing: {
       setGroups,

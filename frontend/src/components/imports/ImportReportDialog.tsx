@@ -4,7 +4,10 @@
  *
  * Sections, each shown only when it has entries: groups, problems (grouped by
  * reason, with retry), files already in the library (with "Import as new
- * copy"), and skipped files. Actions: undo the whole import, dismiss it.
+ * copy"), and skipped files. Opens on problems when there are any.
+ * Actions: undo the whole import, review its groups in the editor (also what
+ * clicking a group does, starting on that group), and Done, which closes the
+ * report and clears a finished import from the activity list.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -32,9 +35,8 @@ interface ImportReportDialogProps {
   jobId: string | null
   open: boolean
   onClose: () => void
-  onOpenGroup?: (imageGroupId: number) => void
-  /** Open every group this import added to in the group editor. */
-  onReviewGroups?: (imageGroupIds: number[]) => void
+  /** Open every group this import added to in the group editor, optionally on one of them. */
+  onReviewGroups?: (imageGroupIds: number[], startGroupId?: number) => void
   /** Called after the import was undone (its images deleted). */
   onUndone?: () => void
 }
@@ -43,19 +45,19 @@ export function ImportReportDialog({
   jobId,
   open,
   onClose,
-  onOpenGroup,
   onReviewGroups,
   onUndone,
 }: ImportReportDialogProps) {
   const manager = getImportManager()
   const { job, detail } = useImportJob(jobId, { watch: open })
-  const [section, setSection] = useState<Section>('groups')
+  // null until the user picks a tab: then the report opens on problems if there are any
+  const [section, setSection] = useState<Section | null>(null)
   const [confirmingUndo, setConfirmingUndo] = useState(false)
   const [busy, setBusy] = useState(false)
   const [itemsVersion, setItemsVersion] = useState(0)
 
   useEffect(() => {
-    if (open) setSection('groups')
+    if (open) setSection(null)
   }, [open, jobId])
 
   if (!jobId) return null
@@ -64,7 +66,8 @@ export function ImportReportDialog({
   if (counts?.failed) sections.push('failed')
   if (counts?.duplicate) sections.push('duplicate')
   if (counts?.skipped) sections.push('skipped')
-  const active = sections.includes(section) ? section : 'groups'
+  const fallback: Section = counts?.failed ? 'failed' : 'groups'
+  const active = section && sections.includes(section) ? section : fallback
   const reviewIds = (detail?.groups ?? [])
     .filter((g) => g.image_group_id !== null && g.counts.done > 0)
     .map((g) => g.image_group_id!)
@@ -91,11 +94,25 @@ export function ImportReportDialog({
       toast.success(`Import undone. ${plural(deleted, 'image')} removed.`)
     })
 
+  // When every group has the same author, say it once here rather than on every row
+  const groups = detail?.groups ?? []
+  const authors = new Set(groups.map((g) => g.author))
+  const sharedAuthor = authors.size === 1 ? [...authors][0] : null
+  const finished = !!job && isFinished(job)
+
   const statusLine = job
-    ? `${job.status === 'cancelled' ? 'Cancelled. ' : isFinished(job) ? '' : 'Still running. '}${outcomeText(job.counts)}${
+    ? `${job.status === 'cancelled' ? 'Cancelled. ' : finished ? '' : 'Still running. '}${outcomeText(job.counts)}${
         job.counts.skipped ? `, ${job.counts.skipped.toLocaleString()} skipped` : ''
-      }`
+      }${groups.length ? ` in ${plural(groups.length, 'group')}` : ''}${sharedAuthor ? ` · ${sharedAuthor}` : ''}`
     : 'Loading'
+
+  const done = () => {
+    if (!finished || job.dismissed) return onClose()
+    void act(async () => {
+      await manager.dismiss(jobId)
+      onClose()
+    })
+  }
 
   return (
     <ImportFrame
@@ -111,25 +128,19 @@ export function ImportReportDialog({
           </TextButton>
           <span className="flex-1" />
           {onReviewGroups && reviewIds.length > 0 && (
-            <TextButton tone="primary" onClick={() => onReviewGroups(reviewIds)}>
+            <TextButton tone="solid" onClick={() => onReviewGroups(reviewIds)}>
               Review in editor
             </TextButton>
           )}
-          {job && isFinished(job) && !job.dismissed && (
-            <TextButton
-              onClick={() =>
-                void act(async () => {
-                  await manager.dismiss(jobId)
-                  onClose()
-                })
-              }
-              disabled={busy}
-              title="Hide from the activity list. Nothing is deleted."
-            >
-              Dismiss
-            </TextButton>
-          )}
-          <TextButton onClick={onClose}>Close</TextButton>
+          <TextButton
+            onClick={done}
+            disabled={busy}
+            title={
+              finished ? 'Close, and clear this import from the activity list' : 'Close the report'
+            }
+          >
+            Done
+          </TextButton>
         </>
       }
     >
@@ -169,7 +180,14 @@ export function ImportReportDialog({
 
       <div className="flex-1 min-h-0 flex flex-col border-t border-border/30 pt-2">
         {active === 'groups' && (
-          <GroupLedger groups={detail?.groups ?? []} onOpenGroup={onOpenGroup} />
+          <GroupLedger
+            groups={groups}
+            variant={finished ? 'report' : 'progress'}
+            showAuthor={!sharedAuthor}
+            onOpenGroup={
+              onReviewGroups ? (groupId) => onReviewGroups(reviewIds, groupId) : undefined
+            }
+          />
         )}
         {active === 'failed' && (
           <ItemList
