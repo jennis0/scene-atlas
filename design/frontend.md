@@ -160,7 +160,7 @@ All import state lives in `lib/import/`, outside the React tree:
 
 A **clean finish** (`isCleanFinish`: completed, no failures, no files already in the library, upload not cut short) skips the dialog: the finished toast's "Review" and a click on the import in `ActivityDock` open the review editor directly; anything else opens the dialog. Undo is also on the dock row (confirmed), so it stays reachable without the dialog. `ActivityDock` shows imports (plus a queue banner when system-paused) and background jobs.
 
-The review editor (`EditGroupDialog` with `groupIds`) loads groups in batches of 8 and shows each batch as it lands, so a large import opens at once; the sidebar reads "N of M groups" until all are in. A start group is fetched first and listed first. The editor resets on close. See [ingestion.md](ingestion.md) for the protocol.
+The review editor (`EditGroupDialog` with `groupIds`) loads groups one request at a time (the backend serialises group reads, so parallel requests only contend) in a first batch of 8, then batches of 40, showing each as it lands (each append re-renders every file card, which is what limits large imports), so a large import opens at once; the sidebar reads "N of M groups" until all are in. A start group is fetched first and listed first. The editor resets on close. See [ingestion.md](ingestion.md) for the protocol.
 
 ## Dialogs
 
