@@ -1,6 +1,6 @@
 {
   "include": ["backend"],
-  "exclude": [".venv", "frontend", "backend/tests", "backend/scripts"],
+  "exclude": [".venv", "frontend", "backend/tests", "backend/scripts", "backend/pyinstaller/build", "backend/pyinstaller/dist"],
   "venvPath": ".",
   "venv": ".venv",
   "pythonVersion": "3.12",

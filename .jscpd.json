@@ -1,6 +1,7 @@
 {
   "path": ["backend/app", "backend/pipeline", "scripts", "frontend/src", "electron/src"],
   "ignore": ["**/node_modules/**", "**/dist/**", "**/*.test.*", "**/__tests__/**", "**/tests/**"],
+  "gitignore": true,
   "minLines": 8,
   "minTokens": 70,
   "threshold": 1,
