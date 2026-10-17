@@ -151,9 +151,7 @@ Each model directory (whether in APP_DATA_DIR or backend/models/) contains:
 
 ### Model Configuration Flow
 
-At startup (`main.py`), the manifest is read to derive:
-1. `vector_size` — set from `manifest.embedding_dim`
-2. `vector_collection_name` — scoped to model: `embeddings_{model_name}` (e.g. `embeddings_small`)
+At startup (`main.py`), `vector_size` is set from `manifest.embedding_dim`. The LanceDB table is scoped to the model: `get_collection_name(model)` → `embeddings_{model_name}` (e.g. `embeddings_small`), used by `get_lancedb_service()` and `reload_lancedb_service()`.
 
 Switching models creates a new LanceDB table — the old table is preserved (not deleted). Run `rebuild_all_embeddings(force=True)` after switching to populate the new table. The `POST /api/v1/models/active` endpoint handles the full switch sequence automatically.
 

@@ -323,7 +323,7 @@ class AppSettings(BaseModel):
     enable_image_grid_detection: bool = True
     # Longest side analysed; 0 = full resolution (default). Lower is faster but misses
     # thin grid lines on high-resolution maps (design/grid-detection-v3.md).
-    grid_analysis_max_dim: int = Field(0, ge=0)
+    grid_analysis_max_dim: int = Field(default=0, ge=0)
 
     # Color extraction
     num_dominant_colors: int = 5
@@ -337,8 +337,8 @@ class AppSettings(BaseModel):
     max_concurrent_heavy_requests: int = 4
 
     # Import limits
-    max_import_file_size: int = 2000 * 1024 * 1024
-    max_video_file_size: int = 2000 * 1024 * 1024
+    max_import_file_size: int = 2048 * 1024 * 1024
+    max_video_file_size: int = 2048 * 1024 * 1024
     max_import_files: int = 1000
     max_import_total_size: int = 2048 * 1024 * 1024
 
@@ -348,7 +348,7 @@ class AppSettings(BaseModel):
 
     # Storage format for new imports (design/ingestion.md §10)
     stored_format: StoredFormatName = "original"
-    stored_quality: int = Field(90, ge=1, le=100)  # lossy WebP and JPEG
+    stored_quality: int = Field(default=90, ge=1, le=100)  # lossy WebP and JPEG
     stored_lossless: bool = True  # lossless WebP for lossless sources (never for JPEGs)
 
     # Model selection (managed via POST /api/v1/models/active — not in AppSettingsPatch)
