@@ -97,5 +97,10 @@ export default {
       },
     },
   },
-  plugins: [require('tailwindcss-animate')],
+  plugins: [
+    require('tailwindcss-animate'),
+    // short: windows with little height in lines of text (zoomed in, or large text); see
+    // lib/compactLayout.ts
+    ({ addVariant }) => addVariant('short', 'html[data-short] &'),
+  ],
 }

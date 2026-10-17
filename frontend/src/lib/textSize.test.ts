@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import {
   applyTextSize,
   getStoredTextSize,
-  saveTextSize,
+  textSizeChoice,
   TEXT_SIZE_STORAGE_KEY,
   TEXT_SIZES,
 } from './textSize'
@@ -34,7 +34,7 @@ describe('textSize', () => {
   })
 
   it('save stores and applies', () => {
-    saveTextSize('larger')
+    textSizeChoice.save('larger')
     expect(localStorage.getItem(TEXT_SIZE_STORAGE_KEY)).toBe('larger')
     expect(document.documentElement.dataset.textSize).toBe('larger')
   })

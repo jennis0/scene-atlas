@@ -20,7 +20,7 @@ export const PALETTES: readonly { value: Palette; label: string; title: string }
 
 export const PALETTE_STORAGE_KEY = 'scene-atlas-palette'
 
-const choice = displayChoice<Palette>(
+export const paletteChoice = displayChoice<Palette>(
   PALETTE_STORAGE_KEY,
   'palette',
   PALETTES.map((p) => p.value),
@@ -28,7 +28,6 @@ const choice = displayChoice<Palette>(
 )
 
 /** The saved palette; anything unknown falls back to navy, the default. */
-export const getStoredPalette = choice.read
+export const getStoredPalette = paletteChoice.read
 /** Navy is the base tokens, so only other palettes set data-palette. */
-export const applyPalette = choice.apply
-export const savePalette = choice.save
+export const applyPalette = paletteChoice.apply

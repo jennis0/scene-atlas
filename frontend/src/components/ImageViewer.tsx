@@ -66,6 +66,8 @@ export function ImageViewer({
   }, [])
 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  // On short windows the details scroll with the scenes, in this container instead
+  const detailsScrollRef = useRef<HTMLDivElement>(null)
   // Set before a within-group variant click so the reset effect keeps the UI state.
   const preserveStateRef = useRef(false)
   // Tracks the image.id we last processed in the reset effect.
@@ -110,6 +112,7 @@ export function ImageViewer({
     setEditingSubgroup(false)
     resetSceneFilters()
     if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0
+    if (detailsScrollRef.current) detailsScrollRef.current.scrollTop = 0
   }, [image.id, resetSceneFilters])
 
   useEffect(() => {
@@ -234,68 +237,78 @@ export function ImageViewer({
         />
 
         <div className="flex-1 min-h-0 overflow-y-auto lg:flex-none lg:w-[25.88rem] lg:overflow-hidden flex flex-col border-t lg:border-t-0 lg:border-l border-border/20 bg-card">
-          {/* Fixed: stays visible while the scenes below scroll */}
-          <div className="px-4 pt-3 pb-2 shrink-0 border-b border-border/30">
+          <div className="px-4 pt-3 shrink-0">
             <ViewerToolbar
               image={img}
               onEditGroup={onEditGroup}
               onDelete={() => setConfirmingDelete(true)}
               onClose={onClose}
             />
-
-            {img.group_name && img.group_name !== img.name && (
-              <p className="font-display text-2xl font-semibold text-muted-foreground truncate mb-0.5">
-                {img.group_name}
-              </p>
-            )}
-
-            <ImageNameEditor
-              name={img.name}
-              editing={editingName}
-              onEditingChange={setEditingName}
-              onRename={(name) => renameMutation.mutate(name)}
-            />
-
-            <p className="text-sm text-muted-foreground">by {img.author}</p>
-
-            <p
-              className="text-3xs text-muted-foreground font-mono truncate mt-1"
-              title={img.filename}
-            >
-              {filenameStem(img.filename)}
-            </p>
-            <p className="text-3xs text-muted-foreground mb-3">
-              {img.width}×{img.height} · {(img.file_size / 1024 / 1024).toFixed(1)} MB
-            </p>
-
-            <ImageProperties
-              image={img}
-              existingSubgroups={sceneFilters.subgroups}
-              editingSubgroup={editingSubgroup}
-              onEditingSubgroupChange={setEditingSubgroup}
-              onPatch={(patch) => patchMutation.mutate(patch)}
-              patching={patchMutation.isPending}
-            />
-
-            <ImageTags
-              image={img}
-              onAddTag={(tag) =>
-                addTagMutation.mutate({ category: tag.category, value: tag.value })
-              }
-              onRemoveTag={(tagId) => removeTagMutation.mutate(tagId)}
-              removing={removeTagMutation.isPending}
-            />
           </div>
 
-          {scenes && scenes.length > 1 && (
-            <ScenePanel
-              scenes={scenes}
-              sceneFilters={sceneFilters}
-              activeImageId={img.id}
-              onSceneClick={handleSceneClick}
-              scrollRef={scrollContainerRef}
-            />
-          )}
+          {/* Details stay put while the scenes below scroll; on short screens (compact)
+              they scroll away with the scenes so the group stays reachable */}
+          <div
+            ref={detailsScrollRef}
+            className="flex flex-col lg:flex-1 lg:min-h-0 short:lg:overflow-y-auto"
+          >
+            <div className="px-4 pb-2 shrink-0 border-b border-border/30">
+              {img.group_name && img.group_name !== img.name && (
+                <p className="font-display text-2xl short:text-xl font-semibold text-muted-foreground truncate mb-0.5">
+                  {img.group_name}
+                </p>
+              )}
+
+              <ImageNameEditor
+                name={img.name}
+                editing={editingName}
+                onEditingChange={setEditingName}
+                onRename={(name) => renameMutation.mutate(name)}
+              />
+
+              <p className="text-sm text-muted-foreground">by {img.author}</p>
+
+              <div className="mt-1 mb-3 short:mb-2 short:flex short:items-baseline short:gap-2">
+                <p
+                  className="text-3xs text-muted-foreground font-mono truncate short:min-w-0"
+                  title={img.filename}
+                >
+                  {filenameStem(img.filename)}
+                </p>
+                <p className="text-3xs text-muted-foreground shrink-0">
+                  {img.width}×{img.height} · {(img.file_size / 1024 / 1024).toFixed(1)} MB
+                </p>
+              </div>
+
+              <ImageProperties
+                image={img}
+                existingSubgroups={sceneFilters.subgroups}
+                editingSubgroup={editingSubgroup}
+                onEditingSubgroupChange={setEditingSubgroup}
+                onPatch={(patch) => patchMutation.mutate(patch)}
+                patching={patchMutation.isPending}
+              />
+
+              <ImageTags
+                image={img}
+                onAddTag={(tag) =>
+                  addTagMutation.mutate({ category: tag.category, value: tag.value })
+                }
+                onRemoveTag={(tagId) => removeTagMutation.mutate(tagId)}
+                removing={removeTagMutation.isPending}
+              />
+            </div>
+
+            {scenes && scenes.length > 1 && (
+              <ScenePanel
+                scenes={scenes}
+                sceneFilters={sceneFilters}
+                activeImageId={img.id}
+                onSceneClick={handleSceneClick}
+                scrollRef={scrollContainerRef}
+              />
+            )}
+          </div>
         </div>
       </div>
 

@@ -38,7 +38,10 @@ export function ScenePanel({
   const isFiltered = !!filter.text || filter.imageType !== 'all' || filter.active.length > 0
 
   return (
-    <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto">
+    <div
+      ref={scrollRef}
+      className="flex-1 min-h-0 overflow-y-auto short:lg:flex-none short:lg:overflow-visible"
+    >
       <div className="sticky top-0 z-10 bg-card border-b border-border/30">
         <div className="px-4 py-2 flex items-center gap-2">
           <span className="text-sm font-semibold shrink-0">

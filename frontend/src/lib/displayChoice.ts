@@ -35,3 +35,5 @@ export function displayChoice<T extends string>(
 
   return { read, apply, save }
 }
+
+export type DisplayChoice<T extends string> = ReturnType<typeof displayChoice<T>>

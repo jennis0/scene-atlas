@@ -1,6 +1,8 @@
 import { createContext, useContext, useState, useCallback, useMemo } from 'react'
-import { getStoredPalette, savePalette, type Palette } from '@/lib/palette'
-import { getStoredTextSize, saveTextSize, type TextSize } from '@/lib/textSize'
+import { compactHeaderChoice, type CompactHeader } from '@/lib/compactLayout'
+import type { DisplayChoice } from '@/lib/displayChoice'
+import { paletteChoice, type Palette } from '@/lib/palette'
+import { textSizeChoice, type TextSize } from '@/lib/textSize'
 
 export type Theme = 'light' | 'dark'
 
@@ -12,6 +14,8 @@ interface ThemeContextValue {
   setPalette: (palette: Palette) => void
   textSize: TextSize
   setTextSize: (size: TextSize) => void
+  compactHeader: CompactHeader
+  setCompactHeader: (value: CompactHeader) => void
 }
 
 const STORAGE_KEY = 'scene-atlas-theme'
@@ -33,7 +37,22 @@ const ThemeContext = createContext<ThemeContextValue>({
   setPalette: () => {},
   textSize: 'default',
   setTextSize: () => {},
+  compactHeader: 'auto',
+  setCompactHeader: () => {},
 })
+
+/** State for a per-device display choice: setting it saves and applies it at once. */
+function useDisplayChoice<T extends string>(choice: DisplayChoice<T>) {
+  const [value, setValue] = useState<T>(choice.read)
+  const set = useCallback(
+    (next: T) => {
+      choice.save(next)
+      setValue(next)
+    },
+    [choice],
+  )
+  return [value, set] as const
+}
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(getStoredTheme)
@@ -53,21 +72,33 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     [theme, setTheme],
   )
 
-  const [palette, setPaletteState] = useState<Palette>(getStoredPalette)
-  const setPalette = useCallback((next: Palette) => {
-    savePalette(next)
-    setPaletteState(next)
-  }, [])
-
-  const [textSize, setTextSizeState] = useState<TextSize>(getStoredTextSize)
-  const setTextSize = useCallback((next: TextSize) => {
-    saveTextSize(next)
-    setTextSizeState(next)
-  }, [])
+  const [palette, setPalette] = useDisplayChoice(paletteChoice)
+  const [textSize, setTextSize] = useDisplayChoice(textSizeChoice)
+  const [compactHeader, setCompactHeader] = useDisplayChoice(compactHeaderChoice)
 
   const value = useMemo(
-    () => ({ theme, setTheme, toggleTheme, palette, setPalette, textSize, setTextSize }),
-    [theme, setTheme, toggleTheme, palette, setPalette, textSize, setTextSize],
+    () => ({
+      theme,
+      setTheme,
+      toggleTheme,
+      palette,
+      setPalette,
+      textSize,
+      setTextSize,
+      compactHeader,
+      setCompactHeader,
+    }),
+    [
+      theme,
+      setTheme,
+      toggleTheme,
+      palette,
+      setPalette,
+      textSize,
+      setTextSize,
+      compactHeader,
+      setCompactHeader,
+    ],
   )
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>

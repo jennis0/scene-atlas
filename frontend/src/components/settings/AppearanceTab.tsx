@@ -3,6 +3,7 @@ import { PalettePicker } from '@/components/settings/PalettePicker'
 import { SegmentedControl } from '@/components/settings/SegmentedControl'
 import { SettingRow } from '@/components/settings/SettingRow'
 import { TEXT_SIZES } from '@/lib/textSize'
+import { COMPACT_HEADER_OPTIONS } from '@/lib/compactLayout'
 
 const THEMES: readonly { value: Theme; label: string; title: string }[] = [
   { value: 'light', label: 'Light', title: 'Light mode' },
@@ -12,7 +13,16 @@ const THEMES: readonly { value: Theme; label: string; title: string }[] = [
 /** Per-device display choices: saved locally and applied at once, unlike the Settings
  * tab, which edits the library's server-side settings. */
 export function AppearanceTab() {
-  const { theme, setTheme, palette, setPalette, textSize, setTextSize } = useTheme()
+  const {
+    theme,
+    setTheme,
+    palette,
+    setPalette,
+    textSize,
+    setTextSize,
+    compactHeader,
+    setCompactHeader,
+  } = useTheme()
   return (
     <div>
       <p className="text-xs text-muted-foreground">
@@ -27,6 +37,17 @@ export function AppearanceTab() {
           options={TEXT_SIZES}
           value={textSize}
           onChange={setTextSize}
+        />
+      </SettingRow>
+      <SettingRow
+        label="Compact header"
+        description="Fits the gallery header in fewer rows. Auto: when the window is short."
+      >
+        <SegmentedControl
+          label="Compact header"
+          options={COMPACT_HEADER_OPTIONS}
+          value={compactHeader}
+          onChange={setCompactHeader}
         />
       </SettingRow>
       <div className="space-y-3 py-3">

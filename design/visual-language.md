@@ -104,6 +104,11 @@ That only works if sizes are in rem, so:
 - **Containers that hold text are sized in rem** (dialogs, the viewer's side panel, pickers, sidebars): px ÷ 17, e.g. the Library dialog is `max-w-[28.25rem]` (480px at default). Keep pixels only for things sized to images or the screen: thumbnails, the viewer stage (`max-w-[1600px]`), the gallery page width (`max-w-[1400px]`).
 - Check new dense UI at **Larger** as well as Default.
 
+### Short windows and the compact header
+Browser zoom and the text size setting both cut how many lines of text fit vertically. `lib/compactLayout.ts` measures the window height **in rem** (a media query sees only px, so it misses the text size setting) and sets `data-short` on `<html>` below 44rem (~750px at default text).
+- **Image viewer:** on short windows the details panel scrolls together with the group's scenes instead of pinning the details above them. The toolbar stays pinned and the Scenes bar is sticky. Styled with the `short:` Tailwind variant (`tailwind.config.js`). This is automatic, with no setting: it's a fallback that keeps the group reachable, not a preference.
+- **Gallery header:** compact is two rows instead of four. The type tabs join the wordmark row, and the count/sort/size/Edit all controls join the search row (wrapping if the width runs out). It's a preference: Appearance → Compact header, **Auto** (default: follows `data-short`) / **On** / **Off**, saved as `scene-atlas-compact-header` and set as `data-compact-header`. Components read it with `useCompactHeader()`.
+
 ---
 
 ## Amber Accent — Rules of Use

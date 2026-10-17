@@ -12,13 +12,12 @@ export const TEXT_SIZES: readonly { value: TextSize; label: string; title: strin
 
 export const TEXT_SIZE_STORAGE_KEY = 'scene-atlas-text-size'
 
-const choice = displayChoice<TextSize>(
+export const textSizeChoice = displayChoice<TextSize>(
   TEXT_SIZE_STORAGE_KEY,
   'textSize',
   TEXT_SIZES.map((t) => t.value),
   'default',
 )
 
-export const getStoredTextSize = choice.read
-export const applyTextSize = choice.apply
-export const saveTextSize = choice.save
+export const getStoredTextSize = textSizeChoice.read
+export const applyTextSize = textSizeChoice.apply

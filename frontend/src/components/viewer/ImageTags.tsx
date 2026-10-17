@@ -41,9 +41,9 @@ export function ImageTags({ image, onAddTag, onRemoveTag, removing }: ImageTagsP
   )
 
   return (
-    <div className="border-t border-border/30 pt-3 mt-1">
+    <div className="border-t border-border/30 pt-3 mt-1 short:flex short:items-start short:gap-3">
       {image.colors && image.colors.length > 0 && (
-        <div className="flex gap-1 mb-2">
+        <div className="flex gap-1 mb-2 shrink-0 short:mb-0 short:pt-0.5">
           {[...image.colors]
             .sort((a, b) => a.color_order - b.color_order)
             .map((color) => (
@@ -57,7 +57,7 @@ export function ImageTags({ image, onAddTag, onRemoveTag, removing }: ImageTagsP
         </div>
       )}
 
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap gap-1.5 short:flex-1">
         {image.tags?.map((tag) => (
           <TagChip
             key={tag.id}

@@ -10,9 +10,10 @@ describe('AppearanceTab', () => {
     document.documentElement.classList.add('dark')
     delete document.documentElement.dataset.palette
     delete document.documentElement.dataset.textSize
+    delete document.documentElement.dataset.compactHeader
   })
 
-  it('switches mode, text size and palette at once and saves them on this device', async () => {
+  it('applies every choice at once and saves them on this device', async () => {
     const user = userEvent.setup()
     render(
       <ThemeProvider>
@@ -31,5 +32,9 @@ describe('AppearanceTab', () => {
     await user.click(screen.getByRole('radio', { name: 'Large' }))
     expect(document.documentElement.dataset.textSize).toBe('large')
     expect(localStorage.getItem('scene-atlas-text-size')).toBe('large')
+
+    await user.click(screen.getByRole('radio', { name: 'On' }))
+    expect(document.documentElement.dataset.compactHeader).toBe('on')
+    expect(localStorage.getItem('scene-atlas-compact-header')).toBe('on')
   })
 })
