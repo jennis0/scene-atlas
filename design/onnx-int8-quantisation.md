@@ -2,6 +2,8 @@
 
 This document captures the methodology, experiments, and key findings from optimising INT8 quantisation of CLIP/SigLIP2 embedding models in this project. It is written as a playbook for future agents to follow when adding new models or re-evaluating quantisation quality.
 
+> **Status (2026-10):** No shipped model uses int8. `small` and `medium` are fine-tuned 4-bit (w4a16) models released by scene-atlas-learning, and `large` is fp16 throughout. The int8 export path (`quantise_encoder_int8`, `text_int8_exclude_layers`) was removed from `export_model_onnx.py` and the registry because nothing could reach it. The findings below remain the reference for any future int8 work; reinstating it means restoring that code from git history (commit `9fa8343` or earlier) and making `scripts/quantisation` (or the parts it needs) tracked.
+>
 > **Important:** The specific numeric results below are for CLIP ViT-B/32 (`laion/CLIP-ViT-B-32-laion2B-s34B-b79K`). Other architectures (SigLIP2, larger ViT variants) may respond differently to each technique. Always re-run the experiments for each new model.
 
 ## Key Resources
@@ -9,13 +11,18 @@ This document captures the methodology, experiments, and key findings from optim
 - **ONNX Runtime quantisation docs:** https://onnxruntime.ai/docs/performance/model-optimizations/quantization.html
 - **ONNX Runtime quantisation examples (image classification):** https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md
 - **Project files:**
-  - `scripts/quantisation/` — shared utilities, ablation scripts (Python package)
+  - `backend/app/services/model_registry.py` — `MODELS` registry: per-model `vision_quant`, `text_quant`, `release_source` (single source of truth used by the export script)
+  - `scripts/quantisation/` — shared utilities and ablation scripts (Python package). **Internal tooling: listed in `.gitignore` and absent from a clean checkout** (see [Dependency on `scripts/quantisation`](#dependency-on-scriptsquantisation))
     - `utils.py` — metrics (cosine diffs, rank correlation), ORT session factory, results I/O
     - `queries.py` — 103 text queries (single source of truth)
     - `ablation_clip.py` — CLIP ViT-B/32 ablation experiments
     - `ablation_siglip2.py` — SigLIP2-base ablation experiments
-  - `scripts/models/export_model_onnx.py` — export, quantisation, and evaluation pipeline (single script; evaluation gated behind `--image-dir`)
-  - `design/decisions.md` — ADR-014 documents the quantisation decision
+  - `scripts/models/export_model_onnx.py` — fp16 export and evaluation pipeline (single script; evaluation gated behind `--image-dir`). Takes registry names as positional arguments, or `--all` / `--list`; refuses externally released models, so in practice only `large`
+  - `design/decisions.md` — ADR-014 (ONNX Runtime + quantised models), ADR-016 (multi-model manifests), ADR-017 (Hugging Face distribution)
+
+### Dependency on `scripts/quantisation`
+
+`export_model_onnx.py` uses `scripts.quantisation` only for the `--image-dir` quality evaluation (`queries.TEXT_QUERIES` and helpers from `utils`). `parse_args()` checks for the package and exits with an error naming it before any export work when `--image-dir` is given and it is missing. Exporting `large` without `--image-dir` does not touch the package. `backend/tests/unit/test_quantisation_utils.py` uses `pytest.importorskip`, so it is skipped where the package is absent. Published models are downloaded from Hugging Face at runtime, so the app itself does not depend on the package.
 
 ## Quality Metric
 
@@ -65,7 +72,9 @@ quant_pre_process(input_model, output_model, skip_symbolic_shape=True)
 
 > **Note:** Symbolic shape inference fails on CLIP/SigLIP Expand ops (TypeError in `_broadcast_shapes`). Always pass `skip_symbolic_shape=True` for these architectures. ONNX shape inference still runs.
 
-**CLIP ViT-B/32 result:** Zero measurable difference for both vision and text encoders, with or without preprocessing. Every experiment produced identical diffs. Kept for fp16 quantisation (harmless) but removed from int8 (unnecessary complexity).
+**CLIP ViT-B/32 result:** Zero measurable difference for both vision and text encoders, with or without preprocessing. Every experiment produced identical diffs.
+
+**Export behaviour:** the removed `quantise_encoder_int8()` ran `quant_pre_process(..., skip_symbolic_shape=True)` to a named intermediate file (avoids Windows temp-file issues) before `quantize_dynamic()`. `quantise_encoder_fp16()` skips pre-processing: the fp16 conversion is a type cast, and skipping shape inference also avoids the 2 GB protobuf serialisation limit.
 
 ### Phase 3: Node Exclusion (minutes, no calibration data needed)
 
@@ -155,7 +164,7 @@ Excluding late layers has zero effect. Excluding 1–5 early layers barely helps
 
 **Recommendation:** Always check vision and text encoders separately for each model family. Don't assume CLIP patterns apply to SigLIP2.
 
-### Larger SigLIP2 Models (large / giant)
+### Larger SigLIP2 Model (large)
 
 The ablation script uses an adaptive layer sweep depth based on actual model depth:
 
@@ -170,17 +179,15 @@ under-sweep deeper models:
 |-------|--------------|-------------|
 | base | 12 | 8 |
 | large (so400m) | 27 | 15 |
-| giant | ~40 (TBC) | ~22 |
 
 The base ablation found a sharp "layer-6 cliff" at exactly half the model depth (6 of 12
 layers). Sweeping to half-depth ensures the same cliff will be caught at any scale.
 
-**Device note:** These models are too large (~4.5 GB and ~7.5 GB) for practical CPU
-inference. The ablation script auto-detects CUDA and defaults to GPU when available.
+**Device note:** The large model's fp32 torch reference is slow on CPU. The ablation script auto-detects CUDA and defaults to GPU when available.
 The `quantize_dynamic` call itself always runs on CPU (ORT constraint), but torch
 reference inference and ONNX quality measurement run on GPU.
 
-**Results to be filled in after ablation runs.**
+No int8 ablation results exist for `large`; it ships fp16 vision + fp16 text.
 
 ### Model Family Differences
 
@@ -188,9 +195,8 @@ reference inference and ONNX quality measurement run on GPU.
 - **CLIP:** fp16 vision + int8 text with first 3 layers + projection exclusion. CLIP vision *does* quantise cleanly to int8 (max diff ~0.004), but the export pipeline uses fp16 vision for consistency across families. If model size is critical, CLIP int8 vision is viable — re-run the CLIP ablation to confirm.
 - **SigLIP2-base:** fp16 vision (int8 is unrecoverable — see layer-6 cliff above) + int8 text with first 1 layer + projection exclusion (safety margin — max diff 0.0097 without exclusion may degrade at scale)
 - **SigLIP2-large (so400m):** fp16 vision + fp16 text (no int8 study yet — run `ablation_siglip2 --model large`)
-- **SigLIP2-giant:** fp16 vision + fp16 text (no int8 study yet — run `ablation_siglip2 --model giant`)
 
-The `quantise_encoder_int8()` function in `export_model_onnx.py` is family-aware — it uses `find_layer_nodes()` from `scripts/quantisation/utils.py` to identify exclusion nodes. Per the model registry: CLIP excludes first 3 layers + projection, SigLIP2-base excludes first 1 layer + projection, SigLIP2-large and SigLIP2-giant use fp16 text (no int8 study yet). The `quant_pre_process` Windows workaround is applied before calling `quantize_dynamic`.
+The removed `quantise_encoder_int8()` was family-aware: it used `find_layer_nodes()` from `scripts/quantisation/utils.py` to identify exclusion nodes. The last int8 releases excluded the first 3 layers + projection for CLIP and the first 1 layer + projection for SigLIP2-base, with pre-processing before `quantize_dynamic` (see Phase 2).
 
 **Image preprocessing differs:**
 - **CLIP:** `shortest_edge_then_crop` with `bicubic` interpolation
@@ -206,28 +212,24 @@ This is detected from the HF processor's `do_center_crop` attribute and stored i
 
 When optimising a new model, run experiments in this order:
 
+Steps 1 and 3 need the internal `scripts/quantisation` package (see above). Steps 3 and 4 only produce fp16 exports today; int8 needs the removed export code back.
+
 ```bash
 # 1. Run ablation (requires real images — cannot be skipped)
 uv run python -m scripts.quantisation.ablation_clip --image-dir /path/to/images
 uv run python -m scripts.quantisation.ablation_siglip2 --model base --image-dir /path/to/images
 uv run python -m scripts.quantisation.ablation_siglip2 --model large --image-dir /path/to/images
-uv run python -m scripts.quantisation.ablation_siglip2 --model giant --image-dir /path/to/images
-# Note: large/giant require fp32 ONNX files — export first if needed:
-#   uv run python scripts/models/export_model_onnx.py siglip2-large
-#   uv run python scripts/models/export_model_onnx.py siglip2-giant
 
-# 2. Update MODEL_REGISTRY in export_model_onnx.py based on ablation findings
+# 2. Update the entry in MODELS (backend/app/services/model_registry.py) based on the findings
 
 # 3. Export with quality evaluation (recommended)
-uv run python scripts/models/export_model_onnx.py <model-name> --image-dir /path/to/images --max-images 500
+uv run python scripts/models/export_model_onnx.py large --image-dir /path/to/images --max-images 500
 
-# 4. Quick export (no images, CI/first-time setup)
-uv run python scripts/models/export_model_onnx.py <model-name>
+# 4. Quick export (no evaluation)
+uv run python scripts/models/export_model_onnx.py large   # or --all; --list shows names
 ```
 
-Output is a flat directory: `backend/models/<model-name>/` containing ONNX files, manifest.json, and tokenizer/.
-
-Results are written to `scripts/results/` as timestamped JSON files for regression comparison.
+Output is a flat directory per model, `backend/models/<name>/`, containing the ONNX files, `manifest.json` and `tokenizer/`. The backend falls back to this directory in dev when `APP_DATA_DIR/models/<name>/` is absent (see [hf-model-management.md](hf-model-management.md)).
 
 **Ablation experiment checklist:**
 1. Baseline: `quantize_dynamic(weight_type=QUInt8)` — establish the starting point
@@ -246,8 +248,8 @@ Results are written to `scripts/results/` as timestamped JSON files for regressi
 | Change | Impact | Status |
 |--------|--------|--------|
 | QInt8 + per_channel | Vision: 0.04 -> 0.004 | Implemented |
-| Exclude text encoder layer 0 + projection | Text: 0.38 -> 0.016 | Implemented |
-| Pre-processing | No measurable difference | Removed from int8, kept for fp16 |
+| Exclude early text encoder layers + projection | Text: 0.38 -> 0.016 (layer 0 alone) | Implemented in the last int8 release (first 3 layers) |
+| Pre-processing | No measurable difference | Run before int8; not used for fp16 |
 | WeightSymmetric / reduce_range | No measurable difference | Not used |
 | Static quantisation | Made things worse | Not used |
 

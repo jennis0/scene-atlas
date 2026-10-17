@@ -3,7 +3,7 @@
 Terminates the FastAPI server process (PID from .pids/api.pid).
 
 Usage:
-  uv run python scripts/stop.py
+  uv run python scripts/app/stop.py
 """
 
 import os
@@ -12,7 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 PIDS_DIR = ROOT / ".pids"
 
 
@@ -48,7 +48,7 @@ def main() -> None:
     _kill_by_pid_file("api")
 
     print()
-    print("Done. Run 'uv run python scripts/start.py' to start again.")
+    print("Done. Run 'uv run python scripts/app/start.py' to start again.")
 
 
 if __name__ == "__main__":

@@ -2,12 +2,12 @@ import { defineConfig, devices } from "@playwright/test";
 import { config } from "dotenv";
 import fs from "fs";
 import path from "path";
+import { BACKEND_PORT, BACKEND_URL, FRONTEND_PORT } from "./helpers/config";
 
 // Load .env from project root (parent of e2e/)
 config({ path: path.resolve(__dirname, "..", ".env") });
 
 const isCI = !!process.env.CI;
-const frontendPort = Number(process.env.E2E_FRONTEND_PORT ?? 5173);
 const dataDir = path.resolve(__dirname, ".tmp-data");
 fs.mkdirSync(path.join(dataDir, "library"), { recursive: true });
 // Models live in the project's data/models (scripts/models/setup_models.py
@@ -30,7 +30,7 @@ export default defineConfig({
     : [["html", { open: "on-failure" }]],
 
   use: {
-    baseURL: `http://localhost:${frontendPort}`,
+    baseURL: `http://localhost:${FRONTEND_PORT}`,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
@@ -53,8 +53,8 @@ export default defineConfig({
 
   webServer: [
     {
-      command: "uv run python -m backend.app.main",
-      url: "http://localhost:8000/health",
+      command: `uv run python -m backend.app.main --port ${BACKEND_PORT}`,
+      url: `${BACKEND_URL}/health`,
       name: "Backend",
       timeout: 120_000,
       reuseExistingServer: !isCI,
@@ -62,15 +62,17 @@ export default defineConfig({
       env: {
         APP_DATA_DIR: dataDir,
         IMAGE_LIBRARY_DIR: path.join(dataDir, "library"),
+        API_HOST: "127.0.0.1",
       },
       cwd: path.resolve(__dirname, ".."),
     },
     {
-      command: `npm run dev -- --port ${frontendPort} --strictPort`,
-      url: `http://localhost:${frontendPort}`,
+      command: `npm run dev -- --port ${FRONTEND_PORT} --strictPort`,
+      url: `http://localhost:${FRONTEND_PORT}`,
       name: "Frontend",
       timeout: 30_000,
       reuseExistingServer: !isCI,
+      env: { API_PROXY_TARGET: BACKEND_URL },
       cwd: path.resolve(__dirname, "..", "frontend"),
     },
   ],

@@ -100,11 +100,8 @@ class ImageParser:
     """
 
     def __init__(self, tag_categories: list[dict] | None = None):
-        """Initialize parser.
-
-        Args:
-            tag_categories: List of dicts with 'name' and 'common_values' (JSON string).
-                           If None, no tag categorization is performed (raw tags only).
+        """*tag_categories*: dicts with ``name`` and ``common_values`` (JSON string).
+        If None, tags are left uncategorised.
         """
         # Regex patterns
         self._ordinal_re = re.compile(r"(\d+)(st|nd|rd|th)\b", re.IGNORECASE)
@@ -284,7 +281,7 @@ class ImageParser:
             "geomorphs",
         }
 
-        # --- Name-cleaning patterns ---
+        # Name-cleaning patterns
         self._dpi_re = re.compile(r"\b\d+\s*(dpi|ppi)\b", re.IGNORECASE)
         self._pixel_dim_re = re.compile(r"\b\d{4,}\s*[xX]\s*\d{4,}\b")
         self._tier_re = re.compile(r"\bTier\s*\d+\b", re.IGNORECASE)
@@ -365,8 +362,7 @@ class ImageParser:
             return t
 
         text = _one_pass(text)
-        text = _one_pass(text)
-        return text
+        return _one_pass(text)
 
     def _get_token_set(self, text: str) -> set[str]:
         """Normalize a string into a set of lowercase words."""
@@ -435,9 +431,7 @@ class ImageParser:
 
         return list(seen.values())
 
-    # -------------------------------------------------------------------
     # Name-cleaning helpers
-    # -------------------------------------------------------------------
 
     def _normalize_text(self, text: str) -> str:
         """Shared formatting: separators → spaces, CamelCase split, rejoin abbreviations."""
@@ -448,8 +442,7 @@ class ImageParser:
         name = re.sub(r"(?<=[a-zA-Z])-(?=\d)", " - ", name)
         name = re.sub(r"(?<=\d)-(?=[a-zA-Z])", " - ", name)
         name = self._split_camel(name)
-        name = self._abbrev_rejoin_re.sub(r"\1\2", name)
-        return name
+        return self._abbrev_rejoin_re.sub(r"\1\2", name)
 
     def _remove_noise(self, text: str, *, keep_grid: bool = False) -> str:
         """Remove resolution, tier, pricing, platform markers from a normalised string."""
@@ -544,14 +537,6 @@ class ImageParser:
             prefix = re.sub(r"[^a-z0-9]", "", "".join(words[:n]).lower())
             if prefix == author_norm:
                 return words[n:]
-        return words
-
-    def _strip_word_prefix(self, words: list[str], prefix_words: list[str]) -> list[str]:
-        """Remove leading words that match *prefix_words* (case-insensitive)."""
-        if not prefix_words or len(words) < len(prefix_words):
-            return words
-        if all(w.lower() == p.lower() for w, p in zip(words, prefix_words, strict=False)):
-            return words[len(prefix_words) :]
         return words
 
     def _strip_word_sequence(self, words: list[str], seq_words: list[str]) -> list[str]:
@@ -683,10 +668,10 @@ class ImageParser:
         parts = path_obj.parts
         stem = path_obj.stem
 
-        # --- Author ---
+        # Author
         author = self._author_from_stem(stem) or (parts[0] if parts else "Unknown")
 
-        # --- Grid detection (from filename) — battlemaps only ---
+        # Grid detection (from filename) — battlemaps only
         gridded = None
         grid_type = None
         grid_width = None
@@ -717,7 +702,7 @@ class ImageParser:
                     gridded = True
                     grid_type = "square"
 
-            # --- Dimensions ---
+            # Dimensions
             dim_match = self._dim_re.search(stem)
             if dim_match:
                 grid_width = int(dim_match.group(1))
@@ -730,7 +715,7 @@ class ImageParser:
             if dim_match:
                 stem = stem.replace(dim_match.group(0), " ")
 
-        # --- Hierarchy: author / [generic...] / group / [subgroups...] / file ---
+        # Hierarchy: author / [generic...] / group / [subgroups...] / file
         subgroups_raw: list[str] = []
         group_raw = "Unknown"
         group_from_folder = False
@@ -771,7 +756,7 @@ class ImageParser:
                 group_raw = stem
             group_from_folder = False
 
-        # --- Clean group name & build scene name ---
+        # Clean group name & build scene name
         effective_author = author if group_from_folder else None
         group_name = self._clean_group_name(group_raw, author=effective_author)
 
@@ -787,7 +772,7 @@ class ImageParser:
 
         name = self._build_name(stem, author, group_name, subgroups)
 
-        # --- Build exclusion set for tag extraction ---
+        # Build exclusion set for tag extraction
         # Note: we intentionally do NOT exclude group name or subgroup tokens —
         # those words are valid semantic tags (e.g. "desert" from "Desert Canyon").
         # Author exclusion only applies when group_from_folder=True (3+ level paths
@@ -802,7 +787,7 @@ class ImageParser:
         if grid_width is not None:
             exclusions.update([str(grid_width), str(grid_height)])
 
-        # --- Extract and categorize tags ---
+        # Extract and categorize tags
         raw_words = self._extract_raw_words(stem, exclusions)
         tags = self._categorize_words(raw_words, confidence=0.9)
 

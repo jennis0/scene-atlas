@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { EMPTY_FILTER } from '@/components/import/fileFilter'
 import type { FileFilter } from '@/components/import/fileFilter'
 import type { EditableFileState, EditableGroupState, TagData, ParsedTagVocab } from '@/types'
@@ -6,6 +6,9 @@ import type { EditableFileState, EditableGroupState, TagData, ParsedTagVocab } f
 export const ALL_TAB = -1
 export const ALL_GROUP_ID = '__all__'
 export const MULTI_GROUP_ID = '__multi__'
+
+/** A bulk edit's target: one group, the multi-selected groups, or null for every group. */
+export type BulkScope = string | string[] | null
 
 export interface UseFileEditingOptions {
   /** Called with affected groups after any file mutation. Use for auto-save. */
@@ -48,23 +51,12 @@ export interface UseFileEditingReturn {
   selectAllVisible: (groupId: string, visibleFiles: EditableFileState[]) => void
   deselectAll: (groupId: string) => void
 
-  // Bulk ops
-  bulkAddTag: (groupId: string | null, tag: TagData) => void
-  bulkSetGrid: (groupId: string | null, gridded: boolean | null, gridType: string | null) => void
-  bulkSetImageType: (groupId: string | null, value: 'battlemap' | 'scene') => void
-  bulkSetSubgroup: (groupId: string | null, value: string) => void
-  bulkExclude: (groupId: string | null) => void
-
-  // Multi-group bulk ops (scoped to specific groups)
-  bulkUpdateFilesInGroups: (
-    groupIds: string[],
-    selectionId: string,
-    transform: (f: EditableFileState) => EditableFileState,
-  ) => void
-  bulkExcludeInGroups: (groupIds: string[], selectionId: string) => void
-
-  // Move ops
-  moveFilesToGroup: (sourceGroupId: string, targetGroupId: string, paths: string[]) => void
+  // Bulk ops, applied to the selected files in scope
+  bulkAddTag: (scope: BulkScope, tag: TagData) => void
+  bulkSetGrid: (scope: BulkScope, gridded: boolean | null, gridType: string | null) => void
+  bulkSetImageType: (scope: BulkScope, value: 'battlemap' | 'scene') => void
+  bulkSetSubgroup: (scope: BulkScope, value: string) => void
+  bulkExclude: (scope: BulkScope) => void
 
   // Subgroup ops
   clearSubgroupLabel: (groupId: string, subgroup: string) => void
@@ -74,7 +66,6 @@ export interface UseFileEditingReturn {
   isAllTab: boolean
   activeGroup: EditableGroupState | null
   activeGroupId: string
-  allSameAuthor: string
 }
 
 export function useFileEditing({
@@ -94,7 +85,7 @@ export function useFileEditing({
     setEditingSvHeading(null)
   }, [activeTab])
 
-  // ── Deferred onGroupChange callback ────────────────────────────
+  // Deferred onGroupChange callback
   // React 18 batches state updates, so updater fns inside setGroups()
   // may not execute synchronously. We accumulate affected groups in a
   // ref (keyed by ID to deduplicate) and flush via useEffect after render.
@@ -115,7 +106,7 @@ export function useFileEditing({
     for (const g of groups) pendingGroupChanges.current.set(g.id, g)
   }
 
-  // ── Helpers ──────────────────────────────────────────────────────
+  // Helpers
 
   /** Transforms files in a single group by ID, notifies onGroupChange. */
   const updateGroupFiles = (
@@ -133,7 +124,7 @@ export function useFileEditing({
     })
   }
 
-  // ── CRUD ──────────────────────────────────────────────────────────
+  // CRUD
 
   const updateGroup = (groupId: string, updates: Partial<EditableGroupState>) => {
     setGroups((prev) => prev.map((g) => (g.id === groupId ? { ...g, ...updates } : g)))
@@ -181,53 +172,7 @@ export function useFileEditing({
     updateGroupFiles(groupId, (f) => (pathSet.has(f.relative_path) ? { ...f, ...updates } : f))
   }
 
-  // ── Move ops ────────────────────────────────────────────────────────
-
-  const moveFilesToGroup = (sourceGroupId: string, targetGroupId: string, paths: string[]) => {
-    if (sourceGroupId === targetGroupId) return
-    const pathSet = new Set(paths)
-    setGroups((prev) => {
-      const sourceGroup = prev.find((g) => g.id === sourceGroupId)
-      if (!sourceGroup) return prev
-
-      const movedFiles = sourceGroup.files.filter((f) => pathSet.has(f.relative_path))
-      if (movedFiles.length === 0) return prev
-
-      const remainingFiles = sourceGroup.files.filter((f) => !pathSet.has(f.relative_path))
-      const sourceEmpty = remainingFiles.length === 0
-
-      let newGroups = prev.map((g) => {
-        if (g.id === sourceGroupId) {
-          return { ...g, files: remainingFiles, total: remainingFiles.length }
-        }
-        if (g.id === targetGroupId) {
-          return {
-            ...g,
-            files: [...g.files, ...movedFiles],
-            total: g.files.length + movedFiles.length,
-          }
-        }
-        return g
-      })
-
-      if (sourceEmpty) {
-        newGroups = newGroups.filter((g) => g.id !== sourceGroupId)
-      }
-
-      const affected = newGroups.filter((g) => g.id === sourceGroupId || g.id === targetGroupId)
-      if (affected.length > 0) notifyGroupChange(affected)
-      return newGroups
-    })
-
-    // Clear selections for source group
-    setSelections((prev) => {
-      const next = { ...prev }
-      delete next[sourceGroupId]
-      return next
-    })
-  }
-
-  // ── Selection ─────────────────────────────────────────────────────
+  // Selection
 
   const toggleFileSelection = (groupId: string, relativePath: string) => {
     setSelections((prev) => {
@@ -252,44 +197,19 @@ export function useFileEditing({
     setSelections((prev) => ({ ...prev, [groupId]: new Set<string>() }))
   }
 
-  // ── Bulk ops ──────────────────────────────────────────────────────
+  // Bulk ops
 
-  // Generic helper: applies a transform to selected, non-excluded, non-outOfScope files.
-  // Returns the updated groups array and saves affected groups via onGroupChange.
-  const bulkUpdateFiles = (
-    groupId: string | null,
-    transform: (f: EditableFileState) => EditableFileState,
-  ) => {
-    const selId = groupId ?? ALL_GROUP_ID
-    const sel = selections[selId] ?? new Set<string>()
-    setGroups((prev) => {
-      const newGroups = prev.map((g) => {
-        if (groupId !== null && g.id !== groupId) return g
-        return {
-          ...g,
-          files: g.files.map((f) => {
-            if (!sel.has(f.relative_path) || f.excluded || f.outOfScope) return f
-            return transform(f)
-          }),
-        }
-      })
-      const toSave = groupId !== null ? newGroups.filter((g) => g.id === groupId) : newGroups
-      if (toSave.length > 0) notifyGroupChange(toSave)
-      return newGroups
-    })
-  }
-
-  /** Like bulkUpdateFiles but scoped to a specific set of group IDs. Uses selectionId for selection lookup. */
-  const bulkUpdateFilesInGroups = (
-    groupIds: string[],
+  // Applies `transform` to the selected, non-excluded, in-scope files of every group matching
+  // `inScope`, then saves those groups.
+  const applyToSelected = (
+    inScope: (groupId: string) => boolean,
     selectionId: string,
     transform: (f: EditableFileState) => EditableFileState,
   ) => {
-    const groupIdSet = new Set(groupIds)
     const sel = selections[selectionId] ?? new Set<string>()
     setGroups((prev) => {
       const newGroups = prev.map((g) => {
-        if (!groupIdSet.has(g.id)) return g
+        if (!inScope(g.id)) return g
         return {
           ...g,
           files: g.files.map((f) => {
@@ -298,68 +218,48 @@ export function useFileEditing({
           }),
         }
       })
-      const toSave = newGroups.filter((g) => groupIdSet.has(g.id))
+      const toSave = newGroups.filter((g) => inScope(g.id))
       if (toSave.length > 0) notifyGroupChange(toSave)
       return newGroups
     })
   }
 
-  const bulkExcludeInGroups = (groupIds: string[], selectionId: string) => {
-    const groupIdSet = new Set(groupIds)
-    const sel = selections[selectionId] ?? new Set<string>()
-    setGroups((prev) => {
-      const newGroups = prev.map((g) => {
-        if (!groupIdSet.has(g.id)) return g
-        return {
-          ...g,
-          files: g.files.map((f) =>
-            !sel.has(f.relative_path) || f.outOfScope ? f : { ...f, excluded: true },
-          ),
-        }
-      })
-      const toSave = newGroups.filter((g) => groupIdSet.has(g.id))
-      if (toSave.length > 0) notifyGroupChange(toSave)
-      return newGroups
-    })
-    deselectAll(selectionId)
+  const selectionIdFor = (scope: BulkScope) =>
+    Array.isArray(scope) ? MULTI_GROUP_ID : (scope ?? ALL_GROUP_ID)
+
+  const bulkUpdateFiles = (
+    scope: BulkScope,
+    transform: (f: EditableFileState) => EditableFileState,
+  ) => {
+    const inScope = Array.isArray(scope)
+      ? (id: string) => scope.includes(id)
+      : (id: string) => scope === null || id === scope
+    applyToSelected(inScope, selectionIdFor(scope), transform)
   }
 
-  const bulkAddTag = (groupId: string | null, tag: TagData) =>
-    bulkUpdateFiles(groupId, (f) => {
+  const exclude = (f: EditableFileState) => ({ ...f, excluded: true })
+
+  const bulkAddTag = (scope: BulkScope, tag: TagData) =>
+    bulkUpdateFiles(scope, (f) => {
       if (f.tags.some((t) => t.category === tag.category && t.value === tag.value)) return f
       return { ...f, tags: [...f.tags, tag] }
     })
 
-  const bulkSetGrid = (groupId: string | null, gridded: boolean | null, gridType: string | null) =>
-    bulkUpdateFiles(groupId, (f) => ({ ...f, gridded, grid_type: gridType }))
+  const bulkSetGrid = (scope: BulkScope, gridded: boolean | null, gridType: string | null) =>
+    bulkUpdateFiles(scope, (f) => ({ ...f, gridded, grid_type: gridType }))
 
-  const bulkSetImageType = (groupId: string | null, value: 'battlemap' | 'scene') =>
-    bulkUpdateFiles(groupId, (f) => ({ ...f, image_type: value }))
+  const bulkSetImageType = (scope: BulkScope, value: 'battlemap' | 'scene') =>
+    bulkUpdateFiles(scope, (f) => ({ ...f, image_type: value }))
 
-  const bulkSetSubgroup = (groupId: string | null, value: string) =>
-    bulkUpdateFiles(groupId, (f) => ({ ...f, subgroup: value.trim() || null }))
+  const bulkSetSubgroup = (scope: BulkScope, value: string) =>
+    bulkUpdateFiles(scope, (f) => ({ ...f, subgroup: value.trim() || null }))
 
-  const bulkExclude = (groupId: string | null) => {
-    const selId = groupId ?? ALL_GROUP_ID
-    const sel = selections[selId] ?? new Set<string>()
-    setGroups((prev) => {
-      const newGroups = prev.map((g) => {
-        if (groupId !== null && g.id !== groupId) return g
-        return {
-          ...g,
-          files: g.files.map((f) =>
-            !sel.has(f.relative_path) || f.outOfScope ? f : { ...f, excluded: true },
-          ),
-        }
-      })
-      const toSave = groupId !== null ? newGroups.filter((g) => g.id === groupId) : newGroups
-      if (toSave.length > 0) notifyGroupChange(toSave)
-      return newGroups
-    })
-    deselectAll(selId)
+  const bulkExclude = (scope: BulkScope) => {
+    bulkUpdateFiles(scope, exclude)
+    deselectAll(selectionIdFor(scope))
   }
 
-  // ── Subgroup ops ──────────────────────────────────────────────────
+  // Subgroup ops
 
   const clearSubgroupLabel = (groupId: string, subgroup: string) =>
     updateGroupFiles(groupId, (f) =>
@@ -373,17 +273,11 @@ export function useFileEditing({
         : f,
     )
 
-  // ── Derived values ────────────────────────────────────────────────
+  // Derived values
 
   const isAllTab = activeTab === ALL_TAB
   const activeGroup = isAllTab ? null : (groups[activeTab] ?? null)
   const activeGroupId = isAllTab ? ALL_GROUP_ID : (activeGroup?.id ?? '')
-
-  const allSameAuthor = useMemo(() => {
-    if (groups.length === 0) return ''
-    const first = groups[0].author
-    return groups.every((g) => g.author === first) ? first : ''
-  }, [groups])
 
   return {
     groups,
@@ -404,7 +298,6 @@ export function useFileEditing({
     updateFile,
     updateFileAnyGroup,
     updateFilesInGroup,
-    moveFilesToGroup,
     toggleFileSelection,
     selectAllVisible,
     deselectAll,
@@ -413,13 +306,10 @@ export function useFileEditing({
     bulkSetImageType,
     bulkSetSubgroup,
     bulkExclude,
-    bulkUpdateFilesInGroups,
-    bulkExcludeInGroups,
     clearSubgroupLabel,
     renameSubgroup,
     isAllTab,
     activeGroup,
     activeGroupId,
-    allSameAuthor,
   }
 }

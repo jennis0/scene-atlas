@@ -7,7 +7,6 @@ from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
-    Column,
     DateTime,
     Float,
     ForeignKey,
@@ -17,13 +16,23 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     create_engine,
-    text,
 )
-from sqlalchemy.orm import declarative_base, relationship, sessionmaker
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    mapped_column,
+    relationship,
+    sessionmaker,
+    validates,
+)
+
+from backend.app.colorspace import hex_to_lab
 
 logger = logging.getLogger(__name__)
 
-Base = declarative_base()
+
+class Base(DeclarativeBase):
+    pass
 
 
 GRID_SOURCE_FILENAME = "filename"
@@ -36,53 +45,82 @@ class Image(Base):
     """Main image table."""
 
     __tablename__ = "images"
+    __table_args__ = (Index("ix_images_gridded_grid_type", "gridded", "grid_type"),)
 
-    id = Column(Integer, primary_key=True, index=True)
-    filename = Column(String, nullable=False, index=True)  # Original filename for display
-    storage_key = Column(
-        String, nullable=False, index=True
-    )  # Key into ImageStore (e.g., "a1b2c3d4.jpg")
-    name = Column(String, index=True)  # Inferred base name / variant group name
-    author = Column(String, index=True)
-    group_id = Column("variant_group_id", Integer, ForeignKey("variant_groups.id"), nullable=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    filename: Mapped[str] = mapped_column(String, nullable=False, index=True)  # For display
+    storage_key: Mapped[str] = mapped_column(String, nullable=False, index=True)  # ImageStore key
+    name: Mapped[str | None] = mapped_column(String, index=True)  # Inferred base name
+    author: Mapped[str | None] = mapped_column(String, index=True)
+    group_id: Mapped[int | None] = mapped_column(
+        "variant_group_id", Integer, ForeignKey("variant_groups.id"), nullable=True, index=True
+    )
 
-    # Image properties
-    width = Column(Integer)
-    height = Column(Integer)
-    file_size = Column(Integer)  # In bytes
-    gridded = Column(Boolean, nullable=True)  # True=gridded, False=gridless, None=unknown
-    grid_width = Column(Integer, nullable=True)  # Grid tile count horizontal (e.g. 30)
-    grid_height = Column(Integer, nullable=True)  # Grid tile count vertical (e.g. 45)
-    grid_type = Column(String, nullable=True)  # "square" | "hex" | None
-    grid_confidence = Column(Float, nullable=True)  # 0.0-1.0, None = filename-detected
+    width: Mapped[int | None] = mapped_column(Integer)
+    height: Mapped[int | None] = mapped_column(Integer)
+    file_size: Mapped[int | None] = mapped_column(Integer)  # In bytes
+    gridded: Mapped[bool | None] = mapped_column(
+        Boolean, nullable=True, index=True
+    )  # None = unknown
+    grid_width: Mapped[int | None] = mapped_column(Integer, nullable=True)  # Tile count
+    grid_height: Mapped[int | None] = mapped_column(Integer, nullable=True)  # Tile count
+    grid_type: Mapped[str | None] = mapped_column(
+        String, nullable=True, index=True
+    )  # "square" | "hex"
+    grid_confidence: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )  # 0.0-1.0, None = filename-detected
     # Where the grid fields came from: GRID_SOURCE_* (None = no grid information).
     # Re-detection never overwrites GRID_SOURCE_USER.
-    grid_source = Column(String, nullable=True)
-    subgroup = Column("sub_variant", String, nullable=True)  # Subgroup path (e.g. "MA / No Grid")
-    content_hash = Column(String(64), nullable=True, index=True)  # SHA-256 of original bytes
-    stored_hash = Column(String(64), nullable=True, index=True)  # SHA-256 of the stored file
-    pixel_hash = Column(String(64), nullable=True, index=True)  # Hash of canonical decoded pixels
-    phash = Column(Integer, nullable=True)  # 64-bit perceptual hash (signed); advisory only
-    search_text = Column(Text, nullable=True)  # Pre-tokenized text for FTS5 (CamelCase-split)
-    media_type = Column(String, nullable=True, default="image")  # "image" or "video"
-    image_type = Column(String, nullable=True, default="battlemap")  # "battlemap" or "scene"
-    import_job_id = Column(
+    grid_source: Mapped[str | None] = mapped_column(String, nullable=True)
+    subgroup: Mapped[str | None] = mapped_column(
+        "sub_variant", String, nullable=True
+    )  # e.g. "MA / No Grid"
+    content_hash: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )  # SHA-256 of original bytes
+    stored_hash: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )  # SHA-256 of the stored file
+    pixel_hash: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )  # Hash of canonical decoded pixels
+    phash: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )  # 64-bit perceptual hash (signed); advisory only
+    search_text: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )  # Pre-tokenized for FTS5 (CamelCase-split)
+    media_type: Mapped[str | None] = mapped_column(
+        String, nullable=True, default="image", index=True
+    )
+    image_type: Mapped[str | None] = mapped_column(
+        String, nullable=True, default="battlemap", index=True
+    )
+    # None for images that predate import jobs.
+    # Never add a cascading relationship to ImportJob here: dismissing or pruning a job
+    # must not delete its images (only an explicit Undo does).
+    import_job_id: Mapped[str | None] = mapped_column(
         String, ForeignKey("import_jobs.id"), nullable=True, index=True
-    )  # Import job that created this row; None for pre-existing/manually added images
-    # NOTE: Never add a cascading relationship to ImportJob here: dismissing or
-    # pruning a job must not delete its images (only an explicit Undo does).
+    )
+    thumbnail_key: Mapped[str | None] = mapped_column(String)
 
-    # Storage keys (resolved via ImageStore at runtime)
-    thumbnail_key = Column(String)  # Key into thumbnail store (e.g., "a1b2c3d4_400x400.jpg")
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=datetime.utcnow, index=True
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
 
-    # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    # Relationships
-    tags = relationship("Tag", back_populates="image", cascade="all, delete-orphan")
-    colors = relationship("Color", back_populates="image", cascade="all, delete-orphan")
-    group = relationship("ImageGroup", back_populates="images", foreign_keys="[Image.group_id]")
+    tags: Mapped[list["Tag"]] = relationship(
+        "Tag", back_populates="image", cascade="all, delete-orphan"
+    )
+    colors: Mapped[list["Color"]] = relationship(
+        "Color", back_populates="image", cascade="all, delete-orphan"
+    )
+    group: Mapped["ImageGroup | None"] = relationship(
+        "ImageGroup", back_populates="images", foreign_keys="[Image.group_id]"
+    )
 
     @property
     def group_name(self) -> str | None:
@@ -101,15 +139,22 @@ class ImageGroup(Base):
 
     __tablename__ = "variant_groups"
 
-    id = Column(Integer, primary_key=True, index=True)
-    base_name = Column(String, nullable=False, index=True)
-    author = Column(String, index=True)
-    primary_image_id = Column(Integer, ForeignKey("images.id"), nullable=True)
-    image_count = Column(Integer, nullable=False, default=0)  # Maintained by DB triggers
-    created_at = Column(DateTime, default=datetime.utcnow)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    base_name: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    author: Mapped[str | None] = mapped_column(String, index=True)
+    primary_image_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("images.id"), nullable=True
+    )
+    image_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )  # Maintained by DB triggers
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=datetime.utcnow, index=True
+    )
 
-    # Relationships
-    images = relationship("Image", back_populates="group", foreign_keys="[Image.group_id]")
+    images: Mapped[list["Image"]] = relationship(
+        "Image", back_populates="group", foreign_keys="[Image.group_id]"
+    )
 
     def __repr__(self):
         return f"<ImageGroup(id={self.id}, base_name='{self.base_name}')>"
@@ -119,17 +164,22 @@ class Tag(Base):
     """Tag system for multidimensional variant categorization."""
 
     __tablename__ = "tags"
+    __table_args__ = (
+        Index("ix_tags_category_value", "category", "value"),
+        Index("ix_tags_category_value_image", "category", "value", "image_id"),
+    )
 
-    id = Column(Integer, primary_key=True, index=True)
-    image_id = Column(Integer, ForeignKey("images.id"), nullable=False)
-    category = Column(String, nullable=False, index=True)  # e.g., 'grid', 'season', 'lighting'
-    value = Column(String, nullable=False, index=True)  # e.g., 'gridded', 'winter', 'night'
-    confidence = Column(Float, default=1.0)  # 0.0-1.0 for auto-inferred tags
-    source = Column(String, default="manual")  # 'auto' or 'manual'
-    created_at = Column(DateTime, default=datetime.utcnow)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    image_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("images.id"), nullable=False, index=True
+    )
+    category: Mapped[str] = mapped_column(String, nullable=False, index=True)  # e.g. 'season'
+    value: Mapped[str] = mapped_column(String, nullable=False, index=True)  # e.g. 'winter'
+    confidence: Mapped[float | None] = mapped_column(Float, default=1.0)  # <1 for auto tags
+    source: Mapped[str | None] = mapped_column(String, default="manual")  # 'auto' | 'manual'
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
 
-    # Relationships
-    image = relationship("Image", back_populates="tags")
+    image: Mapped["Image"] = relationship("Image", back_populates="tags")
 
     def __repr__(self):
         return (
@@ -142,14 +192,14 @@ class TagCategory(Base):
 
     __tablename__ = "tag_categories"
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False, unique=True, index=True)
-    description = Column(Text)
-    common_values = Column(Text)  # JSON array of typical values
-    color = Column(String, nullable=True)  # Tailwind color preset name, e.g. "amber"
-    icon = Column(String, nullable=True)  # Lucide icon name, e.g. "leaf"
-    display_order = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
+    description: Mapped[str | None] = mapped_column(Text)
+    common_values: Mapped[str | None] = mapped_column(Text)  # JSON array
+    color: Mapped[str | None] = mapped_column(String, nullable=True)  # Tailwind preset name
+    icon: Mapped[str | None] = mapped_column(String, nullable=True)  # Lucide icon name
+    display_order: Mapped[int | None] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
 
     def __repr__(self):
         return f"<TagCategory(name='{self.name}')>"
@@ -159,15 +209,30 @@ class Color(Base):
     """Dominant colors extracted from images."""
 
     __tablename__ = "colors"
+    __table_args__ = (
+        Index("ix_colors_color_hex_image", "color_hex", "image_id"),
+        # Colour search range-scans lab_l and filters the rest from the index alone.
+        Index("ix_colors_lab", "lab_l", "lab_a", "lab_b", "image_id"),
+    )
 
-    id = Column(Integer, primary_key=True, index=True)
-    image_id = Column(Integer, ForeignKey("images.id"), nullable=False)
-    color_hex = Column(String(7), nullable=False, index=True)  # e.g., '#1a2b3c'
-    percentage = Column(Float)  # 0.0-100.0
-    color_order = Column(Integer)  # 1-5 for dominant colors
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    image_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("images.id"), nullable=False, index=True
+    )
+    color_hex: Mapped[str] = mapped_column(String(7), nullable=False, index=True)  # '#1a2b3c'
+    percentage: Mapped[float | None] = mapped_column(Float)  # 0.0-100.0
+    color_order: Mapped[int | None] = mapped_column(Integer)  # 1 = most dominant
+    # CIELAB (D65) of color_hex, set whenever color_hex is assigned.
+    lab_l: Mapped[float] = mapped_column(Float, nullable=False)
+    lab_a: Mapped[float] = mapped_column(Float, nullable=False)
+    lab_b: Mapped[float] = mapped_column(Float, nullable=False)
 
-    # Relationships
-    image = relationship("Image", back_populates="colors")
+    image: Mapped["Image"] = relationship("Image", back_populates="colors")
+
+    @validates("color_hex")
+    def _set_lab(self, _key: str, value: str) -> str:
+        self.lab_l, self.lab_a, self.lab_b = hex_to_lab(value)
+        return value
 
     def __repr__(self):
         return f"<Color(hex='{self.color_hex}', percentage={self.percentage})>"
@@ -183,22 +248,25 @@ class ImportJob(Base):
 
     __tablename__ = "import_jobs"
 
-    id = Column(String, primary_key=True)  # UUID hex
-    status = Column(String, nullable=False, default="active")
-    source_label = Column(String, nullable=True)  # Display label, e.g. "Forest Pack.zip"
-    default_image_type = Column(String, nullable=False, default="battlemap")
-    planned_at = Column(DateTime, nullable=True)  # Manifest sealed + groups planned
-    last_upload_at = Column(DateTime, nullable=True)  # Last byte receipt
-    dismissed_at = Column(DateTime, nullable=True)  # Hidden from the activity dock
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    completed_at = Column(DateTime, nullable=True)
+    id: Mapped[str] = mapped_column(String, primary_key=True)  # UUID hex
+    status: Mapped[str] = mapped_column(String, nullable=False, default="active")
+    source_label: Mapped[str | None] = mapped_column(String, nullable=True)  # e.g. "Pack.zip"
+    default_image_type: Mapped[str] = mapped_column(String, nullable=False, default="battlemap")
+    planned_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # Sealed
+    last_upload_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    dismissed_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )  # Hidden from the activity dock
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    # Relationships
-    import_groups = relationship(
+    import_groups: Mapped[list["ImportGroup"]] = relationship(
         "ImportGroup", back_populates="job", cascade="all, delete-orphan", passive_deletes=True
     )
-    items = relationship(
+    items: Mapped[list["ImportItem"]] = relationship(
         "ImportItem", back_populates="job", cascade="all, delete-orphan", passive_deletes=True
     )
 
@@ -211,9 +279,11 @@ class AppSetting(Base):
 
     __tablename__ = "app_settings"
 
-    key = Column(String, primary_key=True)
-    value_json = Column(Text, nullable=True)  # JSON-encoded value
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
 
     def __repr__(self):
         return f"<AppSetting(key='{self.key}', value_json='{self.value_json}')>"
@@ -228,16 +298,20 @@ class ImportGroup(Base):
 
     __tablename__ = "import_groups"
 
-    id = Column(Integer, primary_key=True)
-    job_id = Column(String, ForeignKey("import_jobs.id"), nullable=False, index=True)
-    author = Column(String, nullable=True)
-    group_name = Column(String, nullable=False)
-    image_group_id = Column(Integer, ForeignKey("variant_groups.id"), nullable=True)
-    merged_into_existing = Column(Boolean, nullable=False, default=False)
-    sort_order = Column(Integer, nullable=False, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    job_id: Mapped[str] = mapped_column(
+        String, ForeignKey("import_jobs.id"), nullable=False, index=True
+    )
+    author: Mapped[str | None] = mapped_column(String, nullable=True)
+    group_name: Mapped[str] = mapped_column(String, nullable=False)
+    image_group_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("variant_groups.id"), nullable=True
+    )
+    merged_into_existing: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
 
-    job = relationship("ImportJob", back_populates="import_groups")
+    job: Mapped["ImportJob"] = relationship("ImportJob", back_populates="import_groups")
 
     def __repr__(self):
         return f"<ImportGroup(id={self.id}, group='{self.group_name}')>"
@@ -251,35 +325,55 @@ class ImportItem(Base):
 
     __tablename__ = "import_items"
 
-    id = Column(Integer, primary_key=True)
-    job_id = Column(String, ForeignKey("import_jobs.id"), nullable=False)
-    import_group_id = Column(Integer, ForeignKey("import_groups.id"), nullable=True)
-    kind = Column(String, nullable=False, default="image")  # image | video | archive
-    relative_path = Column(String, nullable=False)  # Display + resume matching only
-    filename = Column(String, nullable=False)
-    size = Column(Integer, nullable=True)
-    last_modified = Column(Integer, nullable=True)  # Client-reported, ms since epoch
-    image_type = Column(String, nullable=False, default="battlemap")
-    parsed = Column(Text, nullable=True)  # JSON parser output (set at plan time)
-    state = Column(String, nullable=False, default="awaiting_bytes")
-    staging_key = Column(String, nullable=True)  # Server-generated staged filename
-    source_hash = Column(String(64), nullable=True)  # SHA-256 of the original bytes
-    attempts = Column(Integer, nullable=False, default=0)
-    retry_after = Column(DateTime, nullable=True)
-    error_kind = Column(String, nullable=True)  # file | transient | system | bytes_lost
-    error_stage = Column(String, nullable=True)
-    error_reason = Column(Text, nullable=True)  # User-facing
-    error_detail = Column(Text, nullable=True)  # Raw exception text
-    image_id = Column(Integer, ForeignKey("images.id"), nullable=True)
-    duplicate_of_image_id = Column(Integer, ForeignKey("images.id"), nullable=True)
-    duplicate_tier = Column(String, nullable=True)  # bytes | pixels
-    allow_duplicate = Column(Boolean, nullable=False, default=False)
-    similar_to_image_id = Column(Integer, ForeignKey("images.id"), nullable=True)
-    similarity_distance = Column(Integer, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    job_id: Mapped[str] = mapped_column(String, ForeignKey("import_jobs.id"), nullable=False)
+    import_group_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("import_groups.id"), nullable=True
+    )
+    kind: Mapped[str] = mapped_column(
+        String, nullable=False, default="image"
+    )  # image | video | archive
+    relative_path: Mapped[str] = mapped_column(
+        String, nullable=False
+    )  # Display + resume matching only
+    filename: Mapped[str] = mapped_column(String, nullable=False)
+    size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_modified: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )  # Client-reported, ms since epoch
+    image_type: Mapped[str] = mapped_column(String, nullable=False, default="battlemap")
+    parsed: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON, set at plan time
+    state: Mapped[str] = mapped_column(String, nullable=False, default="awaiting_bytes")
+    staging_key: Mapped[str | None] = mapped_column(
+        String, nullable=True
+    )  # Server-generated staged filename
+    source_hash: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )  # SHA-256 of the original bytes
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    retry_after: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    error_kind: Mapped[str | None] = mapped_column(
+        String, nullable=True
+    )  # file | transient | system | bytes_lost
+    error_stage: Mapped[str | None] = mapped_column(String, nullable=True)
+    error_reason: Mapped[str | None] = mapped_column(Text, nullable=True)  # User-facing
+    error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)  # Raw exception text
+    image_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("images.id"), nullable=True)
+    duplicate_of_image_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("images.id"), nullable=True
+    )
+    duplicate_tier: Mapped[str | None] = mapped_column(String, nullable=True)  # bytes | pixels
+    allow_duplicate: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    similar_to_image_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("images.id"), nullable=True
+    )
+    similarity_distance: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
 
-    job = relationship("ImportJob", back_populates="items")
+    job: Mapped["ImportJob"] = relationship("ImportJob", back_populates="items")
 
     __table_args__ = (
         UniqueConstraint("job_id", "relative_path", name="uq_import_items_job_path"),
@@ -292,13 +386,8 @@ class ImportItem(Base):
         return f"<ImportItem(id={self.id}, path='{self.relative_path}', state='{self.state}')>"
 
 
-# Database setup utilities
-
-# Module-level engine cache keyed by database_url.  Previously every call to
-# get_engine() created a brand-new SQLAlchemy Engine (and connection pool).
-# During a large import the pipeline calls get_engine() 10+ times per group,
-# producing hundreds of orphaned engines whose connection pools were never
-# disposed — a steady memory leak.
+# One engine (and connection pool) per database URL. Creating an engine per call
+# leaks pools: the pipeline calls get_engine() many times per import group.
 _engine_cache: dict = {}
 
 
@@ -344,85 +433,6 @@ def get_session_local(engine):
     return sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-def _migrate_images_content_hash(engine):
-    """Add content_hash column and remove UNIQUE constraint from storage_key.
-
-    SQLite cannot ALTER TABLE to drop constraints, so we recreate the table
-    when the migration is needed. This is idempotent — it checks whether
-    content_hash already exists before doing anything.
-    """
-    with engine.connect() as conn:
-        # Check if migration is needed
-        cols = conn.execute(text("PRAGMA table_info(images)")).fetchall()
-        col_names = {row[1] for row in cols}
-
-        if "content_hash" in col_names:
-            return  # Already migrated
-
-        logger.info("Migrating images table: adding content_hash, removing UNIQUE on storage_key")
-
-        # Drop FTS triggers first (they reference the images table)
-        conn.execute(text("DROP TRIGGER IF EXISTS image_fts_ai"))
-        conn.execute(text("DROP TRIGGER IF EXISTS image_fts_ad"))
-        conn.execute(text("DROP TRIGGER IF EXISTS image_fts_au"))
-        # Drop FTS table so it gets recreated fresh by init_db
-        conn.execute(text("DROP TABLE IF EXISTS image_fts"))
-
-        # Recreate images table without UNIQUE on storage_key, with content_hash
-        conn.execute(
-            text("""
-            CREATE TABLE images_new (
-                id INTEGER PRIMARY KEY,
-                filename VARCHAR NOT NULL,
-                storage_key VARCHAR NOT NULL,
-                name VARCHAR,
-                author VARCHAR,
-                variant_group_id INTEGER REFERENCES variant_groups(id),
-                width INTEGER,
-                height INTEGER,
-                file_size INTEGER,
-                gridded BOOLEAN,
-                grid_width INTEGER,
-                grid_height INTEGER,
-                sub_variant VARCHAR,
-                content_hash VARCHAR(64),
-                thumbnail_key VARCHAR,
-                created_at DATETIME,
-                updated_at DATETIME
-            )
-        """)
-        )
-
-        conn.execute(
-            text("""
-            INSERT INTO images_new (
-                id, filename, storage_key, name, author, variant_group_id,
-                width, height, file_size, gridded, grid_width, grid_height,
-                sub_variant, thumbnail_key, created_at, updated_at
-            )
-            SELECT
-                id, filename, storage_key, name, author, variant_group_id,
-                width, height, file_size, gridded, grid_width, grid_height,
-                sub_variant, thumbnail_key, created_at, updated_at
-            FROM images
-        """)
-        )
-
-        conn.execute(text("DROP TABLE images"))
-        conn.execute(text("ALTER TABLE images_new RENAME TO images"))
-
-        # Recreate indexes
-        conn.execute(text("CREATE INDEX ix_images_id ON images (id)"))
-        conn.execute(text("CREATE INDEX ix_images_filename ON images (filename)"))
-        conn.execute(text("CREATE INDEX ix_images_storage_key ON images (storage_key)"))
-        conn.execute(text("CREATE INDEX ix_images_name ON images (name)"))
-        conn.execute(text("CREATE INDEX ix_images_author ON images (author)"))
-        conn.execute(text("CREATE INDEX ix_images_content_hash ON images (content_hash)"))
-
-        conn.commit()
-        logger.info("Images table migration complete")
-
-
 def init_db(engine):
     """Initialize / migrate the database using Alembic.
 
@@ -450,11 +460,12 @@ def init_db(engine):
         # into sys._MEIPASS (_internal/).  Alembic resolves script_location via
         # os.path.abspath() (relative to CWD, not the config file), so we must
         # override it with the absolute _MEIPASS path after loading the config.
-        alembic_ini = _Path(_sys._MEIPASS) / "alembic.ini"
+        bundle_dir = _Path(_sys._MEIPASS)  # pyright: ignore[reportAttributeAccessIssue]
+        alembic_ini = bundle_dir / "alembic.ini"
         alembic_cfg = AlembicConfig(str(alembic_ini))
         alembic_cfg.set_main_option(
             "script_location",
-            str(_Path(_sys._MEIPASS) / "backend" / "alembic"),
+            str(bundle_dir / "backend" / "alembic"),
         )
     else:
         # Normal dev runtime: 4 levels up from backend/app/models/database.py
@@ -489,23 +500,21 @@ def init_db(engine):
 
 
 def seed_tag_categories(session):
-    """Seed initial tag categories with vocabulary for auto-tagging.
+    """Seed the tag categories with the ``common`` tag pack.
 
     Only runs when the tag_categories table is completely empty (first boot).
     Once categories exist, this is a no-op so user edits are preserved.
 
-    Reads the canonical vocabulary from backend/app/data/tag_vocabulary.json.
-    The ImageParser loads these to build its tag vocabulary.
+    Genre packs are opt-in: the setup wizard or Settings imports them
+    (design/tag-packs.md). The ImageParser builds its vocabulary from these rows.
     """
     existing_count = session.query(TagCategory).count()
     if existing_count > 0:
         return
 
-    from backend.app.data.vocabulary import build_common_values_json, load_vocabulary
+    from backend.app.data.vocabulary import build_common_values_json, get_tags_for_packs
 
-    vocab = load_vocabulary()
-
-    for cat_data in vocab["categories"]:
+    for cat_data in get_tags_for_packs(["common"]):
         session.add(
             TagCategory(
                 name=cat_data["name"],
@@ -526,44 +535,24 @@ def seed_default_settings(session):
     Only runs when the app_settings table is completely empty.
     Once any setting row exists, this is a no-op so user-edited values are preserved.
 
-    Concurrency settings use resource_detector to compute host-appropriate defaults
-    based on CPU count and available RAM. Import limits and algorithm params use
-    sensible fixed defaults.
+    Values are the AppSettings schema defaults, except the concurrency settings
+    (computed by resource_detector from CPU count and RAM) and the stored format
+    (seeded from CONVERT_TO_WEBP so the setup wizard choice is honoured).
     """
+    from backend.app.models.schemas import AppSettings
     from backend.app.resource_detector import compute_resource_defaults
 
     existing_count = session.query(AppSetting).count()
     if existing_count > 0:
         return
 
+    # active_model stays unseeded so the first start auto-detects it.
+    defaults = AppSettings().model_dump(exclude={"active_model"})
     resource_defaults = compute_resource_defaults()
-
-    defaults = {
-        # Grid detection (image analysis)
-        "enable_image_grid_detection": True,
-        "grid_analysis_max_dim": 0,  # full resolution
-        # Color extraction
-        "num_dominant_colors": 5,
-        "color_distance_threshold": 0.35,
-        "color_clustering_samples": 5000,
-        "color_kmeans_n_init": 3,
-        # Ingestion performance — resource-aware defaults
-        "ingestion_batch_size": 16,
-        "max_concurrent_prepare": resource_defaults["max_concurrent_prepare"],
-        "max_concurrent_heavy_requests": resource_defaults["max_concurrent_heavy_requests"],
-        # Import limits — sensible hardcoded defaults (change via admin API)
-        "max_import_file_size": 2 * 1024 * 1024 * 1024,  # 2 GB
-        "max_video_file_size": 2 * 1024 * 1024 * 1024,  # 2 GB
-        "max_import_files": 1000,
-        "max_import_total_size": 2 * 1024 * 1024 * 1024,  # 2 GB
-        # Job runner — resource-aware default
-        "max_job_workers": resource_defaults["max_job_workers"],
-        "scheduler_enabled": True,
-        # Storage format — initial value read from env so the setup wizard choice is honoured
-        "stored_format": "webp" if os.environ.get("CONVERT_TO_WEBP", "0") == "1" else "original",
-        "stored_quality": 90,
-        "stored_lossless": True,
-    }
+    for key in ("max_concurrent_prepare", "max_concurrent_heavy_requests", "max_job_workers"):
+        defaults[key] = resource_defaults[key]
+    if os.environ.get("CONVERT_TO_WEBP", "0") == "1":
+        defaults["stored_format"] = "webp"
 
     for key, value in defaults.items():
         session.add(AppSetting(key=key, value_json=json.dumps(value)))

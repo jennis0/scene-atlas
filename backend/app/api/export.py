@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import json
 import logging
-from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -30,7 +29,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
-from ...pipeline.naming import export_path
+from ...pipeline.naming import export_metadata, unique_export_path
 from ..config import settings
 from ..models import Image
 from ..services import get_image_store
@@ -77,38 +76,11 @@ def _collect_entries(db: Session) -> tuple[list[tuple[str, Path]], dict]:
                 skipped += 1
                 continue
 
-            group_name = img.group.base_name if img.group else None
-            arc = export_path(img, group_name, img.author)
-
-            # Deduplicate: append (2), (3) … before the extension
-            if arc in seen_paths:
-                stem = Path(arc).stem
-                ext = Path(arc).suffix
-                parent = str(Path(arc).parent)
-                n = 2
-                while True:
-                    candidate = f"{parent}/{stem} ({n}){ext}"
-                    if candidate not in seen_paths:
-                        arc = candidate
-                        break
-                    n += 1
-            seen_paths.add(arc)
+            arc = unique_export_path(img, seen_paths)
 
             entries.append((arc, source))
 
-            # Build tags dict: {category: [value, ...]}
-            tags_by_cat: dict[str, list[str]] = defaultdict(list)
-            for tag in img.tags:
-                tags_by_cat[tag.category].append(tag.value)
-
-            metadata[arc] = {
-                "image_type": img.image_type or "battlemap",
-                "gridded": bool(img.gridded),
-                "grid_type": img.grid_type,
-                "grid_width": img.grid_width,
-                "grid_height": img.grid_height,
-                "tags": dict(tags_by_cat),
-            }
+            metadata[arc] = export_metadata(img)
 
         offset += _BATCH
 

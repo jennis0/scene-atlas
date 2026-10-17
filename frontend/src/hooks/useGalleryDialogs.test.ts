@@ -15,7 +15,10 @@ vi.mock('@/lib/api', () => ({
   },
 }))
 
+vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
+
 import { groupApi } from '@/lib/api'
+import { toast } from 'sonner'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -244,8 +247,7 @@ describe('useGalleryDialogs — handleGroupDeleteConfirm', () => {
     expect(groupApi.delete).not.toHaveBeenCalled()
   })
 
-  it('handles API error gracefully', async () => {
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+  it('toasts an API error and keeps the group for retry', async () => {
     vi.mocked(groupApi.delete).mockRejectedValueOnce(new Error('Network error'))
 
     const { result } = renderHook(() => useGalleryDialogs([]), {
@@ -270,12 +272,10 @@ describe('useGalleryDialogs — handleGroupDeleteConfirm', () => {
       await result.current.handleGroupDeleteConfirm()
     })
 
-    expect(consoleSpy).toHaveBeenCalledWith('Failed to delete group:', expect.any(Error))
+    expect(toast.error).toHaveBeenCalledWith('Network error')
     expect(result.current.deleting).toBe(false)
     // Group is NOT cleared on error — user can retry
     expect(result.current.deleteConfirmGroup).not.toBeNull()
-
-    consoleSpy.mockRestore()
   })
 })
 

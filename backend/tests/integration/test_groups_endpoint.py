@@ -759,3 +759,16 @@ class TestGroupMoveImages:
             json={"target_group_id": target_id, "image_ids": [wrong_img]},
         )
         assert resp.status_code == 400
+
+
+def test_concurrent_identical_moves_succeed_once(two_groups):
+    """Write endpoints take the SQLite write lock up front, so the ownership check
+    and the move can't interleave between concurrent requests."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    client, data = two_groups
+    body = {"target_group_id": data["target_id"], "image_ids": [data["source_img_ids"][0]]}
+    url = f"/api/v1/groups/{data['source_id']}/move-images"
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        codes = list(pool.map(lambda _: client.post(url, json=body).status_code, range(8)))
+    assert codes.count(200) == 1, codes

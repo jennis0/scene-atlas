@@ -28,14 +28,14 @@ jobs:
     name: Backend tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: "latest"
           enable-cache: true
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install dependencies
@@ -48,7 +48,7 @@ jobs:
         run: uv run python -m pytest backend/tests/unit/ -v
       - name: Cache ONNX models (small)
         id: cache-onnx
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: data/models/small
           key: onnx-models-small-${{ hashFiles('backend/app/services/model_registry.py') }}
@@ -70,9 +70,9 @@ jobs:
     name: Frontend tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: "npm"
@@ -93,7 +93,7 @@ jobs:
         working-directory: frontend
         run: npx vitest run --coverage
       - name: Upload frontend coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: coverage-frontend
@@ -112,14 +112,14 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: "latest"
           enable-cache: true
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install dependencies
@@ -133,20 +133,20 @@ jobs:
     needs: [test-backend, test-frontend]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           lfs: true
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: "latest"
           enable-cache: true
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: "npm"
@@ -161,7 +161,7 @@ jobs:
         working-directory: frontend
         run: npm ci
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ hashFiles('package-lock.json') }}
@@ -171,7 +171,7 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Cache ONNX models
         id: cache-onnx
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: data/models/small
           key: onnx-models-small-${{ hashFiles('backend/app/services/model_registry.py') }}
@@ -184,14 +184,14 @@ jobs:
           CI: "true"
           E2E_IMAGE_KEY: ${{ secrets.E2E_IMAGE_KEY }}
       - name: Upload Playwright report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: playwright-report
           path: e2e/playwright-report/
           retention-days: 14
       - name: Upload test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-results
@@ -227,7 +227,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # ── Set version from input ──────────────────────────────────────────
       - name: Set version
@@ -252,7 +252,7 @@ jobs:
 
       # ── Python / uv setup ──────────────────────────────────────────────
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: 'latest'
 
@@ -279,13 +279,9 @@ jobs:
 
       # ONNX models are downloaded at runtime by the app (no build-time bundling)
 
-      # ── Build Python sidecar ─────────────────────────────────────────────
-      - name: Build sidecar
-        run: uv run python scripts/build/build_sidecar.py
-
       # ── Node.js setup ────────────────────────────────────────────────────
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: 'npm'
@@ -305,9 +301,9 @@ jobs:
         run: npm run build
         working-directory: frontend
 
-      # ── Compile Electron TypeScript ──────────────────────────────────────
-      - name: Compile Electron main process
-        run: npx tsc -p electron/tsconfig.json
+      # ── Build Python sidecar (bundles frontend/dist) ─────────────────────
+      - name: Build sidecar
+        run: uv run python scripts/build/build_sidecar.py
 
       # ── Build Electron app ───────────────────────────────────────────────
       - name: Build Electron app (publish)
@@ -332,7 +328,7 @@ jobs:
 
       # ── Upload artifacts ─────────────────────────────────────────────────
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: scene-atlas-${{ matrix.platform }}-${{ matrix.arch }}
           path: |

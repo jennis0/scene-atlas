@@ -73,8 +73,8 @@ Three font families, used in distinct roles. **Never mix roles.**
 | **JetBrains Mono** | `font-mono` | Filenames, UUIDs, dimensions, file sizes. `text-[10px]` usually. |
 
 ### Size Scale in Practice
-- Page title: `font-display text-3xl font-semibold`
-- Section heading (e.g. viewer name): `font-display text-xl font-semibold`
+- Page title: `font-display text-2xl font-medium tracking-wide` (GalleryHeader)
+- Viewer heading (image name): `font-display text-2xl font-semibold`
 - Card name: `text-[13px] font-medium` (gradient overlay) or `text-sm font-semibold`
 - Metadata / labels: `text-[11px]` or `text-xs text-muted-foreground`
 - Micro badges / counts: `text-[10px]`
@@ -240,7 +240,7 @@ Add `title={tag.category}` on the outer element for discoverability on hover.
 
 ## Card Pattern
 
-All image cards (ImageCard, GroupCard, VariantTile) share a **gradient overlay** structure — NO separate metadata bar below the image.
+All image cards (`GroupCard`, `SceneTile`) share a **gradient overlay** structure — NO separate metadata bar below the image.
 
 ```
 ┌─────────────────────────┐
@@ -256,12 +256,12 @@ All image cards (ImageCard, GroupCard, VariantTile) share a **gradient overlay**
 
 **Overlay gradient:** `bg-gradient-to-t from-black/85 via-black/55 to-transparent pt-10 pb-2.5 px-3`
 
-**Hover animation:** `transition-all duration-200 hover:scale-[1.03]` — subtle scale only, no border animation on cards with overlays.
+**Hover animation:** the card itself does not scale. The thumbnail inside scales (`transition-transform duration-300 group-hover:scale-[1.04]` on GroupCard, `scale-[1.05]` on SceneTile) and the card gains a border tint and shadow.
 
-**Ring/border on cards:**
-- Default: `ring-1 ring-border/40`
-- Hover: `hover:ring-primary/40`
-- Active / selected: `ring-2 ring-primary/70 shadow-lg shadow-primary/15`
+**Border on cards:**
+- Default: `border border-border/30`
+- Hover: `hover:border-primary/40 hover:shadow-xl hover:shadow-black/40`
+- Active / selected (SceneTile): `border-primary/60 ring-2 ring-primary/70 shadow-lg shadow-primary/15`
 
 ---
 
@@ -411,12 +411,6 @@ Active: `bg-primary/20 text-primary`
 Inactive: `text-muted-foreground hover:text-foreground hover:bg-secondary/50`
 Container: `inline-flex rounded-md overflow-hidden border border-border`
 
-### SubgroupPicker (`frontend/src/components/import/SubgroupPicker.tsx`)
-Popup picker showing existing subgroups from the group as quick-select options, plus a free-text input. Used in the import/edit flow (not in ImageViewer — ImageViewer uses inline editing instead).
-
-Trigger: `text-muted-foreground hover:text-primary`
-Dropdown: `bg-card border-border shadow-2xl shadow-black/40`
-
 ### ActivityDock (`frontend/src/components/ActivityDock.tsx`)
 Floating bottom-right card for imports (from the ImportManager) and background jobs.
 **Collapsed pill:** `bg-card/95 backdrop-blur-sm border border-border/40 rounded-full shadow-lg shadow-black/40`. Hover: `bg-secondary hover:-translate-y-px`. Shows Loader2 (spinning) when active, PauseCircle when imports are system-paused, WifiOff when offline, Package when idle. Active count badge uses the solid tier.
@@ -547,7 +541,5 @@ The following patterns appear in older code (especially FileCard and import-flow
 
 Remaining items from the design language audit (2026-02-25) that have not yet been addressed:
 
-1. **Confirm dialogs** — `ConfirmDialog` component uses default Radix styling rather than the documented token-based patterns (low visual impact since it's rarely seen)
-2. **Hover state implementation** — Some components use hardcoded hover colors instead of token-based `hover:bg-muted` or `hover:bg-primary/10`
-3. **Card scale on hover** — GroupCard uses `hover:scale-[1.01]` which is inconsistent with ImageGrid cards that have no scale transform
-4. **Font weight consistency** — Mixed usage of `font-medium` vs `font-semibold` for section labels across FilterMenuContent and ImageViewer
+1. **Hover state implementation** — Some components use hardcoded hover colors instead of token-based `hover:bg-muted` or `hover:bg-primary/10`
+2. **Font weight consistency** — Mixed usage of `font-medium` vs `font-semibold` for section labels across FilterMenuContent and ImageViewer

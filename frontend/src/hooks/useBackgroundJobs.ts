@@ -1,14 +1,7 @@
-/**
- * Hook that polls the background jobs API for status updates.
- *
- * Returns a list of background jobs (running + recently completed) and
- * a flag indicating whether any are currently active.  Polls every 10s
- * while active jobs exist.
- */
-
-import { useEffect, useState, useCallback } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { jobApi } from '@/lib/api'
-import { ACTIVE_POLL_INTERVAL_MS } from '@/lib/constants'
+import { ACTIVE_POLL_INTERVAL_MS, IDLE_POLL_INTERVAL_MS } from '@/lib/constants'
+import { QUERY_KEYS } from '@/lib/queryKeys'
 import type { BackgroundJob } from '@/types'
 
 export interface UseBackgroundJobsReturn {
@@ -17,35 +10,21 @@ export interface UseBackgroundJobsReturn {
   refresh: () => void
 }
 
+const isActive = (j: BackgroundJob) => j.status === 'queued' || j.status === 'running'
+
+/**
+ * Background jobs (running and recently finished), excluding imports, which the
+ * ImportManager tracks. Polls quickly while a job is active and slowly otherwise, so
+ * jobs started elsewhere (tag management, library settings) still show up.
+ */
 export function useBackgroundJobs(): UseBackgroundJobsReturn {
-  const [jobs, setJobs] = useState<BackgroundJob[]>([])
+  const { data: jobs = [], refetch } = useQuery({
+    queryKey: QUERY_KEYS.backgroundJobs,
+    queryFn: async () => (await jobApi.list()).filter((j) => !j.name.startsWith('Import')),
+    refetchInterval: (query) =>
+      query.state.data?.some(isActive) ? ACTIVE_POLL_INTERVAL_MS : IDLE_POLL_INTERVAL_MS,
+    retry: false,
+  })
 
-  const refresh = useCallback(() => {
-    jobApi
-      .list()
-      .then((all) => {
-        // Filter out import-related jobs — those are tracked in the imports section
-        setJobs(all.filter((j) => !j.name.startsWith('Import')))
-      })
-      .catch(() => {
-        // Backend unavailable — keep stale data
-      })
-  }, [])
-
-  // Initial load
-  useEffect(() => {
-    refresh()
-  }, [refresh])
-
-  // Poll while any jobs are active
-  useEffect(() => {
-    const hasRunning = jobs.some((j) => j.status === 'queued' || j.status === 'running')
-    if (!hasRunning) return
-    const interval = setInterval(refresh, ACTIVE_POLL_INTERVAL_MS)
-    return () => clearInterval(interval)
-  }, [jobs, refresh])
-
-  const hasActive = jobs.some((j) => j.status === 'queued' || j.status === 'running')
-
-  return { jobs, hasActive, refresh }
+  return { jobs, hasActive: jobs.some(isActive), refresh: () => void refetch() }
 }

@@ -142,6 +142,26 @@ class TestDeleteEmbeddings:
         assert "embeddings_large" in deleted_collections
 
 
+class TestEmbeddingStats:
+    """Uses a real LanceDB so the table-existence check runs against the real client API."""
+
+    def test_reports_existing_collection(self, test_client, monkeypatch, tmp_path):
+        from backend.app.services.lancedb_service import LanceDBService
+
+        svc = LanceDBService(path=tmp_path / "lancedb", collection_name="embeddings_large")
+        svc.add_image_embedding(
+            1, [0.1] * svc._vector_size, {"filename": "a", "author": "", "base_name": ""}
+        )
+        monkeypatch.setattr("backend.app.api.models.get_lancedb_service", lambda: svc)
+
+        data = test_client.get("/api/v1/models/large/embeddings").json()
+        assert data == {"collection_name": "embeddings_large", "vectors_count": 1, "exists": True}
+
+        data = test_client.get("/api/v1/models/small/embeddings").json()
+        assert data["exists"] is False
+        svc.close()
+
+
 class TestSetActiveModel:
     def test_set_active_model_invalid_name_returns_422(self, test_client):
         resp = test_client.post(

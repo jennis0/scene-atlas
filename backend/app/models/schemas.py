@@ -18,8 +18,6 @@ class TagBase(BaseModel):
 class TagCreate(TagBase):
     """Tag creation schema."""
 
-    pass
-
 
 class TagResponse(TagBase):
     """Tag response schema."""
@@ -41,8 +39,6 @@ class ColorBase(BaseModel):
 
 class ColorCreate(ColorBase):
     """Color creation schema."""
-
-    pass
 
 
 class ColorResponse(ColorBase):
@@ -310,7 +306,7 @@ class TagCategoryResponse(TagCategoryBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-# ── App Settings ──────────────────────────────────────────────────────────────
+# App Settings
 
 
 StoredFormatName = Literal["original", "webp", "jpeg", "png"]
@@ -327,11 +323,12 @@ class AppSettings(BaseModel):
     enable_image_grid_detection: bool = True
     # Longest side analysed; 0 = full resolution (default). Lower is faster but misses
     # thin grid lines on high-resolution maps (design/grid-detection-v3.md).
-    grid_analysis_max_dim: int = Field(0, ge=0)
+    grid_analysis_max_dim: int = Field(default=0, ge=0)
 
     # Color extraction
     num_dominant_colors: int = 5
-    color_distance_threshold: float = 0.35
+    # CIE76 delta E between a searched colour and an image's dominant colour.
+    color_distance_threshold: float = Field(default=25.0, ge=0, le=100)
     color_clustering_samples: int = 5000
     color_kmeans_n_init: int = 3
 
@@ -341,8 +338,8 @@ class AppSettings(BaseModel):
     max_concurrent_heavy_requests: int = 4
 
     # Import limits
-    max_import_file_size: int = 2000 * 1024 * 1024
-    max_video_file_size: int = 2000 * 1024 * 1024
+    max_import_file_size: int = 2048 * 1024 * 1024
+    max_video_file_size: int = 2048 * 1024 * 1024
     max_import_files: int = 1000
     max_import_total_size: int = 2048 * 1024 * 1024
 
@@ -352,7 +349,7 @@ class AppSettings(BaseModel):
 
     # Storage format for new imports (design/ingestion.md §10)
     stored_format: StoredFormatName = "original"
-    stored_quality: int = Field(90, ge=1, le=100)  # lossy WebP and JPEG
+    stored_quality: int = Field(default=90, ge=1, le=100)  # lossy WebP and JPEG
     stored_lossless: bool = True  # lossless WebP for lossless sources (never for JPEGs)
 
     # Model selection (managed via POST /api/v1/models/active — not in AppSettingsPatch)
@@ -365,7 +362,7 @@ class AppSettingsPatch(BaseModel):
     enable_image_grid_detection: bool | None = None
     grid_analysis_max_dim: int | None = Field(None, ge=0)
     num_dominant_colors: int | None = None
-    color_distance_threshold: float | None = None
+    color_distance_threshold: float | None = Field(None, ge=0, le=100)
     color_clustering_samples: int | None = None
     color_kmeans_n_init: int | None = None
     ingestion_batch_size: int | None = None

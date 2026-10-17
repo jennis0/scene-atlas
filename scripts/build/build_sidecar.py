@@ -1,7 +1,8 @@
 """Build the Scene Atlas backend sidecar with PyInstaller.
 
-Runs PyInstaller, then copies the --onedir output to the location that
-electron-builder's extraResources config expects.
+PyInstaller writes its --onedir output straight to
+backend/pyinstaller/dist/scene-atlas-backend/, which electron-builder's
+extraResources config bundles as resources/sidecar/.
 
 ONNX models are NOT bundled — they are downloaded from HuggingFace at
 runtime by the model_download_service.
@@ -23,9 +24,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent.parent.parent
 SPEC = ROOT / "backend" / "pyinstaller" / "scene_atlas_backend.spec"
+FRONTEND_DIST = ROOT / "frontend" / "dist"
 PYINSTALLER_OUT = ROOT / "backend" / "pyinstaller" / "dist" / "scene-atlas-backend"
-# electron-builder copies this directory to process.resourcesPath/sidecar/
-ELECTRON_RESOURCES = ROOT / "backend" / "pyinstaller" / "dist"
+SIDECAR_EXE = PYINSTALLER_OUT / (
+    "scene-atlas-backend.exe" if sys.platform == "win32" else "scene-atlas-backend"
+)
 
 
 def get_platform_info() -> tuple[str, str]:
@@ -43,6 +46,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    if not (FRONTEND_DIST / "index.html").exists():
+        sys.exit(f"{FRONTEND_DIST} not found: build the frontend first (the sidecar serves it)")
+
     system, arch = get_platform_info()
     print(f"Building sidecar for {system} {arch}")
 
@@ -54,16 +60,15 @@ def main() -> None:
     if args.clean and build_dir.exists():
         shutil.rmtree(build_dir)
 
-    # Run PyInstaller
     cmd = [
         sys.executable,
         "-m",
         "PyInstaller",
         "--noconfirm",
         "--distpath",
-        str(ROOT / "backend" / "pyinstaller" / "dist"),
+        str(PYINSTALLER_OUT.parent),
         "--workpath",
-        str(ROOT / "backend" / "pyinstaller" / "build"),
+        str(build_dir),
         str(SPEC),
     ]
 
@@ -78,16 +83,12 @@ def main() -> None:
         print(f"Expected output directory not found: {PYINSTALLER_OUT}", file=sys.stderr)
         sys.exit(1)
 
-    # Verify the main executable exists
-    ext = ".exe" if system == "Windows" else ""
-    exe_path = PYINSTALLER_OUT / f"scene-atlas-backend{ext}"
-    if not exe_path.exists():
-        print(f"Main executable not found at: {exe_path}", file=sys.stderr)
+    if not SIDECAR_EXE.exists():
+        print(f"Main executable not found at: {SIDECAR_EXE}", file=sys.stderr)
         sys.exit(1)
 
     print(f"\nSidecar built successfully: {PYINSTALLER_OUT}")
-    print(f"Main executable: {exe_path}")
-    print(f"\nElectron will bundle from: {ELECTRON_RESOURCES}")
+    print(f"Main executable: {SIDECAR_EXE}")
     print("Ready for: npm run electron:build")
 
 

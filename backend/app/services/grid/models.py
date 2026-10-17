@@ -75,8 +75,8 @@ def load_models(model_dir: Path = MODEL_DIR) -> GridModels:
     except (OSError, ValueError) as exc:
         raise GridModelError(f"Cannot read grid model metadata {meta_path}: {exc}") from exc
 
-    presence_features = tuple(meta.get("presence_features") or ())
-    hex_features = tuple(meta.get("hex_features") or ())
+    presence_features = tuple(str(f) for f in meta.get("presence_features") or ())
+    hex_features = tuple(str(f) for f in meta.get("hex_features") or ())
     unknown = (set(presence_features) | set(hex_features)) - KNOWN_FEATURES
     if not presence_features or not hex_features or unknown:
         raise GridModelError(

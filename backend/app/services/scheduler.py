@@ -18,10 +18,13 @@ Usage::
 """
 
 import asyncio
+import contextlib
 import logging
 import time
 from collections.abc import Callable
 from pathlib import Path
+
+from .shutdown import ShutdownRequested
 
 logger = logging.getLogger(__name__)
 
@@ -66,14 +69,12 @@ class Scheduler:
         for task in self._tasks:
             task.cancel()
         for task in self._tasks:
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
         self._tasks = []
         logger.info("Scheduler stopped")
 
-    # --- last-run bookkeeping ---------------------------------------------------
+    # last-run bookkeeping
 
     def _marker(self, label: str) -> Path | None:
         return self._state_dir / f"{label}.last_run" if self._state_dir else None
@@ -101,7 +102,7 @@ class Scheduler:
         remaining = interval - (time.time() - last)
         return max(self._startup_grace, remaining)
 
-    # --- loop ------------------------------------------------------------------
+    # loop
 
     async def _loop(self, fn: Callable, interval: float, label: str, delay: float) -> None:
         """Wait, run, repeat."""
@@ -115,5 +116,8 @@ class Scheduler:
                 logger.info("Scheduled task %s completed", label)
             except asyncio.CancelledError:
                 raise
+            except ShutdownRequested:
+                # Not recorded, so it runs again shortly after the next start.
+                logger.info("Scheduled task %s stopped for shutdown", label)
             except Exception:
                 logger.exception("Scheduled task %s failed", label)

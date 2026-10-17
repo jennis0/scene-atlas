@@ -76,7 +76,8 @@ Tests marked with `@pytest.mark.heavy` load the real CLIP ONNX model and run rea
 Quality evaluation is integrated into `scripts/models/export_model_onnx.py` via the `--image-dir` flag. When provided, the export script runs a comprehensive quality assessment using the torch model (still loaded from the export phase) as reference.
 
 **When it runs:**
-- Locally: `make evaluate-onnx` or `uv run python scripts/models/export_model_onnx.py clip-vit-b-32 --image-dir /path/to/images`
+
+- Locally: `make evaluate-onnx` or `uv run python scripts/models/export_model_onnx.py large --image-dir /path/to/images` (needs the internal `scripts/quantisation` package; the script exits with an error if it is missing, and small/medium are released by scene-atlas-learning, not this script)
 - Not in CI (requires real images and torch model; CI only does quick export)
 
 **What it checks:**
@@ -99,7 +100,7 @@ Playwright tests validate critical user flows in a real browser against the full
 - Dual webServer config: Playwright starts both backend and frontend automatically
 - Real CLIP model (no mocking) -- loads in a background thread, server responds immediately
 - Test data seeded via the import API using real encrypted fixture images (decrypted at runtime from Git LFS). Without `E2E_IMAGE_KEY`, set `E2E_IMAGE_DIR` to a local folder of your own (non-commercial) images to seed from instead
-- The backend runs against an isolated `e2e/.tmp-data` (`APP_DATA_DIR`; library in `.tmp-data/library`). The project's `data/models` is linked in so the model isn't downloaded twice. `E2E_FRONTEND_PORT` moves the Vite server off 5173
+- The backend runs against an isolated `e2e/.tmp-data` (`APP_DATA_DIR`; library in `.tmp-data/library`). The project's `data/models` is linked in so the model isn't downloaded twice. The suite starts its own backend on port 18000 and Vite on 15173 (`E2E_BACKEND_PORT`, `E2E_FRONTEND_PORT`), with Vite's `/api` proxy pointed at that backend through `API_PROXY_TARGET`, so it never reuses a development backend on :8000 or writes test data into its library. Locally, servers already listening on those ports are reused
 - Serial execution (`workers: 1`) -- tests share backend state
 - Chromium only in CI; Firefox/WebKit available locally via `--project` flag
 
@@ -138,7 +139,7 @@ backend/tests/
 │   ├── test_pipeline_tasks.py     # color_extraction, image_processing, grid_detection, embedding
 │   ├── test_pipeline_db.py        # pipeline_db() session helper
 │   ├── test_video_utils.py        # verify_video_mime, extract_first_frame, get_video_dimensions
-│   ├── test_color_search.py       # HSL color distance, color index search
+│   ├── test_color_search.py       # hex to LAB, SQL delta E colour search
 │   ├── test_deletion_service.py   # safe_delete_image, delete_image_rows
 │   ├── test_system_info.py        # dir_size utility
 │   ├── test_path_traversal.py     # Path traversal prevention
@@ -187,6 +188,7 @@ backend/tests/
 │   ├── test_health_endpoint.py    # GET /health deep health check
 │   ├── test_backup_restore.py     # Backup + restore pipeline
 │   ├── test_migration_022.py      # Migration 022 (grid source labelling)
+│   ├── test_migration_024.py      # Migration 024 (colour LAB backfill, threshold units)
 │   └── test_clip_heavy.py         # Real CLIP model tests (marked @heavy, excluded by default)
 
 e2e/                                  # Playwright E2E tests (full stack, real browser)

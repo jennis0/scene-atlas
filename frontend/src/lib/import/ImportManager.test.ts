@@ -469,6 +469,36 @@ describe('resumeUpload', () => {
     ).toEqual([11, 13])
     expect(manager.getSnapshot().uploads.job1.phase).toBe('finished')
   })
+
+  it('does nothing while an upload for the job is already running', async () => {
+    const calls: Calls = []
+    let release!: () => void
+    const blocked = new Promise<void>((r) => (release = r))
+    const items = vi.fn(async () => ({
+      items: [{ id: 11, relative_path: 'Pack/a.png', size: 10 }],
+      next_after: null,
+    }))
+    const client = fakeClient(calls, {
+      items,
+      uploadContent: vi.fn(async (_j: string, itemId: number) => {
+        await blocked
+        return { item_id: itemId, state: 'ready', error_reason: null, duplicate_of_image_id: null }
+      }),
+    })
+    const { manager } = track(makeManager(client))
+    expect(await manager.resumeUpload('job1', [picked('Pack/a.png')])).toEqual({
+      matched: 1,
+      missing: 0,
+    })
+    expect(await manager.resumeUpload('job1', [picked('Pack/a.png')])).toEqual({
+      matched: 0,
+      missing: 0,
+    })
+    expect(items).toHaveBeenCalledTimes(1)
+    release()
+    await manager.whenSettled('job1')
+    expect(uploadCalls(client)).toHaveLength(1)
+  })
 })
 
 // ---------------------------------------------------------------------------

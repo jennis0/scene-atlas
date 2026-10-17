@@ -13,6 +13,7 @@ import logging
 
 from backend.app.models import Image, ImageGroup
 from backend.app.services import get_lancedb_service, get_thumbnail_store
+from backend.app.services.shutdown import raise_if_shutting_down
 
 from .db import pipeline_db
 from .tasks import embedding_generation
@@ -36,11 +37,13 @@ def reconcile_vectors(batch_size: int = 32) -> dict[str, int]:
     orphaned = sorted(vector_ids - image_ids)
 
     for start in range(0, len(orphaned), _DELETE_CHUNK):
+        raise_if_shutting_down()
         svc.delete_embeddings(orphaned[start : start + _DELETE_CHUNK])
 
     repaired = unrepairable = 0
     thumbnail_store = get_thumbnail_store()
     for start in range(0, len(missing), batch_size):
+        raise_if_shutting_down()  # what's left is still missing next run
         chunk = missing[start : start + batch_size]
         with pipeline_db() as db:
             rows = (

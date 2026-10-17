@@ -1,22 +1,34 @@
 """Shared fixtures for the test suite.
 
-LanceDB is used as the vector database service. It does not create files on
-import, so no pre-import patching is needed. We mock get_lancedb_service()
-in fixtures where vector DB access is required.
+LanceDB does not create files on import, so no pre-import patching is needed.
+Tests that touch vectors use the ``lancedb_service`` fixture (a real LanceDB in
+``tmp_path``); pure unit tests may still fake ``get_lancedb_service()``.
 """
 
+import atexit
+import os
+import shutil
+import tempfile
 from pathlib import Path
+
+# Point every storage root at a throwaway directory before any backend module builds
+# its Settings. Otherwise app startup (TestClient lifespan) migrates and writes to the
+# developer's real ./data library.
+_TEST_ROOT = Path(tempfile.mkdtemp(prefix="scene-atlas-tests-"))
+os.environ["APP_DATA_DIR"] = str(_TEST_ROOT / "data")
+os.environ["IMAGE_LIBRARY_DIR"] = str(_TEST_ROOT / "images")
+atexit.register(shutil.rmtree, _TEST_ROOT, ignore_errors=True)
 
 import pytest
 from PIL import Image as PILImage
 
-from backend.app.models import (  # noqa: E402
+from backend.app.models import (
     get_engine,
     get_session_local,
     init_db,
     seed_tag_categories,
 )
-from backend.app.services.prepare_pool import (  # noqa: E402
+from backend.app.services.prepare_pool import (
     init_prepare_pool,
     shutdown_prepare_pool,
 )
@@ -29,6 +41,16 @@ def prepare_pool_fixture():
     init_prepare_pool(max_workers=2)  # Use small pool for tests
     yield
     shutdown_prepare_pool(wait=True)
+
+
+@pytest.fixture(autouse=True)
+def shutdown_signal_cleared():
+    """A TestClient exit runs the lifespan shutdown, which sets the process-wide signal."""
+    from backend.app.services.shutdown import clear_shutdown
+
+    clear_shutdown()
+    yield
+    clear_shutdown()
 
 
 @pytest.fixture
@@ -45,6 +67,28 @@ def tmp_db(tmp_path):
     engine.dispose()
 
 
+TEST_VECTOR_SIZE = 8
+
+
+@pytest.fixture
+def lancedb_service(tmp_path, monkeypatch):
+    """A real LanceDB under ``tmp_path``, returned by every ``get_lancedb_service()``.
+
+    Swaps the module singleton rather than patching import sites, so code that
+    imported the getter by name sees it too. Vectors are ``TEST_VECTOR_SIZE`` wide.
+    """
+    from backend.app.services import lancedb_service as module
+
+    svc = module.LanceDBService(
+        path=tmp_path / "lancedb",
+        collection_name="test_embeddings",
+        vector_size=TEST_VECTOR_SIZE,
+    )
+    monkeypatch.setattr(module, "_lancedb_service", svc)
+    yield svc
+    svc.close()
+
+
 @pytest.fixture
 def db_session(tmp_db):
     """Yield a DB session from the test database, closes after use."""
@@ -52,6 +96,50 @@ def db_session(tmp_db):
     session = SessionLocal()
     yield session
     session.close()
+
+
+class QueryCounter:
+    """SQL statements executed on an engine while active (``executemany`` counts once)."""
+
+    def __init__(self, engine):
+        self._engine = engine
+        self.statements: list[str] = []
+
+    def _record(self, conn, cursor, statement, parameters, context, executemany):
+        self.statements.append(statement)
+
+    def __enter__(self):
+        from sqlalchemy import event
+
+        self.statements = []
+        event.listen(self._engine, "before_cursor_execute", self._record)
+        return self
+
+    def __exit__(self, *exc):
+        from sqlalchemy import event
+
+        event.remove(self._engine, "before_cursor_execute", self._record)
+
+    @property
+    def count(self) -> int:
+        return len(self.statements)
+
+    def selects(self, table: str | None = None) -> list[str]:
+        """SELECT statements, optionally only those reading ``FROM <table>``."""
+        found = [s for s in self.statements if s.lstrip().upper().startswith("SELECT")]
+        if table is not None:
+            found = [s for s in found if f"FROM {table}" in s]
+        return found
+
+
+@pytest.fixture
+def query_counter(tmp_db):
+    """Count SQL statements on the test engine: ``with query_counter as q: ...; q.count``.
+
+    Use it to pin query counts so N+1 patterns can't creep back in.
+    """
+    engine, _ = tmp_db
+    return QueryCounter(engine)
 
 
 @pytest.fixture

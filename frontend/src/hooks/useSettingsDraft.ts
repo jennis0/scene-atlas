@@ -26,7 +26,6 @@ export function useSettingsDraft(options?: UseSettingsDraftOptions): UseSettings
   const queryClient = useQueryClient()
   const { enabled = true } = options || {}
 
-  // Fetch current settings (with optional enabled flag for lazy-loading)
   const {
     data: settings,
     isLoading,
@@ -39,11 +38,9 @@ export function useSettingsDraft(options?: UseSettingsDraftOptions): UseSettings
     enabled,
   })
 
-  // Mutation for saving settings
   const saveMutation = useMutation({
     mutationFn: (partialSettings: Partial<AppSettings>) => settingsApi.patch(partialSettings),
     onSuccess: (updatedSettings) => {
-      // Update query cache with full updated settings
       queryClient.setQueryData(QUERY_KEYS.appSettings, updatedSettings)
       // Clear entire draft on successful save. Race-condition edits are intentionally discarded
       // (user edits made while mutation in-flight are lost, but this is acceptable UX)

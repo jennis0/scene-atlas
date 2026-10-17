@@ -29,7 +29,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const toggleTheme = useCallback(() => {
     setTheme((prev) => {
       const next = prev === 'dark' ? 'light' : 'dark'
-      localStorage.setItem(STORAGE_KEY, next)
+      try {
+        localStorage.setItem(STORAGE_KEY, next)
+      } catch {
+        // Storage blocked (private mode, quota): the theme still applies for this session.
+      }
       if (next === 'dark') {
         document.documentElement.classList.add('dark')
       } else {

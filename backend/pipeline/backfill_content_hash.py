@@ -10,9 +10,10 @@ Usage:
 import hashlib
 import logging
 
-from backend.app.config import settings
-from backend.app.models.database import Image, get_engine, get_session_local
+from backend.app.models.database import Image
 from backend.app.services import get_image_store
+from backend.app.services.shutdown import raise_if_shutting_down
+from backend.pipeline.db import pipeline_db
 
 logger = logging.getLogger(__name__)
 
@@ -33,16 +34,13 @@ def _compute_file_hash(file_path) -> str:
 
 def backfill_batch(image_ids: list[int]) -> dict:
     """Compute and store content_hash for a batch of images."""
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
-    db = SessionLocal()
     image_store = get_image_store()
 
     updated = 0
     skipped = 0
     errors = 0
 
-    try:
+    with pipeline_db() as db:
         images = db.query(Image).filter(Image.id.in_(image_ids)).all()
         for image in images:
             try:
@@ -54,28 +52,18 @@ def backfill_batch(image_ids: list[int]) -> dict:
 
                 image.content_hash = _compute_file_hash(file_path)
                 updated += 1
-            except Exception as e:
-                logger.error("Image %s: error computing hash: %s", image.id, e)
+            except Exception:
+                logger.exception("Image %s: error computing hash", image.id)
                 errors += 1
-
-        db.commit()
-    finally:
-        db.close()
 
     return {"updated": updated, "skipped": skipped, "errors": errors}
 
 
 def backfill_content_hash():
     """Backfill SHA-256 content_hash for all images missing one."""
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
-    db = SessionLocal()
-
-    try:
+    with pipeline_db() as db:
         missing = db.query(Image.id).filter(Image.content_hash.is_(None)).all()
         image_ids = [row[0] for row in missing]
-    finally:
-        db.close()
 
     total = len(image_ids)
     print(f"Found {total} images without content_hash")
@@ -87,6 +75,7 @@ def backfill_content_hash():
     # Process in batches
     totals = {"updated": 0, "skipped": 0, "errors": 0}
     for i in range(0, total, BATCH_SIZE):
+        raise_if_shutting_down()
         batch_ids = image_ids[i : i + BATCH_SIZE]
         result = backfill_batch(batch_ids)
         totals["updated"] += result["updated"]

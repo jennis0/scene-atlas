@@ -12,8 +12,9 @@ How each major subsystem works.
 |------|-------------|
 | [backend.md](backend.md) | Backend API server -- FastAPI, services, configuration, endpoints |
 | [storage.md](storage.md) | Data storage -- SQLite schema, LanceDB vectors, ImageStore filesystem, backups |
-| [concurrency-architecture.md](concurrency-architecture.md) | Concurrency model -- resource guards, threading, async, and locking patterns |
-| [electron.md](electron.md) | Electron desktop app -- windows, IPC, sidecar lifecycle, packaging |
+| [resource-management.md](resource-management.md) | Concurrency and resources -- prepare pool, heavy-op semaphore, JobRunner, IngestWorker, memory budget, resource-aware defaults |
+| [electron.md](electron.md) | Electron desktop app -- windows, IPC, sidecar lifecycle, packaging, GPU builds |
+| [gpu-acceleration.md](gpu-acceleration.md) | ONNX Runtime execution providers -- `inference_device`, CUDA / DirectML / CoreML, CPU fallback |
 
 ## Feature Design
 
@@ -22,14 +23,12 @@ How individual features and subsystems are designed.
 | File | Description |
 |------|-------------|
 | [search.md](search.md) | Search system -- hybrid FTS5 + CLIP semantic, RRF fusion, phrase matching, model selection |
-| [frontend.md](frontend.md) | Frontend SPA -- React, components, hooks, filter logic |
-| [ingestion.md](ingestion.md) | Ingestion pipeline (ADR-018) -- jobs, groups and items, ingest worker, upload protocol, duplicate tiers, storage format, maintenance, import UI |
+| [frontend.md](frontend.md) | Frontend SPA -- structure, gallery and search state, grouped view, imports client |
+| [ingestion.md](ingestion.md) | Ingestion pipeline (ADR-018) -- import data model, item state machine, upload protocol, ingest worker, duplicate tiers, stored format, maintenance, recovery |
 | [parser.md](parser.md) | ImageParser -- filename parsing, tag extraction, image group detection |
-| [group-view.md](group-view.md) | Group view -- hero+mosaic card layout for browsing by image group |
 | [tag-packs.md](tag-packs.md) | Tag packs -- genre-specific vocabularies, import mechanics, settings integration |
-| [resource-management.md](resource-management.md) | Resource management -- detection, concurrency controls, memory monitoring |
 | [dialog-focus-management.md](dialog-focus-management.md) | Focus management across dialog and modal components |
-| [hf-model-management.md](hf-model-management.md) | HuggingFace model download, switching, and GPU detection |
+| [hf-model-management.md](hf-model-management.md) | Hugging Face model download, switching and first-boot setup |
 
 ## Standards and Decisions
 
@@ -40,7 +39,7 @@ Design decisions, visual standards, and security posture.
 | [decisions.md](decisions.md) | **Architecture Decision Log** -- numbered record of all major design decisions (ADRs 001-019) |
 | [visual-language.md](visual-language.md) | Visual design system -- tokens, typography, components, patterns |
 | [security.md](security.md) | Security evaluation for hosted deployment mode |
-| [testing.md](testing.md) | Testing strategy -- CI/CD tiers, coverage targets, test conventions |
+| [testing.md](testing.md) | Testing strategy -- where checks run, fixtures, test conventions |
 | [onnx-int8-quantisation.md](onnx-int8-quantisation.md) | ONNX INT8 quantisation methodology and results |
 | [grid-detection-v3.md](grid-detection-v3.md) | Grid detector v3 research: twin-difference labels, held-out results, small-map diagnosis, port recommendation |
 
@@ -50,8 +49,8 @@ What's done, what's in progress, and what's known to be incomplete.
 
 | File | Description |
 |------|-------------|
-| [status-and-roadmap.md](status-and-roadmap.md) | **Single source of truth** -- feature inventory, in-progress work, backlog |
-| [technical-debt.md](technical-debt.md) | Code quality improvements with specific file paths and fix guidance |
+| [status-and-roadmap.md](status-and-roadmap.md) | **Single source of truth** -- feature inventory, in-progress work, backlog (including code-quality items) |
+| [code-quality-baseline.md](code-quality-baseline.md) | Pre-release quality baseline -- duplication, comments, dead code, types, coverage; comment rubric |
 
 ## System Overview
 
@@ -67,7 +66,7 @@ What's done, what's in progress, and what's known to be incomplete.
                          |
 +------------------------v--------+
 |        React Frontend           |
-|        (Vite :5173)             |
+|  (Vite :5173 in development)    |
 +----------------+----------------+
                  | HTTP
 +----------------v----------------+

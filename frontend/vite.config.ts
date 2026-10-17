@@ -4,9 +4,8 @@ import path from 'path'
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  // base './' produces relative asset paths (./assets/...) so the app
-  // works both from Vite dev server (/assets/...) and from Electron's
-  // file:// protocol where absolute /assets/... resolves to the filesystem root.
+  // Relative asset paths (./assets/...) keep the UI working when server mode is
+  // published under a reverse-proxy sub-path.
   base: './',
   plugins: [react()],
   resolve: {
@@ -18,7 +17,8 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        // E2E points this at its own backend; dev uses the backend on :8000.
+        target: process.env.API_PROXY_TARGET ?? 'http://localhost:8000',
         changeOrigin: true,
       },
     },

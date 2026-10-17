@@ -1,0 +1,15 @@
+# Codacy Cloud analysis settings. Tool/pattern selection lives in Codacy itself
+# (see design/code-quality-baseline.md); this file only scopes what gets analysed.
+---
+exclude_paths:
+  # Tests are linted locally (ruff/eslint in the pre-push hook); Codacy's security
+  # rules flag their asserts and helper subprocesses as noise.
+  - "backend/tests/**"
+  - "stress_tests/**"
+  - "e2e/**"
+  - "frontend/src/**/*.test.ts"
+  - "frontend/src/**/*.test.tsx"
+  - "electron/**/*.test.ts"
+  # Generated / vendored
+  - "frontend/dist/**"
+  - "**/node_modules/**"

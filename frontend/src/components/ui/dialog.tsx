@@ -2,6 +2,7 @@ import * as React from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { pushDialog } from './dialogStack'
 
 interface DialogProps {
   open?: boolean
@@ -11,16 +12,14 @@ interface DialogProps {
 
 const Dialog = ({ open, onOpenChange, children }: DialogProps) => {
   const containerRef = React.useRef<HTMLDivElement>(null)
+  const onOpenChangeRef = React.useRef(onOpenChange)
+  onOpenChangeRef.current = onOpenChange
 
-  React.useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && open) {
-        onOpenChange?.(false)
-      }
-    }
-    window.addEventListener('keydown', handleEscape)
-    return () => window.removeEventListener('keydown', handleEscape)
-  }, [open, onOpenChange])
+  // Layout effect: a passive cleanup can run after the dialog has left the DOM, and an
+  // Escape in that gap would go to this dead entry instead of the dialog underneath.
+  React.useLayoutEffect(() => {
+    if (open) return pushDialog(() => onOpenChangeRef.current?.(false))
+  }, [open])
 
   // Move focus into the dialog when it opens. Looks for an element marked with
   // data-autofocus first, then falls back to the first focusable element.
@@ -80,6 +79,8 @@ const DialogContent = React.forwardRef<
 >(({ className, children, onClose, ...props }, ref) => (
   <div
     ref={ref}
+    role="dialog"
+    aria-modal="true"
     className={cn(
       'relative z-50 grid w-full max-w-lg gap-4 border bg-background p-6 shadow-lg sm:rounded-lg',
       className,

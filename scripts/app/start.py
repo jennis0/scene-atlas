@@ -10,7 +10,7 @@ The frontend dev server must be started separately in a second terminal:
 PIDs are written to .pids/ so stop.py can terminate the process cleanly.
 
 Usage:
-  uv run python scripts/start.py
+  uv run python scripts/app/start.py
 """
 
 import signal
@@ -19,7 +19,7 @@ import sys
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 PIDS_DIR = ROOT / ".pids"
 LOGS_DIR = ROOT / "logs"
 PYTHON = sys.executable
@@ -94,7 +94,17 @@ def main() -> None:
     print("Starting FastAPI server...")
     _supervise(
         "api",
-        [PYTHON, "-m", "uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"],
+        [
+            PYTHON,
+            "-m",
+            "uvicorn",
+            "backend.app.main:app",
+            "--host",
+            "0.0.0.0",  # noqa: S104 — LAN access in dev; Electron/Docker set their own host
+            "--port",
+            "8000",
+            "--no-proxy-headers",  # the app handles them (FORWARDED_ALLOW_IPS)
+        ],
     )
 
 

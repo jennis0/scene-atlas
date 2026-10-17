@@ -239,22 +239,6 @@ class TestDetectGridFromImage:
 # ---------------------------------------------------------------------------
 
 
-class TestGenerateClipEmbedding:
-    def test_returns_embedding_via_mock(self, make_test_image, tmp_path):
-        from backend.pipeline.tasks.embedding_generation import generate_clip_embedding
-
-        img_path = tmp_path / "img.jpg"
-        make_test_image(img_path)
-        dummy = [0.1] * 512
-
-        with patch("backend.pipeline.tasks.embedding_generation.get_clip_service") as mock_clip:
-            mock_clip.return_value.encode_image.return_value = dummy
-            result = generate_clip_embedding(str(img_path))
-
-        assert result == dummy
-        assert len(result) == 512
-
-
 class TestBatchGenerateClipEmbeddings:
     def test_processes_all_images(self, make_test_image, tmp_path):
         from backend.pipeline.tasks.embedding_generation import batch_generate_clip_embeddings

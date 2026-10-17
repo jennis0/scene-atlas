@@ -1,28 +1,30 @@
 #!/usr/bin/env python3
 """Export embedding models (CLIP, SigLIP2) to ONNX format.
 
-Exports a single production-optimal variant per model (fp16 vision + int8 or
-fp16 text, depending on model).  Optionally runs quality evaluation when
-``--image-dir`` is provided (torch model stays loaded to avoid double-load).
+Exports fp16 vision and text encoders for registry models that this repo
+releases (small and medium are released by scene-atlas-learning and refused
+here).  Optionally runs quality evaluation when ``--image-dir`` is provided
+(torch model stays loaded to avoid double-load); that needs the internal
+``scripts/quantisation`` package, which is not in the repository.
 
 Outputs ONNX graphs + tokenizer files + manifest.json to backend/models/<name>/.
 
 Usage:
     # Export a specific model by name:
-    uv run python scripts/models/export_model_onnx.py clip-vit-b-32
-    uv run python scripts/models/export_model_onnx.py siglip2-base
+    uv run python scripts/models/export_model_onnx.py large
 
-    # Export all registered models:
+    # Export all models this repo releases:
     uv run python scripts/models/export_model_onnx.py --all
 
-    # Export with quality evaluation (recommended for production):
-    uv run python scripts/models/export_model_onnx.py clip-vit-b-32 --image-dir /path/to/images
+    # Export with quality evaluation (needs scripts/quantisation):
+    uv run python scripts/models/export_model_onnx.py large --image-dir /path/to/images
 
     # List available models:
     uv run python scripts/models/export_model_onnx.py --list
 """
 
 import argparse
+import importlib.util
 import json
 import shutil
 import tempfile
@@ -36,7 +38,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformers import AutoConfig, AutoModel, AutoProcessor
 
-from backend.app.services.model_registry import ENCODER_NAMES, MODEL_BY_NAME
+from backend.app.services.model_registry import ENCODER_NAMES, MODEL_BY_NAME, is_externally_released
 from backend.app.services.model_registry import MODELS as MODEL_REGISTRY
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
@@ -92,20 +94,33 @@ def parse_args() -> argparse.Namespace:
         print("Available models:")
         for m in MODEL_REGISTRY:
             quant_desc = f"vision={m['vision_quant']}, text={m['text_quant']}"
-            if m["text_quant"] == "int8" and m["text_int8_exclude_layers"]:
-                quant_desc += f", exclude_layers={m['text_int8_exclude_layers']}"
+            if is_externally_released(m):
+                quant_desc += f" (released by {m['release_source']})"
             print(f"  {m['name']:<25} {m['model_id']}")
             print(f"  {'':25} {quant_desc}")
         raise SystemExit(0)
 
     if args.all:
-        args.models = names
+        # Externally released models (e.g. fine-tunes from scene-atlas-learning) have
+        # their own pipeline; re-exporting them from the base model would replace them.
+        args.models = [m["name"] for m in MODEL_REGISTRY if not is_externally_released(m)]
     elif not args.models:
         parser.error("specify model name(s) or --all (use --list to see available models)")
 
     for name in args.models:
         if name not in MODEL_BY_NAME:
             parser.error(f"unknown model '{name}' (use --list to see available models)")
+        if is_externally_released(MODEL_BY_NAME[name]):
+            parser.error(
+                f"'{name}' is released by {MODEL_BY_NAME[name]['release_source']}, not this script"
+            )
+
+    if args.image_dir is not None and importlib.util.find_spec("scripts.quantisation") is None:
+        parser.error(
+            "--image-dir needs the internal scripts/quantisation package (text queries and "
+            "metrics), which is not in the repository. Export without --image-dir, or restore "
+            "the package locally (see design/onnx-int8-quantisation.md)."
+        )
 
     return args
 
@@ -194,10 +209,7 @@ class SigLIP2TextONNX(nn.Module):
 
 def export_vision(model, family: str, image_size: int, output_dir: Path) -> Path:
     """Export vision encoder to ONNX."""
-    if family == "clip":
-        wrapper = CLIPVisionONNX(model)
-    else:
-        wrapper = SigLIP2VisionONNX(model)
+    wrapper = CLIPVisionONNX(model) if family == "clip" else SigLIP2VisionONNX(model)
     wrapper.eval()
 
     device = next(wrapper.parameters()).device
@@ -220,10 +232,7 @@ def export_vision(model, family: str, image_size: int, output_dir: Path) -> Path
 
 def export_text(model, family: str, context_length: int, output_dir: Path) -> Path:
     """Export text encoder to ONNX."""
-    if family == "clip":
-        wrapper = CLIPTextONNX(model)
-    else:
-        wrapper = SigLIP2TextONNX(model)
+    wrapper = CLIPTextONNX(model) if family == "clip" else SigLIP2TextONNX(model)
     wrapper.eval()
 
     device = next(wrapper.parameters()).device
@@ -286,31 +295,6 @@ def save_tokenizer_siglip2(processor, output_dir: Path) -> None:
 _PROTO_SIZE_LIMIT = 2 * 1024 * 1024 * 1024  # 2 GB protobuf serialisation limit
 
 
-def _preprocess_for_quantisation(src: Path, dst: Path) -> Path:
-    """Run ORT pre-processing (shape inference + graph optimisation) on a model.
-
-    The ONNX Runtime docs recommend this before any quantisation step so that
-    tensor shape information is available for higher-quality quantisation.
-
-    Models larger than 2 GB are saved with external data to avoid protobuf
-    serialisation limits.
-    """
-    from onnxruntime.quantization.preprocess import quant_pre_process
-
-    large = src.stat().st_size >= _PROTO_SIZE_LIMIT
-    print(f"    Pre-processing {src.name}{'  (large model — external data)' if large else ''}...")
-    # Skip symbolic shape inference — it fails on CLIP/SigLIP Expand ops
-    quant_pre_process(
-        str(src),
-        str(dst),
-        skip_symbolic_shape=True,
-        save_as_external_data=large,
-        all_tensors_to_one_file=large,
-        external_data_location=f"{dst.name}.data" if large else None,
-    )
-    return dst
-
-
 def quantise_encoder_fp16(fp32_path: Path, output_path: Path) -> None:
     """Convert a single fp32 ONNX encoder to fp16.
 
@@ -320,8 +304,7 @@ def quantise_encoder_fp16(fp32_path: Path, output_path: Path) -> None:
     - ``disable_shape_infer=True``: fp16 is a lossless type cast — shape
       inference adds nothing.  Skipping it also avoids the internal
       ``SerializeToString()`` call that hits the 2 GB protobuf limit.
-    - No ``quant_pre_process``: preprocessing benefits int8 but is
-      unnecessary for fp16.
+    - No ``quant_pre_process``: unnecessary for a type cast.
     - Save strategy decided by ``ByteSize()`` of the converted model.
     """
     import onnx
@@ -346,59 +329,6 @@ def quantise_encoder_fp16(fp32_path: Path, output_path: Path) -> None:
         )
     else:
         onnx.save(model_fp16, str(output_path))
-
-
-def quantise_encoder_int8(
-    fp32_path: Path, output_path: Path, family: str, exclude_layers: int
-) -> None:
-    """Quantise a single fp32 ONNX encoder to int8 with layer exclusions.
-
-    Uses ``find_layer_nodes()`` from quantisation utils to identify nodes
-    to exclude.  On Windows, pre-processes to a named file to avoid ORT
-    temp file issues.
-    """
-    from onnxruntime.quantization import QuantType, quantize_dynamic
-    from onnxruntime.quantization.preprocess import quant_pre_process
-
-    from scripts.quantisation.utils import find_layer_nodes
-
-    print(f"  Quantising {fp32_path.name} to int8 (exclude_layers={exclude_layers})...")
-
-    nodes_to_exclude: list[str] = []
-    if exclude_layers > 0:
-        layers = find_layer_nodes(fp32_path)
-        for i in range(exclude_layers):
-            key = str(i)
-            if key in layers:
-                nodes_to_exclude.extend(layers[key])
-        # Always exclude projection nodes for stability
-        if "projection" in layers:
-            nodes_to_exclude.extend(layers["projection"])
-        if nodes_to_exclude:
-            print(f"    Excluding {len(nodes_to_exclude)} sensitive nodes from quantisation")
-
-    # Pre-process to a named file to avoid Windows temp file issues
-    preprocessed = output_path.parent / f"_pre_{fp32_path.name}"
-    large = fp32_path.stat().st_size >= _PROTO_SIZE_LIMIT
-    quant_pre_process(
-        str(fp32_path),
-        str(preprocessed),
-        skip_symbolic_shape=True,
-        save_as_external_data=large,
-        all_tensors_to_one_file=large,
-        external_data_location=f"{preprocessed.name}.data" if large else None,
-    )
-
-    quantize_dynamic(
-        model_input=str(preprocessed),
-        model_output=str(output_path),
-        weight_type=QuantType.QInt8,
-        per_channel=True,
-        nodes_to_exclude=nodes_to_exclude or None,
-    )
-    preprocessed.unlink(missing_ok=True)
-    pre_data = preprocessed.parent / f"{preprocessed.name}.data"
-    pre_data.unlink(missing_ok=True)
 
 
 # ── Manifest ─────────────────────────────────────────────────────────────────
@@ -807,19 +737,16 @@ def print_size_report(output_dir: Path) -> None:
 def export_model(
     entry: dict, base_dir: Path, image_dir: Path | None, max_images: int, device: str = "cpu"
 ) -> None:
-    """Export a single model with its production-optimal quantisation."""
+    """Export a single model as fp16 vision and text encoders."""
     name = entry["name"]
     model_id = entry["model_id"]
     vision_quant = entry["vision_quant"]
     text_quant = entry["text_quant"]
-    exclude_layers = entry["text_int8_exclude_layers"]
     output_dir = base_dir / name
 
     print(f"\n{'=' * 70}")
     print(f"Exporting: {name} ({model_id})")
     print(f"Strategy: vision={vision_quant}, text={text_quant}")
-    if text_quant == "int8" and exclude_layers:
-        print(f"Text int8 exclusions: first {exclude_layers} layer(s) + projection")
     print(f"{'=' * 70}")
 
     # Detect model family
@@ -869,8 +796,6 @@ def export_model(
         out_text = output_dir / ENCODER_NAMES["text"]
         if text_quant == "fp16":
             quantise_encoder_fp16(fp32_text, out_text)
-        elif text_quant == "int8":
-            quantise_encoder_int8(fp32_text, out_text, family, exclude_layers)
         else:
             raise ValueError(f"Unsupported text_quant: {text_quant}")
 

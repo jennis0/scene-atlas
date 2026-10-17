@@ -21,6 +21,7 @@ import { useImportManagerSnapshot } from '@/lib/import/useImports'
 import { ImportJobRow } from '@/components/imports/ImportJobRow'
 import { isFinished } from '@/components/imports/format'
 import type { BackgroundJob } from '@/types'
+import { PanelTitle } from '@/components/ui/panel-title'
 
 interface ActivityDockProps {
   backgroundJobs: BackgroundJob[]
@@ -123,25 +124,25 @@ export function ActivityDock({ backgroundJobs, onOpenImport }: ActivityDockProps
 
           <div className="px-3.5 pt-2.5 shrink-0">
             <div className="flex items-center justify-between">
-              <div className="flex flex-col">
-                <div className="flex items-center gap-2">
-                  <span className="font-display text-[13px] font-medium tracking-[0.06em] text-foreground leading-none">
-                    Activity
-                  </span>
-                  {totalActiveCount > 0 && (
-                    <span className="inline-flex items-center px-1.5 py-px rounded-full bg-primary/15 text-[10px] font-medium text-primary tabular-nums">
-                      {totalActiveCount} running
-                    </span>
-                  )}
-                  {connectionLost && (
-                    <span className="inline-flex items-center gap-1 text-[10px] text-primary/70">
-                      <WifiOff className="h-3 w-3" />
-                      Offline
-                    </span>
-                  )}
-                </div>
-                <div className="mt-[3px] h-px w-7 bg-gradient-to-r from-primary to-transparent" />
-              </div>
+              <PanelTitle
+                badge={
+                  <>
+                    {totalActiveCount > 0 && (
+                      <span className="inline-flex items-center px-1.5 py-px rounded-full bg-primary/15 text-[10px] font-medium text-primary tabular-nums">
+                        {totalActiveCount} running
+                      </span>
+                    )}
+                    {connectionLost && (
+                      <span className="inline-flex items-center gap-1 text-[10px] text-primary/70">
+                        <WifiOff className="h-3 w-3" />
+                        Offline
+                      </span>
+                    )}
+                  </>
+                }
+              >
+                Activity
+              </PanelTitle>
               <button
                 onClick={() => setExpanded(false)}
                 className="h-7 w-7 rounded flex items-center justify-center
@@ -239,7 +240,6 @@ function BackgroundJobCard({ job }: { job: BackgroundJob }) {
           )}
         </div>
 
-        {/* Progress bar */}
         {(job.status === 'running' || job.status === 'queued' || isTerminal) && (
           <div className="flex items-center gap-2 mt-[7px]">
             <div className="flex-1 h-[3px] rounded-full bg-border/30 overflow-hidden">
@@ -261,7 +261,6 @@ function BackgroundJobCard({ job }: { job: BackgroundJob }) {
           </div>
         )}
 
-        {/* Status text */}
         <div className="mt-1 text-[10px] text-muted-foreground/45 leading-tight">
           {job.status === 'queued' && <span>Queued</span>}
           {job.status === 'running' && <span>{job.progress ?? 'Processing...'}</span>}

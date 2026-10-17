@@ -24,8 +24,8 @@ and publish scripts.
 
 | Name   | HF repo                        | Architecture                    | Size  | Recommended for |
 |--------|--------------------------------|---------------------------------|-------|-----------------|
-| small  | jennis0/scene-atlas-small      | CLIP ViT-B/32, vision fp16, text int8  | ~250 MB | CPU-only machines |
-| medium | jennis0/scene-atlas-medium     | SigLIP2-base-patch16-224, vision fp16, text int8 | ~500 MB | Any hardware (default with GPU) |
+| small  | jennis0/scene-atlas-small      | CLIP ViT-B/32 (LAION-2B) fine-tuned for TTRPG art (scene-atlas-learning), 4-bit GPTQ weights, fp16 activations | ~100 MB | CPU-only machines |
+| medium | jennis0/scene-atlas-medium     | SigLIP2-base-patch16-384 fine-tuned for TTRPG art (scene-atlas-learning), 4-bit GPTQ weights, fp16 activations | ~150 MB | Any hardware (default with GPU) |
 | large  | jennis0/scene-atlas-large      | SigLIP2-so400m-patch14-384, vision fp16/fp16 | ~1 GB   | GPU strongly recommended |
 
 `get_default_model(has_gpu)` returns `"medium"` when a GPU is detected, otherwise
@@ -34,6 +34,29 @@ and publish scripts.
 Both ONNX files use fixed filenames (`clip_vision_encoder.onnx`,
 `clip_text_encoder.onnx`) across all models. `manifest.json` is the HF-side metadata
 file written by the publish script.
+
+**Externally released models.** `small` and `medium` are fine-tuned, quantised, evaluated
+and published by the release pipeline in scene-atlas-learning (`uv run release ...
+--release <name>`), marked by `release_source` in the registry. Its repo holds the full
+`transformers` checkpoint at the root and the ONNX bundle (manifest, encoders,
+`tokenizer/`) under `onnx/`. Registry fields `hf_subfolder` and `hf_revision` make the
+downloader fetch only `onnx/*` at the release tag, so later pushes to `main` never change
+an installed model. `export_model_onnx.py` and `publish_models_hf.py` refuse these
+entries and skip them under `--all`, since re-exporting from the base model would
+overwrite the fine-tune. That leaves `large` (fp16 vision + fp16 text) as the only model
+the export script builds; it has no int8 path. Its optional `--image-dir` quality
+evaluation needs the gitignored `scripts/quantisation` package, and the script exits with
+an error before exporting when that package is missing (see
+[onnx-int8-quantisation.md](onnx-int8-quantisation.md)).
+
+`CLIPService` casts every input to the dtype the graph declares (`_cast_feed_to_inputs`):
+exports differ in whether `pixel_values` is float32 or float16, and ONNX Runtime rejects a
+mismatch. The first medium release takes float16.
+
+The fine-tuned SigLIP2 bundle handles two SigLIP2 input pitfalls itself: its text graph
+ignores `attention_mask` (SigLIP2 pools the last, padding, position and is trained
+without a mask; a padding mask collapses retrieval), and its `tokenizer.json` lowercases
+(training text is lowercase). Requires ONNX Runtime >= 1.24 (4-bit `MatMulNBits`).
 
 ---
 
@@ -81,15 +104,17 @@ APP_DATA_DIR/
       <name>/
 ```
 
-**Atomic download pattern:**
+**Download pattern:**
 
 1. Fetch the HF commit SHA *before* downloading (avoids a post-download race).
 2. Download via `snapshot_download()` into `.tmp/<name>/` (wiping any pre-existing temp
-   dir first).
+   dir first). Entries with `hf_subfolder` fetch only that subfolder (at `hf_revision`)
+   and install its contents as the model directory.
 3. Verify all required files (`manifest.json`, both `.onnx` files) exist in the temp
    dir.
-4. Atomic rename: `tmp_dir.rename(model_dir)` — replaces any previous installation in
-   one filesystem operation.
+4. Install: remove any previous `model_dir` (`shutil.rmtree`), then
+   `tmp_dir.rename(model_dir)`. This is two steps, not atomic; a crash between them
+   leaves no `version.json`, so the model is treated as not downloaded.
 5. Write `version.json` last as the **completion marker**.
 
 `is_model_downloaded()` checks only for the existence of `version.json`. Any directory
@@ -122,6 +147,10 @@ without going through the models API.
 **`_download_and_activate` job sequence:**
 
 1. Download the model (skipped if already downloaded).
+
+Steps 2–5 run inside `get_ingest_worker().held("Paused while the AI model changes")`, so
+imports pause (shown as a system pause) and no ingest batch spans the switch.
+
 2. `reload_clip_service()` — clears the singleton, resets `_clip_ready`, starts a
    background load thread.
 3. `wait_for_clip_ready()` — blocks the job thread until the new model is loaded (or
@@ -146,7 +175,7 @@ Each model has its own LanceDB table named `embeddings_{model_name}` (e.g.
 model are preserved rather than deleted on switch — the user can inspect and clean them
 up explicitly.
 
-`LanceDBService.delete_table_by_name()` refuses to delete the currently active
+`LanceDBService.delete_collection_by_name()` refuses to delete the currently active
 table (raises `ValueError`). The API layer enforces the same guard, returning HTTP
 409 if the caller tries to delete embeddings for the active model. The user must switch
 to a different model first.
@@ -188,7 +217,9 @@ All endpoints are under `/api/v1/models/`.
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/` | List all models with download status and active flag |
-| `GET` | `/setup-status` | GPU detection + whether a model download is needed |
+| `GET` | `/embedding-status` | CLIP service state: `loading` / `ready` / `error` |
+| `GET` | `/setup-status` | GPU detection, `needs_model`, `needs_tag_packs`, recommended model |
+| `POST` | `/setup-complete` | Store `setup_completed_at` in `app_settings` so the setup wizard is not shown again |
 | `POST` | `/active` | Set the active model; triggers download + re-embed job |
 | `POST` | `/{name}/download` | Download a model without activating it |
 | `GET` | `/{name}/embeddings` | LanceDB table stats for a model's embeddings |
@@ -202,15 +233,18 @@ should poll `GET /api/v1/jobs/{job_id}` to track progress.
 ## First-Boot Experience
 
 **Web / server mode:** `App.tsx` calls `GET /api/v1/models/setup-status` on mount. If
-`needs_model` is true, a full-screen `ModelSetupScreen` overlay is rendered in place of
-the main gallery. The overlay guides the user through model selection and download, then
-calls `onComplete` to dismiss itself and render the gallery.
+`needs_model || needs_tag_packs` is true, a full-screen `ModelSetupScreen` overlay is rendered in place of
+the main gallery. The overlay guides the user through model selection and download
+(skipped when only tag packs are needed), calls `POST /setup-complete`, then calls
+`onComplete` to dismiss itself and render the gallery.
 
 `needs_model` is true when no model that matches `get_effective_model_name()` is
 downloaded. On a fresh install with no DB entry, this means no model is downloaded at
-all.
+all. `needs_tag_packs` is true until `setup_completed_at` exists in `app_settings`.
 
-**Electron mode:** Model selection wizard is implemented as `ModelSetupScreen.tsx` (web/server mode). Electron integration uses the Electron setup window.
+**Electron mode:** The Electron setup window only chooses storage directories. The UI is then
+served by the sidecar and `App.tsx` runs the same setup-status check as server mode, so
+`ModelSetupScreen` (model download and tag packs) appears on first boot.
 
 ---
 
@@ -218,7 +252,7 @@ all.
 
 | Mode | Model storage | First-boot flow | Notes |
 |------|--------------|-----------------|-------|
-| Electron | `APP_DATA_DIR` managed by Electron | Wizard step (stub) | Wizard not yet integrated |
+| Electron | `APP_DATA_DIR` managed by Electron | `ModelSetupScreen` on first boot, as in server mode | See First-Boot Experience |
 | Web / server | Operator-controlled `APP_DATA_DIR` | `ModelSetupScreen` overlay | `EMBEDDING_MODEL` env var can pre-select |
 | Dev | `APP_DATA_DIR` or `backend/models/<name>/` fallback | Same as web | Fallback path allows testing with locally exported models |
 
@@ -249,9 +283,6 @@ reused and re-embed will regenerate all vectors into it (with `force=True`).
 future update checks — compare the stored SHA against the latest HF commit SHA for the
 repo. No auto-update is currently planned; this would require a polling mechanism and a
 UI affordance to trigger re-download.
-
-**Electron wizard integration:** Model selection wizard is implemented as `ModelSetupScreen.tsx` (web/server mode). Electron integration uses the Electron setup window. When the split-storage wizard is implemented, the model step
-should be merged into it as a single coherent first-run experience for Electron users.
 
 **Large model VRAM management:** The large model's ~1 GB footprint is flagged in the
 registry with `recommended_hardware: "gpu"`. ORT session memory management (especially

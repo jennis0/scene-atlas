@@ -4,13 +4,11 @@ import {
   loadSortKey,
   parseFiltersFromUrl,
   buildUrlParams,
+  buildSearchParams,
+  toGroupSearchParams,
   SORT_OPTIONS,
 } from './useGallerySearch'
 import type { ActiveFilter } from '@/components/import/fileFilter'
-
-// ---------------------------------------------------------------------------
-// Unit tests for pure helper functions (no React needed)
-// ---------------------------------------------------------------------------
 
 beforeEach(() => {
   localStorage.clear()
@@ -205,5 +203,48 @@ describe('SORT_OPTIONS', () => {
     const dateOpts = SORT_OPTIONS.filter((o) => o.value === 'created_at')
     expect(dateOpts).toHaveLength(2) // asc + desc
     expect(dateOpts.every((o) => !o.queryOnly)).toBe(true)
+  })
+})
+
+describe('buildSearchParams / toGroupSearchParams', () => {
+  const gridFilter = (value: string): ActiveFilter => ({
+    type: 'gridded',
+    value,
+    label: `grid: ${value}`,
+    exclude: false,
+  })
+
+  it('maps the query prefix to a search mode', () => {
+    expect(buildSearchParams('~ruins', [], 'all', 'relevance', 'desc')).toMatchObject({
+      query: 'ruins',
+      semantic_only: true,
+    })
+    expect(buildSearchParams('=ruins', [], 'all', 'relevance', 'desc')).toMatchObject({
+      query: 'ruins',
+      text_only: true,
+    })
+  })
+
+  it('carries every filter into the group search, minus paging', () => {
+    const filters: ActiveFilter[] = [
+      { type: 'tag', value: 'env:forest', label: 'forest', exclude: false },
+      { type: 'tag', value: 'env:cave', label: 'cave', exclude: true },
+      { type: 'author', value: 'A', label: 'A', exclude: false },
+      { type: 'color', value: 'red', label: 'red', exclude: false },
+      { type: 'media_type', value: 'video', label: 'media: Videos', exclude: false },
+      gridFilter('hex'),
+    ]
+    const params = buildSearchParams('tavern', filters, 'battlemap', 'name', 'asc')
+    const group = toGroupSearchParams(params)
+    expect(group).not.toHaveProperty('limit')
+    expect(group).not.toHaveProperty('offset')
+    const { limit: _l, offset: _o, ...expected } = params
+    expect(group).toEqual(expected)
+  })
+
+  it('keeps gridded_unknown in the group search', () => {
+    const params = buildSearchParams('', [gridFilter('unknown')], 'all', 'created_at', 'desc')
+    expect(params.gridded_unknown).toBe(true)
+    expect(toGroupSearchParams(params).gridded_unknown).toBe(true)
   })
 })

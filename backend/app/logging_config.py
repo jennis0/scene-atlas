@@ -18,15 +18,7 @@ _CONFIGURED = False
 
 
 def setup_logging(data_dir: Path, *, debug: bool = False) -> None:
-    """Configure root logger with console + rotating file handlers.
-
-    Parameters
-    ----------
-    data_dir:
-        Base data directory.  Logs are written to ``{data_dir}/logs/scene-atlas.log``.
-    debug:
-        When True, both handlers use DEBUG level; otherwise INFO.
-    """
+    """Configure console + rotating file logging to ``{data_dir}/logs/scene-atlas.log``."""
     global _CONFIGURED
     if _CONFIGURED:
         return

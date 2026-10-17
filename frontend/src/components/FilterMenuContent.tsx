@@ -45,8 +45,7 @@ import {
   UnknownGridSVG,
 } from './GridFilterIcons'
 import type { ActiveFilter } from '@/components/import/fileFilter'
-
-// ─── Public types ─────────────────────────────────────────────────────────────
+import { PanelTitle } from '@/components/ui/panel-title'
 
 export interface FilterOption {
   filterValue: string // stored in ActiveFilter.value
@@ -70,7 +69,6 @@ interface FilterMenuContentProps {
   onFiltersChange: (filters: ActiveFilter[]) => void
 }
 
-// Groups that are not tag categories
 const NON_TAG_GROUPS = new Set([
   'author',
   'gridded',
@@ -80,7 +78,6 @@ const NON_TAG_GROUPS = new Set([
   'media_type',
 ])
 
-// Icons for each known non-tag group
 const GROUP_ICONS: Record<string, LucideIcon> = {
   author: User,
   gridded: LayoutGrid,
@@ -95,22 +92,21 @@ function getGroupIcon(id: string, iconName?: string | null): LucideIcon {
   return GROUP_ICONS[id] ?? Tag
 }
 
-// Display labels for grid filter tiles
-const GRID_TILE_CONFIG: Record<string, { label: string }> = {
-  square: { label: 'Square' },
-  hex: { label: 'Hex' },
-  gridded: { label: 'Any Grid' },
-  gridless: { label: 'No Grid' },
-  unknown: { label: 'Unknown' },
+const GRID_TILE_CONFIG: Record<
+  string,
+  { label: string; Icon: (props: { active: boolean; excluded: boolean }) => JSX.Element }
+> = {
+  square: { label: 'Square', Icon: SquareGridSVG },
+  hex: { label: 'Hex', Icon: HexGridSVG },
+  gridded: { label: 'Any Grid', Icon: AnyGridSVG },
+  gridless: { label: 'No Grid', Icon: GridlessSVG },
+  unknown: { label: 'Unknown', Icon: UnknownGridSVG },
 }
 
 // Darker surface colour shared by the nav and footer — uses --popover token
 const DARK_SURFACE = 'hsl(var(--popover))'
 
-/**
- * Scores how well a filter option matches a search query.
- * Higher is better; -1 means no match.
- */
+/** Higher is a better match; -1 means no match. */
 function optionMatchScore(label: string, aliases: string[], q: string): number {
   const l = label.toLowerCase()
   if (l === q) return 5
@@ -123,7 +119,14 @@ function optionMatchScore(label: string, aliases: string[], q: string): number {
   return -1
 }
 
-// ─── Main component ────────────────────────────────────────────────────────────
+/** Context-menu handler for right-click-to-exclude; suppresses the browser menu. */
+function onRightClick(fn: () => void) {
+  return (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    fn()
+  }
+}
 
 export function FilterMenuContent({
   groups,
@@ -163,8 +166,6 @@ export function FilterMenuContent({
       .filter((g) => g.options.length > 0)
   }, [groups, tab, searchLower])
 
-  // ── Filter helpers ────────────────────────────────────────────────────────
-
   const getActiveState = (
     type: ActiveFilter['type'],
     filterValue: string,
@@ -174,49 +175,19 @@ export function FilterMenuContent({
     return f.exclude ? 'exclude' : 'include'
   }
 
-  const handleInclude = (group: FilterOptionGroup, opt: FilterOption) => {
-    const existing = activeFilters.find(
-      (af) => af.type === group.type && af.value === opt.filterValue,
-    )
+  /** Click (include) or right-click (exclude): adds the filter, switches its mode, or removes it. */
+  const cycle = (group: FilterOptionGroup, opt: FilterOption, exclude: boolean) => {
+    const matches = (af: ActiveFilter) => af.type === group.type && af.value === opt.filterValue
+    const existing = activeFilters.find(matches)
     if (!existing) {
       onFiltersChange([
         ...activeFilters,
-        { type: group.type, value: opt.filterValue, label: opt.filterLabel, exclude: false },
+        { type: group.type, value: opt.filterValue, label: opt.filterLabel, exclude },
       ])
-    } else if (existing.exclude) {
-      onFiltersChange(
-        activeFilters.map((af) =>
-          af.type === group.type && af.value === opt.filterValue ? { ...af, exclude: false } : af,
-        ),
-      )
+    } else if (existing.exclude !== exclude) {
+      onFiltersChange(activeFilters.map((af) => (matches(af) ? { ...af, exclude } : af)))
     } else {
-      onFiltersChange(
-        activeFilters.filter((af) => !(af.type === group.type && af.value === opt.filterValue)),
-      )
-    }
-  }
-
-  const handleExclude = (e: React.MouseEvent, group: FilterOptionGroup, opt: FilterOption) => {
-    e.preventDefault()
-    e.stopPropagation()
-    const existing = activeFilters.find(
-      (af) => af.type === group.type && af.value === opt.filterValue,
-    )
-    if (!existing) {
-      onFiltersChange([
-        ...activeFilters,
-        { type: group.type, value: opt.filterValue, label: opt.filterLabel, exclude: true },
-      ])
-    } else if (!existing.exclude) {
-      onFiltersChange(
-        activeFilters.map((af) =>
-          af.type === group.type && af.value === opt.filterValue ? { ...af, exclude: true } : af,
-        ),
-      )
-    } else {
-      onFiltersChange(
-        activeFilters.filter((af) => !(af.type === group.type && af.value === opt.filterValue)),
-      )
+      onFiltersChange(activeFilters.filter((af) => !matches(af)))
     }
   }
 
@@ -239,28 +210,23 @@ export function FilterMenuContent({
     : null
   const SelectedIcon = selectedGroup ? getGroupIcon(selectedGroup.id, selectedGroup.iconName) : null
 
-  // ── Render ────────────────────────────────────────────────────────────────
-
   return (
     <div className="flex flex-col min-h-0 h-full">
-      {/* ── Panel header ── */}
       <div
         className="px-4 py-3 border-b border-border/60 flex-shrink-0 flex items-end justify-between"
         style={{ background: DARK_SURFACE }}
       >
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="font-display text-[13px] font-medium tracking-[0.06em] text-foreground">
-              Filters
-            </span>
-            {totalActive > 0 && (
+        <PanelTitle
+          badge={
+            totalActive > 0 && (
               <span className="inline-flex items-center px-1.5 py-px rounded-full bg-primary/15 text-[10px] font-medium text-primary tabular-nums">
                 {totalActive} active
               </span>
-            )}
-          </div>
-          <div className="mt-[3px] h-px w-7 bg-gradient-to-r from-primary to-transparent" />
-        </div>
+            )
+          }
+        >
+          Filters
+        </PanelTitle>
         {totalActive > 0 && (
           <button
             onClick={() => onFiltersChange([])}
@@ -271,7 +237,6 @@ export function FilterMenuContent({
         )}
       </div>
 
-      {/* ── Search bar ── */}
       <div className="px-3 py-2 border-b border-border/50 flex-shrink-0">
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
@@ -293,7 +258,6 @@ export function FilterMenuContent({
         </div>
       </div>
 
-      {/* ── Two-column body ── */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Left — category navigator */}
         <div
@@ -365,7 +329,6 @@ export function FilterMenuContent({
             </div>
           )}
 
-          {/* Options area */}
           <div ref={scrollRef} className="flex-1 overflow-y-auto min-w-0 [scrollbar-gutter:stable]">
             {visibleGroups.length === 0 && (
               <p className="px-3 py-5 text-xs text-muted-foreground text-center">
@@ -399,15 +362,13 @@ export function FilterMenuContent({
                     <AuthorChecklist
                       group={group}
                       getActiveState={getActiveState}
-                      onInclude={handleInclude}
-                      onExclude={handleExclude}
+                      onCycle={cycle}
                     />
                   ) : group.type === 'gridded' ? (
                     <GridTileSelector
                       group={group}
                       getActiveState={getActiveState}
-                      onInclude={handleInclude}
-                      onExclude={handleExclude}
+                      onCycle={cycle}
                       compact={tab === 'all'}
                     />
                   ) : group.type === 'color' ? (
@@ -422,8 +383,8 @@ export function FilterMenuContent({
                             hex={opt.filterValue}
                             label={opt.label}
                             activeState={state}
-                            onInclude={() => handleInclude(group, opt)}
-                            onExclude={(e) => handleExclude(e, group, opt)}
+                            onInclude={() => cycle(group, opt, false)}
+                            onExclude={onRightClick(() => cycle(group, opt, true))}
                           />
                         )
                       })}
@@ -436,8 +397,8 @@ export function FilterMenuContent({
                             hex={hex}
                             label={hex}
                             activeState={state}
-                            onInclude={() => handleInclude(group, opt)}
-                            onExclude={(e) => handleExclude(e, group, opt)}
+                            onInclude={() => cycle(group, opt, false)}
+                            onExclude={onRightClick(() => cycle(group, opt, true))}
                             onRemove={() => {
                               const updated = customColors.filter((c) => c !== hex)
                               setCustomColors(updated)
@@ -458,7 +419,7 @@ export function FilterMenuContent({
                             label: hex,
                             filterLabel: hex,
                           }
-                          handleInclude(group, opt)
+                          cycle(group, opt, false)
                         }}
                         customColors={customColors}
                         onCustomColorsChange={setCustomColors}
@@ -477,8 +438,8 @@ export function FilterMenuContent({
                             count={opt.count}
                             activeState={state}
                             colorId={colorId}
-                            onInclude={() => handleInclude(group, opt)}
-                            onExclude={(e) => handleExclude(e, group, opt)}
+                            onInclude={() => cycle(group, opt, false)}
+                            onExclude={onRightClick(() => cycle(group, opt, true))}
                             getTagColor={getTagColor}
                           />
                         )
@@ -492,7 +453,6 @@ export function FilterMenuContent({
         </div>
       </div>
 
-      {/* ── Footer ── */}
       <div
         className="px-3.5 py-2 border-t border-border/60 flex-shrink-0 flex items-center justify-between"
         style={{ background: DARK_SURFACE }}
@@ -512,14 +472,18 @@ export function FilterMenuContent({
   )
 }
 
-// ─── FilterChipList ────────────────────────────────────────────────────────────
-
 interface FilterChipListProps {
   filters: ActiveFilter[]
   onFiltersChange: (filters: ActiveFilter[]) => void
+  /** Off when the parent renders its own "Clear all". */
+  showClearAll?: boolean
 }
 
-export function FilterChipList({ filters, onFiltersChange }: FilterChipListProps) {
+export function FilterChipList({
+  filters,
+  onFiltersChange,
+  showClearAll = true,
+}: FilterChipListProps) {
   if (filters.length === 0) return null
 
   const toggle = (i: number) =>
@@ -537,7 +501,7 @@ export function FilterChipList({ filters, onFiltersChange }: FilterChipListProps
           onRemove={() => remove(i)}
         />
       ))}
-      {filters.length > 1 && (
+      {showClearAll && filters.length > 1 && (
         <button
           onClick={() => onFiltersChange([])}
           className="text-xs text-muted-foreground hover:text-foreground px-1 transition-colors"
@@ -548,8 +512,6 @@ export function FilterChipList({ filters, onFiltersChange }: FilterChipListProps
     </div>
   )
 }
-
-// ─── CategoryNavItem ──────────────────────────────────────────────────────────
 
 function CategoryNavItem({
   label,
@@ -606,18 +568,14 @@ function CategoryNavItem({
   )
 }
 
-// ─── AuthorChecklist ──────────────────────────────────────────────────────────
-
 function AuthorChecklist({
   group,
   getActiveState,
-  onInclude,
-  onExclude,
+  onCycle,
 }: {
   group: FilterOptionGroup
   getActiveState: (type: ActiveFilter['type'], value: string) => 'include' | 'exclude' | null
-  onInclude: (group: FilterOptionGroup, opt: FilterOption) => void
-  onExclude: (e: React.MouseEvent, group: FilterOptionGroup, opt: FilterOption) => void
+  onCycle: (group: FilterOptionGroup, opt: FilterOption, exclude: boolean) => void
 }) {
   return (
     <div className="flex flex-col">
@@ -626,8 +584,8 @@ function AuthorChecklist({
         return (
           <button
             key={opt.filterValue}
-            onClick={() => onInclude(group, opt)}
-            onContextMenu={(e) => onExclude(e, group, opt)}
+            onClick={() => onCycle(group, opt, false)}
+            onContextMenu={onRightClick(() => onCycle(group, opt, true))}
             title={`${opt.label}${opt.count !== undefined ? ` (${opt.count})` : ''} — right-click to exclude`}
             className={`w-full h-8 flex items-center text-left text-[12.5px] border-l-2 transition-colors ${
               state === 'include'
@@ -638,7 +596,6 @@ function AuthorChecklist({
             }`}
             style={{ padding: '0 14px 0 10px' }}
           >
-            {/* Checkbox */}
             <span
               className={`h-3.5 w-3.5 flex-shrink-0 mr-[9px] flex items-center justify-center rounded-[3px] ${
                 state === 'include'
@@ -652,14 +609,12 @@ function AuthorChecklist({
               {state === 'exclude' && <Minus className="h-[9px] w-[9px] text-destructive" />}
             </span>
 
-            {/* Name */}
             <span
               className={`flex-1 truncate ${state === 'exclude' ? 'line-through opacity-60' : ''}`}
             >
               {opt.label}
             </span>
 
-            {/* Count */}
             {opt.count !== undefined && (
               <span
                 className={`text-[10.5px] flex-shrink-0 tabular-nums ${
@@ -676,19 +631,15 @@ function AuthorChecklist({
   )
 }
 
-// ─── GridTileSelector ─────────────────────────────────────────────────────────
-
 function GridTileSelector({
   group,
   getActiveState,
-  onInclude,
-  onExclude,
+  onCycle,
   compact = false,
 }: {
   group: FilterOptionGroup
   getActiveState: (type: ActiveFilter['type'], value: string) => 'include' | 'exclude' | null
-  onInclude: (group: FilterOptionGroup, opt: FilterOption) => void
-  onExclude: (e: React.MouseEvent, group: FilterOptionGroup, opt: FilterOption) => void
+  onCycle: (group: FilterOptionGroup, opt: FilterOption, exclude: boolean) => void
   compact?: boolean
 }) {
   return (
@@ -704,8 +655,8 @@ function GridTileSelector({
           return (
             <button
               key={opt.filterValue}
-              onClick={() => onInclude(group, opt)}
-              onContextMenu={(e) => onExclude(e, group, opt)}
+              onClick={() => onCycle(group, opt, false)}
+              onContextMenu={onRightClick(() => onCycle(group, opt, true))}
               title={`${opt.label} — right-click to exclude`}
               className={`flex flex-col items-center gap-[4px] py-2.5 px-1.5 rounded-lg border-[1.5px] transition-all select-none ${
                 isActive
@@ -722,23 +673,8 @@ function GridTileSelector({
                     : 'hsl(var(--secondary))',
               }}
             >
-              {/* SVG preview — scaled down for compact 3-col layout */}
               <div className="transition-opacity" style={{ opacity: state ? 1 : 0.65 }}>
-                {opt.filterValue === 'square' && (
-                  <SquareGridSVG active={isActive} excluded={isExcluded} />
-                )}
-                {opt.filterValue === 'hex' && (
-                  <HexGridSVG active={isActive} excluded={isExcluded} />
-                )}
-                {opt.filterValue === 'gridless' && (
-                  <GridlessSVG active={isActive} excluded={isExcluded} />
-                )}
-                {opt.filterValue === 'gridded' && (
-                  <AnyGridSVG active={isActive} excluded={isExcluded} />
-                )}
-                {opt.filterValue === 'unknown' && (
-                  <UnknownGridSVG active={isActive} excluded={isExcluded} />
-                )}
+                {config && <config.Icon active={isActive} excluded={isExcluded} />}
               </div>
 
               <span className="text-[11px] font-medium tracking-[0.02em] text-center leading-tight">
@@ -765,8 +701,6 @@ function GridTileSelector({
     </div>
   )
 }
-
-// ─── OptionPill ───────────────────────────────────────────────────────────────
 
 function OptionPill({
   label,
@@ -830,8 +764,6 @@ function OptionPill({
   )
 }
 
-// ─── ColorSwatch ──────────────────────────────────────────────────────────────
-
 function ColorSwatch({
   hex,
   label,
@@ -847,6 +779,12 @@ function ColorSwatch({
   onExclude: (e: React.MouseEvent) => void
   onRemove?: () => void
 }) {
+  const outlineColor =
+    activeState === 'include'
+      ? 'hsl(var(--primary))'
+      : activeState === 'exclude'
+        ? 'hsl(var(--destructive))'
+        : null
   return (
     <div className="relative group">
       <button
@@ -868,21 +806,12 @@ function ColorSwatch({
         }`}
         style={{
           backgroundColor: hex,
-          ...(activeState === 'include'
-            ? {
-                outlineStyle: 'solid',
-                outlineWidth: '2px',
-                outlineOffset: '2px',
-                outlineColor: 'hsl(var(--primary))',
-              }
-            : activeState === 'exclude'
-              ? {
-                  outlineStyle: 'solid',
-                  outlineWidth: '2px',
-                  outlineOffset: '2px',
-                  outlineColor: 'hsl(var(--destructive))',
-                }
-              : {}),
+          ...(outlineColor && {
+            outlineStyle: 'solid',
+            outlineWidth: '2px',
+            outlineOffset: '2px',
+            outlineColor,
+          }),
         }}
       />
       {onRemove && (
@@ -898,8 +827,6 @@ function ColorSwatch({
   )
 }
 
-// ─── Custom colour picker ─────────────────────────────────────────────────────
-
 const CUSTOM_COLORS_KEY = 'color-filter-custom-colors'
 
 function loadCustomColors(): string[] {
@@ -913,7 +840,11 @@ function loadCustomColors(): string[] {
 }
 
 function saveCustomColors(colors: string[]) {
-  localStorage.setItem(CUSTOM_COLORS_KEY, JSON.stringify(colors))
+  try {
+    localStorage.setItem(CUSTOM_COLORS_KEY, JSON.stringify(colors))
+  } catch {
+    // Storage blocked or full: the colours still apply until reload.
+  }
 }
 
 function CustomColorPicker({
@@ -934,6 +865,10 @@ function CustomColorPicker({
   const onCustomColorsChangeRef = useRef(onCustomColorsChange)
   onCustomColorsChangeRef.current = onCustomColorsChange
 
+  // A native 'change' listener, not React's onChange: React fires onChange on every 'input'
+  // event, i.e. continuously while dragging in the picker, which would add a custom colour
+  // per frame. The native event fires once, when the picker closes. The refs above let the
+  // listener be attached once and still see current props.
   useEffect(() => {
     const el = inputRef.current
     if (!el) return
@@ -963,8 +898,6 @@ function CustomColorPicker({
   )
 }
 
-// ─── FilterChip ───────────────────────────────────────────────────────────────
-
 function FilterChip({
   filter,
   onToggle,
@@ -978,43 +911,11 @@ function FilterChip({
   const category = filter.type === 'tag' ? filter.value.split(':')[0] : null
   const colors = category ? getTagColor(category) : null
 
-  if (filter.exclude) {
-    return (
-      <span
-        data-testid="filter-chip"
-        className="inline-flex items-center gap-1 text-xs rounded-full border border-destructive/30 bg-destructive/10 text-destructive px-2 py-0.5"
-        title={filter.label}
-      >
-        {filter.type === 'color' && (
-          <span
-            className="h-3 w-3 rounded-sm border border-black/25 shrink-0 opacity-50"
-            style={{ backgroundColor: filter.value }}
-          />
-        )}
-        <span className="capitalize opacity-75 line-through max-w-[130px] truncate">
-          {filter.label}
-        </span>
-        <button
-          onClick={onToggle}
-          className="opacity-60 hover:opacity-100 text-[10px] font-medium transition-opacity"
-          title="Switch to include"
-        >
-          hidden
-        </button>
-        <button
-          onClick={onRemove}
-          className="hover:opacity-80 transition-opacity ml-0.5"
-          title="Remove"
-        >
-          <X className="h-2.5 w-2.5" />
-        </button>
-      </span>
-    )
-  }
-
-  const chipClasses = colors
-    ? `border ${colors.border} ${colors.bg} ${colors.text}`
-    : 'border border-primary/30 bg-primary/10 text-primary'
+  const chipClasses = filter.exclude
+    ? 'border border-destructive/30 bg-destructive/10 text-destructive'
+    : colors
+      ? `border ${colors.border} ${colors.bg} ${colors.text}`
+      : 'border border-primary/30 bg-primary/10 text-primary'
 
   return (
     <span
@@ -1024,17 +925,21 @@ function FilterChip({
     >
       {filter.type === 'color' && (
         <span
-          className="h-3 w-3 rounded-sm border border-black/25 shrink-0"
+          className={`h-3 w-3 rounded-sm border border-black/25 shrink-0 ${filter.exclude ? 'opacity-50' : ''}`}
           style={{ backgroundColor: filter.value }}
         />
       )}
-      <span className="capitalize max-w-[130px] truncate">{filter.label}</span>
+      <span
+        className={`capitalize max-w-[130px] truncate ${filter.exclude ? 'opacity-75 line-through' : ''}`}
+      >
+        {filter.label}
+      </span>
       <button
         onClick={onToggle}
-        className="opacity-50 hover:opacity-100 text-[10px] font-medium transition-opacity"
-        title="Switch to exclude"
+        className={`${filter.exclude ? 'opacity-60' : 'opacity-50'} hover:opacity-100 text-[10px] font-medium transition-opacity`}
+        title={filter.exclude ? 'Switch to include' : 'Switch to exclude'}
       >
-        only
+        {filter.exclude ? 'hidden' : 'only'}
       </button>
       <button
         onClick={onRemove}

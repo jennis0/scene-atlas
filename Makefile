@@ -41,7 +41,7 @@ ensure-model:
 	@uv run python scripts/models/setup_models.py small
 
 evaluate-onnx:
-	uv run python scripts/models/export_model_onnx.py clip-vit-b-32 --image-dir data/store/images
+	uv run python scripts/models/export_model_onnx.py large --image-dir data/store/images
 
 test-e2e:
 	cd e2e && npx playwright test --project=chromium

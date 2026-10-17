@@ -15,6 +15,8 @@ from pathlib import Path
 import lancedb
 import numpy as np
 import pyarrow as pa
+from lancedb.db import DBConnection
+from lancedb.table import Table
 
 from ..config import settings
 
@@ -40,16 +42,40 @@ class LanceDBService:
 
     def __init__(
         self,
-        path: Path | str = settings.vector_db_path,
-        collection_name: str = settings.vector_collection_name,
+        path: Path | str,
+        collection_name: str,
         vector_size: int | None = None,
     ):
         self._lock = threading.RLock()
         self._path = Path(path)
         self._vector_size = vector_size or settings.vector_size
-        self.db = lancedb.connect(str(self._path))
+        self.db: DBConnection | None = lancedb.connect(str(self._path))
+        self._table: Table | None = None
         self.collection_name = collection_name
         self.ensure_collection()
+
+    @property
+    def _conn(self) -> DBConnection:
+        if self.db is None:
+            raise RuntimeError("LanceDBService is closed")
+        return self.db
+
+    @property
+    def _tbl(self) -> Table:
+        if self._table is None:
+            raise RuntimeError("LanceDBService is closed")
+        return self._table
+
+    def table_exists(self, name: str) -> bool:
+        # list_tables() is paginated and returns a response object, not a list of names.
+        page_token = None
+        while True:
+            page = self._conn.list_tables(page_token=page_token)
+            if name in page.tables:
+                return True
+            page_token = page.page_token
+            if not page_token:
+                return False
 
     def ensure_collection(self):
         """Ensure the table exists with the correct vector size.
@@ -59,55 +85,45 @@ class LanceDBService:
         that inserts and searches don't fail with shape-mismatch errors.
         """
         with self._lock:
-            try:
-                existing_tables = self.db.list_tables()
+            if self.table_exists(self.collection_name):
+                table = self._conn.open_table(self.collection_name)
+                schema = table.schema
+                vec_field = schema.field("vector")
+                existing_size = vec_field.type.list_size
+                if existing_size != self._vector_size:
+                    logger.warning(
+                        "Table %s has vector size %d but model expects %d — recreating",
+                        self.collection_name,
+                        existing_size,
+                        self._vector_size,
+                    )
+                    self._conn.drop_table(self.collection_name)
+                else:
+                    logger.info(
+                        "Table %s already exists (size=%d)",
+                        self.collection_name,
+                        existing_size,
+                    )
+                    self._table = table
+                    return
 
-                if self.collection_name in existing_tables:
-                    table = self.db.open_table(self.collection_name)
-                    schema = table.schema
-                    vec_field = schema.field("vector")
-                    existing_size = vec_field.type.list_size
-                    if existing_size != self._vector_size:
-                        logger.warning(
-                            "Table %s has vector size %d but model expects %d — recreating",
-                            self.collection_name,
-                            existing_size,
-                            self._vector_size,
-                        )
-                        self.db.drop_table(self.collection_name)
-                    else:
-                        logger.info(
-                            "Table %s already exists (size=%d)",
-                            self.collection_name,
-                            existing_size,
-                        )
-                        self._table = table
-                        return
-
-                logger.info(
-                    "Creating LanceDB table: %s (size=%d)",
-                    self.collection_name,
-                    self._vector_size,
-                )
-                self._table = self.db.create_table(
-                    self.collection_name,
-                    schema=_table_schema(self._vector_size),
-                    exist_ok=True,
-                )
-                logger.info("Table %s created successfully", self.collection_name)
-            except Exception as e:
-                logger.error("Error ensuring table exists: %s", e)
-                raise
+            logger.info(
+                "Creating LanceDB table: %s (size=%d)",
+                self.collection_name,
+                self._vector_size,
+            )
+            self._table = self._conn.create_table(
+                self.collection_name,
+                schema=_table_schema(self._vector_size),
+                exist_ok=True,
+            )
+            logger.info("Table %s created successfully", self.collection_name)
 
     def delete_collection(self):
         """Delete the entire table (use with caution)."""
         with self._lock:
-            try:
-                self.db.drop_table(self.collection_name)
-                logger.info("Table %s deleted successfully", self.collection_name)
-            except Exception as e:
-                logger.error("Error deleting table: %s", e)
-                raise
+            self._conn.drop_table(self.collection_name)
+            logger.info("Table %s deleted successfully", self.collection_name)
 
     def add_image_embedding(
         self, image_id: int, embedding: list[float], metadata: dict | None = None
@@ -125,13 +141,13 @@ class LanceDBService:
                     "base_name": payload.get("base_name", ""),
                 }
 
-                self._table.merge_insert(
+                self._tbl.merge_insert(
                     "id"
                 ).when_matched_update_all().when_not_matched_insert_all().execute([row])
                 logger.debug("Added embedding for image_id=%s", image_id)
                 return True
-            except Exception as e:
-                logger.error("Error adding embedding for image_id=%s: %s", image_id, e)
+            except Exception:
+                logger.exception("Error adding embedding for image_id=%s", image_id)
                 return False
 
     def batch_add_embeddings(self, items: list[dict]) -> bool:
@@ -152,13 +168,13 @@ class LanceDBService:
                         }
                     )
 
-                self._table.merge_insert(
+                self._tbl.merge_insert(
                     "id"
                 ).when_matched_update_all().when_not_matched_insert_all().execute(rows)
                 logger.debug("Batch added %s embeddings to LanceDB", len(rows))
                 return True
-            except Exception as e:
-                logger.error("Error batch adding embeddings: %s", e)
+            except Exception:
+                logger.exception("Error batch adding embeddings")
                 return False
 
     def search_similar(
@@ -178,11 +194,11 @@ class LanceDBService:
         same semantics as Qdrant's score_threshold parameter.  Callers already
         compensate by requesting inflated limits (e.g. limit * 3).
         """
-        table = self._table
-        if table is None:
-            raise RuntimeError("LanceDBService is closed")
+        table = self._tbl
         try:
-            results = table.search(query_embedding).metric("cosine").limit(limit).to_list()
+            # search() is annotated with the base builder; a vector query returns the vector builder.
+            query = table.search(query_embedding).distance_type("cosine")  # pyright: ignore[reportAttributeAccessIssue]
+            results = query.limit(limit).to_list()
 
             output = []
             for row in results:
@@ -203,19 +219,19 @@ class LanceDBService:
                 )
 
             return output
-        except Exception as e:
-            logger.error("Error searching similar images: %s", e)
+        except Exception:
+            logger.exception("Error searching similar images")
             return []
 
     def delete_image_embedding(self, image_id: int) -> bool:
         """Delete an image embedding from LanceDB."""
         with self._lock:
             try:
-                self._table.delete(f"id = {image_id}")
+                self._tbl.delete(f"id = {image_id}")
                 logger.debug("Deleted embedding for image_id=%s", image_id)
                 return True
-            except Exception as e:
-                logger.error("Error deleting embedding for image_id=%s: %s", image_id, e)
+            except Exception:
+                logger.exception("Error deleting embedding for image_id=%s", image_id)
                 return False
 
     def delete_embeddings(self, image_ids: list[int]) -> bool:
@@ -225,7 +241,7 @@ class LanceDBService:
         with self._lock:
             try:
                 ids_str = ", ".join(str(i) for i in image_ids)
-                self._table.delete(f"id IN ({ids_str})")
+                self._tbl.delete(f"id IN ({ids_str})")
                 logger.info("Deleted %d embedding(s) from LanceDB", len(image_ids))
                 return True
             except Exception as e:
@@ -234,9 +250,7 @@ class LanceDBService:
 
     def get_embedding(self, image_id: int) -> list[float] | None:
         """Retrieve a stored embedding vector for an image."""
-        table = self._table
-        if table is None:
-            raise RuntimeError("LanceDBService is closed")
+        table = self._tbl
         try:
             results = table.search().where(f"id = {image_id}").limit(1).to_list()
             if results:
@@ -254,9 +268,7 @@ class LanceDBService:
         """
         if not image_ids:
             return {}
-        table = self._table
-        if table is None:
-            raise RuntimeError("LanceDBService is closed")
+        table = self._tbl
         try:
             ids_str = ", ".join(str(i) for i in image_ids)
             results = table.search().where(f"id IN ({ids_str})").limit(len(image_ids)).to_list()
@@ -271,17 +283,13 @@ class LanceDBService:
 
     def get_all_ids(self) -> set[int]:
         """Every image id in the table, without loading vectors (for reconciliation)."""
-        table = self._table
-        if table is None:
-            raise RuntimeError("LanceDBService is closed")
+        table = self._tbl
         rows = table.search().select(["id"]).limit(None).to_arrow()
         return set(rows.column("id").to_pylist())
 
     def get_collection_info(self) -> dict:
         """Get information about the collection."""
-        table = self._table
-        if table is None:
-            raise RuntimeError("LanceDBService is closed")
+        table = self._tbl
         try:
             count = table.count_rows()
             return {
@@ -289,9 +297,15 @@ class LanceDBService:
                 "points_count": count,
                 "status": "ok",
             }
-        except Exception as e:
-            logger.error("Error getting collection info: %s", e)
+        except Exception:
+            logger.exception("Error getting collection info")
             return {}
+
+    def row_count(self, collection_name: str) -> int | None:
+        """Rows in *collection_name*, or None if the table doesn't exist."""
+        if not self.table_exists(collection_name):
+            return None
+        return self._conn.open_table(collection_name).count_rows()
 
     def backup_storage(self, target_dir: Path) -> Path:
         """Copy the LanceDB storage directory for backup."""
@@ -313,7 +327,7 @@ class LanceDBService:
                 "Switch to a different model first."
             )
         try:
-            self.db.drop_table(collection_name)
+            self._conn.drop_table(collection_name)
             logger.info("Deleted LanceDB table '%s'", collection_name)
         except Exception:
             logger.warning("Failed to delete LanceDB table '%s'", collection_name, exc_info=True)
@@ -328,9 +342,7 @@ class LanceDBService:
             self.db = None
 
 
-# ---------------------------------------------------------------------------
 # Lazy singleton (same pattern as get_image_store / get_clip_service)
-# ---------------------------------------------------------------------------
 
 _lancedb_service: LanceDBService | None = None
 _init_lock = threading.Lock()
@@ -352,14 +364,11 @@ def get_lancedb_service() -> LanceDBService:
             from .model_registry import get_model
 
             model_name = get_effective_model_name()
-            model_meta = get_model(model_name) if model_name else None
-            collection_name = (
-                get_collection_name(model_name) if model_name else settings.vector_collection_name
-            )
+            model_meta = get_model(model_name)
             vector_size = model_meta["embedding_dim"] if model_meta else settings.vector_size
             _lancedb_service = LanceDBService(
                 path=settings.vector_db_path,
-                collection_name=collection_name,
+                collection_name=get_collection_name(model_name),
                 vector_size=vector_size,
             )
     return _lancedb_service

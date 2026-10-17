@@ -16,6 +16,7 @@ import logging
 import os
 import sys
 import threading
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -52,12 +53,12 @@ _FALLBACK_MANIFEST: dict = {
 }
 
 _INTERPOLATION_MAP = {
-    "bicubic": Image.BICUBIC,
-    "bilinear": Image.BILINEAR,
+    "bicubic": Image.Resampling.BICUBIC,
+    "bilinear": Image.Resampling.BILINEAR,
 }
 
 
-# ── SentencePiece tokenizer wrapper ──────────────────────────────────────────
+# SentencePiece tokenizer wrapper
 # Provides the same interface as tokenizers.Tokenizer so CLIPService can use
 # either backend transparently.
 
@@ -89,7 +90,7 @@ class _SentencePieceTokenizerWrapper:
     ):
         import sentencepiece as spm
 
-        self._sp = spm.SentencePieceProcessor(model_file=model_path)
+        self._sp = spm.SentencePieceProcessor(model_file=model_path)  # pyright: ignore[reportCallIssue]
         self._max_length = max_length
         self._pad_id = pad_id
         self._lowercase = lowercase
@@ -98,7 +99,7 @@ class _SentencePieceTokenizerWrapper:
     def encode(self, text: str) -> _TokenizerOutput:
         if self._lowercase:
             text = text.lower()
-        ids = self._sp.encode(text, out_type=int)
+        ids = self._sp.encode(text, out_type=int)  # pyright: ignore[reportAttributeAccessIssue]
         # Append EOS if configured (SigLIP2 convention)
         if self._eos_id is not None:
             ids = ids + [self._eos_id]
@@ -185,8 +186,8 @@ def _get_active_model_name() -> str:
 
     # 2. DB setting (deferred import — must stay local)
     try:
-        from backend.app.models import get_engine, get_session_local  # noqa: PLC0415
-        from backend.app.models.database import AppSetting  # noqa: PLC0415
+        from backend.app.models import get_engine, get_session_local
+        from backend.app.models.database import AppSetting
 
         engine = get_engine(_settings.database_url)
         Session = get_session_local(engine)
@@ -195,7 +196,7 @@ def _get_active_model_name() -> str:
             if row and row.value_json:
                 return json.loads(row.value_json)
     except Exception:
-        pass
+        logger.debug("Could not read active_model setting; using defaults", exc_info=True)
 
     # 3. Auto-detect based on ORT provider availability
     providers = resolve_providers("auto")
@@ -205,6 +206,24 @@ def _get_active_model_name() -> str:
 def _has_real_gpu_provider(providers: list[str]) -> bool:
     """Return True only if a real GPU provider (CUDA/DirectML/CoreML) is available."""
     return bool(set(providers) & GPU_PROVIDERS)
+
+
+_ORT_FLOAT_TYPES = {"tensor(float)": np.float32, "tensor(float16)": np.float16}
+
+
+def _cast_feed_to_inputs(session, feed: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    """Cast float inputs to the dtype each graph input declares.
+
+    Exports differ: some keep float32 I/O around an fp16 graph, others take
+    float16 pixel_values directly, and ORT rejects a mismatched dtype.
+    """
+    declared = {i.name: _ORT_FLOAT_TYPES.get(i.type) for i in session.get_inputs()}
+    return {
+        name: arr.astype(declared[name])
+        if declared.get(name) is not None and arr.dtype != declared[name]
+        else arr
+        for name, arr in feed.items()
+    }
 
 
 # Module-level LRU cache for text embeddings (avoids lru_cache-on-method leak).
@@ -264,7 +283,7 @@ class CLIPService:
         self._image_mean = np.array(manifest["image_mean"], dtype=np.float32)
         self._image_std = np.array(manifest["image_std"], dtype=np.float32)
         self._interpolation = _INTERPOLATION_MAP.get(
-            manifest.get("interpolation", "bicubic"), Image.BICUBIC
+            manifest.get("interpolation", "bicubic"), Image.Resampling.BICUBIC
         )
         self._resize_mode: str = manifest.get("resize_mode", "shortest_edge_then_crop")
 
@@ -281,7 +300,7 @@ class CLIPService:
 
         # Resolve execution providers — explicit device param takes priority
         # over the global INFERENCE_DEVICE setting (used by scripts that pass
-        # --device directly).
+        # device directly).
         inference_device = device if device is not None else _settings.inference_device
         gpu_providers = resolve_providers(inference_device)
         cpu_providers = ["CPUExecutionProvider"]
@@ -313,12 +332,10 @@ class CLIPService:
         )
 
         # Per-session provider tracking — used by _run_with_fallback and DML recreation.
-        # _active_providers exposes the vision provider as the meaningful GPU indicator.
         self._session_providers: dict[str, list[str]] = {
             "_vision_session": vision_actual,
             "_text_session": text_actual,
         }
-        self._active_providers = vision_actual
 
         logger.info(
             "ONNX providers — vision (%s): %s, text (%s): %s",
@@ -354,12 +371,7 @@ class CLIPService:
 
         logger.info("ONNX models loaded (%s)", manifest.get("model_id", "unknown"))
 
-    # ── Properties ────────────────────────────────────────────────────────
-
-    @property
-    def active_providers(self) -> list[str]:
-        """ORT execution providers in use (e.g. ``["CUDAExecutionProvider", "CPUExecutionProvider"]``)."""
-        return self._active_providers
+    # Properties
 
     @property
     def embedding_dim(self) -> int:
@@ -371,7 +383,7 @@ class CLIPService:
         """HuggingFace model ID for the active model."""
         return self._manifest.get("model_id", "unknown")
 
-    # ── Image preprocessing ──────────────────────────────────────────────
+    # Image preprocessing
 
     def _preprocess_image(self, image: Image.Image) -> np.ndarray:
         """Resize, optionally crop, normalise, and transpose to CHW.
@@ -403,25 +415,17 @@ class CLIPService:
         pixels = (pixels - self._image_mean) / self._image_std
         return np.transpose(pixels, (2, 0, 1))
 
-    # ── GPU resilience ─────────────────────────────────────────────────
+    # GPU resilience
 
     def _maybe_recreate_dml_session(
         self, session_attr: str, model_path: str, item_count: int = 1
     ) -> None:
-        """Recreate DML session periodically to prevent command buffer exhaustion.
+        """Recreate a DirectML session periodically to prevent command buffer exhaustion.
 
         DirectML leaks GPU memory on each ``.run()`` call with no public API
         to flush/sync (ORT issues #975, #25996).  Session recreation is the
         only way to release resources.  No-op for non-DML providers.
-
-        Parameters
-        ----------
-        session_attr : str
-            Name of the session attribute (``"_vision_session"`` or ``"_text_session"``).
-        model_path : str
-            Path to the ONNX model file (for recreating the session).
-        item_count : int
-            Number of items in this inference (1 for single, batch size for batch).
+        ``item_count`` is the number of images or texts in this inference.
         """
         session_providers = self._session_providers[session_attr]
         if session_providers[0] != "DmlExecutionProvider":
@@ -438,7 +442,6 @@ class CLIPService:
         new_session, actual = create_session_with_fallback(model_path, session_providers, sess_opts)
         setattr(self, session_attr, new_session)
         self._session_providers[session_attr] = actual
-        self._active_providers = self._session_providers["_vision_session"]
         self._inference_count = 0
 
     def _run_with_fallback(
@@ -450,6 +453,7 @@ class CLIPService:
     ) -> list[np.ndarray]:
         """Run inference, falling back to CPU if GPU provider crashes."""
         session = getattr(self, session_attr)
+        feed = _cast_feed_to_inputs(session, feed)
         try:
             return session.run(output_names, feed)
         except Exception as exc:
@@ -466,50 +470,31 @@ class CLIPService:
             new_session = ort.InferenceSession(model_path, cpu_opts, providers=cpu_providers)
             setattr(self, session_attr, new_session)
             self._session_providers[session_attr] = cpu_providers
-            self._active_providers = self._session_providers["_vision_session"]
             self._inference_count = 0
-            return new_session.run(output_names, feed)
+            return new_session.run(output_names, feed)  # pyright: ignore[reportReturnType]
 
-    # ── Public interface ─────────────────────────────────────────────────
+    # Public interface
 
     def encode_image(self, image_path: str | Path) -> list[float]:
-        """Generate embedding for an image.
+        """L2-normalised embedding for one image."""
+        with Image.open(image_path) as img:
+            pixel_values = self._preprocess_image(img.convert("RGB"))
 
-        Args:
-            image_path: Path to the image file.
+        pixel_values = pixel_values[np.newaxis, ...]
 
-        Returns:
-            Embedding vector as list of floats (L2-normalised).
-        """
-        try:
-            with Image.open(image_path) as img:
-                pixel_values = self._preprocess_image(img.convert("RGB"))
-
-            pixel_values = pixel_values[np.newaxis, ...]
-
-            self._maybe_recreate_dml_session("_vision_session", self._vision_model_path)
-            (embeddings,) = self._run_with_fallback(
-                "_vision_session",
-                self._vision_model_path,
-                ["embeddings"],
-                {"pixel_values": pixel_values},
-            )
-            embedding = embeddings[0].tolist()
-            logger.debug("Generated embedding for %s, size: %s", image_path, len(embedding))
-            return embedding
-
-        except Exception as e:
-            logger.error("Error encoding image %s: %s", image_path, e)
-            raise
+        self._maybe_recreate_dml_session("_vision_session", self._vision_model_path)
+        (embeddings,) = self._run_with_fallback(
+            "_vision_session",
+            self._vision_model_path,
+            ["embeddings"],
+            {"pixel_values": pixel_values},
+        )
+        embedding = embeddings[0].tolist()
+        logger.debug("Generated embedding for %s, size: %s", image_path, len(embedding))
+        return embedding
 
     def encode_text(self, text: str) -> list[float]:
-        """Generate embedding for text query.
-
-        Args:
-            text: Text query (e.g., "dark forest cave with water").
-
-        Returns:
-            Embedding vector as list of floats (L2-normalised).
+        """L2-normalised embedding for a text query.
 
         Results are cached in a module-level LRU dict keyed on the query
         string to avoid repeated ONNX inference for common queries.
@@ -518,72 +503,55 @@ class CLIPService:
         if cached is not None:
             return list(cached)
 
-        try:
-            encoding = self._tokenizer.encode(text)
+        encoding = self._tokenizer.encode(text)
 
-            input_ids = np.array([encoding.ids], dtype=np.int64)
-            attention_mask = np.array([encoding.attention_mask], dtype=np.int64)
+        input_ids = np.array([encoding.ids], dtype=np.int64)
+        attention_mask = np.array([encoding.attention_mask], dtype=np.int64)
 
-            self._maybe_recreate_dml_session("_text_session", self._text_model_path)
-            (embeddings,) = self._run_with_fallback(
-                "_text_session",
-                self._text_model_path,
-                ["embeddings"],
-                {"input_ids": input_ids, "attention_mask": attention_mask},
-            )
-            embedding = embeddings[0].tolist()
-            logger.debug("Generated text embedding for '%s', size: %s", text, len(embedding))
+        self._maybe_recreate_dml_session("_text_session", self._text_model_path)
+        (embeddings,) = self._run_with_fallback(
+            "_text_session",
+            self._text_model_path,
+            ["embeddings"],
+            {"input_ids": input_ids, "attention_mask": attention_mask},
+        )
+        embedding = embeddings[0].tolist()
+        logger.debug("Generated text embedding for '%s', size: %s", text, len(embedding))
 
-            # Store as tuple to save memory; evict oldest if full
-            if len(_text_embedding_cache) >= _TEXT_CACHE_MAX:
-                _text_embedding_cache.pop(next(iter(_text_embedding_cache)))
-            _text_embedding_cache[text] = tuple(embedding)
+        # Store as tuple to save memory; evict oldest if full
+        if len(_text_embedding_cache) >= _TEXT_CACHE_MAX:
+            _text_embedding_cache.pop(next(iter(_text_embedding_cache)))
+        _text_embedding_cache[text] = tuple(embedding)
 
-            return embedding
+        return embedding
 
-        except Exception as e:
-            logger.error("Error encoding text '%s': %s", text, e)
-            raise
+    def batch_encode_images(self, image_paths: Sequence[str | Path]) -> list[list[float]]:
+        """L2-normalised embeddings for several images in one forward pass."""
+        pixel_batch = []
+        for path in image_paths:
+            with Image.open(path) as img:
+                pixel_batch.append(self._preprocess_image(img.convert("RGB")))
 
-    def batch_encode_images(self, image_paths: list[str | Path]) -> list[list[float]]:
-        """Generate embeddings for multiple images in batch.
+        pixel_values = np.stack(pixel_batch, axis=0)
+        del pixel_batch
 
-        Args:
-            image_paths: List of paths to image files.
-
-        Returns:
-            List of embedding vectors.
-        """
-        try:
-            pixel_batch = []
-            for path in image_paths:
-                with Image.open(path) as img:
-                    pixel_batch.append(self._preprocess_image(img.convert("RGB")))
-
-            pixel_values = np.stack(pixel_batch, axis=0)
-            del pixel_batch
-
-            self._maybe_recreate_dml_session(
-                "_vision_session",
-                self._vision_model_path,
-                item_count=len(image_paths),
-            )
-            (embeddings,) = self._run_with_fallback(
-                "_vision_session",
-                self._vision_model_path,
-                ["embeddings"],
-                {"pixel_values": pixel_values},
-            )
-            result = embeddings.tolist()
-            logger.debug("Generated batch embeddings for %s images", len(image_paths))
-            return result
-
-        except Exception as e:
-            logger.error("Error batch encoding images: %s", e)
-            raise
+        self._maybe_recreate_dml_session(
+            "_vision_session",
+            self._vision_model_path,
+            item_count=len(image_paths),
+        )
+        (embeddings,) = self._run_with_fallback(
+            "_vision_session",
+            self._vision_model_path,
+            ["embeddings"],
+            {"pixel_values": pixel_values},
+        )
+        result = embeddings.tolist()
+        logger.debug("Generated batch embeddings for %s images", len(image_paths))
+        return result
 
 
-# ── Singleton with background-load support ───────────────────────────────────
+# Singleton with background-load support
 # start_clip_background_load() is called from the FastAPI lifespan so CLIP
 # begins loading without blocking server startup.  get_clip_service() blocks
 # until loading completes (via the Event), so callers that arrive before the
@@ -618,7 +586,7 @@ def _load_clip() -> None:
     except Exception as exc:
         with _clip_lock:
             _clip_error = exc
-        logger.error(
+        logger.exception(
             "Embedding model load failed: %s. "
             "The app will run but semantic search will not work until the model is available.",
             exc,

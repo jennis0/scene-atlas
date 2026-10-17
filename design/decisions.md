@@ -149,6 +149,7 @@ This document records all significant architectural decisions for the Scene Atla
 - React Query handles caching, refetching, and loading states
 - `paramsSerializer: { indexes: null }` on axios for FastAPI array param compatibility
 - No global state store (Redux/Zustand) — React Query + local state is sufficient for current scope
+- **Status note (2026-10):** Radix now provides only checkbox, dropdown-menu and popover. Dialogs use a custom portal component (`frontend/src/components/ui/dialog.tsx`); there is no sheet. Import state lives in a module-level `ImportManager` store read via `useSyncExternalStore` (ADR-018). See [frontend.md](frontend.md).
 
 ---
 
@@ -189,6 +190,7 @@ This document records all significant architectural decisions for the Scene Atla
 - The `alembic.ini` at project root allows CLI use: `uv run alembic upgrade head`
 - Image store files are not backed up by the script — they are large, append-only blobs and the originals typically exist elsewhere; document this assumption
 - LanceDB embeddings can be regenerated from images via `write_new_embeddings` if the LanceDB backup is unavailable
+- **Status note (2026-10):** `cleanup_staging` no longer exists; staging is cleaned by item state (ADR-018). Scheduled tasks are now `backup_database` (24h), `ingest_maintenance` (6h), `sweep_orphaned_store_files` (24h) and `reconcile_vectors` (24h); see [ingestion.md](ingestion.md#9-maintenance-and-recovery). There is no `reset_database.py`.
 
 ---
 
@@ -263,6 +265,7 @@ Pipeline functions in `backend/pipeline/` are now plain Python functions — no 
 - Frontend Activity tray shows background job progress via polling `/api/v1/jobs/`
 - CLI scripts still work directly: `uv run python -m backend.pipeline.<script>`
 - The `flow_run_id` column was dropped from `ImportGroupJob` (migration 005)
+- **Status note (2026-10):** The import model described here is superseded by ADR-018: imports run on a dedicated `IngestWorker`, not `JobRunner`, and `ImportGroupJob` is gone. `run_sync()` and `analyse_upload` were removed. `JobRunner` remains for maintenance jobs, backfills, model downloads and embedding rebuilds; the Scheduler's current tasks are listed under ADR-010.
 
 ---
 
@@ -327,6 +330,7 @@ Pipeline functions in `backend/pipeline/` are now plain Python functions — no 
 - No first-run HuggingFace download (models are bundled)
 - ONNX models must be re-exported when changing the base model (`scripts/models/export_model_onnx.py`)
 - `backend/models/` is gitignored; CI must run the export script before building
+- **Status note (2026-10):** small and medium are now fine-tuned 4-bit (w4a16) models released by scene-atlas-learning (`release_source` in `backend/app/services/model_registry.py`); large is fp16 throughout and is the only model `export_model_onnx.py` exports. The int8 export path was removed; [onnx-int8-quantisation.md](onnx-int8-quantisation.md) keeps the research. The runtime still runs an int8 text encoder on CPU if a manifest declares one.
 
 ---
 
@@ -368,6 +372,7 @@ Pipeline functions in `backend/pipeline/` are now plain Python functions — no 
 - Backward compatible: `Image[]` assignable to `SeedImage[]`; `all_image_ids` field is optional
 - Backend query efficiency: single batch query (browse) or zero extra queries (search mode reuses RRF scoring)
 - Relevance slider filtering is client-side (instant raise) or debounced refetch (lower); pagination resets to page 0
+- **Status note (2026-10):** The default page size is 50 groups (`GET /search/groups` `limit` default; `PAGE_SIZE` in `useGroupSearch`), max 500. Browse mode sorts by `created_at desc` by default. Grouping logic lives in `backend/app/services/search_service.py`.
 
 ---
 
@@ -443,7 +448,7 @@ Key choices:
 ## ADR-018: Durable per-item ingest pipeline
 
 **Date:** 2026-10-15
-**Status:** Implemented (PR #1; storage format added in the Phase 6 PR). Supersedes the import model in ADR-012 and the earlier seven-state import state machine.
+**Status:** Implemented (PR #1; stored format added in the Phase 6 PR). Supersedes the import model in ADR-012 and the earlier import job state machine. Not yet done: perceptual "possible duplicate" flags (point 6). Current behaviour: [ingestion.md](ingestion.md).
 
 **Context:** A reliability audit (2026-10-12) found about 50 issues in the import flow. Three structural causes account for nearly all of them.
 1. **An import job was an all-or-nothing transaction.** A restart, a failed group, or dismissing a failed job deleted every image the job had imported. This existed to avoid false duplicate matches.

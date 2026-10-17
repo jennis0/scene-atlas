@@ -5,17 +5,17 @@ import { toast } from 'sonner'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import axios from 'axios'
 import { systemApi, getLibraryExportUrl } from '@/lib/api'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { QUERY_KEYS, invalidateTagQueries } from '@/lib/queryKeys'
 import { useJobPolling } from '@/hooks/useJobPolling'
+import { useStorageDirs } from '@/hooks/useStorageDirs'
+import { downloadFile } from '@/lib/download'
+import { formatBytes } from '@/lib/format'
 import {
   SettingsTabContent,
   type SettingsTabContentRef,
 } from '@/components/settings/SettingsTabContent'
-
-// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface SystemInfo {
   storage_path: string
@@ -38,18 +38,6 @@ export interface LibraryInfoDialogProps {
 }
 
 type Tab = 'library' | 'settings'
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
-  const val = bytes / Math.pow(1024, i)
-  return `${i === 0 ? Math.round(val) : val.toFixed(1)} ${units[i]}`
-}
-
-// ── Sub-components ────────────────────────────────────────────────────────────
 
 function Shimmer({ className = '' }: { className?: string }) {
   return <div className={`rounded animate-pulse bg-muted ${className}`} />
@@ -83,7 +71,6 @@ function StorageBar({ storage }: { storage: SystemInfo['storage'] }) {
 
   return (
     <div className="space-y-2">
-      {/* Bar */}
       <div className="flex h-2 rounded-full overflow-hidden bg-secondary gap-px">
         {segments.map(
           (seg) =>
@@ -96,7 +83,6 @@ function StorageBar({ storage }: { storage: SystemInfo['storage'] }) {
             ),
         )}
       </div>
-      {/* Legend */}
       <div className="flex flex-wrap gap-x-4 gap-y-1">
         {segments.map(
           (seg) =>
@@ -115,35 +101,23 @@ function StorageBar({ storage }: { storage: SystemInfo['storage'] }) {
   )
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
-
 export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
   const isElectron = typeof window !== 'undefined' && !!window.electronAPI
   const queryClient = useQueryClient()
-  const [appDataDir, setAppDataDir] = useState<string | null>(null)
-  const [imageLibraryDir, setImageLibraryDir] = useState<string | null>(null)
+  const { appDataDir, imageLibraryDir } = useStorageDirs(open)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [confirmingResetTags, setConfirmingResetTags] = useState(false)
   const [exportingLibrary, setExportingLibrary] = useState(false)
   const [activeTab, setActiveTab] = useState<Tab>('library')
   const settingsRef = useRef<SettingsTabContentRef>(null)
 
-  // Library purge job polling
   const purgeJob = useJobPolling()
 
-  // When purge completes, refresh all data
   useEffect(() => {
     if (purgeJob.isComplete) {
       queryClient.invalidateQueries()
     }
   }, [purgeJob.isComplete, queryClient])
-
-  useEffect(() => {
-    if (open && window.electronAPI) {
-      window.electronAPI.getAppDataDir().then(setAppDataDir)
-      window.electronAPI.getImageLibraryDir().then(setImageLibraryDir)
-    }
-  }, [open])
 
   const {
     data: info,
@@ -161,6 +135,7 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
     onSuccess: (data) => {
       setConfirmingDelete(false)
       purgeJob.track(data.job_id)
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.backgroundJobs })
     },
     onError: (err) => {
       setConfirmingDelete(false)
@@ -175,24 +150,16 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
       invalidateTagQueries(queryClient)
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.systemInfo })
     },
+    onError: (err) => {
+      setConfirmingResetTags(false)
+      toast.error(getApiErrorMessage(err, 'Failed to reset tags'))
+    },
   })
 
   const handleExportLibrary = async () => {
     setExportingLibrary(true)
     try {
-      const resp = await axios.get(getLibraryExportUrl(), {
-        responseType: 'blob',
-        timeout: 300_000,
-      })
-      const blob = resp.data as Blob
-      const objectUrl = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = objectUrl
-      a.download = 'scene-atlas-library.zip'
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(objectUrl)
+      await downloadFile(getLibraryExportUrl(), 'scene-atlas-library.zip', { timeout: 300_000 })
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Library export failed'))
     } finally {
@@ -201,7 +168,6 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
   }
 
   const handleTabChange = async (tab: Tab) => {
-    // Save settings if switching away from settings tab
     if (activeTab === 'settings' && tab === 'library' && settingsRef.current?.isDirty) {
       try {
         await settingsRef.current.save()
@@ -217,7 +183,6 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
 
   const handleOpenChange = async (v: boolean) => {
     if (!v) {
-      // Save settings if they're dirty when closing the dialog
       if (activeTab === 'settings' && settingsRef.current?.isDirty) {
         try {
           await settingsRef.current.save()
@@ -227,8 +192,9 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
       }
 
       onClose()
+      // Wait out the close animation so the tab doesn't visibly switch.
       setTimeout(() => {
-        setActiveTab('library') // Reset to library tab
+        setActiveTab('library')
       }, 200)
     }
   }
@@ -236,12 +202,9 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-[480px] bg-card border-border/50 p-0 overflow-hidden">
-        {/* ── Amber stripe ─────────────────────────────────────── */}
         <div className="absolute top-0 inset-x-0 h-0.5 bg-gradient-to-r from-primary/70 via-primary/30 to-transparent pointer-events-none rounded-t-xl" />
 
-        {/* ── Header + Tabs (unified) ──────────────────────────── */}
         <div className="shrink-0 bg-popover">
-          {/* Header row */}
           <div
             className="px-4 flex items-center justify-between"
             style={{ padding: '10px 12px 10px 16px' }}
@@ -253,7 +216,7 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
               <div className="mt-[3px] h-px w-7 bg-gradient-to-r from-primary to-transparent" />
             </div>
             <button
-              onClick={onClose}
+              onClick={() => handleOpenChange(false)}
               className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
             >
               <X className="h-3.5 w-3.5" />
@@ -261,7 +224,6 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
             </button>
           </div>
 
-          {/* Tab strip */}
           <div className="flex border-t border-border/50 px-5">
             {[
               { id: 'library' as const, label: 'Library', Icon: BookOpen },
@@ -283,11 +245,9 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
           </div>
         </div>
 
-        {/* ── Body ───────────────────────────────────────────── */}
         <div className="overflow-y-auto h-[380px]">
           {activeTab === 'library' && (
             <div className="px-5 pb-5 pt-4 space-y-5">
-              {/* ── Stats row ─────────────────────────────────────── */}
               {isError ? (
                 <p className="text-sm text-muted-foreground italic py-2">
                   Could not load library information.
@@ -312,7 +272,6 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
                 </div>
               )}
 
-              {/* ── Storage breakdown ─────────────────────────────── */}
               {!isError && info && <StorageBar storage={info.storage} />}
               {!isError && isLoading && (
                 <div className="space-y-2">
@@ -325,7 +284,6 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
                 </div>
               )}
 
-              {/* ── Storage paths (Electron only) ─────────────────── */}
               {isElectron && (
                 <div className="space-y-1">
                   <p className="section-label">Storage</p>
@@ -343,10 +301,8 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
                 </div>
               )}
 
-              {/* ── Divider ───────────────────────────────────────── */}
               <div className="border-t border-border/50" />
 
-              {/* ── Actions row ───────────────────────────────────── */}
               <div className="flex items-center gap-2">
                 <Button
                   size="sm"
@@ -364,7 +320,6 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
                 </Button>
               </div>
 
-              {/* ── Danger zone ───────────────────────────────────── */}
               <section className="rounded-md border border-destructive/15 bg-destructive/[0.03] p-3 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div className="min-w-0">
@@ -433,7 +388,6 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
             </div>
           )}
 
-          {/* ── Settings tab ───────────────────────────────────── */}
           {activeTab === 'settings' && (
             <div className="px-5 pb-5 pt-4">
               <SettingsTabContent ref={settingsRef} dialogOpen={open} />
@@ -445,7 +399,7 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
           open={confirmingResetTags}
           onOpenChange={setConfirmingResetTags}
           title="Reset Tags"
-          description="This will delete all tags from every image and reset tag categories to their defaults. This cannot be undone."
+          description="This will delete all tags from every image and reset tag categories to their defaults, keeping only the Common tag pack (add genre packs again from Settings). This cannot be undone."
           confirmLabel="Reset Tags"
           confirmVariant="destructive"
           loadingLabel="Resetting…"

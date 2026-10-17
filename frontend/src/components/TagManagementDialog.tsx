@@ -15,31 +15,10 @@ import {
 } from '@/components/import/tagColors'
 import { useTheme } from '@/contexts/ThemeContext'
 import { CATEGORY_ICON_MAP, CATEGORY_ICON_NAMES, getCategoryIcon } from '@/lib/categoryIcons'
+import { onInlineEditKey } from '@/lib/inlineEditKeys'
+import { parseCommonValues, type TagValueEntry } from '@/components/import/types'
 import type { TagCategory } from '@/types'
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-interface TagValueEntry {
-  value: string
-  aliases: string[]
-}
-
-function parseCommonValues(raw: string | null): TagValueEntry[] {
-  if (!raw) return []
-  try {
-    const arr = JSON.parse(raw) as (string | { value: string; aliases?: string[] })[]
-    return arr.map((v) =>
-      typeof v === 'string'
-        ? { value: v, aliases: [] }
-        : { value: v.value, aliases: v.aliases ?? [] },
-    )
-  } catch (e) {
-    console.warn('Failed to parse common_values JSON:', e)
-    return []
-  }
-}
-
-// ── Types ────────────────────────────────────────────────────────────────────
+import { PanelTitle } from '@/components/ui/panel-title'
 
 interface TagManagementDialogProps {
   open: boolean
@@ -54,8 +33,6 @@ type ConfirmAction = {
   confirmStyle?: 'danger' | 'warning'
 }
 
-// ── Component ────────────────────────────────────────────────────────────────
-
 export function TagManagementDialog({ open, onClose }: TagManagementDialogProps) {
   const queryClient = useQueryClient()
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
@@ -69,6 +46,7 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
     onSuccess: (data) => {
       setVocabDirty(false)
       retagJob.track(data.job_id)
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.backgroundJobs })
     },
   })
 
@@ -102,28 +80,16 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
   const effectiveSelection =
     categories.find((c) => c.name === selectedCategory)?.name ?? categories[0]?.name ?? null
 
-  useEffect(() => {
-    if (!selectedCategory && categories.length > 0) {
-      setSelectedCategory(categories[0].name)
-    }
-  }, [categories, selectedCategory])
-
   return (
     <>
       <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
         <DialogContent className="max-w-[600px] w-full h-[75vh] flex flex-col gap-0 border-border/50 bg-card p-0 overflow-hidden">
-          {/* Header */}
           <div
             className="px-4 border-b border-border flex-shrink-0 bg-popover"
             style={{ padding: '10px 12px 10px 16px' }}
           >
             <div className="flex items-center justify-between">
-              <div className="flex flex-col">
-                <span className="font-display text-[13px] font-medium tracking-[0.06em] text-foreground leading-none">
-                  Tag Management
-                </span>
-                <div className="mt-[3px] h-px w-7 bg-gradient-to-r from-primary to-transparent" />
-              </div>
+              <PanelTitle>Tag Management</PanelTitle>
               <button
                 onClick={onClose}
                 className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
@@ -169,7 +135,6 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
             </div>
           )}
 
-          {/* Footer */}
           <div
             className="border-t border-border flex-shrink-0 bg-popover flex items-center justify-between"
             style={{ padding: '8px 16px' }}
@@ -241,8 +206,6 @@ export function TagManagementDialog({ open, onClose }: TagManagementDialogProps)
   )
 }
 
-// ── Category List (Left Panel) ────────────────────────────────────────────────
-
 function CategoryList({
   categories,
   selected,
@@ -255,41 +218,24 @@ function CategoryList({
   invalidate: () => void
 }) {
   const { theme } = useTheme()
-  const [creating, setCreating] = useState(false)
-  const [newName, setNewName] = useState('')
-  const inputRef = useRef<HTMLInputElement>(null)
 
   const createMut = useMutation({
     mutationFn: (name: string) => tagApi.createCategory({ name }),
     onSuccess: (cat) => {
       invalidate()
       onSelect(cat.name)
-      setCreating(false)
-      setNewName('')
     },
   })
-
-  useEffect(() => {
-    if (creating) inputRef.current?.focus()
-  }, [creating])
-
-  const handleCreate = () => {
-    const trimmed = newName.trim()
-    if (!trimmed) return
-    createMut.mutate(trimmed)
-  }
 
   return (
     <div
       className="flex-shrink-0 border-r border-border flex flex-col overflow-hidden bg-popover"
       style={{ width: 160 }}
     >
-      {/* Section label */}
       <p className="flex-shrink-0 section-label" style={{ padding: '9px 14px 5px' }}>
         Categories
       </p>
 
-      {/* Scrollable category list */}
       <div className="flex-1 overflow-y-auto" style={{ paddingTop: 2, paddingBottom: 2 }}>
         {categories.map((cat) => {
           const colors = getTagColor(cat.color, theme)
@@ -325,58 +271,17 @@ function CategoryList({
         })}
       </div>
 
-      {/* Footer — new category */}
       <div className="flex-shrink-0 border-t border-border" style={{ padding: '7px 12px 9px' }}>
-        {creating ? (
-          <div className="flex items-center gap-1">
-            <input
-              ref={inputRef}
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  handleCreate()
-                }
-                if (e.key === 'Escape') {
-                  e.preventDefault()
-                  e.nativeEvent.stopImmediatePropagation()
-                  setCreating(false)
-                  setNewName('')
-                }
-              }}
-              placeholder="category name"
-              className="flex-1 min-w-0 bg-secondary border border-border rounded px-1.5 py-0.5 text-[11.5px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/40"
-            />
-            <button onClick={handleCreate} className="p-0.5 text-primary hover:text-primary/80">
-              <Check style={{ width: 11, height: 11 }} />
-            </button>
-            <button
-              onClick={() => {
-                setCreating(false)
-                setNewName('')
-              }}
-              className="p-0.5 text-muted-foreground hover:text-foreground"
-            >
-              <X style={{ width: 11, height: 11 }} />
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={() => setCreating(true)}
-            className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground/70 hover:text-muted-foreground transition-colors"
-          >
-            <Plus className="h-[11px] w-[11px]" />
-            New category
-          </button>
-        )}
+        <InlineAddRow
+          variant="sidebar"
+          label="New category"
+          placeholder="category name"
+          onAdd={(name) => createMut.mutateAsync(name)}
+        />
       </div>
     </div>
   )
 }
-
-// ── Category Editor (Right Panel) ─────────────────────────────────────────────
 
 function CategoryEditor({
   category,
@@ -394,10 +299,10 @@ function CategoryEditor({
   facetCounts: { value: string; count: number }[]
 }) {
   const { theme } = useTheme()
+  const queryClient = useQueryClient()
   const [editingName, setEditingName] = useState(false)
   const [nameInput, setNameInput] = useState(category.name)
   const [description, setDescription] = useState(category.description ?? '')
-  const nameRef = useRef<HTMLInputElement>(null)
 
   const colors = getTagColor(category.color, theme)
   const CatIcon = getCategoryIcon(category.icon)
@@ -447,14 +352,11 @@ function CategoryEditor({
   const categoryDescRef = useRef(category.description ?? '')
   categoryDescRef.current = category.description ?? ''
 
-  // Track whether the user has made edits that haven't been saved yet
   const hasUnsavedDescRef = useRef(false)
 
-  // Keep the category name ref in sync so cleanup uses the current value
   const categoryNameRef = useRef(category.name)
   categoryNameRef.current = category.name
 
-  // Mark description as dirty when user edits it
   const handleDescChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setDescription(e.target.value)
     hasUnsavedDescRef.current = true
@@ -466,20 +368,16 @@ function CategoryEditor({
       const current = descriptionRef.current.trim()
       const original = categoryDescRef.current
       if (current !== original) {
-        tagApi.updateCategory(categoryNameRef.current, {
-          description: current || undefined,
-        })
+        tagApi
+          .updateCategory(categoryNameRef.current, { description: current || undefined })
+          .then(() => invalidateTagQueries(queryClient))
+          .catch((err) => console.error('Failed to save category description:', err))
       }
     }
-  }, [])
-
-  useEffect(() => {
-    if (editingName) nameRef.current?.focus()
-  }, [editingName])
+  }, [queryClient])
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Heading — compact row with inline icon/color popover triggers */}
       <div
         className="border-b border-border flex-shrink-0"
         style={{ padding: '11px 14px 10px 16px' }}
@@ -488,7 +386,6 @@ function CategoryEditor({
           <div className="flex flex-col gap-0.5 flex-1 min-w-0">
             <p className="section-label">Editing</p>
             <div className="group/catname flex items-center gap-[7px] mt-0.5">
-              {/* Icon + color appearance popover */}
               <Popover>
                 <PopoverTrigger asChild>
                   <button
@@ -558,27 +455,21 @@ function CategoryEditor({
                 </PopoverContent>
               </Popover>
 
-              {/* Category name — inline editable */}
               {editingName ? (
                 <input
                   autoFocus
-                  ref={nameRef}
                   value={nameInput}
                   onChange={(e) => setNameInput(e.target.value)}
                   onBlur={handleNameSave}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      ;(e.target as HTMLInputElement).blur()
-                    }
-                    if (e.key === 'Escape') {
-                      e.preventDefault()
-                      e.nativeEvent.stopImmediatePropagation()
-                      setEditingName(false)
-                      setNameInput(category.name)
-                    }
-                  }}
+                  onKeyDown={(e) =>
+                    onInlineEditKey(e, {
+                      onEnter: () => e.currentTarget.blur(),
+                      onEscape: () => {
+                        setEditingName(false)
+                        setNameInput(category.name)
+                      },
+                    })
+                  }
                   className={`flex-1 min-w-0 bg-transparent border-b border-primary/70 focus:outline-none font-display text-[17px] font-medium tracking-[0.04em] leading-[1.2] capitalize ${colors.text}`}
                 />
               ) : (
@@ -601,7 +492,6 @@ function CategoryEditor({
             </div>
           </div>
 
-          {/* Right: delete */}
           <div className="flex items-center shrink-0" style={{ marginTop: 12 }}>
             {!editingName && (
               <button
@@ -633,24 +523,18 @@ function CategoryEditor({
           </div>
         </div>
 
-        {/* Description — underline style (Change F) */}
         <div style={{ marginTop: 8 }}>
           <textarea
             value={description}
             onChange={handleDescChange}
             onBlur={handleDescSave}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                e.stopPropagation()
-                handleDescSave()
-              }
-              if (e.key === 'Escape') {
-                e.preventDefault()
-                e.nativeEvent.stopImmediatePropagation()
-                ;(e.target as HTMLTextAreaElement).blur()
-              }
-            }}
+            onKeyDown={(e) =>
+              onInlineEditKey(e, {
+                onEnter: handleDescSave,
+                onEscape: () => e.currentTarget.blur(),
+                allowShiftEnter: true,
+              })
+            }
             placeholder="Add a description…"
             rows={1}
             className="w-full text-[11.5px] text-muted-foreground placeholder:text-muted-foreground/50 bg-transparent border-b border-border/50 focus:border-primary/70 focus:outline-none focus:text-foreground resize-none py-1 transition-colors"
@@ -663,7 +547,6 @@ function CategoryEditor({
         </div>
       </div>
 
-      {/* Tag values */}
       <div className="flex-1 overflow-hidden flex flex-col min-h-0">
         <div className="flex-shrink-0" style={{ padding: '7px 16px 3px' }}>
           <p className="section-label">Tag Values</p>
@@ -683,8 +566,6 @@ function CategoryEditor({
   )
 }
 
-// ── Tag Value List ────────────────────────────────────────────────────────────
-
 function TagValueList({
   categoryName,
   values,
@@ -700,10 +581,6 @@ function TagValueList({
   invalidate: () => void
   setConfirmAction: (a: ConfirmAction | null) => void
 }) {
-  const [addingValue, setAddingValue] = useState(false)
-  const [newValue, setNewValue] = useState('')
-  const addRef = useRef<HTMLInputElement>(null)
-
   const upsertMut = useMutation({
     mutationFn: ({ value, aliases }: { value: string; aliases?: string[] }) =>
       tagApi.upsertTagValue(categoryName, value, aliases),
@@ -717,17 +594,6 @@ function TagValueList({
       setConfirmAction(null)
     },
   })
-
-  useEffect(() => {
-    if (addingValue) addRef.current?.focus()
-  }, [addingValue])
-
-  const handleAdd = () => {
-    const trimmed = newValue.trim()
-    if (!trimmed) return
-    upsertMut.mutate({ value: trimmed })
-    setNewValue('')
-  }
 
   return (
     <div>
@@ -756,65 +622,18 @@ function TagValueList({
         )
       })}
 
-      {/* Add new value */}
       <div style={{ marginTop: 4 }}>
-        {addingValue ? (
-          <div
-            className="flex items-center gap-1.5 rounded-[5px]"
-            style={{
-              padding: '5px 8px',
-              background: 'hsl(var(--muted))',
-              border: '1px solid hsl(var(--border))',
-            }}
-          >
-            <input
-              ref={addRef}
-              value={newValue}
-              onChange={(e) => setNewValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  handleAdd()
-                }
-                if (e.key === 'Escape') {
-                  e.preventDefault()
-                  e.nativeEvent.stopImmediatePropagation()
-                  setAddingValue(false)
-                  setNewValue('')
-                }
-              }}
-              placeholder="tag value"
-              className="flex-1 min-w-0 bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
-            />
-            <button onClick={handleAdd} className="p-0.5 text-primary hover:text-primary/80">
-              <Check style={{ width: 11, height: 11 }} />
-            </button>
-            <button
-              onClick={() => {
-                setAddingValue(false)
-                setNewValue('')
-              }}
-              className="p-0.5 text-muted-foreground hover:text-foreground"
-            >
-              <X style={{ width: 11, height: 11 }} />
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={() => setAddingValue(true)}
-            className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground/70 hover:text-muted-foreground transition-colors"
-          >
-            <Plus className="h-[11px] w-[11px]" />
-            Add tag value
-          </button>
-        )}
+        <InlineAddRow
+          variant="list"
+          label="Add tag value"
+          placeholder="tag value"
+          keepOpen
+          onAdd={(value) => upsertMut.mutate({ value })}
+        />
       </div>
     </div>
   )
 }
-
-// ── Single Tag Value Row ──────────────────────────────────────────────────────
 
 function TagValueRow({
   categoryName,
@@ -834,8 +653,8 @@ function TagValueRow({
   const [editMode, setEditMode] = useState<'none' | 'name' | 'aliases'>('none')
   const [editVal, setEditVal] = useState(entry.value)
   const [aliasInput, setAliasInput] = useState('')
-  const editRef = useRef<HTMLInputElement>(null)
-  const aliasRef = useRef<HTMLInputElement>(null)
+  // A click that ends an edit (blurring the input, or "done") lands on the row afterwards,
+  // and the row's click starts a rename. Ignore row clicks within 150ms of an edit ending.
   const editEndedAt = useRef(0)
 
   const renameMut = useMutation({
@@ -850,14 +669,6 @@ function TagValueRow({
     mutationFn: (aliases: string[]) => tagApi.upsertTagValue(categoryName, entry.value, aliases),
     onSuccess: () => invalidate(),
   })
-
-  useEffect(() => {
-    if (editMode === 'name') editRef.current?.focus()
-  }, [editMode])
-
-  useEffect(() => {
-    if (editMode === 'aliases') aliasRef.current?.focus()
-  }, [editMode])
 
   const handleRename = () => {
     const trimmed = editVal.trim()
@@ -899,24 +710,19 @@ function TagValueRow({
         {editMode === 'name' ? (
           <input
             autoFocus
-            ref={editRef}
             value={editVal}
             onChange={(e) => setEditVal(e.target.value)}
             onBlur={handleRename}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                e.stopPropagation()
-                ;(e.target as HTMLInputElement).blur()
-              }
-              if (e.key === 'Escape') {
-                e.preventDefault()
-                e.nativeEvent.stopImmediatePropagation()
-                editEndedAt.current = Date.now()
-                setEditMode('none')
-                setEditVal(entry.value)
-              }
-            }}
+            onKeyDown={(e) =>
+              onInlineEditKey(e, {
+                onEnter: () => e.currentTarget.blur(),
+                onEscape: () => {
+                  editEndedAt.current = Date.now()
+                  setEditMode('none')
+                  setEditVal(entry.value)
+                },
+              })
+            }
             className="w-full bg-transparent border-b border-primary/70 focus:outline-none text-[13px] font-medium text-foreground capitalize"
           />
         ) : (
@@ -927,7 +733,6 @@ function TagValueRow({
           </span>
         )}
 
-        {/* Aliases summary — shown when not editing name */}
         {editMode !== 'name' && editMode !== 'aliases' && (
           <button
             onClick={(e) => {
@@ -949,10 +754,8 @@ function TagValueRow({
           </button>
         )}
 
-        {/* Alias editor — shown when editMode === 'aliases' */}
         {editMode === 'aliases' && (
           <div style={{ marginTop: 4 }}>
-            {/* Existing alias chips */}
             {entry.aliases.length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 5 }}>
                 {entry.aliases.map((alias) => (
@@ -974,25 +777,20 @@ function TagValueRow({
               </div>
             )}
 
-            {/* Input row */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input
-                ref={aliasRef}
+                autoFocus
                 value={aliasInput}
                 onChange={(e) => setAliasInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    addAlias()
-                  }
-                  if (e.key === 'Escape') {
-                    e.preventDefault()
-                    e.nativeEvent.stopImmediatePropagation()
-                    editEndedAt.current = Date.now()
-                    setEditMode('none')
-                  }
-                }}
+                onKeyDown={(e) =>
+                  onInlineEditKey(e, {
+                    onEnter: addAlias,
+                    onEscape: () => {
+                      editEndedAt.current = Date.now()
+                      setEditMode('none')
+                    },
+                  })
+                }
                 placeholder="add alias…"
                 className="flex-1 max-w-[155px] bg-transparent border-b border-border focus:border-primary/70 text-[11.5px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none py-0.5 transition-colors"
               />
@@ -1011,7 +809,6 @@ function TagValueRow({
         )}
       </div>
 
-      {/* Right: margin column (count + actions) */}
       <div className="w-[54px] shrink-0 flex items-center justify-end gap-1 px-2">
         {editMode !== 'name' && (
           <button
@@ -1039,6 +836,99 @@ function TagValueRow({
           <Trash2 style={{ width: 11, height: 11 }} />
         </button>
       </div>
+    </div>
+  )
+}
+
+const INLINE_ADD_STYLES = {
+  sidebar: {
+    row: 'flex items-center gap-1',
+    rowStyle: undefined,
+    input:
+      'flex-1 min-w-0 bg-secondary border border-border rounded px-1.5 py-0.5 text-[11.5px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/40',
+  },
+  list: {
+    row: 'flex items-center gap-1.5 rounded-[5px]',
+    rowStyle: {
+      padding: '5px 8px',
+      background: 'hsl(var(--muted))',
+      border: '1px solid hsl(var(--border))',
+    },
+    input:
+      'flex-1 min-w-0 bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none',
+  },
+} as const
+
+/**
+ * "+ label" button that turns into an input with confirm/cancel. By default it closes once
+ * `onAdd` resolves (and stays open if it rejects); `keepOpen` clears the input for the next entry.
+ */
+function InlineAddRow({
+  variant,
+  label,
+  placeholder,
+  onAdd,
+  keepOpen = false,
+}: {
+  variant: keyof typeof INLINE_ADD_STYLES
+  label: string
+  placeholder: string
+  onAdd: (value: string) => unknown
+  keepOpen?: boolean
+}) {
+  const [adding, setAdding] = useState(false)
+  const [value, setValue] = useState('')
+  const styles = INLINE_ADD_STYLES[variant]
+
+  const cancel = () => {
+    setAdding(false)
+    setValue('')
+  }
+
+  const submit = async () => {
+    const trimmed = value.trim()
+    if (!trimmed) return
+    if (keepOpen) {
+      onAdd(trimmed)
+      setValue('')
+      return
+    }
+    try {
+      await onAdd(trimmed)
+      cancel()
+    } catch {
+      // The mutation holds the error; keep the input so the user can fix it.
+    }
+  }
+
+  if (!adding) {
+    return (
+      <button
+        onClick={() => setAdding(true)}
+        className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground/70 hover:text-muted-foreground transition-colors"
+      >
+        <Plus className="h-[11px] w-[11px]" />
+        {label}
+      </button>
+    )
+  }
+
+  return (
+    <div className={styles.row} style={styles.rowStyle}>
+      <input
+        autoFocus
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => onInlineEditKey(e, { onEnter: submit, onEscape: cancel })}
+        placeholder={placeholder}
+        className={styles.input}
+      />
+      <button onClick={submit} className="p-0.5 text-primary hover:text-primary/80">
+        <Check style={{ width: 11, height: 11 }} />
+      </button>
+      <button onClick={cancel} className="p-0.5 text-muted-foreground hover:text-foreground">
+        <X style={{ width: 11, height: 11 }} />
+      </button>
     </div>
   )
 }

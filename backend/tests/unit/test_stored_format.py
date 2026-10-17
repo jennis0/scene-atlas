@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 from PIL import Image as PILImage
@@ -87,7 +89,7 @@ def test_failed_save_leaves_no_partial_file(tmp_path, monkeypatch):
     src = _write(tmp_path / "a.png")
 
     def boom(self, fp, *a, **k):
-        open(fp, "wb").write(b"partial")
+        Path(fp).write_bytes(b"partial")
         raise OSError("disk full")
 
     monkeypatch.setattr(PILImage.Image, "save", boom)

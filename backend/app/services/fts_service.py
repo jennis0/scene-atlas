@@ -13,9 +13,7 @@ from backend.app.services.image_parser import build_search_text
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
 # Module-level alias vocabulary cache (TTL-based, avoids per-request DB hit)
-# ---------------------------------------------------------------------------
 
 _alias_vocab: dict[str, str] | None = None  # alias_or_canonical -> canonical
 _alias_reverse: dict[str, set[str]] | None = None  # canonical -> {aliases}
@@ -107,9 +105,7 @@ def invalidate_alias_cache() -> None:
         _alias_vocab_loaded_at = 0.0
 
 
-# ---------------------------------------------------------------------------
 # FTS5 search
-# ---------------------------------------------------------------------------
 
 
 def _sanitize_fts_query(raw: str) -> str:
@@ -252,14 +248,19 @@ def rebuild_search_text(image, db: Session) -> None:
     index stays in sync.  The FTS5 image_fts_au trigger fires automatically
     on UPDATE to images, picking up the new search_text.
     """
-    image.search_text = build_search_text(
+    image.search_text = search_text_for(image)
+    db.flush()  # triggers image_fts_au
+
+
+def search_text_for(image) -> str:
+    """The FTS ``search_text`` for an image from its current name, tags and metadata."""
+    return build_search_text(
         name=image.name,
         filename=image.filename,
         author=image.author,
         tags=[{"category": t.category, "value": t.value} for t in image.tags],
         subgroup=image.subgroup,
     )
-    db.flush()  # triggers image_fts_au
 
 
 def backfill_search_text(db: Session) -> int:

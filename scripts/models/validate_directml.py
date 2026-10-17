@@ -29,9 +29,7 @@ import numpy as np
 if TYPE_CHECKING:
     import onnxruntime as ort
 
-# ---------------------------------------------------------------------------
 # Logging setup — capture ORT warnings to detect per-op CPU fallbacks
-# ---------------------------------------------------------------------------
 
 _ort_fallback_warnings: list[str] = []
 
@@ -63,9 +61,7 @@ def _install_ort_log_capture() -> None:
     ort_logger.addHandler(handler)
 
 
-# ---------------------------------------------------------------------------
 # CLI
-# ---------------------------------------------------------------------------
 
 _DEFAULT_MODEL_DIR = Path(__file__).resolve().parent.parent / "backend" / "models" / "clip-vit-b-32"
 
@@ -96,9 +92,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-# ---------------------------------------------------------------------------
 # Manifest loading
-# ---------------------------------------------------------------------------
 
 
 def load_manifest(model_dir: Path) -> dict:
@@ -110,9 +104,7 @@ def load_manifest(model_dir: Path) -> dict:
     return json.loads(manifest_path.read_text(encoding="utf-8"))
 
 
-# ---------------------------------------------------------------------------
 # Session creation
-# ---------------------------------------------------------------------------
 
 
 def create_session(
@@ -135,12 +127,11 @@ def create_session(
         # Always include CPU as a fallback so the session can still be created
         providers_requested.append("CPUExecutionProvider")
 
-    sess = ort.InferenceSession(
+    return ort.InferenceSession(
         str(model_path),
         sess_options=sess_opts,
         providers=providers_requested,
     )
-    return sess
 
 
 def get_active_provider(sess: ort.InferenceSession) -> str:
@@ -149,9 +140,7 @@ def get_active_provider(sess: ort.InferenceSession) -> str:
     return providers[0] if providers else "unknown"
 
 
-# ---------------------------------------------------------------------------
 # Synthetic input generation
-# ---------------------------------------------------------------------------
 
 
 def make_vision_input(image_size: int) -> dict[str, np.ndarray]:
@@ -168,9 +157,7 @@ def make_text_input(max_length: int) -> dict[str, np.ndarray]:
     return {"input_ids": input_ids, "attention_mask": attention_mask}
 
 
-# ---------------------------------------------------------------------------
 # Benchmarking
-# ---------------------------------------------------------------------------
 
 
 def benchmark(
@@ -201,9 +188,7 @@ def benchmark(
     return avg_ms, result[0]
 
 
-# ---------------------------------------------------------------------------
 # Reporting
-# ---------------------------------------------------------------------------
 
 
 def print_header(title: str) -> None:
@@ -239,9 +224,7 @@ def print_fallback_report() -> None:
         print(f"    - {short}")
 
 
-# ---------------------------------------------------------------------------
 # Main
-# ---------------------------------------------------------------------------
 
 
 def main() -> None:
@@ -296,7 +279,7 @@ def main() -> None:
 
     output_names = ["embeddings"]
 
-    # ── CPU baseline ──────────────────────────────────────────────────────
+    # CPU baseline
 
     print_header("CPU Baseline (CPUExecutionProvider)")
 
@@ -315,7 +298,7 @@ def main() -> None:
     )
     print(f"  Text encoder:    {cpu_text_ms:.2f} ms/iter  (output shape: {cpu_text_out.shape})")
 
-    # ── DirectML ──────────────────────────────────────────────────────────
+    # DirectML
 
     dml_vision_ms = None
     dml_text_ms = None
@@ -360,7 +343,7 @@ def main() -> None:
             )
             print(f"  Text   CPU vs DML cosine similarity: {text_cos:.8f}")
 
-    # ── Summary ───────────────────────────────────────────────────────────
+    # Summary
 
     print_header("Throughput Comparison")
     print_throughput_row("Vision encoder", cpu_vision_ms, dml_vision_ms)
@@ -374,7 +357,7 @@ def main() -> None:
             f"    CPU: {total_cpu:.2f} ms   DML: {total_dml:.2f} ms   speedup: {total_cpu / total_dml:.2f}x"
         )
 
-    # ── Fallback warnings ─────────────────────────────────────────────────
+    # Fallback warnings
 
     print_header("CPU Fallback Warnings")
     print_fallback_report()

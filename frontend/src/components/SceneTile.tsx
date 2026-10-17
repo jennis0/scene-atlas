@@ -41,7 +41,6 @@ export function SceneTile({
       }`}
       onClick={onClick}
     >
-      {/* Thumbnail */}
       <div
         className="aspect-[4/3] overflow-hidden"
         style={
@@ -71,7 +70,6 @@ export function SceneTile({
         {image.media_type === 'video' && <VideoIndicator />}
       </div>
 
-      {/* Text overlay */}
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/50 to-transparent pt-12 pb-3 px-2.5 pointer-events-none">
         <p className="text-[13px] font-medium text-white leading-snug line-clamp-1 drop-shadow">
           {primaryText}
@@ -82,7 +80,6 @@ export function SceneTile({
         {authorText && <p className="text-[11px] text-white/60 truncate mt-0.5">{authorText}</p>}
       </div>
 
-      {/* Active selection ring inset overlay */}
       {isActive && (
         <div className="absolute inset-0 ring-2 ring-inset ring-primary/40 rounded-lg pointer-events-none" />
       )}

@@ -6,7 +6,7 @@ Functions:
 
 Ingest-related maintenance lives in ``ingest_maintenance``; vector index repair
 in ``vector_reconcile``. Scheduled by the Scheduler (started in the FastAPI
-lifespan). Also runnable from the CLI: ``uv run python -m backend.pipeline.maintenance``
+lifespan).
 """
 
 import logging
@@ -18,22 +18,15 @@ from pathlib import Path
 
 from backend.app.config import settings
 
-# ---------------------------------------------------------------------------
 # Backup tasks
-# ---------------------------------------------------------------------------
 
 
 def backup_sqlite(backup_dir: Path, db_path: Path | None = None) -> Path:
-    """Create a consistent SQLite snapshot using the sqlite3.backup() API.
+    """Write a consistent snapshot of the SQLite database into *backup_dir*.
 
-    Uses the built-in sqlite3 backup API rather than file copy so the snapshot
-    is guaranteed consistent even if the database is being written to at the
-    same time.
-
-    Args:
-        backup_dir: Directory where the backup will be written.
-        db_path: Path to the source SQLite file. Defaults to the application
-            database derived from ``settings.database_url``.
+    Uses the sqlite3 backup API rather than a file copy so the snapshot is
+    consistent even while the database is being written to. *db_path*
+    defaults to the application database.
     """
     logger = logging.getLogger(__name__)
     if db_path is None:
@@ -60,8 +53,7 @@ def backup_vector_db(backup_dir: Path) -> Path | None:
         from backend.app.services.lancedb_service import get_lancedb_service
 
         svc = get_lancedb_service()
-        backup_path = svc.backup_storage(backup_dir)
-        return backup_path
+        return svc.backup_storage(backup_dir)
     except Exception as e:
         logger.warning("LanceDB backup failed: %s", e)
         return None
@@ -141,11 +133,6 @@ def backup_database() -> dict:
     return result
 
 
-# ---------------------------------------------------------------------------
-# Staging cleanup tasks
-# ---------------------------------------------------------------------------
-
-
 # Only files in the store's shard layout (ab/cd/<key>) are ever considered;
 # anything else under the library root (backups/, .incoming/) is left alone.
 _SHARD_HEX = set("0123456789abcdef")
@@ -194,6 +181,7 @@ def sweep_orphaned_store_files(delete: bool = True) -> dict:
 
     from backend.app.models import Image
     from backend.app.services import get_image_store, get_thumbnail_store
+    from backend.app.services.shutdown import raise_if_shutting_down
     from backend.pipeline.db import pipeline_db
 
     with pipeline_db() as db:
@@ -206,6 +194,7 @@ def sweep_orphaned_store_files(delete: bool = True) -> dict:
         ("images", get_image_store(), lambda p: p.name in image_keys),
         ("thumbnails", get_thumbnail_store(), lambda p: _thumbnail_stem(p.name) in thumbnail_stems),
     ):
+        raise_if_shutting_down()
         files = _store_files(store.base_dir)
         orphans = [
             p for p in files if not is_known(p) and now - p.stat().st_mtime > ORPHAN_MIN_AGE_SECONDS

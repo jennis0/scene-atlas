@@ -3,8 +3,12 @@ import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { TagColorProvider } from './contexts/TagColorContext'
-import { DesktopGate } from './components/DesktopGate'
 import App from './App'
+// Bundled so the desktop app renders correctly offline.
+import '@fontsource-variable/cinzel/wght.css'
+import '@fontsource-variable/figtree/wght.css'
+import '@fontsource-variable/figtree/wght-italic.css'
+import '@fontsource-variable/jetbrains-mono/wght.css'
 import './index.css'
 
 // Apply saved theme before first paint (default = dark)
@@ -26,9 +30,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <TagColorProvider>
-          <DesktopGate>
-            <App />
-          </DesktopGate>
+          <App />
         </TagColorProvider>
       </ThemeProvider>
     </QueryClientProvider>

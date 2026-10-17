@@ -1,3 +1,4 @@
+import type { Ref } from 'react'
 import { MAX_AUTHOR_LENGTH, MAX_NAME_LENGTH } from '@/lib/constants'
 
 interface MetadataFormProps {
@@ -5,9 +6,7 @@ interface MetadataFormProps {
   groupName: string
   authorPlaceholder?: string
   groupNamePlaceholder?: string
-  /** When true, author input is disabled */
   authorDisabled?: boolean
-  /** When true, group name input is disabled */
   groupNameDisabled?: boolean
   /** When true, shows the primary-coloured focus border on the author input */
   authorHighlight?: boolean
@@ -22,8 +21,8 @@ interface MetadataFormProps {
   onGroupNameChange: (val: string) => void
   /** Called on blur for either input — used for auto-save */
   onBlur?: () => void
-  /** When true, auto-focuses the group name input (e.g. after a split) */
-  groupNameAutoFocus?: boolean
+  /** Lets the parent focus the group name input (e.g. after a split). */
+  groupNameRef?: Ref<HTMLInputElement>
 }
 
 export function MetadataForm({
@@ -41,7 +40,7 @@ export function MetadataForm({
   onAuthorChange,
   onGroupNameChange,
   onBlur,
-  groupNameAutoFocus,
+  groupNameRef,
 }: MetadataFormProps) {
   const labelClass =
     'text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1.5 block font-semibold'
@@ -79,7 +78,7 @@ export function MetadataForm({
       <div>
         <label className={labelClass}>Group Name</label>
         <input
-          autoFocus={groupNameAutoFocus}
+          ref={groupNameRef}
           value={groupName}
           onChange={(e) => onGroupNameChange(e.target.value)}
           onBlur={onBlur}

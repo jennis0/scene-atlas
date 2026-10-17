@@ -3,32 +3,36 @@ import type { TagCategory, ParsedTagVocab } from '@/types'
 // Re-export so component-layer files can import from this module
 export type { ParsedTagVocab }
 
+export interface TagValueEntry {
+  value: string
+  aliases: string[]
+}
+
+/** Parses a category's `common_values` JSON (plain strings or `{ value, aliases }`). */
+export function parseCommonValues(raw: string | null): TagValueEntry[] {
+  if (!raw) return []
+  try {
+    const arr = JSON.parse(raw) as (string | { value: string; aliases?: string[] })[]
+    return arr.map((v) =>
+      typeof v === 'string'
+        ? { value: v, aliases: [] }
+        : { value: v.value, aliases: v.aliases ?? [] },
+    )
+  } catch (e) {
+    console.warn('Failed to parse common_values JSON:', e)
+    return []
+  }
+}
+
 export function parseTagVocabulary(categories: TagCategory[]): ParsedTagVocab[] {
   return categories
     .map((cat) => {
-      const values: string[] = []
+      const entries = parseCommonValues(cat.common_values)
       const aliases: Record<string, string[]> = {}
-      if (cat.common_values) {
-        try {
-          const parsed = JSON.parse(cat.common_values) as (
-            | string
-            | { value: string; aliases?: string[] }
-          )[]
-          for (const entry of parsed) {
-            if (typeof entry === 'string') {
-              values.push(entry)
-            } else {
-              values.push(entry.value)
-              if (entry.aliases && entry.aliases.length > 0) {
-                aliases[entry.value] = entry.aliases
-              }
-            }
-          }
-        } catch {
-          /* skip malformed */
-        }
+      for (const { value, aliases: a } of entries) {
+        if (a.length > 0) aliases[value] = a
       }
-      return { category: cat.name, icon: cat.icon, values, aliases }
+      return { category: cat.name, icon: cat.icon, values: entries.map((e) => e.value), aliases }
     })
     .filter((v) => v.values.length > 0)
 }

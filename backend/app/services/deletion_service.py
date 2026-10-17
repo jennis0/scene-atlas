@@ -4,25 +4,19 @@ import logging
 import re
 from dataclasses import dataclass, field
 
+from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
-from ..models.database import Image
+from ..models.database import Color, Image, Tag
 
 logger = logging.getLogger(__name__)
 
 
 def safe_delete_image(db: Session, image: Image) -> None:
-    """Delete an image record; only remove physical files if last reference.
+    """Delete an image row; remove its files only if no other row shares them.
 
-    Handles:
-    - Ref counting: checks if other Image records share the same storage_key
-    - LanceDB cleanup: always deletes the per-image embedding point
-    - Thumbnail cleanup: deletes ALL thumbnail sizes, not just medium
-    - DB cascade: tags + colors are deleted via cascade
-
-    Args:
-        db: Active SQLAlchemy session (caller is responsible for commit)
-        image: The Image record to delete
+    Always deletes the image's embedding and all thumbnail sizes; tags and
+    colors go via cascade. The caller commits.
     """
     from . import get_image_store, get_thumbnail_store
     from .lancedb_service import get_lancedb_service
@@ -113,9 +107,16 @@ def delete_image_rows(db: Session, images: list[Image]) -> PendingFileDeletes:
         return pending
     candidates = {img.storage_key: img.thumbnail_key for img in images if img.storage_key}
     pending.image_ids = [img.id for img in images]
-    for image in images:
-        db.delete(image)
     db.flush()
+    # Bulk deletes: an ORM delete-cascade loads each image's tags and colours
+    # first (two SELECTs per image), which dominates undoing a large import.
+    for start in range(0, len(pending.image_ids), _CHUNK):
+        chunk = pending.image_ids[start : start + _CHUNK]
+        db.execute(delete(Tag).where(Tag.image_id.in_(chunk)))
+        db.execute(delete(Color).where(Color.image_id.in_(chunk)))
+        db.execute(delete(Image).where(Image.id.in_(chunk)))
+    for image in images:
+        db.expunge(image)
 
     keys = sorted(candidates)
     still_used: set[str] = set()
@@ -127,8 +128,8 @@ def delete_image_rows(db: Session, images: list[Image]) -> PendingFileDeletes:
     for key in keys:
         if key not in still_used:
             pending.storage_keys.append(key)
-            if candidates[key]:
-                pending.thumbnail_keys.append(candidates[key])
+            if thumb := candidates[key]:
+                pending.thumbnail_keys.append(thumb)
     return pending
 
 

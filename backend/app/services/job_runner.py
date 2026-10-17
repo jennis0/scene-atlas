@@ -1,6 +1,6 @@
 """In-process background job runner with bounded concurrency and status tracking.
 
-Submits and executes background work (imports, retagging, backfills) within
+Submits and executes background work (retagging, backfills, embedding rebuilds) within
 the FastAPI process.  Jobs run in a ``ThreadPoolExecutor`` so heavy
 processing (CLIP, thumbnails) doesn't block the async event loop.
 
@@ -27,6 +27,11 @@ from datetime import UTC, datetime
 from typing import Any
 
 from backend.app.config import settings as _settings
+from backend.app.services.shutdown import (
+    ShutdownRequested,
+    request_shutdown,
+    shutdown_requested,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +45,7 @@ class JobRecord:
 
     id: str
     name: str
-    status: str = "queued"  # queued → running → completed | failed
+    status: str = "queued"  # queued → running → completed | failed | interrupted
     submitted_at: float = field(default_factory=time.time)
     started_at: float | None = None
     finished_at: float | None = None
@@ -102,32 +107,17 @@ class JobRunner:
 
     @property
     def shutting_down(self) -> bool:
-        """True once shutdown() has been called.  Worker threads should
-        check this between units of work and exit early."""
-        return self._shutting_down.is_set()
+        """True once shutdown has begun. Jobs check it through
+        ``shutdown.raise_if_shutting_down()`` at batch boundaries."""
+        return self._shutting_down.is_set() or shutdown_requested()
 
-    # ------------------------------------------------------------------
     # Public API
-    # ------------------------------------------------------------------
 
     def submit(self, fn: Callable, *args: Any, name: str | None = None, **kwargs: Any) -> str:
-        """Submit a callable for background execution.
+        """Run *fn* in the background; returns a job ID for :meth:`get_job`.
 
-        Parameters
-        ----------
-        fn:
-            The function to execute.  If ``fn`` accepts a ``progress_fn``
-            keyword argument, a progress callback is injected automatically.
-        name:
-            Human-readable job name (shown in status API).  Defaults to
-            ``fn.__name__``.
-        *args, **kwargs:
-            Forwarded to ``fn``.
-
-        Returns
-        -------
-        str
-            A job ID that can be used with :meth:`get_job` to poll status.
+        If *fn* accepts a ``progress_fn`` keyword, a progress callback is injected.
+        *name* is shown in the status API and defaults to ``fn.__name__``.
         """
         job_id = uuid.uuid4().hex[:16]
         job_name = name or fn.__name__
@@ -156,6 +146,11 @@ class JobRunner:
                 record.status = "completed"
                 record.result = result
                 return result
+            except ShutdownRequested:
+                record.status = "interrupted"
+                record.error = "Interrupted by shutdown"
+                logger.info("Background job %s (%s) stopped for shutdown", job_id, job_name)
+                return None
             except Exception as exc:
                 record.status = "failed"
                 record.error = str(exc)
@@ -200,19 +195,11 @@ class JobRunner:
                     return rec.id
             return None
 
-    def run_sync(self, fn: Callable, *args: Any, timeout: float = 120, **kwargs: Any) -> Any:
-        """Run a function in the thread pool and block until complete.
-
-        For callers that must wait for a result while respecting the pool's
-        concurrency limit.
-        """
-        future = self._executor.submit(fn, *args, **kwargs)
-        return future.result(timeout=timeout)
-
     def shutdown(self, wait: bool = True) -> None:
         """Signal workers to stop, then drain the queue."""
         logger.info("JobRunner shutting down (wait=%s)...", wait)
         self._shutting_down.set()
+        request_shutdown()
         self._executor.shutdown(wait=wait, cancel_futures=True)
         logger.info("JobRunner stopped")
 
@@ -229,9 +216,7 @@ class JobRunner:
             "pending_jobs": pending,
         }
 
-    # ------------------------------------------------------------------
     # Internal
-    # ------------------------------------------------------------------
 
     def _cleanup_done_futures(self) -> None:
         """Remove references to completed futures (prevent memory leak)."""
@@ -276,18 +261,10 @@ def get_job_runner() -> JobRunner:
                 finally:
                     db.close()
             except Exception:
-                pass  # DB may not be ready on very first boot — use default
+                # DB may not be ready on very first boot — use default
+                logger.debug("Could not read max_job_workers; using default", exc_info=True)
             _job_runner = JobRunner(max_workers=max_workers)
     return _job_runner
-
-
-def is_shutting_down() -> bool:
-    """Return True if the global JobRunner has been asked to shut down.
-
-    Safe to call from worker threads to bail out of long-running loops.
-    Returns False if no JobRunner has been created yet.
-    """
-    return _job_runner is not None and _job_runner.shutting_down
 
 
 def shutdown_job_runner() -> None:

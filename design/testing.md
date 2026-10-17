@@ -1,101 +1,115 @@
 # Testing Strategy
 
-For how to run tests, test file listings, and operational details, see [docs/testing.md](../docs/testing.md).
+For how to run tests and operational details, see [docs/development/testing.md](../docs/development/testing.md).
 
 ## Overview
 
-The test suite covers the ingestion pipeline end-to-end: parsing, pipeline functions, API endpoints, and the critical metadata round-trip that ensures user edits survive to the database.
+Backend tests live in `backend/tests/unit/` and `backend/tests/integration/`; frontend tests are Vitest files next to the code in `frontend/src/`; end-to-end tests are Playwright specs in `e2e/tests/`.
 
-**No infrastructure required.** All tests run without external services. LanceDB is mocked at import time to prevent creating local DB files during tests.
+**No infrastructure required.** Backend tests run against a temporary SQLite database and temporary directories. LanceDB does not create files on import, so nothing is patched at import time. Tests that touch vectors use the `lancedb_service` fixture, a real LanceDB in `tmp_path` (ingest, imports API, semantic search); only the embedding model is faked. The search golden tests (`test_search_characterisation.py`) keep a deterministic `_FakeLanceDB` because they pin exact scores.
 
-## CI/CD Tiered Strategy
+Tests marked `heavy` (real CLIP ONNX model) are excluded by default (`addopts = -m 'not heavy'` in `pyproject.toml`); run them with `-m heavy`.
 
-```
-Tier 1 -- Pre-commit (local):  lint-staged (ruff + eslint + prettier on staged files)
-Tier 2 -- Every push & PR:     lint + format + unit tests + frontend tests + build + backend-integration + frontend-coverage
-Tier 3 -- Push to main:        + heavy tests (CLIP) + E2E (Playwright)
-Tier 4 -- Version tags (v*):   gate check + multi-platform electron build + release
-```
+## Where checks run
 
-**Note:** `backend-integration` and `frontend-coverage` run on every push (Tier 2), not just on main. A `backend-unit-cross-platform` job also runs on every push, executing unit tests on Windows and macOS in addition to Linux.
+| Stage | Defined in | Runs |
+|---|---|---|
+| Pre-commit (local) | `.husky/pre-commit` | `lint-staged` on staged files |
+| Pre-push (local) | `.husky/pre-push` | ruff check + format check (`backend/`, `scripts/`), pyright, backend unit tests, ESLint, Prettier check, `tsc --noEmit`, knip, Vitest, Electron `tsc`, jscpd duplication threshold |
+| Pull request to `main` | `.github/workflows/ci.yml` | `backend-security` (pip-audit, bandit; blocking, accepted findings in [security.md](security.md#accepted-scanner-findings)), `backend-integration` (unit + integration tests with coverage, small ONNX model), `frontend-build` (`npm audit --omit=dev --audit-level=high`, `npm run build`), `quality` (pyright, knip, jscpd) |
+| Release (manual `workflow_dispatch`) | `.github/workflows/release.yml` | full backend suite incl. heavy tests, frontend lint/tests/coverage/build, backend unit tests on Windows and macOS, Playwright E2E, Electron builds per platform, optional publish |
 
-### GitHub Actions Workflows
-
-- `.github/workflows/ci.yml` -- Tiers 1-3 (backend-lint -> backend-unit -> backend-integration + backend-heavy + e2e, frontend-lint -> frontend-test/build -> frontend-coverage)
-- `.github/workflows/electron-build.yml` -- Tier 4 (gate job -> matrix build for Windows/macOS/Linux)
+CI does not run lint or unit-only jobs on PRs; the pre-push hook is relied on for those (skippable with `git push --no-verify`).
 
 ## Coverage Thresholds
 
-- **Backend**: 40% line coverage (measured via `pytest-cov`, `pyproject.toml [tool.coverage.report]`)
-- **Frontend**: 20% line coverage (measured via `@vitest/coverage-v8`, `vitest.config.ts`)
-- Thresholds should be ratcheted up as test coverage improves
+- **Backend**: 40% line coverage (`pyproject.toml [tool.coverage.report] fail_under`)
+- **Frontend**: 20% line coverage (`frontend/vitest.config.ts`, `@vitest/coverage-v8`)
+- Ratchet these up as coverage improves.
+
+## Shared fixtures (`backend/tests/conftest.py`)
+
+| Fixture | Provides |
+|---|---|
+| `prepare_pool_fixture` (autouse) | Fresh prepare pool (2 workers) per test, shut down afterwards |
+| `tmp_db` | `(engine, SessionLocal)` for a fresh SQLite DB in `tmp_path`, schema created and tag categories seeded |
+| `db_session` | A session on `tmp_db`, closed after the test |
+| `query_counter` | `QueryCounter` on the test engine: `with query_counter as q: ...; q.count` / `q.selects("images")`. Used in `test_query_counts.py` to pin query counts against N+1 regressions |
+| `make_test_image` | Factory writing a small JPEG to a given path |
+| `lancedb_service` | Real `LanceDBService` under `tmp_path` (vectors `TEST_VECTOR_SIZE` = 8 wide), installed as the module singleton so every `get_lancedb_service()` returns it |
+| `shutdown_signal_cleared` (autouse) | Clears the process-wide shutdown signal, which a `TestClient` exit sets |
+| `test_client` | FastAPI `TestClient` bound to `tmp_db`, with storage paths and image/thumbnail store singletons redirected to `tmp_path`, rate limiting disabled, and `settings.ingest_worker_enabled = False` |
 
 ## Conventions
 
 ### Test images
 
-Generate programmatically -- never commit binary blobs:
-
-```python
-@pytest.fixture
-def make_test_image():
-    def _make(path, width=20, height=20, color=(100, 150, 200)):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        img = Image.new("RGB", (width, height), color)
-        img.save(path, format="JPEG", quality=70)
-        return path
-    return _make
-```
+Generate programmatically with `make_test_image` or PIL/numpy (e.g. `image_bytes()` in `test_ingest_pipeline.py`). Never commit binary image blobs.
 
 ### Database isolation
 
-Each test gets a fresh SQLite DB via `tmp_db` fixture. The `test_client` fixture overrides `app.state.db_engine` **after** the TestClient enters (since the lifespan sets it to production).
+Each test gets its own SQLite DB via `tmp_db`. The FastAPI lifespan sets `app.state.db_engine` to the configured database, so `test_client` sets `settings.database_url` before entering the `TestClient` and overrides `app.state.db_engine` **after** entering it.
 
-### Mocking heavy services
+Code that opens its own sessions from `settings.database_url` is pointed at the test DB with:
 
-Use the `mock_heavy_services` fixture for any test that calls pipeline functions. It mocks:
-- `generate_clip_embedding` -> dummy 512-dim vector
-- `lancedb_service.add_image_embedding` -> returns True
-- `generate_thumbnails` -> returns key dict without writing files
-- `extract_dominant_colors` -> returns two dummy colors
-
-For integration tests that also need an `ImageStore`, add:
-```python
-@pytest.fixture
-def _patch_image_store(monkeypatch, tmp_path):
-    from backend.app.services.image_store import ImageStore
-    store = ImageStore(tmp_path / "store")
-    monkeypatch.setattr("backend.pipeline.ingestion.get_image_store", lambda: store)
-    return store
-```
-
-### Mocking the JobRunner (endpoint tests)
-
-Endpoint tests mock the JobRunner since they don't call pipeline functions directly:
-```python
-mock_runner = MagicMock()
-monkeypatch.setattr("backend.app.api.imports.get_job_runner", lambda: mock_runner)
-```
-
-### Patching the DB for pipeline tests
-
-Pipeline functions read `settings.database_url` internally. Override it to point at the test DB:
 ```python
 monkeypatch.setattr("backend.app.config.settings.database_url", str(engine.url))
+```
+
+### Driving the ingest worker
+
+Pipeline design: [ingestion.md](ingestion.md).
+
+The background ingest thread is never started in tests. Tests construct an `IngestWorker` with a fixed `PipelineConfig`, a probe that reports no system pause, and `probe_interval=0.0`, then call `worker.drain()`, which runs batches synchronously until no work is claimable and returns the batch count:
+
+```python
+worker = IngestWorker(
+    config_loader=lambda: PipelineConfig(enable_image_grid_detection=False, ingestion_batch_size=4),
+    probe=lambda: None,
+    probe_interval=0.0,
+)
+...
+assert worker.drain() >= 1
+```
+
+Alongside this, ingest tests use the `lancedb_service` fixture, replace `batch_generate_clip_embeddings` with constant vectors, set `ingest_state.retry_delay` to zero, and swap `services._image_store` / `services._thumbnail_store` for `ImageStore`s under `tmp_path`. API tests additionally set `backend.pipeline.ingest_worker._worker` to the test worker so endpoints and the test share it (`test_imports_api.py`).
+
+### Mocking the JobRunner
+
+Endpoints that submit background jobs (model switching, some image operations) are tested with the JobRunner mocked at the import site:
+
+```python
+mock_runner = MagicMock()
+monkeypatch.setattr("backend.app.api.models.get_job_runner", lambda: mock_runner)
+```
+
+### Schema drift
+
+`backend/tests/unit/test_schema_drift.py` compares the ORM metadata against a database built by the Alembic migrations (`alembic.autogenerate.compare_metadata`). Any difference not in its `ACCEPTED` set fails, so a new column, index or constraint must be added to both the models and a migration.
+
+### Search golden tests
+
+`backend/tests/integration/test_search_characterisation.py` builds a deterministic library, replaces the CLIP and LanceDB services with deterministic fakes, and compares the full responses of `/search/`, `/search/groups` and `/search/facets` (ordering, totals, scores, mosaics) against `backend/tests/integration/golden/search_responses.json`. When a behaviour change is intended, regenerate and review the diff:
+
+```bash
+UPDATE_SEARCH_GOLDEN=1 uv run python -m pytest backend/tests/integration/test_search_characterisation.py
 ```
 
 ## What to test when adding new features
 
 | Change | Tests to add/update |
 |---|---|
-| New parser rule | `test_parser.py` -- add case for parse() and/or group_files() |
-| New Pydantic schema | `test_schemas.py` -- defaults, round-trip, serialization |
-| New API endpoint | New file in `integration/` -- mock JobRunner, use TestClient |
-| New pipeline logic | `integration/` -- call function directly, mock heavy services |
-| New metadata field | `test_metadata_roundtrip.py` -- verify it survives the round-trip |
-| New user-facing flow | `e2e/tests/` -- add Playwright spec exercising the UI flow |
+| New parser rule | `unit/test_parser.py` |
+| New Pydantic schema | `unit/test_schemas.py` -- defaults, round-trip, serialization |
+| New model column / index | Alembic migration; `unit/test_schema_drift.py` must stay green |
+| New API endpoint | New or existing file in `integration/` using `test_client` |
+| Ingest pipeline change | `integration/test_ingest_pipeline.py` (worker + `drain()`), `unit/test_ingest_state.py` for state transitions |
+| Search behaviour change | `integration/test_search_endpoint.py`; regenerate the golden file if responses change intentionally |
+| New list/search query | `integration/test_query_counts.py` to pin the query count |
+| New user-facing flow | `e2e/tests/` -- Playwright spec exercising the UI flow |
 
 ## Known quirks
 
-- **LanceDB mocking must happen before import.** `conftest.py` patches `lancedb.connect` before `backend.app.services` loads, because `LanceDBService.__init__()` creates a disk-backed database on disk. The lazy singleton (`get_lancedb_service()`) defers creation, but the lancedb module still needs to be mocked before any test triggers it.
-- **TestClient lifespan override.** The FastAPI lifespan sets `app.state.db_engine` to production. Fixtures must override it **after** `TestClient.__enter__()`, not before.
+- **TestClient lifespan override.** The FastAPI lifespan sets `app.state.db_engine` from settings. Fixtures override it **after** `TestClient.__enter__()`.
+- **Store singletons.** `services._image_store` / `services._thumbnail_store` may already be cached at the real library path by an earlier test; fixtures replace them rather than relying on settings alone.
+- **Exit code 134 in CI.** Native libraries can abort during interpreter shutdown after all tests pass; `ci.yml` and the integration step in `release.yml` tolerate exit code 134.

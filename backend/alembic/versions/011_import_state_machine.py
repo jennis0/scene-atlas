@@ -42,10 +42,7 @@ def upgrade() -> None:
     for job_id, analysis_json in jobs:
         try:
             parsed = json.loads(analysis_json)
-            if isinstance(parsed, dict):
-                count = len(parsed.get("summary", []))
-            else:
-                count = len(parsed)
+            count = len(parsed.get("summary", [])) if isinstance(parsed, dict) else len(parsed)
             submitted = conn.execute(
                 text("SELECT COUNT(*) FROM import_group_jobs WHERE job_id = :jid"),
                 {"jid": job_id},

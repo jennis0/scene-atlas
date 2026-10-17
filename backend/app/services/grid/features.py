@@ -246,6 +246,8 @@ def spatial_features(prof: Profiles, aw: int, ah: int, nx: float, ny: float) -> 
     exceeds a threshold. Polarity coherence is high for an overlay (the same dark or light
     line everywhere) and low for tile seams of varying colour.
     """
+    if prof.col_s is None or prof.row_s is None or prof.col_band is None or prof.row_band is None:
+        raise ValueError("spatial_features needs axis_profiles(..., extended=True)")
     out: dict = {}
     px, py = aw / nx, ah / ny
     xs = _phase(prof.col, px)

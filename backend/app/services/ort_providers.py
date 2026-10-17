@@ -84,22 +84,10 @@ _AUTO_PRIORITY = [
 
 
 def resolve_providers(preference: str = "auto") -> list[str]:
-    """Determine which ORT execution providers to request.
+    """Ordered ORT providers to request for *preference* (best first, CPU last).
 
-    Parameters
-    ----------
-    preference : str
-        One of ``"auto"``, ``"cpu"``, ``"cuda"``, ``"directml"``, ``"coreml"``.
-
-    Returns
-    -------
-    list[str]
-        Ordered provider list (best first, CPU fallback last).
-
-    Raises
-    ------
-    ImportError
-        If no onnxruntime variant is installed.
+    *preference* is one of ``"auto"``, ``"cpu"``, ``"cuda"``, ``"directml"``, ``"coreml"``.
+    Raises ImportError if no onnxruntime variant is installed.
     """
     try:
         import onnxruntime as ort
@@ -198,19 +186,7 @@ def create_session_with_fallback(
 ) -> tuple[ort.InferenceSession, list[str]]:
     """Create an ``InferenceSession``, falling back to CPU on failure.
 
-    Parameters
-    ----------
-    model_path : str or Path
-        Path to the ONNX model file.
-    providers : list[str]
-        Requested providers (from :func:`resolve_providers`).
-    sess_opts : ort.SessionOptions
-        Session options (from :func:`get_session_options`).
-
-    Returns
-    -------
-    tuple[InferenceSession, list[str]]
-        The session and the providers it was actually created with.
+    Returns the session and the providers it was actually created with.
     """
     import onnxruntime as ort
 
@@ -226,7 +202,7 @@ def create_session_with_fallback(
                 providers,
                 actual,
             )
-        return session, actual
+        return session, list(actual)
     except Exception as exc:
         if providers == ["CPUExecutionProvider"]:
             raise  # Already on CPU — nothing to fall back to

@@ -11,7 +11,7 @@
  */
 
 /** Largest file hashed client-side. */
-export const MAX_CLIENT_HASH_BYTES = 256 * 1024 * 1024
+const MAX_CLIENT_HASH_BYTES = 256 * 1024 * 1024
 
 export interface Hasher {
   /** SHA-256 hex digest, or null if this file can't or shouldn't be hashed here. */
@@ -19,13 +19,13 @@ export interface Hasher {
   dispose(): void
 }
 
-export const noopHasher: Hasher = {
+const noopHasher: Hasher = {
   hash: async () => null,
   dispose: () => {},
 }
 
 /** Hashes in a dedicated Web Worker, one file at a time. */
-export class WorkerHasher implements Hasher {
+class WorkerHasher implements Hasher {
   private worker: Worker
   private nextId = 0
   private pending = new Map<number, { resolve: (h: string | null) => void }>()

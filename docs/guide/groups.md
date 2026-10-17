@@ -19,7 +19,7 @@ Scene Atlas detects groups when you [import](/guide/importing#_2-grouping-and-up
 
 2. **Prefix-based** grouping: files with a shared naming prefix are grouped together. `TavernBrawl_Grid.jpg`, `TavernBrawl_Gridless.jpg`, and `TavernBrawl_Night.jpg` all share the prefix "TavernBrawl".
 
-Imports start straight away, so groups are reviewed afterwards: open them from the import report (**Review in editor**) and drag images between groups to fix any misdetections.
+Imports start straight away, so groups are reviewed afterwards: open them from the import report (**Review in editor**) and drag images between groups to fix any misdetections, or edit them as described below.
 
 ## Subgroups
 

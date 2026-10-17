@@ -15,49 +15,63 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   backend-security:
     name: Backend security audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: "latest"
           enable-cache: true
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install dependencies
-        run: uv sync --extra dev
+        # --extra cpu so the shipped onnxruntime is audited too.
+        run: uv sync --extra dev --extra cpu
       - name: pip-audit (Python CVE scan)
-        run: uv run pip-audit --desc
-        continue-on-error: true
+        # Blocking. Accepted risks (see design/security.md, "Accepted scanner findings"):
+        # transformers <5 is a dev-only extra used by scripts/models to export trusted
+        # checkpoints; it is excluded from the PyInstaller sidecar and never runs in the app.
+        # transformers 5 is a major upgrade of the export pipeline, tracked separately.
+        run: >
+          uv run pip-audit --desc
+          --ignore-vuln PYSEC-2025-217
+          --ignore-vuln PYSEC-2026-2288
+          --ignore-vuln PYSEC-2026-2289
+          --ignore-vuln PYSEC-2026-2290
+          --ignore-vuln PYSEC-2026-3929
+          --ignore-vuln PYSEC-2026-4174
       - name: bandit (Python SAST)
+        # Blocking. Accepted findings are suppressed inline with `# nosec BXXX` and a reason.
         run: uv run bandit -r backend/app backend/pipeline -ll
-        continue-on-error: true
 
   backend-integration:
     name: Backend integration tests + coverage
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: "latest"
           enable-cache: true
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install dependencies
         run: uv sync --extra dev --extra cpu
       - name: Cache ONNX models (small)
         id: cache-onnx
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: data/models/small
           key: onnx-models-small-${{ hashFiles('backend/app/services/model_registry.py') }}
@@ -82,7 +96,7 @@ jobs:
         env:
           EMBEDDING_MODEL: small
       - name: Upload backend coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: coverage-backend
@@ -93,9 +107,9 @@ jobs:
     name: Frontend build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: "npm"
@@ -103,6 +117,46 @@ jobs:
       - name: Install dependencies
         working-directory: frontend
         run: npm ci
+      - name: npm audit (shipped frontend deps, high+)
+        # Blocking for runtime deps only. Dev/build tooling findings are triaged in
+        # design/security.md ("Accepted scanner findings") rather than gated here.
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=high
       - name: TypeScript check + Vite build
         working-directory: frontend
         run: npm run build
+
+  quality:
+    name: Types, dead code, duplication
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "latest"
+          enable-cache: true
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install Python dependencies
+        run: uv sync --extra dev --extra cpu
+      - name: pyright
+        run: uvx pyright@1.1.403
+        env:
+          PYRIGHT_PYTHON_FORCE_VERSION: "1.1.403"
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: knip (unused files, exports, dependencies)
+        working-directory: frontend
+        run: npm run knip
+      - name: jscpd (duplication threshold in .jscpd.json)
+        run: npx --yes jscpd@4.0.5 --silent

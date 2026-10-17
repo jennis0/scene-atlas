@@ -186,7 +186,12 @@ def axis_profiles(img: np.ndarray, p: AnalysisParams, extended: bool = True) -> 
         dy = (sy - cv2.blur(sy, (1, box), borderType=cv2.BORDER_REFLECT))[y0 - a0 : y1 - a0]
         ay = np.abs(dy)
         row[y0:y1] += ay.sum(axis=1, dtype=np.float64)
-        if extended:
+        if (
+            col_s is not None
+            and row_s is not None
+            and col_band is not None
+            and row_band is not None
+        ):
             col_s += dx.sum(axis=0, dtype=np.float64)
             band = min(N_BANDS - 1, int((y0 + y1) / 2 / h * N_BANDS))
             col_band[band] += c

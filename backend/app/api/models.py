@@ -31,6 +31,7 @@ from ..services.model_registry import (
     get_default_model,
     get_model,
 )
+from ..services.shutdown import ShutdownRequested
 from .dependencies import get_db
 
 logger = logging.getLogger(__name__)
@@ -38,9 +39,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-# ---------------------------------------------------------------------------
 # Response schemas
-# ---------------------------------------------------------------------------
 
 
 class ModelInfo(BaseModel):
@@ -87,9 +86,7 @@ class EmbeddingStatusResponse(BaseModel):
     error: str | None
 
 
-# ---------------------------------------------------------------------------
 # Background job helpers
-# ---------------------------------------------------------------------------
 
 
 def _download_only(name: str, progress_fn=None) -> None:
@@ -136,6 +133,8 @@ def _download_and_activate(name: str, progress_fn=None) -> None:
 
         if progress_fn:
             progress_fn(steps, steps, "Done")
+    except ShutdownRequested:
+        raise
     except Exception:
         logger.exception(
             "Model activation failed for '%s'. DB active_model may be out of sync. "
@@ -145,9 +144,7 @@ def _download_and_activate(name: str, progress_fn=None) -> None:
         raise  # re-raise so JobRunner marks job as failed
 
 
-# ---------------------------------------------------------------------------
 # Endpoints
-# ---------------------------------------------------------------------------
 
 
 @router.get("/", response_model=ModelListResponse)
@@ -265,24 +262,15 @@ def get_embeddings_stats(name: str) -> EmbeddingStatsResponse:
     svc = get_lancedb_service()
 
     try:
-        if collection_name not in svc.db.list_tables():
-            return EmbeddingStatsResponse(
-                collection_name=collection_name,
-                vectors_count=0,
-                exists=False,
-            )
-        table = svc.db.open_table(collection_name)
-        return EmbeddingStatsResponse(
-            collection_name=collection_name,
-            vectors_count=table.count_rows(),
-            exists=True,
-        )
+        count = svc.row_count(collection_name)
     except Exception:
-        return EmbeddingStatsResponse(
-            collection_name=collection_name,
-            vectors_count=0,
-            exists=False,
-        )
+        logger.exception("Could not read embedding stats for %s", collection_name)
+        count = None
+    return EmbeddingStatsResponse(
+        collection_name=collection_name,
+        vectors_count=count or 0,
+        exists=count is not None,
+    )
 
 
 @router.delete("/{name}/embeddings", status_code=204)

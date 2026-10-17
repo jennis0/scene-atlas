@@ -25,8 +25,8 @@ pytestmark = pytest.mark.heavy
 
 # Expected properties per model, derived from their manifests.
 _MODEL_SPECS = {
-    "small": {"embedding_dim": 512, "vision_quant": "fp16", "text_quant": "int8"},
-    "medium": {"embedding_dim": 768, "vision_quant": "fp16", "text_quant": "int8"},
+    "small": {"embedding_dim": 512, "vision_quant": "w4a16", "text_quant": "w4a16"},
+    "medium": {"embedding_dim": 768, "vision_quant": "w4a16", "text_quant": "w4a16"},
     "large": {"embedding_dim": 1152, "vision_quant": "fp16", "text_quant": "fp16"},
 }
 
@@ -127,14 +127,6 @@ class TestCLIPServiceReal:
 
 class TestCLIPEmbeddingGenerationReal:
     """Test the pipeline task functions with real model."""
-
-    def test_generate_clip_embedding(self, clip_service, make_test_image, tmp_path):
-        from backend.pipeline.tasks.embedding_generation import generate_clip_embedding
-
-        img = tmp_path / "test.jpg"
-        make_test_image(img, width=100, height=100)
-        embedding = generate_clip_embedding(str(img))
-        assert len(embedding) == clip_service.embedding_dim
 
     def test_batch_generate_clip_embeddings(self, clip_service, make_test_image, tmp_path):
         from backend.pipeline.tasks.embedding_generation import (

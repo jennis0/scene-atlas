@@ -1,23 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { waitFor } from '@testing-library/react'
+import { screen, waitFor, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/renderWithProviders'
 import EditGroupDialog from './EditGroupDialog'
-
-// ── API mocks ─────────────────────────────────────────────────────────────────
+import type { GroupDetail, Image } from '@/types'
 
 vi.mock('@/lib/api', () => ({
   groupApi: {
-    get: vi.fn().mockResolvedValue({
-      id: 1,
-      base_name: 'Forest Maps',
-      author: 'Test Author',
-      images: [],
-    }),
+    get: vi.fn(),
     edit: vi.fn().mockResolvedValue({ new_group_ids: [] }),
     delete: vi.fn().mockResolvedValue(undefined),
     merge: vi.fn().mockResolvedValue(undefined),
     moveImages: vi.fn().mockResolvedValue({ source_group_deleted: false }),
+    search: vi.fn().mockResolvedValue({ groups: [], total: 0 }),
   },
   tagApi: {
     getCategories: vi.fn().mockResolvedValue([]),
@@ -31,30 +26,288 @@ vi.mock('@/lib/api', () => ({
 
 import { groupApi } from '@/lib/api'
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
+function makeImage(id: number, overrides: Partial<Image> = {}): Image {
+  return {
+    id,
+    storage_key: `${id}.webp`,
+    filename: `map_${id}.png`,
+    author: 'Cartographer',
+    name: `Map ${id}`,
+    group_id: 1,
+    group_name: 'Forest Maps',
+    group_image_count: null,
+    created_at: '',
+    updated_at: '',
+    file_size: 1,
+    width: 1,
+    height: 1,
+    gridded: null,
+    grid_width: null,
+    grid_height: null,
+    grid_type: null,
+    grid_confidence: null,
+    subgroup: null,
+    image_type: 'battlemap',
+    thumbnail_key: null,
+    media_type: 'image',
+    tags: [],
+    colors: [],
+    ...overrides,
+  }
+}
 
-describe('EditGroupDialog — import-review mode', () => {
+const GROUPS: Record<number, GroupDetail> = {
+  1: {
+    id: 1,
+    base_name: 'Forest Maps',
+    author: 'Cartographer',
+    primary_image_id: 11,
+    images: [
+      makeImage(11, { name: 'Clearing', subgroup: 'summer' }),
+      makeImage(12, { name: 'Brook', subgroup: 'summer' }),
+      makeImage(13, { name: 'Frost', subgroup: 'winter' }),
+    ],
+  },
+  2: {
+    id: 2,
+    base_name: 'Cave Maps',
+    author: 'Cartographer',
+    primary_image_id: 21,
+    images: [makeImage(21, { name: 'Grotto', group_id: 2 })],
+  },
+  3: {
+    id: 3,
+    base_name: 'Town Maps',
+    author: 'Someone Else',
+    primary_image_id: 31,
+    images: [makeImage(31, { name: 'Market', group_id: 3 })],
+  },
+}
+
+function renderDialog(props: Partial<React.ComponentProps<typeof EditGroupDialog>>) {
+  const onClose = vi.fn()
+  const onSave = vi.fn()
+  const user = userEvent.setup()
+  renderWithProviders(<EditGroupDialog open onClose={onClose} onSave={onSave} {...props} />)
+  return { user, onClose, onSave }
+}
+
+const dialog = () => screen.getByTestId('edit-group-dialog')
+const confirmDialog = (title: string) =>
+  screen.getByText(title).closest('[role="dialog"]') as HTMLElement
+const sidebarRow = (name: string) =>
+  within(dialog())
+    .getAllByText(name)
+    .find((el) => el.closest('.group\\/navrow'))!
+
+describe('EditGroupDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(groupApi.get).mockImplementation(async (id: number) => structuredClone(GROUPS[id]))
   })
 
-  it('calls onClose when dialog is dismissed via Escape', async () => {
-    const user = userEvent.setup()
-    const onClose = vi.fn()
-    const onSave = vi.fn()
-
-    renderWithProviders(<EditGroupDialog groupIds={[1]} open onClose={onClose} onSave={onSave} />)
-
-    // Wait for data load to complete (groupApi.get is called on mount)
-    await waitFor(() => {
-      expect(groupApi.get).toHaveBeenCalledWith(1)
+  describe('single group', () => {
+    it('shows the group with subgroup headings and no sidebar', async () => {
+      renderDialog({ groupId: 1 })
+      expect(await within(dialog()).findByText('Clearing')).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'Edit Group' })).toBeInTheDocument()
+      expect(screen.getByDisplayValue('Forest Maps')).toBeInTheDocument()
+      expect(screen.getByTitle('Rename "summer"')).toBeInTheDocument()
+      expect(screen.getByTitle('Rename "winter"')).toBeInTheDocument()
+      expect(screen.queryByText(/groups$/)).not.toBeInTheDocument()
     })
 
-    // Dismiss via Escape key (triggers onOpenChange(false))
-    await user.keyboard('{Escape}')
+    it('filters files and reports when nothing matches', async () => {
+      const { user } = renderDialog({ groupId: 1 })
+      await within(dialog()).findByText('Clearing')
+      const filter = screen.getByPlaceholderText('Filter maps…')
+      await user.type(filter, 'frost')
+      expect(within(dialog()).queryByText('Clearing')).not.toBeInTheDocument()
+      expect(within(dialog()).getByText('Frost')).toBeInTheDocument()
+      await user.clear(filter)
+      await user.type(filter, 'zzz')
+      expect(screen.getByText('No files match the current filter')).toBeInTheDocument()
+    })
 
-    // Escape should close the dialog (call onClose) but not save
-    expect(onClose).toHaveBeenCalled()
-    expect(onSave).not.toHaveBeenCalled()
+    it('auto-saves the group name on blur', async () => {
+      const { user } = renderDialog({ groupId: 1 })
+      const name = await screen.findByDisplayValue('Forest Maps')
+      await user.clear(name)
+      await user.type(name, 'Woodland')
+      fireEvent.blur(name)
+      await waitFor(() =>
+        expect(groupApi.edit).toHaveBeenCalledWith(
+          1,
+          expect.objectContaining({ base_name: 'Woodland' }),
+        ),
+      )
+    })
+
+    it('saves and closes on Done', async () => {
+      const { user, onClose, onSave } = renderDialog({ groupId: 1 })
+      await within(dialog()).findByText('Clearing')
+      await user.click(screen.getByRole('button', { name: 'Done' }))
+      expect(onSave).toHaveBeenCalled()
+      expect(onClose).toHaveBeenCalled()
+    })
+
+    it('confirms before deleting the group', async () => {
+      const { user, onClose, onSave } = renderDialog({ groupId: 1 })
+      await within(dialog()).findByText('Clearing')
+      await user.click(screen.getByRole('button', { name: /Delete Group/ }))
+      expect(screen.getByText('Delete this group and all its images?')).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+      expect(screen.queryByText('Delete this group and all its images?')).not.toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: /Delete Group/ }))
+      await user.click(screen.getByRole('button', { name: 'Confirm' }))
+      await waitFor(() => expect(groupApi.delete).toHaveBeenCalledWith(1))
+      expect(onSave).toHaveBeenCalled()
+      expect(onClose).toHaveBeenCalled()
+    })
+
+    it('merges into the group picked in the merge picker', async () => {
+      vi.mocked(groupApi.search).mockResolvedValue({
+        groups: [
+          { id: 2, base_name: 'Cave Maps', author: null, primary_image_id: null, image_count: 1 },
+        ],
+        total: 1,
+      })
+      const { user, onClose } = renderDialog({ groupId: 1 })
+      await within(dialog()).findByText('Clearing')
+      await user.click(screen.getByRole('button', { name: /Merge into/ }))
+      await user.click(await screen.findByText('Cave Maps'))
+      await user.click(screen.getByRole('button', { name: 'Merge' }))
+      await waitFor(() => expect(groupApi.merge).toHaveBeenCalledWith(1, 2))
+      expect(groupApi.merge).toHaveBeenCalledTimes(1)
+      await waitFor(() => expect(onClose).toHaveBeenCalled())
+    })
+
+    it('closes on Escape without saving', async () => {
+      const { user, onClose, onSave } = renderDialog({ groupIds: [1] })
+      await waitFor(() => expect(groupApi.get).toHaveBeenCalledWith(1))
+      await user.keyboard('{Escape}')
+      expect(onClose).toHaveBeenCalled()
+      expect(onSave).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('several groups', () => {
+    it('lists groups in the sidebar and switches between them', async () => {
+      const { user } = renderDialog({ groupIds: [1, 2] })
+      expect(await screen.findByText('2 groups')).toBeInTheDocument()
+      // The All tab shows every in-scope file
+      expect(within(dialog()).getByText('Grotto')).toBeInTheDocument()
+      expect(within(dialog()).getByText('Clearing')).toBeInTheDocument()
+
+      await user.click(sidebarRow('Cave Maps'))
+      expect(screen.getByDisplayValue('Cave Maps')).toBeInTheDocument()
+      expect(within(dialog()).queryByText('Clearing')).not.toBeInTheDocument()
+    })
+
+    it('merges all groups into the first after confirmation', async () => {
+      const { user } = renderDialog({ groupIds: [1, 2] })
+      await screen.findByText('2 groups')
+      await user.click(screen.getByRole('button', { name: 'Merge All' }))
+      const confirm = confirmDialog('Merge All Groups')
+      expect(confirm).toHaveTextContent('merge all 2 groups into "Forest Maps"')
+      await user.click(within(confirm).getByRole('button', { name: 'Merge All' }))
+      await waitFor(() => expect(groupApi.merge).toHaveBeenCalledWith(2, 1))
+      await waitFor(() => expect(screen.queryByText('Merge All Groups')).not.toBeInTheDocument())
+    })
+
+    it('deletes a group from its row menu after inline confirmation', async () => {
+      const { user } = renderDialog({ groupIds: [1, 2] })
+      await screen.findByText('2 groups')
+      const row = sidebarRow('Cave Maps').closest('.group\\/navrow') as HTMLElement
+      await user.click(within(row).getAllByRole('button')[1])
+      await user.click(screen.getByRole('menuitem', { name: /Delete group/ }))
+      expect(screen.getByText('Delete this group?')).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Delete' }))
+      await waitFor(() => expect(groupApi.delete).toHaveBeenCalledWith(2))
+      await waitFor(() => expect(screen.queryByText('Delete this group?')).not.toBeInTheDocument())
+    })
+
+    it('merges a group picked from its row menu', async () => {
+      vi.mocked(groupApi.search).mockResolvedValue({
+        groups: [
+          { id: 1, base_name: 'Forest Maps', author: null, primary_image_id: null, image_count: 3 },
+        ],
+        total: 1,
+      })
+      const { user } = renderDialog({ groupIds: [1, 2, 3] })
+      await screen.findByText('3 groups')
+      const row = sidebarRow('Town Maps').closest('.group\\/navrow') as HTMLElement
+      await user.click(within(row).getAllByRole('button')[1])
+      await user.click(screen.getByRole('menuitem', { name: /Merge into/ }))
+      const picker = confirmDialog('Merge into Group')
+      await user.click(await within(picker).findByText('Forest Maps'))
+      await user.click(within(picker).getByRole('button', { name: 'Merge' }))
+      await waitFor(() => expect(groupApi.merge).toHaveBeenCalledWith(3, 1))
+      expect(await screen.findByText('2 groups')).toBeInTheDocument()
+    })
+
+    it('keeps the inline delete confirmation open when the delete fails', async () => {
+      vi.mocked(groupApi.delete).mockRejectedValueOnce(new Error('Group is locked'))
+      const { user } = renderDialog({ groupIds: [1, 2] })
+      await screen.findByText('2 groups')
+      const row = sidebarRow('Cave Maps').closest('.group\\/navrow') as HTMLElement
+      await user.click(within(row).getAllByRole('button')[1])
+      await user.click(screen.getByRole('menuitem', { name: /Delete group/ }))
+      await user.click(screen.getByRole('button', { name: 'Delete' }))
+      expect(await screen.findByText('Group is locked')).toBeInTheDocument()
+      expect(screen.getByText('Delete this group?')).toBeInTheDocument()
+    })
+
+    it('removes a group from view without touching the server', async () => {
+      const { user } = renderDialog({ groupIds: [1, 2, 3] })
+      await screen.findByText('3 groups')
+      const row = sidebarRow('Town Maps').closest('.group\\/navrow') as HTMLElement
+      await user.click(within(row).getAllByRole('button')[1])
+      await user.click(screen.getByRole('menuitem', { name: /Remove from view/ }))
+      expect(await screen.findByText('2 groups')).toBeInTheDocument()
+      expect(groupApi.delete).not.toHaveBeenCalled()
+    })
+
+    it('bulk merges and deletes ctrl-selected groups', async () => {
+      const { user } = renderDialog({ groupIds: [1, 2, 3] })
+      await screen.findByText('3 groups')
+      await user.keyboard('{Control>}')
+      await user.click(sidebarRow('Cave Maps'))
+      await user.click(sidebarRow('Town Maps'))
+      await user.keyboard('{/Control}')
+      expect(screen.getByText('2 selected')).toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: 'Delete' }))
+      const del = confirmDialog('Delete Selected Groups')
+      expect(del).toHaveTextContent('permanently delete 2 groups')
+      await user.click(within(del).getByRole('button', { name: 'Cancel' }))
+
+      await user.click(screen.getByRole('button', { name: 'Merge' }))
+      const merge = confirmDialog('Merge Selected Groups')
+      expect(merge).toHaveTextContent('merge 2 selected groups into "Cave Maps"')
+      await user.click(within(merge).getByRole('button', { name: 'Merge Selected' }))
+      await waitFor(() => expect(groupApi.merge).toHaveBeenCalledWith(3, 2))
+    })
+  })
+
+  describe('search results (mass edit)', () => {
+    it('summarises scope and marks other images as out of scope', async () => {
+      const { user } = renderDialog({
+        seedImages: [
+          { id: 11, group_id: 1 },
+          { id: 21, group_id: 2 },
+          { id: 99, group_id: null },
+        ],
+      })
+      expect(
+        await screen.findByRole('heading', { name: 'Edit Search Results' }),
+      ).toBeInTheDocument()
+      expect(screen.getByText(/2 images across 2 groups · 1 ungrouped skipped/)).toBeInTheDocument()
+
+      await user.click(sidebarRow('Forest Maps'))
+      expect(screen.getByText('Other images in this group')).toBeInTheDocument()
+      expect(within(dialog()).getByText('Frost')).toBeInTheDocument()
+    })
   })
 })

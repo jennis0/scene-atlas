@@ -24,6 +24,10 @@ x-common: &common
   build:
     context: .
     network: host
+    args: &common-build-args
+      # Container user; must be able to write IMAGE_DIR (run `id -u` / `id -g` on the host).
+      APP_UID: ${APP_UID:-1000}
+      APP_GID: ${APP_GID:-1000}
   ports:
     - "${PORT:-8000}:8000"
   volumes:
@@ -34,6 +38,9 @@ x-common: &common
     IMAGE_LIBRARY_DIR: /app/images
     APP_MODE: server
     CORS_ORIGINS: ${CORS_ORIGINS:-'["http://localhost:8000"]'}
+    # Proxies trusted to report the client IP; set to your proxy's address as seen
+    # from the container (see docs/deploy/server.md).
+    FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1,::1}
     INFERENCE_DEVICE: ${INFERENCE_DEVICE:-auto}
     DEBUG: ${DEBUG:-false}
   restart: unless-stopped
@@ -53,6 +60,7 @@ services:
       context: .
       network: host
       args:
+        <<: *common-build-args
         EXTRA: gpu
     environment:
       <<: *common-env

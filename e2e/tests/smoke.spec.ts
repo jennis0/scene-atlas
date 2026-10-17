@@ -1,8 +1,9 @@
 import { test, expect } from "../fixtures/base";
+import { BACKEND_URL } from "../helpers/config";
 
 test.describe("Smoke tests", () => {
   test("backend health check responds", async ({ request }) => {
-    const response = await request.get("http://localhost:8000/health");
+    const response = await request.get(`${BACKEND_URL}/health`);
     expect(response.ok()).toBeTruthy();
     const body = await response.json();
     // Status may be "degraded" while CLIP loads in background — that's expected

@@ -29,11 +29,17 @@ class TestClassifyIngestError:
         assert result["reason"] == "Image could not be read for processing"
         assert result["stage"] == "colors"
 
-    def test_file_not_found(self):
+    def test_file_not_found_in_prepare_is_retried(self):
         exc = FileNotFoundError("No such file: /foo/bar.png")
         result = classify_ingest_error(exc, stage="copy")
-        assert result["reason"] == "File was not found"
+        assert result["kind"] == "transient"
         assert result["stage"] == "copy"
+
+    def test_file_not_found_at_commit_pauses_queue(self):
+        # _place renaming out of .incoming/: the store went away, not the upload.
+        exc = FileNotFoundError("No such file: /library/.incoming/x.png")
+        result = classify_ingest_error(exc, stage="db_save")
+        assert result["kind"] == "system"
 
     def test_permission_error(self):
         exc = PermissionError("Permission denied: /foo/bar.png")

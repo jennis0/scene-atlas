@@ -73,9 +73,7 @@ export function FileToolbarCore({
 
   return (
     <div className="flex flex-col py-2 border-b border-border/30 shrink-0">
-      {/* Main toolbar row */}
       <div className="flex items-center gap-2">
-        {/* Select-all checkbox + count */}
         <div className="flex items-center gap-2 shrink-0">
           <Checkbox
             checked={isIndeterminate ? 'indeterminate' : isAllSelected}
@@ -97,7 +95,6 @@ export function FileToolbarCore({
           </span>
         </div>
 
-        {/* Search + filter */}
         <div className="relative flex-1 min-w-0 flex items-center gap-1">
           <div className="relative flex-1 min-w-0">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/40 pointer-events-none" />
@@ -155,10 +152,8 @@ export function FileToolbarCore({
         )}
       </div>
 
-      {/* Duplicate controls row */}
       {duplicateControls}
 
-      {/* Active filter chips */}
       {filter.active.length > 0 && (
         <div className="mt-1.5">
           <FilterChipList filters={filter.active} onFiltersChange={handleFiltersChange} />

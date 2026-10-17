@@ -16,7 +16,7 @@ from sqlalchemy import create_engine
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 # Import our SQLAlchemy models metadata
-from backend.app.models.database import Base  # noqa: E402
+from backend.app.models.database import Base
 
 # Alembic Config object — gives access to values in alembic.ini
 config = context.config
@@ -37,7 +37,10 @@ def get_url() -> str:
     temporary test databases).  When called from the CLI, the value in
     alembic.ini is used.
     """
-    return config.get_main_option("sqlalchemy.url")
+    url = config.get_main_option("sqlalchemy.url")
+    if not url:
+        raise RuntimeError("sqlalchemy.url is not configured")
+    return url
 
 
 def run_migrations_offline() -> None:

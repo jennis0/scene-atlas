@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { useEditGroupOperations } from './useEditGroupOperations'
+import { tabAfterRemoval } from './useEditGroupLoad'
+import { ALL_TAB } from './useFileEditing'
 import type { EditableGroupState } from '@/types'
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
@@ -25,11 +27,6 @@ function makeGroup(overrides: Partial<EditableGroupState> = {}): EditableGroupSt
     author: 'Test Author',
     group_name: 'Forest Maps',
     files: [],
-    skip: false,
-    status: 'pending',
-    processed: 0,
-    failed: 0,
-    total: 0,
     ...overrides,
   }
 }
@@ -81,5 +78,125 @@ describe('useEditGroupOperations — autoSaveGroup', () => {
 
     expect(groupApi.edit).not.toHaveBeenCalled()
     expect(invalidateGallery).not.toHaveBeenCalled()
+  })
+})
+
+describe('tabAfterRemoval', () => {
+  it('shifts, falls back, or leaves the tab alone', () => {
+    expect(tabAfterRemoval(ALL_TAB, 0, 0)).toBe(ALL_TAB)
+    expect(tabAfterRemoval(3, 1, 0)).toBe(2)
+    expect(tabAfterRemoval(3, 3, 99)).toBe(99)
+    expect(tabAfterRemoval(1, 3, 0)).toBe(1)
+  })
+})
+
+describe('useEditGroupOperations — handleMergeAll', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('merges every group into the first and resyncs after a partial failure', async () => {
+    vi.mocked(groupApi.merge)
+      .mockResolvedValueOnce(undefined as never)
+      .mockRejectedValueOnce(new Error('boom'))
+    vi.mocked(groupApi.get).mockResolvedValueOnce({
+      id: 1,
+      base_name: 'Merged',
+      author: 'A',
+      images: [],
+    } as never)
+    const groups = [makeGroup({ id: '1' }), makeGroup({ id: '2' }), makeGroup({ id: '3' })]
+    const setGroups = vi.fn()
+    const setActiveTab = vi.fn()
+    const { result } = renderHook(() =>
+      useEditGroupOperations(makeOptions({ groups, setGroups, setActiveTab })),
+    )
+
+    await act(async () => {
+      await result.current.handleMergeAll()
+    })
+
+    expect(groupApi.merge).toHaveBeenCalledWith(2, 1)
+    expect(groupApi.merge).toHaveBeenCalledWith(3, 1)
+    const kept = setGroups.mock.calls[0][0] as EditableGroupState[]
+    expect(kept.map((g) => g.id)).toEqual(['1', '3'])
+    expect(kept[0].group_name).toBe('Merged')
+    expect(setActiveTab).toHaveBeenCalledWith(ALL_TAB)
+    expect(result.current.saveError).toBe('boom')
+  })
+})
+
+describe('useEditGroupOperations — handleMoveImagesToGroup', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('drops an emptied source group and adjusts the tab outside the groups updater', async () => {
+    vi.mocked(groupApi.moveImages).mockResolvedValueOnce({ source_group_deleted: true } as never)
+    const groups = [makeGroup({ id: '1' }), makeGroup({ id: '2' }), makeGroup({ id: '3' })]
+    const setGroups = vi.fn()
+    const setActiveTab = vi.fn()
+    const { result } = renderHook(() =>
+      useEditGroupOperations(makeOptions({ groups, setGroups, setActiveTab })),
+    )
+
+    await act(async () => {
+      await result.current.handleMoveImagesToGroup({ id: '7', groupId: '1' }, '3')
+    })
+
+    const updater = setGroups.mock.calls[0][0] as (
+      prev: EditableGroupState[],
+    ) => EditableGroupState[]
+    const tabCallsBefore = setActiveTab.mock.calls.length
+    expect(updater(groups).map((g) => g.id)).toEqual(['2', '3'])
+    expect(setActiveTab.mock.calls.length).toBe(tabCallsBefore) // updater is pure
+
+    const tabUpdater = setActiveTab.mock.calls[0][0] as (prev: number) => number
+    expect(tabUpdater(2)).toBe(1)
+    expect(tabUpdater(0)).toBe(0)
+  })
+})
+
+describe('useEditGroupOperations — confirmable operations report success', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('handleDeleteGroup resolves true on success and false on failure', async () => {
+    const groups = [makeGroup({ id: '1' }), makeGroup({ id: '2' })]
+    const { result } = renderHook(() => useEditGroupOperations(makeOptions({ groups })))
+
+    let ok: boolean | undefined
+    await act(async () => {
+      ok = await result.current.handleDeleteGroup('2')
+    })
+    expect(ok).toBe(true)
+
+    vi.mocked(groupApi.delete).mockRejectedValueOnce(new Error('nope'))
+    await act(async () => {
+      ok = await result.current.handleDeleteGroup('2')
+    })
+    expect(ok).toBe(false)
+    expect(result.current.saveError).toBe('nope')
+  })
+
+  it('handleMerge closes the dialog only on success', async () => {
+    const onClose = vi.fn()
+    const { result } = renderHook(() =>
+      useEditGroupOperations(makeOptions({ groupId: 1, onClose })),
+    )
+    vi.mocked(groupApi.merge).mockRejectedValueOnce(new Error('conflict'))
+    let ok: boolean | undefined
+    await act(async () => {
+      ok = await result.current.handleMerge({ id: 2 })
+    })
+    expect(ok).toBe(false)
+    expect(onClose).not.toHaveBeenCalled()
+
+    await act(async () => {
+      ok = await result.current.handleMerge({ id: 2 })
+    })
+    expect(ok).toBe(true)
+    expect(onClose).toHaveBeenCalled()
   })
 })

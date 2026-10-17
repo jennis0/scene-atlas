@@ -36,26 +36,26 @@ dependencies = [
 #   uv sync --extra cpu-dev --extra dev     (CPU + dev tools)
 #   uv sync --extra gpu-dev --extra dev     (CUDA + dev tools)
 #
-# NOTE: onnxruntime-gpu 1.20+ is a plugin that ships only native .so files
-# and requires the base onnxruntime package — but as of 1.24.3 the ABI is
-# broken (undefined symbol: Provider_GetHost). Pin gpu extras to <1.20 where
-# onnxruntime-gpu is a standalone package that includes the Python API.
-# Re-evaluate after Microsoft fixes the split-package model.
+# ORT >= 1.24 everywhere: the medium model uses 4-bit MatMulNBits weights, which
+# ORT 1.19 cannot run (NaN outputs on 4-bit, no 8-bit kernel at all).
+# onnxruntime-gpu is installed on its own (it bundles the Python API); installing it
+# alongside the base onnxruntime package is what broke the ABI at 1.24.3
+# (undefined symbol: Provider_GetHost). Standalone 1.22-1.31 verified on CUDA 2026-10-16.
 cpu = [
-    "onnxruntime>=1.16.0,<2.0",  # CPU-only; any ORT version works
+    "onnxruntime>=1.24.0,<2.0",
 ]
 cpu-dev = [
-    "onnxruntime>=1.16.0,<2.0",
+    "onnxruntime>=1.24.0,<2.0",
     "torch>=2.1.0,<3.0",
 ]
 gpu = [
-    "onnxruntime-gpu>=1.16.0,<1.20",
+    "onnxruntime-gpu>=1.24.1,<2.0",
 ]
 gpu-dev = [
-    "onnxruntime-gpu>=1.16.0,<1.20",
+    "onnxruntime-gpu>=1.24.1,<2.0",
     "torch>=2.1.0,<3.0",
 ]
-gpu-directml = ["onnxruntime-directml>=1.16.0,<2.0"]
+gpu-directml = ["onnxruntime-directml>=1.24.0,<2.0"]
 dev = [
     "ruff>=0.1.0",
     "pytest>=7.4.0",
@@ -95,6 +95,12 @@ select = [
     "C4",  # flake8-comprehensions
     "UP",  # pyupgrade
     "G",   # flake8-logging-format
+    "SIM", # flake8-simplify
+    "RET", # flake8-return
+    "PIE", # flake8-pie
+    "S",   # flake8-bandit (security; replaces Bandit on Codacy)
+    "RUF100",  # unused noqa
+    "TRY400",  # logger.exception (keeps the traceback) inside except blocks
 ]
 ignore = [
     "E501",  # line too long (handled by formatter)
@@ -104,8 +110,12 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # unused imports in __init__.py
-"backend/tests/conftest.py" = ["E402"]  # intentional late imports for mock setup
+"backend/tests/conftest.py" = ["E402"]  # storage roots are set before backend imports
 "backend/scripts/*" = ["E402"]  # sys.path manipulation before imports
+# Tests assert, spawn helper processes and use throwaway temp paths / randomness.
+"{backend/tests,stress_tests,e2e}/**" = ["S101", "S105", "S106", "S108", "S311", "S603", "S607"]
+# Dev/build tooling runs fixed commands (git, npm, uv) from the developer's PATH.
+"scripts/**" = ["S603", "S607"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -118,9 +128,8 @@ asyncio_mode = "auto"
 testpaths = [
     "backend/tests/unit",
     "backend/tests/integration",
-    "scripts/labelling/tests",
 ]
-addopts = "--ignore=backend/tests/legacy --ignore=backend/tests/e2e -m 'not heavy'"
+addopts = "-m 'not heavy'"
 markers = [
     "heavy: tests requiring heavy infrastructure (CLIP model, real LanceDB, etc.) — run with -m heavy",
 ]

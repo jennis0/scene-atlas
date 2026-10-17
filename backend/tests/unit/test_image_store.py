@@ -147,35 +147,6 @@ class TestDelete:
         assert store.delete(key) is False
 
 
-class TestGenerateKey:
-    """generate_key() must produce a unique UUID-based key with the correct extension."""
-
-    def test_extension_preserved_lowercase(self):
-        key = ImageStore.generate_key("photo.JPG")
-        assert key.endswith(".jpg"), f"expected .jpg suffix, got: {key}"
-
-    def test_webp_extension(self):
-        assert ImageStore.generate_key("image.webp").endswith(".webp")
-
-    def test_mp4_extension(self):
-        assert ImageStore.generate_key("video.mp4").endswith(".mp4")
-
-    def test_keys_are_unique(self):
-        keys = {ImageStore.generate_key("x.jpg") for _ in range(50)}
-        assert len(keys) == 50
-
-    def test_key_has_uuid_length(self):
-        # UUID hex = 32 chars + 4-char extension = 36 chars minimum
-        key = ImageStore.generate_key("test.jpg")
-        stem = Path(key).stem
-        assert len(stem) == 32  # UUID hex has exactly 32 hex chars
-
-    def test_key_does_not_contain_path_separators(self):
-        key = ImageStore.generate_key("some/nested/path/image.png")
-        assert "/" not in key
-        assert "\\" not in key
-
-
 class TestGetPath:
     """get_path() must return the sharded path without requiring the file to exist."""
 

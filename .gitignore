@@ -129,3 +129,8 @@ docs/superpowers/
 docs/.vitepress/dist
 docs/.vitepress/cache
 docs/node_modules
+
+# Playwright and stress-test output
+test-results/
+playwright-report/
+stress_tests/results/

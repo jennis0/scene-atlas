@@ -31,9 +31,7 @@ import type {
   QueueStatus,
 } from './types'
 
-// ---------------------------------------------------------------------------
 // Public types
-// ---------------------------------------------------------------------------
 
 export type UploadPhase =
   | 'describing' // creating the job and sending the file list
@@ -115,9 +113,7 @@ export interface ImportManagerOptions {
 type Listener = () => void
 type FinishedListener = (job: ImportJobSummary) => void
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 const realSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
@@ -187,9 +183,7 @@ interface UploadRun {
   doneBytes: number
 }
 
-// ---------------------------------------------------------------------------
 // Manager
-// ---------------------------------------------------------------------------
 
 export class ImportManager {
   private client: ImportClient
@@ -250,7 +244,7 @@ export class ImportManager {
     }
   }
 
-  // --- store -----------------------------------------------------------------
+  // store
 
   subscribe = (listener: Listener): (() => void) => {
     this.listeners.add(listener)
@@ -291,7 +285,7 @@ export class ImportManager {
     this.syncUnloadGuard()
   }
 
-  // --- starting an import ----------------------------------------------------
+  // starting an import
 
   /**
    * Start importing ``files``. Resolves with the job id as soon as the job
@@ -415,7 +409,7 @@ export class ImportManager {
     return pending
   }
 
-  // --- resuming --------------------------------------------------------------
+  // resuming
 
   /**
    * Resume an interrupted upload with files the user re-picked. Files are
@@ -423,6 +417,7 @@ export class ImportManager {
    * known); only those are sent.
    */
   async resumeUpload(jobId: string, files: PickedFile[], label?: string): Promise<ResumeResult> {
+    if (this.isUploading(jobId)) return { matched: 0, missing: 0 }
     const awaiting: ImportItem[] = []
     let after: number | undefined
     do {
@@ -440,6 +435,8 @@ export class ImportManager {
       }
     }
 
+    // Paging the item list is async: another run may have started meanwhile.
+    if (this.isUploading(jobId)) return { matched: 0, missing: 0 }
     this.startUploadRun(jobId, pending, label)
     return { matched: pending.length, missing: awaiting.length - pending.length }
   }
@@ -492,7 +489,7 @@ export class ImportManager {
     })()
   }
 
-  // --- uploading -------------------------------------------------------------
+  // uploading
 
   private async uploadAll(jobId: string, files: PendingFile[], run: UploadRun): Promise<void> {
     const queue: PendingFile[] = []
@@ -696,7 +693,7 @@ export class ImportManager {
     if (run.controller.signal.aborted) throw new Aborted()
   }
 
-  // --- job actions -----------------------------------------------------------
+  // job actions
 
   /** Stop this tab's uploads for the job and cancel it server-side (finished work is kept). */
   async cancel(jobId: string): Promise<void> {
@@ -775,7 +772,7 @@ export class ImportManager {
     return this.client.items(jobId, params)
   }
 
-  // --- job detail ------------------------------------------------------------
+  // job detail
 
   /**
    * Keep ``snapshot.details[jobId]`` fresh while the returned function hasn't
@@ -812,7 +809,7 @@ export class ImportManager {
     }
   }
 
-  // --- polling ---------------------------------------------------------------
+  // polling
 
   /** Start the single job-summary poller (idempotent). */
   startPolling(): void {
@@ -899,7 +896,7 @@ export class ImportManager {
     }
   }
 
-  // --- unload guard ----------------------------------------------------------
+  // unload guard
 
   /** True while this tab still has bytes to send. */
   hasOutstandingUploads(): boolean {

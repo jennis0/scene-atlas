@@ -17,15 +17,11 @@ interface UseJobPollingResult {
   progress: string | null
   /** Integer percentage 0–100, or null if unavailable. */
   progressPct: number | null
-  /** Error message if the job failed. */
   error: string | null
   /** True while the job is queued or running. */
   isRunning: boolean
-  /** True when the job has completed successfully. */
   isComplete: boolean
-  /** True when the job has failed. */
   isFailed: boolean
-  /** Start tracking a new job ID. */
   track: (jobId: string) => void
   /** Stop tracking and reset state. */
   reset: () => void

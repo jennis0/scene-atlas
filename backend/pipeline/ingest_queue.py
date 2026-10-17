@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
-from sqlalchemy import func, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from backend.app.config import settings
@@ -49,9 +49,7 @@ def utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
-# ---------------------------------------------------------------------------
 # Sessions
-# ---------------------------------------------------------------------------
 
 
 def _session() -> Session:
@@ -89,9 +87,7 @@ def write_session() -> Iterator[Session]:
         db.close()
 
 
-# ---------------------------------------------------------------------------
 # Paths
-# ---------------------------------------------------------------------------
 
 
 def staging_dir_for(job_id: str) -> Path:
@@ -141,9 +137,7 @@ def normalise_relative_path(relative_path: str) -> str:
     return "/".join(parts)
 
 
-# ---------------------------------------------------------------------------
 # Jobs, manifest and planning
-# ---------------------------------------------------------------------------
 
 
 class ManifestSealedError(Exception):
@@ -300,19 +294,21 @@ def plan_job(db: Session, job_id: str) -> list[ImportGroup]:
 
     existing = _existing_groups(db, {name for _, name, _ in planned})
     groups: list[ImportGroup] = []
-    for order, (author, group_name, files) in enumerate(planned):
+    for order, (author, group_name, _files) in enumerate(planned):
         existing_id = existing.get((group_name, author))
-        import_group = ImportGroup(
-            job_id=job_id,
-            author=author,
-            group_name=group_name,
-            image_group_id=existing_id,
-            merged_into_existing=existing_id is not None,
-            sort_order=order,
+        groups.append(
+            ImportGroup(
+                job_id=job_id,
+                author=author,
+                group_name=group_name,
+                image_group_id=existing_id,
+                merged_into_existing=existing_id is not None,
+                sort_order=order,
+            )
         )
-        db.add(import_group)
-        db.flush()
-        groups.append(import_group)
+    db.add_all(groups)
+    db.flush()  # one batched INSERT assigns every group id
+    for import_group, (_author, group_name, files) in zip(groups, planned, strict=True):
         for file_entry in files:
             item = by_path[file_entry["relative_path"]]
             item.import_group_id = import_group.id
@@ -324,9 +320,7 @@ def plan_job(db: Session, job_id: str) -> list[ImportGroup]:
     return groups
 
 
-# ---------------------------------------------------------------------------
 # Job status
-# ---------------------------------------------------------------------------
 
 
 def job_counts(db: Session, job_id: str) -> dict[str, int]:
@@ -334,6 +328,7 @@ def job_counts(db: Session, job_id: str) -> dict[str, int]:
         db.query(ImportItem.state, func.count(ImportItem.id))
         .filter(ImportItem.job_id == job_id)
         .group_by(ImportItem.state)
+        .tuples()
         .all()
     )
     return dict(rows)
@@ -356,9 +351,7 @@ def recompute_job_status(db: Session, job_id: str) -> str:
     return new_status
 
 
-# ---------------------------------------------------------------------------
 # Byte receipt
-# ---------------------------------------------------------------------------
 
 
 def find_byte_duplicates(db: Session, hashes: Iterable[str]) -> dict[str, int]:
@@ -439,7 +432,7 @@ def apply_client_hashes(db: Session, job_id: str, hashes: dict[int, str]) -> lis
 
 def dismiss_job(db: Session, job_id: str) -> None:
     """Hide a finished job from the activity dock. Never deletes anything."""
-    job = db.get(ImportJob, job_id)
+    job = db.get_one(ImportJob, job_id)
     job.dismissed_at = job.dismissed_at or utcnow()
 
 
@@ -476,11 +469,11 @@ def undo_job(db: Session, job_id: str):
             ImportGroup.image_group_id.isnot(None),
         )
     ]
-    for group_id in created_group_ids:
-        if not db.query(Image.id).filter(Image.group_id == group_id).first():
-            group = db.get(ImageGroup, group_id)
-            if group is not None:
-                db.delete(group)
+    if created_group_ids:
+        still_used = select(Image.group_id).where(Image.group_id.in_(created_group_ids))
+        db.query(ImageGroup).filter(
+            ImageGroup.id.in_(created_group_ids), ImageGroup.id.not_in(still_used)
+        ).delete(synchronize_session=False)
 
     db.query(ImportItem).filter(ImportItem.job_id == job_id).delete(synchronize_session=False)
     db.query(ImportGroup).filter(ImportGroup.job_id == job_id).delete(synchronize_session=False)
@@ -489,9 +482,7 @@ def undo_job(db: Session, job_id: str):
     return len(images), pending
 
 
-# ---------------------------------------------------------------------------
 # Claiming (worker)
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -615,12 +606,13 @@ def claim_next_batch(
         siblings = _sibling_grid_counts(
             db, {item.import_group_id for item in items if item.import_group_id is not None}
         )
-        return job_id, [_snapshot(item, siblings.get(item.import_group_id, ())) for item in items]
+        return job_id, [
+            _snapshot(item, siblings.get(item.import_group_id, ()) if item.import_group_id else ())
+            for item in items
+        ]
 
 
-# ---------------------------------------------------------------------------
 # Failures (worker)
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -645,8 +637,14 @@ def record_failures(failures: list[ItemFailure], now: datetime | None = None) ->
     now = now or utcnow()
     job_ids: set[str] = set()
     with write_session() as db:
+        items = {
+            item.id: item
+            for item in db.query(ImportItem).filter(
+                ImportItem.id.in_([f.item_id for f in failures])
+            )
+        }
         for failure in failures:
-            item = db.get(ImportItem, failure.item_id)
+            item = items.get(failure.item_id)
             if item is None or item.state != st.PROCESSING:
                 continue
             job_ids.add(item.job_id)
@@ -673,9 +671,7 @@ def record_failures(failures: list[ItemFailure], now: datetime | None = None) ->
     return job_ids
 
 
-# ---------------------------------------------------------------------------
 # Recovery (startup)
-# ---------------------------------------------------------------------------
 
 
 def recover_interrupted() -> dict[str, int]:
@@ -710,9 +706,7 @@ def recover_interrupted() -> dict[str, int]:
     return {"recovered": recovered, "crashed": crashed}
 
 
-# ---------------------------------------------------------------------------
 # User actions (imports API)
-# ---------------------------------------------------------------------------
 
 
 def _items_in(db: Session, job_id: str, states: Iterable[str], item_ids: list[int] | None):
@@ -783,14 +777,14 @@ def skip_items(
 
 
 def pause_job(db: Session, job_id: str) -> str:
-    job = db.get(ImportJob, job_id)
+    job = db.get_one(ImportJob, job_id)
     if job.status == st.JOB_ACTIVE:
         job.status = st.JOB_PAUSED
     return recompute_job_status(db, job_id)
 
 
 def resume_job(db: Session, job_id: str) -> str:
-    job = db.get(ImportJob, job_id)
+    job = db.get_one(ImportJob, job_id)
     if job.status == st.JOB_PAUSED:
         job.status = st.JOB_ACTIVE
     return recompute_job_status(db, job_id)
@@ -801,7 +795,7 @@ def cancel_job(db: Session, job_id: str) -> int:
 
     Items currently ``processing`` finish their batch and are kept too.
     """
-    job = db.get(ImportJob, job_id)
+    job = db.get_one(ImportJob, job_id)
     if job.status != st.JOB_COMPLETED:
         job.status = st.JOB_CANCELLED
         job.completed_at = utcnow()

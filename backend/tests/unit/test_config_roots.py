@@ -20,7 +20,6 @@ class TestConfigDefaults:
         assert s.store_thumbnails_dir == tmp_path / "data" / "store" / "thumbnails"
         assert s.staging_dir == tmp_path / "data" / "staging"
         assert s.vector_db_path == tmp_path / "data" / "lancedb"
-        assert s.config_dir == tmp_path / "data" / "config"
 
     def test_image_store_is_flat_under_image_library(self, tmp_path):
         (tmp_path / "data").mkdir()
@@ -49,6 +48,15 @@ class TestConfigDefaults:
         (tmp_path / "images").mkdir()
         s = Settings(app_data_dir=tmp_path / "data", image_library_dir=tmp_path / "images")
         assert str(tmp_path / "data" / "battlemap.db") in s.database_url
+
+    def test_derived_values_ignore_env(self, monkeypatch, tmp_path):
+        """Derived paths come only from the roots; env vars cannot override them."""
+        (tmp_path / "data").mkdir()
+        monkeypatch.setenv("DATABASE_URL", "sqlite:////elsewhere.db")
+        monkeypatch.setenv("STAGING_DIR", str(tmp_path / "elsewhere"))
+        s = Settings(app_data_dir=tmp_path / "data", image_library_dir=tmp_path / "images")
+        assert s.database_url == f"sqlite:///{tmp_path / 'data' / 'battlemap.db'}"
+        assert s.staging_dir == tmp_path / "data" / "staging"
 
 
 class TestStartupValidation:
@@ -87,4 +95,3 @@ class TestStartupValidation:
         assert s.store_thumbnails_dir.exists()
         assert s.staging_dir.exists()
         assert s.vector_db_path.exists()
-        assert s.config_dir.exists()

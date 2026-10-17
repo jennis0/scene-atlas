@@ -55,6 +55,7 @@ from .tasks.image_processing import write_thumbnails
 logger = logging.getLogger(__name__)
 
 INCOMING_DIRNAME = ".incoming"
+_BYTES_LOST_REASON = "The uploaded file is missing; upload it again"
 
 
 def incoming_dir(store_base: Path) -> Path:
@@ -68,9 +69,7 @@ def clear_incoming() -> None:
         shutil.rmtree(incoming_dir(store.base_dir), ignore_errors=True)
 
 
-# ---------------------------------------------------------------------------
 # Prepare
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -238,7 +237,7 @@ def prepare_item(item: ClaimedItem, cfg: PipelineConfig) -> PreparedItem | ItemF
             item.id,
             KIND_BYTES_LOST,
             "copy",
-            "The uploaded file is missing; upload it again",
+            _BYTES_LOST_REASON,
         )
 
     progress = _Progress()
@@ -250,6 +249,8 @@ def prepare_item(item: ClaimedItem, cfg: PipelineConfig) -> PreparedItem | ItemF
         for path in progress.created:
             path.unlink(missing_ok=True)
         stage = progress.stage
+        if isinstance(exc, FileNotFoundError) and not staged.exists():
+            return ItemFailure(item.id, KIND_BYTES_LOST, stage, _BYTES_LOST_REASON, str(exc))
         logger.warning("Prepare failed for %s at %s: %s", item.relative_path, stage, exc)
         info = classify_ingest_error(exc, stage=stage)
         return ItemFailure(item.id, info["kind"], stage, info["reason"], info["detail"])
@@ -357,9 +358,7 @@ def _prepare(
     )
 
 
-# ---------------------------------------------------------------------------
 # Embed
-# ---------------------------------------------------------------------------
 
 
 def embed(prepared: list[PreparedItem]) -> list[ItemFailure]:
@@ -380,9 +379,7 @@ def embed(prepared: list[PreparedItem]) -> list[ItemFailure]:
     return []
 
 
-# ---------------------------------------------------------------------------
 # Commit
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -463,8 +460,14 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
         with write_session() as db:
             by_bytes, by_pixels = _existing_hash_matches(db, prepared)
             group_cache: dict = {}
+            item_rows = {
+                row.id: row
+                for row in db.query(ImportItem).filter(
+                    ImportItem.id.in_([p.item.id for p in prepared])
+                )
+            }
             for p in prepared:
-                row = db.get(ImportItem, p.item.id)
+                row = item_rows.get(p.item.id)
                 if row is None or row.state != st.PROCESSING:
                     logger.warning("Item %s no longer processing; discarding", p.item.id)
                     continue
@@ -571,9 +574,7 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
     return result
 
 
-# ---------------------------------------------------------------------------
 # Vectors
-# ---------------------------------------------------------------------------
 
 
 def write_vectors(done: list[CommittedImage]) -> bool:
@@ -607,9 +608,7 @@ def write_vectors(done: list[CommittedImage]) -> bool:
     return bool(ok)
 
 
-# ---------------------------------------------------------------------------
 # Orchestration
-# ---------------------------------------------------------------------------
 
 
 @dataclass

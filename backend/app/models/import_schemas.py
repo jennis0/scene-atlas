@@ -6,15 +6,14 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 ImageType = Literal["battlemap", "scene"]
+JobStatus = Literal["active", "paused", "completed", "cancelled"]
 
 MAX_MANIFEST_CHUNK = 2000
 MAX_HASH_CHUNK = 2000
 MAX_ACTION_ITEMS = 10_000
 
 
-# ---------------------------------------------------------------------------
 # Summaries
-# ---------------------------------------------------------------------------
 
 
 class ImportCounts(BaseModel):
@@ -43,7 +42,7 @@ class ImportGroupSummary(BaseModel):
 class ImportJobSummary(BaseModel):
     id: str
     label: str | None
-    status: Literal["active", "paused", "completed", "cancelled"]
+    status: JobStatus
     default_image_type: ImageType
     planned: bool
     dismissed: bool
@@ -73,9 +72,7 @@ class ImportJobList(BaseModel):
     version: int
 
 
-# ---------------------------------------------------------------------------
 # Create, manifest, hashes
-# ---------------------------------------------------------------------------
 
 
 class CreateImportRequest(BaseModel):
@@ -127,9 +124,7 @@ class HashResponse(BaseModel):
     items: list[HashResult]
 
 
-# ---------------------------------------------------------------------------
 # Bytes
-# ---------------------------------------------------------------------------
 
 
 class ContentResult(BaseModel):
@@ -146,9 +141,7 @@ class ArchiveResult(BaseModel):
     failed: int
 
 
-# ---------------------------------------------------------------------------
 # Items and actions
-# ---------------------------------------------------------------------------
 
 
 class ImportItemOut(BaseModel):

@@ -18,9 +18,9 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ['Figtree', 'system-ui', 'sans-serif'],
-        display: ['Cinzel', 'Georgia', 'serif'],
-        mono: ['"JetBrains Mono"', 'Consolas', 'monospace'],
+        sans: ['"Figtree Variable"', 'system-ui', 'sans-serif'],
+        display: ['"Cinzel Variable"', 'Georgia', 'serif'],
+        mono: ['"JetBrains Mono Variable"', 'Consolas', 'monospace'],
       },
       colors: {
         border: 'hsl(var(--border))',

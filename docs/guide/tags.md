@@ -30,7 +30,7 @@ Tag packs are genre-specific vocabularies that pre-populate categories with comm
 - **Horror**:crypts, haunted, blood, decay
 - **Historical**:medieval, roman, victorian
 
-Install packs from **Settings > Tag Packs**. Importing a pack merges new values into existing categories without overwriting your custom tags.
+A new library starts with only the Common pack. The first-run setup lets you pick genre packs (all are selected by default), and you can add more later from **Settings > Tag Packs**. Importing a pack merges new values into existing categories without overwriting your custom tags. Packs can't be removed once added, and resetting tags returns the library to just the Common pack.
 
 ## Aliases
 

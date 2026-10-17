@@ -1,238 +1,138 @@
-"""Unit tests for the color search service.
-
-Covers:
-- hex_to_hsl_cylinder(): conversion from hex colour to cylindrical HSL coordinates
-- color_distance(): Euclidean distance between two 3-tuples
-- ColorIndex: in-memory cache, proximity search, TTL expiry, OR-union across colours
-"""
+"""Colour search: hex to CIELAB conversion and the SQL delta E query."""
 
 import math
-from unittest.mock import MagicMock, patch
 
 import pytest
 
-from backend.app.services.color_search import (
-    ColorIndex,
-    color_distance,
-    hex_to_hsl_cylinder,
-)
+from backend.app.colorspace import hex_to_lab
+from backend.app.models import Color, Image
+from backend.app.models.schemas import AppSettingsPatch
+from backend.app.services.app_settings import update_settings
+from backend.app.services.color_search import color_match_ids, find_images_by_colors
 
-ABS_TOL = 1e-4
-
-
-def _make_mock_db(rows: list):
-    """Return a mock SQLAlchemy Session whose .query().all() yields rows.
-
-    rows: list of (image_id, color_hex) pairs, matching what
-    ColorIndex._refresh() pulls from the DB.
-    """
-    mock_db = MagicMock()
-    mock_query = MagicMock()
-    mock_db.query.return_value = mock_query
-    mock_query.all.return_value = rows
-    return mock_db
+# sRGB (D65) references, as published by Bruce Lindbloom's calculator.
+REFERENCE_LAB = {
+    "#000000": (0.0, 0.0, 0.0),
+    "#ffffff": (100.0, 0.0, 0.0),
+    "#808080": (53.585, 0.0, 0.0),
+    "#ff0000": (53.2408, 80.0925, 67.2032),
+    "#00ff00": (87.7347, -86.1827, 83.1793),
+    "#0000ff": (32.2970, 79.1875, -107.8602),
+    "#ffff00": (97.1393, -21.5537, 94.4780),
+}
 
 
-class TestHexToHslCylinder:
-    """Tests for hex_to_hsl_cylinder()."""
+class TestHexToLab:
+    @pytest.mark.parametrize("hex_val", REFERENCE_LAB)
+    def test_reference_values(self, hex_val):
+        assert hex_to_lab(hex_val) == pytest.approx(REFERENCE_LAB[hex_val], abs=1e-3)
 
-    def test_black(self):
-        """#000000 is achromatic with zero lightness -- all coordinates are 0."""
-        result = hex_to_hsl_cylinder("#000000")
-        assert result == pytest.approx((0.0, 0.0, 0.0), abs=ABS_TOL)
+    def test_hash_prefix_and_case_ignored(self):
+        assert hex_to_lab("D4A853") == pytest.approx(hex_to_lab("#d4a853"))
 
-    def test_white(self):
-        """#ffffff is achromatic with full lightness -- x=0, y=0, z=1."""
-        result = hex_to_hsl_cylinder("#ffffff")
-        assert result == pytest.approx((0.0, 0.0, 1.0), abs=ABS_TOL)
-
-    def test_pure_red(self):
-        """Pure red: hue=0, S=1, L=0.5 -> angle=0 -> (1, 0, 0.5)."""
-        result = hex_to_hsl_cylinder("#ff0000")
-        assert result == pytest.approx((1.0, 0.0, 0.5), abs=ABS_TOL)
-
-    def test_pure_green(self):
-        """Pure green: hue=1/3, S=1, L=0.5 -> angle=2pi/3 -> (-0.5, 0.866, 0.5)."""
-        angle = 2 * math.pi / 3
-        expected = (math.cos(angle), math.sin(angle), 0.5)
-        result = hex_to_hsl_cylinder("#00ff00")
-        assert result == pytest.approx(expected, abs=ABS_TOL)
-
-    def test_pure_blue(self):
-        """Pure blue: hue=2/3, S=1, L=0.5 -> angle=4pi/3 -> (-0.5, -0.866, 0.5)."""
-        angle = 4 * math.pi / 3
-        expected = (math.cos(angle), math.sin(angle), 0.5)
-        result = hex_to_hsl_cylinder("#0000ff")
-        assert result == pytest.approx(expected, abs=ABS_TOL)
-
-    def test_hash_prefix_optional(self):
-        """Hex strings with and without # must produce identical output."""
-        with_hash = hex_to_hsl_cylinder("#ff0000")
-        without_hash = hex_to_hsl_cylinder("ff0000")
-        assert with_hash == pytest.approx(without_hash, abs=ABS_TOL)
-
-    def test_returns_three_floats(self):
-        """Return value must be a 3-tuple of floats."""
-        result = hex_to_hsl_cylinder("#aabbcc")
-        assert len(result) == 3
-        assert all(isinstance(v, float) for v in result)
-
-    def test_gray_has_zero_saturation(self):
-        """#808080 is grey: saturation=0, so x and y components are 0."""
-        x, y, _lightness = hex_to_hsl_cylinder("#808080")
-        assert abs(x) == pytest.approx(0.0, abs=ABS_TOL)
-        assert abs(y) == pytest.approx(0.0, abs=ABS_TOL)
+    def test_model_sets_lab_from_hex(self):
+        color = Color(image_id=1, color_hex="#ff0000")
+        assert (color.lab_l, color.lab_a, color.lab_b) == pytest.approx(REFERENCE_LAB["#ff0000"])
+        color.color_hex = "#0000ff"
+        assert color.lab_b == pytest.approx(REFERENCE_LAB["#0000ff"][2])
 
 
-class TestColorDistance:
-    """Tests for color_distance()."""
+def _delta_e(h1: str, h2: str) -> float:
+    return math.dist(hex_to_lab(h1), hex_to_lab(h2))
 
-    def test_same_color_zero_distance(self):
-        """Distance from a vector to itself is 0."""
-        v = (0.3, 0.7, 0.5)
-        assert color_distance(v, v) == pytest.approx(0.0, abs=ABS_TOL)
 
-    def test_known_distance_unit_axis(self):
-        """Distance from origin to (1, 0, 0) is 1.0."""
-        assert color_distance((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)) == pytest.approx(1.0, abs=ABS_TOL)
+@pytest.fixture
+def library(db_session):
+    """One image per colour; returns ``{hex: image_id}``."""
 
-    def test_max_distance_black_white(self):
-        """Distance between cylindrical black (0,0,0) and (0,0,1) is 1.0."""
-        assert color_distance((0.0, 0.0, 0.0), (0.0, 0.0, 1.0)) == pytest.approx(1.0, abs=ABS_TOL)
+    def add(*hexes: str) -> dict[str, int]:
+        ids = {}
+        for hex_val in hexes:
+            image = Image(
+                filename=f"{hex_val[1:]}.jpg", storage_key=f"{hex_val[1:]}.jpg", name=hex_val
+            )
+            db_session.add(image)
+            db_session.flush()
+            db_session.add(Color(image_id=image.id, color_hex=hex_val, color_order=1))
+            ids[hex_val] = image.id
+        db_session.commit()
+        return ids
 
-    def test_known_distance_diagonal(self):
-        """Distance from (0,0,0) to (1,1,1) is sqrt(3) approx 1.732."""
-        assert color_distance((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)) == pytest.approx(
-            math.sqrt(3), abs=ABS_TOL
+    return add
+
+
+class TestFindImagesByColors:
+    def test_threshold_boundary(self, db_session, library):
+        """A colour just inside the threshold matches; one just outside doesn't."""
+        ids = library("#808080", "#8a8a8a", "#a0a0a0")
+        near = _delta_e("#808080", "#8a8a8a")
+        far = _delta_e("#808080", "#a0a0a0")
+        assert near < far
+        threshold = (near + far) / 2
+        assert find_images_by_colors(db_session, ["#808080"], threshold) == {
+            ids["#808080"],
+            ids["#8a8a8a"],
+        }
+        assert find_images_by_colors(db_session, ["#808080"], near + 1e-6) == {
+            ids["#808080"],
+            ids["#8a8a8a"],
+        }
+        assert find_images_by_colors(db_session, ["#808080"], near - 1e-6) == {ids["#808080"]}
+
+    def test_box_corner_outside_sphere_excluded(self, db_session, library):
+        """Inside the per-axis bounding box but beyond the Euclidean distance."""
+        ids = library("#808080", "#9a7aa0")
+        target_lab = hex_to_lab("#808080")
+        offsets = [abs(x - y) for x, y in zip(hex_to_lab("#9a7aa0"), target_lab, strict=True)]
+        threshold = max(offsets) + 0.5
+        assert _delta_e("#808080", "#9a7aa0") > threshold
+        assert find_images_by_colors(db_session, ["#808080"], threshold) == {ids["#808080"]}
+
+    def test_or_across_colours(self, db_session, library):
+        ids = library("#ff0000", "#0000ff", "#00ff00")
+        result = find_images_by_colors(db_session, ["#fe0101", "#0101fe"], 5.0)
+        assert result == {ids["#ff0000"], ids["#0000ff"]}
+
+    def test_image_matching_several_colours_returned_once(self, db_session, library):
+        ids = library("#ff0000")
+        db_session.add(Color(image_id=ids["#ff0000"], color_hex="#fe0000", color_order=2))
+        db_session.commit()
+        assert find_images_by_colors(db_session, ["#ff0000", "#fe0000"], 5.0) == {ids["#ff0000"]}
+
+    def test_no_targets_or_no_rows(self, db_session, library):
+        assert find_images_by_colors(db_session, ["#ff0000"], 50.0) == set()
+        library("#ff0000")
+        assert find_images_by_colors(db_session, [], 50.0) == set()
+
+    def test_threshold_defaults_to_app_setting(self, db_session, library):
+        ids = library("#808080", "#a0a0a0")
+        gap = _delta_e("#808080", "#a0a0a0")
+        update_settings(db_session, AppSettingsPatch(color_distance_threshold=gap - 1))
+        assert find_images_by_colors(db_session, ["#808080"]) == {ids["#808080"]}
+        update_settings(db_session, AppSettingsPatch(color_distance_threshold=gap + 1))
+        assert find_images_by_colors(db_session, ["#808080"]) == set(ids.values())
+
+    def test_or_across_colours_sharing_a_scan(self, db_session, library):
+        """Targets with overlapping L* ranges share one index scan but keep their own a*/b*."""
+        ids = library("#ff0000", "#808080", "#00a8a8", "#0000ff")
+        assert abs(hex_to_lab("#ff0000")[0] - hex_to_lab("#808080")[0]) < 1
+        result = find_images_by_colors(db_session, ["#fe0101", "#818181"], 5.0)
+        assert result == {ids["#ff0000"], ids["#808080"]}
+
+    @pytest.mark.parametrize(
+        "targets", [["#808080"], ["#808080", "#ff0000"], ["#808080", "#ffffff", "#000000"]]
+    )
+    def test_query_uses_lab_index(self, db_session, targets):
+        stmt = color_match_ids(targets, 10.0)
+        compiled = stmt.compile(
+            dialect=db_session.bind.dialect, compile_kwargs={"literal_binds": True}
         )
-
-    def test_symmetric(self):
-        """Distance is symmetric: dist(a, b) == dist(b, a)."""
-        a = (0.1, 0.5, 0.9)
-        b = (0.8, 0.2, 0.4)
-        assert color_distance(a, b) == pytest.approx(color_distance(b, a), abs=ABS_TOL)
-
-    def test_triangle_inequality(self):
-        """Triangle inequality holds: dist(a, c) <= dist(a, b) + dist(b, c)."""
-        a = (0.0, 0.0, 0.0)
-        b = (0.5, 0.5, 0.5)
-        c = (1.0, 0.0, 1.0)
-        assert color_distance(a, c) <= color_distance(a, b) + color_distance(b, c) + ABS_TOL
-
-
-class TestColorIndex:
-    """Tests for ColorIndex: cache population, proximity search, TTL refresh."""
-
-    def test_returns_matching_images(self):
-        """An image whose stored colour matches the target hex exactly is returned."""
-        mock_db = _make_mock_db(
-            [
-                (42, "#ff0000"),
-                (7, "#0000ff"),
-                (99, "#000000"),
-            ]
+        plan = [
+            str(row[-1])
+            for row in db_session.connection().exec_driver_sql(f"EXPLAIN QUERY PLAN {compiled}")
+        ]
+        scans = [line for line in plan if "colors" in line]
+        assert scans
+        assert all(
+            line.startswith("SEARCH colors USING COVERING INDEX ix_colors_lab") for line in scans
         )
-        index = ColorIndex()
-        result = index.find_images_by_color(mock_db, "#ff0000", threshold=0.1)
-        assert 42 in result
-
-    def test_threshold_excludes_distant_images(self):
-        """With a very tight threshold, only near-exact matches are returned."""
-        mock_db = _make_mock_db(
-            [
-                (1, "#ff0000"),
-                (2, "#0000ff"),
-            ]
-        )
-        index = ColorIndex()
-        result = index.find_images_by_color(mock_db, "#ff0000", threshold=0.01)
-        assert 1 in result
-        assert 2 not in result
-
-    def test_empty_db_returns_empty_set(self):
-        """No Color rows in the DB -> find_images_by_color returns an empty set."""
-        mock_db = _make_mock_db([])
-        index = ColorIndex()
-        result = index.find_images_by_color(mock_db, "#ff0000", threshold=10.0)
-        assert result == set()
-
-    def test_find_by_multiple_colors_union(self):
-        """find_images_by_colors applies OR logic: any matching colour includes the image."""
-        mock_db = _make_mock_db(
-            [
-                (1, "#ff0000"),
-                (2, "#0000ff"),
-            ]
-        )
-        index = ColorIndex()
-        result = index.find_images_by_colors(mock_db, ["#ff0000", "#0000ff"], threshold=0.1)
-        assert 1 in result
-        assert 2 in result
-
-    def test_find_by_multiple_colors_no_duplicates(self):
-        """An image matching several target colours appears only once in the result set."""
-        mock_db = _make_mock_db(
-            [
-                (1, "#ff0000"),
-                (1, "#fe0000"),
-            ]
-        )
-        index = ColorIndex()
-        result = index.find_images_by_colors(mock_db, ["#ff0000", "#fe0000"], threshold=0.2)
-        assert isinstance(result, set)
-        assert 1 in result
-
-    def test_cache_loaded_once_for_multiple_calls(self):
-        """When TTL has not expired the DB is queried only once."""
-        mock_db = _make_mock_db([(1, "#ff0000")])
-        index = ColorIndex()
-
-        index.find_images_by_color(mock_db, "#ff0000", threshold=0.1)
-        index.find_images_by_color(mock_db, "#ff0000", threshold=0.1)
-        index.find_images_by_color(mock_db, "#ff0000", threshold=0.1)
-
-        assert mock_db.query.return_value.all.call_count == 1
-
-    def test_cache_refresh_after_ttl(self):
-        """After the 60-second TTL expires the DB is queried again on the next search."""
-        mock_db = _make_mock_db([(1, "#ff0000")])
-        index = ColorIndex()
-
-        with patch("backend.app.services.color_search.time.monotonic") as mock_time:
-            mock_time.return_value = 0.0
-            index.find_images_by_color(mock_db, "#ff0000", threshold=0.1)
-
-            mock_time.return_value = 30.0
-            index.find_images_by_color(mock_db, "#ff0000", threshold=0.1)
-
-            mock_time.return_value = 61.0
-            index.find_images_by_color(mock_db, "#ff0000", threshold=0.1)
-
-        # Two DB queries: one at t=0, one after TTL expiry at t=61.
-        assert mock_db.query.return_value.all.call_count == 2
-
-
-class TestColorIndexConcurrency:
-    def test_concurrent_refresh_no_errors(self, tmp_db):
-        """Concurrent calls to _ensure_loaded don't crash or deadlock."""
-        import threading
-
-        _, SessionLocal = tmp_db
-        index = ColorIndex()
-        errors = []
-
-        def reader():
-            with SessionLocal() as db:
-                for _ in range(20):
-                    try:
-                        index._loaded_at = 0.0  # Force TTL expiry
-                        index._ensure_loaded(db)
-                    except Exception as e:  # noqa: BLE001
-                        errors.append(e)
-
-        threads = [threading.Thread(target=reader) for _ in range(4)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-        assert not errors, f"Concurrent refresh raised: {errors}"

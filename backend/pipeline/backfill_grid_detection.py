@@ -18,17 +18,16 @@ import logging
 from PIL import Image as PILImage
 from sqlalchemy import and_, or_
 
-from backend.app.config import settings
 from backend.app.models.database import (
     GRID_SOURCE_DETECTOR,
     GRID_SOURCE_FILENAME,
     GRID_SOURCE_USER,
     Image,
-    get_engine,
-    get_session_local,
 )
 from backend.app.services import get_image_store
 from backend.app.services.memory_budget import get_memory_budget
+from backend.app.services.shutdown import raise_if_shutting_down, shutdown_requested
+from backend.pipeline.db import pipeline_db
 from backend.pipeline.ingest_process import grid_detection_bytes
 from backend.pipeline.pipeline_config import PipelineConfig, load_pipeline_config
 from backend.pipeline.tasks.grid_detection import detect_grid_from_image
@@ -87,20 +86,19 @@ def _memory_estimate(path, width: int, height: int, cfg: PipelineConfig) -> int:
 
 
 def detect_grids_batch(image_ids: list[int], force: bool = False) -> dict:
-    """Run grid detection on a batch of images and update their records.
+    """Run grid detection on *image_ids* and update their rows.
 
-    Returns a dict with detected, skipped and errors counts.
+    With *force*, re-detect even where grid info exists. Returns detected/skipped/errors counts.
     """
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
-    db = SessionLocal()
     image_store = get_image_store()
     cfg = load_pipeline_config()
 
     detected = skipped = errors = 0
-    try:
+    with pipeline_db() as db:
         images = db.query(Image).filter(Image.id.in_(image_ids)).all()
         for image in images:
+            if shutdown_requested():
+                break  # keep what's detected; the caller stops at the batch boundary
             try:
                 mode = detection_mode(image, force)
                 if mode is None or image.width is None or image.height is None:
@@ -134,28 +132,17 @@ def detect_grids_batch(image_ids: list[int], force: bool = False) -> dict:
                 if not size_only:  # size-only keeps the file name as the source of "gridded"
                     image.grid_source = GRID_SOURCE_DETECTOR
                 detected += 1
-            except Exception as e:
-                logger.error("Image %s: grid detection error: %s", image.id, e)
+
+            except Exception:
+                logger.exception("Image %s: grid detection error", image.id)
                 errors += 1
-        db.commit()
-    finally:
-        db.close()
 
     return {"detected": detected, "skipped": skipped, "errors": errors}
 
 
 def backfill_grid_detection(force: bool = False, progress_fn=None):
-    """Detect grid presence/size for battlemaps not yet analysed.
-
-    Args:
-        force: If True, re-detect every battlemap (still never user-set grids).
-        progress_fn: Optional callback ``(current, total, message)`` injected by JobRunner.
-    """
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
-    db = SessionLocal()
-
-    try:
+    """Detect grid presence/size for battlemaps missing grid info (all battlemaps with *force*)."""
+    with pipeline_db() as db:
         # A superset of what detection_mode() accepts; it makes the final call.
         not_user = or_(Image.grid_source.is_(None), Image.grid_source != GRID_SOURCE_USER)
         query = db.query(Image.id).filter(Image.image_type == "battlemap", not_user)
@@ -169,8 +156,6 @@ def backfill_grid_detection(force: bool = False, progress_fn=None):
                 )
             )
         image_ids = [row[0] for row in query.order_by(Image.id).all()]
-    finally:
-        db.close()
 
     total = len(image_ids)
     mode = "all battlemaps (force)" if force else "battlemaps missing grid info"
@@ -186,6 +171,7 @@ def backfill_grid_detection(force: bool = False, progress_fn=None):
         processed = min(i + BATCH_SIZE, total)
         if progress_fn:
             progress_fn(processed, total, f"Processed {processed}/{total}")
+        raise_if_shutting_down()  # also covers a batch cut short
 
     logger.info(
         "Grid backfill complete: %d detected, %d skipped, %d errors",

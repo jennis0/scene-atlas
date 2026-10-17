@@ -33,9 +33,11 @@ Given a relative path like `czepeku/Island Fort/Gridded/IslandFort_Night_Rain_30
 
 ### 2. Grid Detection (battlemaps only)
 
+<a id="grid-detection"></a>
+
 **Filename-based** (always runs, in `ImageParser.parse()`):
 - CamelCase-split + normalize the filename stem to space-separated words
-- Check negative regex: `\b(no[-_ ]?grid|gridless|ungridded)\b` → `gridded = False`
+- Check negative regex: `\b(no[-_ ]?grid|gridless|ungridded|gl)\b` → `gridded = False`
 - Check hex regex: `\b(hexgrid|hex[-_ ]?grid|hex|hg)\b` → `gridded = True, grid_type = "hex"`.
   - A bare `hex` counts, because partyoftwo marks its hex maps `HexH` / `HexV` (flat/pointy) plus a line colour, e.g. `…_Online_HexHBlack`.
   - `GH` counts in the filename only. In folder names it appears as an unrelated code (a portrait pack's Gnome/Halfling `GH-GH-MS-F101`).
@@ -46,18 +48,18 @@ Given a relative path like `czepeku/Island Fort/Gridded/IslandFort_Night_Rain_30
 - **Skipped for `image_type="scene"`** — scenes do not use grid metadata
 
 **Image-analysis-based** (during ingest, `_detect_grid` in `backend/pipeline/ingest_process.py`):
-- Enabled with `enable_image_grid_detection` in settings.
+- Enabled with the app setting `enable_image_grid_detection` (seeded `true`).
 - Runs only for battlemaps (not scenes), and not for videos.
 - Decision tree:
   - Filename says "no grid", or gives an exact NxM → trust it and skip analysis.
-  - Filename says "grid" but gives no size → **size only**. Grid sizes from other file names in the same import group are scored as candidates.
+  - Filename says "grid" but gives no size → **size only**. Grid sizes from other file names in the same import group are scored as candidates, never taken as truth.
   - No keyword → **presence + size**.
-- Detector: v3 for images of 1000 px or more; the legacy detector (`grid_detector.py`) below that. See [grid-detection-v3.md](grid-detection-v3.md) and ADR-019.
+- Detector: v3 for images whose longest side is 1000 px or more; the legacy detector (`backend/app/services/grid_detector.py`) below that. Analysis is at full resolution unless `grid_analysis_max_dim` is set. See [grid-detection-v3.md](grid-detection-v3.md) and ADR-019.
 - Outputs:
-  - `grid_type` (`square` / `hex`) and `grid_width` / `grid_height` (tile counts);
+  - `gridded`, `grid_type` (`square` / `hex`) and `grid_width` / `grid_height` (tile counts);
   - `grid_confidence`: the model's probability;
-  - `grid_source`: `filename` / `detector`, set to `user` when the grid is edited by hand.
-- Service: `backend/app/services/grid/` (`detect_grid`). Task: `backend/pipeline/tasks/grid_detection.py`.
+  - `grid_source`: `filename` / `detector`, set to `user` when the grid is edited by hand. Re-detection never overwrites `user`.
+- Service: `backend/app/services/grid/` (`detect_grid`). Task: `backend/pipeline/tasks/grid_detection.py`. Backfill for existing images: `uv run python -m backend.pipeline.backfill_grid_detection`.
 
 ### 3. Folder Hierarchy Parsing
 
@@ -152,11 +154,11 @@ Example: `AbandonedCampsiteNight30x30` → `Abandoned Campsite Night 30 x 30`
 
 ### Integration with Ingestion
 
-At commit (`pipeline/ingest_process.py`), the `Image.name` field is populated from `parsed["name"]` (falling back to `group_name` if absent). This gives each image a distinct, human-readable display name separate from its group.
+In `backend/pipeline/ingest_process.py` (`commit_batch`), `Image.name` is populated from `parsed["name"]`, falling back to the import group's name, then the filename stem. This gives each image a distinct, human-readable display name separate from its group.
 
 ## Group Detection (`group_files()`)
 
-Used by the web import to group uploaded files into image groups.
+Called at seal time (`ingest_queue.plan_job`) to group an import's files into import groups, separately per `image_type`. Groups whose `(name, author)` already exist in the gallery are merged into them; see [ingestion.md](ingestion.md#3-data-model).
 
 ### Pass 1: Folder-based grouping
 - Run `parse()` on each file
@@ -201,4 +203,4 @@ The parser is type-aware via the `image_type` field (default: `"battlemap"`):
 | Tag extraction | Full | Full |
 | Name/group parsing | Full | Full |
 
-The `image_type` can be set per-file during import (see [ingestion.md](ingestion.md)). At the storage level, the `Image` model has an `image_type` column that drives conditional UI behavior (e.g., hiding the grid panel for scenes).
+The `image_type` is chosen per import (per file in the manifest API); see [ingestion.md](ingestion.md#7-upload-protocol). At the storage level, the `Image` model has an `image_type` column that drives conditional UI behavior (e.g., hiding the grid panel for scenes).

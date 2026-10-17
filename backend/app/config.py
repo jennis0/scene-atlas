@@ -2,6 +2,7 @@
 
 import logging
 import os
+from functools import cached_property
 from pathlib import Path
 from typing import Literal
 
@@ -33,39 +34,16 @@ class Settings(BaseSettings):
     # that tests and dev runs don't require pre-created directories.
     validate_roots: bool = False
 
-    # Derived paths — recomputed unconditionally in __init__ from the roots above.
-    # Declared here as fields so type-checkers and callers can read them as attributes.
-    store_thumbnails_dir: Path = (
-        Path(__file__).parent.parent.parent / "data" / "store" / "thumbnails"
-    )
-    staging_dir: Path = Path(__file__).parent.parent.parent / "data" / "staging"
-    vector_db_path: Path = Path(__file__).parent.parent.parent / "data" / "lancedb"
-    config_dir: Path = Path(__file__).parent.parent.parent / "data" / "config"
-    store_images_dir: Path = Path(__file__).parent.parent.parent / "images"
-    backups_dir: Path = Path(__file__).parent.parent.parent / "images" / "backups"
-
     # Vector DB
     vector_size: int = 512
-    embedding_model: str = "clip-vit-b-32"
     inference_device: str = "auto"
 
-    @property
-    def vector_collection_name(self) -> str:
-        return f"embeddings_{self.embedding_model}"
-
-    # database_url is computed from app_data_dir in __init__.
-    # Declared as a plain field (not @property) so that test fixtures can
-    # assign settings.database_url = str(engine.url) without AttributeError.
-    database_url: str = ""
-
-    # ── Service constants ──────────────────────────────────────────────────────
+    # Service constants
     clip_text_cache_max: int = 256
-    color_cache_ttl_seconds: float = 60.0
     job_retention_seconds: int = 3600
 
     # Image Processing
     thumbnail_sizes: list[tuple[int, int]] = [(150, 150), (400, 400), (800, 800)]
-    max_image_size: int = 10 * 1024 * 1024
     # Largest image (in pixels) Pillow will decode; beyond this it's treated as a
     # decompression bomb. Pillow's default (~89.5 Mpx) rejects ~2% of real battlemap
     # libraries; the largest observed maps are ~760 Mpx (~1.7 GB RSS to process).
@@ -85,24 +63,52 @@ class Settings(BaseSettings):
     supported_formats: list[str] = [".jpg", ".jpeg", ".png", ".webp"]
     supported_video_formats: list[str] = [".mp4", ".webm"]
 
-    @property
-    def all_supported_formats(self) -> list[str]:
-        return self.supported_formats + self.supported_video_formats
-
     # Rate limiting
     rate_limit_expensive: str = "2/minute"
     rate_limit_destructive: str = "1/minute"
     rate_limit_enabled: bool = True
 
     # API
-    api_host: str = "0.0.0.0"
+    # Only read by `python -m backend.app.main` (dev/E2E). Electron forces 127.0.0.1 and
+    # Docker/uvicorn pass --host explicitly; see design/security.md (accepted risks).
+    api_host: str = "0.0.0.0"  # noqa: S104  # nosec B104
     api_port: int = 8000
     api_prefix: str = "/api/v1"
+    # Proxies whose X-Forwarded-For / X-Forwarded-Proto are believed: comma-separated
+    # IPs or CIDR networks, or "*". Same name and format as uvicorn's option.
+    forwarded_allow_ips: str = "127.0.0.1,::1"
     cors_origins: list[str] = [
         "http://localhost:3000",
         "http://localhost:5173",
         "http://localhost:8000",
     ]
+
+    # Paths derived from the two roots. They are not fields, so env vars such as
+    # DATABASE_URL cannot set them. Each is computed on first access and cached;
+    # tests may assign them to redirect storage.
+    @cached_property
+    def database_url(self) -> str:
+        return f"sqlite:///{self.app_data_dir / 'battlemap.db'}"
+
+    @cached_property
+    def store_thumbnails_dir(self) -> Path:
+        return self.app_data_dir / "store" / "thumbnails"
+
+    @cached_property
+    def staging_dir(self) -> Path:
+        return self.app_data_dir / "staging"
+
+    @cached_property
+    def vector_db_path(self) -> Path:
+        return self.app_data_dir / "lancedb"
+
+    @cached_property
+    def store_images_dir(self) -> Path:
+        return self.image_library_dir
+
+    @cached_property
+    def backups_dir(self) -> Path:
+        return self.image_library_dir / "backups"
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -113,17 +119,6 @@ class Settings(BaseSettings):
                 "CLIP_DEVICE env var is deprecated and ignored. "
                 "Use INFERENCE_DEVICE instead (auto/cpu/cuda/directml/coreml)."
             )
-
-        # Unconditionally recompute all derived paths from the roots.
-        # Class-level field defaults are computed at class-definition time using
-        # literal Path(__file__) chains and will NOT reflect overridden root values.
-        self.store_thumbnails_dir = self.app_data_dir / "store" / "thumbnails"
-        self.staging_dir = self.app_data_dir / "staging"
-        self.vector_db_path = self.app_data_dir / "lancedb"
-        self.config_dir = self.app_data_dir / "config"
-        self.store_images_dir = self.image_library_dir
-        self.backups_dir = self.image_library_dir / "backups"
-        self.database_url = f"sqlite:///{self.app_data_dir / 'battlemap.db'}"
 
         # Validate roots exist if requested (set True in production entry points)
         if self.validate_roots:
@@ -141,7 +136,6 @@ class Settings(BaseSettings):
         # Create expected subdirectories within the roots (not the roots themselves).
         self.store_thumbnails_dir.mkdir(parents=True, exist_ok=True)
         self.staging_dir.mkdir(parents=True, exist_ok=True)
-        self.config_dir.mkdir(parents=True, exist_ok=True)
         self.vector_db_path.mkdir(parents=True, exist_ok=True)
 
 

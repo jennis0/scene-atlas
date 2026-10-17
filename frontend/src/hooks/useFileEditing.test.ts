@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
-import { useFileEditing, ALL_GROUP_ID } from './useFileEditing'
+import { useFileEditing, ALL_GROUP_ID, MULTI_GROUP_ID } from './useFileEditing'
 import type { EditableFileState, EditableGroupState, TagData } from '@/types'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -28,11 +28,6 @@ function makeGroup(overrides: Partial<EditableGroupState> = {}): EditableGroupSt
     author: 'Author A',
     group_name: 'Test Group',
     files: [makeFile()],
-    skip: false,
-    status: 'pending',
-    processed: 0,
-    failed: 0,
-    total: 1,
     ...overrides,
   }
 }
@@ -262,6 +257,35 @@ describe('useFileEditing — Bulk ops', () => {
     expect(hook.result.current.groups[0].files[2].image_type).toBe('battlemap') // excluded
   })
 
+  it('applies a multi-group scope to the multi-select selection only', () => {
+    const { result } = renderHook(() => useFileEditing())
+    act(() => {
+      result.current.setGroups([
+        makeGroup({ id: 'g1', files: [makeFile({ relative_path: 'a.jpg' })] }),
+        makeGroup({ id: 'g2', files: [makeFile({ relative_path: 'b.jpg' })] }),
+        makeGroup({ id: 'g3', files: [makeFile({ relative_path: 'c.jpg' })] }),
+      ])
+    })
+    act(() => {
+      result.current.toggleFileSelection(MULTI_GROUP_ID, 'a.jpg')
+      result.current.toggleFileSelection(MULTI_GROUP_ID, 'c.jpg')
+    })
+    act(() => {
+      result.current.bulkSetImageType(['g1', 'g2'], 'scene')
+    })
+    expect(result.current.groups.map((g) => g.files[0].image_type)).toEqual([
+      'scene',
+      'battlemap',
+      'battlemap',
+    ])
+
+    act(() => {
+      result.current.bulkExclude(['g1', 'g3'])
+    })
+    expect(result.current.groups.map((g) => g.files[0].excluded)).toEqual([true, false, true])
+    expect(result.current.selections[MULTI_GROUP_ID]?.size ?? 0).toBe(0)
+  })
+
   it('bulkSetSubgroup trims whitespace and nulls empty', () => {
     const { hook } = setupBulk()
 
@@ -372,28 +396,5 @@ describe('useFileEditing — Derived values', () => {
     expect(result.current.isAllTab).toBe(false)
     expect(result.current.activeGroup?.id).toBe('g2')
     expect(result.current.activeGroupId).toBe('g2')
-  })
-
-  it('allSameAuthor returns author when all groups match', () => {
-    const { result } = renderHook(() => useFileEditing())
-
-    act(() => {
-      result.current.setGroups([
-        makeGroup({ author: 'Same' }),
-        makeGroup({ id: 'g2', author: 'Same' }),
-      ])
-    })
-
-    expect(result.current.allSameAuthor).toBe('Same')
-  })
-
-  it('allSameAuthor returns empty when authors differ', () => {
-    const { result } = renderHook(() => useFileEditing())
-
-    act(() => {
-      result.current.setGroups([makeGroup({ author: 'A' }), makeGroup({ id: 'g2', author: 'B' })])
-    })
-
-    expect(result.current.allSameAuthor).toBe('')
   })
 })

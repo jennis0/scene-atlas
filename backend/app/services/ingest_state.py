@@ -14,9 +14,7 @@ from collections.abc import Mapping
 from datetime import timedelta
 from enum import StrEnum
 
-# ---------------------------------------------------------------------------
 # Item states
-# ---------------------------------------------------------------------------
 
 AWAITING_BYTES = "awaiting_bytes"
 READY = "ready"
@@ -34,9 +32,7 @@ TERMINAL_ITEM_STATES = frozenset({DONE, DUPLICATE, FAILED, SKIPPED})
 # a file that crashes the process must not crash-loop the app forever.
 MAX_ATTEMPTS = 3
 
-# ---------------------------------------------------------------------------
 # Job states
-# ---------------------------------------------------------------------------
 
 JOB_ACTIVE = "active"
 JOB_PAUSED = "paused"
@@ -111,7 +107,8 @@ def sources_for(event: ItemEvent) -> frozenset[str]:
 def target_of(event: ItemEvent) -> str:
     """The single state ``event`` leads to (every event has exactly one target)."""
     targets = {target for (_, ev), target in _TRANSITIONS.items() if ev == event}
-    assert len(targets) == 1, f"{event} has ambiguous targets {targets}"
+    if len(targets) != 1:
+        raise RuntimeError(f"{event} has ambiguous targets {targets}")
     return targets.pop()
 
 

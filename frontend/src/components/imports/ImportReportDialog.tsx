@@ -1,5 +1,6 @@
 /**
- * What an import did, and what to do about it (design/ingestion.md §8.2).
+ * What an import did, and what to do about it (design/frontend.md "Imports";
+ * item states and actions in design/ingestion.md §4.1, §6, §7).
  *
  * Sections, each shown only when it has entries: groups, problems (grouped by
  * reason, with retry), files already in the library (with "Import as new
@@ -248,9 +249,7 @@ export function ImportReportDialog({
   )
 }
 
-// ---------------------------------------------------------------------------
 // Item lists
-// ---------------------------------------------------------------------------
 
 type Row =
   | { kind: 'header'; key: string; title: string; ids: number[] }

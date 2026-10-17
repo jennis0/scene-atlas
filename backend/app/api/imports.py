@@ -19,6 +19,7 @@ import time
 import uuid
 from datetime import timedelta
 from pathlib import Path, PurePosixPath
+from typing import cast
 
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -39,6 +40,7 @@ from ..models.import_schemas import (
     HashRequest,
     HashResponse,
     HashResult,
+    ImageType,
     ImportCounts,
     ImportGroupSummary,
     ImportItemOut,
@@ -47,6 +49,7 @@ from ..models.import_schemas import (
     ImportJobList,
     ImportJobSummary,
     ItemActionRequest,
+    JobStatus,
     ManifestItemResult,
     ManifestRequest,
     ManifestResponse,
@@ -68,9 +71,7 @@ SEAL_FREE_SPACE_MARGIN = 512 * 1024 * 1024
 _STREAM_CHUNK = 256 * 1024
 
 
-# ---------------------------------------------------------------------------
 # Dependencies and helpers
-# ---------------------------------------------------------------------------
 
 
 def _open_session(request: Request) -> Session:
@@ -123,6 +124,7 @@ def _summaries(db: Session, jobs: list[ImportJob]) -> list[ImportJobSummary]:
             db.query(ImportGroup.job_id, func.count(ImportGroup.id))
             .filter(ImportGroup.job_id.in_(ids))
             .group_by(ImportGroup.job_id)
+            .tuples()
         )
         group_counts.update(dict(group_rows))
     now = q.utcnow()
@@ -141,8 +143,8 @@ def _summary(job: ImportJob, counts: ImportCounts, group_count: int, now) -> Imp
     return ImportJobSummary(
         id=job.id,
         label=job.source_label,
-        status=job.status,
-        default_image_type=job.default_image_type,
+        status=cast(JobStatus, job.status),
+        default_image_type=cast(ImageType, job.default_image_type),
         planned=job.planned_at is not None,
         dismissed=job.dismissed_at is not None,
         upload_interrupted=interrupted,
@@ -198,9 +200,7 @@ def _queue_status() -> QueueStatus:
     )
 
 
-# ---------------------------------------------------------------------------
 # Listing and detail
-# ---------------------------------------------------------------------------
 
 
 @router.post("/queue/probe", response_model=QueueStatus)
@@ -271,9 +271,7 @@ def list_items(
     )
 
 
-# ---------------------------------------------------------------------------
 # Create, manifest, archives, seal, hashes
-# ---------------------------------------------------------------------------
 
 
 @router.post("", response_model=ImportJobSummary, status_code=201)
@@ -397,12 +395,14 @@ async def upload_archive(
             q.begin_immediate(db)
             job = _job_or_404(db, job_id)
             _require_unsealed(job)
+            existing = db.query(func.count(ImportItem.id)).filter_by(job_id=job_id).scalar()
             counts = expand_archive(
                 db,
                 job,
                 tmp,
                 name,
-                max_files=app_settings.max_import_files,
+                # The per-import item cap applies to archive members as well as manifests.
+                max_files=min(app_settings.max_import_files, settings.max_import_items - existing),
                 max_uncompressed_bytes=app_settings.max_import_total_size,
                 max_file_size=app_settings.max_import_file_size,
             )
@@ -430,7 +430,7 @@ def _check_free_space(db: Session, job_id: str) -> None:
         )
         .group_by(ImportItem.state)
     )
-    sizes = dict(pending)
+    sizes = {state: size or 0 for state, size in pending}
     to_upload = sizes.get(st.AWAITING_BYTES, 0)
     to_store = to_upload + sizes.get(st.READY, 0)
     staging_root = settings.staging_dir
@@ -491,9 +491,7 @@ def submit_hashes(job_id: str, body: HashRequest, db: Session = Depends(get_db))
     )
 
 
-# ---------------------------------------------------------------------------
 # Bytes
-# ---------------------------------------------------------------------------
 
 _ALREADY_RECEIVED = frozenset({st.READY, st.PROCESSING, st.DONE, st.DUPLICATE})
 
@@ -555,7 +553,7 @@ async def upload_content(job_id: str, item_id: int, request: Request):
         db = _open_session(request)
         try:
             q.begin_immediate(db)
-            item = db.get(ImportItem, item_id)
+            item = db.get_one(ImportItem, item_id)
             if item.state != st.AWAITING_BYTES:  # a concurrent retry won the race
                 tmp.unlink(missing_ok=True)
                 return _content_result(item)
@@ -587,15 +585,13 @@ async def upload_content(job_id: str, item_id: int, request: Request):
     return result
 
 
-# ---------------------------------------------------------------------------
 # Actions
-# ---------------------------------------------------------------------------
 
 
 def _action(db: Session, job_id: str, affected: int, wake: bool = False) -> ActionResult:
     db.commit()
     _changed(wake=wake)
-    return ActionResult(affected=affected, status=db.get(ImportJob, job_id).status)
+    return ActionResult(affected=affected, status=db.get_one(ImportJob, job_id).status)
 
 
 @router.post("/{job_id}/pause", response_model=ActionResult)

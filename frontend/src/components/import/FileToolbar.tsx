@@ -7,10 +7,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { onInlineEditKey } from '@/lib/inlineEditKeys'
 import type { EditableFileState, TagData } from '@/types'
 import { TagPicker } from './TagPicker'
 import type { ParsedTagVocab } from './types'
-import type { FileFilter } from './fileFilter'
+import { buildTagFilterGroups, type FileFilter } from './fileFilter'
 import type { FilterOptionGroup } from '@/components/FilterMenuContent'
 import { FileToolbarCore } from './shared/FileToolbarCore'
 
@@ -70,7 +71,7 @@ export function FileToolbar({
     setSubOpen(false)
   }
 
-  // ── Build filter groups ──────────────────────────────────────────────────
+  // Build filter groups
 
   const nonExcludedFiles = files.filter((f) => !f.excluded && !f.outOfScope)
 
@@ -85,26 +86,6 @@ export function FileToolbar({
     { filterValue: 'gridless', label: 'Gridless', filterLabel: 'grid: Gridless' },
     { filterValue: 'unknown', label: 'Unknown', filterLabel: 'grid: Unknown' },
   ]
-
-  const tagFreq = new Map<string, { category: string; value: string; count: number }>()
-  for (const f of nonExcludedFiles) {
-    for (const t of f.tags) {
-      const key = `${t.category}:${t.value}`
-      const entry = tagFreq.get(key)
-      if (entry) entry.count++
-      else tagFreq.set(key, { category: t.category, value: t.value, count: 1 })
-    }
-  }
-
-  const tagsByCategory = new Map<string, Array<{ key: string; value: string; count: number }>>()
-  for (const [key, entry] of tagFreq) {
-    const arr = tagsByCategory.get(entry.category) ?? []
-    arr.push({ key, value: entry.value, count: entry.count })
-    tagsByCategory.set(entry.category, arr)
-  }
-  for (const arr of tagsByCategory.values()) {
-    arr.sort((a, b) => b.count - a.count)
-  }
 
   const filterGroups: FilterOptionGroup[] = []
 
@@ -143,21 +124,9 @@ export function FileToolbar({
     options: gridStates,
   })
 
-  for (const [category, tags] of tagsByCategory.entries()) {
-    filterGroups.push({
-      id: category,
-      label: category,
-      type: 'tag',
-      options: tags.map((t) => ({
-        filterValue: `${category}:${t.value}`,
-        label: t.value,
-        filterLabel: `${category}: ${t.value}`,
-        count: t.count,
-      })),
-    })
-  }
+  filterGroups.push(...buildTagFilterGroups(nonExcludedFiles))
 
-  // ── Slots ────────────────────────────────────────────────────────────────
+  // Slots
 
   const bulkActions = (
     <>
@@ -230,15 +199,12 @@ export function FileToolbar({
               className="flex-1 min-w-0 h-7 px-2 text-sm bg-secondary border border-border rounded text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
               onKeyDown={(e) => {
                 e.stopPropagation()
-                if (e.key === 'Enter' && subgroupInput.trim()) {
-                  e.preventDefault()
-                  applySubgroup(subgroupInput.trim())
-                }
-                if (e.key === 'Escape') {
-                  e.preventDefault()
-                  e.nativeEvent.stopImmediatePropagation()
-                  setSubOpen(false)
-                }
+                onInlineEditKey(e, {
+                  onEnter: () => {
+                    if (subgroupInput.trim()) applySubgroup(subgroupInput.trim())
+                  },
+                  onEscape: () => setSubOpen(false),
+                })
               }}
             />
             <button

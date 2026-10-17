@@ -10,11 +10,12 @@ so it shares the server's embedded LanceDB instance.
 
 import logging
 
-from backend.app.config import settings
-from backend.app.models import Image, get_engine, get_session_local
+from backend.app.models import Image
 from backend.app.services import get_image_store
 from backend.app.services.clip_service import get_clip_service
 from backend.app.services.lancedb_service import get_lancedb_service
+from backend.app.services.shutdown import raise_if_shutting_down
+from backend.pipeline.db import pipeline_db
 
 logger = logging.getLogger(__name__)
 
@@ -22,26 +23,14 @@ logger = logging.getLogger(__name__)
 def rebuild_all_embeddings(progress_fn=None, *, force: bool = False) -> dict:
     """Delete and regenerate all embeddings.
 
-    Parameters
-    ----------
-    progress_fn:
-        Optional callback ``(current, total, message)`` injected by JobRunner.
-    force:
-        If False and the collection already has the expected number of
-        embeddings, skip the rebuild.
-
-    Returns a summary dict with total/succeeded/failed counts.
+    Without *force*, skips the rebuild if the collection already holds the expected
+    number of embeddings. Returns total/succeeded/failed counts.
     """
     svc = get_lancedb_service()
     clip_service = get_clip_service()
     image_store = get_image_store()
 
-    # Count images in SQLite
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
-    db = SessionLocal()
-
-    try:
+    with pipeline_db() as db:
         images = db.query(Image).all()
         image_dicts = [
             {
@@ -53,8 +42,6 @@ def rebuild_all_embeddings(progress_fn=None, *, force: bool = False) -> dict:
             }
             for img in images
         ]
-    finally:
-        db.close()
 
     total = len(image_dicts)
 
@@ -87,6 +74,8 @@ def rebuild_all_embeddings(progress_fn=None, *, force: bool = False) -> dict:
     encode_batch_size = 16  # GPU forward-pass batch for ONNX vision encoder
 
     for i in range(0, total, svc_batch_size):
+        # Stopping leaves a partial table; startup reconciliation re-embeds the rest.
+        raise_if_shutting_down()
         batch = image_dicts[i : i + svc_batch_size]
         batch_num = i // svc_batch_size + 1
         total_batches = (total + svc_batch_size - 1) // svc_batch_size

@@ -36,13 +36,7 @@ class TestImportTagPack:
 
     def test_import_merges_new_tags(self, db_session):
         """Importing a genre pack adds new tags to existing categories."""
-        # The seed data includes all packs, so first clear and re-import just common
-        db_session.query(TagCategory).delete()
-        db_session.commit()
-
-        import_tag_pack(db_session, "common")
-
-        # Now import scifi — should add new tags
+        # Seeded with common only; importing scifi — should add new tags
         result = import_tag_pack(db_session, "scifi")
         assert result["tags_added"] > 0
 
@@ -105,15 +99,16 @@ class TestGetPackStatus:
         assert "fantasy" in names
         assert "scifi" in names
 
-    def test_all_imported_after_full_seed(self, db_session):
-        """After seeding all categories, all packs should show as imported."""
-        # The db_session fixture seeds all categories
-        status = get_pack_status(db_session)
-        for pack in status:
-            assert pack["imported"] is True, (
-                f"Pack '{pack['name']}' should be imported after full seed"
-            )
-            assert pack["new_tags"] == 0
+    def test_first_boot_seed_imports_only_common(self, db_session):
+        """First-boot seeding installs the common pack; genre packs stay opt-in."""
+        status = {p["name"]: p for p in get_pack_status(db_session)}
+        assert status["common"]["imported"] is True
+        assert status["common"]["new_tags"] == 0
+        genre = [p for name, p in status.items() if name != "common"]
+        assert genre
+        for pack in genre:
+            assert pack["imported"] is False, pack["name"]
+            assert pack["new_tags"] > 0
 
     def test_shows_new_tags_when_pack_not_imported(self, db_session):
         """When a pack's tags are missing, new_tags shows the count."""

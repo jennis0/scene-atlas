@@ -1,21 +1,37 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, IpcMainInvokeEvent, shell } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import { ChildProcess } from 'child_process'
 import { findFreePort, spawnSidecar } from './sidecar'
 import { getDefaultDirs, loadConfig, saveConfig } from './config'
 
+const isDev = !app.isPackaged
+const isMac = process.platform === 'darwin'
+const isWindows = process.platform === 'win32'
+const DEV_SERVER_URL = 'http://localhost:5173'
+// A stable port keeps the UI's origin, and so its localStorage, the same across launches.
+const PREFERRED_PORT = 47816
+const MAX_LOG_BYTES = 5 * 1024 * 1024
+
 let mainWindow: BrowserWindow | null = null
 let setupWindow: BrowserWindow | null = null
 let sidecarProcess: ChildProcess | null = null
 let currentAppDataDir: string | null = null
 let currentImageLibraryDir: string | null = null
-let currentConvertToWebp: boolean = true
+let currentConvertToWebp = false
 
-const isDev = !app.isPackaged
-const isMac = process.platform === 'darwin'
+// The packaged UI is served by the sidecar, so its origin is the backend's.
+let backendOrigin: string | null = null
+// Kept so the loading page can be re-sent the error after a reload.
+let backendError: string | null = null
 
-// ── Shared window helpers ────────────────────────────────────────────────────
+// Two instances would run two backends against one SQLite/LanceDB store.
+const hasInstanceLock = app.requestSingleInstanceLock()
+if (!hasInstanceLock) {
+  app.quit()
+}
+
+// Window helpers
 
 /** Borderless titlebar config: hiddenInset on macOS, hidden + overlay on Win/Linux. */
 function borderlessOptions(): Partial<Electron.BrowserWindowConstructorOptions> {
@@ -31,98 +47,177 @@ function borderlessOptions(): Partial<Electron.BrowserWindowConstructorOptions> 
   }
 }
 
-/** Enable F12 / Ctrl+Shift+I to toggle dev tools in any build. */
-function enableDevToolsShortcut(win: BrowserWindow): void {
-  win.webContents.on('before-input-event', (_event, input) => {
-    if (
-      input.key === 'F12' ||
-      (input.control && input.shift && input.key === 'I')
-    ) {
-      win.webContents.toggleDevTools()
-    }
+const LOADING_PAGE = path.join(__dirname, '..', 'loading.html')
+
+/** True for pages that belong to the app: local pages, plus the dev server or the sidecar. */
+function isAppUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol === 'file:') return true
+    if (isDev) return parsed.origin === new URL(DEV_SERVER_URL).origin
+    return parsed.origin === backendOrigin
+  } catch {
+    return false
+  }
+}
+
+function openExternalSafe(url: string): void {
+  try {
+    const { protocol } = new URL(url)
+    if (protocol === 'http:' || protocol === 'https:') void shell.openExternal(url)
+  } catch {
+    // Unparseable URL: ignore.
+  }
+}
+
+/** Keep the window on the app origin; hand web links to the system browser. */
+function hardenWindow(win: BrowserWindow): void {
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    openExternalSafe(url)
+    return { action: 'deny' }
+  })
+  win.webContents.on('will-navigate', (event, url) => {
+    if (isAppUrl(url)) return
+    event.preventDefault()
+    openExternalSafe(url)
+  })
+  if (isDev) {
+    win.webContents.on('before-input-event', (_event, input) => {
+      if (input.key === 'F12' || (input.control && input.shift && input.key === 'I')) {
+        win.webContents.toggleDevTools()
+      }
+    })
+  }
+}
+
+async function pickDirectory(
+  win: BrowserWindow | null,
+  title: string,
+  defaultPath?: string,
+): Promise<string | null> {
+  const options: Electron.OpenDialogOptions = {
+    title,
+    defaultPath,
+    properties: ['openDirectory', 'createDirectory'],
+    buttonLabel: 'Select Folder',
+  }
+  const result = win
+    ? await dialog.showOpenDialog(win, options)
+    : await dialog.showOpenDialog(options)
+  return result.canceled ? null : result.filePaths[0]
+}
+
+// IPC
+
+function assertTrusted(event: IpcMainInvokeEvent): void {
+  const url = event.senderFrame?.url
+  if (!url || !isAppUrl(url)) {
+    throw new Error(`Rejected IPC from untrusted origin: ${url ?? '<unknown>'}`)
+  }
+}
+
+function handleTrusted(
+  channel: string,
+  listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown,
+): void {
+  ipcMain.handle(channel, (event, ...args) => {
+    assertTrusted(event)
+    return listener(event, ...args)
   })
 }
 
-// ── Setup window IPC ────────────────────────────────────────────────────────
+function isAbsolutePath(value: unknown): value is string {
+  return typeof value === 'string' && value.trim() !== '' && path.isAbsolute(value)
+}
 
-ipcMain.handle('setup:get-default-dirs', () => getDefaultDirs())
-
-ipcMain.handle('setup:choose-directory', async () => {
-  const result = await dialog.showOpenDialog(setupWindow!, {
-    title: 'Choose Folder',
-    properties: ['openDirectory', 'createDirectory'],
-    buttonLabel: 'Select Folder',
-  })
-  return result.canceled ? null : result.filePaths[0]
-})
-
-ipcMain.handle('setup:complete', async (_event, appDataDir: string, imageLibraryDir: string, convertToWebp: boolean) => {
-  // Create both roots before launching the backend (backend validates they exist)
-  fs.mkdirSync(appDataDir, { recursive: true })
-  fs.mkdirSync(imageLibraryDir, { recursive: true })
-
-  // Writability check: write and delete a temp file in each directory
-  for (const dir of [appDataDir, imageLibraryDir]) {
-    const testFile = path.join(dir, `.write-test-${Date.now()}`)
+/** Create both storage roots and check they are writable. Returns an error message or null. */
+function prepareStorageDirs(appDataDir: string, imageLibraryDir: string): string | null {
+  const dirs: [string, string][] = [
+    ['App data directory', appDataDir],
+    ['Image library directory', imageLibraryDir],
+  ]
+  for (const [label, dir] of dirs) {
     try {
+      fs.mkdirSync(dir, { recursive: true })
+      const testFile = path.join(dir, `.write-test-${Date.now()}`)
       fs.writeFileSync(testFile, 'test')
       fs.unlinkSync(testFile)
     } catch (err) {
-      const label = dir === appDataDir ? 'App data directory' : 'Image library directory'
-      return { error: `${label} is not writable: ${dir}\n${(err as Error).message}` }
+      return `${label} is not usable: ${dir}\n${(err as Error).message}`
     }
   }
+  return null
+}
+
+handleTrusted('setup:get-default-dirs', () => getDefaultDirs())
+
+handleTrusted('setup:choose-directory', (event) =>
+  pickDirectory(BrowserWindow.fromWebContents(event.sender), 'Choose Folder'),
+)
+
+// Synchronous on purpose: mainWindow is assigned before this returns, so a
+// second invocation (double-click) sees it and can't spawn a second sidecar.
+handleTrusted('setup:complete', (_event, appDataDir, imageLibraryDir, convertToWebp) => {
+  if (mainWindow) return { error: null }
+  if (!isAbsolutePath(appDataDir) || !isAbsolutePath(imageLibraryDir)) {
+    return { error: 'Both locations must be absolute folder paths.' }
+  }
+  if (typeof convertToWebp !== 'boolean') {
+    return { error: 'Invalid WebP setting.' }
+  }
+
+  // The backend refuses to start unless both roots already exist.
+  const dirError = prepareStorageDirs(appDataDir, imageLibraryDir)
+  if (dirError) return { error: dirError }
 
   saveConfig({ appDataDir, imageLibraryDir, convertToWebp })
+  void launchApp(appDataDir, imageLibraryDir, convertToWebp)
   setupWindow?.close()
-  setupWindow = null
-  launchApp(appDataDir, imageLibraryDir, convertToWebp)
   return { error: null }
 })
 
-// ── System settings IPC ─────────────────────────────────────────────────────
+handleTrusted('system:get-app-data-dir', () => currentAppDataDir)
+handleTrusted('system:get-image-library-dir', () => currentImageLibraryDir)
 
-ipcMain.handle('system:get-app-data-dir', () => currentAppDataDir)
-ipcMain.handle('system:get-image-library-dir', () => currentImageLibraryDir)
+handleTrusted('system:choose-app-data-dir', (event) =>
+  pickDirectory(
+    BrowserWindow.fromWebContents(event.sender),
+    'Choose App Data Location',
+    currentAppDataDir ?? getDefaultDirs().appDataDir,
+  ),
+)
 
-ipcMain.handle('system:choose-app-data-dir', async () => {
-  const result = await dialog.showOpenDialog(mainWindow!, {
-    title: 'Choose App Data Location',
-    defaultPath: currentAppDataDir ?? getDefaultDirs().appDataDir,
-    properties: ['openDirectory', 'createDirectory'],
-    buttonLabel: 'Select Folder',
-  })
-  return result.canceled ? null : result.filePaths[0]
-})
-
-ipcMain.handle('system:choose-image-library-dir', async () => {
-  const result = await dialog.showOpenDialog(mainWindow!, {
-    title: 'Choose Image Library Location',
-    defaultPath: currentImageLibraryDir ?? getDefaultDirs().imageLibraryDir,
-    properties: ['openDirectory', 'createDirectory'],
-    buttonLabel: 'Select Folder',
-  })
-  return result.canceled ? null : result.filePaths[0]
-})
+handleTrusted('system:choose-image-library-dir', (event) =>
+  pickDirectory(
+    BrowserWindow.fromWebContents(event.sender),
+    'Choose Image Library Location',
+    currentImageLibraryDir ?? getDefaultDirs().imageLibraryDir,
+  ),
+)
 
 // Saves new paths to config and restarts.
 // Called only when user explicitly clicks "Restart Now" in the Settings UI.
-ipcMain.handle(
-  'system:change-storage-dirs',
-  (_event, newAppDataDir: string, newImageLibraryDir: string) => {
-    saveConfig({
-      appDataDir: newAppDataDir,
-      imageLibraryDir: newImageLibraryDir,
-      convertToWebp: currentConvertToWebp,
-    })
-    app.relaunch()
-    app.exit(0)
-  },
-)
+handleTrusted('system:change-storage-dirs', async (_event, newAppDataDir, newImageLibraryDir) => {
+  if (!isAbsolutePath(newAppDataDir) || !isAbsolutePath(newImageLibraryDir)) {
+    return { error: 'Both locations must be absolute folder paths.' }
+  }
+  const dirError = prepareStorageDirs(newAppDataDir, newImageLibraryDir)
+  if (dirError) return { error: dirError }
 
-// ── IPC handlers for renderer file system access ─────────────────────────────
+  saveConfig({
+    appDataDir: newAppDataDir,
+    imageLibraryDir: newImageLibraryDir,
+    convertToWebp: currentConvertToWebp,
+  })
+  // app.exit() skips will-quit, so stop the old backend explicitly; otherwise it
+  // keeps running against the old store while the relaunched app starts a new one.
+  await stopSidecar()
+  app.relaunch()
+  app.exit(0)
+  return { error: null }
+})
 
-// ── Setup window ────────────────────────────────────────────────────────────
+// Windows
 
 function showSetupWindow(): void {
   setupWindow = new BrowserWindow({
@@ -137,11 +232,11 @@ function showSetupWindow(): void {
       preload: path.join(__dirname, 'setup.preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
   })
 
-  enableDevToolsShortcut(setupWindow)
+  hardenWindow(setupWindow)
   setupWindow.loadFile(path.join(__dirname, '..', 'setup.html'))
 
   setupWindow.on('closed', () => {
@@ -149,8 +244,6 @@ function showSetupWindow(): void {
     if (!mainWindow) app.quit()
   })
 }
-
-// ── Main app window ─────────────────────────────────────────────────────────
 
 function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -168,133 +261,220 @@ function createMainWindow(): BrowserWindow {
     },
   })
 
-  enableDevToolsShortcut(win)
+  hardenWindow(win)
 
-  if (isDev) {
-    win.loadURL('http://localhost:5173')
-    win.webContents.openDevTools()
-  } else {
-    win.loadFile(path.join(__dirname, '..', '..', 'frontend', 'dist', 'index.html'))
-  }
-
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
-    return { action: 'deny' }
+  win.webContents.on('did-finish-load', () => {
+    if (backendError !== null) win.webContents.send('backend-error', backendError)
   })
 
-  win.on('closed', () => { mainWindow = null })
+  if (isDev) {
+    win.loadURL(DEV_SERVER_URL)
+    win.webContents.openDevTools()
+  } else {
+    // Shown until the sidecar is up; then the window navigates to the UI it serves.
+    win.loadFile(LOADING_PAGE)
+  }
+
+  win.on('closed', () => {
+    mainWindow = null
+  })
   return win
 }
 
-// ── App launch (after setup is done or skipped) ─────────────────────────────
+async function waitForHealth(origin: string, timeoutMs = 120_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    try {
+      if ((await fetch(`${origin}/health`)).ok) return true
+    } catch {
+      // Not accepting connections yet.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  return false
+}
 
-async function launchApp(appDataDir: string, imageLibraryDir: string, convertToWebp: boolean): Promise<void> {
+async function showBackendUi(port: number): Promise<void> {
+  const origin = `http://127.0.0.1:${port}`
+  if (!(await waitForHealth(origin))) {
+    signalBackendError(`The backend did not respond on ${origin}.`)
+    return
+  }
+  backendOrigin = origin
+  await mainWindow?.loadURL(`${origin}/`)
+}
+
+function signalBackendError(message: string): void {
+  backendError = message
+  const win = mainWindow
+  if (!win) return
+  // A crash after startup leaves the UI on a dead origin; go back to the loading page,
+  // which receives the error on did-finish-load.
+  if (win.webContents.getURL().startsWith('file:')) win.webContents.send('backend-error', message)
+  else void win.loadFile(LOADING_PAGE)
+}
+
+// Backend sidecar
+
+function rotateLog(logPath: string): void {
+  try {
+    if (fs.statSync(logPath).size > MAX_LOG_BYTES) {
+      fs.renameSync(logPath, `${logPath}.1`)
+    }
+  } catch {
+    // No log yet, or rotation failed: keep appending to the current file.
+  }
+}
+
+async function launchApp(
+  appDataDir: string,
+  imageLibraryDir: string,
+  convertToWebp: boolean,
+): Promise<void> {
   currentAppDataDir = appDataDir
   currentImageLibraryDir = imageLibraryDir
   currentConvertToWebp = convertToWebp
+  backendOrigin = null
+  backendError = null
   mainWindow = createMainWindow()
 
-  if (isDev) {
-    // Dev: backend runs manually on port 8000.
-    // Send backend-ready so DesktopGate unblocks and polls /health.
-    mainWindow.webContents.on('did-finish-load', () => {
-      mainWindow?.webContents.send('backend-ready', 8000)
-    })
+  // Dev: the developer runs the backend themselves; Vite proxies /api to it.
+  if (isDev) return
+
+  // A config-loaded start can point at a drive that is no longer mounted.
+  const dirError = prepareStorageDirs(appDataDir, imageLibraryDir)
+  if (dirError) {
+    signalBackendError(dirError)
     return
   }
 
   let port: number
   try {
-    port = await findFreePort()
+    port = await findFreePort(PREFERRED_PORT)
   } catch (err) {
     console.error('Failed to find a free port:', err)
-    mainWindow.webContents.on('did-finish-load', () => {
-      mainWindow?.webContents.send('backend-error', 'Could not find a free port')
-    })
+    signalBackendError('Could not find a free port')
     return
   }
 
-  fs.mkdirSync(appDataDir, { recursive: true })
-  fs.mkdirSync(imageLibraryDir, { recursive: true })
-
-  // Log file for sidecar output — helps diagnose startup crashes
+  // Sidecar output goes to a log file to help diagnose startup crashes.
   const logPath = path.join(app.getPath('userData'), 'backend.log')
+  rotateLog(logPath)
   const logStream = fs.createWriteStream(logPath, { flags: 'a' })
-  logStream.write(`\n--- Scene Atlas started ${new Date().toISOString()} ---\n`)
-  logStream.write(`port=${port} appData=${appDataDir} imageLibrary=${imageLibraryDir}\n`)
-  console.log(`[electron] Spawning backend on port ${port}, appData=${appDataDir}, imageLibrary=${imageLibraryDir}`)
+  const writeLog = (text: string) => {
+    if (!logStream.writableEnded) logStream.write(text)
+  }
+  const closeLog = () => {
+    if (!logStream.writableEnded) logStream.end()
+  }
+  writeLog(`\n--- Scene Atlas started ${new Date().toISOString()} ---\n`)
+  writeLog(`port=${port} appData=${appDataDir} imageLibrary=${imageLibraryDir}\n`)
+  console.log(
+    `[electron] Spawning backend on port ${port}, appData=${appDataDir}, imageLibrary=${imageLibraryDir}`,
+  )
   console.log(`[electron] Sidecar log: ${logPath}`)
 
-  // Collect recent output lines so we can show them in the error dialog
+  // Recent output lines are shown in the error screen.
   const recentLines: string[] = []
   const logLine = (line: string) => {
     console.log(line)
-    logStream.write(line + '\n')
+    writeLog(line + '\n')
     recentLines.push(line)
     if (recentLines.length > 50) recentLines.shift()
   }
 
-  const child = spawnSidecar(
+  let ready = false
+  const child = spawnSidecar({
     port,
     appDataDir,
     imageLibraryDir,
     convertToWebp,
-    (readyPort) => {
+    onReady: (readyPort) => {
+      ready = true
       console.log(`[electron] Backend ready on port ${readyPort}`)
-      mainWindow?.webContents.send('backend-ready', readyPort)
+      void showBackendUi(readyPort)
     },
-    logLine,
-  )
+    onLog: logLine,
+    onError: (message) => {
+      // 'exit' may or may not follow a spawn error; detach so it doesn't overwrite this message.
+      if (sidecarProcess === child) sidecarProcess = null
+      closeLog()
+      signalBackendError(`Could not start the backend: ${message}\n\nFull log: ${logPath}`)
+    },
+  })
 
   sidecarProcess = child
 
-  // If the sidecar process exits before signalling ready, report the error
-  child.on('exit', (code) => {
-    logStream.write(`--- exited code=${code} ---\n`)
-    logStream.end()
-    if (code !== 0 && code !== null) {
-      const tail = recentLines.slice(-10).join('\n')
-      mainWindow?.webContents.send(
-        'backend-error',
-        `Backend crashed (exit code ${code}).\n\nLast output:\n${tail}\n\nFull log: ${logPath}`,
-      )
-    }
+  child.on('exit', (code, signal) => {
+    writeLog(`--- exited code=${code} signal=${signal} ---\n`)
+    closeLog()
+    // stopSidecar() clears sidecarProcess first, so an intentional stop is not reported.
+    if (child !== sidecarProcess) return
+    sidecarProcess = null
+    // Before ready, any exit is a startup failure (even code 0). After ready, only a
+    // non-zero code is a crash.
+    if (ready && (code === 0 || code === null)) return
+    const tail = recentLines.slice(-10).join('\n')
+    const what = ready ? 'Backend crashed' : 'Backend exited during startup'
+    signalBackendError(
+      `${what} (exit code ${code ?? signal}).\n\nLast output:\n${tail}\n\nFull log: ${logPath}`,
+    )
   })
 }
 
-// ── Electron lifecycle ───────────────────────────────────────────────────────
+/** Ask the sidecar to shut down; resolves when it exits or after timeoutMs. */
+function stopSidecar(timeoutMs = 5000): Promise<void> {
+  const child = sidecarProcess
+  sidecarProcess = null
+  if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
+  console.log('[electron] Stopping backend sidecar')
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      // On Windows kill() terminates outright, so it is only the fallback there.
+      if (isWindows && child.exitCode === null) child.kill()
+      resolve()
+    }, timeoutMs)
+    child.once('exit', () => {
+      clearTimeout(timer)
+      resolve()
+    })
+    // Closing stdin makes the sidecar's watchdog shut down gracefully on every platform.
+    child.stdin?.end()
+    if (!isWindows) child.kill('SIGTERM')
+  })
+}
 
-app.whenReady().then(() => {
+// Lifecycle
+
+function start(): void {
   const config = loadConfig()
   if (config) {
-    launchApp(config.appDataDir, config.imageLibraryDir, config.convertToWebp)
+    void launchApp(config.appDataDir, config.imageLibraryDir, config.convertToWebp)
   } else {
     showSetupWindow()
   }
+}
+
+app.on('second-instance', () => {
+  const win = mainWindow ?? setupWindow
+  if (!win) return
+  if (win.isMinimized()) win.restore()
+  win.focus()
+})
+
+app.whenReady().then(() => {
+  if (hasInstanceLock) start()
 })
 
 app.on('window-all-closed', () => {
-  killSidecar()
+  void stopSidecar()
   if (process.platform !== 'darwin') app.quit()
 })
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    const config = loadConfig()
-    if (config) {
-      launchApp(config.appDataDir, config.imageLibraryDir, config.convertToWebp)
-    } else {
-      showSetupWindow()
-    }
-  }
+  if (hasInstanceLock && BrowserWindow.getAllWindows().length === 0) start()
 })
 
-app.on('will-quit', () => killSidecar())
-
-function killSidecar(): void {
-  if (sidecarProcess && !sidecarProcess.killed) {
-    console.log('[electron] Killing backend sidecar')
-    sidecarProcess.kill('SIGTERM')
-    sidecarProcess = null
-  }
-}
+app.on('will-quit', () => {
+  void stopSidecar()
+})

@@ -10,7 +10,8 @@ directories:
 files:
   - electron/dist/**/*
   - electron/setup.html
-  - frontend/dist/**/*
+  - electron/loading.html
+  - electron/fonts/**/*
   - "!**/*.map"
   - "!**/node_modules/**"
 
@@ -39,7 +40,7 @@ nsis:
 mac:
   target:
     - target: dmg
-      arch: [x64, arm64]
+      arch: [arm64]  # sidecar is built only on the arm64 runner
   icon: assets/icon.icns
   category: public.app-category.utilities
   hardenedRuntime: true

@@ -5,8 +5,8 @@ import re
 import zipstream
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import delete, func
+from sqlalchemy.orm import Session, selectinload
 
 from ...pipeline.naming import download_filename, sanitize_segment
 from ..models import (
@@ -26,7 +26,8 @@ from ..models.schemas import (
     MoveImagesRequest,
     MoveImagesResponse,
 )
-from ..services import get_image_store, safe_delete_image
+from ..services import get_image_store
+from ..services.deletion_service import delete_image_rows
 from .dependencies import get_db, write_locked
 
 router = APIRouter()
@@ -99,18 +100,20 @@ def search_groups(
             db.query(Image.group_id, func.count(Image.id))
             .filter(Image.group_id.in_(group_ids))
             .group_by(Image.group_id)
+            .tuples()
             .all()
         )
         counts = dict(rows)
 
     # Compute fallback primary_image_id for groups that don't have one set
-    primary_ids: dict[int, int] = {}
+    primary_ids: dict[int | None, int] = {}
     missing = [g.id for g in groups if g.primary_image_id is None]
     if missing:
         rows = (
             db.query(Image.group_id, func.min(Image.id))
             .filter(Image.group_id.in_(missing))
             .group_by(Image.group_id)
+            .tuples()
             .all()
         )
         primary_ids = dict(rows)
@@ -138,8 +141,9 @@ def get_group(
     group = (
         db.query(ImageGroup)
         .options(
-            joinedload(ImageGroup.images).joinedload(Image.tags),
-            joinedload(ImageGroup.images).joinedload(Image.colors),
+            # Separate SELECTs: joining both collections returns tags x colours rows per image.
+            selectinload(ImageGroup.images).selectinload(Image.tags),
+            selectinload(ImageGroup.images).selectinload(Image.colors),
         )
         .filter(ImageGroup.id == group_id)
         .first()
@@ -187,6 +191,7 @@ def download_group(
 
 
 @router.put("/{group_id}", response_model=GroupEditResponse)
+@write_locked
 def edit_group(
     group_id: int,
     payload: GroupEditRequest,
@@ -205,13 +210,13 @@ def edit_group(
     # Images referenced in new_groups are being moved, not deleted — protect them.
     kept_ids = {img.id for img in payload.images}
     moving_ids = {img_id for ng in payload.new_groups for img_id in ng.image_ids}
-    all_images = db.query(Image).filter(Image.group_id == group_id).all()
+    all_images = (
+        db.query(Image).options(selectinload(Image.tags)).filter(Image.group_id == group_id).all()
+    )
 
-    deleted_ids: list[int] = []
-    for image in all_images:
-        if image.id not in kept_ids and image.id not in moving_ids:
-            deleted_ids.append(image.id)
-            safe_delete_image(db, image)
+    deleted = [img for img in all_images if img.id not in kept_ids and img.id not in moving_ids]
+    deleted_ids = [img.id for img in deleted]
+    pending = delete_image_rows(db, deleted)
 
     # 3. Update kept images
     image_map = {img.id: img for img in all_images if img.id in kept_ids}
@@ -276,6 +281,7 @@ def edit_group(
         new_group_ids.append(new_group.id)
 
     db.commit()
+    pending.apply()
     return GroupEditResponse(
         id=group_id,
         new_group_ids=new_group_ids,
@@ -284,6 +290,7 @@ def edit_group(
 
 
 @router.delete("/{group_id}")
+@write_locked
 def delete_group(
     group_id: int,
     db: Session = Depends(get_db),
@@ -294,11 +301,12 @@ def delete_group(
         raise HTTPException(status_code=404, detail="Group not found")
 
     images = db.query(Image).filter(Image.group_id == group_id).all()
-    for image in images:
-        safe_delete_image(db, image)
-
-    db.delete(group)
+    pending = delete_image_rows(db, images)
+    # Bulk delete: the images are already gone, so there are no foreign keys to
+    # null out (which db.delete(group) would load the collection to do).
+    db.execute(delete(ImageGroup).where(ImageGroup.id == group_id))
     db.commit()
+    pending.apply()
     return {"message": f"Group {group_id} and all its images deleted"}
 
 
@@ -372,6 +380,7 @@ def move_images(
 
 
 @router.post("/{group_id}/merge", response_model=GroupMergeResponse)
+@write_locked
 def merge_group(
     group_id: int,
     payload: GroupMergeRequest,

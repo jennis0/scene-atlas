@@ -1,6 +1,7 @@
 """FastAPI application for Scene Atlas."""
 
 import asyncio
+import contextlib
 import logging
 import signal
 import sys
@@ -8,6 +9,7 @@ import threading
 import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,6 +19,8 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
+from sqlalchemy.exc import NoResultFound
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from .api import export, groups, images, imports, jobs, search, system, tags
 from .api import models as models_api
@@ -33,8 +37,11 @@ from .models import (
 )
 from .process_utils import get_rss_mb
 from .services.prepare_pool import init_prepare_pool, shutdown_prepare_pool
+from .storage_lock import StorageLockedError, acquire_storage_lock
 
 logger = logging.getLogger(__name__)
+
+DESKTOP_LOCK_WAIT_SECS = 30.0
 
 
 @asynccontextmanager
@@ -45,6 +52,23 @@ async def lifespan(app: FastAPI):
 
     # Startup
     logger.info("Starting %s v%s", settings.app_name, settings.app_version)
+
+    # Before anything touches storage: a second backend's recovery would clear
+    # this one's in-flight ingest. The desktop app waits, so a relaunch can outlast
+    # the previous sidecar's graceful shutdown.
+    lock_wait = DESKTOP_LOCK_WAIT_SECS if settings.app_mode == "app" else 0
+    storage_locks = []
+    try:
+        for root in (settings.app_data_dir, settings.image_library_dir):
+            # A missing library (e.g. an unmounted drive) is not created here; the
+            # ingest worker pauses until it appears.
+            if root.is_dir():
+                storage_locks.append(acquire_storage_lock(root, timeout=lock_wait))
+    except StorageLockedError as exc:
+        for lock in storage_locks:
+            lock.release()
+        logger.critical("STARTUP ERROR: %s", exc)
+        raise
 
     # Load Pillow's plugins while single-threaded. A lazy load (on the first
     # unrecognised file) dlopens while holding the GIL, which deadlocks against
@@ -131,6 +155,9 @@ async def lifespan(app: FastAPI):
 
     # Start background job runner (eagerly, so it's ready for requests)
     from .services.job_runner import get_job_runner, shutdown_job_runner
+    from .services.shutdown import clear_shutdown, request_shutdown
+
+    clear_shutdown()
 
     runner = get_job_runner()
 
@@ -191,13 +218,11 @@ async def lifespan(app: FastAPI):
             "Set CORS_ORIGINS in your .env to your actual frontend origin."
         )
 
-    logger.info("Server ready on %s:%s", settings.api_host, settings.api_port)
-    # Signal to desktop shell (Electron) that the backend is ready.
     # CLIP is still loading in the background — the app is usable immediately;
     # searches with a query will wait for CLIP; empty queries use SQL only.
-    print(f"SCENE_ATLAS_READY port={settings.api_port}", flush=True)
+    logger.info("Startup complete")
 
-    # --- Diagnostic: event loop heartbeat ---
+    # Diagnostic: event loop heartbeat
     # Logs every 15s from the event loop. If these lines stop appearing in the
     # log while the process is still alive, the event loop is blocked.
     async def _heartbeat() -> None:
@@ -214,9 +239,9 @@ async def lifespan(app: FastAPI):
 
     heartbeat_task = asyncio.create_task(_heartbeat())
 
-    # --- Diagnostic: SIGUSR1 thread dump ---
+    # Diagnostic: SIGUSR1 thread dump
     # Send `kill -USR1 <pid>` to dump all thread stack traces to the log.
-    def _dump_threads(signum, frame) -> None:  # noqa: ARG001
+    def _dump_threads(signum, frame) -> None:
         lines = ["\n=== THREAD DUMP (SIGUSR1) ==="]
         for tid, stack in sys._current_frames().items():
             tname = "?"
@@ -229,10 +254,9 @@ async def lifespan(app: FastAPI):
         logger.warning("".join(lines))
 
     if sys.platform != "win32":
-        try:
+        # Raises ValueError outside the main thread (e.g. under the test runner).
+        with contextlib.suppress(ValueError):
             signal.signal(signal.SIGUSR1, _dump_threads)
-        except ValueError:
-            pass  # Not in main thread (e.g. test runner)
 
     yield
 
@@ -240,15 +264,21 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down application")
-    await scheduler.stop()
-    # Let the batch in progress commit; anything left is recovered next start.
-    await asyncio.to_thread(ingest_worker.stop, 60.0)
-    shutdown_job_runner()
-    shutdown_prepare_pool()
+    try:
+        # Long jobs and scheduler tasks stop at their next batch boundary.
+        request_shutdown()
+        await scheduler.stop()
+        # Let the batch in progress commit; anything left is recovered next start.
+        await asyncio.to_thread(ingest_worker.stop, 60.0)
+        shutdown_job_runner()
+        shutdown_prepare_pool()
 
-    from .services.lancedb_service import shutdown_lancedb_service
+        from .services.lancedb_service import shutdown_lancedb_service
 
-    shutdown_lancedb_service()
+        shutdown_lancedb_service()
+    finally:
+        for lock in storage_locks:
+            lock.release()
 
 
 # Create FastAPI app
@@ -305,8 +335,13 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 # Rate limiting middleware
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # pyright: ignore[reportArgumentType]
 app.add_middleware(SlowAPIMiddleware)
+
+# Outermost, so the rate limiter keys on the client behind a trusted reverse proxy.
+# Launchers pass --no-proxy-headers so uvicorn's own copy, which reads its trust
+# list only from the process environment, can't apply a different one.
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=settings.forwarded_allow_ips)
 
 # Include API routers
 app.include_router(images.router, prefix=f"{settings.api_prefix}/images", tags=["images"])
@@ -320,11 +355,17 @@ app.include_router(system.router, prefix=f"{settings.api_prefix}/system", tags=[
 app.include_router(settings_api.router, prefix=f"{settings.api_prefix}/settings", tags=["settings"])
 app.include_router(models_api.router, prefix=f"{settings.api_prefix}/models", tags=["models"])
 
-# ── SPA static file serving ─────────────────────────────────────────────────
-# When a built frontend exists (Docker / production), serve it from the backend.
-# The frontend build outputs to frontend/dist/ relative to the project root.
+
+# SPA static file serving
+# When a built frontend exists (Docker, the Electron sidecar), serve it from the backend.
 # Must be mounted AFTER API routers so /api/v1/* routes take precedence.
-_FRONTEND_DIR = Path(__file__).parent.parent.parent / "frontend" / "dist"
+def _frontend_dir() -> Path:
+    if getattr(sys, "frozen", False):  # PyInstaller bundles frontend/dist into _MEIPASS
+        return Path(sys._MEIPASS) / "frontend" / "dist"  # pyright: ignore[reportAttributeAccessIssue]
+    return Path(__file__).parent.parent.parent / "frontend" / "dist"
+
+
+_FRONTEND_DIR = _frontend_dir()
 _spa_enabled = _FRONTEND_DIR.is_dir() and (_FRONTEND_DIR / "index.html").exists()
 
 if _spa_enabled:
@@ -446,6 +487,12 @@ h1{{font-size:1.5rem;letter-spacing:0.15em;margin-bottom:0.5rem;font-weight:500}
     return HTMLResponse(content=html)
 
 
+@app.exception_handler(NoResultFound)
+async def not_found_handler(request: Request, exc: NoResultFound) -> JSONResponse:
+    """A row that must exist (``Session.get_one``) was deleted by a concurrent request."""
+    return JSONResponse(status_code=404, content={"detail": "Not found"})
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Catch all unhandled exceptions, log them, return a clean JSON error.
@@ -467,7 +514,7 @@ async def health(request: Request):
     when one or more checks fail.  Useful for diagnosing "why isn't search
     working?" without tailing logs.
     """
-    checks: dict[str, str] = {}
+    checks: dict[str, Any] = {}
     overall = "healthy"
 
     # Database check
@@ -515,7 +562,7 @@ async def health(request: Request):
     return {"status": overall, "mode": settings.app_mode, "checks": checks}
 
 
-# ── SPA catch-all route ─────────────────────────────────────────────────────
+# SPA catch-all route
 # Must be registered LAST so it doesn't shadow API routes or /health.
 # Serves index.html for any path not matched by an API endpoint, enabling
 # client-side routing (e.g. /gallery, /import).
@@ -557,4 +604,5 @@ if __name__ == "__main__":
         host=host,
         port=port,
         reload=settings.debug,
+        proxy_headers=False,
     )

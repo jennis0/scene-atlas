@@ -9,12 +9,7 @@ import type { ImportCounts, ImportJobSummary } from '@/lib/import/types'
 export const plural = (n: number, one: string, many = `${one}s`) =>
   `${n.toLocaleString()} ${n === 1 ? one : many}`
 
-export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(0)} KB`
-  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`
-  return `${(bytes / 1024 ** 3).toFixed(2)} GB`
-}
+export { formatBytes } from '@/lib/format'
 
 /** Files that have reached a final state. */
 export const finishedCount = (c: ImportCounts) => c.done + c.duplicate + c.failed + c.skipped

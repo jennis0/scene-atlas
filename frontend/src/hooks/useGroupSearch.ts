@@ -1,6 +1,7 @@
 import { useMemo, useCallback } from 'react'
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { searchApi } from '@/lib/api'
+import { QUERY_KEYS } from '@/lib/queryKeys'
 import type { GroupSearchResult, GroupSearchResponse, ImageGroup, SearchParams } from '@/types'
 
 const PAGE_SIZE = 50
@@ -33,20 +34,20 @@ function toImageGroup(result: GroupSearchResult): ImageGroup {
 }
 
 /**
- * Hook for infinite scroll group search.
- *
- * Fetches groups with limit=50 per page, starting from offset=0.
- * Returns flattened groups array (from all pages) and metadata for infinite scroll.
- * Filters groups by minScore, showing groups with null bestScore (browse mode) or scores >= threshold.
+ * Paged group search for infinite scroll. Groups below `minScore` are dropped client-side;
+ * groups with a null bestScore (no query, so nothing to score) are always kept.
  */
 export function useGroupSearch(
   params: Omit<SearchParams, 'limit' | 'offset'>,
   minScore: number = 0,
+  { enabled = true }: { enabled?: boolean } = {},
 ) {
   const queryClient = useQueryClient()
+  const queryKey = useMemo(() => [...QUERY_KEYS.groups, params], [params])
 
   const query = useInfiniteQuery<GroupSearchResponse>({
-    queryKey: ['groups', params],
+    queryKey,
+    enabled,
     queryFn: ({ pageParam = 0 }) =>
       searchApi.groups({ ...params, limit: PAGE_SIZE, offset: pageParam as number }),
     initialPageParam: 0,
@@ -56,7 +57,6 @@ export function useGroupSearch(
     },
   })
 
-  // Flatten all pages into a single groups array
   const groups = useMemo(
     () =>
       query.data?.pages
@@ -66,15 +66,12 @@ export function useGroupSearch(
     [query.data?.pages, minScore],
   )
 
-  // Total groups across all fetches (from first page)
   const totalGroups = query.data?.pages[0]?.total_groups ?? 0
 
-  // Reset function that clears cached data and resets to initialPageParam (0)
+  // Removing (not refetching) drops the loaded pages, so the next fetch restarts at offset 0.
   const reset = useCallback(() => {
-    queryClient.removeQueries({
-      queryKey: ['groups', params],
-    })
-  }, [queryClient, params])
+    queryClient.removeQueries({ queryKey })
+  }, [queryClient, queryKey])
 
   return {
     ...query,

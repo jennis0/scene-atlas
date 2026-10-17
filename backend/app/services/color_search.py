@@ -1,101 +1,62 @@
-"""Color proximity search using HSL cylindrical distance with in-memory caching."""
+"""Colour proximity search: CIE76 delta E over the precomputed LAB columns."""
 
-import colorsys
-import math
-import threading
-import time
+from collections.abc import Sequence
 
+from sqlalchemy import ColumnElement, Select, and_, or_, select
 from sqlalchemy.orm import Session
 
-from backend.app.config import settings as _settings
-
+from ..colorspace import hex_to_lab
 from ..models import Color
 
 
-def hex_to_hsl_cylinder(hex_color: str) -> tuple[float, float, float]:
-    """Convert a hex color to cylindrical HSL coordinates.
+def _within(lab: tuple[float, float, float], threshold: float) -> ColumnElement[bool]:
+    lab_l, lab_a, lab_b = lab
+    return and_(
+        Color.lab_a.between(lab_a - threshold, lab_a + threshold),
+        Color.lab_b.between(lab_b - threshold, lab_b + threshold),
+        (Color.lab_l - lab_l) * (Color.lab_l - lab_l)
+        + (Color.lab_a - lab_a) * (Color.lab_a - lab_a)
+        + (Color.lab_b - lab_b) * (Color.lab_b - lab_b)
+        <= threshold * threshold,
+    )
 
-    Maps HSL to a 3D point where Euclidean distance is perceptually reasonable:
-      x = S * cos(H * 2pi)
-      y = S * sin(H * 2pi)
-      z = L
 
-    This handles hue wraparound naturally and clusters grays together.
+def color_match_ids(target_hexes: Sequence[str], threshold: float) -> Select[tuple[int]]:
+    """Ids of images with a dominant colour within ``threshold`` delta E of ANY target.
+
+    Each scan is a range on L* in ``ix_colors_lab``; the a*/b* box and exact
+    distance are then checked from the index alone. Targets whose L* ranges overlap share one
+    scan: scanning each separately would visit the shared rows once per
+    target and then deduplicate them.
     """
-    h_str = hex_color.lstrip("#")
-    r, g, b = int(h_str[0:2], 16) / 255, int(h_str[2:4], 16) / 255, int(h_str[4:6], 16) / 255
-    h, lightness, s = colorsys.rgb_to_hls(r, g, b)
-    angle = h * 2 * math.pi
-    x = s * math.cos(angle)
-    y = s * math.sin(angle)
-    return (x, y, lightness)
+    labs = sorted(hex_to_lab(h) for h in target_hexes)
+    scans: list[list[tuple[float, float, float]]] = []
+    for lab in labs:
+        if scans and lab[0] - scans[-1][-1][0] <= 2 * threshold:
+            scans[-1].append(lab)
+        else:
+            scans.append([lab])
+    return select(Color.image_id).where(
+        or_(
+            *(
+                and_(
+                    Color.lab_l.between(scan[0][0] - threshold, scan[-1][0] + threshold),
+                    or_(*(_within(lab, threshold) for lab in scan)),
+                )
+                for scan in scans
+            )
+        )
+    )
 
 
-def color_distance(v1: tuple[float, float, float], v2: tuple[float, float, float]) -> float:
-    """Euclidean distance between two cylindrical HSL vectors."""
-    return math.sqrt((v1[0] - v2[0]) ** 2 + (v1[1] - v2[1]) ** 2 + (v1[2] - v2[2]) ** 2)
+def find_images_by_colors(
+    db: Session, target_hexes: Sequence[str], threshold: float | None = None
+) -> set[int]:
+    """Ids of images matching ANY target colour; the threshold defaults to the app setting."""
+    if not target_hexes:
+        return set()
+    if threshold is None:
+        from .app_settings import get_settings
 
-
-class ColorIndex:
-    """In-memory index of image colors for fast proximity search.
-
-    Loads all (image_id, color_hex) pairs from the database, pre-converts
-    to cylindrical HSL, and caches for repeated queries. Refreshes lazily
-    when the cache TTL expires.
-    """
-
-    def __init__(self):
-        self._cache: list[tuple[int, tuple[float, float, float]]] = []
-        self._loaded_at: float = 0.0
-        self._lock = threading.Lock()
-
-    def _refresh(self, db: Session) -> None:
-        """Reload color data from the database."""
-        rows = db.query(Color.image_id, Color.color_hex).all()
-        new_cache = [(image_id, hex_to_hsl_cylinder(hex_val)) for image_id, hex_val in rows]
-        with self._lock:
-            self._cache = new_cache
-            self._loaded_at = time.monotonic()
-
-    def _ensure_loaded(self, db: Session) -> None:
-        with self._lock:
-            if (
-                self._cache
-                and (time.monotonic() - self._loaded_at) <= _settings.color_cache_ttl_seconds
-            ):
-                return
-        self._refresh(db)
-
-    def find_images_by_color(
-        self,
-        db: Session,
-        target_hex: str,
-        threshold: float | None = None,
-    ) -> set[int]:
-        """Find image IDs with at least one dominant color within threshold of target."""
-        self._ensure_loaded(db)
-        if threshold is None:
-            from .app_settings import get_settings as get_app_settings
-
-            threshold = get_app_settings(db).color_distance_threshold
-
-        target = hex_to_hsl_cylinder(target_hex)
-        return {
-            image_id for image_id, vec in self._cache if color_distance(target, vec) <= threshold
-        }
-
-    def find_images_by_colors(
-        self,
-        db: Session,
-        target_hexes: list[str],
-        threshold: float | None = None,
-    ) -> set[int]:
-        """Find image IDs matching ANY of the target colors (OR logic)."""
-        result: set[int] = set()
-        for hex_val in target_hexes:
-            result |= self.find_images_by_color(db, hex_val, threshold)
-        return result
-
-
-# Global instance
-color_index = ColorIndex()
+        threshold = get_settings(db).color_distance_threshold
+    return set(db.scalars(color_match_ids(target_hexes, threshold).distinct()))

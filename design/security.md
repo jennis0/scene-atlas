@@ -1,18 +1,19 @@
 # Security Evaluation — Scene Atlas (Hosted Mode)
 
-**Date**: 2026-03-14 (updated)
-**Scope**: Hosted deployment behind reverse proxy
+**Scope**: Server mode (web server behind a reverse proxy)
 
 ## Deployment Model
 
 Scene Atlas has three deployment modes:
-1. **Electron desktop app** — backend runs as local sidecar; OS provides isolation
-2. **Web server behind reverse proxy** — proxy handles TLS; this doc evaluates what else is needed
-3. **Developer mode** — localhost only, no security expectations
+1. **Electron desktop app** — backend runs as a local sidecar; the OS user boundary provides isolation.
+2. **Web server behind a reverse proxy** — this document evaluates this mode.
+3. **Developer mode** — localhost only, no security expectations.
 
-This evaluation focuses on mode 2.
+## Server mode has no built-in authentication
 
-**Server mode deployment requirement**: Until session-based authentication is implemented, server mode MUST be behind network-level access control (VPN, Tailscale, Cloudflare Access, or similar). The application currently has no authentication — all API endpoints are accessible to anyone who can reach the server.
+The backend has no authentication or authorisation. Every API endpoint, including uploads, deletion of the whole library and settings changes, is available to anyone who can reach the server. There is no token or bearer-auth support in the code.
+
+Server mode must therefore only be exposed behind a reverse proxy that authenticates every request — HTTP basic auth, forward-auth (e.g. Authelia, Authentik), an OAuth proxy (e.g. oauth2-proxy), or an access gateway such as Cloudflare Access or Tailscale. Never expose the backend port directly to the internet. Because the frontend loads images with plain `<img src>` requests, the proxy must authenticate with a mechanism the browser sends automatically (cookies or basic auth), not a header the app would have to add.
 
 ---
 
@@ -20,17 +21,20 @@ This evaluation focuses on mode 2.
 
 | Area | Details |
 |------|---------|
-| SQL injection | All queries use SQLAlchemy ORM; FTS5 input sanitized in `fts_service.py` |
-| XSS | No unsafe DOM injection patterns; all content via React text interpolation |
-| ZIP bombs | `check_zip_safety()` in `validation.py` validates count, size, zip-slip |
-| MIME validation | `verify_media_mime()` uses PIL to verify headers match extensions |
-| File storage | UUID hash-sharded keys, not user-controlled names (`image_store.py`) |
-| Error handling | Global handler returns generic messages; details logged server-side only |
-| Secrets | No hardcoded secrets; all config via env vars; `.env` in `.gitignore` |
-| Supply chain | Lock files (`uv.lock` with hashes, `package-lock.json`) present |
-| CSP | Restrictive Content-Security-Policy meta tag in `index.html` |
-| Pre-commit | Husky + lint-staged enforces ruff and eslint |
-| Code safety | No shell-invocation or code-execution functions in backend |
+| SQL injection | Queries use the SQLAlchemy ORM; FTS5 input is sanitised in `fts_service.py` |
+| XSS | No unsafe DOM injection; content rendered via React text interpolation |
+| ZIP bombs / zip-slip | `check_zip_safety()` (`validation.py`) checks entry count, uncompressed size and member paths before extraction |
+| MIME validation | `verify_media_mime()` checks file headers match the extension for every uploaded file and archive member |
+| Upload size | Request bodies are streamed with a byte limit (`max_import_file_size` / `max_video_file_size`); 413 when exceeded |
+| File storage | Server-generated UUID keys for staging and store files; client paths are never used as filesystem paths |
+| Disk exhaustion | Seal refuses imports that don't fit on disk (507); the ingest worker pauses below 512 MB free |
+| Error handling | Global handler returns a generic 500; details logged server-side |
+| Secrets | No hardcoded secrets; config via env vars; `.env` is git-ignored |
+| Supply chain | Lock files (`uv.lock`, `package-lock.json`) committed |
+| CSP | Restrictive Content-Security-Policy meta tag in `frontend/index.html` |
+| Pre-commit | Husky + lint-staged runs ruff, ESLint and Prettier |
+| Code safety | No shell invocation or dynamic code execution in the backend |
+| Container user | The Docker image runs as an unprivileged `app` user (`APP_UID`/`APP_GID`, default 1000) with the venv on `PATH`; only `/app/data` and `/app/images` are writable by it |
 
 ---
 
@@ -38,95 +42,120 @@ This evaluation focuses on mode 2.
 
 ### 1. CRITICAL: No Authentication or Authorization
 
-**Status**: DEFERRED to Phase 3 (session-based auth with multi-user support)
+**Status**: Open. Mitigated only by deployment (see above).
 
-All endpoints are currently public. Network-level isolation is required until session-based auth is implemented. Bearer-token auth was prototyped on `feature/security-phase-2` but abandoned because the token baked into the frontend JS bundle provides no real security against anyone who can access the frontend URL.
+Bearer-token auth was prototyped and abandoned: a token baked into the frontend bundle gives no protection against anyone who can load the frontend. The planned approach is session-based auth (login page, HTTP-only session cookies, CSRF protection), which also covers `<img src>` requests. Until then, authentication is the reverse proxy's job.
 
-**Phase 3 plan**: Login page, server-side sessions (HTTP-only cookies), CSRF protection. This approach solves the `<img src>` authentication problem natively (cookies are sent automatically) and provides a foundation for future multi-user support.
+### 2. HIGH: Path Traversal in Uploads
 
-### 2. HIGH: Path Traversal in Upload Endpoint
+**Status**: Fixed.
 
-**Status**: FIXED — staged files use server-generated names (`import_items.staging_key`); `relative_path` never reaches the filesystem
+Staging is per job: `{APP_DATA_DIR}/staging/{job_id}/{staging_key}`. `staging_key` is generated by the server (`uuid4().hex` + the lower-cased extension) and stored on `ImportItem.staging_key`. The client-supplied `relative_path` is normalised and used only for display, group planning and resume matching. Uploads go to `PUT /imports/{job_id}/items/{item_id}/content`, addressed by database ids; archive members get their own server-generated keys. See [storage.md](storage.md#staging).
 
-### 3. HIGH: No Rate Limiting
+### 3. HIGH: Rate Limiting
 
-**Status**: DONE (Phase 2)
+**Status**: Done.
 
-Rate limiting implemented via `slowapi` with two tiers:
-- **expensive** (2/min): `POST /search/rebuild-embeddings`, `GET /export/library`, `PATCH /settings/`, `POST /tags/retag-all`, `POST /tags/packs/{pack_name}/import`, `POST /images/backfill-grids`
-- **destructive** (1/min): `DELETE /system/library`, `POST /system/tags/reset`
+`slowapi`, keyed on the client address (`request.client.host`), with two tiers:
 
-The `/imports` endpoints are intentionally NOT rate-limited. An import sends one `PUT /imports/{id}/items/{item_id}/content` per file (≈10k requests for a 10k-file import), so a per-IP limit would throttle legitimate imports. They are bounded instead by `max_import_file_size` (413 on the streamed body), `max_import_items` per job, the seal-time free-space check, and the `acquire_heavy_op` semaphore on the CPU-heavy seal and archive-expansion endpoints. The client retries 429/5xx up to 5 times per file, then records a resumable local failure. Reverse proxies with their own rate limits must allow for the per-file request volume.
+- **expensive** (`RATE_LIMIT_EXPENSIVE`, default `2/minute`): `POST /search/rebuild-embeddings`, `GET /export/library`, `PATCH /settings/`, `POST /tags/retag-all`, `POST /tags/packs/{name}/import`, `POST /tags/packs/import-multiple`, `POST /images/backfill-grids`
+- **destructive** (`RATE_LIMIT_DESTRUCTIVE`, default `1/minute`): `DELETE /system/library`, `POST /system/tags/reset`
 
-Configurable via `RATE_LIMIT_EXPENSIVE`, `RATE_LIMIT_DESTRUCTIVE` env vars. Disable entirely with `RATE_LIMIT_ENABLED=false`.
+`RATE_LIMIT_ENABLED=false` disables it.
 
-**Reverse proxy requirement**: The proxy MUST overwrite (not append to) `X-Forwarded-For` so rate limiting keys on the real client IP. If the proxy appends, an attacker can spoof the header to get unlimited fresh rate limit buckets.
+Import endpoints are not rate limited: a single import makes one request per file (≈10k for a 10k-file import), so a per-IP limit would throttle legitimate imports. Per-file uploads (`PUT …/items/{item_id}/content`) are bounded by `max_import_file_size` (413 on the streamed body) and require an existing item awaiting bytes; they do not take the heavy-op semaphore. Jobs are capped at `MAX_IMPORT_ITEMS` files and seal checks free disk space. Archive upload and seal are gated by the heavy-op semaphore (`acquire_heavy_op`, see [resource-management.md](resource-management.md)). The client retries 429/5xx up to 5 times per file, then records a resumable local failure, so reverse proxies with their own rate limits must allow for the per-file request volume.
 
-### 4. MEDIUM: No Security Headers
+**Client address behind a reverse proxy**: `main.py` installs uvicorn's `ProxyHeadersMiddleware` as the outermost middleware, trusting only `FORWARDED_ALLOW_IPS` (default `127.0.0.1,::1`). For a connection from a trusted address it replaces the client address with the rightmost `X-Forwarded-For` entry that is not itself trusted (and takes the scheme from `X-Forwarded-Proto`); from anywhere else both headers are ignored, so a client cannot pick its own rate-limit bucket. A proxy that appends to the header is therefore as safe as one that overwrites it. The setting is read by the app (so it works from `.env`), and the launch paths we ship (`Dockerfile`, `scripts/app/start.py`, `main.py`'s `__main__`, the sidecar) pass `--no-proxy-headers` / `proxy_headers=False` so uvicorn's own copy of the middleware, which reads `FORWARDED_ALLOW_IPS` only from the process environment and defaults to `127.0.0.1`, can't apply a different list. If the proxy is not in the list, nothing breaks but every client shares the proxy's bucket. In Docker the proxy's connections come from the Docker network, not loopback, so the operator must set it (see [docs/deploy/server.md](../docs/deploy/server.md#client-ip-addresses-and-rate-limits)). Tests: `backend/tests/integration/test_proxy_headers.py`.
 
-**Status**: DONE (Phase 2)
+### 4. MEDIUM: Security Headers
 
-Pure ASGI `SecurityHeadersMiddleware` adds to every response:
-- `X-Content-Type-Options: nosniff`
-- `X-Frame-Options: DENY`
-- `Referrer-Policy: strict-origin-when-cross-origin`
-- `Permissions-Policy: camera=(), microphone=()`
+**Status**: Done.
 
-HSTS intentionally omitted — must come from the reverse proxy to avoid breaking non-TLS deployments (Electron, local dev).
+A pure ASGI `SecurityHeadersMiddleware` adds `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin` and `Permissions-Policy: camera=(), microphone=()` to every response. HSTS is omitted on purpose: it must come from the TLS-terminating proxy so non-TLS deployments (Electron, local dev) keep working.
 
-### 5. MEDIUM: No Security Scanning in CI/CD
+### 5. MEDIUM: Security Scanning in CI
 
-**Status**: DONE (Phase 2)
+**Status**: Done (October 2026).
 
-CI now includes:
-- `pip-audit --desc` (Python CVE scanning)
-- `bandit -r backend/app backend/pipeline -ll` (Python SAST)
-- `npm audit --audit-level=high` (Frontend dependency audit)
+The `backend-security` job in `.github/workflows/ci.yml` (pull requests only) runs, and fails the PR on any finding that is not listed under [Accepted scanner findings](#accepted-scanner-findings):
 
-All use `continue-on-error: true` initially. Tracked in `technical-debt.md` to remove within 2 weeks once baseline is triaged.
+- `pip-audit --desc` over the `dev` + `cpu` environment (Python CVE scan; accepted IDs are passed as `--ignore-vuln` with a comment)
+- `bandit -r backend/app backend/pipeline -ll` (Python SAST, medium severity and up; accepted findings carry an inline `# nosec BXXX` with a reason)
 
-### 6. MEDIUM: Electron IPC Accepts Arbitrary Paths
+The `frontend-build` job runs `npm audit --omit=dev --audit-level=high` on `frontend/`, so a high or critical advisory in a dependency that ships in the bundle fails the PR. Dev and build tooling (frontend dev deps, the root Electron/electron-builder tree, `docs/`) is not gated; it is kept clean through Dependabot and periodic lockfile refreshes, and what cannot be fixed is listed below.
 
-**Status**: Not yet implemented (future work)
+pip-audit and npm audit query live advisory databases, so a new advisory can turn a PR red without a code change. That is intended: fix it (usually `uv lock --upgrade-package <pkg>` or a targeted `npm update <pkg>`), or add it to the accepted list below with a reason.
+
+### Codacy
+
+Codacy Cloud analyses every PR (gate: 0 new issues at Info and above). The repository is **not** linked to the org's "Default coding standard"; its tool set is configured per repository (last changed 2026-10-17):
+
+| Tool | State | Why |
+|---|---|---|
+| Ruff | on, **uses `pyproject.toml`** | Python lint + security. The `S` (flake8-bandit) rules replace Bandit, so Codacy and the local pre-push lint agree. Test paths ignore `S101`/`S603`/... via `per-file-ignores`. |
+| Opengrep (Semgrep) | on | Cross-language SAST, secrets, GitHub Actions and Dockerfile rules. `package-dependencies-check` (flags every `^` range in `package.json`) is off: the lockfiles pin exact versions. |
+| Trivy | on | Dependency CVEs from `uv.lock` / `package-lock.json`. Accepted ones are listed below. |
+| ESLint | on, uses `frontend/.eslintrc.cjs` | ESLint 8 matches the repo's eslintrc config (not ESLint9/flat config). |
+| Lizard | on | Function length / parameter count / complexity. |
+| Checkov, Hadolint | on | Dockerfile, docker-compose and workflow misconfiguration. |
+| Stylelint, markdownlint, Jackson Linter, Agentlinter | on | CSS, docs, JSON, CLAUDE.md / agent instructions. |
+| Bandit, Prospector, Pylint | **off** | Bandit ran twice (standalone and inside Prospector) and flagged every pytest `assert`; Ruff `S` covers the same checks. Pylint overlaps Ruff. CI's `backend-security` job still runs bandit on `backend/app` + `backend/pipeline`. |
+| PMD | off | No Java/Apex in the repo. |
+
+`.codacy.yml` excludes tests (`backend/tests`, `stress_tests`, `e2e`, `*.test.ts(x)`) and build output from analysis. Tests are still linted locally by ruff and eslint.
+
+### 6. MEDIUM: Electron IPC Changing Storage Paths
+
+**Status**: Partially mitigated.
+
+The renderer can call `system:change-storage-dirs` (exposed as `window.electronAPI.changeStorageDirs`) with two paths. The main process (`electron/src/main.ts`) then writes them to the app config and relaunches the app with the backend pointed at the new data and library roots. Current checks:
+- The handler is registered with `handleTrusted`, which rejects calls whose sender frame is not an app URL (the backend sidecar origin, `file:` for `loading.html`, or the dev server in development).
+- Both arguments must be non-empty absolute paths.
+- Both directories are created if needed and must pass a write test.
+
+There is no restriction on which absolute paths are accepted, so code running in the renderer could point the backend at any writable location. Renderer windows run with `contextIsolation`, `sandbox` and no `nodeIntegration`, and navigation away from app URLs is blocked, which limits who can reach the channel.
 
 ### 7. MEDIUM: CORS Configuration
 
-**Status**: DONE (Phase 2)
+**Status**: Done.
 
-Startup warning logged when `APP_MODE=server` and CORS origins are still set to localhost defaults.
+A warning is logged at startup when `APP_MODE=server` and `CORS_ORIGINS` is still the localhost default.
 
-### 8. LOW: CSP connect-src Too Broad
+### 8. LOW: CSP `connect-src` Too Broad
 
-**Status**: Not yet implemented (future work)
+**Status**: Done.
+
+Electron loads the UI from the backend sidecar, so the frontend is always same-origin with the API and the CSP in `frontend/index.html` uses `connect-src 'self'` in every mode.
 
 ### 9. LOW: No CSRF Protection
 
-**Status**: Will be implemented alongside session-based auth (Phase 3)
-
-### 10. LOW: No Dependency Vulnerability Scanning
-
-**Status**: DONE — covered by Finding 5
+**Status**: Open; to be implemented with session-based auth. Not exploitable while there are no credentials to ride on, but becomes relevant if the proxy uses cookie-based auth.
 
 ---
 
-## Staging Security Redesign
+## Accepted scanner findings
 
-The path traversal issue (finding 2) was resolved by staging uploads under server-generated filenames instead of user-supplied relative paths.
+Re-check these whenever the dependency in question is upgraded. Last reviewed 2026-10-17.
 
-**Before**: `staging_dir / "Author/GroupName/map.jpg"` (user-controlled path)
-**After**: `staging_dir / {job_id} / {staging_key}` (server-generated, safe by construction)
-
-`import_items.relative_path` is kept only for display, grouping and resume matching, and `item_id` is always scoped to its `job_id`. See [ingestion.md §7](ingestion.md#7-upload-protocol).
+| Scanner | Finding | Why accepted |
+|---|---|---|
+| bandit B104 / ruff S104 | `api_host = "0.0.0.0"` default in `backend/app/config.py` | Only read when the backend is started with `python -m backend.app.main` (dev, E2E). Electron forces `API_HOST=127.0.0.1`; Docker and the documented uvicorn commands pass `--host` explicitly. Changing the default to loopback is a reasonable follow-up but needs the E2E harness (which probes `localhost`) checked first. |
+| pip-audit | `transformers` <5: PYSEC-2025-217, PYSEC-2026-2288, -2289, -2290, -3929, -4174 (RCE/path traversal when loading untrusted checkpoints, Trainer RNG state, remote code) | Dev-only extra used by `scripts/models/` to export checkpoints we choose. Excluded from the PyInstaller sidecar (`excludes` in `scene_atlas_backend.spec`) and never imported by the app. The fix is transformers 5, a major upgrade of the export pipeline. |
+| Dependabot | `torch` 2.6.0+cu124 (`gpu-dev` extra) | The cu124 PyTorch index stops at 2.6. Dev-only (model export on CUDA); the CPU variant is on a patched release. Fix: move the `pytorch-cuda` index to a newer CUDA (cu126/cu128). |
+| npm audit (frontend, dev) | `braces` (all versions), via `tailwindcss` 3 / `chokidar` / `micromatch` / `knip` | Build-time glob matching over our own patterns. No patched `braces` release exists; removal needs Tailwind 4 / knip 6. |
+| npm audit (frontend, dev) | `postcss-selector-parser` <7.1.6 via `tailwindcss` 3 | Build-time, parses only our own CSS. Fixed only in 7.x, which Tailwind 3 does not accept. |
+| npm audit (frontend, runtime, moderate) | `react-router` 6 open redirect (backslash in `<Link>`/`useNavigate`), `deserializeErrors` constructor injection | Fixed only in React Router 7. The app never navigates to user-supplied URLs and does not use SSR hydration (`deserializeErrors`). |
+| npm audit (root, dev) | `electron` 40.x (sandboxed-iframe/popup and protocol-handler advisories, fixed in 41.10.6) | Electron 40 and 41 are end of life; there is no patched 40.x. The renderer only loads the same-origin UI with navigation blocked, which limits exposure. **Upgrade to a supported major (42+) before the next release.** |
+| npm audit (root, dev) | `sprintf-js` via `roarr` → `global-agent` → `@electron/get` → `electron-builder` | Build-time only; no patched release. |
+| npm audit (docs, dev) | `vite` 5 / `esbuild` via `vitepress` 1.6.4 | Dev-server-only advisories; CI only runs `vitepress build`. vitepress 1.x pins vite 5 (fix needs vitepress 2). |
 
 ---
 
-## Remediation Priority
+## Open Items
 
-1. ~~Path traversal fix via hash-based staging~~ (DONE)
-2. ~~Security headers~~ (DONE — Phase 2)
-3. ~~Rate limiting~~ (DONE — Phase 2)
-4. ~~CI/CD security scanning~~ (DONE — Phase 2)
-5. ~~CORS startup warning~~ (DONE — Phase 2)
-6. Session-based authentication (Phase 3 — planned)
-7. Electron IPC validation (future)
-8. CORS/CSP hardening (future)
+1. Session-based authentication (Finding 1).
+2. Upgrade Electron to a supported major (see accepted findings).
+3. Constrain the paths accepted by `system:change-storage-dirs` (Finding 6).
+4. CSRF protection alongside auth (Finding 9).
+
+Backlog priorities are tracked in [status-and-roadmap.md](status-and-roadmap.md).
