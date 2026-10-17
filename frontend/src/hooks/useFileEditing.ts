@@ -7,6 +7,9 @@ export const ALL_TAB = -1
 export const ALL_GROUP_ID = '__all__'
 export const MULTI_GROUP_ID = '__multi__'
 
+/** A bulk edit's target: one group, the multi-selected groups, or null for every group. */
+export type BulkScope = string | string[] | null
+
 export interface UseFileEditingOptions {
   /** Called with affected groups after any file mutation. Use for auto-save. */
   onGroupChange?: (affectedGroups: EditableGroupState[]) => void
@@ -48,20 +51,12 @@ export interface UseFileEditingReturn {
   selectAllVisible: (groupId: string, visibleFiles: EditableFileState[]) => void
   deselectAll: (groupId: string) => void
 
-  // Bulk ops
-  bulkAddTag: (groupId: string | null, tag: TagData) => void
-  bulkSetGrid: (groupId: string | null, gridded: boolean | null, gridType: string | null) => void
-  bulkSetImageType: (groupId: string | null, value: 'battlemap' | 'scene') => void
-  bulkSetSubgroup: (groupId: string | null, value: string) => void
-  bulkExclude: (groupId: string | null) => void
-
-  // Multi-group bulk ops (scoped to specific groups)
-  bulkUpdateFilesInGroups: (
-    groupIds: string[],
-    selectionId: string,
-    transform: (f: EditableFileState) => EditableFileState,
-  ) => void
-  bulkExcludeInGroups: (groupIds: string[], selectionId: string) => void
+  // Bulk ops, applied to the selected files in scope
+  bulkAddTag: (scope: BulkScope, tag: TagData) => void
+  bulkSetGrid: (scope: BulkScope, gridded: boolean | null, gridType: string | null) => void
+  bulkSetImageType: (scope: BulkScope, value: 'battlemap' | 'scene') => void
+  bulkSetSubgroup: (scope: BulkScope, value: string) => void
+  bulkExclude: (scope: BulkScope) => void
 
   // Subgroup ops
   clearSubgroupLabel: (groupId: string, subgroup: string) => void
@@ -230,47 +225,39 @@ export function useFileEditing({
     })
   }
 
-  /** `groupId` null means every group, using the "all" selection. */
-  const bulkUpdateFiles = (
-    groupId: string | null,
-    transform: (f: EditableFileState) => EditableFileState,
-  ) =>
-    applyToSelected((id) => groupId === null || id === groupId, groupId ?? ALL_GROUP_ID, transform)
+  const selectionIdFor = (scope: BulkScope) =>
+    Array.isArray(scope) ? MULTI_GROUP_ID : (scope ?? ALL_GROUP_ID)
 
-  const bulkUpdateFilesInGroups = (
-    groupIds: string[],
-    selectionId: string,
+  const bulkUpdateFiles = (
+    scope: BulkScope,
     transform: (f: EditableFileState) => EditableFileState,
   ) => {
-    const groupIdSet = new Set(groupIds)
-    applyToSelected((id) => groupIdSet.has(id), selectionId, transform)
+    const inScope = Array.isArray(scope)
+      ? (id: string) => scope.includes(id)
+      : (id: string) => scope === null || id === scope
+    applyToSelected(inScope, selectionIdFor(scope), transform)
   }
 
   const exclude = (f: EditableFileState) => ({ ...f, excluded: true })
 
-  const bulkExcludeInGroups = (groupIds: string[], selectionId: string) => {
-    bulkUpdateFilesInGroups(groupIds, selectionId, exclude)
-    deselectAll(selectionId)
-  }
-
-  const bulkAddTag = (groupId: string | null, tag: TagData) =>
-    bulkUpdateFiles(groupId, (f) => {
+  const bulkAddTag = (scope: BulkScope, tag: TagData) =>
+    bulkUpdateFiles(scope, (f) => {
       if (f.tags.some((t) => t.category === tag.category && t.value === tag.value)) return f
       return { ...f, tags: [...f.tags, tag] }
     })
 
-  const bulkSetGrid = (groupId: string | null, gridded: boolean | null, gridType: string | null) =>
-    bulkUpdateFiles(groupId, (f) => ({ ...f, gridded, grid_type: gridType }))
+  const bulkSetGrid = (scope: BulkScope, gridded: boolean | null, gridType: string | null) =>
+    bulkUpdateFiles(scope, (f) => ({ ...f, gridded, grid_type: gridType }))
 
-  const bulkSetImageType = (groupId: string | null, value: 'battlemap' | 'scene') =>
-    bulkUpdateFiles(groupId, (f) => ({ ...f, image_type: value }))
+  const bulkSetImageType = (scope: BulkScope, value: 'battlemap' | 'scene') =>
+    bulkUpdateFiles(scope, (f) => ({ ...f, image_type: value }))
 
-  const bulkSetSubgroup = (groupId: string | null, value: string) =>
-    bulkUpdateFiles(groupId, (f) => ({ ...f, subgroup: value.trim() || null }))
+  const bulkSetSubgroup = (scope: BulkScope, value: string) =>
+    bulkUpdateFiles(scope, (f) => ({ ...f, subgroup: value.trim() || null }))
 
-  const bulkExclude = (groupId: string | null) => {
-    bulkUpdateFiles(groupId, exclude)
-    deselectAll(groupId ?? ALL_GROUP_ID)
+  const bulkExclude = (scope: BulkScope) => {
+    bulkUpdateFiles(scope, exclude)
+    deselectAll(selectionIdFor(scope))
   }
 
   // Subgroup ops
@@ -326,8 +313,6 @@ export function useFileEditing({
     bulkSetImageType,
     bulkSetSubgroup,
     bulkExclude,
-    bulkUpdateFilesInGroups,
-    bulkExcludeInGroups,
     clearSubgroupLabel,
     renameSubgroup,
     isAllTab,

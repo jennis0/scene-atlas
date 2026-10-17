@@ -37,36 +37,21 @@ export interface UseEditGroupOperationsReturn {
   // Auto-save
   autoSaveGroup: (group: EditableGroupState) => Promise<void>
 
+  // The operations that resolve to a boolean report success, so callers can keep a
+  // confirmation open on failure.
+
   // Single-group operations
   moveToNewGroup: (sourceGroupId: string) => Promise<void>
-  handleDelete: () => Promise<void>
-  handleMerge: (targetGroup: { id: number }) => Promise<void>
+  handleDelete: () => Promise<boolean>
+  handleMerge: (targetGroup: { id: number }) => Promise<boolean>
 
   // Mass-edit per-group operations
-  handleDeleteGroup: (gId: string) => Promise<void>
-  handleMergeGroup: (sourceId: string, targetGroup: GroupPickerItem) => Promise<void>
+  handleDeleteGroup: (gId: string) => Promise<boolean>
+  handleMergeGroup: (sourceId: string, targetGroup: GroupPickerItem) => Promise<boolean>
   removeGroupFromView: (gId: string) => void
-
-  // Merge all
-  confirmingMergeAll: boolean
-  setConfirmingMergeAll: React.Dispatch<React.SetStateAction<boolean>>
   handleMergeAll: () => Promise<void>
 
-  // Nav actions state (mass-edit mode)
-  mergeSourceGroupId: string | null
-  setMergeSourceGroupId: React.Dispatch<React.SetStateAction<string | null>>
-  deleteConfirmGroupId: string | null
-  setDeleteConfirmGroupId: React.Dispatch<React.SetStateAction<string | null>>
-  showMergePicker: boolean
-  setShowMergePicker: React.Dispatch<React.SetStateAction<boolean>>
-  confirmingDelete: boolean
-  setConfirmingDelete: React.Dispatch<React.SetStateAction<boolean>>
-
   // Bulk operations (sidebar multiselect)
-  confirmingBulkMerge: boolean
-  setConfirmingBulkMerge: React.Dispatch<React.SetStateAction<boolean>>
-  confirmingBulkDelete: boolean
-  setConfirmingBulkDelete: React.Dispatch<React.SetStateAction<boolean>>
   handleBulkMerge: (selectedGroupIds: Set<string>) => Promise<void>
   handleBulkDelete: (selectedGroupIds: Set<string>) => Promise<void>
 
@@ -95,16 +80,9 @@ export function useEditGroupOperations({
 }: UseEditGroupOperationsOptions): UseEditGroupOperationsReturn {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
-  const [confirmingDelete, setConfirmingDelete] = useState(false)
-  const [showMergePicker, setShowMergePicker] = useState(false)
   const [merging, setMerging] = useState(false)
   const [groupSaving, setGroupSaving] = useState<Set<string>>(new Set())
   const [groupSaved, setGroupSaved] = useState<Set<string>>(new Set())
-  const [mergeSourceGroupId, setMergeSourceGroupId] = useState<string | null>(null)
-  const [deleteConfirmGroupId, setDeleteConfirmGroupId] = useState<string | null>(null)
-  const [confirmingMergeAll, setConfirmingMergeAll] = useState(false)
-  const [confirmingBulkMerge, setConfirmingBulkMerge] = useState(false)
-  const [confirmingBulkDelete, setConfirmingBulkDelete] = useState(false)
 
   // handleMoveImagesToGroup reads groups after an await; the ref gives it the latest.
   const groupsRef = useRef(groups)
@@ -113,16 +91,9 @@ export function useEditGroupOperations({
   const resetOperations = useCallback(() => {
     setSaving(false)
     setSaveError(null)
-    setConfirmingDelete(false)
-    setShowMergePicker(false)
     setMerging(false)
     setGroupSaving(new Set())
     setGroupSaved(new Set())
-    setMergeSourceGroupId(null)
-    setDeleteConfirmGroupId(null)
-    setConfirmingMergeAll(false)
-    setConfirmingBulkMerge(false)
-    setConfirmingBulkDelete(false)
   }, [])
 
   const autoSaveGroup = useCallback(async (group: EditableGroupState) => {
@@ -210,31 +181,33 @@ export function useEditGroupOperations({
 
   const handleDelete = async () => {
     const gId = groupId ?? null
-    if (gId === null) return
+    if (gId === null) return false
     setSaving(true)
     try {
       await groupApi.delete(gId)
       onSave()
       onClose()
+      return true
     } catch (err) {
       setSaveError(getApiErrorMessage(err, 'Delete failed'))
       setSaving(false)
-      setConfirmingDelete(false)
+      return false
     }
   }
 
   const handleMerge = async (targetGroup: { id: number }) => {
     const gId = groupId ?? null
-    if (gId === null) return
+    if (gId === null) return false
     setMerging(true)
     try {
       await groupApi.merge(gId, targetGroup.id)
-      setShowMergePicker(false)
       onSave()
       onClose()
+      return true
     } catch (err) {
       setSaveError(getApiErrorMessage(err, 'Merge failed'))
       setMerging(false)
+      return false
     }
   }
 
@@ -245,11 +218,12 @@ export function useEditGroupOperations({
     try {
       await groupApi.delete(Number(gId))
       setGroups((prev) => prev.filter((g) => g.id !== gId))
-      setDeleteConfirmGroupId(null)
       setActiveTab(tabAfterRemoval(activeTab, idx, Math.max(0, activeTab - 1)))
       invalidateGallery()
+      return true
     } catch (err) {
       setSaveError(getApiErrorMessage(err, 'Delete failed'))
+      return false
     } finally {
       setSaving(false)
     }
@@ -284,11 +258,12 @@ export function useEditGroupOperations({
       }
 
       setGroups(updatedGroups)
-      setMergeSourceGroupId(null)
       setActiveTab(tabAfterRemoval(activeTab, idx, Math.max(0, activeTab - 1)))
       invalidateGallery()
+      return true
     } catch (err) {
       setSaveError(getApiErrorMessage(err, 'Merge failed'))
+      return false
     } finally {
       setMerging(false)
     }
@@ -307,7 +282,6 @@ export function useEditGroupOperations({
     const sourceIds = ids.slice(1)
     setMerging(true)
     setSaveError(null)
-    setConfirmingBulkMerge(false)
 
     const mergedSourceIds: string[] = []
     try {
@@ -357,7 +331,6 @@ export function useEditGroupOperations({
 
   /** Merges every group into the first. */
   const handleMergeAll = async () => {
-    setConfirmingMergeAll(false)
     await handleBulkMerge(new Set(groups.map((g) => g.id)))
   }
 
@@ -487,7 +460,6 @@ export function useEditGroupOperations({
     const ids = [...selectedGroupIds]
     setSaving(true)
     setSaveError(null)
-    setConfirmingBulkDelete(false)
 
     const deletedIds: string[] = []
     try {
@@ -527,21 +499,7 @@ export function useEditGroupOperations({
     handleDeleteGroup,
     handleMergeGroup,
     removeGroupFromView,
-    confirmingMergeAll,
-    setConfirmingMergeAll,
     handleMergeAll,
-    mergeSourceGroupId,
-    setMergeSourceGroupId,
-    deleteConfirmGroupId,
-    setDeleteConfirmGroupId,
-    showMergePicker,
-    setShowMergePicker,
-    confirmingDelete,
-    setConfirmingDelete,
-    confirmingBulkMerge,
-    setConfirmingBulkMerge,
-    confirmingBulkDelete,
-    setConfirmingBulkDelete,
     handleBulkMerge,
     handleBulkDelete,
     handleMoveImagesToGroup,

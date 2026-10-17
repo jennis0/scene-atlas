@@ -247,6 +247,18 @@ describe('EditGroupDialog', () => {
       expect(await screen.findByText('2 groups')).toBeInTheDocument()
     })
 
+    it('keeps the inline delete confirmation open when the delete fails', async () => {
+      vi.mocked(groupApi.delete).mockRejectedValueOnce(new Error('Group is locked'))
+      const { user } = renderDialog({ groupIds: [1, 2] })
+      await screen.findByText('2 groups')
+      const row = sidebarRow('Cave Maps').closest('.group\\/navrow') as HTMLElement
+      await user.click(within(row).getAllByRole('button')[1])
+      await user.click(screen.getByRole('menuitem', { name: /Delete group/ }))
+      await user.click(screen.getByRole('button', { name: 'Delete' }))
+      expect(await screen.findByText('Group is locked')).toBeInTheDocument()
+      expect(screen.getByText('Delete this group?')).toBeInTheDocument()
+    })
+
     it('removes a group from view without touching the server', async () => {
       const { user } = renderDialog({ groupIds: [1, 2, 3] })
       await screen.findByText('3 groups')

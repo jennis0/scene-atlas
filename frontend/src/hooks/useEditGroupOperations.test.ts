@@ -156,3 +156,47 @@ describe('useEditGroupOperations — handleMoveImagesToGroup', () => {
     expect(tabUpdater(0)).toBe(0)
   })
 })
+
+describe('useEditGroupOperations — confirmable operations report success', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('handleDeleteGroup resolves true on success and false on failure', async () => {
+    const groups = [makeGroup({ id: '1' }), makeGroup({ id: '2' })]
+    const { result } = renderHook(() => useEditGroupOperations(makeOptions({ groups })))
+
+    let ok: boolean | undefined
+    await act(async () => {
+      ok = await result.current.handleDeleteGroup('2')
+    })
+    expect(ok).toBe(true)
+
+    vi.mocked(groupApi.delete).mockRejectedValueOnce(new Error('nope'))
+    await act(async () => {
+      ok = await result.current.handleDeleteGroup('2')
+    })
+    expect(ok).toBe(false)
+    expect(result.current.saveError).toBe('nope')
+  })
+
+  it('handleMerge closes the dialog only on success', async () => {
+    const onClose = vi.fn()
+    const { result } = renderHook(() =>
+      useEditGroupOperations(makeOptions({ groupId: 1, onClose })),
+    )
+    vi.mocked(groupApi.merge).mockRejectedValueOnce(new Error('conflict'))
+    let ok: boolean | undefined
+    await act(async () => {
+      ok = await result.current.handleMerge({ id: 2 })
+    })
+    expect(ok).toBe(false)
+    expect(onClose).not.toHaveBeenCalled()
+
+    await act(async () => {
+      ok = await result.current.handleMerge({ id: 2 })
+    })
+    expect(ok).toBe(true)
+    expect(onClose).toHaveBeenCalled()
+  })
+})
