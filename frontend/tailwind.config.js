@@ -17,12 +17,12 @@ export default {
       },
     },
     extend: {
-      // Below Tailwind's text-xs, for dense UI labels. In rem so they follow the text size
-      // setting; the root is 17px, so these render at 10px and 11px by default. Font size
-      // only: line height is inherited, as with the pixel sizes they replaced.
+      // Below Tailwind's text-xs, for dense UI labels: 10px and 11px at the default text
+      // size. Variables (index.css), because the larger text sizes raise them faster than
+      // the rest of the scale. Font size only: line height is inherited.
       fontSize: {
-        '3xs': '0.5882rem',
-        '2xs': '0.6471rem',
+        '3xs': 'var(--text-3xs)',
+        '2xs': 'var(--text-2xs)',
       },
       fontFamily: {
         sans: ['"Figtree Variable"', 'system-ui', 'sans-serif'],

@@ -100,8 +100,10 @@ Three font families, used in distinct roles. **Never mix roles.**
 The Appearance tab offers Small / Default / Large / Larger, set as `data-text-size` on `<html>` (`lib/textSize.ts`), which changes the root font size: 16, 17 (default), 19, 21px, as percentages so a larger browser default still scales up. Everything in rem follows: text, spacing, icons, and the panels that hold text. Images and thumbnails keep their size, so the gallery's density is unchanged, unlike browser zoom.
 
 That only works if sizes are in rem, so:
-- **No pixel font sizes.** Use the scale: `text-3xs` (10px at default), `text-2xs` (11px), then Tailwind's `text-xs` (12.75px), `text-sm`, `text-base`. The two small steps are defined in `tailwind.config.js` without a line height, so they inherit one as the old pixel sizes did.
-- **Containers that hold text are sized in rem** (dialogs, the viewer's side panel, pickers, sidebars): px ÷ 17, e.g. the Library dialog is `max-w-[28.25rem]` (480px at default). Keep pixels only for things sized to images or the screen: thumbnails, the viewer stage (`max-w-[1600px]`), the gallery page width (`max-w-[1400px]`).
+- **No pixel font sizes.** Use the scale: `text-3xs` (10px at default), `text-2xs` (11px), then Tailwind's `text-xs` (12.75px), `text-sm`, `text-base`. The two small steps are CSS variables (`--text-3xs`, `--text-2xs` in `index.css`) with no line height, so they inherit one as the old pixel sizes did.
+- **The floor rises faster than the root.** Large and Larger lift the two small steps more than everything else: small text is at least 12px at Large and 14px at Larger, and never below 10px at Small. `lib/textScale.test.ts` enforces these floors.
+- **200% zoom is a tested guarantee** (WCAG 1.4.4). `e2e/tests/zoom.spec.ts` runs at 960×480 (200% zoom on 1080p) with Larger text: no horizontal scroll, header controls on screen, and every dialog's controls reachable. Dialogs cap at the window height and scroll their body; use `max-h-[calc(100dvh-1rem)]` plus a `min-h-0` scrolling body rather than a fixed height alone.
+- **Containers that hold text are sized in rem** (dialogs, the viewer's side panel, pickers, sidebars): px ÷ 17, e.g. the Library dialog is `max-w-[28.24rem]` (480px at default). Keep pixels only for things sized to images or the screen: thumbnails, the viewer stage (`max-w-[1600px]`), the gallery page width (`max-w-[1400px]`).
 - Check new dense UI at **Larger** as well as Default.
 
 ### Short windows and the compact header

@@ -264,20 +264,35 @@
 
   html {
     font-size: 106.25%; /* ~17px base — one step up from browser default */
+
+    /* The two smallest steps (text-3xs, text-2xs): 10px and 11px here */
+    --text-3xs: 0.5882rem;
+    --text-2xs: 0.6471rem;
   }
 
-  /* Text size (Settings → Appearance), as data-text-size on <html>. Percentages, so a
-     larger browser default font size still scales everything up. */
+  /* Text size (Appearance tab), as data-text-size on <html>. Percentages, so a larger
+     browser default font size still scales everything up. The larger steps also raise
+     the floor: the small labels grow faster than body text, since they are what people
+     who choose large text struggle with. */
   html[data-text-size='small'] {
     font-size: 100%; /* 16px */
+
+    --text-3xs: 0.625rem; /* still 10px */
+    --text-2xs: 0.6875rem; /* still 11px */
   }
 
   html[data-text-size='large'] {
     font-size: 118.75%; /* 19px */
+
+    --text-3xs: 0.6316rem; /* 12px, not 11.2 */
+    --text-2xs: 0.6842rem; /* 13px, not 12.3 */
   }
 
   html[data-text-size='larger'] {
     font-size: 131.25%; /* 21px */
+
+    --text-3xs: 0.6667rem; /* 14px, not 12.4 */
+    --text-2xs: 0.7143rem; /* 15px, not 13.6 */
   }
 
   /* Subpixel rendering in light mode for bolder, crisper text;

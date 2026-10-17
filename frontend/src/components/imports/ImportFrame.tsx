@@ -54,7 +54,9 @@ export function ImportFrame({
           </button>
         </header>
 
-        <div className="relative flex-1 min-h-0 flex flex-col">{children}</div>
+        {/* Scrolls when the window is short (zoomed in, large text); views with their own
+            scrolling list fill it exactly and never trigger this */}
+        <div className="relative flex-1 min-h-0 flex flex-col overflow-y-auto">{children}</div>
 
         {footer && (
           <footer className="shrink-0 flex flex-wrap items-center gap-2 px-6 py-3 border-t border-border/30 bg-popover">
