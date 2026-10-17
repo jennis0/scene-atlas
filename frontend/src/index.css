@@ -7,36 +7,28 @@
   :root {
     --background: 36 28% 91%; /* warm parchment — slightly darker for depth */
     --foreground: 30 12% 15%; /* warm dark brown-charcoal, bolder */
-
     --card: 36 26% 94%; /* lifted surface, clear hierarchy vs bg */
     --card-foreground: 30 12% 15%;
-
     --popover: 36 24% 96%; /* lightest surface */
     --popover-foreground: 30 12% 15%;
-
     --primary: 38 72% 50%; /* bright gold for fills and tints */
     --primary-foreground: 30 30% 12%; /* dark text on gold: 6.5:1 */
+
     /* Amber as text, icons and focus: gold itself is ~2:1 on parchment, so text-primary
        resolves to this deeper ink (>= 4.5:1 on every surface and on a primary/10 tint) */
     --primary-ink: 34 85% 30%;
-
     --secondary: 36 18% 87%; /* subtle warm recessed surface */
     --secondary-foreground: 30 12% 15%;
-
     --muted: 36 16% 88%;
     --muted-foreground: 30 9% 34%; /* dimmed text: >= 4.5:1 on every surface */
-
     --accent: 36 18% 87%;
     --accent-foreground: 30 12% 15%;
-
     --destructive: 0 65% 42%; /* >= 4.5:1 as text on every surface */
     --destructive-foreground: 0 0% 100%;
-
     --border: 36 14% 78%; /* warm visible border, more definition */
     --input: 36 14% 78%;
     --ring: 34 85% 30%; /* matches primary-ink */
     --radius: 0.375rem; /* 6px — precise, cartographic */
-
     --surface-canvas: 36 18% 88%; /* ImageViewer canvas */
   }
 
@@ -44,33 +36,24 @@
   .dark {
     --background: 222 22% 8%; /* #0e1118 deep navy-black */
     --foreground: 37 27% 89%; /* #ede8dc warm parchment */
-
     --card: 222 22% 12%; /* #161c28 lifted surface */
     --card-foreground: 37 27% 89%;
-
     --popover: 220 25% 10%; /* #12171f popover bg */
     --popover-foreground: 37 27% 89%;
-
     --primary: 38 60% 58%; /* #d4a853 — amber gold */
     --primary-foreground: 222 30% 8%; /* near-black on amber */
     --primary-ink: 38 60% 58%; /* gold already reads as text on navy */
-
     --secondary: 222 20% 17%; /* #1c2231 */
     --secondary-foreground: 37 27% 89%;
-
     --muted: 222 20% 15%;
     --muted-foreground: 37 9% 58%; /* dimmed parchment: >= 4.5:1 on every surface */
-
     --accent: 222 20% 17%;
     --accent-foreground: 37 27% 89%;
-
     --destructive: 0 75% 67%; /* >= 4.5:1 as text on every surface */
     --destructive-foreground: 222 30% 8%; /* near-black: light text fails on this red */
-
     --border: 220 18% 19%; /* subtle dividers */
     --input: 220 18% 19%;
     --ring: 38 60% 58%; /* amber focus ring */
-
     --surface-canvas: 222 22% 6%; /* ImageViewer deep canvas bg */
   }
 
@@ -94,8 +77,9 @@
 
     font-family: 'Figtree Variable', system-ui, sans-serif;
     font-feature-settings: 'ss01';
+
     /* Faint dot-grid — evokes old survey maps and graph paper */
-    background-image: radial-gradient(circle, hsl(var(--foreground) / 0.04) 1px, transparent 1px);
+    background-image: radial-gradient(circle, hsl(var(--foreground) / 4%) 1px, transparent 1px);
     background-size: 28px 28px;
   }
 
@@ -110,9 +94,9 @@
     background: linear-gradient(
       90deg,
       transparent 0%,
-      hsl(var(--primary) / 0.5) 15%,
+      hsl(var(--primary) / 50%) 15%,
       hsl(var(--primary)) 50%,
-      hsl(var(--primary) / 0.5) 85%,
+      hsl(var(--primary) / 50%) 85%,
       transparent 100%
     );
     z-index: 1000;
@@ -167,7 +151,7 @@
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--muted-foreground) / 0.35);
+    background: hsl(var(--muted-foreground) / 35%);
   }
 }
 
@@ -199,13 +183,14 @@
   /* Range slider: quiet track that fills to the value (set --fill), a knob that reacts.
      Tall enough that the knob's shadow isn't clipped. */
   .range {
-    -webkit-appearance: none;
     appearance: none;
     height: 20px;
     background: transparent;
     cursor: pointer;
+
     --fill: 0%;
   }
+
   .range::-webkit-slider-runnable-track {
     height: 4px;
     border-radius: 9999px;
@@ -215,61 +200,72 @@
       hsl(var(--border)) var(--fill)
     );
   }
+
   .range::-moz-range-track {
     height: 4px;
     border-radius: 9999px;
     background: hsl(var(--border));
   }
+
   .range::-moz-range-progress {
     height: 4px;
     border-radius: 9999px;
     background: hsl(var(--primary-ink));
   }
+
   .range::-webkit-slider-thumb {
-    -webkit-appearance: none;
+    appearance: none;
     width: 14px;
     height: 14px;
     margin-top: -5px;
     border-radius: 9999px;
     border: 2px solid hsl(var(--card));
     background: hsl(var(--primary-ink));
-    box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 35%);
     transition:
       transform 150ms ease-out,
       box-shadow 150ms ease-out;
   }
+
   .range::-moz-range-thumb {
     width: 14px;
     height: 14px;
     border-radius: 9999px;
     border: 2px solid hsl(var(--card));
     background: hsl(var(--primary-ink));
-    box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 35%);
     transition:
       transform 150ms ease-out,
       box-shadow 150ms ease-out;
   }
+
   .range:hover::-webkit-slider-thumb {
     transform: scale(1.2);
-    box-shadow: 0 2px 6px rgb(0 0 0 / 0.35);
+    box-shadow: 0 2px 6px rgb(0 0 0 / 35%);
   }
+
   .range:hover::-moz-range-thumb {
     transform: scale(1.2);
-    box-shadow: 0 2px 6px rgb(0 0 0 / 0.35);
+    box-shadow: 0 2px 6px rgb(0 0 0 / 35%);
   }
+
   .range:active::-webkit-slider-thumb {
     transform: scale(1.1);
   }
+
   .range:active::-moz-range-thumb {
     transform: scale(1.1);
   }
+
   .range:focus-visible {
     outline: none;
   }
+
   .range:focus-visible::-webkit-slider-thumb {
     outline: 2px solid hsl(var(--ring));
     outline-offset: 2px;
   }
+
   .range:focus-visible::-moz-range-thumb {
     outline: 2px solid hsl(var(--ring));
     outline-offset: 2px;
@@ -287,6 +283,7 @@
   .drag-region {
     -webkit-app-region: drag;
   }
+
   .no-drag-region {
     -webkit-app-region: no-drag;
   }
