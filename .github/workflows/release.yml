@@ -305,10 +305,6 @@ jobs:
         run: npm run build
         working-directory: frontend
 
-      # ── Compile Electron TypeScript ──────────────────────────────────────
-      - name: Compile Electron main process
-        run: npx tsc -p electron/tsconfig.json
-
       # ── Build Electron app ───────────────────────────────────────────────
       - name: Build Electron app (publish)
         if: inputs.publish

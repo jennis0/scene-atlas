@@ -80,7 +80,9 @@ def main():
             uvicorn.run(app, host="127.0.0.1", port=args.port)
             break  # Clean exit (e.g. graceful shutdown from Electron)
         except SystemExit:
-            break  # Intentional exit — don't restart
+            # Propagate the code: uvicorn exits non-zero when startup fails (e.g. the
+            # port is taken), and Electron reports a non-ready exit to the user.
+            raise
         except Exception:
             now = time.time()
             restarts = [t for t in restarts if now - t < WINDOW_SECS]

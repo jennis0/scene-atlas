@@ -20,32 +20,40 @@ import subprocess
 import sys
 from pathlib import Path
 
+from build_sidecar import PYINSTALLER_OUT, ROOT, SIDECAR_EXE
+
 # Force UTF-8 output on Windows (avoids cp1252 UnicodeEncodeError)
 if sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 if sys.stderr.encoding.lower() != "utf-8":
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
-ROOT = Path(__file__).parent.parent.parent
 
-
-# ── Terminal colours (enable VT on Windows, skip gracefully if unsupported) ─
-class C:
+def _supports_colour() -> bool:
+    if not sys.stdout.isatty():
+        return False
+    if sys.platform != "win32":
+        return True
+    # Windows consoles render ANSI codes only once VT processing is enabled.
     try:
         import ctypes
 
-        ctypes.windll.kernel32.SetConsoleMode(  # type: ignore[attr-defined]
-            ctypes.windll.kernel32.GetStdHandle(-11),
-            7,  # type: ignore[attr-defined]
-        )
-        RED = "\033[0;31m"
-        GREEN = "\033[0;32m"
-        YELLOW = "\033[1;33m"
-        CYAN = "\033[0;36m"
-        BOLD = "\033[1m"
-        RESET = "\033[0m"
-    except Exception:
-        RED = GREEN = YELLOW = CYAN = BOLD = RESET = ""
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        return bool(kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7))
+    except (AttributeError, OSError):
+        return False
+
+
+_COLOUR = _supports_colour()
+
+
+class C:
+    RED = "\033[0;31m" if _COLOUR else ""
+    GREEN = "\033[0;32m" if _COLOUR else ""
+    YELLOW = "\033[1;33m" if _COLOUR else ""
+    CYAN = "\033[0;36m" if _COLOUR else ""
+    BOLD = "\033[1m" if _COLOUR else ""
+    RESET = "\033[0m" if _COLOUR else ""
 
 
 def info(msg):
@@ -125,7 +133,6 @@ def main() -> None:
     print(f"\n{C.BOLD}Scene Atlas — Electron build ({platform_label}){C.RESET}")
     print(f"Root: {ROOT}\n")
 
-    # ── Prerequisites ────────────────────────────────────────────────────────
     step("Checking prerequisites")
 
     if not shutil.which("uv"):
@@ -143,7 +150,6 @@ def main() -> None:
 
     success("Prerequisites OK")
 
-    # ── Clean ────────────────────────────────────────────────────────────────
     if args.clean:
         step("Cleaning previous outputs")
         for d in [
@@ -158,27 +164,17 @@ def main() -> None:
                 shutil.rmtree(d)
         success("Cleaned")
 
-    # ── Step 1: Python sidecar ───────────────────────────────────────────────
     if args.skip_sidecar:
         warn("Skipping sidecar build (--skip-sidecar)")
-        sidecar_dir = ROOT / "backend" / "pyinstaller" / "dist" / "scene-atlas-backend"
-        if not sidecar_dir.exists():
-            die(f"Sidecar not found at {sidecar_dir} — run without --skip-sidecar first")
-        success(f"Using existing sidecar ({dir_size(sidecar_dir)})")
+        if not SIDECAR_EXE.exists():
+            die(f"Sidecar not found at {SIDECAR_EXE} — run without --skip-sidecar first")
+        success(f"Using existing sidecar ({dir_size(PYINSTALLER_OUT)})")
     else:
         step("Building Python sidecar (PyInstaller)")
         info("This may take several minutes on first build...")
         run("uv", "run", "python", "scripts/build/build_sidecar.py")
+        success(f"Sidecar built ({dir_size(PYINSTALLER_OUT)})")
 
-        sidecar_dir = ROOT / "backend" / "pyinstaller" / "dist" / "scene-atlas-backend"
-        exe = sidecar_dir / (
-            "scene-atlas-backend.exe" if sys.platform == "win32" else "scene-atlas-backend"
-        )
-        if not exe.exists():
-            die(f"Sidecar executable not found after build: {exe}")
-        success(f"Sidecar built ({dir_size(sidecar_dir)})")
-
-    # ── Step 2: Frontend ─────────────────────────────────────────────────────
     if args.skip_frontend:
         warn("Skipping frontend build (--skip-frontend)")
         if not (ROOT / "frontend" / "dist").exists():
@@ -189,12 +185,10 @@ def main() -> None:
         npm("run", "build", "--prefix", "frontend")
         success("Frontend built")
 
-    # ── Step 3: Compile Electron TypeScript ──────────────────────────────────
     step("Compiling Electron main process (TypeScript)")
     npx("tsc", "-p", "electron/tsconfig.json")
     success("Electron TS compiled")
 
-    # ── Step 4: Package ──────────────────────────────────────────────────────
     PLATFORM_FLAGS = {
         "windows": "--win",
         "macos": "--mac",
@@ -206,18 +200,21 @@ def main() -> None:
     if args.no_package:
         warn("Skipping packaging (--no-package)")
     elif args.dev:
-        step("Packaging with electron-builder (dev: dir only, no installer)")
-        info("Skipping NSIS compression — run dist-electron/win-unpacked/Scene Atlas.exe to test")
+        step("Packaging with electron-builder (dev: unpacked dir only, no installer)")
         cmd = ["electron-builder", "--publish", "never"]
-        if platform_flag:
-            cmd += [platform_flag, "dir"]
-        else:
-            cmd += ["--win", "dir"]  # dev mode defaults to win dir
+        cmd += [platform_flag, "dir"] if platform_flag else ["--dir"]
         npx(*cmd)
-        exe = ROOT / "dist-electron" / "win-unpacked" / "Scene Atlas.exe"
-        if exe.exists():
+        out = ROOT / "dist-electron"
+        unpacked = sorted(
+            d
+            for d in (out.iterdir() if out.exists() else [])
+            if d.is_dir() and (d.name.endswith("-unpacked") or d.name.startswith("mac"))
+        )
+        if unpacked:
             print()
-            success(f"Dev build ready: {exe.relative_to(ROOT)}")
+            success("Dev build ready (unpacked app):")
+            for d in unpacked:
+                print(f"   {d.relative_to(ROOT)}")
     else:
         publish_value = "always" if args.publish else "never"
         step(f"Packaging with electron-builder (--publish {publish_value})")

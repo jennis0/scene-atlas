@@ -6,16 +6,24 @@
 interface ElectronAPI {
   readonly platform: 'darwin' | 'win32' | 'linux'
 
-  onBackendReady(callback: (port: number) => void): void
-  onBackendError(callback: (message: string) => void): void
+  /**
+   * Subscribe to the backend port. Fires immediately if the signal already
+   * arrived, and may fire again with the same port. Returns an unsubscribe function.
+   */
+  onBackendReady(callback: (port: number) => void): () => void
+  /** Subscribe to fatal backend errors; same delivery rules as onBackendReady. */
+  onBackendError(callback: (message: string) => void): () => void
 
   // Storage path IPC
   getAppDataDir(): Promise<string | null>
   getImageLibraryDir(): Promise<string | null>
   chooseAppDataDir(): Promise<string | null>
   chooseImageLibraryDir(): Promise<string | null>
-  /** Saves config and restarts the app. Call only when user confirms file-move intent. */
-  changeStorageDirs(appDataDir: string, imageLibraryDir: string): Promise<void>
+  /**
+   * Saves config and restarts the app. Call only when user confirms file-move intent.
+   * Resolves (with an error) only if the new locations can't be used.
+   */
+  changeStorageDirs(appDataDir: string, imageLibraryDir: string): Promise<{ error: string | null }>
 }
 
 declare global {

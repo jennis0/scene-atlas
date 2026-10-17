@@ -1,6 +1,7 @@
 import { ChildProcess, spawn } from 'child_process'
 import * as net from 'net'
 import * as path from 'path'
+import { Readable } from 'stream'
 import { app } from 'electron'
 
 /** Find a free TCP port by binding to port 0 and reading what the OS assigned. */
@@ -20,36 +21,52 @@ export function findFreePort(): Promise<number> {
   })
 }
 
-/** Resolve the path to the sidecar executable. */
 function getSidecarPath(): string {
-  if (app.isPackaged) {
-    const ext = process.platform === 'win32' ? '.exe' : ''
-    return path.join(process.resourcesPath, 'sidecar', `scene-atlas-backend${ext}`)
+  if (!app.isPackaged) {
+    throw new Error(
+      'The backend sidecar is only spawned in packaged builds; run the backend manually in dev',
+    )
   }
-  // Dev: not used — backend runs manually
-  return ''
+  const ext = process.platform === 'win32' ? '.exe' : ''
+  return path.join(process.resourcesPath, 'sidecar', `scene-atlas-backend${ext}`)
 }
 
-export interface SidecarHandle {
-  process: ChildProcess
+/** Call onLine for each non-blank line, buffering partial lines across chunks. */
+function forEachLine(stream: Readable | null, onLine: (line: string) => void): void {
+  if (!stream) return
+  stream.setEncoding('utf8')
+  let buffer = ''
+  stream.on('data', (chunk: string) => {
+    buffer += chunk
+    const lines = buffer.split(/\r?\n/)
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      if (line.trim()) onLine(line)
+    }
+  })
+  stream.on('end', () => {
+    if (buffer.trim()) onLine(buffer)
+    buffer = ''
+  })
+}
+
+export interface SidecarOptions {
   port: number
+  appDataDir: string
+  imageLibraryDir: string
+  convertToWebp: boolean
+  /** Called when the backend prints SCENE_ATLAS_READY on stdout. */
+  onReady: (port: number) => void
+  onLog: (line: string) => void
+  /** Called if the process could not be spawned (e.g. executable missing). */
+  onError: (message: string) => void
 }
 
-/**
- * Spawn the Python backend sidecar. Resolves once the backend emits the
- * SCENE_ATLAS_READY signal on stdout.
- */
-export function spawnSidecar(
-  port: number,
-  appDataDir: string,
-  imageLibraryDir: string,
-  convertToWebp: boolean,
-  onReady: (port: number) => void,
-  onLog: (line: string) => void,
-): ChildProcess {
-  const sidecarPath = getSidecarPath()
+/** Spawn the backend sidecar; calls onReady(port) when it prints SCENE_ATLAS_READY. */
+export function spawnSidecar(options: SidecarOptions): ChildProcess {
+  const { port, appDataDir, imageLibraryDir, convertToWebp, onReady, onLog, onError } = options
   const child = spawn(
-    sidecarPath,
+    getSidecarPath(),
     ['--port', String(port), '--app-data-dir', appDataDir, '--image-library-dir', imageLibraryDir],
     {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -60,27 +77,15 @@ export function spawnSidecar(
     },
   )
 
-  let buffer = ''
-  child.stdout?.on('data', (chunk: Buffer) => {
-    buffer += chunk.toString()
-    const lines = buffer.split('\n')
-    buffer = lines.pop() ?? ''
-    for (const line of lines) {
-      onLog(`[backend] ${line}`)
-      if (line.includes('SCENE_ATLAS_READY')) {
-        onReady(port)
-      }
-    }
+  forEachLine(child.stdout, (line) => {
+    onLog(`[backend] ${line}`)
+    if (line.includes('SCENE_ATLAS_READY')) onReady(port)
   })
-
-  child.stderr?.on('data', (chunk: Buffer) => {
-    for (const line of chunk.toString().split('\n')) {
-      if (line.trim()) onLog(`[backend:err] ${line}`)
-    }
-  })
+  forEachLine(child.stderr, (line) => onLog(`[backend:err] ${line}`))
 
   child.on('error', (err) => {
     onLog(`[backend] Failed to start sidecar: ${err.message}`)
+    onError(err.message)
   })
 
   child.on('exit', (code, signal) => {

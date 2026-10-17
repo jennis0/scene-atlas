@@ -23,11 +23,14 @@ export function DesktopGate({ children }: DesktopGateProps) {
     // StrictMode double-invocation).  Any IPC callbacks that fire after cleanup
     // check this flag and bail out, ensuring only one polling loop is active.
     let cancelled = false
+    let started = false
     let timeoutId: ReturnType<typeof setTimeout> | null = null
 
-    // Main process signals the backend is ready with its port
-    window.electronAPI!.onBackendReady((port: number) => {
-      if (cancelled) return
+    // Main process signals the backend is ready with its port. It re-sends on
+    // every page load, so ignore repeats once polling has started.
+    const offReady = window.electronAPI!.onBackendReady((port: number) => {
+      if (cancelled || started) return
+      started = true
       Object.defineProperty(window, '__SCENE_ATLAS_PORT__', {
         value: port,
         writable: false,
@@ -58,13 +61,15 @@ export function DesktopGate({ children }: DesktopGateProps) {
     })
 
     // Main process signals a hard failure (sidecar crashed on startup)
-    window.electronAPI!.onBackendError?.((message: string) => {
+    const offError = window.electronAPI!.onBackendError?.((message: string) => {
       if (!cancelled) setState({ phase: 'error', message })
     })
 
     return () => {
       cancelled = true
       if (timeoutId) clearTimeout(timeoutId)
+      offReady?.()
+      offError?.()
     }
   }, [isElectron])
 

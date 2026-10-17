@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com" />
   <title>Scene Atlas — Setup</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -191,6 +192,7 @@
       font-size: 0.9375rem; letter-spacing: 0.03em;
     }
     .start-btn:hover { opacity: 0.88; }
+    .start-btn:disabled { opacity: 0.5; cursor: default; }
 
     /* Setup error — shown below Get Started when directory writability fails */
     .setup-error {
@@ -322,13 +324,22 @@
 
     // Get Started
     const errorEl = document.getElementById('setup-error')
-    document.querySelector('.start-btn').addEventListener('click', async function() {
-      if (!appDataDir || !imageLibraryDir) return
+    const startBtn = document.querySelector('.start-btn')
+    startBtn.addEventListener('click', async function() {
+      if (!appDataDir || !imageLibraryDir || startBtn.disabled) return
+      startBtn.disabled = true
       errorEl.style.display = 'none'
-      const result = await window.setupAPI.complete(appDataDir, imageLibraryDir, convertToWebp)
-      if (result && result.error) {
-        errorEl.textContent = result.error
+      let error
+      try {
+        const result = await window.setupAPI.complete(appDataDir, imageLibraryDir, convertToWebp)
+        error = result && result.error
+      } catch (err) {
+        error = String(err)
+      }
+      if (error) {
+        errorEl.textContent = error
         errorEl.style.display = 'block'
+        startBtn.disabled = false
       }
     })
   </script>

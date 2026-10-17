@@ -8,16 +8,16 @@ echo "🔍 Running pre-push checks..."
 # ── Backend ──────────────────────────────────────────────────────────────────
 
 echo ""
-echo "=== Backend lint (ruff check) ==="
-uv run ruff check backend/ || {
-  echo "❌ Backend lint failed. Fix issues before pushing."
+echo "=== Python lint (ruff check) ==="
+uv run ruff check backend/ scripts/ || {
+  echo "❌ Python lint failed. Fix issues before pushing."
   exit 1
 }
 
 echo ""
-echo "=== Backend format check (ruff format) ==="
-uv run ruff format --check backend/ || {
-  echo "❌ Backend format check failed. Run: uv run ruff format backend/"
+echo "=== Python format check (ruff format) ==="
+uv run ruff format --check backend/ scripts/ || {
+  echo "❌ Python format check failed. Run: uv run ruff format backend/ scripts/"
   exit 1
 }
 
@@ -65,6 +65,13 @@ npx vitest run || {
 }
 
 cd ..
+
+echo ""
+echo "=== Electron type check (tsc) ==="
+npx tsc -p electron/tsconfig.json --noEmit || {
+  echo "❌ Electron type check failed."
+  exit 1
+}
 
 echo ""
 echo "✅ All pre-push checks passed!"

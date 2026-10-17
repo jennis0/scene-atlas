@@ -38,10 +38,9 @@ export function loadConfig(): AppConfig | null {
     const raw = fs.readFileSync(configPath, 'utf-8')
     const parsed = JSON.parse(raw) as AppConfig & LegacyConfig
 
-    // Migration: old config has dataDir but not appDataDir
     if (parsed.dataDir && !parsed.appDataDir) {
       const migrated = migrateLegacyConfig(parsed)
-      saveConfig(migrated)  // Persist migrated config (removes dataDir key)
+      saveConfig(migrated)
       return migrated
     }
 
