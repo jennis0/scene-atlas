@@ -660,7 +660,8 @@ class ImageParser:
 
         Returns:
             Dict with: author, group_name, subgroups, subgroup,
-                       tags, gridded, grid_width, grid_height, filename, name
+                       tags, gridded, grid_width, grid_height,
+                       grid_size_alternatives, filename, name
         """
         is_scene = image_type == "scene"
         clean = relative_path.strip()
@@ -676,6 +677,7 @@ class ImageParser:
         grid_type = None
         grid_width = None
         grid_height = None
+        grid_size_alternatives: list[list[int]] = []
 
         if not is_scene:
             grid_text = self._split_camel(stem).lower().replace("_", " ").replace("-", " ")
@@ -707,6 +709,9 @@ class ImageParser:
             if dim_match:
                 grid_width = int(dim_match.group(1))
                 grid_height = int(dim_match.group(2))
+                grid_size_alternatives = self._glued_digit_readings(
+                    dim_match.group(1), dim_match.group(2)
+                )
                 stem = stem.replace(dim_match.group(0), " ")
         else:
             # Still strip dimension patterns from stem for cleaner names,
@@ -818,8 +823,18 @@ class ImageParser:
             "grid_type": grid_type,
             "grid_width": grid_width,
             "grid_height": grid_height,
+            "grid_size_alternatives": grid_size_alternatives,
             "filename": path_obj.name,
         }
+
+    @staticmethod
+    def _glued_digit_readings(left: str, right: str) -> list[list[int]]:
+        """Other readings of an NxM, with one glued-on digit dropped from a 3-digit
+        side: "Destroyed630x50" may be variant 6 at 30x50, and "25x201" may be 25x20
+        part 1. Ingest picks one only if the literal size can't fit the image."""
+        lefts = [left] + ([left[1:]] if len(left) == 3 and left[1] != "0" else [])
+        rights = [right] + ([right[:2]] if len(right) == 3 else [])
+        return [[int(w), int(h)] for w in lefts for h in rights if (w, h) != (left, right)]
 
     def _common_prefix_words(self, a: str, b: str) -> str:
         """Find the common prefix of two strings, trimmed to a word boundary.

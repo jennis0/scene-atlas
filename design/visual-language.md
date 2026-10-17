@@ -9,6 +9,7 @@ A comprehensive reference for the Scene Atlas UI. All new components must confor
 **Theme:** Cartographic / archival, carried by the maps themselves rather than by ornament. Surfaces are quiet so the art leads; character comes from type (a book serif for names, the Cinzel wordmark) and a single accent colour.
 
 **Palettes.** Five, each with light and dark mode, chosen in the Library dialog's Appearance tab and stored per device (`scene-atlas-palette` in localStorage, applied as `data-palette` on `<html>` before first paint; navy, the default, sets no attribute):
+
 - **Navy & gold** (default): deep navy and warm parchment, gold accent. Base tokens in `:root` / `.dark`.
 - **Ink & verdigris**: green-black ink and pale paper, aged-copper green accent.
 - **Slate & lapis**: near-neutral cool grey stone, cobalt accent (hue 214: lapis's own ~224 read as periwinkle).
@@ -16,6 +17,7 @@ A comprehensive reference for the Scene Atlas UI. All new components must confor
 - **Nightshade & amethyst**: dusky plum greys, muted violet accent.
 
 Every palette is a pair of blocks in `index.css`: `[data-palette='x']` (light) and `.dark[data-palette='x'], .dark [data-palette='x']` (dark). The selectors match any element, not only `<html>`, so the Appearance palette picker (`components/settings/PalettePicker.tsx`) renders each option's preview in that palette's real tokens. No colour values are duplicated. Rules for a new palette:
+
 - Add the two blocks, the two high-contrast blocks (see Contrast below), an entry in `PALETTES` (`lib/palette.ts`), and one in the accessibility spec's `VARIANTS`.
 - The dark block must set every token the light block sets. The light block also matches `<html>` in dark mode, so anything left out leaks a light value into dark. The same holds for the high-contrast pair.
 - **Fill vs ink.** Accent and status colours come in pairs: a fill (`--primary`, `--destructive`, `--success`, `--warning`) for backgrounds, tints, buttons and outlines, and an ink (`--primary-ink`, `--destructive-ink`, `--success-ink`, `--warning-ink`) for text and icons. `text-primary`, `text-destructive`, `text-success` and `text-warning` resolve to the inks (`textColor` in `tailwind.config.js`). In dark mode keep fills saturated and lighten only the inks as far as text needs: one light value for both makes fills pastel, and text on its own tint drags its tint lighter.
@@ -35,6 +37,7 @@ Every palette is a pair of blocks in `index.css`: `[data-palette='x']` (light) a
 | Focus ring | ≥ 3:1, 2px | ≥ 3:1, 3px |
 
 How High is built, so it still looks like the same app:
+
 - **Tokens:** per palette and mode, the high-contrast blocks move only lightness (hue and saturation kept), and only as far as each check needs. The values were computed against the tests, not picked by eye; if you retune a palette, nudge lightness until `paletteContrast.test.ts` passes rather than replacing hues.
 - **Text dimmed with opacity** (`text-foreground/80`, `text-primary/70`, …) gets an `hc:` full-strength twin at the same site. Disabled states stay dim (WCAG exempts them). New dimmed text should do the same.
 - **Tag chips** keep their tint; High swaps the text to the least extreme shade of that hue that reaches 7:1 everywhere (`HIGH_CONTRAST_SHADE` in `components/import/tagColors.ts`) and adds a solid outline. Dark mode mostly keeps its standard shade; light mode needs the deep ones. The classes are built at runtime, so they're safelisted in `tailwind.config.js`; `tagContrast.test.ts` checks the safelist matches the hues.
@@ -47,6 +50,7 @@ Not covered yet: reflow at 400% zoom (1.4.10), text-spacing overrides (1.4.12), 
 **NOT:** decorative ornament — glowing stripes, fading underline rules, dot-grid backgrounds, header washes, blur on surfaces that don't overlap anything, hover zoom on artwork, tiny uppercase letter-spaced labels. These were removed in the 2026-10 refresh because they read as generic generated UI and competed with the maps.
 
 ### Core Adjectives
+
 - Precise and measured (tight spacing, clean alignment)
 - Warm but serious (amber over blue, parchment over white)
 - Informational density done tastefully (show more, never clutter)
@@ -111,6 +115,7 @@ Three font families, used in distinct roles. **Never mix roles.**
 | **JetBrains Mono** | `font-mono` | Filenames, UUIDs, dimensions, file sizes. `text-3xs` usually. |
 
 ### Size Scale in Practice
+
 - Wordmark: `font-wordmark text-2xl font-medium tracking-wide` (GalleryHeader)
 - Viewer heading (image name): `font-display text-2xl font-semibold`
 - Card name: `text-xs font-medium` (gradient overlay) or `text-sm font-semibold`
@@ -122,6 +127,7 @@ Three font families, used in distinct roles. **Never mix roles.**
 The Appearance tab offers Small / Default / Large / Larger, set as `data-text-size` on `<html>` (`lib/textSize.ts`), which changes the root font size: 16, 17 (default), 19, 21px, as percentages so a larger browser default still scales up. Everything in rem follows: text, spacing, icons, and the panels that hold text. Images and thumbnails keep their size, so the gallery's density is unchanged, unlike browser zoom.
 
 That only works if sizes are in rem, so:
+
 - **No pixel font sizes.** Use the scale: `text-3xs` (11px at default), `text-2xs` (11.5px), then Tailwind's `text-xs` (12.75px), `text-sm`, `text-base`. The two small steps are CSS variables (`--text-3xs`, `--text-2xs` in `index.css`) with no line height, so they inherit one as the old pixel sizes did.
 - **The floor rises faster than the root.** Large and Larger lift the two small steps more than everything else: small text is at least 12.5px at Large and 14px at Larger, and never below 10.5px at Small. `lib/textScale.test.ts` enforces these floors.
 - **200% zoom is a tested guarantee** (WCAG 1.4.4). `e2e/tests/zoom.spec.ts` runs at 960×480 (200% zoom on 1080p) with Larger text: no horizontal scroll, header controls on screen, and every dialog's controls reachable. Dialogs cap at the window height and scroll their body; use `max-h-[calc(100dvh-1rem)]` plus a `min-h-0` scrolling body rather than a fixed height alone.
@@ -130,6 +136,7 @@ That only works if sizes are in rem, so:
 
 ### Short windows and the compact header
 Browser zoom and the text size setting both cut how many lines of text fit vertically. `lib/compactLayout.ts` measures the window height **in rem** (a media query sees only px, so it misses the text size setting) and sets `data-short` on `<html>` below 44rem (~750px at default text).
+
 - **Image viewer:** on short windows the details panel scrolls together with the group's scenes instead of pinning the details above them. The toolbar stays pinned and the Scenes bar is sticky. Styled with the `short:` Tailwind variant (`tailwind.config.js`). This is automatic, with no setting: it's a fallback that keeps the group reachable, not a preference.
 - **Gallery header:** compact is two rows instead of four. The type tabs join the wordmark row, and the count/sort/size/Edit all controls join the search row (wrapping if the width runs out). It's a preference: Appearance → Compact header, **Auto** (default: follows `data-short`) / **On** / **Off**, saved as `scene-atlas-compact-header` and set as `data-compact-header`. Components read it with `useCompactHeader()`.
 
@@ -232,6 +239,7 @@ When an element has both icon and color pickers, combine them into a single **ap
 ### Conditional action buttons
 
 For actions that only become relevant when state changes (e.g. "Regenerate" after vocabulary edits), use ghost text by default and highlight only when dirty:
+
 - **Clean state:** `text-muted-foreground hover:text-foreground`, transparent border
 - **Dirty state:** `text-primary`, `bg-primary/12`, `border-primary/35`
 
@@ -314,6 +322,7 @@ All image cards (`GroupCard`, `SceneTile`) share a **gradient overlay** structur
 **Tile size:** the individual view has a size slider (small-grid icon · `range` slider · large-grid icon) in the results row, 160–360px in 40px steps (`TILE_WIDTH`, `useTileSize`, remembered per device).
 
 **Border on cards:**
+
 - Default: `border border-border/30`
 - Hover: `hover:border-primary/40 hover:shadow-xl hover:shadow-shade/40`
 - Active / selected (SceneTile): `border-primary/60 ring-2 ring-primary/70 shadow-lg shadow-primary/15`
@@ -348,6 +357,7 @@ Filter chips use `bg-primary/10 border border-primary/40 text-primary` for activ
 Shared two-column filter panel used in GalleryFilterPanel (full-page sidebar) and ImageViewer (variant filter popover).
 
 ### Structure
+
 - Left 112px: scrollable category nav with coloured dot indicators
 - Right: `flex-1` pill grid, wraps, with search bar at top
 
@@ -397,6 +407,7 @@ Full-screen overlay with fixed image canvas + structured sidebar:
 ```
 
 ### Key layout rules
+
 - Container: `max-width: 1600px; height: 88vh` — fixed size, image fits within canvas
 - Canvas: `flex-1 relative`, `min-w-0` (allows flex shrink)
 - Canvas background: plain `hsl(var(--surface-canvas))`
@@ -438,6 +449,7 @@ Segmented button group: `[Grid | Gridless | ?]` — saves immediately on click v
 
 ### Scene scroll preservation
 When navigating to a scene within the same group (sidebar click), sidebar scroll position must be maintained. Implementation:
+
 - Set `preserveStateRef.current = true` **before** calling `onImageChange`
 - In the `useEffect([image.id])`, guard with `lastProcessedIdRef.current === image.id` to prevent React Strict Mode double-invocation from consuming the flag prematurely
 - Only `scrollContainerRef` (the scenes section) is reset to 0; image info state is always reset on cross-group navigation
@@ -469,6 +481,7 @@ Floating bottom-right card for imports (from the ImportManager) and background j
 
 ### Import ledger (`components/imports/GroupLedger.tsx`)
 The import's groups as ruled rows. Virtualised: a folder can plan thousands of groups. Clickable rows (groups with imported images) extend 8px into the gutter and use `hover:bg-muted/30`. Two variants:
+
 - **progress** (import dialog, and the report while still running): rows fill in as images land. Group name `font-display text-sm`, author `text-2xs`, counts `font-mono text-2xs tabular-nums` in the margin (`done/total`, failed in `text-destructive`), one hairline progress bar per row (`bg-primary/80` while open, `/35` finished). 48px rows.
 - **report** (the import dialog's finished view): 44px rows, ruled `border-border/40`. A 40×30 cover thumbnail (`cover_image_id` from the job detail, on the transparency backdrop), group name `font-display text-sm`, author only when the groups' authors differ (otherwise it's in the dialog's status line), then on the right only the exceptions worth reading — `N failed` (destructive), `N already in library`, `added to an existing group` — and `N images`. No progress bar.
 
@@ -484,6 +497,7 @@ One-line notices inside import dialogs: `rounded-lg border px-3 py-2.5`, attenti
 **Structural frame borders** (header/footer edges, sidebar/content splits, panel outlines): `border-border` at full opacity is fine — these define the skeleton.
 
 **Content dividers** (within a section or list):
+
 - Between major content sections: `border-border/30`
 - Between items in a dense list: `border-border/40` to `border-border/50`
 - Very subtle internal structure: `border-border/20`
@@ -494,6 +508,7 @@ Styled globally in index.css: 5px wide, `bg-border` thumb, transparent track. Do
 
 ### Shadows
 Use `shadow-shade/NN`, never `shadow-black/NN`: `shade` is black with its opacity scaled by `--shadow-strength` (index.css: 0.7 light, 0.85 dark), so the same classes don't read as heavy on parchment.
+
 - Header → results inset shadow (Gallery `<main>`): `--results-inset-alpha`, 0.2 light / 0.4 dark. Full-width, so lighter than panel shadows in light mode.
 - Elevation for floating panels/modals: `shadow-2xl shadow-shade/70`
 - Dropdowns: `shadow-2xl shadow-shade/40`
@@ -515,10 +530,12 @@ Inline confirmation (displayed over parent container, not a separate dialog):
 ```
 
 Confirm button styles:
+
 - Warning: `text-primary bg-primary/10 hover:bg-primary/20 border-primary/20`
 - Danger: `text-destructive bg-destructive/10 hover:bg-destructive/20 border-destructive/20`
 
 ### Z-index conventions
+
 - Sticky variant header inside scroll container: `z-10`
 - ImageViewer overlay: `z-50`
 - Tag picker / subgroup picker dropdowns: `z-50`
@@ -546,6 +563,7 @@ For management dialogs with editable lists (tag values, vocabulary entries), use
 ```
 
 Key rules:
+
 - `group/valrow` on the entire row — hover effects are row-level, not per-element
 - Ruled lines: `border-b border-border/40`, remove on last row
 - Editing state: `bg-muted/50` replaces hover bg

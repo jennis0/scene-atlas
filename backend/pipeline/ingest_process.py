@@ -37,6 +37,7 @@ from backend.app.services.memory_budget import get_memory_budget
 from backend.app.services.validation import verify_media_mime
 
 from .error_classifier import KIND_FILE, KIND_SYSTEM, classify_ingest_error
+from .filename_grid import filename_grid_counts
 from .image_hashes import file_sha256, perceptual_hash, pixel_hash
 from .ingest_queue import (
     KIND_BYTES_LOST,
@@ -113,8 +114,7 @@ def _detect_grid(item: ClaimedItem, staged: Path, width: int, height: int, cfg) 
     parsed = item.parsed
     grid = {
         "gridded": parsed.get("gridded"),
-        "grid_width": parsed.get("grid_width"),
-        "grid_height": parsed.get("grid_height"),
+        **filename_grid_counts(parsed, width, height),
         "grid_type": parsed.get("grid_type"),
         "grid_confidence": None,
         "grid_source": GRID_SOURCE_FILENAME
@@ -387,7 +387,10 @@ def _prepare(
     grid = (
         _detect_grid(item, staged, width, height, cfg)
         if item.kind != "video"
-        else {k: item.parsed.get(k) for k in ("gridded", "grid_width", "grid_height")}
+        else {
+            "gridded": item.parsed.get("gridded"),
+            **filename_grid_counts(item.parsed, width, height),
+        }
     )
 
     stored = _store_original(item, cfg, staged, stem, source_hash, file_size, progress, owned=owned)

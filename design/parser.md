@@ -44,7 +44,19 @@ Given a relative path like `czepeku/Island Fort/Gridded/IslandFort_Night_Rain_30
   - Checked against 179k real paths: 262 files newly become hex, all genuine hex maps apart from one item image (`washer-hex-…`), which is imported as a scene and so never gets grid detection.
 - Check positive regex: `\b(grid(ded)?|gd)\b` → `gridded = True`
 - Also checks path components if filename doesn't match
-- Grid dimensions: `(\d{1,3})\s*[xX]\s*(\d{1,3})` pattern → `grid_width`, `grid_height`
+- Grid dimensions: `(\d{1,3})\s*[xX]\s*(\d{1,3})` pattern → `grid_width`, `grid_height` in name order. The parser has only the path, so it cannot tell columns from rows.
+  - **Orientation is settled at ingest** (`orient_grid` in `backend/pipeline/filename_grid.py`), once the pixel size is known. `grid_width` is the column count. If the longer side of the NxM does not lie along the longer side of the image, the pair is swapped. For example, `…16x12` on a 3600×4800 portrait map is stored as 12 columns × 16 rows, which gives square 300 px cells.
+  - Images within 2% of square keep the name's order.
+  - Survey of the real library (2026-10): about 2.4% of non-square NxM names are rows-first. Partyoftwo, caeora and some czepeku files write them that way.
+  - **Glued-on digits.** A 3-digit side may carry a digit from the name: `Destroyed630x50` is variant 6 at 30x50, `Frozenpass218X27` is Frozen Pass 2 at 18x27, and `ForestCamp25x201` is part 1 at 25x20.
+    - The parser keeps the literal reading. It also lists `grid_size_alternatives`, which are the readings with one digit dropped (the leading digit on the left, the trailing digit on the right).
+    - Ingest (`backend/pipeline/filename_grid.py`) switches to an alternative only when the literal size gives cells more than 1.5× from square for the image and the alternative is within 1.25×.
+    - The size-only detector also gets the alternatives as sibling candidates.
+    - Survey of 282 real files with a 3-digit side: 172 changed, mostly spellarena. The chosen readings measured 1.00–1.17 and the literal ones 1.82 or more. Genuine sizes (100x100, 70x108, 137x49) fit as read and are kept.
+  - Migration 026 applied both rules to existing exact file-name sizes. Stored sizes were still in name order, so the alternatives could be rebuilt from them.
+  - Known parser gaps:
+    - Random-ID filenames such as `4x8ogd.jpg`.
+    - Pack-level sizes on a single piece: `ForestPond30x28…Left` is half of the map.
 - **Skipped for `image_type="scene"`** — scenes do not use grid metadata
 
 **Image-analysis-based** (during ingest, `_detect_grid` in `backend/pipeline/ingest_process.py`):
