@@ -344,10 +344,7 @@ export function ImageViewer({
     return result
   }, [scenes, sceneSearch, sceneTypeFilter, sceneFilters])
 
-  const sceneSections = useMemo(
-    () => (filteredScenes.length > 1 ? partitionBySubgroup(filteredScenes) : []),
-    [filteredScenes],
-  )
+  const sceneSections = useMemo(() => partitionBySubgroup(filteredScenes), [filteredScenes])
 
   const hasScenes = scenes && scenes.length > 1
   // True when there are dimensions to filter on (not just whether filters are active)
