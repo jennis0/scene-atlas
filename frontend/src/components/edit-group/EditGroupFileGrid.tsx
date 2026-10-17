@@ -1,23 +1,30 @@
 import { Search } from 'lucide-react'
 import { FileCard } from '@/components/import/FileCard'
 import { SubgroupHeading } from '@/components/SubgroupHeading'
-import { DroppableSubgroupSection, type ActiveDragState } from '@/components/import/shared/dnd'
+import { DroppableSubgroupSection } from '@/components/import/shared/dnd'
 import type { EditableFileState, ParsedTagVocab } from '@/types'
+import { useEditGroupContext } from './EditGroupContext'
+
+/** Subgroup labels in scope, and the rename/clear controls for their headings. */
+export interface SubgroupEditing {
+  existing: string[]
+  /** Headings can be renamed or cleared only when one group is shown. */
+  canEdit: boolean
+  editing: string | null
+  setEditing: (subgroup: string | null) => void
+  rename: (from: string, to: string) => void
+  clear: (subgroup: string) => void
+}
+
+type RenderCard = (file: EditableFileState) => React.ReactNode
 
 interface EditGroupFileGridProps {
   files: EditableFileState[]
   /** Images in the group but outside the edit scope, shown read-only for context. */
   outOfScopeFiles: EditableFileState[]
-  renderCard: (file: EditableFileState) => React.ReactNode
+  renderCard: RenderCard
   hasActiveFilter: boolean
-  activeDrag: ActiveDragState | null
-  existingSubgroups: string[]
-  /** Subgroup headings can be renamed or cleared only when one group is shown. */
-  canEditSubgroups: boolean
-  editingSubgroup: string | null
-  onEditingSubgroupChange: (subgroup: string | null) => void
-  onRenameSubgroup: (from: string, to: string) => void
-  onClearSubgroup: (subgroup: string) => void
+  subgroups: SubgroupEditing
   vocab: ParsedTagVocab[]
   onUpdateOutOfScope: (file: EditableFileState, updates: Partial<EditableFileState>) => void
 }
@@ -36,49 +43,24 @@ export function EditGroupFileGrid({
   outOfScopeFiles,
   renderCard,
   hasActiveFilter,
-  activeDrag,
-  existingSubgroups,
-  canEditSubgroups,
-  editingSubgroup,
-  onEditingSubgroupChange,
-  onRenameSubgroup,
-  onClearSubgroup,
+  subgroups,
   vocab,
   onUpdateOutOfScope,
 }: EditGroupFileGridProps) {
-  const subgroups = subgroupOrder(files)
+  const order = subgroupOrder(files)
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
-      {subgroups.length > 1 ? (
-        subgroups.map((subgroup) => {
-          const sectionFiles = files.filter((f) => f.subgroup === subgroup)
-          return (
-            <DroppableSubgroupSection
-              key={subgroup ?? '__main__'}
-              subVariant={subgroup}
-              activeDrag={activeDrag}
-            >
-              <SubgroupHeading
-                subgroup={subgroup}
-                count={sectionFiles.filter((f) => !f.excluded).length}
-                isEditing={canEditSubgroups && subgroup !== null && editingSubgroup === subgroup}
-                existingSubgroups={existingSubgroups}
-                onStartEdit={() => onEditingSubgroupChange(subgroup)}
-                onCommit={(val) => {
-                  onRenameSubgroup(subgroup!, val)
-                  onEditingSubgroupChange(null)
-                }}
-                onCancel={() => onEditingSubgroupChange(null)}
-                onClear={() => onClearSubgroup(subgroup!)}
-                canEdit={canEditSubgroups}
-              />
-              <div className="grid grid-cols-2 gap-2 pt-1.5 pb-2">
-                {sectionFiles.map(renderCard)}
-              </div>
-            </DroppableSubgroupSection>
-          )
-        })
+      {order.length > 1 ? (
+        order.map((subgroup) => (
+          <SubgroupSection
+            key={subgroup ?? '__main__'}
+            subgroup={subgroup}
+            files={files.filter((f) => f.subgroup === subgroup)}
+            renderCard={renderCard}
+            editing={subgroups}
+          />
+        ))
       ) : (
         <div className="grid grid-cols-2 gap-2">{files.map(renderCard)}</div>
       )}
@@ -91,29 +73,78 @@ export function EditGroupFileGrid({
       )}
 
       {outOfScopeFiles.length > 0 && (
-        <div className="mt-4">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="flex-1 h-px bg-border/20" />
-            <span className="text-[10px] font-semibold text-muted-foreground/40 uppercase tracking-wider whitespace-nowrap">
-              Other images in this group
-            </span>
-            <div className="flex-1 h-px bg-border/20" />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            {outOfScopeFiles.map((file) => (
-              <FileCard
-                key={file.relative_path}
-                file={file}
-                vocab={vocab}
-                existingSubgroups={existingSubgroups}
-                selected={false}
-                onToggleSelect={() => {}}
-                onUpdate={(updates) => onUpdateOutOfScope(file, updates)}
-              />
-            ))}
-          </div>
-        </div>
+        <OutOfScopeSection
+          files={outOfScopeFiles}
+          vocab={vocab}
+          existingSubgroups={subgroups.existing}
+          onUpdate={onUpdateOutOfScope}
+        />
       )}
+    </div>
+  )
+}
+
+interface SubgroupSectionProps {
+  subgroup: string | null
+  files: EditableFileState[]
+  renderCard: RenderCard
+  editing: SubgroupEditing
+}
+
+function SubgroupSection({ subgroup, files, renderCard, editing }: SubgroupSectionProps) {
+  const { activeDrag } = useEditGroupContext()
+
+  return (
+    <DroppableSubgroupSection subVariant={subgroup} activeDrag={activeDrag}>
+      <SubgroupHeading
+        subgroup={subgroup}
+        count={files.filter((f) => !f.excluded).length}
+        isEditing={editing.canEdit && subgroup !== null && editing.editing === subgroup}
+        existingSubgroups={editing.existing}
+        onStartEdit={() => editing.setEditing(subgroup)}
+        onCommit={(val) => {
+          editing.rename(subgroup!, val)
+          editing.setEditing(null)
+        }}
+        onCancel={() => editing.setEditing(null)}
+        onClear={() => editing.clear(subgroup!)}
+        canEdit={editing.canEdit}
+      />
+      <div className="grid grid-cols-2 gap-2 pt-1.5 pb-2">{files.map(renderCard)}</div>
+    </DroppableSubgroupSection>
+  )
+}
+
+interface OutOfScopeSectionProps {
+  files: EditableFileState[]
+  vocab: ParsedTagVocab[]
+  existingSubgroups: string[]
+  onUpdate: (file: EditableFileState, updates: Partial<EditableFileState>) => void
+}
+
+function OutOfScopeSection({ files, vocab, existingSubgroups, onUpdate }: OutOfScopeSectionProps) {
+  return (
+    <div className="mt-4">
+      <div className="flex items-center gap-2 mb-2">
+        <div className="flex-1 h-px bg-border/20" />
+        <span className="text-[10px] font-semibold text-muted-foreground/40 uppercase tracking-wider whitespace-nowrap">
+          Other images in this group
+        </span>
+        <div className="flex-1 h-px bg-border/20" />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {files.map((file) => (
+          <FileCard
+            key={file.relative_path}
+            file={file}
+            vocab={vocab}
+            existingSubgroups={existingSubgroups}
+            selected={false}
+            onToggleSelect={() => {}}
+            onUpdate={(updates) => onUpdate(file, updates)}
+          />
+        ))}
+      </div>
     </div>
   )
 }

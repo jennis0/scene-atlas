@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { applyFileFilter, type FileFilter } from '@/components/import/fileFilter'
 import { MULTI_GROUP_ID, type BulkScope } from '@/hooks/useFileEditing'
-import type { EditableGroupState } from '@/types'
+import type { EditableFileState, EditableGroupState } from '@/types'
 
 interface UseEditScopeOptions {
   groups: EditableGroupState[]
@@ -16,6 +16,39 @@ interface UseEditScopeOptions {
 export function commonAuthor(groups: EditableGroupState[]): string {
   const first = groups[0]?.author ?? ''
   return groups.every((g) => g.author === first) ? first : ''
+}
+
+interface ScopeMode {
+  isMultiSelect: boolean
+  isAllTab: boolean
+}
+
+/** The groups the dialog is editing: the multi-selection, every group, or the active one. */
+function scopeGroupsFor(
+  { isMultiSelect, isAllTab }: ScopeMode,
+  groups: EditableGroupState[],
+  selectedGroupIds: Set<string>,
+  activeGroup: EditableGroupState | null,
+): EditableGroupState[] {
+  if (isMultiSelect) return groups.filter((g) => selectedGroupIds.has(g.id))
+  if (isAllTab) return groups
+  return activeGroup ? [activeGroup] : []
+}
+
+/** What the toolbar's bulk actions apply to (see BulkScope). */
+function bulkScopeFor(
+  { isMultiSelect, isAllTab }: ScopeMode,
+  selectedGroupIds: string[],
+  activeGroupId: string,
+): BulkScope {
+  if (isMultiSelect) return selectedGroupIds
+  return isAllTab ? null : activeGroupId
+}
+
+/** Sorted subgroup labels used by the in-scope, non-excluded files. */
+function subgroupLabels(files: EditableFileState[]): string[] {
+  const labels = files.filter((f) => !f.excluded && f.subgroup).map((f) => f.subgroup as string)
+  return [...new Set(labels)].sort()
 }
 
 /**
@@ -34,23 +67,12 @@ export function useEditScope({
   const showsMultipleGroups = isAllTab || isMultiSelect
 
   const scopeGroups = useMemo(
-    () =>
-      isMultiSelect
-        ? groups.filter((g) => selectedGroupIds.has(g.id))
-        : isAllTab
-          ? groups
-          : activeGroup
-            ? [activeGroup]
-            : [],
+    () => scopeGroupsFor({ isMultiSelect, isAllTab }, groups, selectedGroupIds, activeGroup),
     [isMultiSelect, isAllTab, groups, selectedGroupIds, activeGroup],
   )
 
   const selectedGroupIdArray = useMemo(() => [...selectedGroupIds], [selectedGroupIds])
-  const bulkScope: BulkScope = isMultiSelect
-    ? selectedGroupIdArray
-    : isAllTab
-      ? null
-      : activeGroupId
+  const bulkScope = bulkScopeFor({ isMultiSelect, isAllTab }, selectedGroupIdArray, activeGroupId)
 
   const inScopeFiles = useMemo(
     () => scopeGroups.flatMap((g) => g.files.filter((f) => !f.outOfScope)),
@@ -66,15 +88,7 @@ export function useEditScope({
     [showsMultipleGroups, activeGroup],
   )
 
-  const subgroups = useMemo(
-    () =>
-      [
-        ...new Set(
-          inScopeFiles.filter((f) => !f.excluded && f.subgroup).map((f) => f.subgroup as string),
-        ),
-      ].sort(),
-    [inScopeFiles],
-  )
+  const subgroups = useMemo(() => subgroupLabels(inScopeFiles), [inScopeFiles])
 
   // Cards on the All/multi tab carry their real group ID in drag data.
   const fileGroupIds = useMemo(

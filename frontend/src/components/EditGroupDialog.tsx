@@ -21,6 +21,7 @@ import { EditGroupFooter } from './edit-group/EditGroupFooter'
 import { EditGroupConfirmDialogs } from './edit-group/EditGroupConfirmDialogs'
 import type { PendingConfirm } from './edit-group/pendingConfirm'
 import { useEditScope } from './edit-group/useEditScope'
+import { EditGroupContext, type EditGroupContextValue } from './edit-group/EditGroupContext'
 import { invalidateGalleryQueries } from '@/lib/queryKeys'
 
 interface EditGroupDialogProps {
@@ -109,7 +110,7 @@ export default function EditGroupDialog({
     onClose,
   })
   autoSaveRef.current = ops.autoSaveGroup
-  const { saving, merging, groupSaving, groupSaved } = ops
+  const { saving } = ops
 
   const dnd = useEditGroupDnd({
     groups,
@@ -173,6 +174,19 @@ export default function EditGroupDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [multiSelectKey])
 
+  const context = useMemo<EditGroupContextValue>(
+    () => ({
+      groups,
+      selectedGroupIds,
+      clearSelection: resetMultiselect,
+      pending,
+      setPending,
+      activeDrag: dnd.activeDrag,
+      ops,
+    }),
+    [groups, selectedGroupIds, resetMultiselect, pending, dnd.activeDrag, ops],
+  )
+
   const activeSelection = selections[selectionId] ?? new Set<string>()
   const hasActiveFilter = !!fileFilter.text || fileFilter.active.length > 0
   const isOriginalGroup = !showsMultipleGroups && !isMassEdit && activeGroup?.id === String(groupId)
@@ -218,192 +232,169 @@ export default function EditGroupDialog({
   )
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(o) => {
-        if (!o && !saving) onClose()
-      }}
-    >
-      <DialogContent
-        data-testid="edit-group-dialog"
-        className="max-w-5xl h-[85vh] overflow-hidden flex flex-col p-0 gap-0"
-      >
-        <EditGroupHeader
-          isMassEdit={isMassEdit}
-          summary={
-            isMassEdit && !loading && !loadError && groups.length > 0
-              ? { images: totalInScope, groups: groups.length, ungrouped: ungroupedCount }
-              : null
-          }
-          onDone={handleDone}
-          saving={saving}
-        />
-
-        {loading && (
-          <div className="flex items-center justify-center flex-1">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
-        )}
-
-        {!loading && loadError && (
-          <div className="mx-6 mt-4 flex items-center gap-2 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2">
-            <AlertCircle className="h-4 w-4 flex-shrink-0" />
-            {loadError}
-          </div>
-        )}
-
-        {!loading && !loadError && groups.length > 0 && (
-          <DndContext
-            sensors={dnd.sensors}
-            onDragStart={dnd.handleDragStart}
-            onDragEnd={dnd.handleDragEnd}
-          >
-            <div className="flex min-h-0 flex-1 overflow-hidden">
-              {groups.length > 1 && (
-                <EditGroupSidebar
-                  groups={groups}
-                  activeTab={activeTab}
-                  isAllTab={isAllTab}
-                  onSelectAll={() => setActiveTab(ALL_TAB)}
-                  onGroupClick={handleGroupClick}
-                  selectedGroupIds={selectedGroupIds}
-                  totalInScope={totalInScope}
-                  hasGroupActions={isMassEdit || isImportReview}
-                  groupSaving={groupSaving}
-                  groupSaved={groupSaved}
-                  busy={{ saving, merging }}
-                  activeDrag={dnd.activeDrag}
-                  pending={pending}
-                  setPending={setPending}
-                  onDeleteGroup={async (id) => {
-                    if (await ops.handleDeleteGroup(id)) setPending(null)
-                  }}
-                  onRemoveGroup={ops.removeGroupFromView}
-                />
-              )}
-
-              <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-                <div className="px-5 pt-4 pb-3 border-b border-border/30 shrink-0">
-                  <MetadataForm
-                    author={scope.scopeAuthor}
-                    groupName={showsMultipleGroups ? '' : (activeGroup?.group_name ?? '')}
-                    authorPlaceholder={
-                      isMultiSelect && !scope.scopeAuthor
-                        ? 'Multiple — type to set for selected groups'
-                        : isAllTab && !scope.scopeAuthor
-                          ? 'Multiple — type to set for all groups'
-                          : 'Author name'
-                    }
-                    groupNamePlaceholder={
-                      isMultiSelect
-                        ? `— (${selectedGroupIds.size} groups selected)`
-                        : isAllTab
-                          ? '— (select a group to rename)'
-                          : 'Group name'
-                    }
-                    groupNameDisabled={showsMultipleGroups}
-                    isMassEdit={isMassEdit}
-                    isAllTab={showsMultipleGroups}
-                    authorSuggestions={authorSuggestions}
-                    suggestionsListId="author-suggestions-edit"
-                    onAuthorChange={setAuthor}
-                    onGroupNameChange={(val) =>
-                      !showsMultipleGroups && updateGroup(activeGroupId, { group_name: val })
-                    }
-                    onBlur={() => scope.scopeGroups.forEach(ops.autoSaveGroup)}
-                    groupNameRef={groupNameRef}
-                  />
-                </div>
-
-                <div className="px-5 shrink-0">
-                  <FileToolbar
-                    files={scope.inScopeFiles}
-                    filteredFiles={scope.filteredFiles}
-                    selection={activeSelection}
-                    filter={fileFilter}
-                    vocab={tagVocab}
-                    onFilterChange={setFileFilter}
-                    onSelectAll={() => selectAllVisible(selectionId, scope.filteredFiles)}
-                    onDeselectAll={() => deselectAll(selectionId)}
-                    onBulkAddTag={(tag) => bulkAddTag(bulkScope, tag)}
-                    onBulkSetGrid={(gridded, gridType) => bulkSetGrid(bulkScope, gridded, gridType)}
-                    onBulkSetImageType={(v) => bulkSetImageType(bulkScope, v)}
-                    onBulkSetSubgroup={(v) => bulkSetSubgroup(bulkScope, v)}
-                    onBulkExclude={() => bulkExclude(bulkScope)}
-                    onMoveToNewGroup={
-                      !showsMultipleGroups && !isMassEdit && activeGroup?.id
-                        ? async () => {
-                            await ops.moveToNewGroup(activeGroup.id)
-                            groupNameRef.current?.focus()
-                          }
-                        : undefined
-                    }
-                    excludeLabel={isMassEdit ? 'Remove' : 'Delete'}
-                    alwaysShowTypeToggle
-                  />
-                </div>
-
-                <EditGroupFileGrid
-                  files={scope.filteredFiles}
-                  outOfScopeFiles={scope.outOfScopeFiles}
-                  renderCard={renderCard}
-                  hasActiveFilter={hasActiveFilter}
-                  activeDrag={dnd.activeDrag}
-                  existingSubgroups={scope.subgroups}
-                  canEditSubgroups={!showsMultipleGroups}
-                  editingSubgroup={editingSvHeading}
-                  onEditingSubgroupChange={setEditingSvHeading}
-                  onRenameSubgroup={(from, to) => renameSubgroup(activeGroup!.id, from, to)}
-                  onClearSubgroup={(subgroup) => clearSubgroupLabel(activeGroup!.id, subgroup)}
-                  vocab={tagVocab}
-                  onUpdateOutOfScope={(file, updates) =>
-                    updateFile(activeTab, file.relative_path, updates)
-                  }
-                />
-
-                <EditGroupFooter
-                  showGroupActions={isOriginalGroup}
-                  pending={pending}
-                  setPending={setPending}
-                  onDelete={async () => {
-                    if (!(await ops.handleDelete())) setPending(null)
-                  }}
-                  onDone={handleDone}
-                  saving={saving}
-                  merging={merging}
-                  saveError={ops.saveError}
-                  groupSaving={groupSaving}
-                  groupSaved={groupSaved}
-                  primaryDone={isImportReview}
-                />
-              </div>
-            </div>
-
-            <DragOverlay dropAnimation={null} modifiers={dnd.dragModifiers}>
-              <DragOverlayContent activeDrag={dnd.activeDrag} />
-            </DragOverlay>
-          </DndContext>
-        )}
-      </DialogContent>
-
-      <EditGroupConfirmDialogs
-        groupId={groupId}
-        groups={groups}
-        activeGroup={activeGroup ?? undefined}
-        selectedGroupIds={selectedGroupIds}
-        clearSelection={resetMultiselect}
-        pending={pending}
-        setPending={setPending}
-        dragMerge={{
-          sourceIds: dnd.dragMergeSourceIds,
-          target: dnd.dragMergeTarget,
-          clear: () => {
-            dnd.setDragMergeSourceIds(null)
-            dnd.setDragMergeTarget(null)
-          },
+    <EditGroupContext.Provider value={context}>
+      <Dialog
+        open={open}
+        onOpenChange={(o) => {
+          if (!o && !saving) onClose()
         }}
-        ops={ops}
-      />
-    </Dialog>
+      >
+        <DialogContent
+          data-testid="edit-group-dialog"
+          className="max-w-5xl h-[85vh] overflow-hidden flex flex-col p-0 gap-0"
+        >
+          <EditGroupHeader
+            isMassEdit={isMassEdit}
+            summary={
+              isMassEdit && !loading && !loadError && groups.length > 0
+                ? { images: totalInScope, groups: groups.length, ungrouped: ungroupedCount }
+                : null
+            }
+            onDone={handleDone}
+            saving={saving}
+          />
+
+          {loading && (
+            <div className="flex items-center justify-center flex-1">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          )}
+
+          {!loading && loadError && (
+            <div className="mx-6 mt-4 flex items-center gap-2 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2">
+              <AlertCircle className="h-4 w-4 flex-shrink-0" />
+              {loadError}
+            </div>
+          )}
+
+          {!loading && !loadError && groups.length > 0 && (
+            <DndContext
+              sensors={dnd.sensors}
+              onDragStart={dnd.handleDragStart}
+              onDragEnd={dnd.handleDragEnd}
+            >
+              <div className="flex min-h-0 flex-1 overflow-hidden">
+                {groups.length > 1 && (
+                  <EditGroupSidebar
+                    activeTab={activeTab}
+                    isAllTab={isAllTab}
+                    onSelectAll={() => setActiveTab(ALL_TAB)}
+                    onGroupClick={handleGroupClick}
+                    totalInScope={totalInScope}
+                    hasGroupActions={isMassEdit || isImportReview}
+                  />
+                )}
+
+                <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+                  <div className="px-5 pt-4 pb-3 border-b border-border/30 shrink-0">
+                    <MetadataForm
+                      author={scope.scopeAuthor}
+                      groupName={showsMultipleGroups ? '' : (activeGroup?.group_name ?? '')}
+                      authorPlaceholder={
+                        isMultiSelect && !scope.scopeAuthor
+                          ? 'Multiple — type to set for selected groups'
+                          : isAllTab && !scope.scopeAuthor
+                            ? 'Multiple — type to set for all groups'
+                            : 'Author name'
+                      }
+                      groupNamePlaceholder={
+                        isMultiSelect
+                          ? `— (${selectedGroupIds.size} groups selected)`
+                          : isAllTab
+                            ? '— (select a group to rename)'
+                            : 'Group name'
+                      }
+                      groupNameDisabled={showsMultipleGroups}
+                      isMassEdit={isMassEdit}
+                      isAllTab={showsMultipleGroups}
+                      authorSuggestions={authorSuggestions}
+                      suggestionsListId="author-suggestions-edit"
+                      onAuthorChange={setAuthor}
+                      onGroupNameChange={(val) =>
+                        !showsMultipleGroups && updateGroup(activeGroupId, { group_name: val })
+                      }
+                      onBlur={() => scope.scopeGroups.forEach(ops.autoSaveGroup)}
+                      groupNameRef={groupNameRef}
+                    />
+                  </div>
+
+                  <div className="px-5 shrink-0">
+                    <FileToolbar
+                      files={scope.inScopeFiles}
+                      filteredFiles={scope.filteredFiles}
+                      selection={activeSelection}
+                      filter={fileFilter}
+                      vocab={tagVocab}
+                      onFilterChange={setFileFilter}
+                      onSelectAll={() => selectAllVisible(selectionId, scope.filteredFiles)}
+                      onDeselectAll={() => deselectAll(selectionId)}
+                      onBulkAddTag={(tag) => bulkAddTag(bulkScope, tag)}
+                      onBulkSetGrid={(gridded, gridType) =>
+                        bulkSetGrid(bulkScope, gridded, gridType)
+                      }
+                      onBulkSetImageType={(v) => bulkSetImageType(bulkScope, v)}
+                      onBulkSetSubgroup={(v) => bulkSetSubgroup(bulkScope, v)}
+                      onBulkExclude={() => bulkExclude(bulkScope)}
+                      onMoveToNewGroup={
+                        !showsMultipleGroups && !isMassEdit && activeGroup?.id
+                          ? async () => {
+                              await ops.moveToNewGroup(activeGroup.id)
+                              groupNameRef.current?.focus()
+                            }
+                          : undefined
+                      }
+                      excludeLabel={isMassEdit ? 'Remove' : 'Delete'}
+                      alwaysShowTypeToggle
+                    />
+                  </div>
+
+                  <EditGroupFileGrid
+                    files={scope.filteredFiles}
+                    outOfScopeFiles={scope.outOfScopeFiles}
+                    renderCard={renderCard}
+                    hasActiveFilter={hasActiveFilter}
+                    subgroups={{
+                      existing: scope.subgroups,
+                      canEdit: !showsMultipleGroups,
+                      editing: editingSvHeading,
+                      setEditing: setEditingSvHeading,
+                      rename: (from, to) => renameSubgroup(activeGroup!.id, from, to),
+                      clear: (subgroup) => clearSubgroupLabel(activeGroup!.id, subgroup),
+                    }}
+                    vocab={tagVocab}
+                    onUpdateOutOfScope={(file, updates) =>
+                      updateFile(activeTab, file.relative_path, updates)
+                    }
+                  />
+
+                  <EditGroupFooter
+                    showGroupActions={isOriginalGroup}
+                    onDone={handleDone}
+                    primaryDone={isImportReview}
+                  />
+                </div>
+              </div>
+
+              <DragOverlay dropAnimation={null} modifiers={dnd.dragModifiers}>
+                <DragOverlayContent activeDrag={dnd.activeDrag} />
+              </DragOverlay>
+            </DndContext>
+          )}
+        </DialogContent>
+
+        <EditGroupConfirmDialogs
+          groupId={groupId}
+          activeGroup={activeGroup ?? undefined}
+          dragMerge={{
+            sourceIds: dnd.dragMergeSourceIds,
+            target: dnd.dragMergeTarget,
+            clear: () => {
+              dnd.setDragMergeSourceIds(null)
+              dnd.setDragMergeTarget(null)
+            },
+          }}
+        />
+      </Dialog>
+    </EditGroupContext.Provider>
   )
 }
