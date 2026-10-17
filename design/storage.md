@@ -160,7 +160,7 @@ Some physical names predate renames and are aliased in the ORM (ADR-011): `varia
 
 ### Seed Data
 
-- **Tag categories:** `seed_tag_categories()` inserts the categories in `backend/app/data/tag_vocabulary.json` when `tag_categories` is empty; afterwards it is a no-op so user edits are kept. Further genre packs are imported via Settings → Tag Packs (see [tag-packs.md](tag-packs.md)).
+- **Tag categories:** `seed_tag_categories()` inserts the categories in `backend/app/data/tag_vocabulary.json` with the `common` pack's tags when `tag_categories` is empty; afterwards it is a no-op so user edits are kept. Genre packs are imported from the setup wizard or Settings → Tag Packs (see [tag-packs.md](tag-packs.md)).
 - **App settings:** `seed_default_settings()` inserts defaults (grid detection, colour extraction, ingestion performance, import limits, job runner, stored format) when `app_settings` is empty. See [resource-management.md](resource-management.md).
 
 ## LanceDB Vector Store

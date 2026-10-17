@@ -4,7 +4,7 @@
 
 Tag packs are curated vocabularies of tag values grouped by genre. They allow users to install only the tags relevant to their content -- a fantasy-focused library does not need cyberpunk or sci-fi tags cluttering its filters and auto-detection.
 
-Packs exist because Scene Atlas supports a wide range of tabletop RPG genres. Rather than seeding every possible tag at first boot, the system ships a single canonical vocabulary file where each tag value declares which packs it belongs to. First boot installs every pack (see [First-Boot Seeding](#first-boot-seeding)); missing packs can be added from the setup wizard or Settings.
+Packs exist because Scene Atlas supports a wide range of tabletop RPG genres. Rather than seeding every possible tag at first boot, the system ships a single canonical vocabulary file where each tag value declares which packs it belongs to. First boot installs only the `common` pack (see [First-Boot Seeding](#first-boot-seeding)); genre packs are added from the setup wizard or Settings.
 
 ## Vocabulary File
 
@@ -94,7 +94,7 @@ The `common_values` column uses a compact JSON format: bare strings for tags wit
 
 ### First-Boot Seeding
 
-`seed_tag_categories()` in `backend/app/models/database.py` runs at every startup (`main.py` lifespan) but only acts when `tag_categories` is empty. It loads the full vocabulary file and creates every category with every tag, so a fresh library starts with all packs installed. `POST /api/v1/system/tags/reset` deletes all tags and categories and calls the same function.
+`seed_tag_categories()` in `backend/app/models/database.py` runs at every startup (`main.py` lifespan) but only acts when `tag_categories` is empty. It creates every category with the `common` pack's tags (every category has common tags), so a fresh library starts with only `common` installed and the genre packs opt-in. `POST /api/v1/system/tags/reset` deletes all tags and categories and calls the same function, so after a reset only `common` is installed again. Existing libraries are unaffected: seeding never runs once categories exist.
 
 ## API Endpoints
 
@@ -104,7 +104,7 @@ All under `/api/v1/tags`.
 |--------|------|---------|
 | GET | `/packs` | List all packs with import status (`imported`, `new_tags`, `tag_count`) |
 | POST | `/packs/{name}/import` | Import/merge a single pack. 404 for an unknown pack. Rate-limited (`rate_limit_expensive`, default 2/minute) |
-| POST | `/packs/import-multiple` | Body `{"packs": [...]}`. Imports each pack in turn; returns `{"imported": [...], "errors": ["name: message", ...]}` with HTTP 200 even when some fail. Not rate-limited. Used by the setup wizard |
+| POST | `/packs/import-multiple` | Body `{"packs": [...]}`. Imports each pack in turn (a failed pack is rolled back without affecting the others); returns `{"imported": [...], "errors": ["name: message", ...]}` with HTTP 200 even when some fail. Rate-limited (`rate_limit_expensive`). Used by the setup wizard |
 
 ## Frontend Integration
 
@@ -120,11 +120,11 @@ Import calls `tagApi.importTagPack(packName)`, invalidates the tag-pack and tag 
 
 ### Setup Wizard
 
-`components/setup/TagPackSetupStep.tsx` is a step of `ModelSetupScreen`, shown while the chosen model downloads. It lists packs, pre-selects every pack not yet `imported` (already-imported packs are shown checked and disabled), and on Continue sends the selection to `POST /tags/packs/import-multiple`. When both the pack import and the model are done, `ModelSetupScreen` calls `POST /api/v1/models/setup-complete`, which writes the `setup_completed_at` app setting.
+`components/setup/TagPackSetupStep.tsx` is a step of `ModelSetupScreen`, shown while the chosen model downloads. It lists packs, pre-selects every pack not yet `imported` (already-imported packs, normally just `common`, are shown checked and disabled as "included"), and on Continue sends the selection to `POST /tags/packs/import-multiple`. If the response lists `errors` (or the request fails, e.g. 429), the step stays open with an alert listing them, refreshes the pack list and keeps only the failed packs selected; the user can "Try again" or "Skip for now". When both the pack import and the model are done, `ModelSetupScreen` calls `POST /api/v1/models/setup-complete`, which writes the `setup_completed_at` app setting.
 
-`GET /api/v1/models/setup-status` returns `needs_tag_packs: true` until `setup_completed_at` exists. `App.tsx` shows the wizard when `needs_model` or `needs_tag_packs` is true (skipping the model step if only packs are needed). The wizard is only shown in server mode (`isServer`); the desktop app skips it.
+`GET /api/v1/models/setup-status` returns `needs_tag_packs: true` until `setup_completed_at` exists. `App.tsx` shows the wizard when `needs_model` or `needs_tag_packs` is true (skipping the model step if only packs are needed). The wizard runs in every mode, desktop included.
 
-**Interaction with seeding.** Seeding runs before the wizard and installs every pack, so on a fresh library `GET /packs` reports every pack as `imported` and the wizard has nothing to select: it cannot remove packs, only add missing ones. The selection only matters for a library whose vocabulary is missing pack tags (e.g. categories edited or deleted before setup was completed). Making packs genuinely opt-in would require seeding only `common` and letting the wizard or Settings add the rest.
+**Interaction with seeding.** Seeding runs before the wizard and installs only `common`, so the wizard's defaults (all genre packs selected) give the same vocabulary as before, while deselecting packs or skipping leaves them out. Packs cannot be removed once imported.
 
 ## Key Files
 

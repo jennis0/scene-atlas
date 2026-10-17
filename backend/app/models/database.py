@@ -478,23 +478,21 @@ def init_db(engine):
 
 
 def seed_tag_categories(session):
-    """Seed initial tag categories with vocabulary for auto-tagging.
+    """Seed the tag categories with the ``common`` tag pack.
 
     Only runs when the tag_categories table is completely empty (first boot).
     Once categories exist, this is a no-op so user edits are preserved.
 
-    Reads the canonical vocabulary from backend/app/data/tag_vocabulary.json.
-    The ImageParser loads these to build its tag vocabulary.
+    Genre packs are opt-in: the setup wizard or Settings imports them
+    (design/tag-packs.md). The ImageParser builds its vocabulary from these rows.
     """
     existing_count = session.query(TagCategory).count()
     if existing_count > 0:
         return
 
-    from backend.app.data.vocabulary import build_common_values_json, load_vocabulary
+    from backend.app.data.vocabulary import build_common_values_json, get_tags_for_packs
 
-    vocab = load_vocabulary()
-
-    for cat_data in vocab["categories"]:
+    for cat_data in get_tags_for_packs(["common"]):
         session.add(
             TagCategory(
                 name=cat_data["name"],

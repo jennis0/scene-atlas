@@ -1,6 +1,7 @@
 """Tags API endpoints — CRUD for categories and tag values with cascade support."""
 
 import json
+import logging
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -22,6 +23,7 @@ from ..models import (
 from .dependencies import get_db
 from .rate_limits import limiter
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _CASCADE_CHUNK = 500
@@ -405,12 +407,14 @@ def list_tag_packs(db: Session = Depends(get_db)):
 
 
 @router.post("/packs/import-multiple", response_model=ImportMultipleResponse)
+@limiter.limit(lambda: settings.rate_limit_expensive)
 def import_multiple_tag_packs(
-    body: ImportMultipleRequest, db: Session = Depends(get_db)
+    body: ImportMultipleRequest, request: Request, db: Session = Depends(get_db)
 ) -> ImportMultipleResponse:
     """Import multiple tag packs in a single request.
 
-    Used by the setup wizard to batch-import user-selected genre packs.
+    Used by the setup wizard to batch-import user-selected genre packs. A pack
+    that fails is rolled back and reported in ``errors``; the others still import.
     """
     from ..services.tag_packs import import_tag_pack as do_import
 
@@ -421,8 +425,13 @@ def import_multiple_tag_packs(
         try:
             do_import(db, pack_name)
             imported.append(pack_name)
-        except Exception as exc:
+        except ValueError as exc:
+            db.rollback()
             errors.append(f"{pack_name}: {exc}")
+        except Exception:
+            db.rollback()
+            logger.exception("Failed to import tag pack %r", pack_name)
+            errors.append(f"{pack_name}: import failed, see the server log")
 
     return ImportMultipleResponse(imported=imported, errors=errors)
 

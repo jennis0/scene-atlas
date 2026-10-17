@@ -36,6 +36,16 @@ def test_rate_limit_returns_429(rate_limited_client: TestClient, monkeypatch):
     assert resp2.status_code == 429
 
 
+def test_import_multiple_tag_packs_is_rate_limited(rate_limited_client: TestClient, monkeypatch):
+    from backend.app.config import settings
+
+    monkeypatch.setattr(settings, "rate_limit_expensive", "2/minute")
+    url = "/api/v1/tags/packs/import-multiple"
+    for _ in range(2):
+        assert rate_limited_client.post(url, json={"packs": []}).status_code == 200
+    assert rate_limited_client.post(url, json={"packs": []}).status_code == 429
+
+
 # ── Per-endpoint smoke tests ──────────────────────────────────────────────────
 # These verify that each rate-limited endpoint has a valid `request: Request`
 # parameter (required by slowapi). If it's missing, slowapi raises a 500.

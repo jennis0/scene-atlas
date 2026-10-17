@@ -160,7 +160,7 @@ The write endpoints are `@write_locked`, so they serialise with the ingest worke
 | DELETE | `/{tag_id}` | Remove a tag |
 | GET | `/stats` | Tag statistics |
 | GET | `/packs` | Tag packs with import status |
-| POST | `/packs/import-multiple` | Import several packs (setup wizard) |
+| POST | `/packs/import-multiple` | Import several packs (setup wizard; rate limited: expensive) |
 | POST | `/packs/{name}/import` | Import one pack (rate limited: expensive) |
 | POST | `/retag-all` | Retag job (rate limited: expensive) |
 
