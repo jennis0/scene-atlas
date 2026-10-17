@@ -7,7 +7,7 @@ import { TagPicker } from './TagPicker'
 import { GridToggle } from './GridToggle'
 import { GridSizeInput } from './GridSizeInput'
 import type { ParsedTagVocab } from './types'
-import { useGetTagColor } from '@/contexts/TagColorContext'
+import { TagChip } from '@/components/TagChip'
 import { FileCardThumbnail } from './shared/FileCardThumbnail'
 import { FileCardExcludedState } from './shared/FileCardExcludedState'
 import { FileCardLightbox } from './shared/FileCardLightbox'
@@ -35,7 +35,6 @@ export function FileCard({
   disabled,
   excludeTooltip,
 }: FileCardProps) {
-  const getTagColor = useGetTagColor()
   const [isEditingName, setIsEditingName] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
   const [lightboxOpen, setLightboxOpen] = useState(false)
@@ -73,17 +72,15 @@ export function FileCard({
             </span>
             {file.tags.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-1">
-                {file.tags.slice(0, 6).map((tag, i) => {
-                  const color = getTagColor(tag.category)
-                  return (
-                    <span
-                      key={i}
-                      className={`inline-flex items-center rounded-full border px-1.5 py-px text-[10px] ${color.bg} ${color.text} ${color.border} opacity-60`}
-                    >
-                      <span className="capitalize">{tag.value}</span>
-                    </span>
-                  )
-                })}
+                {file.tags.slice(0, 6).map((tag, i) => (
+                  <TagChip
+                    key={i}
+                    category={tag.category}
+                    value={tag.value}
+                    size="sm"
+                    className="opacity-60"
+                  />
+                ))}
               </div>
             )}
           </div>
@@ -255,26 +252,19 @@ export function FileCard({
           <div className="h-px bg-gradient-to-r from-border/50 to-transparent my-1" />
 
           <div className="flex flex-wrap items-center gap-1 mt-auto pt-0.5">
-            {file.tags.map((tag: TagData, i: number) => {
-              const color = getTagColor(tag.category)
-              return (
-                <span
-                  key={`${tag.category}-${tag.value}-${i}`}
-                  className={`inline-flex items-center gap-0.5 rounded-full border px-1.5 py-px text-[10px] ${color.bg} ${color.text} ${color.border}`}
-                  title={tag.category}
-                >
-                  <span className="capitalize">{tag.value}</span>
-                  {!disabled && (
-                    <button
-                      onClick={() => onUpdate({ tags: file.tags.filter((_, j) => j !== i) })}
-                      className="ml-0.5 opacity-40 hover:opacity-100 transition-opacity"
-                    >
-                      <X className="h-2 w-2" />
-                    </button>
-                  )}
-                </span>
-              )
-            })}
+            {file.tags.map((tag: TagData, i: number) => (
+              <TagChip
+                key={`${tag.category}-${tag.value}-${i}`}
+                category={tag.category}
+                value={tag.value}
+                size="sm"
+                onRemove={
+                  disabled
+                    ? undefined
+                    : () => onUpdate({ tags: file.tags.filter((_, j) => j !== i) })
+                }
+              />
+            ))}
             {!disabled && vocab.length > 0 && (
               <TagPicker
                 vocab={vocab}

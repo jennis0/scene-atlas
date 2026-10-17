@@ -1,9 +1,8 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { X } from 'lucide-react'
 import { tagApi } from '@/lib/api'
 import { QUERY_KEYS } from '@/lib/queryKeys'
-import { useGetTagColor } from '@/contexts/TagColorContext'
+import { TagChip } from '@/components/TagChip'
 import { TagPicker } from '@/components/import/TagPicker'
 import { parseTagVocabulary } from '@/components/import/types'
 import type { Image, TagData } from '@/types'
@@ -17,8 +16,6 @@ interface ImageTagsProps {
 
 /** Dominant colours, tag chips and the tag picker. */
 export function ImageTags({ image, onAddTag, onRemoveTag, removing }: ImageTagsProps) {
-  const getTagColor = useGetTagColor()
-
   const { data: tagCategories } = useQuery({
     queryKey: QUERY_KEYS.tagCategories,
     queryFn: () => tagApi.getCategories(),
@@ -61,26 +58,15 @@ export function ImageTags({ image, onAddTag, onRemoveTag, removing }: ImageTagsP
       )}
 
       <div className="flex flex-wrap gap-1.5">
-        {image.tags?.map((tag) => {
-          const colors = getTagColor(tag.category)
-          return (
-            <span
-              key={tag.id}
-              title={tag.category}
-              className={`inline-flex items-center gap-1 text-[11px] rounded-full border px-2 py-px ${colors.bg} ${colors.text} ${colors.border}`}
-            >
-              <span className="capitalize">{tag.value}</span>
-              <button
-                onClick={() => onRemoveTag(tag.id)}
-                disabled={removing}
-                className="opacity-40 hover:opacity-100 transition-opacity ml-0.5 disabled:cursor-not-allowed"
-                title={`Remove ${tag.category}: ${tag.value}`}
-              >
-                <X className="h-2.5 w-2.5" />
-              </button>
-            </span>
-          )
-        })}
+        {image.tags?.map((tag) => (
+          <TagChip
+            key={tag.id}
+            category={tag.category}
+            value={tag.value}
+            onRemove={() => onRemoveTag(tag.id)}
+            removeDisabled={removing}
+          />
+        ))}
 
         <TagPicker vocab={vocab} existingTags={existingTags} onAdd={onAddTag} />
       </div>
