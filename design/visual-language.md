@@ -493,7 +493,8 @@ One-line notices inside import dialogs: `rounded-lg border px-3 py-2.5`, attenti
 Styled globally in index.css: 5px wide, `bg-border` thumb, transparent track. Do not override per-component.
 
 ### Shadows
-Use `shadow-shade/NN`, never `shadow-black/NN`: `shade` is black with its opacity scaled by `--shadow-strength` (index.css: 0.6 light, 0.85 dark), so the same classes don't read as heavy on parchment.
+Use `shadow-shade/NN`, never `shadow-black/NN`: `shade` is black with its opacity scaled by `--shadow-strength` (index.css: 0.7 light, 0.85 dark), so the same classes don't read as heavy on parchment.
+- Header → results inset shadow (Gallery `<main>`): `--results-inset-alpha`, 0.2 light / 0.4 dark. Full-width, so lighter than panel shadows in light mode.
 - Elevation for floating panels/modals: `shadow-2xl shadow-shade/70`
 - Dropdowns: `shadow-2xl shadow-shade/40`
 - Card hover: `shadow-lg shadow-primary/15` (amber tinted)

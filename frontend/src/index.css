@@ -276,13 +276,17 @@
   /* ── Shadows ────────────────────────────────────────────────
      shadow-shade/NN (tailwind.config.js) is black at NN% opacity scaled by this
      strength, so one set of class names reads right in both modes: a shadow strong
-     enough to lift a panel off navy-black is heavy on parchment. Every palette. */
+     enough to lift a panel off navy-black is heavy on parchment. Every palette.
+     --results-inset-alpha is the shadow cast by the header onto the results area
+     (Gallery.tsx): it spans the full width, so it reads much heavier than a panel's. */
   :root {
-    --shadow-strength: 0.6;
+    --shadow-strength: 0.7;
+    --results-inset-alpha: 0.2;
   }
 
   .dark {
     --shadow-strength: 0.85;
+    --results-inset-alpha: 0.4;
   }
 
   /* ── High contrast ──────────────────────────────────────────
