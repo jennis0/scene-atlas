@@ -323,14 +323,20 @@ export function Gallery() {
 
         {/* Group editor over every group an import created (from the import report) */}
         <EditGroupDialog
-          groupIds={dialogs.reviewGroupIds ?? undefined}
-          startGroupId={dialogs.reviewStartGroupId}
-          importJobId={dialogs.reviewJobId}
-          onAddGroups={dialogs.addReviewGroupIds}
-          onShowImportProgress={(jobId) => {
-            dialogs.setReviewGroupIds(null)
-            dialogs.openImport(jobId)
-          }}
+          importReview={
+            dialogs.reviewGroupIds
+              ? {
+                  groupIds: dialogs.reviewGroupIds,
+                  startGroupId: dialogs.reviewStartGroupId,
+                  jobId: dialogs.reviewJobId,
+                  onAddGroups: dialogs.addReviewGroupIds,
+                  onShowProgress: (jobId) => {
+                    dialogs.setReviewGroupIds(null)
+                    dialogs.openImport(jobId)
+                  },
+                }
+              : undefined
+          }
           open={dialogs.reviewGroupIds !== null}
           onClose={() => dialogs.setReviewGroupIds(null)}
           onSave={() => dialogs.invalidateGallery()}

@@ -31,22 +31,26 @@ import { EditGroupContext, type EditGroupContextValue } from './edit-group/EditG
 import { invalidateGalleryQueries } from '@/lib/queryKeys'
 import { ImportRunningStrip } from './edit-group/ImportRunningStrip'
 
+/** Import-review mode: several groups by ID, all images in scope (e.g. every group an
+ * import created, from the import report). */
+export interface ImportReview {
+  groupIds: number[]
+  /** The group to open on, instead of all groups */
+  startGroupId?: number
+  /** The import the groups came from, to follow while it runs */
+  jobId?: string
+  /** Add groups the import finished since the editor opened */
+  onAddGroups?: (groupIds: number[]) => void
+  /** Leave the editor for the import's progress */
+  onShowProgress?: (jobId: string) => void
+}
+
 interface EditGroupDialogProps {
   // Single-group mode: pass groupId
   groupId?: number | null
   // Mass-edit mode: pass seedImages (the search result images to edit)
   seedImages?: SeedImage[]
-  // Import-review mode: pass groupIds to load multiple groups by ID, all images in scope
-  // (e.g. every group an import created, from the import report).
-  groupIds?: number[]
-  /** Import-review mode: the group to open on, instead of all groups */
-  startGroupId?: number
-  /** Import-review mode: the import the groups came from, to follow while it runs */
-  importJobId?: string
-  /** Add groups the import finished since the editor opened */
-  onAddGroups?: (groupIds: number[]) => void
-  /** Leave the editor for the import's progress */
-  onShowImportProgress?: (jobId: string) => void
+  importReview?: ImportReview
   open: boolean
   onClose: () => void
   /** Called after editing is done (changes are auto-saved as you go). */
@@ -56,15 +60,12 @@ interface EditGroupDialogProps {
 export default function EditGroupDialog({
   groupId,
   seedImages,
-  groupIds,
-  startGroupId,
-  importJobId,
-  onAddGroups,
-  onShowImportProgress,
+  importReview,
   open,
   onClose,
   onSave,
 }: EditGroupDialogProps) {
+  const groupIds = importReview?.groupIds
   const queryClient = useQueryClient()
   const groupNameRef = useRef<HTMLInputElement>(null)
   const [pending, setPending] = useState<PendingConfirm | null>(null)
@@ -162,7 +163,7 @@ export default function EditGroupDialog({
     groupId,
     seedImages,
     groupIds,
-    startGroupId,
+    startGroupId: importReview?.startGroupId,
     onResetDialogState: resetDialogState,
     fileEditing: {
       groups,
@@ -176,6 +177,14 @@ export default function EditGroupDialog({
   })
 
   const isImportReview = !!groupIds && groupIds.length > 0
+
+  const showImportProgress =
+    importReview?.jobId && importReview.onShowProgress
+      ? () => {
+          onSave()
+          importReview.onShowProgress?.(importReview.jobId!)
+        }
+      : undefined
 
   // Called on any close action — changes have already been auto-saved
   const handleDone = useCallback(() => {
@@ -305,19 +314,12 @@ export default function EditGroupDialog({
             saving={saving}
           />
 
-          {importJobId && groupIds && (
+          {importReview?.jobId && (
             <ImportRunningStrip
-              jobId={importJobId}
-              reviewedGroupIds={groupIds}
-              onAddGroups={onAddGroups}
-              onShowProgress={
-                onShowImportProgress
-                  ? () => {
-                      onSave()
-                      onShowImportProgress(importJobId)
-                    }
-                  : undefined
-              }
+              jobId={importReview.jobId}
+              reviewedGroupIds={importReview.groupIds}
+              onAddGroups={importReview.onAddGroups}
+              onShowProgress={showImportProgress}
             />
           )}
 
@@ -351,10 +353,12 @@ export default function EditGroupDialog({
                       onDemand: isLargeReview,
                     }}
                     activeTab={activeTab}
-                    isAllTab={isAllTab}
-                    onSelectAll={() => setActiveTab(ALL_TAB)}
+                    allTab={{
+                      active: isAllTab,
+                      count: totalInScope,
+                      onSelect: () => setActiveTab(ALL_TAB),
+                    }}
                     onGroupClick={handleGroupClick}
-                    totalInScope={totalInScope}
                     hasGroupActions={isMassEdit || isImportReview}
                   />
                 )}

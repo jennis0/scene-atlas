@@ -223,7 +223,7 @@ describe('EditGroupDialog', () => {
     })
 
     it('closes on Escape without saving', async () => {
-      const { user, onClose, onSave } = renderDialog({ groupIds: [1] })
+      const { user, onClose, onSave } = renderDialog({ importReview: { groupIds: [1] } })
       await waitFor(() => expect(groupApi.details).toHaveBeenCalledWith([1]))
       await user.keyboard('{Escape}')
       expect(onClose).toHaveBeenCalled()
@@ -257,7 +257,7 @@ describe('EditGroupDialog', () => {
       const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600)
       const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800)
       try {
-        renderDialog({ groupIds: [1, 4] })
+        renderDialog({ importReview: { groupIds: [1, 4] } })
         // Unlabelled files come first, so the summer/winter subgroups are off screen
         expect(await within(dialog()).findByText('Big 0')).toBeInTheDocument()
         expect(within(dialog()).queryByText('Clearing')).not.toBeInTheDocument()
@@ -273,7 +273,7 @@ describe('EditGroupDialog', () => {
     })
 
     it('lists groups in the sidebar and switches between them', async () => {
-      const { user } = renderDialog({ groupIds: [1, 2] })
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2] } })
       expect(await screen.findByText('2 groups')).toBeInTheDocument()
       // The All tab shows every in-scope file
       expect(within(dialog()).getByText('Grotto')).toBeInTheDocument()
@@ -287,18 +287,30 @@ describe('EditGroupDialog', () => {
     it('starts fresh when reopened for a different import', async () => {
       const onClose = vi.fn()
       const { rerender } = renderWithProviders(
-        <EditGroupDialog open groupIds={[1, 2]} onClose={onClose} onSave={vi.fn()} />,
+        <EditGroupDialog
+          open
+          importReview={{ groupIds: [1, 2] }}
+          onClose={onClose}
+          onSave={vi.fn()}
+        />,
       )
       expect(await screen.findByText('2 groups')).toBeInTheDocument()
       rerender(<EditGroupDialog open={false} onClose={onClose} onSave={vi.fn()} />)
-      rerender(<EditGroupDialog open groupIds={[3]} onClose={onClose} onSave={vi.fn()} />)
+      rerender(
+        <EditGroupDialog
+          open
+          importReview={{ groupIds: [3] }}
+          onClose={onClose}
+          onSave={vi.fn()}
+        />,
+      )
       expect(await screen.findByDisplayValue('Town Maps')).toBeInTheDocument()
       expect(screen.queryByText(/groups/)).not.toBeInTheDocument()
       expect(within(dialog()).queryByText('Clearing')).not.toBeInTheDocument()
     })
 
     it('opens on the group it was asked to start on', async () => {
-      renderDialog({ groupIds: [1, 2, 3], startGroupId: 2 })
+      renderDialog({ importReview: { groupIds: [1, 2, 3], startGroupId: 2 } })
       expect(await screen.findByDisplayValue('Cave Maps')).toBeInTheDocument()
       expect(within(dialog()).queryByText('Clearing')).not.toBeInTheDocument()
     })
@@ -306,7 +318,7 @@ describe('EditGroupDialog', () => {
     it('lists every group at once and fills them in as they load', async () => {
       // Group 3 is slow; the editor opens on the start group without it
       const releaseSlow = holdDetailsFor(3)
-      const { user } = renderDialog({ groupIds: [1, 2, 3], startGroupId: 1 })
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2, 3], startGroupId: 1 } })
       expect(await screen.findByDisplayValue('Forest Maps')).toBeInTheDocument()
       expect(screen.getByText('1 of 3 groups')).toBeInTheDocument()
       // Still loading, but already listed from its summary
@@ -326,7 +338,7 @@ describe('EditGroupDialog', () => {
 
     it('opens a still-loading group as soon as it arrives when clicked', async () => {
       const releaseSlow = holdDetailsFor(3)
-      const { user } = renderDialog({ groupIds: [1, 2, 3], startGroupId: 1 })
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2, 3], startGroupId: 1 } })
       await screen.findByDisplayValue('Forest Maps')
       await user.click(screen.getByRole('button', { name: /Town Maps/ }))
       expect(screen.getByRole('button', { name: /Town Maps/ })).toHaveAttribute('aria-busy', 'true')
@@ -335,12 +347,12 @@ describe('EditGroupDialog', () => {
     })
 
     it('leaves out groups deleted since the import', async () => {
-      renderDialog({ groupIds: [1, 99, 2] })
+      renderDialog({ importReview: { groupIds: [1, 99, 2] } })
       expect(await screen.findByText('2 groups')).toBeInTheDocument()
     })
 
     it('merges all groups into the first after confirmation', async () => {
-      const { user } = renderDialog({ groupIds: [1, 2] })
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2] } })
       await screen.findByText('2 groups')
       await user.click(screen.getByRole('button', { name: 'Merge All' }))
       const confirm = confirmDialog('Merge All Groups')
@@ -351,7 +363,7 @@ describe('EditGroupDialog', () => {
     })
 
     it('deletes a group from its row menu after inline confirmation', async () => {
-      const { user } = renderDialog({ groupIds: [1, 2] })
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2] } })
       await screen.findByText('2 groups')
       const row = sidebarRow('Cave Maps').closest('.group\\/navrow') as HTMLElement
       await user.click(within(row).getAllByRole('button')[1])
@@ -369,7 +381,7 @@ describe('EditGroupDialog', () => {
         ],
         total: 1,
       })
-      const { user } = renderDialog({ groupIds: [1, 2, 3] })
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2, 3] } })
       await screen.findByText('3 groups')
       const row = sidebarRow('Town Maps').closest('.group\\/navrow') as HTMLElement
       await user.click(within(row).getAllByRole('button')[1])
@@ -383,7 +395,7 @@ describe('EditGroupDialog', () => {
 
     it('keeps the inline delete confirmation open when the delete fails', async () => {
       vi.mocked(groupApi.delete).mockRejectedValueOnce(new Error('Group is locked'))
-      const { user } = renderDialog({ groupIds: [1, 2] })
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2] } })
       await screen.findByText('2 groups')
       const row = sidebarRow('Cave Maps').closest('.group\\/navrow') as HTMLElement
       await user.click(within(row).getAllByRole('button')[1])
@@ -394,7 +406,7 @@ describe('EditGroupDialog', () => {
     })
 
     it('removes a group from view without touching the server', async () => {
-      const { user } = renderDialog({ groupIds: [1, 2, 3] })
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2, 3] } })
       await screen.findByText('3 groups')
       const row = sidebarRow('Town Maps').closest('.group\\/navrow') as HTMLElement
       await user.click(within(row).getAllByRole('button')[1])
@@ -404,7 +416,7 @@ describe('EditGroupDialog', () => {
     })
 
     it('bulk merges and deletes ctrl-selected groups', async () => {
-      const { user } = renderDialog({ groupIds: [1, 2, 3] })
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2, 3] } })
       await screen.findByText('3 groups')
       await user.keyboard('{Control>}')
       await user.click(sidebarRow('Cave Maps'))
@@ -465,7 +477,7 @@ describe('EditGroupDialog', () => {
     })
 
     it('loads only the group it opens on, and others when they are opened', async () => {
-      const { user } = renderDialog({ groupIds: [1, 2, 3] })
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2, 3] } })
       expect(await screen.findByDisplayValue('Forest Maps')).toBeInTheDocument()
       expect(groupApi.details).toHaveBeenCalledTimes(1)
       expect(groupApi.details).toHaveBeenCalledWith([1])
@@ -493,7 +505,7 @@ describe('EditGroupDialog', () => {
         vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800),
       ]
       try {
-        renderDialog({ groupIds: ids })
+        renderDialog({ importReview: { groupIds: ids } })
         expect(await screen.findByText('2,000 groups')).toBeInTheDocument()
         const rows = screen.getAllByRole('button', { name: /^Pack \d+/ })
         expect(rows.length).toBeGreaterThan(0)
@@ -505,7 +517,7 @@ describe('EditGroupDialog', () => {
     })
 
     it('shows All as a panel of counts whose edits go by scope', async () => {
-      const { user } = renderDialog({ groupIds: [1, 2, 3] })
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2, 3] } })
       await screen.findByDisplayValue('Forest Maps')
       await user.click(screen.getByRole('button', { name: /^All\s*[\d,]+$/ }))
 
@@ -527,7 +539,7 @@ describe('EditGroupDialog', () => {
 
   describe('author and name', () => {
     it('saves nothing when the fields lose focus unchanged', async () => {
-      const { user } = renderDialog({ groupIds: [1, 3] })
+      const { user } = renderDialog({ importReview: { groupIds: [1, 3] } })
       await screen.findByText('2 groups')
       await user.click(screen.getByPlaceholderText(/Multiple/))
       await user.tab()
@@ -536,7 +548,7 @@ describe('EditGroupDialog', () => {
     })
 
     it('sets the author of every group in one request', async () => {
-      const { user } = renderDialog({ groupIds: [1, 3] })
+      const { user } = renderDialog({ importReview: { groupIds: [1, 3] } })
       await screen.findByText('2 groups')
       await user.type(screen.getByPlaceholderText(/Multiple/), 'Mapmaker')
       await user.tab()
@@ -577,7 +589,7 @@ describe('EditGroupDialog', () => {
 
     it('saves in one bulk request, not by re-saving each group, and can be undone', async () => {
       vi.mocked(imageApi.bulkEdit).mockImplementation(async (ids) => responseFor(ids))
-      const { user } = renderDialog({ groupIds: [1, 2] })
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2] } })
       await setTypeOfAll(user)
 
       await waitFor(() =>
@@ -620,7 +632,7 @@ describe('EditGroupDialog', () => {
         ids.map((id) => structuredClone(all[id])),
       )
       vi.mocked(imageApi.bulkEdit).mockImplementation(async (ids) => responseFor(ids))
-      const { user } = renderDialog({ groupIds: [2, 5] })
+      const { user } = renderDialog({ importReview: { groupIds: [2, 5] } })
       await setTypeOfAll(user)
 
       const confirm = await screen.findByRole('dialog', { name: 'Edit many images?' })
@@ -636,7 +648,7 @@ describe('EditGroupDialog', () => {
 
     it('puts the files back when the request fails', async () => {
       vi.mocked(imageApi.bulkEdit).mockRejectedValue(new Error('Database is locked'))
-      const { user } = renderDialog({ groupIds: [1, 2] })
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2] } })
       await setTypeOfAll(user)
 
       await waitFor(() => expect(toast.error).toHaveBeenCalled())
