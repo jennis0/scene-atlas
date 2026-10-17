@@ -17,7 +17,7 @@ function Nested({
     <Dialog open onOpenChange={(v) => onOuterChange(v)}>
       <DialogContent>
         <button onClick={() => setInnerOpen(true)}>open inner</button>
-        <input aria-label="inline edit" onKeyDown={(e) => e.preventDefault()} />
+        <input aria-label="inline edit" onKeyDown={(e) => e.stopPropagation()} />
         <Dialog
           open={innerOpen}
           onOpenChange={(v) => {
@@ -54,6 +54,37 @@ describe('Dialog Escape handling', () => {
     render(<Nested onOuterChange={onOuterChange} onInnerChange={vi.fn()} />)
     fireEvent.keyDown(screen.getByLabelText('inline edit'), { key: 'Escape' })
     expect(onOuterChange).not.toHaveBeenCalled()
+  })
+
+  it('leaves Escape to an open Radix menu or popover', () => {
+    const onOuterChange = vi.fn()
+    render(
+      <>
+        <Nested onOuterChange={onOuterChange} onInnerChange={vi.fn()} />
+        <div data-radix-popper-content-wrapper="">
+          <div data-state="open" role="menu" />
+        </div>
+      </>,
+    )
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onOuterChange).not.toHaveBeenCalled()
+  })
+
+  it('still closes when a menu is only animating out, even if it prevented default', () => {
+    // Opening a dialog from a dropdown item leaves the menu mounted (closed) briefly.
+    const onOuterChange = vi.fn()
+    render(
+      <>
+        <Nested onOuterChange={onOuterChange} onInnerChange={vi.fn()} />
+        <div data-radix-popper-content-wrapper="">
+          <div data-state="closed" role="menu" />
+        </div>
+      </>,
+    )
+    const event = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })
+    event.preventDefault()
+    window.dispatchEvent(event)
+    expect(onOuterChange).toHaveBeenCalledWith(false)
   })
 
   it('unregisters when closed or unmounted', () => {

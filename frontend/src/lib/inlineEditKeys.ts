@@ -19,9 +19,8 @@ export function onInlineEditKey(
         ? onEscape
         : undefined
   if (!handler) return
-  // Consume the key: an Escape that cancels an edit must not also close the enclosing
-  // Dialog (its window listener skips default-prevented events, and stopPropagation keeps
-  // the key from reaching window at all), and Enter must not reach parent key handlers.
+  // Consume the key: stopPropagation keeps an Escape that cancels an edit from reaching
+  // the Dialog's window listener, and Enter from reaching parent key handlers.
   e.preventDefault()
   e.stopPropagation()
   handler()

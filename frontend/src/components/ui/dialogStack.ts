@@ -7,9 +7,14 @@ type Close = () => void
 
 const stack: Close[] = []
 
+// An open Radix menu or popover dismisses itself on Escape (document listener, so it runs
+// first) and should take that key alone. Its closing animation leaves it mounted with
+// data-state="closed", which must not swallow the next Escape. defaultPrevented can't
+// tell those apart, because Radix calls preventDefault either way.
+const OPEN_RADIX_LAYER = '[data-radix-popper-content-wrapper] [data-state="open"]'
+
 function onKeyDown(e: KeyboardEvent) {
-  // defaultPrevented: something inside already handled it (e.g. cancelled an inline edit).
-  if (e.key !== 'Escape' || e.defaultPrevented) return
+  if (e.key !== 'Escape' || document.querySelector(OPEN_RADIX_LAYER)) return
   stack[stack.length - 1]?.()
 }
 
