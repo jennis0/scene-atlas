@@ -23,7 +23,7 @@ Section numbers are referenced from code comments (`design/ingestion.md §N`); k
 | `backend/app/services/memory_budget.py` | `MemoryBudget`: memory-aware admission for prepare. |
 | `backend/app/api/imports.py`, `backend/app/models/import_schemas.py` | HTTP API and its models. |
 | `frontend/src/lib/import/` | `ImportManager` (client-side owner of uploads and polling), `importClient`, `hasher` + `hash.worker`, `useImports` hooks. |
-| `frontend/src/components/imports/` | `ImportDialog`, `ImportReportDialog`, `GroupLedger`, `ImportJobRow` (activity dock row). |
+| `frontend/src/components/imports/` | `ImportDialog` (with `ImportResultView`), `GroupLedger`, `ImportJobRow` (activity dock row). |
 
 ## 1. Why
 
@@ -187,7 +187,7 @@ One batch, in `ingest_process.py`:
    - Missing staged file → `bytes_lost` failure.
    - `plan_decode` reads the header and estimates peak memory; the item reserves that from `MemoryBudget` before decoding.
    - Decode once. JPEGs over `pixel_hash_max_pixels` are decoded at reduced scale (`Image.draft`) and skip the pixel hash; PNG/WebP always decode in full.
-   - From that decode: pixel hash, then thumbnails (150/400/800 px JPEG, cascading large → small, LANCZOS). Colours and pHash read the 800 px thumbnail. Grid detection (`_detect_grid`, battlemaps only) re-reads the file: detector v3 at full resolution for maps of 1000 px or more (unless `grid_analysis_max_dim` is set), the legacy detector below that; see [parser.md](parser.md#2-grid-detection-battlemaps-only) and [grid-detection-v3.md](grid-detection-v3.md).
+   - From that decode: pixel hash, then thumbnails (150/400/800 px, cascading large → small, LANCZOS; JPEG, or RGBA WebP when the image has transparent pixels; see [storage.md](storage.md#key-generation)). Colours and pHash read the 800 px thumbnail; colour extraction ignores transparent pixels. Grid detection (`_detect_grid`, battlemaps only) re-reads the file: detector v3 at full resolution for maps of 1000 px or more (unless `grid_analysis_max_dim` is set), the legacy detector below that; see [parser.md](parser.md#2-grid-detection-battlemaps-only) and [grid-detection-v3.md](grid-detection-v3.md).
    - Convert to the stored format if configured ([§10](#10-stored-format)), writing straight into `{image library}/.incoming/`.
    - Otherwise copy the original to `{image library}/.incoming/`. Thumbnails are written to `{thumbnail store}/.incoming/`. Temp files sit on their destination's volume, so final placement is a rename, and the one unavoidable library-drive write happens in parallel with CPU work, outside the write lock.
    - Videos: first frame for thumbnails and embedding; no pixel hash or pHash.
@@ -307,7 +307,7 @@ create job → manifest chunks → (archives) → seal ──▶ show group plan
 
 ### 8.2 Views
 
-`ImportDialog` (start view, then progress with notices, group ledger, Pause/Resume/Cancel), `ImportJobRow` in the activity dock (queue banner with "Retry now" when system-paused), and `ImportReportDialog` (Groups, Problems, Already in library, Skipped; Retry, Import as new copies, Undo import, Dismiss, Review in editor). All are pure views over `ImportManager`; lists page through `GET /imports/{id}/items`.
+`ImportDialog` (start view; progress with notices, group ledger, Pause/Resume/Cancel; and in the same frame once finished, the result: Groups, Problems, Already in library, Skipped; Retry, Import as new copies, Undo import, Review in editor, Done) and `ImportJobRow` in the activity dock (queue banner with "Retry now" when system-paused; Undo and Dismiss on finished rows). All are pure views over `ImportManager`; lists page through `GET /imports/{id}/items`.
 
 ## 9. Maintenance and recovery
 

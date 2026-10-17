@@ -1,4 +1,4 @@
-import { ArrowUpDown, Loader2, Pencil, X } from 'lucide-react'
+import { ArrowUpDown, Grid2x2, Grid3x3, Loader2, Pencil, X } from 'lucide-react'
 import { FilterChipList } from '@/components/FilterMenuContent'
 import {
   DropdownMenu,
@@ -7,7 +7,13 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { RELEVANCE_MIN, RELEVANCE_MAX, RELEVANCE_STEP, relevanceToPercent } from '@/lib/constants'
+import {
+  RELEVANCE_MIN,
+  RELEVANCE_MAX,
+  RELEVANCE_STEP,
+  TILE_WIDTH,
+  relevanceToPercent,
+} from '@/lib/constants'
 import { SORT_OPTIONS } from '@/hooks/useGallerySearch'
 import type { UseGallerySearchReturn } from '@/hooks/useGallerySearch'
 
@@ -17,6 +23,9 @@ interface GalleryResultsBarProps {
   search: Search
   displayImageCount: number
   onOpenMassEdit: () => void
+  /** Individual-view tile width in px */
+  tileWidth: number
+  onTileWidthChange: (width: number) => void
 }
 
 /** Under the search: active filter chips, then the result count, sort, Edit all and relevance. */
@@ -24,6 +33,8 @@ export function GalleryResultsBar({
   search,
   displayImageCount,
   onOpenMassEdit,
+  tileWidth,
+  onTileWidthChange,
 }: GalleryResultsBarProps) {
   const { filters, handleFiltersChange, hasActiveSearch, clearAll } = search
   return (
@@ -49,6 +60,12 @@ export function GalleryResultsBar({
         <ResultCount search={search} />
         <Separator />
         <SortMenu search={search} />
+        {search.viewMode === 'individual' && (
+          <>
+            <Separator />
+            <TileSizeSlider width={tileWidth} onChange={onTileWidthChange} />
+          </>
+        )}
         <EditAllButton
           search={search}
           displayImageCount={displayImageCount}
@@ -128,8 +145,35 @@ function SortMenu({ search }: { search: Search }) {
 const EDIT_ALL_CLASS =
   'relative target-24 flex items-center gap-1.5 hover:text-foreground transition-colors'
 
+/** Small-grid icon · slider · large-grid icon, for the individual view's tile width. */
+function TileSizeSlider({ width, onChange }: { width: number; onChange: (w: number) => void }) {
+  const fill = ((width - TILE_WIDTH.min) / (TILE_WIDTH.max - TILE_WIDTH.min)) * 100
+  return (
+    <div className="flex items-center gap-1.5" title="Tile size">
+      <Grid3x3 aria-hidden="true" className="h-3 w-3" />
+      <input
+        type="range"
+        min={TILE_WIDTH.min}
+        max={TILE_WIDTH.max}
+        step={TILE_WIDTH.step}
+        value={width}
+        onChange={(e) => onChange(Number(e.target.value))}
+        aria-label="Tile size"
+        aria-valuetext={`${width} pixels wide`}
+        className="range w-16"
+        style={{ '--fill': `${fill}%` } as React.CSSProperties}
+      />
+      <Grid2x2 aria-hidden="true" className="h-3.5 w-3.5" />
+    </div>
+  )
+}
+
 /** Bulk-edit everything in the results. Grouped view caps it at 500 groups. */
-function EditAllButton({ search, displayImageCount, onOpenMassEdit }: GalleryResultsBarProps) {
+function EditAllButton({
+  search,
+  displayImageCount,
+  onOpenMassEdit,
+}: Pick<GalleryResultsBarProps, 'search' | 'displayImageCount' | 'onOpenMassEdit'>) {
   const grouped = search.viewMode === 'grouped'
   const count = grouped ? search.totalGroups : displayImageCount
   if (count === 0) return null

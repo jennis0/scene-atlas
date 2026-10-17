@@ -87,11 +87,54 @@ export function buildPayload(group: EditableGroupState): GroupEditRequest {
   }
 }
 
+/**
+ * Import review shows a small first batch quickly, then appends bigger ones: every
+ * append re-renders the whole editor (each file card), so that cost, not the
+ * requests, is what limits how fast a large import fills in.
+ */
+const REVIEW_FIRST_BATCH = 8
+const REVIEW_BATCH_SIZE = 40
+
+/**
+ * Fetch groups one after another. The backend serialises group reads, so parallel
+ * requests only contend: 68 groups take ~0.3 s one at a time and ~1.9 s eight at a time.
+ */
+async function fetchInOrder(ids: number[]): Promise<GroupDetail[]> {
+  const details: GroupDetail[] = []
+  for (const id of ids) details.push(await groupApi.get(id))
+  return details
+}
+
+/**
+ * Split group ids into the batches import review fetches. A group the user asked to
+ * start on gets a batch of its own, first: groups are appended as batches land, so it
+ * goes first in the sidebar (slotting it in later would shift the selection).
+ */
+export function planReviewBatches(
+  ids: number[],
+  start: number | undefined,
+): { batches: number[][]; startFirst: boolean } {
+  const startFirst = start !== undefined && ids.includes(start)
+  const rest = startFirst ? ids.filter((id) => id !== start) : ids
+  const batches: number[][] = startFirst ? [[start]] : []
+  let i = 0
+  if (!startFirst && rest.length > 0) {
+    batches.push(rest.slice(0, REVIEW_FIRST_BATCH))
+    i = REVIEW_FIRST_BATCH
+  }
+  for (; i < rest.length; i += REVIEW_BATCH_SIZE) {
+    batches.push(rest.slice(i, i + REVIEW_BATCH_SIZE))
+  }
+  return { batches, startFirst }
+}
+
 export interface UseEditGroupLoadOptions {
   open: boolean
   groupId?: number | null
   seedImages?: SeedImage[]
   groupIds?: number[]
+  /** Import review: open on this group rather than on all groups */
+  startGroupId?: number
   /** Called in addition to resetLoad() when the single-group load effect
    *  detects no group to load (gId === null). Use this to reset dialog-local
    *  state (saving, merging, DnD, etc.) that the hook doesn't own. */
@@ -113,6 +156,8 @@ export interface UseEditGroupLoadReturn {
   loadError: string | null
   isMassEdit: boolean
   ungroupedCount: number
+  /** Import review: groups still loading after the editor opened */
+  pendingGroupCount: number
   resetLoad: () => void
 }
 
@@ -121,9 +166,13 @@ export function useEditGroupLoad({
   groupId,
   seedImages,
   groupIds,
+  startGroupId,
   onResetDialogState,
   fileEditing,
 }: UseEditGroupLoadOptions): UseEditGroupLoadReturn {
+  // Read when the first batch lands; a ref so a new start group doesn't refetch
+  const startGroupIdRef = useRef(startGroupId)
+  startGroupIdRef.current = startGroupId
   const {
     setGroups,
     setActiveTab,
@@ -137,6 +186,8 @@ export function useEditGroupLoad({
   const isImportReview = !!groupIds && groupIds.length > 0
 
   const [loading, setLoading] = useState(false)
+  // Import review: groups still being fetched after the editor has opened
+  const [pendingGroupCount, setPendingGroupCount] = useState(0)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [ungroupedCount, setUngroupedCount] = useState(0)
 
@@ -157,7 +208,16 @@ export function useEditGroupLoad({
     setFileFilter(EMPTY_FILTER)
     setEditingSvHeading(null)
     loadedGroupIdsRef.current = new Set()
+    setPendingGroupCount(0)
   }, [setGroups, setActiveTab, setFileFilter, setEditingSvHeading])
+
+  // Start every opening fresh. Without this, import review kept the previous
+  // review's groups and appended the next import's after them.
+  useEffect(() => {
+    if (open) return
+    resetLoad()
+    onResetDialogStateRef.current?.()
+  }, [open, resetLoad])
 
   // Single-group mode
   useEffect(() => {
@@ -283,53 +343,62 @@ export function useEditGroupLoad({
     const newIds = allIds.filter((id) => !loadedGroupIdsRef.current.has(id))
     if (newIds.length === 0) return
 
-    // isFirstLoad is captured synchronously before any async work; safe to use in .then/.finally
+    // isFirstLoad is captured synchronously before any async work; safe to use below
     const isFirstLoad = loadedGroupIdsRef.current.size === 0
+    // Claim the ids now so a re-run while batches are in flight doesn't fetch them twice
+    newIds.forEach((id) => loadedGroupIdsRef.current.add(id))
+
+    const { batches, startFirst } = planReviewBatches(
+      newIds,
+      isFirstLoad ? startGroupIdRef.current : undefined,
+    )
+    // Ids claimed above but not yet shown; released if this run is abandoned
+    const unshown = new Set(newIds)
+
     if (isFirstLoad) {
       setLoading(true)
       setLoadError(null)
     }
+    setPendingGroupCount((n) => n + newIds.length)
 
     // Cancellation flag — prevents stale responses from mutating state if the dialog
     // closes and reopens (resetting loadedGroupIdsRef) before this fetch resolves.
     let cancelled = false
 
-    // On first load fetch vocab/authors alongside groups; on incremental batches skip
-    // them to avoid re-fetching unchanged global data and overwriting any user edits.
-    const promises: Promise<unknown>[] = newIds.map((id) => groupApi.get(id))
-    if (isFirstLoad) {
-      promises.push(tagApi.getCategories(), imageApi.getAuthors())
-    }
-
-    Promise.all(promises)
-      .then((results) => {
+    // Show the editor as soon as the first batch is in; later batches append. Vocab
+    // and authors are global, so they're fetched once, with the first batch.
+    const run = async () => {
+      for (const [index, batch] of batches.entries()) {
+        const first = isFirstLoad && index === 0
+        const [details, categories, authors] = await Promise.all([
+          fetchInOrder(batch),
+          first ? tagApi.getCategories() : undefined,
+          first ? imageApi.getAuthors() : undefined,
+        ])
         if (cancelled) return
-
-        const groupDetails = results.slice(0, newIds.length) as GroupDetail[]
-        const newEditableGroups = groupDetails.map((detail) => groupDetailToEditable(detail))
-
-        newIds.forEach((id) => loadedGroupIdsRef.current.add(id))
-        setGroups((prev) => [...prev, ...newEditableGroups])
-
-        if (isFirstLoad) {
-          const categories = results[newIds.length] as Awaited<
-            ReturnType<typeof tagApi.getCategories>
-          >
-          const authors = results[newIds.length + 1] as string[]
-          setTagVocab(parseTagVocabulary(categories))
-          setAuthorSuggestions(authors)
-          setActiveTab(allIds.length > 1 ? ALL_TAB : 0)
+        setGroups((prev) => [...prev, ...details.map((detail) => groupDetailToEditable(detail))])
+        batch.forEach((id) => unshown.delete(id))
+        setPendingGroupCount((n) => n - batch.length)
+        if (first) {
+          setTagVocab(parseTagVocabulary(categories!))
+          setAuthorSuggestions(authors!)
+          setActiveTab(startFirst ? 0 : allIds.length > 1 ? ALL_TAB : 0)
+          setLoading(false)
         }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setLoadError(getApiErrorMessage(err, 'Failed to load imported groups'))
-      })
-      .finally(() => {
-        if (!cancelled && isFirstLoad) setLoading(false)
-      })
+      }
+    }
+    run().catch((err: unknown) => {
+      if (cancelled) return
+      setPendingGroupCount((n) => n - unshown.size)
+      setLoading(false)
+      setLoadError(getApiErrorMessage(err, 'Failed to load imported groups'))
+    })
 
     return () => {
       cancelled = true
+      // Let a re-run fetch whatever this run hadn't shown yet
+      unshown.forEach((id) => loadedGroupIdsRef.current.delete(id))
+      setPendingGroupCount((n) => n - unshown.size)
     }
   }, [open, groupIds, isImportReview, setGroups, setTagVocab, setAuthorSuggestions, setActiveTab])
 
@@ -338,6 +407,7 @@ export function useEditGroupLoad({
     loadError,
     isMassEdit,
     ungroupedCount,
+    pendingGroupCount,
     resetLoad,
   }
 }

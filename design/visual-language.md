@@ -6,9 +6,15 @@ A comprehensive reference for the Scene Atlas UI. All new components must confor
 
 ## Aesthetic Direction
 
-**Theme:** Cartographic / archival. The dark mode evokes a scholar's map room at night — deep navy surfaces, warm parchment text, amber gold accents used sparingly for wayfinding. The light mode uses warm parchment tones reminiscent of aged paper, with the same amber accent adapted for readability.
+**Theme:** Cartographic / archival, carried by the maps themselves rather than by ornament. Surfaces are quiet so the art leads; character comes from type (a book serif for names, the Cinzel wordmark) and a single accent colour.
 
-**NOT:** generic dark/light mode, purple gradients, cold whites/greys, high-contrast tech aesthetics.
+**Palettes.** Two, each with light and dark mode, chosen in Settings → Appearance and stored per device (`scene-atlas-palette` in localStorage, applied as `data-palette` on `<html>` before first paint):
+- **Navy & gold** (default): deep navy and warm parchment, gold accent. Base tokens in `:root` / `.dark`.
+- **Ink & verdigris**: green-black ink and pale paper, aged-copper green accent. Overrides in `[data-palette='verdigris']`.
+
+A new palette is a new override block in `index.css` plus an entry in `lib/palette.ts`; it must keep every text token at 4.5:1 (the accessibility spec scans every palette and theme).
+
+**NOT:** decorative ornament — glowing stripes, fading underline rules, dot-grid backgrounds, header washes, blur on surfaces that don't overlap anything, hover zoom on artwork, tiny uppercase letter-spaced labels. These were removed in the 2026-10 refresh because they read as generic generated UI and competed with the maps.
 
 ### Core Adjectives
 - Precise and measured (tight spacing, clean alignment)
@@ -27,7 +33,7 @@ All values sourced from CSS custom properties defined in `frontend/src/index.css
 | Token | Approx. hex | Role |
 |-------|-------------|------|
 | `--surface-canvas` | `#0b0e14` | ImageViewer deep canvas bg |
-| `--background` | `#0e1118` | Page base, dot-grid applied |
+| `--background` | `#0e1118` | Page base |
 | `--popover` | `#12171f` | Dropdowns, popovers, panel headers/footers |
 | `--card` | `#161c28` | Card surfaces, panel backgrounds |
 | `--muted` | `#181f2e` | Muted/recessed surfaces, hover backgrounds |
@@ -39,7 +45,7 @@ All values sourced from CSS custom properties defined in `frontend/src/index.css
 | `--secondary` | `#e5ddd0` | Subtle warm recessed surface |
 | `--muted` | `#ece6dc` | Muted surfaces |
 | `--surface-canvas` | `#ece5db` | ImageViewer canvas bg |
-| `--background` | `#f3ede5` | Warm parchment base, dot-grid applied |
+| `--background` | `#f3ede5` | Warm parchment base |
 | `--card` | `#f8f5f0` | Card surfaces (slightly lighter than bg) |
 | `--popover` | `#faf7f3` | Lightest surface for floating layers |
 
@@ -69,17 +75,18 @@ Three font families, used in distinct roles. **Never mix roles.**
 
 | Family | Tailwind class | Role |
 |--------|---------------|------|
-| **Cinzel** (display serif) | `font-display` | Page titles, map/group names, modal headings. Conveys gravitas. |
+| **Newsreader** (book serif) | `font-display` | Map/group names, viewer and dialog titles. Real lowercase, readable at any size. |
+| **Cinzel** (capitals serif) | `font-wordmark` | The "Scene Atlas" wordmark only. |
 | **Figtree** (geometric sans) | `font-sans` (default) | All body text, labels, controls, metadata. |
 | **JetBrains Mono** | `font-mono` | Filenames, UUIDs, dimensions, file sizes. `text-[10px]` usually. |
 
 ### Size Scale in Practice
-- Page title: `font-display text-2xl font-medium tracking-wide` (GalleryHeader)
+- Wordmark: `font-wordmark text-2xl font-medium tracking-wide` (GalleryHeader)
 - Viewer heading (image name): `font-display text-2xl font-semibold`
 - Card name: `text-[13px] font-medium` (gradient overlay) or `text-sm font-semibold`
 - Metadata / labels: `text-[11px]` or `text-xs text-muted-foreground`
 - Micro badges / counts: `text-[10px]`
-- Section labels: `.section-label` utility — `text-[10px] font-semibold tracking-[0.1em] uppercase text-muted-foreground`
+- Section labels: `.section-label` utility — `text-xs font-medium text-muted-foreground`, sentence case
 
 ---
 
@@ -89,15 +96,12 @@ Amber (`primary`) is the single accent colour. It draws the eye, so it must be u
 
 | Use | Pattern |
 |-----|---------|
-| Top-of-viewport stripe | `body::before` in index.css — always present |
-| Top of modal/panel | Split gradient: canvas side `from-transparent to-primary/80`, sidebar side `from-primary/80 to-transparent` — brightest at the join line |
 | Active/selected states | `bg-primary/10 text-primary border border-primary/40` |
 | Focus | The global `:focus-visible` outline in `index.css` — components don't set their own |
 | Hover on interactive text | `hover:text-primary` |
-| Page-level decorative rule | `h-[1.5px] w-16 bg-gradient-to-r from-primary/70 to-transparent` |
-| Panel-level decorative rule | `h-px w-7 bg-gradient-to-r from-primary to-transparent` |
+| The one primary action (Import) | `Button` default variant (`bg-primary text-primary-foreground`) — every other button is secondary, outline or ghost |
 
-**Never use amber as a background fill** (except `bg-primary` for the tiny count badge on filter buttons, where text-primary-foreground ensures contrast).
+The accent is never decoration: no stripes, glows or underline rules.
 
 ---
 
@@ -250,14 +254,19 @@ All image cards (`GroupCard`, `SceneTile`) share a **gradient overlay** structur
 │      (thumbnail)        │
 │                         │
 │ ░░░░░░░░░░░░░░░░░░░░░   │ ← gradient overlay: from-black/85 via-black/55 to-transparent
-│  Name           [N]  │   │ ← text-[13px] font-medium text-white
-│  Author              │   │ ← text-[11px] text-white/85
+│  Group                   │ ← font-display text-[15px] font-semibold text-white, wraps to 2 lines
+│  Subgroup · Variant      │ ← font-display text-[13px] text-white/85, wraps to 2 lines
+│  Author                  │ ← text-[11px] text-white/85 (sans)
 └─────────────────────────┘
 ```
 
 **Overlay gradient:** `bg-gradient-to-t from-black/85 via-black/55 to-transparent pt-10 pb-2.5 px-3`
 
-**Hover animation:** the card itself does not scale. The thumbnail inside scales (`transition-transform duration-300 group-hover:scale-[1.04]` on GroupCard, `scale-[1.05]` on SceneTile) and the card gains a border tint and shadow.
+**Hover:** nothing moves — the card gains a border tint and shadow only. The thumbnail sits on a `transparency-backdrop` checkerboard so transparent images (stored as RGBA WebP thumbnails) read as transparent rather than black.
+
+**Gallery tile caption (`SceneTile` in `ImageGrid`):** three lines, set like the viewer — the group in the serif at semibold, then `{subgroup} · {image name}` in the serif at regular weight (each only when present and distinct), then the author in the sans. Names wrap (up to two lines each) rather than truncating. Standalone images show their name, then the author.
+
+**Tile size:** the individual view has a size slider (small-grid icon · `range` slider · large-grid icon) in the results row, 160–360px in 40px steps (`TILE_WIDTH`, `useTileSize`, remembered per device).
 
 **Border on cards:**
 - Default: `border border-border/30`
@@ -324,13 +333,12 @@ Full-screen overlay with fixed image canvas + structured sidebar:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ │  ← amber stripe: bright at join, transparent at edges
 ├──────────────────────────────────┬───────────────────────────────────┤
 │                                  │  [Edit group]            [✕]      │  ← controls row
 │         Image canvas             ├───────────────────────────────────┤
-│         dot-grid background      │  Map Name (font-display, xl)      │  ← fixed info section
-│         (dark navy + subtle      │  by Author                        │    (shrink-0, border-b)
-│          white dots at 28px)     │  Variant  [current value] [✎] [✕] │
+│         plain canvas             │  Map Name (font-display, xl)      │  ← fixed info section
+│                                  │  by Author                        │    (shrink-0, border-b)
+│                                  │  Variant  [current value] [✎] [✕] │
 │                                  │  [Grid][Gridless][?]  W × H       │
 │    [◀]                   [▶]    │  ● ● ● ●  1920×1080 · 4.2MB      │
 │                                  │  [tag] [tag] [+ Tag]              │
@@ -346,19 +354,14 @@ Full-screen overlay with fixed image canvas + structured sidebar:
 ### Key layout rules
 - Container: `max-width: 1600px; height: 88vh` — fixed size, image fits within canvas
 - Canvas: `flex-1 relative`, `min-w-0` (allows flex shrink)
-- Canvas background: `hsl(var(--surface-canvas))` + `radial-gradient(circle, hsl(var(--foreground) / 0.045) 1px, transparent 1px)` at 28px
+- Canvas background: plain `hsl(var(--surface-canvas))`
+- Grid overlay: when the image has a detected square grid, a "Grid W×H" toggle (bottom-left of the canvas, also the `G` key, remembered per device) draws `GridOverlay` — an SVG sized to the image's rendered box with one line per detected column/row, dark under light so it shows on any map
 - Sidebar: `w-[440px] shrink-0 flex flex-col` — **does not grow or shrink**
 
 ### Sidebar sections (top to bottom)
-1. `h-0.5 shrink-0 bg-gradient-to-l from-transparent to-primary/80` — amber stripe (sidebar half)
-2. Controls row: `shrink-0` — edit group link (left), close × (right)
-3. **Image info**: `shrink-0 border-b border-border/30 px-4 pb-4` — **fixed, never scrolls away**
-4. **Variants**: `flex-1 min-h-0 overflow-y-auto` — only this section scrolls
-
-### Amber stripe implementation
-The stripe spans the full viewer top but is **brightest at the canvas/sidebar join**, fading to transparent at both outer rounded corners:
-- Canvas: `absolute top-0 inset-x-0 h-0.5 bg-gradient-to-r from-transparent to-primary/80`
-- Sidebar: first child `h-0.5 shrink-0 bg-gradient-to-l from-transparent to-primary/80`
+1. Controls row: `shrink-0` — edit group link (left), close × (right)
+2. **Image info**: `shrink-0 border-b border-border/30 px-4 pb-4` — **fixed, never scrolls away**
+3. **Variants**: `flex-1 min-h-0 overflow-y-auto` — only this section scrolls
 
 ### Inline editing pattern (name field)
 ```tsx
@@ -415,16 +418,14 @@ Container: `inline-flex rounded-md overflow-hidden border border-border`
 ### ActivityDock (`frontend/src/components/ActivityDock.tsx`)
 Floating bottom-right card for imports (from the ImportManager) and background jobs.
 **Collapsed pill:** `bg-card/95 backdrop-blur-sm border border-border/40 rounded-full shadow-lg shadow-black/40`. Hover: `bg-secondary hover:-translate-y-px`. Shows Loader2 (spinning) when active, PauseCircle when imports are system-paused, WifiOff when offline, Package when idle. Active count badge uses the solid tier.
-**Expanded card:** `w-[320px] max-h-[min(520px,65vh)] bg-card rounded-xl border border-border/30 shadow-2xl shadow-black/60`. Amber stripe at top. Header follows panel header pattern (Cinzel title + amber rule). A tinted amber notice row explains a system pause, with "Try again".
-**Import rows (`components/imports/ImportJobRow.tsx`):** `rounded-md border-border/30 bg-secondary/20 hover:bg-secondary/40`. Finished: `opacity-80 hover:opacity-100`. Progress: 3px track. Status text stays muted; failures are signalled by the icon, not by colouring the whole line. Hover reveals Pause/Resume, or Dismiss once finished (no confirm: dismiss never deletes).
+**Expanded card:** `w-[320px] max-h-[min(520px,65vh)] bg-card rounded-xl border border-border/30 shadow-2xl shadow-black/60`. Header follows the panel header pattern (`PanelTitle`). A tinted amber notice row explains a system pause, with "Try again".
+**Import rows (`components/imports/ImportJobRow.tsx`):** `rounded-md border-border/30 bg-secondary/20 hover:bg-secondary/40`. Finished: `opacity-80 hover:opacity-100`. Progress: 3px track. Status text stays muted; failures are signalled by the icon, not by colouring the whole line. Hover reveals Pause/Resume, or Undo import (confirmed) and Dismiss (no confirm: dismiss never deletes) once finished.
 **Visibility:** Hidden when no jobs exist. No auto-expand — user clicks pill to open.
 
 ### Import ledger (`components/imports/GroupLedger.tsx`)
-The import's groups as ruled rows that fill in as images land:
-- Group name `font-display text-[13.5px]`, author `text-[11px] text-muted-foreground`, counts `font-mono text-[10.5px] tabular-nums` in the right margin (`done/total`, failed count in `text-destructive`).
-- One hairline per row: track `h-px bg-border/40`, fill `bg-primary/80` while open, `bg-primary/35` when finished.
-- Clickable rows (groups with imported images) extend 8px into the gutter by position and use `hover:bg-muted/30`.
-- Virtualised: a folder can plan thousands of groups.
+The import's groups as ruled rows. Virtualised: a folder can plan thousands of groups. Clickable rows (groups with imported images) extend 8px into the gutter and use `hover:bg-muted/30`. Two variants:
+- **progress** (import dialog, and the report while still running): rows fill in as images land. Group name `font-display text-[15px]`, author `text-[11px]`, counts `font-mono text-[10.5px] tabular-nums` in the margin (`done/total`, failed in `text-destructive`), one hairline progress bar per row (`bg-primary/80` while open, `/35` finished). 48px rows.
+- **report** (the import dialog's finished view): 44px rows, ruled `border-border/40`. A 40×30 cover thumbnail (`cover_image_id` from the job detail, on the transparency backdrop), group name `font-display text-[15px]`, author only when the groups' authors differ (otherwise it's in the dialog's status line), then on the right only the exceptions worth reading — `N failed` (destructive), `N already in library`, `added to an existing group` — and `N images`. No progress bar.
 
 ### Import notices (`components/imports/ImportFrame.tsx`)
 One-line notices inside import dialogs: `rounded-lg border px-3 py-2.5`, attention `border-primary/25 bg-primary/[0.06]` (amber icon), problem `border-destructive/30 bg-destructive/[0.07]` (red icon). Actions go on a row beneath the text, never squeezed beside it.
@@ -474,7 +475,6 @@ Confirm button styles:
 - Sticky variant header inside scroll container: `z-10`
 - ImageViewer overlay: `z-50`
 - Tag picker / subgroup picker dropdowns: `z-50`
-- Global amber top stripe (body::before): `z-1000`
 
 ---
 
@@ -531,6 +531,7 @@ Target: WCAG 2.2 AA in both themes. `e2e/tests/accessibility.spec.ts` runs axe o
 - **Target size.** Controls are at least 24×24px. For small icons use the `target-24` utility, which grows the hit area with an invisible `::after` (the element must be positioned).
 - **Dialogs** are named by their `DialogTitle` / `PanelTitle` automatically; see [dialog-focus-management.md](dialog-focus-management.md) for the modal layer.
 - **Sliders** use the `range` class: a quiet track filled to `--fill`, and a knob that grows on hover and carries the focus outline.
+- **Shortcuts.** `/` focuses search from anywhere (not while typing or with a dialog open; the empty search box shows a `/` hint). In the viewer: ←/→ change image, Esc closes, `G` toggles the grid overlay. Declare them with `aria-keyshortcuts`.
 - **Motion.** `prefers-reduced-motion` collapses transitions and stops looping animations globally.
 - **Reflow.** No fixed widths that exceed the viewport: popovers use `w-[min(400px,calc(100vw-2rem))]`, the header wraps, and the image viewer stacks below `lg`.
 

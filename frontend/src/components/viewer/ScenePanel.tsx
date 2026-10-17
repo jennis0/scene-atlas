@@ -202,9 +202,7 @@ function SceneSections({
   return sections.map((section) => (
     <div key={section.label} className="mb-3 last:mb-0">
       {sections.length > 1 && (
-        <p className="text-[11px] font-medium text-muted-foreground mb-2 uppercase tracking-wider">
-          {section.label}
-        </p>
+        <p className="text-[11px] font-medium text-muted-foreground mb-2">{section.label}</p>
       )}
       <div className="grid grid-cols-2 gap-2">
         {section.images.map((scene) => (

@@ -143,6 +143,9 @@ def test_full_flow(api):
     assert detail["groups"][0]["image_group_id"] is not None
     with api.SessionLocal() as db:
         assert db.query(Image).count() == 2
+        image_ids = {i.id for i in db.query(Image).all()}
+    # The report can show a thumbnail: the cover is one of the images this import added
+    assert detail["groups"][0]["cover_image_id"] in image_ids
 
 
 def test_list_supports_etag(api):

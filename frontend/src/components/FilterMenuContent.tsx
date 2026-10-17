@@ -315,7 +315,7 @@ export function FilterMenuContent({
               <div>
                 <p className="section-label mb-0.5">Filter by</p>
                 <div
-                  className={`flex items-center gap-[7px] font-display text-[17px] font-medium tracking-[0.04em] leading-none ${selectedColors.text}`}
+                  className={`flex items-center gap-[7px] font-display text-[17px] font-medium leading-none ${selectedColors.text}`}
                 >
                   <SelectedIcon className="h-3.5 w-3.5 flex-shrink-0 opacity-80" />
                   <span className="capitalize">{selectedGroup.label}</span>
@@ -347,7 +347,7 @@ export function FilterMenuContent({
                     <div className={`px-3.5 pb-1.5 ${groupIdx === 0 ? 'pt-3' : 'pt-3.5'}`}>
                       {groupIdx > 0 && <div className="mb-2.5 border-t border-border/30" />}
                       <div
-                        className={`flex items-center gap-[6px] font-display text-[13px] font-medium tracking-[0.04em] leading-none ${colors.text}`}
+                        className={`flex items-center gap-[6px] font-display text-[15px] font-medium leading-none ${colors.text}`}
                       >
                         {(() => {
                           const SectionIcon = getGroupIcon(group.id, group.iconName)

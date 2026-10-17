@@ -1,6 +1,6 @@
 // Gallery / image grid layout
-export const IMAGE_SIZE = 240
-export const CARD_HEIGHT = 180
+// Tile width range for the individual view's size slider, in px; tiles are 4:3.
+export const TILE_WIDTH = { min: 160, max: 360, step: 40, default: 240 } as const
 export const GRID_GAP = 16
 export const GRID_PADDING = 16
 

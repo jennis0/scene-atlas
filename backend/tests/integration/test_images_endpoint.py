@@ -291,6 +291,44 @@ class TestGetImageFile:
 
 
 # ---------------------------------------------------------------------------
+# GET /api/v1/images/{id}/thumbnail
+# ---------------------------------------------------------------------------
+
+
+class TestGetImageThumbnail:
+    @pytest.mark.parametrize(
+        ("key", "fmt", "mode", "content_type"),
+        [
+            ("t1_400x400.jpg", "JPEG", "RGB", "image/jpeg"),
+            ("t1_400x400.webp", "WEBP", "RGBA", "image/webp"),
+        ],
+    )
+    def test_serves_thumbnail_with_its_content_type(
+        self, images_db, tmp_db, tmp_path, monkeypatch, key, fmt, mode, content_type
+    ):
+        """Transparent images have WebP thumbnails; they must not go out as octet-stream."""
+        from PIL import Image as PILImage
+
+        from backend.app.services.image_store import ImageStore
+
+        client, ids = images_db
+        store = ImageStore(tmp_path / "thumbs")
+        dest = store.get_path(key)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        PILImage.new(mode, (40, 30)).save(dest, format=fmt)
+        monkeypatch.setattr("backend.app.api.images.get_thumbnail_store", lambda: store)
+
+        _, SessionLocal = tmp_db
+        with SessionLocal() as db:
+            db.get(Image, ids["img1"]).thumbnail_key = key
+            db.commit()
+
+        resp = client.get(f"/api/v1/images/{ids['img1']}/thumbnail")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == content_type
+
+
+# ---------------------------------------------------------------------------
 # POST /api/v1/images/backfill-grids
 # ---------------------------------------------------------------------------
 

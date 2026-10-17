@@ -1,0 +1,23 @@
+/** Colour palette, independent of light/dark: each has both modes (see index.css). */
+export type Palette = 'navy' | 'verdigris'
+export const PALETTES: readonly { value: Palette; label: string; title: string }[] = [
+  { value: 'navy', label: 'Navy & gold', title: 'Deep navy with gold accents' },
+  { value: 'verdigris', label: 'Ink & verdigris', title: 'Green-black ink with verdigris accents' },
+]
+
+export const PALETTE_STORAGE_KEY = 'scene-atlas-palette'
+
+/** Read the saved palette; anything unknown falls back to the default. */
+export function getStoredPalette(): Palette {
+  try {
+    return localStorage.getItem(PALETTE_STORAGE_KEY) === 'verdigris' ? 'verdigris' : 'navy'
+  } catch {
+    return 'navy'
+  }
+}
+
+/** The default palette is the base tokens, so only other palettes set the attribute. */
+export function applyPalette(palette: Palette) {
+  if (palette === 'navy') delete document.documentElement.dataset.palette
+  else document.documentElement.dataset.palette = palette
+}

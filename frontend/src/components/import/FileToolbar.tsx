@@ -175,7 +175,7 @@ export function FileToolbar({
         >
           {existingSubgroups.length > 0 && (
             <>
-              <div className="px-3 pt-2.5 pb-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+              <div className="px-3 pt-2.5 pb-1 text-xs font-semibold text-muted-foreground">
                 Existing
               </div>
               {existingSubgroups.map((sv) => (

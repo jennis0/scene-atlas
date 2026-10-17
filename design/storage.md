@@ -200,7 +200,10 @@ path: {base}/a1/b2/a1b2c3d4....jpg
 
 ### Key Generation
 - Originals: `uuid4().hex + lower-cased extension` (32 hex characters + extension).
-- Thumbnails: `{stem}_{w}x{h}.jpg` for each of `settings.thumbnail_sizes` (150, 400, 800). The 400×400 key is stored in `images.thumbnail_key`.
+- Thumbnails: `{stem}_{w}x{h}.{ext}` for each of `settings.thumbnail_sizes` (150, 400, 800). The 400×400 key is stored in `images.thumbnail_key`. All sizes of one image share the extension:
+  - `.jpg` (JPEG q85, RGB) for opaque images, including RGBA files whose alpha is fully opaque.
+  - `.webp` (lossy WebP q85, RGBA) when the image has transparent pixels (alpha band, LA/PA, or a tRNS key), so the frontend shows its own backdrop behind them. Before 2026-10 alpha was flattened by `convert("RGB")`, which made transparent areas (e.g. grid-only overlay PNGs) solid black; those older thumbnails stay black until the image is re-imported, as there is no thumbnail-regeneration job.
+  - Opaque images stay JPEG because it encodes several times faster than WebP and keeps existing libraries uniform. Code that derives sibling keys (`deletion_service._delete_all_thumbnails`, `maintenance._thumbnail_stem`) must not assume `.jpg`. `api/images.py` registers `image/webp` with `mimetypes` because Python < 3.13 doesn't always know it, and `FileResponse` would otherwise serve `application/octet-stream`.
 
 ### Shared storage keys
 

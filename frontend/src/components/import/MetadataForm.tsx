@@ -42,8 +42,7 @@ export function MetadataForm({
   onBlur,
   groupNameRef,
 }: MetadataFormProps) {
-  const labelClass =
-    'text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 block font-semibold'
+  const labelClass = 'text-xs text-muted-foreground mb-1.5 block font-semibold'
   const inputClass =
     'w-full h-8 px-3 text-sm rounded border bg-secondary text-foreground placeholder:text-muted-foreground transition-colors'
   const hintClass = 'text-[10px] text-muted-foreground mt-1'

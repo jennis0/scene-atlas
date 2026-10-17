@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import {
   Upload,
   LayoutGrid,
@@ -21,6 +21,7 @@ import { isApp } from '@/lib/appMode'
 import type { UseGallerySearchReturn } from '@/hooks/useGallerySearch'
 import type { EmbeddingStatus } from '@/hooks/useEmbeddingStatus'
 import type { ImageTypeFilter } from '@/components/import/fileFilter'
+import { isAnyDialogOpen } from '@/components/ui/dialogStack'
 
 // Platform helpers for borderless window layout
 const isMac = isApp && window.electronAPI?.platform === 'darwin'
@@ -37,6 +38,15 @@ export interface GalleryHeaderProps {
   onOpenSystemInfo: () => void
   onOpenMassEdit: () => void
   displayImageCount: number
+  /** Individual-view tile width in px */
+  tileWidth: number
+  onTileWidthChange: (width: number) => void
+}
+
+/** True when a key press should type into whatever has focus, not trigger a shortcut. */
+function isTypingTarget(el: EventTarget | null) {
+  if (!(el instanceof HTMLElement)) return false
+  return el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName)
 }
 
 export function GalleryHeader({
@@ -48,8 +58,24 @@ export function GalleryHeader({
   onOpenSystemInfo,
   onOpenMassEdit,
   displayImageCount,
+  tileWidth,
+  onTileWidthChange,
 }: GalleryHeaderProps) {
   const { theme, toggleTheme } = useTheme()
+
+  // "/" jumps to search from anywhere on the page, unless something else is being typed in.
+  const searchRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return
+      if (isTypingTarget(e.target) || isAnyDialogOpen()) return
+      e.preventDefault()
+      searchRef.current?.focus()
+      searchRef.current?.select()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   const {
     filters,
     imageType,
@@ -120,29 +146,20 @@ export function GalleryHeader({
   }, [facets, imageType, handleImageTypeChange])
 
   return (
-    <header
-      className="border-b border-border/70 backdrop-blur-md"
-      style={{
-        background:
-          'linear-gradient(180deg, hsl(var(--primary) / 0.08) 0%, hsl(var(--card) / 0.97) 65%)',
-      }}
-    >
+    <header className="border-b border-border/70 bg-card">
       {/* Windows/Linux: draggable titlebar strip matching the OS overlay zone */}
       {needsOverlayPadding && <div className="h-8 drag-region" />}
       <div className={`container mx-auto px-4 ${isMac ? 'pl-20' : ''}`}>
         <div
-          className={`${needsOverlayPadding ? 'pt-2 pb-2' : 'pt-4 pb-3'} flex flex-wrap gap-x-4 gap-y-2 ${needsOverlayPadding ? 'items-center' : 'items-start'} justify-between border-b border-border/70 ${isApp ? 'drag-region' : ''}`}
+          className={`${needsOverlayPadding ? 'pt-2 pb-2' : 'pt-4 pb-3'} flex flex-wrap gap-x-4 gap-y-2 items-center justify-between border-b border-border/70 ${isApp ? 'drag-region' : ''}`}
         >
           <div>
-            <h1 className="font-display text-2xl font-medium tracking-wide text-foreground">
+            <h1 className="font-wordmark text-2xl font-medium tracking-wide text-foreground">
               Scene Atlas
             </h1>
-            <div className="mt-0.5 h-[1.5px] w-16 bg-gradient-to-r from-primary/70 to-transparent" />
           </div>
           {/* Admin cluster: utility actions (ghost) + gap + primary Import CTA */}
-          <div
-            className={`flex items-center gap-1 ${needsOverlayPadding ? '' : 'mt-2'} ${isApp ? 'no-drag-region' : ''}`}
-          >
+          <div className={`flex items-center gap-1 ${isApp ? 'no-drag-region' : ''}`}>
             <Button
               variant="ghost"
               size="sm"
@@ -193,7 +210,7 @@ export function GalleryHeader({
         {tabStrip}
 
         <div className="flex flex-wrap md:flex-nowrap items-center gap-2 pt-3 pb-3">
-          <GallerySearchBar search={search} />
+          <GallerySearchBar search={search} inputRef={searchRef} />
 
           {embeddingStatus === 'loading' && (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 shrink-0">
@@ -246,6 +263,8 @@ export function GalleryHeader({
           search={search}
           displayImageCount={displayImageCount}
           onOpenMassEdit={onOpenMassEdit}
+          tileWidth={tileWidth}
+          onTileWidthChange={onTileWidthChange}
         />
       </div>
     </header>

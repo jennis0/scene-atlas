@@ -3,7 +3,6 @@ import { test, expect } from "../fixtures/base";
 import {
   importFiles,
   openImportDialog,
-  undoImport,
   waitForGalleryLoad,
 } from "../helpers/actions";
 import { writeUniquePng } from "../helpers/images";
@@ -34,10 +33,25 @@ test.describe("Activity Dock", () => {
     await expect(card).toBeVisible();
     await expect(card).toContainText("1 imported", { timeout: 120_000 });
 
-    // A finished import opens its report; clean up by undoing it.
+    // A clean finished import opens straight in the group editor.
     await card.getByRole("button", { name: new RegExp(label) }).click();
-    const report = page.getByRole("dialog");
-    await expect(report.getByRole("heading", { name: label })).toBeVisible();
-    await undoImport(page, 1);
+    await expect(page.getByTestId("edit-group-dialog")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("edit-group-dialog")).toBeHidden();
+
+    // Undo from the dock row, after confirming, to clean up.
+    await pill.click();
+    await card.hover();
+    await card.getByRole("button", { name: "Undo import" }).click();
+    const confirm = page.getByRole("dialog", { name: "Undo this import?" });
+    await expect(confirm).toContainText("1 image");
+    await confirm
+      .getByRole("button", { name: "Delete imported images" })
+      .click();
+    await expect(page.getByText("Import undone. 1 image removed.")).toBeVisible(
+      {
+        timeout: 10_000,
+      },
+    );
   });
 });

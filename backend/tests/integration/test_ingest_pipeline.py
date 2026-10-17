@@ -201,6 +201,31 @@ def test_three_thumbnail_sizes_written(env):
     assert job_status(env, job_id) == st.JOB_COMPLETED
 
 
+def test_transparent_png_gets_alpha_webp_thumbnails(env):
+    """Regression: grid-overlay PNGs got solid black thumbnails (alpha flattened)."""
+    overlay = PILImage.new("RGBA", (1000, 800), (0, 0, 0, 0))
+    for x in range(0, 1000, 100):
+        overlay.paste((30, 30, 30, 255), (x, 0, x + 4, 800))
+    buf = io.BytesIO()
+    overlay.save(buf, format="PNG")
+    job_id = make_job(env, {"Beneos/Grid/Overlay.png": buf.getvalue()})
+    env.worker.drain()
+    assert job_status(env, job_id) == st.JOB_COMPLETED
+
+    with env.SessionLocal() as db:
+        image = db.query(Image).one()
+        thumbnail_key = image.thumbnail_key
+        visible = {c.color_hex for c in image.colors}
+    stem = thumbnail_key.split("_")[0]
+    assert thumbnail_key == f"{stem}_400x400.webp"
+    names = sorted(p.name for p in store_files(env.thumbnails))
+    assert names == sorted(f"{stem}_{w}x{w}.webp" for w in (150, 400, 800))
+    with PILImage.open(env.thumbnails.get_path(thumbnail_key)) as thumb:
+        assert thumb.mode == "RGBA"
+        assert thumb.getpixel((50, 50))[3] == 0  # between grid lines: transparent
+    assert "#000000" not in visible  # transparent area isn't counted as black
+
+
 def test_huge_jpeg_is_decoded_at_reduced_scale(env, monkeypatch):
     """JPEGs over the pixel-hash limit skip the full decode (and the pixel hash)."""
     monkeypatch.setattr("backend.app.config.settings.pixel_hash_max_pixels", 1_000_000)

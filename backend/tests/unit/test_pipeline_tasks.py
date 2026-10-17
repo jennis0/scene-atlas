@@ -100,6 +100,19 @@ class TestExtractDominantColors:
         orders = [c["color_order"] for c in result]
         assert orders == [1, 2, 3]
 
+    def test_transparent_pixels_are_ignored(self, tmp_path):
+        """RGBA thumbnails: transparent pixels must not show up as a dominant colour."""
+        from backend.pipeline.tasks.color_extraction import extract_dominant_colors
+
+        img = PILImage.new("RGBA", (100, 100), (0, 0, 0, 0))
+        img.paste((200, 40, 40, 255), (0, 0, 20, 100))  # 20% visible red
+        img_path = tmp_path / "overlay.webp"
+        img.save(img_path, format="WEBP", lossless=True)
+
+        result = extract_dominant_colors(str(img_path), num_colors=1)
+        assert result[0]["color_hex"] == "#c82828"
+        assert result[0]["percentage"] == pytest.approx(100.0, abs=0.1)
+
     def test_invalid_image_raises(self, tmp_path):
         from backend.pipeline.tasks.color_extraction import extract_dominant_colors
 
@@ -156,13 +169,76 @@ class TestWriteThumbnails:
             with PILImage.open(path) as thumb:
                 assert thumb.size[0] <= 120 and thumb.size[1] <= 80
 
-    def test_rgba_and_palette_images_become_rgb(self, tmp_path):
+    def test_opaque_non_rgb_images_become_rgb_jpeg(self, tmp_path):
         from backend.pipeline.tasks.image_processing import write_thumbnails
 
-        for mode in ("RGBA", "P", "L"):
-            result = write_thumbnails(PILImage.new(mode, (500, 500)), f"m{mode}", tmp_path)
+        opaque = {
+            "RGBA": PILImage.new("RGBA", (500, 500), (10, 20, 30, 255)),
+            "P": PILImage.new("P", (500, 500)),
+            "L": PILImage.new("L", (500, 500)),
+        }
+        for mode, img in opaque.items():
+            result = write_thumbnails(img, f"m{mode}", tmp_path)
+            assert result["medium"][0].endswith(".jpg")
             with PILImage.open(result["medium"][1]) as thumb:
+                assert thumb.format == "JPEG"
                 assert thumb.mode == "RGB"
+
+    @staticmethod
+    def _grid_overlay(mode: str = "RGBA") -> PILImage.Image:
+        """A grid-only overlay: dark lines on a fully transparent background."""
+        if mode == "P":  # palette index 0 is transparent (tRNS), as in indexed PNGs
+            img = PILImage.new("P", (1000, 1000), 0)
+            img.putpalette([0, 0, 0, 20, 20, 20])
+            img.info["transparency"] = 0
+            line = 1
+        else:
+            img = PILImage.new("RGBA", (1000, 1000), (0, 0, 0, 0))
+            line = (20, 20, 20, 255)
+        for i in range(0, 1000, 100):
+            img.paste(line, (i, 0, i + 4, 1000))
+            img.paste(line, (0, i, 1000, i + 4))
+        return img.convert(mode) if mode not in ("RGBA", "P") else img
+
+    @pytest.mark.parametrize("mode", ["RGBA", "LA", "P"])
+    def test_transparent_images_keep_alpha_as_webp(self, tmp_path, mode):
+        """Regression: alpha was flattened to black, so overlays showed as solid black."""
+        from backend.pipeline.tasks.image_processing import write_thumbnails
+
+        result = write_thumbnails(self._grid_overlay(mode), f"t{mode}", tmp_path)
+
+        for size_name, (key, path) in result.items():
+            assert key.endswith(".webp"), size_name
+            with PILImage.open(path) as thumb:
+                assert thumb.format == "WEBP"
+                assert thumb.mode == "RGBA"
+                # The middle of a grid cell is transparent, not opaque black.
+                cx, cy = thumb.width // 4, thumb.height // 4
+                assert thumb.getpixel((cx, cy))[3] == 0
+                assert thumb.getchannel("A").getextrema()[1] > 0  # the grid lines
+
+    def test_transparent_keys_share_stem_and_extension(self, tmp_path):
+        from backend.pipeline.tasks.image_processing import write_thumbnails
+
+        result = write_thumbnails(self._grid_overlay(), "stem7", tmp_path)
+        assert sorted(key for key, _ in result.values()) == [
+            "stem7_150x150.webp",
+            "stem7_400x400.webp",
+            "stem7_800x800.webp",
+        ]
+
+    def test_palette_transparency_and_colour_key_are_honoured(self, tmp_path):
+        """tRNS transparency (P/RGB with a 'transparency' key) counts as alpha."""
+        from backend.pipeline.tasks.image_processing import write_thumbnails
+
+        img = PILImage.new("RGB", (300, 300), (255, 0, 255))
+        img.paste((40, 90, 40), (0, 0, 150, 300))
+        img.info["transparency"] = (255, 0, 255)
+        result = write_thumbnails(img, "ckey", tmp_path)
+        with PILImage.open(result["medium"][1]) as thumb:
+            assert thumb.mode == "RGBA"
+            assert thumb.getpixel((thumb.width - 10, 10))[3] == 0
+            assert thumb.getpixel((10, 10))[3] == 255
 
 
 # ---------------------------------------------------------------------------

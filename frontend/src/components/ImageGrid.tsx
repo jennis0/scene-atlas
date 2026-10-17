@@ -1,15 +1,17 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useRef, useState, useEffect } from 'react'
-import { IMAGE_SIZE, CARD_HEIGHT, GRID_GAP, GRID_PADDING } from '@/lib/constants'
+import { GRID_GAP, GRID_PADDING } from '@/lib/constants'
 import { SceneTile } from '@/components/SceneTile'
 import type { Image } from '@/types'
 
 interface ImageGridProps {
   images: Image[]
+  /** Tile width in px; tiles are 4:3 */
+  tileWidth: number
   onImageClick: (image: Image, index: number) => void
 }
 
-export function ImageGrid({ images, onImageClick }: ImageGridProps) {
+export function ImageGrid({ images, tileWidth, onImageClick }: ImageGridProps) {
   const parentRef = useRef<HTMLDivElement>(null)
   const [columnsPerRow, setColumnsPerRow] = useState(6)
 
@@ -20,7 +22,7 @@ export function ImageGrid({ images, onImageClick }: ImageGridProps) {
         const availableWidth = containerWidth - GRID_PADDING * 2
         const columns = Math.max(
           1,
-          Math.floor((availableWidth + GRID_GAP) / (IMAGE_SIZE + GRID_GAP)),
+          Math.floor((availableWidth + GRID_GAP) / (tileWidth + GRID_GAP)),
         )
         setColumnsPerRow(columns)
       }
@@ -30,12 +32,12 @@ export function ImageGrid({ images, onImageClick }: ImageGridProps) {
     const resizeObserver = new ResizeObserver(updateColumns)
     if (parentRef.current) resizeObserver.observe(parentRef.current)
     return () => resizeObserver.disconnect()
-  }, [])
+  }, [tileWidth])
 
   const rowVirtualizer = useVirtualizer({
     count: Math.ceil(images.length / columnsPerRow),
     getScrollElement: () => parentRef.current,
-    estimateSize: () => CARD_HEIGHT + GRID_GAP,
+    estimateSize: () => (tileWidth * 3) / 4 + GRID_GAP,
     overscan: 5,
     measureElement: (element) => element.getBoundingClientRect().height,
   })
@@ -70,15 +72,15 @@ export function ImageGrid({ images, onImageClick }: ImageGridProps) {
               <div
                 className="grid gap-4"
                 style={{
-                  gridTemplateColumns: `repeat(${columnsPerRow}, ${IMAGE_SIZE}px)`,
+                  gridTemplateColumns: `repeat(${columnsPerRow}, ${tileWidth}px)`,
                   justifyContent: 'center',
                 }}
               >
                 {rowImages.map((image, colIdx) => {
-                  // When in a group: primary = group name; secondary = subgroup + image name (if distinct)
-                  // When standalone: primary = image name; no secondary
+                  // In a group: the group, then "{subgroup} · {image}" (image name only if
+                  // distinct), then the author. Standalone: the image name, then the author.
                   const primaryText = image.group_name ?? image.name
-                  const secondaryText = image.group_name
+                  const variantText = image.group_name
                     ? [image.subgroup, image.name !== image.group_name ? image.name : null]
                         .filter(Boolean)
                         .join(' · ')
@@ -89,7 +91,7 @@ export function ImageGrid({ images, onImageClick }: ImageGridProps) {
                       key={image.id}
                       image={image}
                       primaryText={primaryText}
-                      secondaryText={secondaryText || undefined}
+                      variantText={variantText || undefined}
                       authorText={image.author || undefined}
                       onClick={() => onImageClick(image, startIdx + colIdx)}
                     />

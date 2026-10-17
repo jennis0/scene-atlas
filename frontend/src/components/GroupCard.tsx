@@ -110,7 +110,7 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
 
       <div className="flex" style={{ height: '160px' }}>
         <div
-          className="relative h-full shrink-0 overflow-hidden"
+          className="transparency-backdrop relative h-full shrink-0 overflow-hidden"
           style={{ width: hasMosaic ? '60%' : '100%' }}
         >
           <img
@@ -119,7 +119,7 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
             width={240}
             height={160}
             decoding="async"
-            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
+            className="h-full w-full object-cover"
             loading="lazy"
           />
           {heroImage.media_type === 'video' && <VideoIndicator />}
@@ -132,7 +132,7 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
               {visibleMosaic.map((img, i) => {
                 const isOverflowTile = i === visibleMosaic.length - 1 && overflowCount > 0
                 return (
-                  <div key={img.id} className="relative overflow-hidden">
+                  <div key={img.id} className="transparency-backdrop relative overflow-hidden">
                     <img
                       src={getThumbnailUrl(img)}
                       alt=""

@@ -59,6 +59,7 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 | Verify the sidecar lifecycle on packaged Windows and macOS | Parent-death watchdog (stdin EOF + PID poll), `msvcrt` storage lock and its loading-page message, graceful stop on Windows, storage-change relaunch waiting on the old lock. Tested on Linux only. | Medium |
 | Colour threshold default is loose | ΔE 25 reproduces the old HSL 0.35, but a typical map colour matches ~80% of the library and colour-filtered browse is 70–140 ms slower at 56k images than the old in-memory index. ΔE 12–15 is faster and more useful. No UI control (API only). [search.md](search.md) | Medium |
 | transformers 5 for `scripts/models` export | Clears 6 accepted pip-audit IDs (dev-only extra). | Medium |
+| Regenerate thumbnails | Transparent images now get RGBA WebP thumbnails, but ones imported before that keep black backgrounds until re-imported. A maintenance job would re-run `write_thumbnails` from the original, update `thumbnail_key` (`.jpg` → `.webp`), delete the old files, and redo colours and pHash. [storage.md](storage.md) | Medium |
 | Possible-duplicate (pHash) flags | Hashes are stored; flags and report UI not built. Must suppress gridded/gridless siblings. [ingestion.md](ingestion.md) | Low |
 | `api_host` defaults to 0.0.0.0 | Only `python -m backend.app.main` uses it (Electron forces 127.0.0.1; Docker passes `--host`). Default to loopback, then drop the `# nosec B104`. | Low |
 | Storage lock on filesystems without locking | The data-dir lock runs unguarded (with a warning) where `flock`/`msvcrt` isn't supported, e.g. some network shares. | Low |
@@ -66,8 +67,7 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 | Purge and backup can't stop part-way | Library purge and `backup_database` ignore the shutdown signal; make them resumable or atomic first. | Low |
 | `PermissionError` at commit classified `file` | On Windows, antivirus can briefly lock a file during the rename; consider `transient` at stage `db_save`. | Low |
 | Removing tag packs | Packs are opt-in since first boot seeds only `common`, but can't be removed. | Low |
-| Shared `ModelCard` and `PanelTitle` leftovers | Model cards in `ModelSetupScreen` and `SettingsTabContent`; `PanelTitle` in `LibraryInfoDialog`. | Low |
-| Confirm dialogs have no accessible name | `DialogContent` has `role="dialog"` but no `aria-labelledby`. | Low |
+| Shared `ModelCard` | Model cards are duplicated in `ModelSetupScreen` and `SettingsTabContent`. | Low |
 | E2E first run on a clean machine | The backend can start before the model has downloaded, so the seed import never runs. Download before starting the webServer. | Low |
 | `gpu-dev` torch stuck at 2.6 | The `pytorch-cuda` index is cu124; move to cu126/cu128. | Low |
 | Session-based authentication | Until then server mode must sit behind an authenticating reverse proxy. [security.md](security.md) | Medium |

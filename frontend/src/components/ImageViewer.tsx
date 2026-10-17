@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -17,6 +17,8 @@ import { ImageProperties, type ImagePatch } from '@/components/viewer/ImagePrope
 import { ImageTags } from '@/components/viewer/ImageTags'
 import { ScenePanel } from '@/components/viewer/ScenePanel'
 import type { Image } from '@/types'
+
+const GRID_OVERLAY_KEY = 'viewer-grid-overlay'
 
 interface ImageViewerProps {
   image: Image
@@ -73,6 +75,24 @@ export function ImageViewer({
   const [editingName, setEditingName] = useState(false)
   const [editingSubgroup, setEditingSubgroup] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  // Grid overlay stays on across images until turned off, and is remembered on this device
+  const [showGrid, setShowGrid] = useState(() => {
+    try {
+      return localStorage.getItem(GRID_OVERLAY_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+  const toggleGrid = useCallback(() => {
+    setShowGrid((prev) => {
+      try {
+        localStorage.setItem(GRID_OVERLAY_KEY, prev ? '0' : '1')
+      } catch {
+        // Storage blocked: the toggle still works for this session.
+      }
+      return !prev
+    })
+  }, [])
 
   // Reset UI state on image navigation (not on within-group variant click).
   // lastProcessedIdRef guards against React Strict Mode running this effect twice
@@ -106,10 +126,11 @@ export function ImageViewer({
       if (e.key === 'Escape') onClose()
       if (e.key === 'ArrowRight') onNext?.()
       if (e.key === 'ArrowLeft') onPrevious?.()
+      if ((e.key === 'g' || e.key === 'G') && !e.ctrlKey && !e.metaKey && !e.altKey) toggleGrid()
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [onClose, onNext, onPrevious, editingName, editingSubgroup])
+  }, [onClose, onNext, onPrevious, editingName, editingSubgroup, toggleGrid])
 
   const invalidateImage = () => {
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.image(image.id) })
@@ -201,15 +222,18 @@ export function ImageViewer({
         aria-label={img.name}
         tabIndex={-1}
         // Below lg the viewer fills the screen and stacks: image above, details below.
-        className="relative flex flex-col lg:flex-row w-full h-full lg:h-[88vh] max-w-[1600px] lg:rounded-xl overflow-hidden lg:border border-border/20 shadow-2xl shadow-black/70 focus:outline-none"
+        className="relative flex flex-col lg:flex-row w-full h-full lg:h-[88vh] max-w-[1600px] lg:rounded-lg overflow-hidden lg:border border-border/20 shadow-2xl shadow-black/70 focus:outline-none"
         onClick={(e) => e.stopPropagation()}
       >
-        <ViewerStage image={img} onPrevious={onPrevious} onNext={onNext} />
+        <ViewerStage
+          image={img}
+          onPrevious={onPrevious}
+          onNext={onNext}
+          showGrid={showGrid}
+          onToggleGrid={toggleGrid}
+        />
 
         <div className="flex-1 min-h-0 overflow-y-auto lg:flex-none lg:w-[440px] lg:overflow-hidden flex flex-col border-t lg:border-t-0 lg:border-l border-border/20 bg-card">
-          {/* Amber stripe — sidebar half: full at join, transparent at right edge */}
-          <div className="h-0.5 shrink-0 bg-gradient-to-l from-transparent to-primary/80" />
-
           {/* Fixed: stays visible while the scenes below scroll */}
           <div className="px-4 pt-3 pb-2 shrink-0 border-b border-border/30">
             <ViewerToolbar

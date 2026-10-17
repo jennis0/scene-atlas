@@ -466,12 +466,12 @@ function CategoryEditor({
                       },
                     })
                   }
-                  className={`flex-1 min-w-0 bg-transparent border-b border-primary/70 focus:outline-none font-display text-[17px] font-medium tracking-[0.04em] leading-[1.2] capitalize ${colors.text}`}
+                  className={`flex-1 min-w-0 bg-transparent border-b border-primary/70 focus:outline-none font-display text-[17px] font-medium leading-[1.2] capitalize ${colors.text}`}
                 />
               ) : (
                 <span
                   onClick={() => setEditingName(true)}
-                  className={`font-display text-[17px] font-medium tracking-[0.04em] leading-[1.2] capitalize cursor-text ${colors.text}`}
+                  className={`font-display text-[17px] font-medium leading-[1.2] capitalize cursor-text ${colors.text}`}
                 >
                   {category.name}
                 </span>

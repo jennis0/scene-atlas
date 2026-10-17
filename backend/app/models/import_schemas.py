@@ -37,6 +37,8 @@ class ImportGroupSummary(BaseModel):
     merged_into_existing: bool
     sort_order: int
     counts: ImportCounts
+    # An image this import added to the group, for a thumbnail in the report
+    cover_image_id: int | None = None
 
 
 class ImportJobSummary(BaseModel):

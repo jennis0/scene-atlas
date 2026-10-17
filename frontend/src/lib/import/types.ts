@@ -35,6 +35,8 @@ export interface ImportGroupSummary {
   merged_into_existing: boolean
   sort_order: number
   counts: ImportCounts
+  /** An image this import added to the group, for a thumbnail in the report */
+  cover_image_id?: number | null
 }
 
 export interface ImportJobSummary {

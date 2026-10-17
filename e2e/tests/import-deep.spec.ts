@@ -25,21 +25,18 @@ test.describe("Import: end to end", () => {
     await openImportDialog(page);
     await importFiles(page, [file]);
 
-    // Progress view, titled with the import's label, then the outcome.
+    // Progress view, titled with the import's label, then the result in place.
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByRole("heading", { name: label })).toBeVisible();
     await expect(dialog.getByRole("progressbar")).toBeVisible();
     await waitForImportFinished(page);
-    await expect(dialog.getByText("Finished. 1 imported.")).toBeVisible();
+    await expect(dialog.getByText(/^1 imported in 1 group/)).toBeVisible();
 
     await expect
       .poll(() => getSceneCount(page), { timeout: 30_000 })
       .toBe(before + 1);
 
-    await dialog.getByRole("button", { name: "View report" }).click();
-    const report = page.getByRole("dialog");
-    await expect(report.getByRole("heading", { name: label })).toBeVisible();
-    await expect(report.getByText(/^1 imported$/)).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: label })).toBeVisible();
     await undoImport(page, 1);
     await expect
       .poll(() => getSceneCount(page), { timeout: 30_000 })
@@ -63,10 +60,9 @@ test.describe("Import: end to end", () => {
 
     const dialog = page.getByRole("dialog");
     await expect(
-      dialog.getByText("Finished. 0 imported, 1 already in your library."),
+      dialog.getByText(/^0 imported, 1 already in your library/),
     ).toBeVisible();
 
-    await dialog.getByRole("button", { name: "View report" }).click();
     const tab = page.getByRole("tab", { name: /Already in library/ });
     await expect(tab).toContainText("1");
     await tab.click();
