@@ -24,6 +24,10 @@ x-common: &common
   build:
     context: .
     network: host
+    args: &common-build-args
+      # Container user; must be able to write IMAGE_DIR (run `id -u` / `id -g` on the host).
+      APP_UID: ${APP_UID:-1000}
+      APP_GID: ${APP_GID:-1000}
   ports:
     - "${PORT:-8000}:8000"
   volumes:
@@ -56,6 +60,7 @@ services:
       context: .
       network: host
       args:
+        <<: *common-build-args
         EXTRA: gpu
     environment:
       <<: *common-env

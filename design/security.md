@@ -34,6 +34,7 @@ Server mode must therefore only be exposed behind a reverse proxy that authentic
 | CSP | Restrictive Content-Security-Policy meta tag in `frontend/index.html` |
 | Pre-commit | Husky + lint-staged runs ruff, ESLint and Prettier |
 | Code safety | No shell invocation or dynamic code execution in the backend |
+| Container user | The Docker image runs as an unprivileged `app` user (`APP_UID`/`APP_GID`, default 1000) with the venv on `PATH`; only `/app/data` and `/app/images` are writable by it |
 
 ---
 
@@ -56,6 +57,7 @@ Staging is per job: `{APP_DATA_DIR}/staging/{job_id}/{staging_key}`. `staging_ke
 **Status**: Done.
 
 `slowapi`, keyed on the client address (`request.client.host`), with two tiers:
+
 - **expensive** (`RATE_LIMIT_EXPENSIVE`, default `2/minute`): `POST /search/rebuild-embeddings`, `GET /export/library`, `PATCH /settings/`, `POST /tags/retag-all`, `POST /tags/packs/{name}/import`, `POST /tags/packs/import-multiple`, `POST /images/backfill-grids`
 - **destructive** (`RATE_LIMIT_DESTRUCTIVE`, default `1/minute`): `DELETE /system/library`, `POST /system/tags/reset`
 
@@ -76,6 +78,7 @@ A pure ASGI `SecurityHeadersMiddleware` adds `X-Content-Type-Options: nosniff`, 
 **Status**: Done (October 2026).
 
 The `backend-security` job in `.github/workflows/ci.yml` (pull requests only) runs, and fails the PR on any finding that is not listed under [Accepted scanner findings](#accepted-scanner-findings):
+
 - `pip-audit --desc` over the `dev` + `cpu` environment (Python CVE scan; accepted IDs are passed as `--ignore-vuln` with a comment)
 - `bandit -r backend/app backend/pipeline -ll` (Python SAST, medium severity and up; accepted findings carry an inline `# nosec BXXX` with a reason)
 
@@ -137,7 +140,6 @@ Re-check these whenever the dependency in question is upgraded. Last reviewed 20
 | Scanner | Finding | Why accepted |
 |---|---|---|
 | bandit B104 / ruff S104 | `api_host = "0.0.0.0"` default in `backend/app/config.py` | Only read when the backend is started with `python -m backend.app.main` (dev, E2E). Electron forces `API_HOST=127.0.0.1`; Docker and the documented uvicorn commands pass `--host` explicitly. Changing the default to loopback is a reasonable follow-up but needs the E2E harness (which probes `localhost`) checked first. |
-| Opengrep missing-user | `Dockerfile` runs as root | Existing deployments' `scene-atlas-data` volume and bind-mounted `IMAGE_DIR` are root-owned, so adding `USER` breaks them without a migration (chown entrypoint or documented `PUID`/`PGID`). Follow-up. |
 | pip-audit | `transformers` <5: PYSEC-2025-217, PYSEC-2026-2288, -2289, -2290, -3929, -4174 (RCE/path traversal when loading untrusted checkpoints, Trainer RNG state, remote code) | Dev-only extra used by `scripts/models/` to export checkpoints we choose. Excluded from the PyInstaller sidecar (`excludes` in `scene_atlas_backend.spec`) and never imported by the app. The fix is transformers 5, a major upgrade of the export pipeline. |
 | Dependabot | `torch` 2.6.0+cu124 (`gpu-dev` extra) | The cu124 PyTorch index stops at 2.6. Dev-only (model export on CUDA); the CPU variant is on a patched release. Fix: move the `pytorch-cuda` index to a newer CUDA (cu126/cu128). |
 | npm audit (frontend, dev) | `braces` (all versions), via `tailwindcss` 3 / `chokidar` / `micromatch` / `knip` | Build-time glob matching over our own patterns. No patched `braces` release exists; removal needs Tailwind 4 / knip 6. |

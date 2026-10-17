@@ -42,6 +42,10 @@ PORT=8000
 # Host path for managed image storage (Scene Atlas writes its file structure here)
 IMAGE_DIR=./images
 
+# User and group the container runs as; must own IMAGE_DIR (run `id -u` / `id -g`)
+APP_UID=1000
+APP_GID=1000
+
 # CORS origins (set to your domain if behind a reverse proxy)
 CORS_ORIGINS=["http://localhost:8000"]
 
@@ -57,6 +61,12 @@ DEBUG=false
 
 ::: warning
 `IMAGE_DIR` is where Scene Atlas stores imported images in its own file structure. Do not point it at your existing image collection. Import your images through the web UI instead.
+:::
+
+::: info Container user
+The container runs as an unprivileged user (UID/GID `APP_UID`/`APP_GID`, default 1000), not root. Create `IMAGE_DIR` before the first start and make sure that user owns it, e.g. `mkdir -p images && sudo chown 1000:1000 images`; if Docker creates the directory itself it is owned by root and imports fail with a permission error. Changing `APP_UID`/`APP_GID` needs `docker compose build`.
+
+Installs created before this change ran as root, so their `scene-atlas-data` volume is root-owned. Start from a fresh volume (`docker compose down -v`, after taking a backup) or `chown -R` the volume and `IMAGE_DIR` to the new user.
 :::
 
 See the [Configuration Reference](/deploy/configuration) for all settings.
