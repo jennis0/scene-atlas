@@ -52,9 +52,9 @@
     --card-foreground: 37 27% 89%;
     --popover: 220 25% 10%; /* #12171f popover bg */
     --popover-foreground: 37 27% 89%;
-    --primary: 38 60% 58%; /* #d4a853 — amber gold */
+    --primary: 39 70% 55%; /* #dda43c — amber gold */
     --primary-foreground: 222 30% 8%; /* near-black on amber */
-    --primary-ink: 38 60% 58%; /* gold already reads as text on navy */
+    --primary-ink: 39 68% 59%; /* a touch lighter than the fill, to read as text on navy */
     --secondary: 222 20% 17%; /* #1c2231 */
     --secondary-foreground: 37 27% 89%;
     --muted: 222 20% 15%;
@@ -65,7 +65,7 @@
     --destructive-foreground: 222 30% 8%; /* near-black: light text fails on this red */
     --border: 220 18% 19%; /* subtle dividers */
     --input: 220 18% 19%;
-    --ring: 38 60% 58%; /* amber focus ring */
+    --ring: 39 68% 59%; /* amber focus ring */
     --surface-canvas: 222 22% 6%; /* ImageViewer deep canvas bg */
   }
 
@@ -100,9 +100,9 @@
     --card-foreground: 45 18% 90%;
     --popover: 200 18% 9%;
     --popover-foreground: 45 18% 90%;
-    --primary: 166 42% 52%;
+    --primary: 166 52% 47%;
     --primary-foreground: 200 30% 7%;
-    --primary-ink: 166 42% 58%;
+    --primary-ink: 165 48% 57%;
     --secondary: 200 14% 15%;
     --secondary-foreground: 45 18% 90%;
     --muted: 200 14% 13%;
@@ -111,11 +111,11 @@
     --accent-foreground: 45 18% 90%;
     --border: 200 12% 18%;
     --input: 200 12% 18%;
-    --ring: 166 42% 58%;
+    --ring: 165 48% 57%;
     --surface-canvas: 200 18% 5%;
   }
 
-  /* ── Slate & lapis ── cool grey stone, ultramarine accent ── */
+  /* ── Slate & lapis ── cool grey stone, cobalt accent ── */
   [data-palette='lapis'] {
     --background: 214 14% 91%;
     --foreground: 220 24% 14%;
@@ -123,9 +123,9 @@
     --card-foreground: 220 24% 14%;
     --popover: 214 20% 97%;
     --popover-foreground: 220 24% 14%;
-    --primary: 224 58% 44%;
+    --primary: 214 75% 38%;
     --primary-foreground: 214 30% 98%;
-    --primary-ink: 224 60% 38%;
+    --primary-ink: 214 78% 33%;
     --secondary: 214 12% 86%;
     --secondary-foreground: 220 24% 14%;
     --muted: 214 12% 87.5%;
@@ -134,7 +134,7 @@
     --accent-foreground: 220 24% 14%;
     --border: 214 10% 78%;
     --input: 214 10% 78%;
-    --ring: 224 60% 38%;
+    --ring: 214 78% 33%;
     --surface-canvas: 214 12% 87%;
   }
 
@@ -146,9 +146,9 @@
     --card-foreground: 214 16% 90%;
     --popover: 215 10% 10%;
     --popover-foreground: 214 16% 90%;
-    --primary: 224 72% 70%;
-    --primary-foreground: 224 40% 9%;
-    --primary-ink: 224 76% 74%;
+    --primary: 214 82% 56%;
+    --primary-foreground: 214 40% 9%;
+    --primary-ink: 212 85% 68%;
     --secondary: 215 9% 16%;
     --secondary-foreground: 214 16% 90%;
     --muted: 215 9% 14%;
@@ -157,7 +157,7 @@
     --accent-foreground: 214 16% 90%;
     --border: 215 8% 19%;
     --input: 215 8% 19%;
-    --ring: 224 76% 74%;
+    --ring: 212 85% 68%;
     --surface-canvas: 215 10% 5.5%;
   }
 
@@ -195,9 +195,9 @@
     --card-foreground: 34 26% 88%;
     --popover: 22 14% 9.5%;
     --popover-foreground: 34 26% 88%;
-    --primary: 20 64% 60%;
+    --primary: 20 69% 57%;
     --primary-foreground: 22 30% 8%;
-    --primary-ink: 22 68% 64%;
+    --primary-ink: 21 72% 64%;
     --secondary: 22 11% 15.5%;
     --secondary-foreground: 34 26% 88%;
     --muted: 22 11% 13.5%;
@@ -208,7 +208,7 @@
     --destructive-foreground: 22 30% 8%;
     --border: 22 10% 18.5%;
     --input: 22 10% 18.5%;
-    --ring: 22 68% 64%;
+    --ring: 21 72% 64%;
     --surface-canvas: 22 14% 5%;
   }
 
@@ -243,9 +243,9 @@
     --card-foreground: 270 14% 90%;
     --popover: 266 16% 10%;
     --popover-foreground: 270 14% 90%;
-    --primary: 272 44% 72%;
+    --primary: 272 50% 68%;
     --primary-foreground: 266 30% 8%;
-    --primary-ink: 272 48% 76%;
+    --primary-ink: 272 54% 76%;
     --secondary: 266 12% 16.5%;
     --secondary-foreground: 270 14% 90%;
     --muted: 266 12% 14.5%;
@@ -254,7 +254,7 @@
     --accent-foreground: 270 14% 90%;
     --border: 266 10% 19.5%;
     --input: 266 10% 19.5%;
-    --ring: 272 48% 76%;
+    --ring: 272 54% 76%;
     --surface-canvas: 266 16% 5.5%;
   }
 

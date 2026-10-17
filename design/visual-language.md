@@ -11,13 +11,14 @@ A comprehensive reference for the Scene Atlas UI. All new components must confor
 **Palettes.** Five, each with light and dark mode, chosen in Settings → Appearance and stored per device (`scene-atlas-palette` in localStorage, applied as `data-palette` on `<html>` before first paint; navy, the default, sets no attribute):
 - **Navy & gold** (default): deep navy and warm parchment, gold accent. Base tokens in `:root` / `.dark`.
 - **Ink & verdigris**: green-black ink and pale paper, aged-copper green accent.
-- **Slate & lapis**: near-neutral cool grey stone, ultramarine accent.
+- **Slate & lapis**: near-neutral cool grey stone, cobalt accent (hue 214: lapis's own ~224 read as periwinkle).
 - **Walnut & sienna**: oiled-wood browns and sand, burnt-sienna accent. Overrides `--destructive` to crimson so it stays distinct from the orange-red accent.
 - **Nightshade & amethyst**: dusky plum greys, muted violet accent.
 
 Every palette is a pair of blocks in `index.css`: `[data-palette='x']` (light) and `.dark[data-palette='x'], .dark [data-palette='x']` (dark). The selectors match any element, not only `<html>`, so the Appearance palette picker (`components/settings/PalettePicker.tsx`) renders each option's preview in that palette's real tokens. No colour values are duplicated. Rules for a new palette:
 - Add the two blocks plus an entry in `PALETTES` (`lib/palette.ts`) and in the accessibility spec's `VARIANTS`.
 - The dark block must set every token the light block sets. The light block also matches `<html>` in dark mode, so anything left out leaks a light value into dark.
+- In dark mode, keep fills saturated and lighten only `--primary-ink`/`--ring` as far as text needs; one light value for both makes fills look pastel.
 - Keep accent hues away from the destructive red (hue 0), or override `--destructive` as sienna does.
 - `lib/paletteContrast.test.ts` parses `index.css` and enforces 4.5:1 for every text token on every surface, 4.5:1 for labels on filled primary/destructive, and 3:1 for the focus ring, per palette and mode. It runs as a unit test, ahead of the e2e axe scan.
 
@@ -59,7 +60,7 @@ All values sourced from CSS custom properties defined in `frontend/src/index.css
 ### Accent / Semantic
 | Token | Approx. hex | Role |
 |-------|-------------|------|
-| `--primary` | `#d4a853` | Amber gold — active states, focus rings, decorative accents |
+| `--primary` | `#dda43c` | Amber gold — active states, focus rings, decorative accents |
 | `--primary-foreground` | near-black | Text on amber backgrounds |
 | `--destructive` | `#e04e4e` | Destructive actions, excluded filter chips |
 | `--border` | `#222a38` | Dividers — use `/50` or `/30` for very subtle |
