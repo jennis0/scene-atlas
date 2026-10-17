@@ -141,23 +141,39 @@ export interface BulkImageChanges {
   subgroup?: string | null
 }
 
-/** An image's editable fields before a bulk edit, as POST /images/bulk-restore takes them */
-export interface ImageRestoreState {
-  id: number
-  image_type: string | null
-  subgroup: string | null
-  gridded: boolean | null
-  grid_width: number | null
-  grid_height: number | null
-  grid_type: string | null
-  grid_source: string | null
-  grid_confidence: number | null
+/** Narrows an image scope; only fields present apply, `subgroup: null` means none set */
+export interface ImageScopeFilter {
+  image_type?: 'battlemap' | 'scene'
+  grid?: 'square' | 'hex' | 'gridded' | 'gridless' | 'unknown'
+  subgroup?: string | null
+  tag?: { category: string; value: string }
+}
+
+/** Images named by their groups and a filter, resolved on the server */
+export interface ImageScope {
+  group_ids: number[]
+  filter?: ImageScopeFilter
+}
+
+export interface ScopeFacetCount {
+  value: string | null
+  count: number
+}
+
+/** POST /images/facets: how a scope's images break down */
+export interface ImageScopeFacets {
+  total: number
+  image_type: ScopeFacetCount[]
+  grid: ScopeFacetCount[]
+  subgroup: ScopeFacetCount[]
+  /** value is "category:value" */
+  tags: ScopeFacetCount[]
 }
 
 export interface BulkImageEditResponse {
   updated: number
-  previous: ImageRestoreState[]
-  added_tag_ids: number[]
+  /** POST /images/bulk-restore with this reverts the edit (the last few edits only) */
+  undo_id: string
 }
 
 // Group editor state (frontend only)

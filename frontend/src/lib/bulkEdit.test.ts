@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { EditableFileState, ImageRestoreState, TagData } from '@/types'
-import { applyBulkChange, gridLabel, revertBulkChange, tagsToAdd, undoBulkChange } from './bulkEdit'
+import type { EditableFileState, TagData } from '@/types'
+import { applyBulkChange, gridLabel, revertBulkChange, withServerFields } from './bulkEdit'
 
 const file = (overrides: Partial<EditableFileState> = {}): EditableFileState => ({
   relative_path: '1',
@@ -23,7 +23,6 @@ describe('applyBulkChange', () => {
     const once = applyBulkChange(file(), { addTags: [night], label: '' })
     expect(once.tags).toEqual([night])
     expect(applyBulkChange(once, { addTags: [night], label: '' }).tags).toEqual([night])
-    expect(tagsToAdd(once, { addTags: [night], label: '' })).toEqual([])
   })
 
   it('sets only the fields in the change, null included', () => {
@@ -58,26 +57,15 @@ describe('revert and undo', () => {
     })
   })
 
-  it('undo restores the server state and drops only the added tags', () => {
-    const previous: ImageRestoreState = {
-      id: 1,
-      image_type: 'battlemap',
-      subgroup: null,
-      gridded: true,
-      grid_width: 20,
-      grid_height: 15,
-      grid_type: 'square',
-      grid_source: 'detector',
-      grid_confidence: 0.9,
-    }
-    const kept: TagData = { ...night, value: 'day' }
-    const edited = file({
-      gridded: false,
-      grid_type: null,
+  it('takes the server fields but keeps editor-only state', () => {
+    const local = file({ excluded: true, outOfScope: true, name: 'mine' })
+    const fresh = file({ image_type: 'scene', tags: [night], gridded: false })
+    expect(withServerFields(local, fresh)).toEqual({
+      ...local,
       image_type: 'scene',
-      tags: [kept, night],
+      tags: [night],
+      gridded: false,
     })
-    expect(undoBulkChange(edited, previous, [night])).toEqual(file({ tags: [kept] }))
   })
 })
 

@@ -20,9 +20,18 @@ from ..models.schemas import (
     BulkImageEditResponse,
     BulkImageRestoreRequest,
     BulkImageRestoreResponse,
+    ImageScope,
+    ImageScopeFacets,
 )
 from ..services import get_image_store, get_thumbnail_store, safe_delete_image
-from ..services.bulk_edit_service import bulk_edit_images, restore_images
+from ..services.bulk_edit_service import (
+    bulk_edit_images,
+    forget_undo,
+    remember_undo,
+    restore_images,
+    undo_record,
+)
+from ..services.image_scope import resolve_scope, scope_facets
 from .dependencies import get_db, write_locked
 from .rate_limits import limiter
 
@@ -72,27 +81,35 @@ def list_images(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
 def bulk_edit(request: BulkImageEditRequest, db: Session = Depends(get_db)):
     """Apply one change (fields and/or tags to add) to many images in one transaction.
 
-    Returns the images' previous state for ``/bulk-restore`` (undo). Unknown ids are skipped.
+    The images are ``image_ids``, or a ``scope`` (groups and a filter) resolved here, so
+    an import of any size can be edited without the client holding its images. Returns
+    an ``undo_id`` for ``/bulk-restore``.
     """
-    previous, added_tag_ids = bulk_edit_images(
-        db,
-        request.image_ids,
-        request.changes.model_dump(exclude_unset=True),
-        request.add_tags,
+    ids = resolve_scope(db, request.scope) if request.scope else (request.image_ids or [])
+    updated, record = bulk_edit_images(
+        db, ids, request.changes.model_dump(exclude_unset=True), request.add_tags
     )
     db.commit()
-    return BulkImageEditResponse(
-        updated=len(previous), previous=previous, added_tag_ids=added_tag_ids
-    )
+    return BulkImageEditResponse(updated=updated, undo_id=remember_undo(record))
 
 
 @router.post("/bulk-restore", response_model=BulkImageRestoreResponse)
 @write_locked
 def bulk_restore(request: BulkImageRestoreRequest, db: Session = Depends(get_db)):
-    """Undo a bulk edit: put back the states it returned and drop the tags it added."""
-    restored = restore_images(db, request.images, request.remove_tag_ids)
+    """Undo a bulk edit by its ``undo_id``. Only the last few edits can be undone."""
+    record = undo_record(request.undo_id)
+    if record is None:
+        raise HTTPException(status_code=410, detail="This edit can no longer be undone")
+    restored = restore_images(db, record)
     db.commit()
+    forget_undo(request.undo_id)
     return BulkImageRestoreResponse(restored=restored)
+
+
+@router.post("/facets", response_model=ImageScopeFacets)
+def facets(scope: ImageScope, db: Session = Depends(get_db)):
+    """Counts of a scope's images by type, grid state, subgroup and tag (the bulk panel)."""
+    return scope_facets(db, scope)
 
 
 @router.get("/{image_id}", response_model=ImageResponse)

@@ -75,8 +75,6 @@ class TestBulkEdit:
         assert resp.status_code == 200
         body = resp.json()
         assert body["updated"] == 3
-        # The tagged image already had it
-        assert len(body["added_tag_ids"]) == 2
         for image_id in ids:
             image = _image(SessionLocal, image_id)
             assert image["tags"] == [("lighting", "night")]
@@ -142,27 +140,82 @@ class TestBulkRestore:
         ).json()
         assert [_image(SessionLocal, i) for i in ids] != before
 
-        resp = client.post(
-            RESTORE, json={"images": edit["previous"], "remove_tag_ids": edit["added_tag_ids"]}
-        )
+        resp = client.post(RESTORE, json={"undo_id": edit["undo_id"]})
         assert resp.status_code == 200
         assert resp.json()["restored"] == 3
         assert [_image(SessionLocal, i) for i in ids] == before
 
-    def test_only_removes_tags_of_restored_images(self, seeded):
+    def test_an_edit_undoes_once(self, seeded):
+        client, _, ids = seeded
+        edit = client.post(EDIT, json={"image_ids": ids, "changes": {"subgroup": "A"}}).json()
+        assert client.post(RESTORE, json={"undo_id": edit["undo_id"]}).status_code == 200
+        assert client.post(RESTORE, json={"undo_id": edit["undo_id"]}).status_code == 410
+
+    def test_unknown_undo_is_gone(self, test_client):
+        assert test_client.post(RESTORE, json={"undo_id": "nope"}).status_code == 410
+
+
+def _group_id(SessionLocal, image_id: int) -> int:
+    with SessionLocal() as db:
+        img = db.get(Image, image_id)
+        assert img is not None and img.group_id is not None
+        return img.group_id
+
+
+class TestScope:
+    def test_edits_a_whole_group_by_scope(self, seeded):
         client, SessionLocal, ids = seeded
-        with SessionLocal() as db:
-            other_tag = db.query(Tag).filter(Tag.image_id == ids[1]).one().id
-        edit = client.post(
-            EDIT,
-            json={"image_ids": ids[:1], "add_tags": [{"category": "season", "value": "winter"}]},
-        ).json()
-        client.post(
-            RESTORE,
-            json={
-                "images": edit["previous"],
-                "remove_tag_ids": [*edit["added_tag_ids"], other_tag],
-            },
+        scope = {"group_ids": [_group_id(SessionLocal, ids[0])]}
+        resp = client.post(EDIT, json={"scope": scope, "changes": {"image_type": "scene"}})
+        assert resp.status_code == 200
+        assert resp.json()["updated"] == 3
+        assert all(_image(SessionLocal, i)["image_type"] == "scene" for i in ids)
+
+    @pytest.mark.parametrize(
+        ("flt", "expected"),
+        [
+            ({"grid": "square"}, [0]),
+            ({"grid": "gridded"}, [0]),
+            ({"grid": "unknown"}, [1, 2]),
+            ({"tag": {"category": "lighting", "value": "night"}}, [1]),
+            ({"subgroup": None}, [0, 1, 2]),
+            ({"subgroup": "Winter"}, []),
+            ({"image_type": "scene"}, []),
+        ],
+    )
+    def test_filter_narrows_the_scope(self, seeded, flt, expected):
+        client, SessionLocal, ids = seeded
+        scope = {"group_ids": [_group_id(SessionLocal, ids[0])], "filter": flt}
+        resp = client.post(EDIT, json={"scope": scope, "changes": {"subgroup": "Picked"}})
+        assert resp.json()["updated"] == len(expected)
+        picked = [
+            i
+            for i, image_id in enumerate(ids)
+            if _image(SessionLocal, image_id)["subgroup"] == "Picked"
+        ]
+        assert picked == expected
+
+    def test_needs_exactly_one_target(self, seeded):
+        client, SessionLocal, ids = seeded
+        scope = {"group_ids": [_group_id(SessionLocal, ids[0])]}
+        assert client.post(EDIT, json={"image_ids": ids, "scope": scope}).status_code == 422
+        assert client.post(EDIT, json={"changes": {}}).status_code == 422
+
+    def test_facets_count_the_scope(self, seeded):
+        client, SessionLocal, ids = seeded
+        resp = client.post(
+            "/api/v1/images/facets", json={"group_ids": [_group_id(SessionLocal, ids[0])]}
         )
-        assert _image(SessionLocal, ids[0])["tags"] == []
-        assert _image(SessionLocal, ids[1])["tags"] == [("lighting", "night")]
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 3
+        assert body["image_type"] == [{"value": "battlemap", "count": 3}]
+        grid = {g["value"]: g["count"] for g in body["grid"]}
+        assert grid == {"square": 1, "hex": 0, "gridded": 1, "gridless": 0, "unknown": 2}
+        assert body["subgroup"] == [{"value": None, "count": 3}]
+        assert body["tags"] == [{"value": "lighting:night", "count": 1}]
+
+    def test_facets_respect_the_filter(self, seeded):
+        client, SessionLocal, ids = seeded
+        scope = {"group_ids": [_group_id(SessionLocal, ids[0])], "filter": {"grid": "unknown"}}
+        assert client.post("/api/v1/images/facets", json=scope).json()["total"] == 2

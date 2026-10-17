@@ -18,6 +18,8 @@ import { EditGroupHeader } from './edit-group/EditGroupHeader'
 import { EditGroupSidebar } from './edit-group/EditGroupSidebar'
 import { BulkEditConfirm } from './edit-group/BulkEditConfirm'
 import { useMetadataSave } from './edit-group/useMetadataSave'
+import { useRefreshLoaded } from './edit-group/useRefreshLoaded'
+import { BulkPanel, SCOPE_FACETS_KEY } from './edit-group/BulkPanel'
 import { useBulkImageEdit } from '@/hooks/useBulkImageEdit'
 import { gridLabel } from '@/lib/bulkEdit'
 import { EditGroupFileGrid } from './edit-group/EditGroupFileGrid'
@@ -143,6 +145,8 @@ export default function EditGroupDialog({
     pendingGroups,
     prioritizeGroup,
     awaitedGroupId,
+    isLargeReview,
+    groupOrder,
   } = useEditGroupLoad({
     open,
     groupId,
@@ -179,7 +183,18 @@ export default function EditGroupDialog({
   })
   const { isMultiSelect, showsMultipleGroups, selectionId, bulkScope } = scope
 
-  const bulk = useBulkImageEdit({ selectedInScope, patchFiles, onSaved: invalidateGallery })
+  // Large import review: All is a panel of server-side counts and bulk edits, not a grid
+  const showBulkPanel = isLargeReview && isAllTab && !isMultiSelect
+  const refreshLoaded = useRefreshLoaded(groups, patchFiles)
+  const bulk = useBulkImageEdit({
+    selectedInScope,
+    patchFiles,
+    refreshLoaded,
+    onSaved: () => {
+      invalidateGallery()
+      void queryClient.invalidateQueries({ queryKey: [SCOPE_FACETS_KEY] })
+    },
+  })
 
   // Reset file filter and selections when multi-select composition changes
   const multiSelectKey = useMemo(() => [...selectedGroupIds].sort().join(','), [selectedGroupIds])
@@ -208,10 +223,10 @@ export default function EditGroupDialog({
   const hasActiveFilter = !!fileFilter.text || fileFilter.active.length > 0
   const isOriginalGroup = !showsMultipleGroups && !isMassEdit && activeGroup?.id === String(groupId)
 
-  const totalInScope = groups.reduce(
-    (s, g) => s + g.files.filter((f) => !f.outOfScope && !f.excluded).length,
-    0,
-  )
+  const totalInScope =
+    groups.reduce((s, g) => s + g.files.filter((f) => !f.outOfScope && !f.excluded).length, 0) +
+    // Large review: groups not opened yet count from their summaries
+    (isLargeReview ? pendingGroups.reduce((n, g) => n + g.image_count, 0) : 0)
 
   const metadata = useMetadataSave({
     scopeGroups: scope.scopeGroups,
@@ -302,10 +317,12 @@ export default function EditGroupDialog({
               <div className="flex min-h-0 flex-1 overflow-hidden">
                 {(groups.length > 1 || pendingGroups.length > 0) && (
                   <EditGroupSidebar
+                    order={groupOrder}
                     pending={{
                       groups: pendingGroups,
                       awaitedId: awaitedGroupId,
                       onOpen: prioritizeGroup,
+                      onDemand: isLargeReview,
                     }}
                     activeTab={activeTab}
                     isAllTab={isAllTab}
@@ -317,114 +334,120 @@ export default function EditGroupDialog({
                 )}
 
                 <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-                  <div className="px-5 pt-4 pb-3 border-b border-border/30 shrink-0">
-                    <MetadataForm
-                      author={scope.scopeAuthor}
-                      groupName={showsMultipleGroups ? '' : (activeGroup?.group_name ?? '')}
-                      authorPlaceholder={
-                        isMultiSelect && !scope.scopeAuthor
-                          ? 'Multiple — type to set for selected groups'
-                          : isAllTab && !scope.scopeAuthor
-                            ? 'Multiple — type to set for all groups'
-                            : 'Author name'
-                      }
-                      groupNamePlaceholder={
-                        isMultiSelect
-                          ? `— (${selectedGroupIds.size} groups selected)`
-                          : isAllTab
-                            ? '— (select a group to rename)'
-                            : 'Group name'
-                      }
-                      groupNameDisabled={showsMultipleGroups}
-                      isMassEdit={isMassEdit}
-                      isAllTab={showsMultipleGroups}
-                      authorSuggestions={authorSuggestions}
-                      suggestionsListId="author-suggestions-edit"
-                      onAuthorChange={setAuthor}
-                      onGroupNameChange={(val) => {
-                        if (showsMultipleGroups) return
-                        metadata.markDirty()
-                        updateGroup(activeGroupId, { group_name: val })
-                      }}
-                      onBlur={() => void metadata.save()}
-                      groupNameRef={groupNameRef}
-                    />
-                  </div>
+                  {showBulkPanel ? (
+                    <BulkPanel groupIds={groupIds!} vocab={tagVocab} bulk={bulk} />
+                  ) : (
+                    <>
+                      <div className="px-5 pt-4 pb-3 border-b border-border/30 shrink-0">
+                        <MetadataForm
+                          author={scope.scopeAuthor}
+                          groupName={showsMultipleGroups ? '' : (activeGroup?.group_name ?? '')}
+                          authorPlaceholder={
+                            isMultiSelect && !scope.scopeAuthor
+                              ? 'Multiple — type to set for selected groups'
+                              : isAllTab && !scope.scopeAuthor
+                                ? 'Multiple — type to set for all groups'
+                                : 'Author name'
+                          }
+                          groupNamePlaceholder={
+                            isMultiSelect
+                              ? `— (${selectedGroupIds.size} groups selected)`
+                              : isAllTab
+                                ? '— (select a group to rename)'
+                                : 'Group name'
+                          }
+                          groupNameDisabled={showsMultipleGroups}
+                          isMassEdit={isMassEdit}
+                          isAllTab={showsMultipleGroups}
+                          authorSuggestions={authorSuggestions}
+                          suggestionsListId="author-suggestions-edit"
+                          onAuthorChange={setAuthor}
+                          onGroupNameChange={(val) => {
+                            if (showsMultipleGroups) return
+                            metadata.markDirty()
+                            updateGroup(activeGroupId, { group_name: val })
+                          }}
+                          onBlur={() => void metadata.save()}
+                          groupNameRef={groupNameRef}
+                        />
+                      </div>
 
-                  <div className="px-5 shrink-0">
-                    <FileToolbar
-                      files={scope.inScopeFiles}
-                      filteredFiles={scope.filteredFiles}
-                      selection={activeSelection}
-                      filter={fileFilter}
-                      vocab={tagVocab}
-                      onFilterChange={setFileFilter}
-                      onSelectAll={() => selectAllVisible(selectionId, scope.filteredFiles)}
-                      onDeselectAll={() => deselectAll(selectionId)}
-                      onBulkAddTag={(tag) =>
-                        bulk.request(bulkScope, {
-                          addTags: [tag],
-                          label: `Add tag "${tag.value}"`,
-                        })
-                      }
-                      onBulkSetGrid={(gridded, gridType) =>
-                        bulk.request(bulkScope, {
-                          changes: { gridded, grid_type: gridType },
-                          label: gridLabel(gridded, gridType),
-                        })
-                      }
-                      onBulkSetImageType={(v) =>
-                        bulk.request(bulkScope, {
-                          changes: { image_type: v },
-                          label: `Set type to ${v === 'scene' ? 'scene' : 'map'}`,
-                        })
-                      }
-                      onBulkSetSubgroup={(v) => {
-                        const subgroup = v.trim() || null
-                        bulk.request(bulkScope, {
-                          changes: { subgroup },
-                          label: subgroup ? `Set subgroup to "${subgroup}"` : 'Clear subgroup',
-                        })
-                      }}
-                      onBulkExclude={() => bulkExclude(bulkScope)}
-                      onMoveToNewGroup={
-                        !showsMultipleGroups && !isMassEdit && activeGroup?.id
-                          ? async () => {
-                              await ops.moveToNewGroup(activeGroup.id)
-                              groupNameRef.current?.focus()
-                            }
-                          : undefined
-                      }
-                      excludeLabel={isMassEdit ? 'Remove' : 'Delete'}
-                      alwaysShowTypeToggle
-                    />
-                    {showsMultipleGroups && pendingGroups.length > 0 && (
-                      <p role="status" className="pb-2 text-xs text-muted-foreground">
-                        Still loading {pendingGroups.length} of{' '}
-                        {groups.length + pendingGroups.length} groups. Changes here apply to the
-                        groups already loaded.
-                      </p>
-                    )}
-                  </div>
+                      <div className="px-5 shrink-0">
+                        <FileToolbar
+                          files={scope.inScopeFiles}
+                          filteredFiles={scope.filteredFiles}
+                          selection={activeSelection}
+                          filter={fileFilter}
+                          vocab={tagVocab}
+                          onFilterChange={setFileFilter}
+                          onSelectAll={() => selectAllVisible(selectionId, scope.filteredFiles)}
+                          onDeselectAll={() => deselectAll(selectionId)}
+                          onBulkAddTag={(tag) =>
+                            bulk.request(bulkScope, {
+                              addTags: [tag],
+                              label: `Add tag "${tag.value}"`,
+                            })
+                          }
+                          onBulkSetGrid={(gridded, gridType) =>
+                            bulk.request(bulkScope, {
+                              changes: { gridded, grid_type: gridType },
+                              label: gridLabel(gridded, gridType),
+                            })
+                          }
+                          onBulkSetImageType={(v) =>
+                            bulk.request(bulkScope, {
+                              changes: { image_type: v },
+                              label: `Set type to ${v === 'scene' ? 'scene' : 'map'}`,
+                            })
+                          }
+                          onBulkSetSubgroup={(v) => {
+                            const subgroup = v.trim() || null
+                            bulk.request(bulkScope, {
+                              changes: { subgroup },
+                              label: subgroup ? `Set subgroup to "${subgroup}"` : 'Clear subgroup',
+                            })
+                          }}
+                          onBulkExclude={() => bulkExclude(bulkScope)}
+                          onMoveToNewGroup={
+                            !showsMultipleGroups && !isMassEdit && activeGroup?.id
+                              ? async () => {
+                                  await ops.moveToNewGroup(activeGroup.id)
+                                  groupNameRef.current?.focus()
+                                }
+                              : undefined
+                          }
+                          excludeLabel={isMassEdit ? 'Remove' : 'Delete'}
+                          alwaysShowTypeToggle
+                        />
+                        {showsMultipleGroups && pendingGroups.length > 0 && (
+                          <p role="status" className="pb-2 text-xs text-muted-foreground">
+                            Still loading {pendingGroups.length} of{' '}
+                            {groups.length + pendingGroups.length} groups. Changes here apply to the
+                            groups already loaded.
+                          </p>
+                        )}
+                      </div>
 
-                  <EditGroupFileGrid
-                    files={scope.filteredFiles}
-                    outOfScopeFiles={scope.outOfScopeFiles}
-                    renderCard={renderCard}
-                    hasActiveFilter={hasActiveFilter}
-                    subgroups={{
-                      existing: scope.subgroups,
-                      canEdit: !showsMultipleGroups,
-                      editing: editingSvHeading,
-                      setEditing: setEditingSvHeading,
-                      rename: (from, to) => renameSubgroup(activeGroup!.id, from, to),
-                      clear: (subgroup) => clearSubgroupLabel(activeGroup!.id, subgroup),
-                    }}
-                    vocab={tagVocab}
-                    onUpdateOutOfScope={(file, updates) =>
-                      updateFile(activeTab, file.relative_path, updates)
-                    }
-                  />
+                      <EditGroupFileGrid
+                        files={scope.filteredFiles}
+                        outOfScopeFiles={scope.outOfScopeFiles}
+                        renderCard={renderCard}
+                        hasActiveFilter={hasActiveFilter}
+                        subgroups={{
+                          existing: scope.subgroups,
+                          canEdit: !showsMultipleGroups,
+                          editing: editingSvHeading,
+                          setEditing: setEditingSvHeading,
+                          rename: (from, to) => renameSubgroup(activeGroup!.id, from, to),
+                          clear: (subgroup) => clearSubgroupLabel(activeGroup!.id, subgroup),
+                        }}
+                        vocab={tagVocab}
+                        onUpdateOutOfScope={(file, updates) =>
+                          updateFile(activeTab, file.relative_path, updates)
+                        }
+                      />
+                    </>
+                  )}
 
                   <EditGroupFooter
                     showGroupActions={isOriginalGroup}

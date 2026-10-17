@@ -6,6 +6,10 @@ interface GroupSidebarShellProps {
   isAllActive: boolean
   onSelectAll: () => void
   footer?: ReactNode
+  /** Under the header, outside the scrolling list (e.g. a filter) */
+  toolbar?: ReactNode
+  /** Receives the scrolling list's element, for windowing its rows */
+  scrollRef?: (el: HTMLDivElement | null) => void
   children: ReactNode
 }
 
@@ -15,6 +19,8 @@ export function GroupSidebarShell({
   isAllActive,
   onSelectAll,
   footer,
+  toolbar,
+  scrollRef,
   children,
 }: GroupSidebarShellProps) {
   return (
@@ -23,7 +29,10 @@ export function GroupSidebarShell({
         <span className="text-xs text-muted-foreground font-semibold">{headerLabel}</span>
       </div>
 
-      <div className="flex-1 overflow-y-auto py-1">
+      {toolbar}
+
+      {/* relative: rows are positioned against it (offsetTop) when windowed */}
+      <div ref={scrollRef} className="relative flex-1 overflow-y-auto py-1">
         <button
           onClick={onSelectAll}
           className={`w-full flex items-center gap-2 px-3 py-2 text-left transition-colors border-l-2 ${
@@ -34,7 +43,7 @@ export function GroupSidebarShell({
         >
           <span className="font-display text-[15px] font-semibold flex-1">All</span>
           <span className="text-[11px] text-muted-foreground tabular-nums shrink-0">
-            {allCount}
+            {allCount.toLocaleString()}
           </span>
         </button>
         <div className="h-px bg-border/30 mx-3 my-0.5" />

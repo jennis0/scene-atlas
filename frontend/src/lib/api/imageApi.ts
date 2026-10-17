@@ -3,28 +3,35 @@ import type {
   BulkImageChanges,
   BulkImageEditResponse,
   Image,
-  ImageRestoreState,
+  ImageScope,
+  ImageScopeFacets,
   TagData,
 } from '@/types'
 
 export const imageApi = {
-  /** Apply one change to many images in one request; the response is what undo needs. */
+  /** Apply one change to many images in one request: by id, or a scope resolved on the server. */
   bulkEdit: async (
-    imageIds: number[],
+    target: { image_ids: number[] } | { scope: ImageScope },
     changes: BulkImageChanges,
     addTags: TagData[] = [],
   ): Promise<BulkImageEditResponse> => {
     const { data } = await api.post<BulkImageEditResponse>('/images/bulk-edit', {
-      image_ids: imageIds,
+      ...target,
       changes,
       add_tags: addTags,
     })
     return data
   },
 
-  /** Undo a bulk edit: its previous states, and the tags it added. */
-  bulkRestore: async (images: ImageRestoreState[], removeTagIds: number[]): Promise<void> => {
-    await api.post('/images/bulk-restore', { images, remove_tag_ids: removeTagIds })
+  /** Undo a bulk edit by the id it returned. */
+  bulkRestore: async (undoId: string): Promise<void> => {
+    await api.post('/images/bulk-restore', { undo_id: undoId })
+  },
+
+  /** Counts of a scope's images by type, grid state, subgroup and tag. */
+  facets: async (scope: ImageScope): Promise<ImageScopeFacets> => {
+    const { data } = await api.post<ImageScopeFacets>('/images/facets', scope)
+    return data
   },
 
   get: async (id: number): Promise<Image> => {

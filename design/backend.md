@@ -109,8 +109,9 @@ All API routes are mounted under `/api/v1` (`settings.api_prefix`); router prefi
 | GET | `/authors` | Distinct author values |
 | GET | `/{id}` | Get one image |
 | PATCH | `/{id}` | Update image metadata |
-| POST | `/bulk-edit` | One change (fields and/or tags to add) to many images, one transaction; returns their previous state (up to 20,000 ids) |
-| POST | `/bulk-restore` | Undo a bulk edit: put back the returned states, drop the tags it added |
+| POST | `/bulk-edit` | One change (fields and/or tags to add) to many images, one transaction. Images by `image_ids` (up to 20,000) or `scope` (`{group_ids, filter}`, resolved on the server, no cap). Returns `undo_id` |
+| POST | `/bulk-restore` | Undo a bulk edit by `undo_id` (the last 5 are kept in memory; 410 otherwise) |
+| POST | `/facets` | Counts of a scope's images by type, grid state, subgroup and tag (the editor's bulk panel) |
 | DELETE | `/{id}` | Delete image and its files |
 | GET | `/{id}/scenes` | Other images in the same group |
 | GET | `/{id}/file` | Serve the original file |

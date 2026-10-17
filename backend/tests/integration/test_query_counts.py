@@ -216,6 +216,19 @@ def test_group_bulk_update_query_count(library, query_counter):
     assert large == small, "\n".join(query_counter.statements)
 
 
+def test_scope_facets_query_count(library, query_counter):
+    client, lib = library
+    url = "/api/v1/images/facets"
+    body = {"filter": {"grid": "gridded"}}
+    small = _count_request(
+        client, query_counter, "POST", url, json={**body, "group_ids": [1, 2, 3]}
+    )
+    lib.add_groups(12)
+    ids = list(range(1, lib.groups + 1))
+    large = _count_request(client, query_counter, "POST", url, json={**body, "group_ids": ids})
+    assert large == small <= 6
+
+
 def test_tag_values_query(library, query_counter):
     client, lib = library
     with lib._session_factory() as db:

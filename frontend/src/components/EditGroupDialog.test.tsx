@@ -24,6 +24,7 @@ vi.mock('@/lib/api', () => ({
     getAuthors: vi.fn().mockResolvedValue([]),
     bulkEdit: vi.fn(),
     bulkRestore: vi.fn().mockResolvedValue(undefined),
+    facets: vi.fn(),
   },
   getThumbnailUrlById: vi.fn((id: number) => `/api/v1/images/${id}/thumbnail`),
   getImageUrlById: vi.fn((id: number) => `/api/v1/images/${id}`),
@@ -443,6 +444,87 @@ describe('EditGroupDialog', () => {
       expect(within(dialog()).getByText('Frost')).toBeInTheDocument()
     })
   })
+  describe('large import review', () => {
+    beforeEach(() => {
+      // 3,000 images a group by their summaries: over LARGE_REVIEW_IMAGES in all
+      vi.mocked(groupApi.summaries).mockImplementation(async (ids) =>
+        ids.map((id) => ({ ...summaryOf(GROUPS[id]), image_count: 3000 })),
+      )
+      vi.mocked(imageApi.facets).mockResolvedValue({
+        total: 9000,
+        image_type: [{ value: 'battlemap', count: 9000 }],
+        grid: [
+          { value: 'square', count: 0 },
+          { value: 'gridless', count: 400 },
+          { value: 'unknown', count: 8600 },
+        ],
+        subgroup: [{ value: null, count: 9000 }],
+        tags: [],
+      })
+      vi.mocked(imageApi.bulkEdit).mockResolvedValue({ updated: 400, undo_id: 'u' })
+    })
+
+    it('loads only the group it opens on, and others when they are opened', async () => {
+      const { user } = renderDialog({ groupIds: [1, 2, 3] })
+      expect(await screen.findByDisplayValue('Forest Maps')).toBeInTheDocument()
+      expect(groupApi.details).toHaveBeenCalledTimes(1)
+      expect(groupApi.details).toHaveBeenCalledWith([1])
+
+      await user.click(screen.getByRole('button', { name: /Town Maps/ }))
+      expect(await screen.findByDisplayValue('Town Maps')).toBeInTheDocument()
+      expect(groupApi.details).toHaveBeenLastCalledWith([3])
+      // Cave Maps was never opened, so never fetched
+      expect(groupApi.details).toHaveBeenCalledTimes(2)
+    })
+
+    it('renders only the sidebar rows on screen for thousands of groups', async () => {
+      const ids = Array.from({ length: 2000 }, (_, i) => i + 1)
+      const named = (id: number) => ({ ...summaryOf(GROUPS[1]), id, base_name: `Pack ${id}` })
+      vi.mocked(groupApi.summaries).mockImplementation(async (asked) => asked.map(named))
+      vi.mocked(groupApi.details).mockImplementation(async (asked) =>
+        asked.map((id) => ({ ...structuredClone(GROUPS[1]), id, base_name: `Pack ${id}` })),
+      )
+      const size = { width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }
+      const spies = [
+        vi
+          .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+          .mockReturnValue({ ...size, x: 0, y: 0, toJSON: () => size } as DOMRect),
+        vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600),
+        vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800),
+      ]
+      try {
+        renderDialog({ groupIds: ids })
+        expect(await screen.findByText('2,000 groups')).toBeInTheDocument()
+        const rows = screen.getAllByRole('button', { name: /^Pack \d+/ })
+        expect(rows.length).toBeGreaterThan(0)
+        expect(rows.length).toBeLessThan(100)
+        expect(screen.queryByRole('button', { name: /^Pack 2000/ })).not.toBeInTheDocument()
+      } finally {
+        spies.forEach((spy) => spy.mockRestore())
+      }
+    })
+
+    it('shows All as a panel of counts whose edits go by scope', async () => {
+      const { user } = renderDialog({ groupIds: [1, 2, 3] })
+      await screen.findByDisplayValue('Forest Maps')
+      await user.click(screen.getByRole('button', { name: /^All\s*[\d,]+$/ }))
+
+      expect(await screen.findByText('9,000 images in 3 groups')).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: /^Gridless/ }))
+      expect(screen.getByText(/Change the 400 Gridless images/)).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: /^Type/ }))
+      await user.click(await screen.findByRole('menuitem', { name: 'Scene' }))
+
+      await waitFor(() =>
+        expect(imageApi.bulkEdit).toHaveBeenCalledWith(
+          { scope: { group_ids: [1, 2, 3], filter: { grid: 'gridless' } } },
+          { image_type: 'scene' },
+          [],
+        ),
+      )
+    })
+  })
+
   describe('author and name', () => {
     it('saves nothing when the fields lose focus unchanged', async () => {
       const { user } = renderDialog({ groupIds: [1, 3] })
@@ -488,20 +570,9 @@ describe('EditGroupDialog', () => {
       await user.click(await screen.findByRole('menuitem', { name: 'Scene' }))
     }
 
-    const responseFor = (ids: number[]) => ({
-      updated: ids.length,
-      previous: ids.map((id) => ({
-        id,
-        image_type: 'battlemap',
-        subgroup: null,
-        gridded: null,
-        grid_width: null,
-        grid_height: null,
-        grid_type: null,
-        grid_source: null,
-        grid_confidence: null,
-      })),
-      added_tag_ids: [],
+    const responseFor = (target: { image_ids: number[] } | { scope: unknown }) => ({
+      updated: 'image_ids' in target ? target.image_ids.length : 0,
+      undo_id: 'undo-1',
     })
 
     it('saves in one bulk request, not by re-saving each group, and can be undone', async () => {
@@ -511,7 +582,7 @@ describe('EditGroupDialog', () => {
 
       await waitFor(() =>
         expect(imageApi.bulkEdit).toHaveBeenCalledWith(
-          [11, 12, 13, 21],
+          { image_ids: [11, 12, 13, 21] },
           { image_type: 'scene' },
           [],
         ),
@@ -525,7 +596,7 @@ describe('EditGroupDialog', () => {
       expect(message).toBe('Set type to scene: 4 images')
       const action = (options as unknown as { action: { onClick: () => void } }).action
       action.onClick()
-      await waitFor(() => expect(imageApi.bulkRestore).toHaveBeenCalled())
+      await waitFor(() => expect(imageApi.bulkRestore).toHaveBeenCalledWith('undo-1'))
       await waitFor(() =>
         expect(
           within(dialog()).queryAllByRole('button', { name: 'Scene', pressed: true }),
@@ -557,7 +628,10 @@ describe('EditGroupDialog', () => {
       expect(imageApi.bulkEdit).not.toHaveBeenCalled()
       await user.click(within(confirm).getByRole('button', { name: 'Apply' }))
       await waitFor(() => expect(imageApi.bulkEdit).toHaveBeenCalledTimes(1))
-      expect(vi.mocked(imageApi.bulkEdit).mock.calls[0][0]).toHaveLength(500)
+      expect(vi.mocked(imageApi.bulkEdit).mock.calls[0][0]).toEqual({
+        image_ids: expect.any(Array),
+      })
+      expect(vi.mocked(toast.success).mock.lastCall![0]).toBe('Set type to scene: 500 images')
     })
 
     it('puts the files back when the request fails', async () => {

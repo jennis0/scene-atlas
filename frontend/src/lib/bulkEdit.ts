@@ -1,4 +1,4 @@
-import type { BulkImageChanges, EditableFileState, ImageRestoreState, TagData } from '@/types'
+import type { BulkImageChanges, EditableFileState, TagData } from '@/types'
 
 /** From this many images, a bulk edit asks before it runs */
 export const BULK_CONFIRM_FROM = 500
@@ -14,10 +14,8 @@ export interface BulkChange {
 const hasTag = (f: EditableFileState, t: TagData) =>
   f.tags.some((x) => x.category === t.category && x.value === t.value)
 
-/** The tags of `change` that `file` doesn't have yet. */
-export function tagsToAdd(file: EditableFileState, change: BulkChange): TagData[] {
-  return (change.addTags ?? []).filter((t) => !hasTag(file, t))
-}
+const tagsToAdd = (file: EditableFileState, change: BulkChange): TagData[] =>
+  (change.addTags ?? []).filter((t) => !hasTag(file, t))
 
 /** A file as the server leaves it after `change` (POST /images/bulk-edit). */
 export function applyBulkChange(file: EditableFileState, change: BulkChange): EditableFileState {
@@ -35,7 +33,7 @@ export function applyBulkChange(file: EditableFileState, change: BulkChange): Ed
   }
 }
 
-/** Fields a bulk edit can change, copied back from `before` (when the request fails). */
+/** Fields a bulk edit can change, copied from `before` (to put a file back after a failed request). */
 export function revertBulkChange(
   file: EditableFileState,
   before: EditableFileState,
@@ -44,24 +42,12 @@ export function revertBulkChange(
   return { ...file, image_type, subgroup, gridded, grid_type, grid_width, grid_height, tags }
 }
 
-/** A file after an undo: the server's previous state, without the tags the edit added. */
-export function undoBulkChange(
+/** A file with the bulk-editable fields of `fresh` (the same file as just read from the server). */
+export function withServerFields(
   file: EditableFileState,
-  previous: ImageRestoreState,
-  addedTags: TagData[],
+  fresh: EditableFileState,
 ): EditableFileState {
-  return {
-    ...file,
-    image_type: previous.image_type === 'scene' ? 'scene' : 'battlemap',
-    subgroup: previous.subgroup,
-    gridded: previous.gridded,
-    grid_type: previous.grid_type,
-    grid_width: previous.grid_width,
-    grid_height: previous.grid_height,
-    tags: file.tags.filter(
-      (t) => !addedTags.some((a) => a.category === t.category && a.value === t.value),
-    ),
-  }
+  return revertBulkChange(file, fresh)
 }
 
 /** Describe a grid change for the confirmation and toast. */

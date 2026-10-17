@@ -149,7 +149,10 @@ subgroup) don't: `hooks/useBulkImageEdit.ts` sends one `POST /images/bulk-edit` 
 selected files, shows the change at once (`useFileEditing.patchFiles`, which doesn't trigger
 a group save), puts the files back if the request fails, asks first from 500 images
 (`BULK_CONFIRM_FROM`, `edit-group/BulkEditConfirm`), and offers Undo in its toast
-(`POST /images/bulk-restore` with the states the edit returned). The author and name fields
+(`POST /images/bulk-restore` with the edit's `undo_id`, then the loaded files are re-read).
+Import review above 5,000 images (`LARGE_REVIEW_IMAGES`) is in large mode: groups load when
+opened, the sidebar is windowed with a name filter, and All is `edit-group/BulkPanel`
+(server-side counts, edits by scope). See [editor-metadata-first.md](editor-metadata-first.md). The author and name fields
 save on blur only if they changed (`edit-group/useMetadataSave.ts`); an author set for many
 groups is one `POST /groups/bulk-update`.
 

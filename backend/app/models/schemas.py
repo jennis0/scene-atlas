@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class TagBase(BaseModel):
@@ -120,6 +120,8 @@ class ImageSearchResponse(BaseModel):
 
 # Bulk image edits cover a whole import's All view in one request.
 MAX_BULK_IMAGE_IDS = 20000
+# A scope names groups, not images: an initial library import can plan ~10k groups.
+MAX_SCOPE_GROUP_IDS = 20000
 
 
 class BulkImageChanges(BaseModel):
@@ -134,41 +136,66 @@ class BulkImageChanges(BaseModel):
     subgroup: str | None = None
 
 
-class BulkImageEditRequest(BaseModel):
-    """One change applied to many images."""
+class TagRef(BaseModel):
+    category: str
+    value: str
 
-    image_ids: list[int] = Field(min_length=1, max_length=MAX_BULK_IMAGE_IDS)
+
+class ImageScopeFilter(BaseModel):
+    """Narrows an image scope. Only fields sent apply; ``subgroup: null`` means none set."""
+
+    image_type: Literal["battlemap", "scene"] | None = None
+    grid: Literal["square", "hex", "gridded", "gridless", "unknown"] | None = None
+    subgroup: str | None = None
+    tag: TagRef | None = None
+
+
+class ImageScope(BaseModel):
+    """The images of some groups, optionally filtered: resolved on the server."""
+
+    group_ids: list[int] = Field(min_length=1, max_length=MAX_SCOPE_GROUP_IDS)
+    filter: ImageScopeFilter = ImageScopeFilter()
+
+
+class ScopeFacetCount(BaseModel):
+    value: str | None
+    count: int
+
+
+class ImageScopeFacets(BaseModel):
+    """How a scope's images break down: what the bulk panel shows and filters by."""
+
+    total: int
+    image_type: list[ScopeFacetCount]
+    grid: list[ScopeFacetCount]
+    subgroup: list[ScopeFacetCount]
+    tags: list[ScopeFacetCount]  # value is "category:value"
+
+
+class BulkImageEditRequest(BaseModel):
+    """One change applied to many images, named by id or by a scope (exactly one)."""
+
+    image_ids: list[int] | None = Field(default=None, min_length=1, max_length=MAX_BULK_IMAGE_IDS)
+    scope: ImageScope | None = None
     changes: BulkImageChanges = BulkImageChanges()
     add_tags: list[TagCreate] = Field(default=[], max_length=50)
 
-
-class ImageRestoreState(BaseModel):
-    """An image's editable fields as they were before a bulk edit (for undo)."""
-
-    id: int
-    image_type: str | None = None
-    subgroup: str | None = None
-    gridded: bool | None = None
-    grid_width: int | None = None
-    grid_height: int | None = None
-    grid_type: str | None = None
-    grid_source: str | None = None
-    grid_confidence: float | None = None
+    @model_validator(mode="after")
+    def _one_target(self) -> "BulkImageEditRequest":
+        if (self.image_ids is None) == (self.scope is None):
+            raise ValueError("send exactly one of image_ids and scope")
+        return self
 
 
 class BulkImageEditResponse(BaseModel):
-    """What a bulk edit did, and what ``POST /images/bulk-restore`` needs to undo it."""
+    """What a bulk edit changed; ``undo_id`` reverts it (POST /images/bulk-restore)."""
 
     updated: int
-    previous: list[ImageRestoreState]
-    added_tag_ids: list[int]
+    undo_id: str
 
 
 class BulkImageRestoreRequest(BaseModel):
-    """Undo a bulk edit: its ``previous`` states and ``added_tag_ids``."""
-
-    images: list[ImageRestoreState] = Field(min_length=1, max_length=MAX_BULK_IMAGE_IDS)
-    remove_tag_ids: list[int] = Field(default=[], max_length=MAX_BULK_IMAGE_IDS * 50)
+    undo_id: str
 
 
 class BulkImageRestoreResponse(BaseModel):
