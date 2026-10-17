@@ -22,14 +22,14 @@ from backend.pipeline.pipeline_config import PipelineConfig
 from backend.pipeline.stored_format import StoredFormat
 
 from .test_imports_api import BASE, image_bytes, import_files
-from .test_imports_api import api as api
+from .test_imports_api import api as imports_api  # noqa: F401  (fixture)
 
 
 @pytest.fixture
-def local(api, monkeypatch):
+def local(imports_api, monkeypatch):
     """The imports API as the desktop app sees it (the test client uses a loopback host)."""
     monkeypatch.setattr("backend.app.config.settings.app_mode", "app")
-    return api
+    return imports_api
 
 
 def write_tree(root: Path, files: dict[str, bytes]) -> None:
@@ -173,9 +173,9 @@ def test_adding_the_same_folder_twice_ignores_repeats(local, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_server_mode_has_no_local_sources(api, tmp_path):
-    job_id = api.create()
-    add_sources(api, job_id, [tmp_path], status=404)
+def test_server_mode_has_no_local_sources(imports_api, tmp_path):
+    job_id = imports_api.create()
+    add_sources(imports_api, job_id, [tmp_path], status=404)
 
 
 @pytest.mark.parametrize("path", ["relative/folder", "/no/such/folder"])
