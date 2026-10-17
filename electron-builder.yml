@@ -11,6 +11,7 @@ files:
   - electron/dist/**/*
   - electron/setup.html
   - electron/loading.html
+  - electron/fonts/**/*
   - "!**/*.map"
   - "!**/node_modules/**"
 

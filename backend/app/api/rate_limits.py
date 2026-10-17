@@ -3,9 +3,9 @@
 Kept in its own module to avoid circular imports between main.py and
 the API route modules that apply per-endpoint limits.
 
-When deployed behind a reverse proxy, the proxy MUST overwrite (not
-append to) X-Forwarded-For so that get_remote_address returns the real
-client IP.  See design/security.md for deployment guidance.
+get_remote_address reads request.client, which main.py's ProxyHeadersMiddleware
+sets from X-Forwarded-For on connections from FORWARDED_ALLOW_IPS only.
+See design/security.md.
 """
 
 from slowapi import Limiter

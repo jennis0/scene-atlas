@@ -75,7 +75,7 @@ the built frontend and serves both the API and UI on a single port.
 
 ```bash
 cd frontend && npm run build && cd ..
-uv run uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+uv run uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers
 ```
 
 Configure via `.env` — see `.env.example` for available options.

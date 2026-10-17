@@ -11,7 +11,7 @@ import { onInlineEditKey } from '@/lib/inlineEditKeys'
 import type { EditableFileState, TagData } from '@/types'
 import { TagPicker } from './TagPicker'
 import type { ParsedTagVocab } from './types'
-import type { FileFilter } from './fileFilter'
+import { buildTagFilterGroups, type FileFilter } from './fileFilter'
 import type { FilterOptionGroup } from '@/components/FilterMenuContent'
 import { FileToolbarCore } from './shared/FileToolbarCore'
 
@@ -87,26 +87,6 @@ export function FileToolbar({
     { filterValue: 'unknown', label: 'Unknown', filterLabel: 'grid: Unknown' },
   ]
 
-  const tagFreq = new Map<string, { category: string; value: string; count: number }>()
-  for (const f of nonExcludedFiles) {
-    for (const t of f.tags) {
-      const key = `${t.category}:${t.value}`
-      const entry = tagFreq.get(key)
-      if (entry) entry.count++
-      else tagFreq.set(key, { category: t.category, value: t.value, count: 1 })
-    }
-  }
-
-  const tagsByCategory = new Map<string, Array<{ key: string; value: string; count: number }>>()
-  for (const [key, entry] of tagFreq) {
-    const arr = tagsByCategory.get(entry.category) ?? []
-    arr.push({ key, value: entry.value, count: entry.count })
-    tagsByCategory.set(entry.category, arr)
-  }
-  for (const arr of tagsByCategory.values()) {
-    arr.sort((a, b) => b.count - a.count)
-  }
-
   const filterGroups: FilterOptionGroup[] = []
 
   if (availableSubgroups.length > 0) {
@@ -144,19 +124,7 @@ export function FileToolbar({
     options: gridStates,
   })
 
-  for (const [category, tags] of tagsByCategory.entries()) {
-    filterGroups.push({
-      id: category,
-      label: category,
-      type: 'tag',
-      options: tags.map((t) => ({
-        filterValue: `${category}:${t.value}`,
-        label: t.value,
-        filterLabel: `${category}: ${t.value}`,
-        count: t.count,
-      })),
-    })
-  }
+  filterGroups.push(...buildTagFilterGroups(nonExcludedFiles))
 
   // Slots
 

@@ -49,33 +49,30 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 | Work | Where | Notes |
 |---|---|---|
 | Pre-release code-quality pass | PR #4 (`chore/pre-release-quality`) | [code-quality-baseline.md](code-quality-baseline.md) |
+| Tech-debt pass (follow-up to PR #4) | branch `chore/tech-debt` | Clears the previous backlog's debt rows |
 
 ## Backlog
 
 | Item | Notes | Priority |
 |---|---|---|
-| Security scans don't fail CI | `continue-on-error: true` on `pip-audit` and `bandit` in `ci.yml`; the target date (2026-03-28) has passed. Triage findings, add targeted exclusions, remove the flag. | Medium |
-| GitHub Actions on Node-20-era major versions | `actions/checkout@v4`, `setup-node@v4`, `setup-python@v5`, `astral-sh/setup-uv@v4`, `upload-artifact@v4`, `cache@v4`, `upload-pages-artifact@v3`. Upgrade to the Node 24 majors and re-test each job. | Medium |
-| int8 model export depends on untracked code | `scripts/models/export_model_onnx.py` imports `scripts.quantisation.*`, which is gitignored and absent from a clean checkout. [onnx-int8-quantisation.md](onnx-int8-quantisation.md) | Medium |
-| Electron sidecar parent-death watchdog | If Electron dies without stopping the sidecar, the backend keeps running. Add a stdin-EOF (or parent-PID) watchdog in `backend/pyinstaller/entry.py`. | Medium |
-| Finish the pipeline DB session helper | `backend/pipeline/db.py:pipeline_db` exists and is used by `maintenance.py` and `vector_reconcile.py`; about 15 call sites (`reparse_names`, `retag_all_images`, `backfill_*`, `export_library`, `fix_orphaned_images`, `write_new_embeddings`, `pipeline_config`) still build sessions directly. | Low |
+| Electron 40 is end of life | 40 and 41 get no patches; 5 high Dependabot alerts can't be fixed on 40.x. Move to a supported major (42+): check the breaking changes, run `electron:dev`, do a Release dry run. | High |
+| Verify the sidecar lifecycle on packaged Windows and macOS | Parent-death watchdog (stdin EOF + PID poll), `msvcrt` storage lock and its loading-page message, graceful stop on Windows, storage-change relaunch waiting on the old lock. Tested on Linux only. | Medium |
+| Colour threshold default is loose | ΔE 25 reproduces the old HSL 0.35, but a typical map colour matches ~80% of the library and colour-filtered browse is 70–140 ms slower at 56k images than the old in-memory index. ΔE 12–15 is faster and more useful. No UI control (API only). [search.md](search.md) | Medium |
+| transformers 5 for `scripts/models` export | Clears 6 accepted pip-audit IDs (dev-only extra). | Medium |
 | Possible-duplicate (pHash) flags | Hashes are stored; flags and report UI not built. Must suppress gridded/gridless siblings. [ingestion.md](ingestion.md) | Low |
-| Rate limits behind a reverse proxy | slowapi keys on `get_remote_address`, which is the proxy's address once server mode sits behind one, so all clients share one bucket. Enable uvicorn proxy headers with a trusted `FORWARDED_ALLOW_IPS` and document it. | Medium |
-| Mislabelled "Concurrent imports" setting | It controls `max_concurrent_prepare` (images prepared in parallel), not simultaneous import jobs as its description says. Relabel or rework. | Low |
-| Tag-pack wizard rough edges | First boot seeds every pack, so the wizard shows all as imported; it ignores per-pack `errors` in the `import-multiple` response; that endpoint has no rate limit. | Low |
-| Long jobs block shutdown | `JobRunner.shutting_down` is never checked by job functions. | Low |
-| Unused / ineffective settings | `max_image_size`, `vector_collection_name` (only a default), `embedding_model` unused; `DATABASE_URL` and path overrides are recomputed in `Settings.__init__`; `max_import_file_size` default differs between schema (2000 MiB) and seed (2048 MiB). | Low |
-| Setup page fetches Google Fonts | `electron/setup.html` needs the network on first run for fonts; bundling them would allow a stricter CSP. | Low |
-| Deferred frontend extractions | EditGroupDialog / ImageViewer subcomponents, `useSceneFilters`, unifying ImageViewer filtering with `fileFilter.ts`, shared `TagChip` / `PanelHeader` / `ModelCard`, moving confirm flags out of `useEditGroupOperations`. Add component tests first (coverage is low for these). | Low |
-| Ingest error classification | A `FileNotFoundError` while placing files at commit (`_place`, stage `db_save`) is classified `file`, failing the batch permanently instead of retrying. `backend/pipeline/error_classifier.py` | Medium |
-| No single-backend guard per data dir | Two backends on one `APP_DATA_DIR` corrupt each other's in-flight ingest (`recover()` clears `.incoming/`). Electron has a single-instance lock; standalone/server mode has none. Add a lock file in `APP_DATA_DIR`. | Low |
-| E2E can run against a developer's backend | Locally, Playwright reuses an already-running backend on :8000 (`reuseExistingServer`), so a dev backend's real data dir would be used. Start the E2E backend on its own port. `e2e/playwright.config.ts` | Medium |
-| ColorIndex loads the whole `colors` table | `color_search.ColorIndex` reloads every colour row into memory on each TTL expiry. Chosen fix: store precomputed LAB columns per colour row and search with a SQL distance query, removing the in-memory index. | Low |
-| `SCENE_ATLAS_READY` printed before the socket is bound | Printed from the lifespan; clients must poll `/health` (Electron and the stress runner do). | Low |
+| `api_host` defaults to 0.0.0.0 | Only `python -m backend.app.main` uses it (Electron forces 127.0.0.1; Docker passes `--host`). Default to loopback, then drop the `# nosec B104`. | Low |
+| Storage lock on filesystems without locking | The data-dir lock runs unguarded (with a warning) where `flock`/`msvcrt` isn't supported, e.g. some network shares. | Low |
+| Unbounded graceful shutdown | Set uvicorn `timeout_graceful_shutdown` so a streaming ZIP export or upload can't hold shutdown open. | Low |
+| Purge and backup can't stop part-way | Library purge and `backup_database` ignore the shutdown signal; make them resumable or atomic first. | Low |
+| `PermissionError` at commit classified `file` | On Windows, antivirus can briefly lock a file during the rename; consider `transient` at stage `db_save`. | Low |
+| Removing tag packs | Packs are opt-in since first boot seeds only `common`, but can't be removed. | Low |
+| Shared `ModelCard` and `PanelTitle` leftovers | Model cards in `ModelSetupScreen` and `SettingsTabContent`; `PanelTitle` in `LibraryInfoDialog`. | Low |
+| Confirm dialogs have no accessible name | `DialogContent` has `role="dialog"` but no `aria-labelledby`. | Low |
+| E2E first run on a clean machine | The backend can start before the model has downloaded, so the seed import never runs. Download before starting the webServer. | Low |
+| `gpu-dev` torch stuck at 2.6 | The `pytorch-cuda` index is cu124; move to cu126/cu128. | Low |
 | Session-based authentication | Until then server mode must sit behind an authenticating reverse proxy. [security.md](security.md) | Medium |
 | Bulk import of a local library | Linked folders read in place, feeding the same item queue. [ingestion.md](ingestion.md) | Low |
-| Real LanceDB in integration tests | Tests mock `get_lancedb_service()` | Low |
-| Dependency upgrades | Tailwind 3 → 4 (needs tailwind-merge v3), ESLint flat config, React 19 (blocked by @dnd-kit), React Router 7, lucide-react | Low |
+| Dependency upgrades | Tailwind 3 → 4 (needs tailwind-merge v3), ESLint flat config, React 19 (blocked by @dnd-kit), React Router 7, vitepress 2, lucide-react. A full in-range frontend refresh breaks `imports.test.tsx` (likely @tanstack/react-virtual). | Low |
 
 ## Key design constraints
 

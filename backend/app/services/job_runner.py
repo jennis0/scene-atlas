@@ -27,6 +27,11 @@ from datetime import UTC, datetime
 from typing import Any
 
 from backend.app.config import settings as _settings
+from backend.app.services.shutdown import (
+    ShutdownRequested,
+    request_shutdown,
+    shutdown_requested,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +45,7 @@ class JobRecord:
 
     id: str
     name: str
-    status: str = "queued"  # queued → running → completed | failed
+    status: str = "queued"  # queued → running → completed | failed | interrupted
     submitted_at: float = field(default_factory=time.time)
     started_at: float | None = None
     finished_at: float | None = None
@@ -102,9 +107,9 @@ class JobRunner:
 
     @property
     def shutting_down(self) -> bool:
-        """True once shutdown() has been called.  Worker threads should
-        check this between units of work and exit early."""
-        return self._shutting_down.is_set()
+        """True once shutdown has begun. Jobs check it through
+        ``shutdown.raise_if_shutting_down()`` at batch boundaries."""
+        return self._shutting_down.is_set() or shutdown_requested()
 
     # Public API
 
@@ -141,6 +146,11 @@ class JobRunner:
                 record.status = "completed"
                 record.result = result
                 return result
+            except ShutdownRequested:
+                record.status = "interrupted"
+                record.error = "Interrupted by shutdown"
+                logger.info("Background job %s (%s) stopped for shutdown", job_id, job_name)
+                return None
             except Exception as exc:
                 record.status = "failed"
                 record.error = str(exc)
@@ -189,6 +199,7 @@ class JobRunner:
         """Signal workers to stop, then drain the queue."""
         logger.info("JobRunner shutting down (wait=%s)...", wait)
         self._shutting_down.set()
+        request_shutdown()
         self._executor.shutdown(wait=wait, cancel_futures=True)
         logger.info("JobRunner stopped")
 
@@ -250,7 +261,8 @@ def get_job_runner() -> JobRunner:
                 finally:
                     db.close()
             except Exception:
-                pass  # DB may not be ready on very first boot — use default
+                # DB may not be ready on very first boot — use default
+                logger.debug("Could not read max_job_workers; using default", exc_info=True)
             _job_runner = JobRunner(max_workers=max_workers)
     return _job_runner
 

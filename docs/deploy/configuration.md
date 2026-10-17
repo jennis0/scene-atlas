@@ -23,6 +23,8 @@ Set these in your `.env` file, Docker Compose environment, or system environment
 
 The database path, vector index, thumbnail and staging directories are always derived from these two roots and cannot be overridden individually.
 
+Only one Scene Atlas backend can use a given `APP_DATA_DIR` or `IMAGE_LIBRARY_DIR` at a time. A second backend pointed at either folder refuses to start with "Another Scene Atlas backend is already using the folder …". The lock is a `.backend.lock` file in each folder; it is released automatically when the backend exits, so a leftover file is harmless.
+
 ::: info Docker deployments
 In Docker, use `IMAGE_DIR` in your `.env` to set the host-side bind mount path. Inside the container, this is mapped to `IMAGE_LIBRARY_DIR=/app/images`.
 :::
@@ -31,6 +33,7 @@ In Docker, use `IMAGE_DIR` in your `.env` to set the host-side bind mount path. 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `FORWARDED_ALLOW_IPS` | `127.0.0.1,::1` | Reverse proxies (comma-separated IPs or CIDR networks, or `*`) whose `X-Forwarded-For` header is trusted for the client IP used by rate limits. See [Client IP addresses](/deploy/server#client-ip-addresses-and-rate-limits) |
 | `CORS_ORIGINS` | `["http://localhost:3000","http://localhost:5173","http://localhost:8000"]` (Docker Compose: `["http://localhost:8000"]`) | JSON array of allowed origins. Set to your domain when behind a reverse proxy |
 
 ### Authentication
@@ -59,7 +62,6 @@ Scene Atlas has **no built-in authentication**. In server mode, anyone who can r
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `COLOR_CACHE_TTL_SECONDS` | `60` | Colour index cache expiry in seconds |
 | `JOB_RETENTION_SECONDS` | `3600` | How long completed background job records are kept |
 | `RATE_LIMIT_ENABLED` | `true` | Enable per-client rate limits on expensive and destructive endpoints |
 | `RATE_LIMIT_EXPENSIVE` | `2/minute` | Limit for expensive operations |
@@ -99,21 +101,23 @@ Image grid detection runs on battlemaps only, in addition to filename-based dete
 | Setting | Key | Default | Where |
 |---------|-----|---------|-------|
 | Dominant colours | `num_dominant_colors` | 5 | API |
-| Colour distance threshold | `color_distance_threshold` | 0.35 | API |
+| Colour distance threshold | `color_distance_threshold` | 25 (delta E) | API |
 | Clustering samples | `color_clustering_samples` | 5,000 | API |
 | Clustering restarts | `color_kmeans_n_init` | 3 | API |
+
+The colour distance threshold is a CIE76 delta E between 0 and 100 (lower is stricter). Before migration 024 it was an HSL distance with a default of 0.35; upgrading maps 0.35 to 25 and scales custom values by the same ratio.
 
 ### Performance
 
 | Setting | Key | Default | Where |
 |---------|-----|---------|-------|
 | Ingestion batch size | `ingestion_batch_size` | 16 | API |
-| Concurrent imports | `max_concurrent_prepare` | min(CPUs, 8, RAM-based cap) | UI |
+| Parallel image processing | `max_concurrent_prepare` | min(CPUs, 8, RAM-based cap) | UI (restart) |
 | Max concurrent heavy requests | `max_concurrent_heavy_requests` | min(max(1, CPUs/2), 6) | API (restart) |
 | Max job workers | `max_job_workers` | min(4, CPUs/2), at least 1 | API |
 | Scheduler enabled | `scheduler_enabled` | On | API (restart) |
 
-The concurrency defaults are computed from the host's CPU count and total RAM when settings are first seeded. The scheduler runs the daily backup and maintenance tasks.
+Parallel image processing is how many images are prepared at once (hashing, thumbnails, colours, grid detection), shared by all running imports rather than a number of simultaneous imports. Import memory use is also capped by `INGEST_MEMORY_BUDGET_MB`. The concurrency defaults are computed from the host's CPU count and total RAM when settings are first seeded. The scheduler runs the daily backup and maintenance tasks.
 
 ## Model Details
 

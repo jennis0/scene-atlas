@@ -42,8 +42,8 @@ class LanceDBService:
 
     def __init__(
         self,
-        path: Path | str = settings.vector_db_path,
-        collection_name: str = settings.vector_collection_name,
+        path: Path | str,
+        collection_name: str,
         vector_size: int | None = None,
     ):
         self._lock = threading.RLock()
@@ -364,14 +364,11 @@ def get_lancedb_service() -> LanceDBService:
             from .model_registry import get_model
 
             model_name = get_effective_model_name()
-            model_meta = get_model(model_name) if model_name else None
-            collection_name = (
-                get_collection_name(model_name) if model_name else settings.vector_collection_name
-            )
+            model_meta = get_model(model_name)
             vector_size = model_meta["embedding_dim"] if model_meta else settings.vector_size
             _lancedb_service = LanceDBService(
                 path=settings.vector_db_path,
-                collection_name=collection_name,
+                collection_name=get_collection_name(model_name),
                 vector_size=vector_size,
             )
     return _lancedb_service

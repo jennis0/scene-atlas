@@ -87,7 +87,8 @@
 
   body {
     @apply bg-background text-foreground;
-    font-family: 'Figtree', system-ui, sans-serif;
+
+    font-family: 'Figtree Variable', system-ui, sans-serif;
     font-feature-settings: 'ss01';
     /* Faint dot-grid — evokes old survey maps and graph paper */
     background-image: radial-gradient(circle, hsl(var(--foreground) / 0.04) 1px, transparent 1px);
@@ -145,12 +146,12 @@
 @layer utilities {
   /* Display font — Cinzel for titles and section heads */
   .font-display {
-    font-family: 'Cinzel', Georgia, serif;
+    font-family: 'Cinzel Variable', Georgia, serif;
   }
 
   /* Mono for filenames, codes, dimensions */
   .font-mono {
-    font-family: 'JetBrains Mono', Consolas, monospace;
+    font-family: 'JetBrains Mono Variable', Consolas, monospace;
   }
 
   /* Section label — small uppercase heading for panel sections */

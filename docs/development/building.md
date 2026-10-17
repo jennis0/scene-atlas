@@ -22,7 +22,7 @@ uv run python scripts/app/start.py
 cd frontend && npm install && npm run dev
 ```
 
-The frontend Vite config proxies `/api` requests to the backend at `localhost:8000`. `scripts/app/start.py` supervises uvicorn with auto-restart and writes its output to `logs/api.log`; stop it with `uv run python scripts/app/stop.py`. The backend's own log is `data/logs/scene-atlas.log`.
+The frontend Vite config proxies `/api` requests to the backend at `localhost:8000` (`API_PROXY_TARGET` overrides it; E2E uses that). `scripts/app/start.py` supervises uvicorn with auto-restart and writes its output to `logs/api.log`; stop it with `uv run python scripts/app/stop.py`. The backend's own log is `data/logs/scene-atlas.log`.
 
 ### Pre-commit Hooks
 
@@ -56,7 +56,7 @@ For deployment behind a reverse proxy (e.g., nginx, Caddy). See [Docker Server](
 cd frontend && npm run build && cd ..
 
 # Run the backend (API + UI on one port)
-uv run uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
+uv run uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --no-proxy-headers
 ```
 
 ::: danger
@@ -140,7 +140,7 @@ npm run electron:build                        # tsc + electron-builder
 
 Lint and unit tests run locally in the pre-push hook; CI does not repeat them on every push.
 
-- `.github/workflows/ci.yml` (pull requests): pip-audit + bandit, backend unit + integration tests with coverage, frontend `tsc` + Vite build
+- `.github/workflows/ci.yml` (pull requests): pip-audit + bandit, backend unit + integration tests with coverage, frontend npm audit (runtime deps) + `tsc` + Vite build
 - `.github/workflows/release.yml` (manual `workflow_dispatch`): backend lint/unit/integration/heavy tests, frontend lint/test/coverage/build, unit tests on Windows and macOS, Playwright E2E, then Electron builds for Windows x64, macOS arm64, and Linux x64. Run it against `main`, check the artifacts, then re-run with `publish=true` and a `version` to create the GitHub Release.
 - `.github/workflows/docs.yml` (push to `main` touching `docs/`): builds this documentation site and deploys it to GitHub Pages if Pages is enabled
 

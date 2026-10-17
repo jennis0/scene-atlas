@@ -18,8 +18,8 @@ from __future__ import annotations
 import argparse
 import random
 import sqlite3
+import statistics
 import time
-import tracemalloc
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -31,10 +31,11 @@ from sqlalchemy import event
 from backend.app.api import groups as groups_api
 from backend.app.api import images as images_api
 from backend.app.api import tags as tags_api
+from backend.app.colorspace import hex_to_lab
 from backend.app.models import get_engine, get_session_local, init_db
 from backend.app.models.schemas import GroupDetailResponse, ImageResponse
 from backend.app.services import search_service
-from backend.app.services.color_search import ColorIndex
+from backend.app.services.color_search import find_images_by_colors
 from backend.app.services.search_service import SearchFilters, SearchMode
 
 _WORDS = [
@@ -111,7 +112,9 @@ def build(path: Path, n: int) -> None:
             )
         )
         tags += [(i, c, v, 1.0, "auto", base.isoformat(" ")) for c, v in image_tags]
-        colors += [(i, f"#{rng.randrange(1 << 24):06x}", 20.0, o) for o in range(1, 6)]
+        for order in range(1, 6):
+            hex_val = f"#{rng.randrange(1 << 24):06x}"
+            colors.append((i, hex_val, 20.0, order, *hex_to_lab(hex_val)))
 
     con = sqlite3.connect(path)
     con.executemany(
@@ -131,7 +134,8 @@ def build(path: Path, n: int) -> None:
         tags,
     )
     con.executemany(
-        "INSERT INTO colors (image_id, color_hex, percentage, color_order) VALUES (?,?,?,?)",
+        "INSERT INTO colors (image_id, color_hex, percentage, color_order, lab_l, lab_a, lab_b) "
+        "VALUES (?,?,?,?,?,?,?)",
         colors,
     )
     con.execute(
@@ -141,6 +145,9 @@ def build(path: Path, n: int) -> None:
     con.commit()
     con.execute("ANALYZE")
     con.close()
+
+
+_THREE_COLOURS = ("#2d5a27", "#5c3a1e", "#5a5a5a")  # forest, earth, stone
 
 
 def _cases(n: int) -> list[tuple[str, Callable]]:
@@ -158,6 +165,14 @@ def _cases(n: int) -> list[tuple[str, Callable]]:
                 db, f(colors=("#808080",)), "created_at", "desc", 500, 0
             ),
         ),
+        (
+            "browse images, 3-colour filter",
+            lambda db: search_service.browse_images(
+                db, f(colors=_THREE_COLOURS), "created_at", "desc", 500, 0
+            ),
+        ),
+        ("colour match ids, 1 colour", lambda db: find_images_by_colors(db, ["#808080"])),
+        ("colour match ids, 3 colours", lambda db: find_images_by_colors(db, _THREE_COLOURS)),
         (
             "hybrid search, limit 500",
             lambda db: search_service.search_images(
@@ -219,23 +234,22 @@ def run(path: Path) -> None:
         patch.object(search_service, "get_lancedb_service", lambda: fake_vectors),
     ):
         print(f"{n} images")
+        print(f"{'':40s} {'queries':>7s} {'first ms':>9s} {'p50 ms':>9s}")
         for name, case in _cases(n):
             with Session() as db:
-                case(db)  # warm process-wide caches (colour index, aliases)
-            with Session() as db:
-                statements.clear()
                 start = time.perf_counter()
-                case(db)
-                elapsed = time.perf_counter() - start
-            print(f"{name:40s} {len(statements):5d} queries {elapsed * 1000:9.1f} ms")
-
-    tracemalloc.start()
-    index = ColorIndex()
-    with Session() as db:
-        index.find_images_by_colors(db, ["#808080"])
-    current, peak = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
-    print(f"{'colour index memory':40s} {current / 1e6:.1f} MB retained, {peak / 1e6:.1f} MB peak")
+                case(db)  # also fills process-wide caches (aliases)
+                first = time.perf_counter() - start
+            times = []
+            for _ in range(5):
+                with Session() as db:
+                    statements.clear()
+                    start = time.perf_counter()
+                    case(db)
+                    times.append(time.perf_counter() - start)
+            count = len(statements)
+            p50 = statistics.median(times)
+            print(f"{name:40s} {count:7d} {first * 1000:9.1f} {p50 * 1000:9.1f}")
 
 
 def main() -> None:

@@ -20,6 +20,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
 from sqlalchemy.exc import NoResultFound
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from .api import export, groups, images, imports, jobs, search, system, tags
 from .api import models as models_api
@@ -36,8 +37,11 @@ from .models import (
 )
 from .process_utils import get_rss_mb
 from .services.prepare_pool import init_prepare_pool, shutdown_prepare_pool
+from .storage_lock import StorageLockedError, acquire_storage_lock
 
 logger = logging.getLogger(__name__)
+
+DESKTOP_LOCK_WAIT_SECS = 30.0
 
 
 @asynccontextmanager
@@ -48,6 +52,23 @@ async def lifespan(app: FastAPI):
 
     # Startup
     logger.info("Starting %s v%s", settings.app_name, settings.app_version)
+
+    # Before anything touches storage: a second backend's recovery would clear
+    # this one's in-flight ingest. The desktop app waits, so a relaunch can outlast
+    # the previous sidecar's graceful shutdown.
+    lock_wait = DESKTOP_LOCK_WAIT_SECS if settings.app_mode == "app" else 0
+    storage_locks = []
+    try:
+        for root in (settings.app_data_dir, settings.image_library_dir):
+            # A missing library (e.g. an unmounted drive) is not created here; the
+            # ingest worker pauses until it appears.
+            if root.is_dir():
+                storage_locks.append(acquire_storage_lock(root, timeout=lock_wait))
+    except StorageLockedError as exc:
+        for lock in storage_locks:
+            lock.release()
+        logger.critical("STARTUP ERROR: %s", exc)
+        raise
 
     # Load Pillow's plugins while single-threaded. A lazy load (on the first
     # unrecognised file) dlopens while holding the GIL, which deadlocks against
@@ -134,6 +155,9 @@ async def lifespan(app: FastAPI):
 
     # Start background job runner (eagerly, so it's ready for requests)
     from .services.job_runner import get_job_runner, shutdown_job_runner
+    from .services.shutdown import clear_shutdown, request_shutdown
+
+    clear_shutdown()
 
     runner = get_job_runner()
 
@@ -194,11 +218,9 @@ async def lifespan(app: FastAPI):
             "Set CORS_ORIGINS in your .env to your actual frontend origin."
         )
 
-    logger.info("Server ready on %s:%s", settings.api_host, settings.api_port)
-    # Signal to desktop shell (Electron) that the backend is ready.
     # CLIP is still loading in the background — the app is usable immediately;
     # searches with a query will wait for CLIP; empty queries use SQL only.
-    print(f"SCENE_ATLAS_READY port={settings.api_port}", flush=True)
+    logger.info("Startup complete")
 
     # Diagnostic: event loop heartbeat
     # Logs every 15s from the event loop. If these lines stop appearing in the
@@ -242,15 +264,21 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down application")
-    await scheduler.stop()
-    # Let the batch in progress commit; anything left is recovered next start.
-    await asyncio.to_thread(ingest_worker.stop, 60.0)
-    shutdown_job_runner()
-    shutdown_prepare_pool()
+    try:
+        # Long jobs and scheduler tasks stop at their next batch boundary.
+        request_shutdown()
+        await scheduler.stop()
+        # Let the batch in progress commit; anything left is recovered next start.
+        await asyncio.to_thread(ingest_worker.stop, 60.0)
+        shutdown_job_runner()
+        shutdown_prepare_pool()
 
-    from .services.lancedb_service import shutdown_lancedb_service
+        from .services.lancedb_service import shutdown_lancedb_service
 
-    shutdown_lancedb_service()
+        shutdown_lancedb_service()
+    finally:
+        for lock in storage_locks:
+            lock.release()
 
 
 # Create FastAPI app
@@ -309,6 +337,11 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # pyright: ignore[reportArgumentType]
 app.add_middleware(SlowAPIMiddleware)
+
+# Outermost, so the rate limiter keys on the client behind a trusted reverse proxy.
+# Launchers pass --no-proxy-headers so uvicorn's own copy, which reads its trust
+# list only from the process environment, can't apply a different one.
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=settings.forwarded_allow_ips)
 
 # Include API routers
 app.include_router(images.router, prefix=f"{settings.api_prefix}/images", tags=["images"])
@@ -571,4 +604,5 @@ if __name__ == "__main__":
         host=host,
         port=port,
         reload=settings.debug,
+        proxy_headers=False,
     )

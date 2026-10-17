@@ -58,10 +58,7 @@ class _Library:
 
 @pytest.fixture
 def library(test_client, tmp_db, monkeypatch):
-    from backend.app.services.color_search import color_index
-
     _, SessionLocal = tmp_db
-    color_index.invalidate()
 
     class _NoClip:
         def encode_text(self, query):
@@ -76,7 +73,7 @@ def library(test_client, tmp_db, monkeypatch):
 
 
 def _count(client, query_counter, url, params=None) -> int:
-    client.get(url, params=params)  # warm the process-wide caches (colours, aliases)
+    client.get(url, params=params)  # warm the process-wide alias cache
     with query_counter as q:
         resp = client.get(url, params=params)
     assert resp.status_code == 200, resp.text

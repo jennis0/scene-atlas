@@ -1,5 +1,6 @@
 /**
- * The import dialog (ADR-018, design/ingestion.md §8.2).
+ * The import dialog (ADR-018; screens in design/frontend.md "Imports", client
+ * sequence in design/ingestion.md §8.1).
  *
  * Two views over the ImportManager:
  * - Start: choose battlemap/scene, then drop or browse files, folders or zips.

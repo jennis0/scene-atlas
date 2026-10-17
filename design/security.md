@@ -34,6 +34,7 @@ Server mode must therefore only be exposed behind a reverse proxy that authentic
 | CSP | Restrictive Content-Security-Policy meta tag in `frontend/index.html` |
 | Pre-commit | Husky + lint-staged runs ruff, ESLint and Prettier |
 | Code safety | No shell invocation or dynamic code execution in the backend |
+| Container user | The Docker image runs as an unprivileged `app` user (`APP_UID`/`APP_GID`, default 1000) with the venv on `PATH`; only `/app/data` and `/app/images` are writable by it |
 
 ---
 
@@ -55,15 +56,16 @@ Staging is per job: `{APP_DATA_DIR}/staging/{job_id}/{staging_key}`. `staging_ke
 
 **Status**: Done.
 
-`slowapi`, keyed on the client address, with two tiers:
-- **expensive** (`RATE_LIMIT_EXPENSIVE`, default `2/minute`): `POST /search/rebuild-embeddings`, `GET /export/library`, `PATCH /settings/`, `POST /tags/retag-all`, `POST /tags/packs/{name}/import`, `POST /images/backfill-grids`
+`slowapi`, keyed on the client address (`request.client.host`), with two tiers:
+
+- **expensive** (`RATE_LIMIT_EXPENSIVE`, default `2/minute`): `POST /search/rebuild-embeddings`, `GET /export/library`, `PATCH /settings/`, `POST /tags/retag-all`, `POST /tags/packs/{name}/import`, `POST /tags/packs/import-multiple`, `POST /images/backfill-grids`
 - **destructive** (`RATE_LIMIT_DESTRUCTIVE`, default `1/minute`): `DELETE /system/library`, `POST /system/tags/reset`
 
 `RATE_LIMIT_ENABLED=false` disables it.
 
-Import endpoints are not rate limited: a single import makes one request per file (≈10k for a 10k-file import), so a per-IP limit would throttle legitimate imports. Per-file uploads (`PUT …/items/{item_id}/content`) are bounded by `max_import_file_size` (413 on the streamed body) and require an existing item awaiting bytes; they do not take the heavy-op semaphore. Jobs are capped at `MAX_IMPORT_ITEMS` files and seal checks free disk space. Archive upload and seal are gated by the heavy-op semaphore (`acquire_heavy_op`, see [resource-management.md](resource-management.md)). The client retries 429/5xx up to 5 times per file, then records a resumable local failure, so reverse proxies with their own rate limits must allow for the per-file request volume. `POST /tags/packs/import-multiple` is not rate limited.
+Import endpoints are not rate limited: a single import makes one request per file (≈10k for a 10k-file import), so a per-IP limit would throttle legitimate imports. Per-file uploads (`PUT …/items/{item_id}/content`) are bounded by `max_import_file_size` (413 on the streamed body) and require an existing item awaiting bytes; they do not take the heavy-op semaphore. Jobs are capped at `MAX_IMPORT_ITEMS` files and seal checks free disk space. Archive upload and seal are gated by the heavy-op semaphore (`acquire_heavy_op`, see [resource-management.md](resource-management.md)). The client retries 429/5xx up to 5 times per file, then records a resumable local failure, so reverse proxies with their own rate limits must allow for the per-file request volume.
 
-**Reverse proxy requirement**: the proxy must overwrite (not append to) `X-Forwarded-For` so the limiter keys on the real client IP; otherwise a client can spoof the header to get fresh buckets.
+**Client address behind a reverse proxy**: `main.py` installs uvicorn's `ProxyHeadersMiddleware` as the outermost middleware, trusting only `FORWARDED_ALLOW_IPS` (default `127.0.0.1,::1`). For a connection from a trusted address it replaces the client address with the rightmost `X-Forwarded-For` entry that is not itself trusted (and takes the scheme from `X-Forwarded-Proto`); from anywhere else both headers are ignored, so a client cannot pick its own rate-limit bucket. A proxy that appends to the header is therefore as safe as one that overwrites it. The setting is read by the app (so it works from `.env`), and the launch paths we ship (`Dockerfile`, `scripts/app/start.py`, `main.py`'s `__main__`, the sidecar) pass `--no-proxy-headers` / `proxy_headers=False` so uvicorn's own copy of the middleware, which reads `FORWARDED_ALLOW_IPS` only from the process environment and defaults to `127.0.0.1`, can't apply a different list. If the proxy is not in the list, nothing breaks but every client shares the proxy's bucket. In Docker the proxy's connections come from the Docker network, not loopback, so the operator must set it (see [docs/deploy/server.md](../docs/deploy/server.md#client-ip-addresses-and-rate-limits)). Tests: `backend/tests/integration/test_proxy_headers.py`.
 
 ### 4. MEDIUM: Security Headers
 
@@ -73,13 +75,34 @@ A pure ASGI `SecurityHeadersMiddleware` adds `X-Content-Type-Options: nosniff`, 
 
 ### 5. MEDIUM: Security Scanning in CI
 
-**Status**: Partially done; open item.
+**Status**: Done (October 2026).
 
-The `backend-security` job in `.github/workflows/ci.yml` (pull requests only) runs:
-- `pip-audit --desc` (Python CVE scan)
-- `bandit -r backend/app backend/pipeline -ll` (Python SAST)
+The `backend-security` job in `.github/workflows/ci.yml` (pull requests only) runs, and fails the PR on any finding that is not listed under [Accepted scanner findings](#accepted-scanner-findings):
 
-Both steps have `continue-on-error: true`, so findings never fail CI. They were meant to be made blocking within two weeks of being added (March 2026); that deadline has passed and this remains open. There is no frontend dependency audit (`npm audit` or equivalent) in CI.
+- `pip-audit --desc` over the `dev` + `cpu` environment (Python CVE scan; accepted IDs are passed as `--ignore-vuln` with a comment)
+- `bandit -r backend/app backend/pipeline -ll` (Python SAST, medium severity and up; accepted findings carry an inline `# nosec BXXX` with a reason)
+
+The `frontend-build` job runs `npm audit --omit=dev --audit-level=high` on `frontend/`, so a high or critical advisory in a dependency that ships in the bundle fails the PR. Dev and build tooling (frontend dev deps, the root Electron/electron-builder tree, `docs/`) is not gated; it is kept clean through Dependabot and periodic lockfile refreshes, and what cannot be fixed is listed below.
+
+pip-audit and npm audit query live advisory databases, so a new advisory can turn a PR red without a code change. That is intended: fix it (usually `uv lock --upgrade-package <pkg>` or a targeted `npm update <pkg>`), or add it to the accepted list below with a reason.
+
+### Codacy
+
+Codacy Cloud analyses every PR (gate: 0 new issues at Info and above). The repository is **not** linked to the org's "Default coding standard"; its tool set is configured per repository (last changed 2026-10-17):
+
+| Tool | State | Why |
+|---|---|---|
+| Ruff | on, **uses `pyproject.toml`** | Python lint + security. The `S` (flake8-bandit) rules replace Bandit, so Codacy and the local pre-push lint agree. Test paths ignore `S101`/`S603`/... via `per-file-ignores`. |
+| Opengrep (Semgrep) | on | Cross-language SAST, secrets, GitHub Actions and Dockerfile rules. `package-dependencies-check` (flags every `^` range in `package.json`) is off: the lockfiles pin exact versions. |
+| Trivy | on | Dependency CVEs from `uv.lock` / `package-lock.json`. Accepted ones are listed below. |
+| ESLint | on, uses `frontend/.eslintrc.cjs` | ESLint 8 matches the repo's eslintrc config (not ESLint9/flat config). |
+| Lizard | on | Function length / parameter count / complexity. |
+| Checkov, Hadolint | on | Dockerfile, docker-compose and workflow misconfiguration. |
+| Stylelint, markdownlint, Jackson Linter, Agentlinter | on | CSS, docs, JSON, CLAUDE.md / agent instructions. |
+| Bandit, Prospector, Pylint | **off** | Bandit ran twice (standalone and inside Prospector) and flagged every pytest `assert`; Ruff `S` covers the same checks. Pylint overlaps Ruff. CI's `backend-security` job still runs bandit on `backend/app` + `backend/pipeline`. |
+| PMD | off | No Java/Apex in the repo. |
+
+`.codacy.yml` excludes tests (`backend/tests`, `stress_tests`, `e2e`, `*.test.ts(x)`) and build output from analysis. Tests are still linted locally by ruff and eslint.
 
 ### 6. MEDIUM: Electron IPC Changing Storage Paths
 
@@ -110,10 +133,28 @@ Electron loads the UI from the backend sidecar, so the frontend is always same-o
 
 ---
 
+## Accepted scanner findings
+
+Re-check these whenever the dependency in question is upgraded. Last reviewed 2026-10-17.
+
+| Scanner | Finding | Why accepted |
+|---|---|---|
+| bandit B104 / ruff S104 | `api_host = "0.0.0.0"` default in `backend/app/config.py` | Only read when the backend is started with `python -m backend.app.main` (dev, E2E). Electron forces `API_HOST=127.0.0.1`; Docker and the documented uvicorn commands pass `--host` explicitly. Changing the default to loopback is a reasonable follow-up but needs the E2E harness (which probes `localhost`) checked first. |
+| pip-audit | `transformers` <5: PYSEC-2025-217, PYSEC-2026-2288, -2289, -2290, -3929, -4174 (RCE/path traversal when loading untrusted checkpoints, Trainer RNG state, remote code) | Dev-only extra used by `scripts/models/` to export checkpoints we choose. Excluded from the PyInstaller sidecar (`excludes` in `scene_atlas_backend.spec`) and never imported by the app. The fix is transformers 5, a major upgrade of the export pipeline. |
+| Dependabot | `torch` 2.6.0+cu124 (`gpu-dev` extra) | The cu124 PyTorch index stops at 2.6. Dev-only (model export on CUDA); the CPU variant is on a patched release. Fix: move the `pytorch-cuda` index to a newer CUDA (cu126/cu128). |
+| npm audit (frontend, dev) | `braces` (all versions), via `tailwindcss` 3 / `chokidar` / `micromatch` / `knip` | Build-time glob matching over our own patterns. No patched `braces` release exists; removal needs Tailwind 4 / knip 6. |
+| npm audit (frontend, dev) | `postcss-selector-parser` <7.1.6 via `tailwindcss` 3 | Build-time, parses only our own CSS. Fixed only in 7.x, which Tailwind 3 does not accept. |
+| npm audit (frontend, runtime, moderate) | `react-router` 6 open redirect (backslash in `<Link>`/`useNavigate`), `deserializeErrors` constructor injection | Fixed only in React Router 7. The app never navigates to user-supplied URLs and does not use SSR hydration (`deserializeErrors`). |
+| npm audit (root, dev) | `electron` 40.x (sandboxed-iframe/popup and protocol-handler advisories, fixed in 41.10.6) | Electron 40 and 41 are end of life; there is no patched 40.x. The renderer only loads the same-origin UI with navigation blocked, which limits exposure. **Upgrade to a supported major (42+) before the next release.** |
+| npm audit (root, dev) | `sprintf-js` via `roarr` → `global-agent` → `@electron/get` → `electron-builder` | Build-time only; no patched release. |
+| npm audit (docs, dev) | `vite` 5 / `esbuild` via `vitepress` 1.6.4 | Dev-server-only advisories; CI only runs `vitepress build`. vitepress 1.x pins vite 5 (fix needs vitepress 2). |
+
+---
+
 ## Open Items
 
 1. Session-based authentication (Finding 1).
-2. Make `pip-audit` and `bandit` blocking in CI; add a frontend dependency audit (Finding 5).
+2. Upgrade Electron to a supported major (see accepted findings).
 3. Constrain the paths accepted by `system:change-storage-dirs` (Finding 6).
 4. CSRF protection alongside auth (Finding 9).
 

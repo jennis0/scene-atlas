@@ -1,8 +1,8 @@
 """Shared fixtures for the test suite.
 
-LanceDB is used as the vector database service. It does not create files on
-import, so no pre-import patching is needed. We mock get_lancedb_service()
-in fixtures where vector DB access is required.
+LanceDB does not create files on import, so no pre-import patching is needed.
+Tests that touch vectors use the ``lancedb_service`` fixture (a real LanceDB in
+``tmp_path``); pure unit tests may still fake ``get_lancedb_service()``.
 """
 
 import atexit
@@ -43,6 +43,16 @@ def prepare_pool_fixture():
     shutdown_prepare_pool(wait=True)
 
 
+@pytest.fixture(autouse=True)
+def shutdown_signal_cleared():
+    """A TestClient exit runs the lifespan shutdown, which sets the process-wide signal."""
+    from backend.app.services.shutdown import clear_shutdown
+
+    clear_shutdown()
+    yield
+    clear_shutdown()
+
+
 @pytest.fixture
 def tmp_db(tmp_path):
     """Fresh SQLite DB seeded with tag categories."""
@@ -55,6 +65,28 @@ def tmp_db(tmp_path):
     db.close()
     yield engine, SessionLocal
     engine.dispose()
+
+
+TEST_VECTOR_SIZE = 8
+
+
+@pytest.fixture
+def lancedb_service(tmp_path, monkeypatch):
+    """A real LanceDB under ``tmp_path``, returned by every ``get_lancedb_service()``.
+
+    Swaps the module singleton rather than patching import sites, so code that
+    imported the getter by name sees it too. Vectors are ``TEST_VECTOR_SIZE`` wide.
+    """
+    from backend.app.services import lancedb_service as module
+
+    svc = module.LanceDBService(
+        path=tmp_path / "lancedb",
+        collection_name="test_embeddings",
+        vector_size=TEST_VECTOR_SIZE,
+    )
+    monkeypatch.setattr(module, "_lancedb_service", svc)
+    yield svc
+    svc.close()
 
 
 @pytest.fixture

@@ -39,7 +39,7 @@ backend/
 │   ├── services/
 │   │   ├── app_settings.py       # Read/write app_settings rows
 │   │   ├── clip_service.py       # ONNX embedding models (CLIP / SigLIP2)
-│   │   ├── color_search.py       # Colour proximity search (HSL cylinder distance)
+│   │   ├── color_search.py       # Colour proximity search (CIE76 delta E in SQL)
 │   │   ├── deletion_service.py   # Image deletion with ref-counted file cleanup
 │   │   ├── fts_service.py        # SQLite FTS5 helpers, alias expansion
 │   │   ├── grid/                 # Grid detector v3: detect_grid entry point, features, ONNX models (ADR-019)
@@ -55,10 +55,12 @@ backend/
 │   │   ├── ort_providers.py      # ONNX Runtime provider selection + GPU fallback
 │   │   ├── prepare_pool.py       # Shared prepare ThreadPoolExecutor
 │   │   ├── scheduler.py          # Periodic task scheduler
+│   │   ├── shutdown.py           # Process-wide shutdown signal for long jobs
 │   │   ├── search_service.py     # Hybrid search, filters, facets (see search.md)
 │   │   ├── tag_packs.py          # Tag pack import
 │   │   ├── validation.py         # ZIP safety check, MIME verification
 │   │   └── video_utils.py        # Video first frame + dimensions
+│   ├── colorspace.py             # sRGB hex to CIELAB (used by the Color model and colour search)
 │   ├── config.py                 # Pydantic settings (env-driven)
 │   ├── logging_config.py         # Console + rotating file logging; Pillow pixel limit
 │   ├── main.py                   # App creation, middleware, routers, lifespan
@@ -84,7 +86,7 @@ backend/
 │   ├── backfill_content_hash.py  # content_hash backfill utility
 │   ├── fix_orphaned_images.py    # Assign groupless images utility
 │   ├── reparse_names.py          # Re-run name parsing utility
-│   ├── db.py                     # Session helper for pipeline scripts
+│   ├── db.py                     # pipeline_db() session helper for scripts and jobs
 │   └── tasks/
 │       ├── color_extraction.py   # K-means dominant colours
 │       ├── embedding_generation.py # Embedding generation
@@ -160,7 +162,7 @@ The write endpoints are `@write_locked`, so they serialise with the ingest worke
 | DELETE | `/{tag_id}` | Remove a tag |
 | GET | `/stats` | Tag statistics |
 | GET | `/packs` | Tag packs with import status |
-| POST | `/packs/import-multiple` | Import several packs (setup wizard) |
+| POST | `/packs/import-multiple` | Import several packs (setup wizard; rate limited: expensive) |
 | POST | `/packs/{name}/import` | Import one pack (rate limited: expensive) |
 | POST | `/retag-all` | Retag job (rate limited: expensive) |
 
@@ -256,7 +258,7 @@ Filename/path parser with DB-driven tag vocabulary. See [parser.md](parser.md).
 SQLite FTS5 over `image_fts` (Porter stemmer), BM25 ranking, query sanitisation and tag alias expansion.
 
 ### Colour search
-Colour proximity using distance in an HSL cylinder, with an in-memory index cached for `color_cache_ttl_seconds`.
+CIE76 delta E between the searched colours and each image's dominant colours, computed in SQL over the LAB columns stored on every `colors` row. See [search.md](search.md#colour-search).
 
 ### Ingest state (`ingest_state.py`)
 Pure transition tables for item states (`awaiting_bytes`, `ready`, `processing`, `done`, `duplicate`, `failed`, `skipped`) and job states (`active`, `paused`, `completed`, `cancelled`). All item updates go through it.
@@ -286,10 +288,10 @@ First-frame extraction and dimension reading for videos.
 Reads/writes the `app_settings` table (runtime tuning, feature flags, import limits). Seeded on first boot by `seed_default_settings()`.
 
 ### JobRunner
-`ThreadPoolExecutor` (`max_job_workers`, created eagerly in the lifespan) with in-memory job status, progress and results. Used for embedding rebuild/reconcile, retagging, grid backfill, model download/activation and library deletion. Not used for imports.
+`ThreadPoolExecutor` (`max_job_workers`, created eagerly in the lifespan) with in-memory job status, progress and results. Used for embedding rebuild/reconcile, retagging, grid backfill, model download/activation and library deletion. Not used for imports. On shutdown, long jobs stop at their next batch boundary and are recorded as `interrupted` ([resource-management.md](resource-management.md#cooperative-shutdown)).
 
 ### Scheduler
-Asyncio scheduler; each task runs in the default executor. Last successful run times are persisted under `APP_DATA_DIR/scheduler`, so overdue tasks run 60 s after startup. Registered when `scheduler_enabled`:
+Asyncio scheduler; each task runs in the default executor. A task stopped by shutdown (`ShutdownRequested`) isn't recorded as run. Last successful run times are persisted under `APP_DATA_DIR/scheduler`, so overdue tasks run 60 s after startup. Registered when `scheduler_enabled`:
 
 | Task | Interval | Function |
 |------|----------|----------|
@@ -314,16 +316,13 @@ Two sources:
 | `app_data_dir` | `<repo>/data` | Fast storage root |
 | `image_library_dir` | `<repo>/images` | Originals + backups root |
 | `validate_roots` | `False` | Fail startup if roots are missing (frozen entry point) |
-| `database_url` | computed | Always `sqlite:///{app_data_dir}/battlemap.db` |
-| `store_thumbnails_dir`, `staging_dir`, `vector_db_path`, `config_dir`, `store_images_dir`, `backups_dir` | computed | Derived from the two roots in `__init__` |
+| `database_url` | derived | Always `sqlite:///{app_data_dir}/battlemap.db` |
+| `store_thumbnails_dir`, `staging_dir`, `vector_db_path`, `store_images_dir`, `backups_dir` | derived | From the two roots |
 | `vector_size` | `512` | Overwritten at startup from the model manifest's `embedding_dim` |
-| `embedding_model` | `clip-vit-b-32` | Used for `vector_collection_name` |
 | `inference_device` | `auto` | `auto` / `cpu` / `cuda` / `directml` / `coreml` |
 | `clip_text_cache_max` | `256` | Text embedding LRU size |
-| `color_cache_ttl_seconds` | `60.0` | Colour index cache TTL |
 | `job_retention_seconds` | `3600` | How long finished JobRunner records are kept |
 | `thumbnail_sizes` | `[(150,150), (400,400), (800,800)]` | small / medium / large |
-| `max_image_size` | `10 MiB` | Not referenced outside `config.py` |
 | `max_image_pixels` | `1_000_000_000` | Pillow `MAX_IMAGE_PIXELS`; above it decoding fails as a decompression bomb |
 | `pixel_hash_max_pixels` | `100_000_000` | JPEGs above this are decoded at reduced scale and skip the pixel hash |
 | `ingest_memory_budget_mb` | `None` | MemoryBudget capacity; `None` = automatic |
@@ -335,29 +334,33 @@ Two sources:
 | `rate_limit_destructive` | `1/minute` | |
 | `rate_limit_enabled` | `True` | |
 | `api_host` / `api_port` / `api_prefix` | `0.0.0.0` / `8000` / `/api/v1` | |
+| `forwarded_allow_ips` | `127.0.0.1,::1` | Trusted proxies for `ProxyHeadersMiddleware` (see [security.md](security.md#3-high-rate-limiting)) |
 | `cors_origins` | `localhost:3000`, `:5173`, `:8000` | Startup warning if unchanged in server mode |
+
+Derived values are `cached_property`s, not fields, so no env var can set them (`DATABASE_URL`, `STAGING_DIR` etc. are ignored). Each is computed once on first access; tests assign them to redirect storage. `__init__` creates the thumbnail, staging and LanceDB directories inside the roots.
 
 Other environment variables: `EMBEDDING_MODEL` (operator override of the active model, read by `clip_service.py`; otherwise `app_settings.active_model`), `CONVERT_TO_WEBP` (`1` seeds the `stored_format` setting as `webp` at first boot).
 
 ## Startup Sequence (`main.py` lifespan)
 
 1. `setup_logging()` — console + rotating file handlers; sets Pillow's pixel limit to `max_image_pixels` and turns `DecompressionBombWarning` into an error.
-2. `get_engine()` + `init_db()` — runs Alembic migrations (stamps pre-Alembic databases at head).
-3. `seed_tag_categories()`, `seed_default_settings()` (first boot only), `backfill_search_text()`, then read app settings.
-4. `init_prepare_pool(max_concurrent_prepare)`; store engine on `app.state.db_engine`; create `app.state.heavy_op_semaphore`.
-5. Set `settings.vector_size` from the model manifest.
-6. Start the embedding model background load.
-7. Create the JobRunner. A daemon thread waits for the model, calls `IngestWorker.probe_now()`, then submits `reconcile_vectors` if the model loaded.
-8. If `ingest_worker_enabled`: `ingest_worker.recover()`, then `ingest_worker.start()`.
-9. If `scheduler_enabled`: register the four scheduler tasks and start the scheduler.
-10. Log the CORS warning if applicable; print `SCENE_ATLAS_READY port=…` (Electron waits for this line).
-11. Start the 15 s event-loop heartbeat (logs thread count and RSS); install a SIGUSR1 thread-dump handler on non-Windows.
+2. Lock both storage roots (`storage_lock.py`): an OS lock on `<root>/.backend.lock` in `APP_DATA_DIR` and, if it exists, `IMAGE_LIBRARY_DIR`. If another process holds either, startup fails with `StorageLockedError` (uvicorn exits with code 3). The desktop sidecar (`APP_MODE=app`) waits up to 30 s first, so a relaunch can outlast the previous sidecar's graceful shutdown. Filesystems without lock support (some network shares) log a warning and run unguarded.
+3. `get_engine()` + `init_db()` — runs Alembic migrations (stamps pre-Alembic databases at head).
+4. `seed_tag_categories()`, `seed_default_settings()` (first boot only), `backfill_search_text()`, then read app settings.
+5. `init_prepare_pool(max_concurrent_prepare)`; store engine on `app.state.db_engine`; create `app.state.heavy_op_semaphore`.
+6. Set `settings.vector_size` from the model manifest.
+7. Start the embedding model background load.
+8. Create the JobRunner. A daemon thread waits for the model, calls `IngestWorker.probe_now()`, then submits `reconcile_vectors` if the model loaded.
+9. If `ingest_worker_enabled`: `ingest_worker.recover()`, then `ingest_worker.start()`.
+10. If `scheduler_enabled`: register the four scheduler tasks and start the scheduler.
+11. Log the CORS warning if applicable. (The desktop sidecar prints `SCENE_ATLAS_READY` from `backend/pyinstaller/entry.py` once uvicorn is listening, not from here; see [electron.md](electron.md#sidecar-lifecycle).)
+12. Start the 15 s event-loop heartbeat (logs thread count and RSS); install a SIGUSR1 thread-dump handler on non-Windows.
 
-Shutdown: cancel heartbeat → stop scheduler → `ingest_worker.stop(60s)` → `shutdown_job_runner()` → `shutdown_prepare_pool()` → `shutdown_lancedb_service()`.
+Shutdown: cancel heartbeat → `request_shutdown()` (long jobs stop at their next batch boundary) → stop scheduler → `ingest_worker.stop(60s)` → `shutdown_job_runner()` → `shutdown_prepare_pool()` → `shutdown_lancedb_service()` → release the storage locks (the OS also drops them if the process dies).
 
 ## Middleware
 
-CORS (`cors_origins`), `SecurityHeadersMiddleware` (pure ASGI) and `SlowAPIMiddleware`. A global exception handler logs unhandled exceptions and returns a generic 500. See [security.md](security.md).
+CORS (`cors_origins`), `SecurityHeadersMiddleware` (pure ASGI), `SlowAPIMiddleware` and, outermost, uvicorn's `ProxyHeadersMiddleware` (`forwarded_allow_ips`). A global exception handler logs unhandled exceptions and returns a generic 500. See [security.md](security.md).
 
 ## Dependencies Between Services
 

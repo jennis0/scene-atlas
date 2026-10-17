@@ -51,7 +51,7 @@ Tag filters follow intuitive logic: selecting "forest" and "cave" within the **e
 
 ## Colour Search
 
-Each image has 5 dominant colours extracted during import. Colour filtering uses perceptual distance (LAB colour space), so "close enough" colours match rather than requiring exact hex values.
+Each image has 5 dominant colours extracted during import. Colour filtering uses perceptual distance (CIE76 delta E in the LAB colour space), so "close enough" colours match rather than requiring exact hex values. An image matches when any of its dominant colours is within the colour distance threshold (default 25) of a selected colour. Lower it with `PATCH /api/v1/settings` (`color_distance_threshold`) for stricter matches: around 10 is a clearly similar shade, around 2 is barely distinguishable.
 
 ## Tips
 

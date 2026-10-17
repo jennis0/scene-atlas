@@ -586,8 +586,8 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
 
             <SettingsSection title="Performance" divider={false}>
               <SettingRow
-                label="Concurrent imports"
-                description="Number of simultaneous import jobs (1-16)"
+                label="Parallel image processing"
+                description="Images prepared at once across all imports: hashing, thumbnails, colours and grid detection (1-16)"
                 requiresRestart={true}
               >
                 <NumberSetting
@@ -597,7 +597,7 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                   widthClass="w-16"
                   value={val('max_concurrent_prepare') ?? ''}
                   onChange={(v) => setField('max_concurrent_prepare', parseIntInput(v))}
-                  ariaLabel="Concurrent imports (1-16)"
+                  ariaLabel="Parallel image processing (1-16)"
                 />
               </SettingRow>
             </SettingsSection>

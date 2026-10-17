@@ -7,6 +7,7 @@ import { getDefaultDirs, loadConfig, saveConfig } from './config'
 
 const isDev = !app.isPackaged
 const isMac = process.platform === 'darwin'
+const isWindows = process.platform === 'win32'
 const DEV_SERVER_URL = 'http://localhost:5173'
 // A stable port keeps the UI's origin, and so its localStorage, the same across launches.
 const PREFERRED_PORT = 47816
@@ -428,12 +429,18 @@ function stopSidecar(timeoutMs = 5000): Promise<void> {
   if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
   console.log('[electron] Stopping backend sidecar')
   return new Promise((resolve) => {
-    const timer = setTimeout(resolve, timeoutMs)
+    const timer = setTimeout(() => {
+      // On Windows kill() terminates outright, so it is only the fallback there.
+      if (isWindows && child.exitCode === null) child.kill()
+      resolve()
+    }, timeoutMs)
     child.once('exit', () => {
       clearTimeout(timer)
       resolve()
     })
-    child.kill('SIGTERM')
+    // Closing stdin makes the sidecar's watchdog shut down gracefully on every platform.
+    child.stdin?.end()
+    if (!isWindows) child.kill('SIGTERM')
   })
 }
 

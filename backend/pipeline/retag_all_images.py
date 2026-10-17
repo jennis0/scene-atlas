@@ -10,15 +10,10 @@ Usage:
 
 import logging
 
-from backend.app.config import settings
-from backend.app.models.database import (
-    Image,
-    Tag,
-    TagCategory,
-    get_engine,
-    get_session_local,
-)
+from backend.app.models.database import Image, Tag, TagCategory
 from backend.app.services import ImageParser
+from backend.app.services.shutdown import raise_if_shutting_down
+from backend.pipeline.db import pipeline_db
 
 logger = logging.getLogger(__name__)
 
@@ -39,15 +34,11 @@ def retag_batch(image_ids: list[int], parser: ImageParser) -> dict:
     that a crash mid-retag only loses tags for the current batch rather than
     the entire library.
     """
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
-    db = SessionLocal()
-
     tags_created = 0
     tags_deleted = 0
     errors = 0
 
-    try:
+    with pipeline_db() as db:
         # Delete auto tags for THIS batch only (atomic with re-tag below)
         tags_deleted = (
             db.query(Tag)
@@ -83,10 +74,6 @@ def retag_batch(image_ids: list[int], parser: ImageParser) -> dict:
                 logger.exception("Image %s: error retagging", image.id)
                 errors += 1
 
-        db.commit()
-    finally:
-        db.close()
-
     return {"tags_created": tags_created, "tags_deleted": tags_deleted, "errors": errors}
 
 
@@ -97,17 +84,11 @@ def retag_all_images(progress_fn=None):
     single transaction.  If the process crashes mid-retag, only the current
     batch loses its auto tags — all other batches remain intact.
     """
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
-    db = SessionLocal()
-
-    try:
+    with pipeline_db() as db:
         parser = _build_parser(db)
 
         # Collect all image IDs
         all_ids = [row[0] for row in db.query(Image.id).order_by(Image.id).all()]
-    finally:
-        db.close()
 
     total = len(all_ids)
     print(f"Retagging {total} image(s)...")
@@ -119,6 +100,7 @@ def retag_all_images(progress_fn=None):
     # Process in batches — each batch atomically deletes + re-creates auto tags
     totals = {"tags_created": 0, "tags_deleted": 0, "errors": 0}
     for i in range(0, total, BATCH_SIZE):
+        raise_if_shutting_down()
         batch_ids = all_ids[i : i + BATCH_SIZE]
         result = retag_batch(batch_ids, parser)
         totals["tags_created"] += result["tags_created"]
