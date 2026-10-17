@@ -23,6 +23,8 @@ Set these in your `.env` file, Docker Compose environment, or system environment
 
 The database path, vector index, thumbnail and staging directories are always derived from these two roots and cannot be overridden individually.
 
+Only one Scene Atlas backend can use a given `APP_DATA_DIR` or `IMAGE_LIBRARY_DIR` at a time. A second backend pointed at either folder refuses to start with "Another Scene Atlas backend is already using the folder …". The lock is a `.backend.lock` file in each folder; it is released automatically when the backend exits, so a leftover file is harmless.
+
 ::: info Docker deployments
 In Docker, use `IMAGE_DIR` in your `.env` to set the host-side bind mount path. Inside the container, this is mapped to `IMAGE_LIBRARY_DIR=/app/images`.
 :::
@@ -31,6 +33,7 @@ In Docker, use `IMAGE_DIR` in your `.env` to set the host-side bind mount path. 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `FORWARDED_ALLOW_IPS` | `127.0.0.1,::1` | Reverse proxies (comma-separated IPs or CIDR networks, or `*`) whose `X-Forwarded-For` header is trusted for the client IP used by rate limits. See [Client IP addresses](/deploy/server#client-ip-addresses-and-rate-limits) |
 | `CORS_ORIGINS` | `["http://localhost:3000","http://localhost:5173","http://localhost:8000"]` (Docker Compose: `["http://localhost:8000"]`) | JSON array of allowed origins. Set to your domain when behind a reverse proxy |
 
 ### Authentication

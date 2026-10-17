@@ -55,7 +55,7 @@ app.whenReady()  (only if the single-instance lock was acquired)
      │         │              → prepareStorageDirs()  (create + write-test both roots; error page if unusable)
      │         │              → findFreePort(47816)
      │         │              → spawnSidecar(port, appDataDir, imageLibraryDir, convertToWebp)
-     │         │              → sidecar prints SCENE_ATLAS_READY
+     │         │              → sidecar prints SCENE_ATLAS_READY (once uvicorn is listening)
      │         │              → poll /health → loadURL(http://127.0.0.1:<port>/)
      │         └── App.tsx checks /models/setup-status → ModelSetupScreen or gallery
      └── NO  → showSetupWindow()
@@ -109,11 +109,12 @@ File and folder imports use standard browser APIs in the renderer; there is no f
 ## Sidecar Lifecycle
 
 1. **Port discovery** — `findFreePort(47816)` uses the preferred port if free, otherwise binds `127.0.0.1:0` for an OS-assigned port
-2. **Spawn** — `spawn(sidecarPath, ['--port', port, '--app-data-dir', appDataDir, '--image-library-dir', imageLibraryDir], { env: { ...process.env, CONVERT_TO_WEBP: '1' | '0' } })`, stdout/stderr piped. Sidecar path: `path.join(process.resourcesPath, 'sidecar', 'scene-atlas-backend[.exe]')`. `CONVERT_TO_WEBP=1` only seeds the `stored_format` app setting to `webp` on first boot (otherwise `original`); after that, Settings → Stored format is authoritative.
-3. **Ready signal** — The main process scans stdout for `SCENE_ATLAS_READY`, polls `/health`, then loads the UI from the sidecar
+2. **Spawn** — `spawn(sidecarPath, ['--port', port, '--app-data-dir', appDataDir, '--image-library-dir', imageLibraryDir, '--parent-pid', process.pid], { env: { ...process.env, CONVERT_TO_WEBP: '1' | '0' } })`, stdin/stdout/stderr piped (stdin is never written to; see the parent watchdog below). Sidecar path: `path.join(process.resourcesPath, 'sidecar', 'scene-atlas-backend[.exe]')`. `CONVERT_TO_WEBP=1` only seeds the `stored_format` app setting to `webp` on first boot (otherwise `original`); after that, Settings → Stored format is authoritative.
+3. **Ready signal** — `entry.py` runs uvicorn through a `uvicorn.Server` subclass that prints `SCENE_ATLAS_READY port=…` after startup has bound the socket (so after the lifespan, too). The main process scans stdout for it, polls `/health`, then loads the UI from the sidecar. Only the sidecar prints the marker; other launchers (E2E, the stress runner) poll `/health`
 4. **Logging** — stdout/stderr appended to `{userData}/backend.log`; the log is rotated to `backend.log.1` when it exceeds 5 MB at startup
-5. **Failure handling** — Spawn errors, any exit before ready, and a non-zero exit after ready send `backend-error` with the last 10 output lines and the log path
-6. **Shutdown** — `stopSidecar()` sends `SIGTERM` and waits up to 5 s; called on `window-all-closed`, `will-quit`, and before relaunching for a storage change
+5. **Failure handling** — Spawn errors, any exit before ready, and a non-zero exit after ready send `backend-error` with the last 10 output lines and the log path. `loading.html` headlines the last Python exception message in those lines (e.g. another backend already holding the data folder's lock, see [backend.md](backend.md#startup-sequence-mainpy-lifespan)), else the first line of the error
+6. **Shutdown** — `stopSidecar()` closes the sidecar's stdin and, except on Windows, sends `SIGTERM`, then waits up to 5 s; on Windows, where `kill()` is `TerminateProcess`, it kills the sidecar only if it is still running after that. Called on `window-all-closed`, `will-quit`, and before relaunching for a storage change
+7. **Parent watchdog** — `--parent-pid` turns on `backend/app/parent_watchdog.py` in the sidecar, so it never outlives Electron (crash, force-quit, `app.exit()` without `will-quit`). It fires when stdin reaches EOF (the OS closes Electron's end of the pipe however Electron exits, on every platform) or when a 2 s poll finds the parent PID gone (psutil, so a reused PID doesn't count; covers an unreadable stdin). Firing sets the uvicorn server's `should_exit`, which runs the normal graceful shutdown (ingest batch, storage locks); if the process is still alive 90 s later it calls `os._exit(1)`. Without the flag (dev, server mode) stdin is ignored
 
 In dev mode the sidecar is not spawned — the developer runs the backend on port 8000.
 

@@ -55,7 +55,7 @@ Staging is per job: `{APP_DATA_DIR}/staging/{job_id}/{staging_key}`. `staging_ke
 
 **Status**: Done.
 
-`slowapi`, keyed on the client address, with two tiers:
+`slowapi`, keyed on the client address (`request.client.host`), with two tiers:
 - **expensive** (`RATE_LIMIT_EXPENSIVE`, default `2/minute`): `POST /search/rebuild-embeddings`, `GET /export/library`, `PATCH /settings/`, `POST /tags/retag-all`, `POST /tags/packs/{name}/import`, `POST /tags/packs/import-multiple`, `POST /images/backfill-grids`
 - **destructive** (`RATE_LIMIT_DESTRUCTIVE`, default `1/minute`): `DELETE /system/library`, `POST /system/tags/reset`
 
@@ -63,7 +63,7 @@ Staging is per job: `{APP_DATA_DIR}/staging/{job_id}/{staging_key}`. `staging_ke
 
 Import endpoints are not rate limited: a single import makes one request per file (≈10k for a 10k-file import), so a per-IP limit would throttle legitimate imports. Per-file uploads (`PUT …/items/{item_id}/content`) are bounded by `max_import_file_size` (413 on the streamed body) and require an existing item awaiting bytes; they do not take the heavy-op semaphore. Jobs are capped at `MAX_IMPORT_ITEMS` files and seal checks free disk space. Archive upload and seal are gated by the heavy-op semaphore (`acquire_heavy_op`, see [resource-management.md](resource-management.md)). The client retries 429/5xx up to 5 times per file, then records a resumable local failure, so reverse proxies with their own rate limits must allow for the per-file request volume.
 
-**Reverse proxy requirement**: the proxy must overwrite (not append to) `X-Forwarded-For` so the limiter keys on the real client IP; otherwise a client can spoof the header to get fresh buckets.
+**Client address behind a reverse proxy**: `main.py` installs uvicorn's `ProxyHeadersMiddleware` as the outermost middleware, trusting only `FORWARDED_ALLOW_IPS` (default `127.0.0.1,::1`). For a connection from a trusted address it replaces the client address with the rightmost `X-Forwarded-For` entry that is not itself trusted (and takes the scheme from `X-Forwarded-Proto`); from anywhere else both headers are ignored, so a client cannot pick its own rate-limit bucket. A proxy that appends to the header is therefore as safe as one that overwrites it. The setting is read by the app (so it works from `.env`), and the launch paths we ship (`Dockerfile`, `scripts/app/start.py`, `main.py`'s `__main__`, the sidecar) pass `--no-proxy-headers` / `proxy_headers=False` so uvicorn's own copy of the middleware, which reads `FORWARDED_ALLOW_IPS` only from the process environment and defaults to `127.0.0.1`, can't apply a different list. If the proxy is not in the list, nothing breaks but every client shares the proxy's bucket. In Docker the proxy's connections come from the Docker network, not loopback, so the operator must set it (see [docs/deploy/server.md](../docs/deploy/server.md#client-ip-addresses-and-rate-limits)). Tests: `backend/tests/integration/test_proxy_headers.py`.
 
 ### 4. MEDIUM: Security Headers
 
