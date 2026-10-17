@@ -1,6 +1,6 @@
 # Electron Desktop App
 
-Scene Atlas ships as a desktop app using Electron. The Electron shell handles windowing and native OS integration while the Python backend runs as a sidecar subprocess.
+Scene Atlas ships as a desktop app using Electron (44; it needs macOS 13+, and the binary is downloaded on first run rather than by an npm `postinstall`). The Electron shell handles windowing and native OS integration while the Python backend runs as a sidecar subprocess.
 
 ## Architecture
 
@@ -160,7 +160,7 @@ There is one build per platform; GPU support comes from the onnxruntime package 
 | macOS | `cpu` | `onnxruntime` | CoreML (built into the macOS wheel) |
 | Linux | `cpu` | `onnxruntime` | none (CPU only) |
 
-The PyInstaller spec keeps onnxruntime's `entry_points.txt` (DirectML plugin registration) and lists `DirectML.dll` and `onnxruntime_providers_dml.dll` in `upx_exclude`, because the DML provider loads them at runtime. At runtime `ort_providers.py` resolves the provider and falls back to CPU (see [gpu-acceleration.md](gpu-acceleration.md)).
+The PyInstaller spec keeps onnxruntime's `entry_points.txt` (DirectML plugin registration) (DirectML plugin registration). UPX is off: it corrupted bundled shared libraries (numpy's OpenBLAS), slows startup and trips Windows antivirus. At runtime `ort_providers.py` resolves the provider and falls back to CPU (see [gpu-acceleration.md](gpu-acceleration.md)).
 
 **Auto-updates:** electron-builder publishes to GitHub Releases (`publish.provider: github`) on the single `latest` channel for all platforms.
 

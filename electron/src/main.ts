@@ -115,7 +115,8 @@ async function pickDirectory(
 ): Promise<string | null> {
   const options: Electron.OpenDialogOptions = {
     title,
-    defaultPath,
+    // Electron 43+ opens dialogs in Downloads unless given a starting folder.
+    defaultPath: defaultPath ?? app.getPath('home'),
     properties: ['openDirectory', 'createDirectory'],
     buttonLabel: 'Select Folder',
   }

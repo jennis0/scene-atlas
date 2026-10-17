@@ -55,7 +55,7 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 
 | Item | Notes | Priority |
 |---|---|---|
-| Electron 40 is end of life | 40 and 41 get no patches; 5 high Dependabot alerts can't be fixed on 40.x. Move to a supported major (42+): check the breaking changes, run `electron:dev`, do a Release dry run. | High |
+| Sidecar size | ~700 MB on disk, ~170 MB compressed. Biggest parts: lancedb + pyarrow 230 MB (brute-force numpy search over vectors in SQLite would do at our scale, but replaces the vector store: needs an ADR), opencv 145 MB (grid v3 and video thumbnails), scipy 66 MB. scikit-learn (14 MB) is only used for k-means in colour extraction. | Medium |
 | Verify the sidecar lifecycle on packaged Windows and macOS | Parent-death watchdog (stdin EOF + PID poll), `msvcrt` storage lock and its loading-page message, graceful stop on Windows, storage-change relaunch waiting on the old lock. Tested on Linux only. | Medium |
 | Colour threshold default is loose | ΔE 25 reproduces the old HSL 0.35, but a typical map colour matches ~80% of the library and colour-filtered browse is 70–140 ms slower at 56k images than the old in-memory index. ΔE 12–15 is faster and more useful. No UI control (API only). [search.md](search.md) | Medium |
 | transformers 5 for `scripts/models` export | Clears 6 accepted pip-audit IDs (dev-only extra). | Medium |
