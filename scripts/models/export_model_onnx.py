@@ -36,7 +36,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformers import AutoConfig, AutoModel, AutoProcessor
 
-from backend.app.services.model_registry import ENCODER_NAMES, MODEL_BY_NAME
+from backend.app.services.model_registry import ENCODER_NAMES, MODEL_BY_NAME, is_externally_released
 from backend.app.services.model_registry import MODELS as MODEL_REGISTRY
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
@@ -99,13 +99,19 @@ def parse_args() -> argparse.Namespace:
         raise SystemExit(0)
 
     if args.all:
-        args.models = names
+        # Externally released models (e.g. fine-tunes from scene-atlas-learning) have
+        # their own pipeline; re-exporting them from the base model would replace them.
+        args.models = [m["name"] for m in MODEL_REGISTRY if not is_externally_released(m)]
     elif not args.models:
         parser.error("specify model name(s) or --all (use --list to see available models)")
 
     for name in args.models:
         if name not in MODEL_BY_NAME:
             parser.error(f"unknown model '{name}' (use --list to see available models)")
+        if is_externally_released(MODEL_BY_NAME[name]):
+            parser.error(
+                f"'{name}' is released by {MODEL_BY_NAME[name]['release_source']}, not this script"
+            )
 
     return args
 

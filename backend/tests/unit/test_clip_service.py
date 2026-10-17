@@ -152,3 +152,35 @@ class TestStartClipBackgroundLoad:
         finally:
             if not orig_is_set:
                 clip_mod._clip_ready.clear()
+
+
+class TestCastFeedToInputs:
+    """Float inputs are cast to whatever dtype the ONNX graph declares."""
+
+    def _session(self, input_type: str):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            get_inputs=lambda: [SimpleNamespace(name="pixel_values", type=input_type)]
+        )
+
+    def test_float32_pixels_cast_for_fp16_graph(self):
+        import numpy as np
+
+        from backend.app.services.clip_service import _cast_feed_to_inputs
+
+        feed = {"pixel_values": np.zeros((1, 3, 4, 4), np.float32)}
+        out = _cast_feed_to_inputs(self._session("tensor(float16)"), feed)
+        assert out["pixel_values"].dtype == np.float16
+
+    def test_matching_and_non_float_inputs_untouched(self):
+        import numpy as np
+
+        from backend.app.services.clip_service import _cast_feed_to_inputs
+
+        px = np.zeros((1, 3, 4, 4), np.float32)
+        ids = np.zeros((1, 8), np.int64)
+        out = _cast_feed_to_inputs(
+            self._session("tensor(float)"), {"pixel_values": px, "input_ids": ids}
+        )
+        assert out["pixel_values"] is px and out["input_ids"] is ids

@@ -40,6 +40,7 @@ from backend.app.services.model_registry import (
     HF_NAMESPACE,
     MODEL_BY_NAME,
     REPO_PREFIX,
+    is_externally_released,
 )
 from backend.app.services.model_registry import (
     MODELS as MODEL_REGISTRY,
@@ -114,12 +115,18 @@ def parse_args() -> argparse.Namespace:
         parser.error("specify model name(s), --all, or --create-collection")
 
     if args.all:
-        args.models = names
+        # Externally released models (e.g. fine-tunes from scene-atlas-learning) have
+        # their own pipeline; re-publishing them from the base model would replace them.
+        args.models = [m["name"] for m in MODEL_REGISTRY if not is_externally_released(m)]
 
     if args.models:
         for name in args.models:
             if name not in MODEL_BY_NAME:
                 parser.error(f"unknown model '{name}' (use --list to see available models)")
+        if is_externally_released(MODEL_BY_NAME[name]):
+            parser.error(
+                f"'{name}' is released by {MODEL_BY_NAME[name]['release_source']}, not this script"
+            )
 
     return args
 

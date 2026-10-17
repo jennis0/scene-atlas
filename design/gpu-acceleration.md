@@ -19,13 +19,13 @@ An explicit provider that is unavailable, or an unknown value, logs a warning an
 
 | Extra | Package |
 |---|---|
-| `cpu` | `onnxruntime>=1.16.0,<2.0` |
+| `cpu` | `onnxruntime>=1.24.0,<2.0` |
 | `cpu-dev` | `onnxruntime` + `torch` |
-| `gpu` | `onnxruntime-gpu>=1.16.0,<1.20` |
+| `gpu` | `onnxruntime-gpu>=1.24.1,<2.0` |
 | `gpu-dev` | `onnxruntime-gpu` + `torch` |
-| `gpu-directml` | `onnxruntime-directml>=1.16.0,<2.0` |
+| `gpu-directml` | `onnxruntime-directml>=1.24.0,<2.0` |
 
-> **Note:** `onnxruntime-gpu` is pinned to `<1.20` because 1.20+ is a split-package plugin with a broken ABI (`undefined symbol: Provider_GetHost`). Re-evaluate when Microsoft fixes the split-package model.
+> **Note:** ORT >= 1.24 is required everywhere: the small and medium models use 4-bit `MatMulNBits` weights, which older ORT can't run. Install `onnxruntime-gpu` on its own (it bundles the Python API); installing it alongside the base `onnxruntime` package is what broke the ABI at 1.24.3 (`undefined symbol: Provider_GetHost`).
 
 Installation:
 - **Server (CPU):** `uv sync --extra cpu`
