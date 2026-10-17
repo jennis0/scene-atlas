@@ -23,6 +23,8 @@ Set these in your `.env` file, Docker Compose environment, or system environment
 
 The database path, vector index, thumbnail and staging directories are always derived from these two roots and cannot be overridden individually.
 
+Only one Scene Atlas backend can use a given `APP_DATA_DIR` or `IMAGE_LIBRARY_DIR` at a time. A second backend pointed at either folder refuses to start with "Another Scene Atlas backend is already using the folder …". The lock is a `.backend.lock` file in each folder; it is released automatically when the backend exits, so a leftover file is harmless.
+
 ::: info Docker deployments
 In Docker, use `IMAGE_DIR` in your `.env` to set the host-side bind mount path. Inside the container, this is mapped to `IMAGE_LIBRARY_DIR=/app/images`.
 :::

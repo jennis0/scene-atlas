@@ -342,18 +342,19 @@ Other environment variables: `EMBEDDING_MODEL` (operator override of the active 
 ## Startup Sequence (`main.py` lifespan)
 
 1. `setup_logging()` — console + rotating file handlers; sets Pillow's pixel limit to `max_image_pixels` and turns `DecompressionBombWarning` into an error.
-2. `get_engine()` + `init_db()` — runs Alembic migrations (stamps pre-Alembic databases at head).
-3. `seed_tag_categories()`, `seed_default_settings()` (first boot only), `backfill_search_text()`, then read app settings.
-4. `init_prepare_pool(max_concurrent_prepare)`; store engine on `app.state.db_engine`; create `app.state.heavy_op_semaphore`.
-5. Set `settings.vector_size` from the model manifest.
-6. Start the embedding model background load.
-7. Create the JobRunner. A daemon thread waits for the model, calls `IngestWorker.probe_now()`, then submits `reconcile_vectors` if the model loaded.
-8. If `ingest_worker_enabled`: `ingest_worker.recover()`, then `ingest_worker.start()`.
-9. If `scheduler_enabled`: register the four scheduler tasks and start the scheduler.
-10. Log the CORS warning if applicable; print `SCENE_ATLAS_READY port=…` (Electron waits for this line).
-11. Start the 15 s event-loop heartbeat (logs thread count and RSS); install a SIGUSR1 thread-dump handler on non-Windows.
+2. Lock both storage roots (`storage_lock.py`): an OS lock on `<root>/.backend.lock` in `APP_DATA_DIR` and, if it exists, `IMAGE_LIBRARY_DIR`. If another process holds either, startup fails with `StorageLockedError` (uvicorn exits with code 3). The desktop sidecar (`APP_MODE=app`) waits up to 30 s first, so a relaunch can outlast the previous sidecar's graceful shutdown. Filesystems without lock support (some network shares) log a warning and run unguarded.
+3. `get_engine()` + `init_db()` — runs Alembic migrations (stamps pre-Alembic databases at head).
+4. `seed_tag_categories()`, `seed_default_settings()` (first boot only), `backfill_search_text()`, then read app settings.
+5. `init_prepare_pool(max_concurrent_prepare)`; store engine on `app.state.db_engine`; create `app.state.heavy_op_semaphore`.
+6. Set `settings.vector_size` from the model manifest.
+7. Start the embedding model background load.
+8. Create the JobRunner. A daemon thread waits for the model, calls `IngestWorker.probe_now()`, then submits `reconcile_vectors` if the model loaded.
+9. If `ingest_worker_enabled`: `ingest_worker.recover()`, then `ingest_worker.start()`.
+10. If `scheduler_enabled`: register the four scheduler tasks and start the scheduler.
+11. Log the CORS warning if applicable; print `SCENE_ATLAS_READY port=…` (Electron waits for this line).
+12. Start the 15 s event-loop heartbeat (logs thread count and RSS); install a SIGUSR1 thread-dump handler on non-Windows.
 
-Shutdown: cancel heartbeat → stop scheduler → `ingest_worker.stop(60s)` → `shutdown_job_runner()` → `shutdown_prepare_pool()` → `shutdown_lancedb_service()`.
+Shutdown: cancel heartbeat → stop scheduler → `ingest_worker.stop(60s)` → `shutdown_job_runner()` → `shutdown_prepare_pool()` → `shutdown_lancedb_service()` → release the storage locks (the OS also drops them if the process dies).
 
 ## Middleware
 

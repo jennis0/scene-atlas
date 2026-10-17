@@ -36,8 +36,11 @@ from .models import (
 )
 from .process_utils import get_rss_mb
 from .services.prepare_pool import init_prepare_pool, shutdown_prepare_pool
+from .storage_lock import StorageLockedError, acquire_storage_lock
 
 logger = logging.getLogger(__name__)
+
+DESKTOP_LOCK_WAIT_SECS = 30.0
 
 
 @asynccontextmanager
@@ -48,6 +51,23 @@ async def lifespan(app: FastAPI):
 
     # Startup
     logger.info("Starting %s v%s", settings.app_name, settings.app_version)
+
+    # Before anything touches storage: a second backend's recovery would clear
+    # this one's in-flight ingest. The desktop app waits, so a relaunch can outlast
+    # the previous sidecar's graceful shutdown.
+    lock_wait = DESKTOP_LOCK_WAIT_SECS if settings.app_mode == "app" else 0
+    storage_locks = []
+    try:
+        for root in (settings.app_data_dir, settings.image_library_dir):
+            # A missing library (e.g. an unmounted drive) is not created here; the
+            # ingest worker pauses until it appears.
+            if root.is_dir():
+                storage_locks.append(acquire_storage_lock(root, timeout=lock_wait))
+    except StorageLockedError as exc:
+        for lock in storage_locks:
+            lock.release()
+        logger.critical("STARTUP ERROR: %s", exc)
+        raise
 
     # Load Pillow's plugins while single-threaded. A lazy load (on the first
     # unrecognised file) dlopens while holding the GIL, which deadlocks against
@@ -242,15 +262,19 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down application")
-    await scheduler.stop()
-    # Let the batch in progress commit; anything left is recovered next start.
-    await asyncio.to_thread(ingest_worker.stop, 60.0)
-    shutdown_job_runner()
-    shutdown_prepare_pool()
+    try:
+        await scheduler.stop()
+        # Let the batch in progress commit; anything left is recovered next start.
+        await asyncio.to_thread(ingest_worker.stop, 60.0)
+        shutdown_job_runner()
+        shutdown_prepare_pool()
 
-    from .services.lancedb_service import shutdown_lancedb_service
+        from .services.lancedb_service import shutdown_lancedb_service
 
-    shutdown_lancedb_service()
+        shutdown_lancedb_service()
+    finally:
+        for lock in storage_locks:
+            lock.release()
 
 
 # Create FastAPI app

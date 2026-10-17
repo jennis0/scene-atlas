@@ -112,14 +112,16 @@
         status.textContent = 'First launch takes a little longer than usual…'
       }, 15000)
 
-      // A Python traceback's last non-empty line is the exception message.
+      // Prefer the last Python exception message in the output (e.g. "another backend is
+      // using this data folder"); otherwise the first line ("Backend exited during startup").
+      const EXCEPTION_LINE = /^(?:\[backend(?::err)?\] )?(?:[A-Za-z_][\w.]*\.)?\w*(?:Error|Exception): (.+)$/
       function summarise(raw) {
-        if (!raw.includes('Traceback (most recent call last)')) return raw.split('\n')[0]
-        const lines = raw
-          .trimEnd()
-          .split('\n')
-          .filter((l) => l.trim())
-        return lines[lines.length - 1]
+        const lines = raw.split('\n').map((l) => l.trim())
+        for (let i = lines.length - 1; i >= 0; i--) {
+          const match = EXCEPTION_LINE.exec(lines[i])
+          if (match) return match[1]
+        }
+        return lines[0]
       }
 
       window.electronAPI?.onBackendError((message) => {
