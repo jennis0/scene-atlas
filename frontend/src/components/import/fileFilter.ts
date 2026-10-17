@@ -1,4 +1,4 @@
-import type { EditableFileState } from '@/types'
+import type { FilterOptionGroup } from '@/components/FilterMenuContent'
 
 export interface ActiveFilter {
   type: 'subgroup' | 'tag' | 'gridded' | 'author' | 'color' | 'media_type'
@@ -17,44 +17,86 @@ export interface FileFilter {
 
 export const EMPTY_FILTER: FileFilter = { text: '', imageType: 'all', active: [] }
 
-export function applyFileFilter(
-  files: EditableFileState[],
-  filter: FileFilter,
-): EditableFileState[] {
-  return files.filter((f) => {
-    if (filter.text) {
-      const t = filter.text.toLowerCase()
-      if (!f.filename.toLowerCase().includes(t) && !f.name.toLowerCase().includes(t)) return false
+/** The fields client-side filtering reads; editor files and API images both have them. */
+export interface FilterableItem {
+  name: string
+  filename: string
+  subgroup: string | null
+  image_type?: 'battlemap' | 'scene'
+  media_type?: string
+  gridded: boolean | null
+  grid_type: string | null
+  tags: { category: string; value: string }[]
+}
+
+const matchesNameOrFilename = (item: FilterableItem, text: string) =>
+  item.filename.toLowerCase().includes(text) || item.name.toLowerCase().includes(text)
+
+/** Whether `item` has the filtered property, ignoring `exclude`; null for types filtered server-side. */
+function matchesActiveFilter(item: FilterableItem, af: ActiveFilter): boolean | null {
+  switch (af.type) {
+    case 'subgroup':
+      return item.subgroup === af.value
+    case 'tag': {
+      const colonIdx = af.value.indexOf(':')
+      const cat = af.value.slice(0, colonIdx)
+      const val = af.value.slice(colonIdx + 1)
+      return item.tags.some((t) => t.category === cat && t.value === val)
     }
-    if (filter.imageType !== 'all') {
-      if ((f.image_type ?? 'battlemap') !== filter.imageType) return false
-    }
-    for (const af of filter.active) {
-      if (af.type === 'subgroup') {
-        const match = f.subgroup === af.value
-        if (af.exclude ? match : !match) return false
-      } else if (af.type === 'tag') {
-        const colonIdx = af.value.indexOf(':')
-        const cat = af.value.slice(0, colonIdx)
-        const val = af.value.slice(colonIdx + 1)
-        const match = f.tags.some((t) => t.category === cat && t.value === val)
-        if (af.exclude ? match : !match) return false
-      } else if (af.type === 'gridded') {
-        let match: boolean
-        if (af.value === 'square') {
-          match = f.gridded === true && f.grid_type === 'square'
-        } else if (af.value === 'hex') {
-          match = f.gridded === true && f.grid_type === 'hex'
-        } else {
-          const gv = af.value === 'gridded' ? true : af.value === 'gridless' ? false : null
-          match = f.gridded === gv
-        }
-        if (af.exclude ? match : !match) return false
-      } else if (af.type === 'media_type') {
-        const match = (f.media_type ?? 'image') === af.value
-        if (af.exclude ? match : !match) return false
+    case 'gridded':
+      if (af.value === 'square' || af.value === 'hex') {
+        return item.gridded === true && item.grid_type === af.value
       }
+      return (
+        item.gridded === (af.value === 'gridded' ? true : af.value === 'gridless' ? false : null)
+      )
+    case 'media_type':
+      return (item.media_type ?? 'image') === af.value
+    default:
+      return null
+  }
+}
+
+/** Filters are ANDed; `matchesText` receives the lower-cased search text. */
+export function applyFileFilter<T extends FilterableItem>(
+  items: T[],
+  filter: FileFilter,
+  matchesText: (item: T, text: string) => boolean = matchesNameOrFilename,
+): T[] {
+  const text = filter.text.toLowerCase()
+  return items.filter((item) => {
+    if (text && !matchesText(item, text)) return false
+    if (filter.imageType !== 'all' && (item.image_type ?? 'battlemap') !== filter.imageType) {
+      return false
     }
-    return true
+    return filter.active.every((af) => {
+      const match = matchesActiveFilter(item, af)
+      return match === null || match !== af.exclude
+    })
   })
+}
+
+/** One filter group per tag category, values ordered by how many items carry them. */
+export function buildTagFilterGroups(items: FilterableItem[]): FilterOptionGroup[] {
+  const counts = new Map<string, Map<string, number>>()
+  for (const item of items) {
+    for (const { category, value } of item.tags) {
+      const values = counts.get(category) ?? new Map<string, number>()
+      values.set(value, (values.get(value) ?? 0) + 1)
+      counts.set(category, values)
+    }
+  }
+  return [...counts].map(([category, values]) => ({
+    id: category,
+    label: category,
+    type: 'tag',
+    options: [...values]
+      .sort((a, b) => b[1] - a[1])
+      .map(([value, count]) => ({
+        filterValue: `${category}:${value}`,
+        label: value,
+        filterLabel: `${category}: ${value}`,
+        count,
+      })),
+  }))
 }

@@ -45,6 +45,7 @@ import {
   UnknownGridSVG,
 } from './GridFilterIcons'
 import type { ActiveFilter } from '@/components/import/fileFilter'
+import { PanelTitle } from '@/components/ui/panel-title'
 
 export interface FilterOption {
   filterValue: string // stored in ActiveFilter.value
@@ -215,19 +216,17 @@ export function FilterMenuContent({
         className="px-4 py-3 border-b border-border/60 flex-shrink-0 flex items-end justify-between"
         style={{ background: DARK_SURFACE }}
       >
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="font-display text-[13px] font-medium tracking-[0.06em] text-foreground">
-              Filters
-            </span>
-            {totalActive > 0 && (
+        <PanelTitle
+          badge={
+            totalActive > 0 && (
               <span className="inline-flex items-center px-1.5 py-px rounded-full bg-primary/15 text-[10px] font-medium text-primary tabular-nums">
                 {totalActive} active
               </span>
-            )}
-          </div>
-          <div className="mt-[3px] h-px w-7 bg-gradient-to-r from-primary to-transparent" />
-        </div>
+            )
+          }
+        >
+          Filters
+        </PanelTitle>
         {totalActive > 0 && (
           <button
             onClick={() => onFiltersChange([])}

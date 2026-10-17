@@ -2,6 +2,7 @@ import { type ReactNode } from 'react'
 import { Search, Merge, X } from 'lucide-react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { PanelTitle } from '@/components/ui/panel-title'
 
 interface GroupPickerShellProps {
   open: boolean
@@ -35,12 +36,7 @@ export function GroupPickerShell({
 
         {/* Header: bg-popover strip with title and close button */}
         <div className="px-4 py-2.5 border-b border-border/30 bg-popover flex items-center justify-between shrink-0 relative">
-          <div className="flex-1">
-            <span className="font-display text-[13px] font-medium tracking-[0.06em] text-foreground leading-none">
-              {title}
-            </span>
-            <div className="mt-[3px] h-px w-7 bg-gradient-to-r from-primary to-transparent" />
-          </div>
+          <PanelTitle className="flex-1">{title}</PanelTitle>
           <button
             onClick={onClose}
             className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 shrink-0 ml-2"

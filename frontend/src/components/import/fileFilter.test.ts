@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { applyFileFilter, EMPTY_FILTER } from './fileFilter'
+import { applyFileFilter, buildTagFilterGroups, EMPTY_FILTER } from './fileFilter'
 import type { FileFilter } from './fileFilter'
 import type { EditableFileState } from '@/types'
 
@@ -235,5 +235,52 @@ describe('applyFileFilter', () => {
       expect(result[0].filename).toBe('forest.jpg')
       expect(result[0].subgroup).toBe('snowy')
     })
+  })
+
+  describe('filters handled server-side', () => {
+    it('ignores author and color filters, included or excluded', () => {
+      const files = [makeFile({}), makeFile({})]
+      const filter: FileFilter = {
+        ...EMPTY_FILTER,
+        active: [
+          { type: 'author', value: 'Someone', label: 'Someone', exclude: true },
+          { type: 'color', value: '#ff0000', label: 'red', exclude: false },
+        ],
+      }
+      expect(applyFileFilter(files, filter)).toHaveLength(2)
+    })
+  })
+
+  describe('custom text matcher', () => {
+    it('receives the lower-cased search text', () => {
+      const files = [makeFile({ subgroup: 'winter' }), makeFile({ subgroup: 'summer' })]
+      const result = applyFileFilter(
+        files,
+        { ...EMPTY_FILTER, text: 'WIN' },
+        (f, text) => !!f.subgroup?.includes(text),
+      )
+      expect(result.map((f) => f.subgroup)).toEqual(['winter'])
+    })
+  })
+})
+
+describe('buildTagFilterGroups', () => {
+  it('groups by category and orders values by frequency', () => {
+    const t = (category: string, value: string) => ({
+      category,
+      value,
+      confidence: 1,
+      source: 'manual',
+    })
+    const groups = buildTagFilterGroups([
+      makeFile({ tags: [t('biome', 'forest'), t('time', 'night')] }),
+      makeFile({ tags: [t('biome', 'cave')] }),
+      makeFile({ tags: [t('biome', 'cave')] }),
+    ])
+    expect(groups.map((g) => g.id)).toEqual(['biome', 'time'])
+    expect(groups[0].options).toEqual([
+      { filterValue: 'biome:cave', label: 'cave', filterLabel: 'biome: cave', count: 2 },
+      { filterValue: 'biome:forest', label: 'forest', filterLabel: 'biome: forest', count: 1 },
+    ])
   })
 })

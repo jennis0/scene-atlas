@@ -3,12 +3,23 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; font-src 'self'" />
   <title>Scene Atlas — Setup</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500&family=Figtree:wght@400;500&display=swap" rel="stylesheet" />
   <style>
+    /* Bundled so the first-run window works offline (OFL, see fonts/). */
+    @font-face {
+      font-family: 'Cinzel';
+      font-weight: 400 900;
+      font-display: swap;
+      src: url(fonts/cinzel-latin-wght.woff2) format('woff2');
+    }
+    @font-face {
+      font-family: 'Figtree';
+      font-weight: 300 900;
+      font-display: swap;
+      src: url(fonts/figtree-latin-wght.woff2) format('woff2');
+    }
+
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
