@@ -29,7 +29,6 @@ MODELS: list[dict] = [
         "semantic_threshold": 0.15,  # CLIP contrastive loss → higher cosine sims
         "vision_quant": "w4a16",
         "text_quant": "w4a16",
-        "text_int8_exclude_layers": 0,
     },
     {
         "name": "medium",
@@ -51,7 +50,6 @@ MODELS: list[dict] = [
         "semantic_threshold": 0.0,  # SigLIP sigmoid loss → lower cosine sims
         "vision_quant": "w4a16",
         "text_quant": "w4a16",
-        "text_int8_exclude_layers": 0,
     },
     {
         "name": "large",
@@ -66,7 +64,6 @@ MODELS: list[dict] = [
         "semantic_threshold": 0.0,  # SigLIP sigmoid loss → lower cosine sims
         "vision_quant": "fp16",
         "text_quant": "fp16",
-        "text_int8_exclude_layers": 0,
     },
 ]
 

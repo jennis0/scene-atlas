@@ -43,7 +43,11 @@ and published by the release pipeline in scene-atlas-learning (`uv run release .
 downloader fetch only `onnx/*` at the release tag, so later pushes to `main` never change
 an installed model. `export_model_onnx.py` and `publish_models_hf.py` refuse these
 entries and skip them under `--all`, since re-exporting from the base model would
-overwrite the fine-tune.
+overwrite the fine-tune. That leaves `large` (fp16 vision + fp16 text) as the only model
+the export script builds; it has no int8 path. Its optional `--image-dir` quality
+evaluation needs the gitignored `scripts/quantisation` package, and the script exits with
+an error before exporting when that package is missing (see
+[onnx-int8-quantisation.md](onnx-int8-quantisation.md)).
 
 `CLIPService` casts every input to the dtype the graph declares (`_cast_feed_to_inputs`):
 exports differ in whether `pixel_values` is float32 or float16, and ONNX Runtime rejects a

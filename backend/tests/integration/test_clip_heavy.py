@@ -25,8 +25,8 @@ pytestmark = pytest.mark.heavy
 
 # Expected properties per model, derived from their manifests.
 _MODEL_SPECS = {
-    "small": {"embedding_dim": 512, "vision_quant": "fp16", "text_quant": "int8"},
-    "medium": {"embedding_dim": 768, "vision_quant": "fp16", "text_quant": "int8"},
+    "small": {"embedding_dim": 512, "vision_quant": "w4a16", "text_quant": "w4a16"},
+    "medium": {"embedding_dim": 768, "vision_quant": "w4a16", "text_quant": "w4a16"},
     "large": {"embedding_dim": 1152, "vision_quant": "fp16", "text_quant": "fp16"},
 }
 

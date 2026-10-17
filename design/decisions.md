@@ -330,7 +330,7 @@ Pipeline functions in `backend/pipeline/` are now plain Python functions — no 
 - No first-run HuggingFace download (models are bundled)
 - ONNX models must be re-exported when changing the base model (`scripts/models/export_model_onnx.py`)
 - `backend/models/` is gitignored; CI must run the export script before building
-- **Status note (2026-10):** Text encoders for the small and medium models now ship as int8 with the first N transformer layers excluded from quantisation (`text_int8_exclude_layers` in `backend/app/services/model_registry.py`); vision stays fp16, and the large model is fp16 throughout. See [onnx-int8-quantisation.md](onnx-int8-quantisation.md).
+- **Status note (2026-10):** small and medium are now fine-tuned 4-bit (w4a16) models released by scene-atlas-learning (`release_source` in `backend/app/services/model_registry.py`); large is fp16 throughout and is the only model `export_model_onnx.py` exports. The int8 export path was removed; [onnx-int8-quantisation.md](onnx-int8-quantisation.md) keeps the research. The runtime still runs an int8 text encoder on CPU if a manifest declares one.
 
 ---
 
