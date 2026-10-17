@@ -44,21 +44,10 @@ class SystemUnavailableError(Exception):
 
 
 def classify_ingest_error(exc: Exception, stage: str) -> dict[str, str]:
-    """Map an exception to a user-friendly error dict.
+    """Map an exception raised at pipeline *stage* to a user-facing error dict.
 
-    Parameters
-    ----------
-    exc:
-        The caught exception.
-    stage:
-        Pipeline stage where the error occurred.  One of: ``parse``,
-        ``copy``, ``thumbnails``, ``colors``, ``grid_detection``,
-        ``embedding``, ``db_save``, ``vector_save``.
-
-    Returns
-    -------
-    dict with keys ``reason`` (user-friendly), ``kind`` (``file`` |
-    ``transient`` | ``system``), ``stage``, and ``detail`` (raw exception text).
+    Returns ``reason`` (user-facing), ``kind`` (``file`` | ``transient`` | ``system``),
+    ``stage`` and ``detail`` (raw exception text).
     """
     reason, kind = _classify(exc, stage)
     return {"reason": reason, "kind": kind, "stage": stage, "detail": str(exc)}
@@ -76,14 +65,14 @@ def _classify(exc: Exception, stage: str) -> tuple[str, str]:
     exc_type = type(exc).__name__
     msg = str(exc).lower()
 
-    # --- Explicit system conditions raised by the pipeline itself ---
+    # Explicit system conditions raised by the pipeline itself
     if isinstance(exc, SystemUnavailableError):
         return str(exc), KIND_SYSTEM
 
     if "embedding service unavailable" in msg:
         return "No AI model is available", KIND_SYSTEM
 
-    # --- PIL / image file errors ---
+    # PIL / image file errors
     if exc_type == "UnidentifiedImageError" or "cannot identify image file" in msg:
         return "Image is corrupt or not a supported format", KIND_FILE
 
@@ -93,11 +82,11 @@ def _classify(exc: Exception, stage: str) -> tuple[str, str]:
     if "truncated" in msg:
         return "Image file is incomplete or truncated", KIND_FILE
 
-    # --- OpenCV read failures ---
+    # OpenCV read failures
     if "could not read image" in msg:
         return "Image could not be read for processing", KIND_FILE
 
-    # --- File system errors ---
+    # File system errors
     if isinstance(exc, OSError) and getattr(exc, "errno", None) == errno.ENOSPC:
         return "Not enough disk space to process image", KIND_SYSTEM
 
@@ -107,15 +96,15 @@ def _classify(exc: Exception, stage: str) -> tuple[str, str]:
     if isinstance(exc, PermissionError):
         return "File could not be accessed (permission denied)", KIND_FILE
 
-    # --- Database contention ---
+    # Database contention
     if _is_db_busy(exc):
         return "The database was busy; will retry", KIND_TRANSIENT
 
-    # --- Memory ---
+    # Memory
     if isinstance(exc, MemoryError):
         return "Image is too large to process (out of memory)", KIND_TRANSIENT
 
-    # --- Stage-specific fallbacks ---
+    # Stage-specific fallbacks
     if stage == "embedding":
         return "Failed to generate image embedding", KIND_TRANSIENT
 
@@ -125,7 +114,7 @@ def _classify(exc: Exception, stage: str) -> tuple[str, str]:
     if stage == "vector_save":
         return "Failed to save image embedding to search index", KIND_TRANSIENT
 
-    # --- Generic fallback ---
+    # Generic fallback
     # Unknown errors are retried a bounded number of times before failing the
     # item: a deterministic failure costs a few retries, a flaky one recovers.
     return f"Processing failed during {stage}", KIND_TRANSIENT

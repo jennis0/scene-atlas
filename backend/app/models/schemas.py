@@ -308,7 +308,7 @@ class TagCategoryResponse(TagCategoryBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-# ── App Settings ──────────────────────────────────────────────────────────────
+# App Settings
 
 
 class AppSettings(BaseModel):

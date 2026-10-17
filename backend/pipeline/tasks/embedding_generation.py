@@ -10,17 +10,10 @@ def batch_generate_clip_embeddings(
     image_paths: list[str],
     batch_size: int | None = None,
 ) -> list[list[float]]:
-    """Generate CLIP embeddings for multiple images using batch inference.
+    """CLIP embeddings for *image_paths*, one per image, in input order.
 
-    Processes images in sub-batches to manage memory while still benefiting
-    from vectorized forward passes (3-5x faster than individual inference).
-
-    Args:
-        image_paths: List of image file paths
-        batch_size: Images per forward pass (default from settings)
-
-    Returns:
-        List of embedding vectors, one per image
+    Processes images in sub-batches to bound memory while still benefiting
+    from vectorised forward passes (3-5x faster than one at a time).
     """
     logger = logging.getLogger(__name__)
     clip_service = get_clip_service()

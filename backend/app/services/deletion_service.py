@@ -12,17 +12,10 @@ logger = logging.getLogger(__name__)
 
 
 def safe_delete_image(db: Session, image: Image) -> None:
-    """Delete an image record; only remove physical files if last reference.
+    """Delete an image row; remove its files only if no other row shares them.
 
-    Handles:
-    - Ref counting: checks if other Image records share the same storage_key
-    - LanceDB cleanup: always deletes the per-image embedding point
-    - Thumbnail cleanup: deletes ALL thumbnail sizes, not just medium
-    - DB cascade: tags + colors are deleted via cascade
-
-    Args:
-        db: Active SQLAlchemy session (caller is responsible for commit)
-        image: The Image record to delete
+    Always deletes the image's embedding and all thumbnail sizes; tags and
+    colors go via cascade. The caller commits.
     """
     from . import get_image_store, get_thumbnail_store
     from .lancedb_service import get_lancedb_service

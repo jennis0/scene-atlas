@@ -28,30 +28,14 @@ class ImageStore:
         return self.base_dir / stem[:2] / stem[2:4] / key
 
     def put(self, key: str, source_path: Path) -> Path:
-        """Copy a file into the store.
-
-        Args:
-            key: Storage key (e.g., "a1b2c3d4.jpg")
-            source_path: Path to the source file
-
-        Returns:
-            The full filesystem path where the file was stored
-        """
+        """Copy *source_path* into the store under *key*; returns the stored path."""
         dest = self._key_to_path(key)
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_path, dest)
         return dest
 
     def put_bytes(self, key: str, data: bytes) -> Path:
-        """Write raw bytes into the store.
-
-        Args:
-            key: Storage key
-            data: File contents as bytes
-
-        Returns:
-            The full filesystem path where the file was stored
-        """
+        """Write *data* into the store under *key*; returns the stored path."""
         dest = self._key_to_path(key)
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(data)
@@ -66,11 +50,7 @@ class ImageStore:
         return self._key_to_path(key).exists()
 
     def delete(self, key: str) -> bool:
-        """Delete a file from the store.
-
-        Returns:
-            True if the file was deleted, False if it didn't exist
-        """
+        """Delete *key* from the store; False if it didn't exist."""
         path = self._key_to_path(key)
         try:
             path.unlink()

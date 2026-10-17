@@ -106,28 +106,13 @@ class JobRunner:
         check this between units of work and exit early."""
         return self._shutting_down.is_set()
 
-    # ------------------------------------------------------------------
     # Public API
-    # ------------------------------------------------------------------
 
     def submit(self, fn: Callable, *args: Any, name: str | None = None, **kwargs: Any) -> str:
-        """Submit a callable for background execution.
+        """Run *fn* in the background; returns a job ID for :meth:`get_job`.
 
-        Parameters
-        ----------
-        fn:
-            The function to execute.  If ``fn`` accepts a ``progress_fn``
-            keyword argument, a progress callback is injected automatically.
-        name:
-            Human-readable job name (shown in status API).  Defaults to
-            ``fn.__name__``.
-        *args, **kwargs:
-            Forwarded to ``fn``.
-
-        Returns
-        -------
-        str
-            A job ID that can be used with :meth:`get_job` to poll status.
+        If *fn* accepts a ``progress_fn`` keyword, a progress callback is injected.
+        *name* is shown in the status API and defaults to ``fn.__name__``.
         """
         job_id = uuid.uuid4().hex[:16]
         job_name = name or fn.__name__
@@ -220,9 +205,7 @@ class JobRunner:
             "pending_jobs": pending,
         }
 
-    # ------------------------------------------------------------------
     # Internal
-    # ------------------------------------------------------------------
 
     def _cleanup_done_futures(self) -> None:
         """Remove references to completed futures (prevent memory leak)."""

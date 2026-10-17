@@ -14,17 +14,9 @@ logger = logging.getLogger(__name__)
 
 
 def check_zip_safety(zip_path: Path, max_files: int, max_uncompressed_bytes: int) -> None:
-    """Raise ValueError if ZIP exceeds file count or total uncompressed size.
+    """Raise ValueError if the ZIP is invalid or exceeds the file-count or uncompressed-size limits.
 
     Must be called *before* extraction to prevent ZIP bombs filling the disk.
-
-    Args:
-        zip_path: Path to the already-saved ZIP file.
-        max_files: Maximum number of extractable files.
-        max_uncompressed_bytes: Maximum total uncompressed size in bytes.
-
-    Raises:
-        ValueError: If the ZIP is invalid or exceeds either limit.
     """
     try:
         with ZipFile(zip_path, "r") as zf:

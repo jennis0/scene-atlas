@@ -38,9 +38,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-# ---------------------------------------------------------------------------
 # Response schemas
-# ---------------------------------------------------------------------------
 
 
 class ModelInfo(BaseModel):
@@ -87,9 +85,7 @@ class EmbeddingStatusResponse(BaseModel):
     error: str | None
 
 
-# ---------------------------------------------------------------------------
 # Background job helpers
-# ---------------------------------------------------------------------------
 
 
 def _download_only(name: str, progress_fn=None) -> None:
@@ -145,9 +141,7 @@ def _download_and_activate(name: str, progress_fn=None) -> None:
         raise  # re-raise so JobRunner marks job as failed
 
 
-# ---------------------------------------------------------------------------
 # Endpoints
-# ---------------------------------------------------------------------------
 
 
 @router.get("/", response_model=ModelListResponse)

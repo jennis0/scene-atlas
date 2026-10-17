@@ -12,14 +12,7 @@ from backend.pipeline.pipeline_config import PipelineConfig
 
 
 def rgb_to_hex(rgb: tuple) -> str:
-    """Convert RGB tuple to hex color string.
-
-    Args:
-        rgb: Tuple of (r, g, b) values
-
-    Returns:
-        Hex color string like '#1a2b3c'
-    """
+    """``(r, g, b)`` → ``'#1a2b3c'``."""
     return f"#{int(rgb[0]):02x}{int(rgb[1]):02x}{int(rgb[2]):02x}"
 
 
@@ -28,16 +21,10 @@ def extract_dominant_colors(
     num_colors: int | None = None,
     pipeline_config: PipelineConfig | None = None,
 ) -> list[dict]:
-    """Extract dominant colors from an image using k-means clustering.
+    """Dominant colors via k-means, most dominant first.
 
-    Args:
-        image_path: Path to the image (as string for serialization)
-        num_colors: Number of dominant colors to extract.
-            Defaults to pipeline_config.num_dominant_colors or 5.
-        pipeline_config: Optional pipeline config for clustering params.
-
-    Returns:
-        List of dicts with color info: [{"hex": "#abc123", "percentage": 45.2, "order": 1}, ...]
+    Returns ``[{"color_hex": "#abc123", "percentage": 45.2, "color_order": 1}, ...]``.
+    *num_colors* defaults to ``pipeline_config.num_dominant_colors`` (or 5).
     """
     logger = logging.getLogger(__name__)
 

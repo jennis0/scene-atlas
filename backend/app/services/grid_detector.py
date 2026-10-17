@@ -66,23 +66,13 @@ class GridDetector:
         self.period_ratio_threshold = period_ratio_threshold
         self.hex_rot_conf = hex_rot_conf
 
-    # ------------------------------------------------------------------
     # Public API
-    # ------------------------------------------------------------------
 
     def detect(self, image_path: Path, width: int, height: int) -> GridDetectionResult:
-        """Detect grid presence, type, and tile dimensions.
+        """Detect grid presence, type, and tile dimensions from pixels alone.
 
-        Use when no filename hint is available -- detects both presence and size.
-
-        Args:
-            image_path: Path to the image file.
-            width: Original image width in pixels.
-            height: Original image height in pixels.
-
-        Returns:
-            GridDetectionResult with gridded, grid_type, grid_width, grid_height,
-            and confidence.
+        Use when no filename hint is available. ``width``/``height`` are the
+        original image dimensions, used to convert periods into tile counts.
         """
         return self._run(image_path, width, height, self.presence_threshold)
 
@@ -97,9 +87,7 @@ class GridDetector:
             result["gridded"] = True
         return result
 
-    # ------------------------------------------------------------------
     # Core pipeline
-    # ------------------------------------------------------------------
 
     def _run(
         self,
@@ -129,10 +117,10 @@ class GridDetector:
                 "confidence": 0.0,
             }
 
-        # --- Standard orientation ---
+        # Standard orientation
         std = self._run_ac_on_edges(edges, min_cell, max_cell)
 
-        # --- 30-degree rotation (hex detection) ---
+        # 30-degree rotation (hex detection)
         rot_edges = self._rotate_edges(edges, 30)
         rot_h, rot_w = rot_edges.shape
         min_cell_r = max(4, int(self.min_cell_px * scale))
@@ -159,7 +147,7 @@ class GridDetector:
             scale,
         )
 
-        # --- Classification ---
+        # Classification
         # Note: _NO_GRID has gridded=None (truly unknown / couldn't analyze).
         # When we HAVE analyzed and concluded no grid, we return gridded=False.
 
@@ -265,9 +253,7 @@ class GridDetector:
             "confidence": round(std["confidence"], 3),
         }
 
-    # ------------------------------------------------------------------
     # Preprocessing
-    # ------------------------------------------------------------------
 
     def _read_gray(self, image_path: Path, longest_side: int) -> np.ndarray | None:
         """Read as grayscale, letting the decoder downscale when the cap allows.
@@ -320,9 +306,7 @@ class GridDetector:
 
         return edges, scale
 
-    # ------------------------------------------------------------------
     # Rotation
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _rotate_edges(edges: np.ndarray, angle_deg: float) -> np.ndarray:
@@ -347,9 +331,7 @@ class GridDetector:
 
         return rotated
 
-    # ------------------------------------------------------------------
     # Autocorrelation peak finding
-    # ------------------------------------------------------------------
 
     def _find_ac_peaks(
         self,
@@ -412,9 +394,7 @@ class GridDetector:
         candidates.sort(key=lambda x: x[1], reverse=True)
         return candidates, autocorr
 
-    # ------------------------------------------------------------------
     # Paired period selection
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _pick_best_periods(
@@ -465,9 +445,7 @@ class GridDetector:
 
         return best_hp, best_hs, best_vp, best_vs
 
-    # ------------------------------------------------------------------
     # Tile count computation
-    # ------------------------------------------------------------------
 
     def _snap_to_tile_count(
         self,

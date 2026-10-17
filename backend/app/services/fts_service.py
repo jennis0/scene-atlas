@@ -13,9 +13,7 @@ from backend.app.services.image_parser import build_search_text
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
 # Module-level alias vocabulary cache (TTL-based, avoids per-request DB hit)
-# ---------------------------------------------------------------------------
 
 _alias_vocab: dict[str, str] | None = None  # alias_or_canonical -> canonical
 _alias_reverse: dict[str, set[str]] | None = None  # canonical -> {aliases}
@@ -107,9 +105,7 @@ def invalidate_alias_cache() -> None:
         _alias_vocab_loaded_at = 0.0
 
 
-# ---------------------------------------------------------------------------
 # FTS5 search
-# ---------------------------------------------------------------------------
 
 
 def _sanitize_fts_query(raw: str) -> str:

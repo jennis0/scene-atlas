@@ -16,18 +16,10 @@ def detect_grid_from_image(
     size_only: bool = False,
     pipeline_config: PipelineConfig | None = None,
 ) -> dict:
-    """Detect grid presence, type, and dimensions from an image.
+    """Detect grid presence, type and tile dimensions.
 
-    Args:
-        image_path: Path to the image.
-        width: Original image width in pixels.
-        height: Original image height in pixels.
-        size_only: If True, skip presence detection (assumes grid exists).
-        pipeline_config: Optional pipeline config for detector thresholds.
-            Falls back to module-level defaults when not provided.
-
-    Returns:
-        Dict with gridded, grid_type, grid_width, grid_height, confidence.
+    With *size_only*, presence detection is skipped (a grid is assumed).
+    Returns gridded, grid_type, grid_width, grid_height and confidence.
     """
     logger = logging.getLogger(__name__)
 

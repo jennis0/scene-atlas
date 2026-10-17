@@ -58,7 +58,7 @@ _INTERPOLATION_MAP = {
 }
 
 
-# ── SentencePiece tokenizer wrapper ──────────────────────────────────────────
+# SentencePiece tokenizer wrapper
 # Provides the same interface as tokenizers.Tokenizer so CLIPService can use
 # either backend transparently.
 
@@ -282,7 +282,7 @@ class CLIPService:
 
         # Resolve execution providers — explicit device param takes priority
         # over the global INFERENCE_DEVICE setting (used by scripts that pass
-        # --device directly).
+        # device directly).
         inference_device = device if device is not None else _settings.inference_device
         gpu_providers = resolve_providers(inference_device)
         cpu_providers = ["CPUExecutionProvider"]
@@ -353,7 +353,7 @@ class CLIPService:
 
         logger.info("ONNX models loaded (%s)", manifest.get("model_id", "unknown"))
 
-    # ── Properties ────────────────────────────────────────────────────────
+    # Properties
 
     @property
     def embedding_dim(self) -> int:
@@ -365,7 +365,7 @@ class CLIPService:
         """HuggingFace model ID for the active model."""
         return self._manifest.get("model_id", "unknown")
 
-    # ── Image preprocessing ──────────────────────────────────────────────
+    # Image preprocessing
 
     def _preprocess_image(self, image: Image.Image) -> np.ndarray:
         """Resize, optionally crop, normalise, and transpose to CHW.
@@ -397,25 +397,17 @@ class CLIPService:
         pixels = (pixels - self._image_mean) / self._image_std
         return np.transpose(pixels, (2, 0, 1))
 
-    # ── GPU resilience ─────────────────────────────────────────────────
+    # GPU resilience
 
     def _maybe_recreate_dml_session(
         self, session_attr: str, model_path: str, item_count: int = 1
     ) -> None:
-        """Recreate DML session periodically to prevent command buffer exhaustion.
+        """Recreate a DirectML session periodically to prevent command buffer exhaustion.
 
         DirectML leaks GPU memory on each ``.run()`` call with no public API
         to flush/sync (ORT issues #975, #25996).  Session recreation is the
         only way to release resources.  No-op for non-DML providers.
-
-        Parameters
-        ----------
-        session_attr : str
-            Name of the session attribute (``"_vision_session"`` or ``"_text_session"``).
-        model_path : str
-            Path to the ONNX model file (for recreating the session).
-        item_count : int
-            Number of items in this inference (1 for single, batch size for batch).
+        ``item_count`` is the number of images or texts in this inference.
         """
         session_providers = self._session_providers[session_attr]
         if session_providers[0] != "DmlExecutionProvider":
@@ -462,17 +454,10 @@ class CLIPService:
             self._inference_count = 0
             return new_session.run(output_names, feed)  # pyright: ignore[reportReturnType]
 
-    # ── Public interface ─────────────────────────────────────────────────
+    # Public interface
 
     def encode_image(self, image_path: str | Path) -> list[float]:
-        """Generate embedding for an image.
-
-        Args:
-            image_path: Path to the image file.
-
-        Returns:
-            Embedding vector as list of floats (L2-normalised).
-        """
+        """L2-normalised embedding for one image."""
         with Image.open(image_path) as img:
             pixel_values = self._preprocess_image(img.convert("RGB"))
 
@@ -490,13 +475,7 @@ class CLIPService:
         return embedding
 
     def encode_text(self, text: str) -> list[float]:
-        """Generate embedding for text query.
-
-        Args:
-            text: Text query (e.g., "dark forest cave with water").
-
-        Returns:
-            Embedding vector as list of floats (L2-normalised).
+        """L2-normalised embedding for a text query.
 
         Results are cached in a module-level LRU dict keyed on the query
         string to avoid repeated ONNX inference for common queries.
@@ -528,14 +507,7 @@ class CLIPService:
         return embedding
 
     def batch_encode_images(self, image_paths: Sequence[str | Path]) -> list[list[float]]:
-        """Generate embeddings for multiple images in batch.
-
-        Args:
-            image_paths: List of paths to image files.
-
-        Returns:
-            List of embedding vectors.
-        """
+        """L2-normalised embeddings for several images in one forward pass."""
         pixel_batch = []
         for path in image_paths:
             with Image.open(path) as img:
@@ -560,7 +532,7 @@ class CLIPService:
         return result
 
 
-# ── Singleton with background-load support ───────────────────────────────────
+# Singleton with background-load support
 # start_clip_background_load() is called from the FastAPI lifespan so CLIP
 # begins loading without blocking server startup.  get_clip_service() blocks
 # until loading completes (via the Event), so callers that arrive before the

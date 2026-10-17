@@ -191,7 +191,7 @@ async def lifespan(app: FastAPI):
     # searches with a query will wait for CLIP; empty queries use SQL only.
     print(f"SCENE_ATLAS_READY port={settings.api_port}", flush=True)
 
-    # --- Diagnostic: event loop heartbeat ---
+    # Diagnostic: event loop heartbeat
     # Logs every 15s from the event loop. If these lines stop appearing in the
     # log while the process is still alive, the event loop is blocked.
     async def _heartbeat() -> None:
@@ -208,7 +208,7 @@ async def lifespan(app: FastAPI):
 
     heartbeat_task = asyncio.create_task(_heartbeat())
 
-    # --- Diagnostic: SIGUSR1 thread dump ---
+    # Diagnostic: SIGUSR1 thread dump
     # Send `kill -USR1 <pid>` to dump all thread stack traces to the log.
     def _dump_threads(signum, frame) -> None:  # noqa: ARG001
         lines = ["\n=== THREAD DUMP (SIGUSR1) ==="]
@@ -314,7 +314,7 @@ app.include_router(system.router, prefix=f"{settings.api_prefix}/system", tags=[
 app.include_router(settings_api.router, prefix=f"{settings.api_prefix}/settings", tags=["settings"])
 app.include_router(models_api.router, prefix=f"{settings.api_prefix}/models", tags=["models"])
 
-# ── SPA static file serving ─────────────────────────────────────────────────
+# SPA static file serving
 # When a built frontend exists (Docker / production), serve it from the backend.
 # The frontend build outputs to frontend/dist/ relative to the project root.
 # Must be mounted AFTER API routers so /api/v1/* routes take precedence.
@@ -509,7 +509,7 @@ async def health(request: Request):
     return {"status": overall, "mode": settings.app_mode, "checks": checks}
 
 
-# ── SPA catch-all route ─────────────────────────────────────────────────────
+# SPA catch-all route
 # Must be registered LAST so it doesn't shadow API routes or /health.
 # Serves index.html for any path not matched by an API endpoint, enabling
 # client-side routing (e.g. /gallery, /import).

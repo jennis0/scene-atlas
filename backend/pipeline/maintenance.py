@@ -18,22 +18,15 @@ from pathlib import Path
 
 from backend.app.config import settings
 
-# ---------------------------------------------------------------------------
 # Backup tasks
-# ---------------------------------------------------------------------------
 
 
 def backup_sqlite(backup_dir: Path, db_path: Path | None = None) -> Path:
-    """Create a consistent SQLite snapshot using the sqlite3.backup() API.
+    """Write a consistent snapshot of the SQLite database into *backup_dir*.
 
-    Uses the built-in sqlite3 backup API rather than file copy so the snapshot
-    is guaranteed consistent even if the database is being written to at the
-    same time.
-
-    Args:
-        backup_dir: Directory where the backup will be written.
-        db_path: Path to the source SQLite file. Defaults to the application
-            database derived from ``settings.database_url``.
+    Uses the sqlite3 backup API rather than a file copy so the snapshot is
+    consistent even while the database is being written to. *db_path*
+    defaults to the application database.
     """
     logger = logging.getLogger(__name__)
     if db_path is None:
@@ -141,9 +134,7 @@ def backup_database() -> dict:
     return result
 
 
-# ---------------------------------------------------------------------------
 # Staging cleanup tasks
-# ---------------------------------------------------------------------------
 
 
 # Only files in the store's shard layout (ab/cd/<key>) are ever considered;

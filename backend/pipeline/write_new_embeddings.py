@@ -22,15 +22,8 @@ logger = logging.getLogger(__name__)
 def rebuild_all_embeddings(progress_fn=None, *, force: bool = False) -> dict:
     """Delete and regenerate all embeddings.
 
-    Parameters
-    ----------
-    progress_fn:
-        Optional callback ``(current, total, message)`` injected by JobRunner.
-    force:
-        If False and the collection already has the expected number of
-        embeddings, skip the rebuild.
-
-    Returns a summary dict with total/succeeded/failed counts.
+    Without *force*, skips the rebuild if the collection already holds the expected
+    number of embeddings. Returns total/succeeded/failed counts.
     """
     svc = get_lancedb_service()
     clip_service = get_clip_service()

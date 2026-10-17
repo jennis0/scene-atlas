@@ -49,14 +49,9 @@ def _build_detector() -> GridDetector:
 
 
 def detect_grids_batch(image_ids: list[int], force: bool = False) -> dict:
-    """Run grid detection on a batch of images and update DB records.
+    """Run grid detection on *image_ids* and update their rows.
 
-    Args:
-        image_ids: Image IDs to process.
-        force: If True, re-detect even if grid info already exists.
-
-    Returns:
-        Dict with detected, skipped, errors counts.
+    With *force*, re-detect even where grid info exists. Returns detected/skipped/errors counts.
     """
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)
@@ -136,12 +131,7 @@ def detect_grids_batch(image_ids: list[int], force: bool = False) -> dict:
 
 
 def backfill_grid_detection(force: bool = False, progress_fn=None):
-    """Detect grid presence/size for battlemap images missing grid info.
-
-    Args:
-        force: If True, re-detect ALL battlemaps (not just those missing info).
-        progress_fn: Optional callback ``(current, total, message)`` injected by JobRunner.
-    """
+    """Detect grid presence/size for battlemaps missing grid info (all battlemaps with *force*)."""
     engine = get_engine(settings.database_url)
     SessionLocal = get_session_local(engine)
     db = SessionLocal()

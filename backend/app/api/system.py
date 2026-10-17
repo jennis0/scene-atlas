@@ -80,7 +80,7 @@ def system_info(db: Session = Depends(get_db)):
     return result
 
 
-# ── Library purge (background job) ────────────────────────────────────────────
+# Library purge (background job)
 
 
 def _purge_library(
@@ -179,7 +179,7 @@ def delete_library(request: Request, db: Session = Depends(get_db)):
     return {"job_id": job_id, "message": "Library purge started"}
 
 
-# ── Tag reset (synchronous) ──────────────────────────────────────────────────
+# Tag reset (synchronous)
 
 
 @router.post("/tags/reset")
