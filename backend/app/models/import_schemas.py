@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 ImageType = Literal["battlemap", "scene"]
+JobStatus = Literal["active", "paused", "completed", "cancelled"]
 
 MAX_MANIFEST_CHUNK = 2000
 MAX_HASH_CHUNK = 2000
@@ -41,7 +42,7 @@ class ImportGroupSummary(BaseModel):
 class ImportJobSummary(BaseModel):
     id: str
     label: str | None
-    status: Literal["active", "paused", "completed", "cancelled"]
+    status: JobStatus
     default_image_type: ImageType
     planned: bool
     dismissed: bool

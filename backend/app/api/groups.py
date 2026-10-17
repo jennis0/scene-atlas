@@ -99,18 +99,20 @@ def search_groups(
             db.query(Image.group_id, func.count(Image.id))
             .filter(Image.group_id.in_(group_ids))
             .group_by(Image.group_id)
+            .tuples()
             .all()
         )
         counts = dict(rows)
 
     # Compute fallback primary_image_id for groups that don't have one set
-    primary_ids: dict[int, int] = {}
+    primary_ids: dict[int | None, int] = {}
     missing = [g.id for g in groups if g.primary_image_id is None]
     if missing:
         rows = (
             db.query(Image.group_id, func.min(Image.id))
             .filter(Image.group_id.in_(missing))
             .group_by(Image.group_id)
+            .tuples()
             .all()
         )
         primary_ids = dict(rows)

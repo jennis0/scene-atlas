@@ -336,6 +336,7 @@ def job_counts(db: Session, job_id: str) -> dict[str, int]:
         db.query(ImportItem.state, func.count(ImportItem.id))
         .filter(ImportItem.job_id == job_id)
         .group_by(ImportItem.state)
+        .tuples()
         .all()
     )
     return dict(rows)
@@ -441,7 +442,7 @@ def apply_client_hashes(db: Session, job_id: str, hashes: dict[int, str]) -> lis
 
 def dismiss_job(db: Session, job_id: str) -> None:
     """Hide a finished job from the activity dock. Never deletes anything."""
-    job = db.get(ImportJob, job_id)
+    job = db.get_one(ImportJob, job_id)
     job.dismissed_at = job.dismissed_at or utcnow()
 
 
@@ -758,14 +759,14 @@ def skip_items(
 
 
 def pause_job(db: Session, job_id: str) -> str:
-    job = db.get(ImportJob, job_id)
+    job = db.get_one(ImportJob, job_id)
     if job.status == st.JOB_ACTIVE:
         job.status = st.JOB_PAUSED
     return recompute_job_status(db, job_id)
 
 
 def resume_job(db: Session, job_id: str) -> str:
-    job = db.get(ImportJob, job_id)
+    job = db.get_one(ImportJob, job_id)
     if job.status == st.JOB_PAUSED:
         job.status = st.JOB_ACTIVE
     return recompute_job_status(db, job_id)
@@ -776,7 +777,7 @@ def cancel_job(db: Session, job_id: str) -> int:
 
     Items currently ``processing`` finish their batch and are kept too.
     """
-    job = db.get(ImportJob, job_id)
+    job = db.get_one(ImportJob, job_id)
     if job.status != st.JOB_COMPLETED:
         job.status = st.JOB_CANCELLED
         job.completed_at = utcnow()

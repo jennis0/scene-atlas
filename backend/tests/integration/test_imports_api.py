@@ -571,3 +571,16 @@ def test_purge_refused_while_import_has_open_work(api):
     api.manifest(job_id, [{"relative_path": "A/G/a.png"}])
     r = api.client.delete("/api/v1/system/library")
     assert r.status_code == 409
+
+
+def test_row_deleted_mid_request_is_404_not_500():
+    import asyncio
+
+    from sqlalchemy.exc import NoResultFound
+    from starlette.requests import Request
+
+    from backend.app.main import not_found_handler
+
+    request = Request({"type": "http", "method": "POST", "path": "/", "headers": []})
+    response = asyncio.run(not_found_handler(request, NoResultFound()))
+    assert response.status_code == 404

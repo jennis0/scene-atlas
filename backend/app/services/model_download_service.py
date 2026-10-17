@@ -237,7 +237,7 @@ def _raise_download_error(exc: Exception, repo_id: str) -> NoReturn:
         pass
 
     try:
-        from huggingface_hub.utils import HfHubHTTPError
+        from huggingface_hub.errors import HfHubHTTPError
 
         if isinstance(exc, HfHubHTTPError):
             raise ModelDownloadError(

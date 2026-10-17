@@ -18,6 +18,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
+from sqlalchemy.exc import NoResultFound
 
 from .api import export, groups, images, imports, jobs, search, system, tags
 from .api import models as models_api
@@ -438,6 +439,12 @@ h1{{font-size:1.5rem;letter-spacing:0.15em;margin-bottom:0.5rem;font-weight:500}
 </body>
 </html>"""
     return HTMLResponse(content=html)
+
+
+@app.exception_handler(NoResultFound)
+async def not_found_handler(request: Request, exc: NoResultFound) -> JSONResponse:
+    """A row that must exist (``Session.get_one``) was deleted by a concurrent request."""
+    return JSONResponse(status_code=404, content={"detail": "Not found"})
 
 
 @app.exception_handler(Exception)
