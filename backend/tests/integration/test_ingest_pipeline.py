@@ -3,10 +3,10 @@
 Real SQLite, real filesystem, real thumbnails, colours and hashes. Embeddings and
 LanceDB are faked. The worker is driven synchronously with ``drain()``.
 
-Covers design/ingestion.md §11: happy path, group resolution, the three
-dedup tiers, import-as-copy, file/transient/system errors, crash recovery,
-cancel/pause/retry, round-robin scheduling, bytes lost, vector reconciliation
-and commit-failure cleanup.
+Covers the behaviour in design/ingestion.md §4–§6 and §9: happy path, group
+resolution, the three dedup tiers, import-as-copy, file/transient/system
+errors, crash recovery, cancel/pause/retry, round-robin scheduling, bytes lost,
+vector reconciliation and commit-failure cleanup.
 """
 
 from __future__ import annotations
