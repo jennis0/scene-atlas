@@ -76,7 +76,10 @@ for (const { palette, theme } of VARIANTS) {
       const dialog = page.getByRole("dialog", { name: "Library" });
       await expect(dialog).toBeVisible();
       await expectNoViolations(page);
-      await dialog.getByRole("tab", { name: "Settings" }).click();
+      // The dialog's name follows the active tab, so find later tabs on the page
+      await dialog.getByRole("tab", { name: "Appearance" }).click();
+      await expectNoViolations(page);
+      await page.getByRole("tab", { name: "Settings" }).click();
       await expectNoViolations(page);
     });
   });

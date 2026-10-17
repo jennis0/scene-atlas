@@ -1,8 +1,9 @@
 import { useState, useRef, useId } from 'react'
-import { X, BookOpen, Settings2 } from 'lucide-react'
+import { X, BookOpen, Palette, Settings2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { PanelTitle } from '@/components/ui/panel-title'
+import { AppearanceTab } from '@/components/settings/AppearanceTab'
 import { LibraryTab } from '@/components/settings/LibraryTab'
 import {
   SettingsTabContent,
@@ -14,10 +15,11 @@ export interface LibraryInfoDialogProps {
   onClose: () => void
 }
 
-type Tab = 'library' | 'settings'
+type Tab = 'library' | 'appearance' | 'settings'
 
 const TABS = [
   { id: 'library' as const, label: 'Library', Icon: BookOpen },
+  { id: 'appearance' as const, label: 'Appearance', Icon: Palette },
   { id: 'settings' as const, label: 'Settings', Icon: Settings2 },
 ]
 
@@ -39,7 +41,7 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
   }
 
   const handleTabChange = async (tab: Tab) => {
-    if (tab === 'library') await saveSettingsIfDirty({ notify: true })
+    if (tab !== 'settings') await saveSettingsIfDirty({ notify: true })
     setActiveTab(tab)
   }
 
@@ -59,7 +61,7 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
             className="px-4 flex items-center justify-between"
             style={{ padding: '10px 12px 10px 16px' }}
           >
-            <PanelTitle>{activeTab === 'library' ? 'Library' : 'Settings'}</PanelTitle>
+            <PanelTitle>{TABS.find((t) => t.id === activeTab)?.label}</PanelTitle>
             <button
               onClick={() => handleOpenChange(false)}
               className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
@@ -83,6 +85,12 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
             <LibraryTab open={open} />
           </div>
 
+          {activeTab === 'appearance' && (
+            <div className="px-5 pb-5 pt-4">
+              <AppearanceTab />
+            </div>
+          )}
+
           {activeTab === 'settings' && (
             <div className="px-5 pb-5 pt-4">
               <SettingsTabContent ref={settingsRef} dialogOpen={open} />
@@ -94,7 +102,7 @@ export function LibraryInfoDialog({ open, onClose }: LibraryInfoDialogProps) {
   )
 }
 
-/** Library | Settings, as tabs: arrow keys switch between them. */
+/** Library | Appearance | Settings, as tabs: arrow keys move between them. */
 function SectionTabs({
   idBase,
   active,
@@ -111,7 +119,9 @@ function SectionTabs({
       className="flex border-t border-border/50 px-5"
       onKeyDown={(e) => {
         if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
-        const next = active === 'library' ? 'settings' : 'library'
+        const step = e.key === 'ArrowRight' ? 1 : -1
+        const index = TABS.findIndex((t) => t.id === active)
+        const next = TABS[(index + step + TABS.length) % TABS.length].id
         onChange(next)
         document.getElementById(`${idBase}-${next}`)?.focus()
       }}

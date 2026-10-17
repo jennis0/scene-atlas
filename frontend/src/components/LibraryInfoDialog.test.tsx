@@ -109,6 +109,33 @@ describe('LibraryInfoDialog', () => {
     })
   })
 
+  // ── Tabs ──────────────────────────────────────────────────────────────
+
+  it('has Library, Appearance and Settings tabs; arrow keys cycle and the title follows', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<LibraryInfoDialog open onClose={vi.fn()} />)
+    const tabs = screen.getAllByRole('tab')
+    expect(tabs.map((t) => t.textContent)).toEqual(['Library', 'Appearance', 'Settings'])
+
+    // Tab changes are async (they save Settings first), so wait after each key
+    const expectSelected = (name: string) =>
+      waitFor(() =>
+        expect(screen.getByRole('tab', { name })).toHaveAttribute('aria-selected', 'true'),
+      )
+
+    await user.click(tabs[0])
+    await user.keyboard('{ArrowRight}')
+    await expectSelected('Appearance')
+    expect(screen.getByRole('radiogroup', { name: 'Palette' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Appearance' })).toBeInTheDocument()
+
+    await user.keyboard('{ArrowLeft}')
+    await expectSelected('Library')
+    await user.keyboard('{ArrowLeft}')
+    await expectSelected('Settings')
+    expect(screen.queryByRole('radiogroup', { name: 'Palette' })).toBeNull()
+  })
+
   // ── Danger Zone tests ────────────────────────────────────────────────────
 
   it('shows danger zone section with delete and reset buttons', async () => {
