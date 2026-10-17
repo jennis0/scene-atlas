@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
-from sqlalchemy import func, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from backend.app.config import settings
@@ -300,19 +300,21 @@ def plan_job(db: Session, job_id: str) -> list[ImportGroup]:
 
     existing = _existing_groups(db, {name for _, name, _ in planned})
     groups: list[ImportGroup] = []
-    for order, (author, group_name, files) in enumerate(planned):
+    for order, (author, group_name, _files) in enumerate(planned):
         existing_id = existing.get((group_name, author))
-        import_group = ImportGroup(
-            job_id=job_id,
-            author=author,
-            group_name=group_name,
-            image_group_id=existing_id,
-            merged_into_existing=existing_id is not None,
-            sort_order=order,
+        groups.append(
+            ImportGroup(
+                job_id=job_id,
+                author=author,
+                group_name=group_name,
+                image_group_id=existing_id,
+                merged_into_existing=existing_id is not None,
+                sort_order=order,
+            )
         )
-        db.add(import_group)
-        db.flush()
-        groups.append(import_group)
+    db.add_all(groups)
+    db.flush()  # one batched INSERT assigns every group id
+    for import_group, (_author, group_name, files) in zip(groups, planned, strict=True):
         for file_entry in files:
             item = by_path[file_entry["relative_path"]]
             item.import_group_id = import_group.id
@@ -476,11 +478,11 @@ def undo_job(db: Session, job_id: str):
             ImportGroup.image_group_id.isnot(None),
         )
     ]
-    for group_id in created_group_ids:
-        if not db.query(Image.id).filter(Image.group_id == group_id).first():
-            group = db.get(ImageGroup, group_id)
-            if group is not None:
-                db.delete(group)
+    if created_group_ids:
+        still_used = select(Image.group_id).where(Image.group_id.in_(created_group_ids))
+        db.query(ImageGroup).filter(
+            ImageGroup.id.in_(created_group_ids), ImageGroup.id.not_in(still_used)
+        ).delete(synchronize_session=False)
 
     db.query(ImportItem).filter(ImportItem.job_id == job_id).delete(synchronize_session=False)
     db.query(ImportGroup).filter(ImportGroup.job_id == job_id).delete(synchronize_session=False)
@@ -612,8 +614,14 @@ def record_failures(failures: list[ItemFailure], now: datetime | None = None) ->
     now = now or utcnow()
     job_ids: set[str] = set()
     with write_session() as db:
+        items = {
+            item.id: item
+            for item in db.query(ImportItem).filter(
+                ImportItem.id.in_([f.item_id for f in failures])
+            )
+        }
         for failure in failures:
-            item = db.get(ImportItem, failure.item_id)
+            item = items.get(failure.item_id)
             if item is None or item.state != st.PROCESSING:
                 continue
             job_ids.add(item.job_id)

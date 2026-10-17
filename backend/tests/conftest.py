@@ -54,6 +54,50 @@ def db_session(tmp_db):
     session.close()
 
 
+class QueryCounter:
+    """SQL statements executed on an engine while active (``executemany`` counts once)."""
+
+    def __init__(self, engine):
+        self._engine = engine
+        self.statements: list[str] = []
+
+    def _record(self, conn, cursor, statement, parameters, context, executemany):
+        self.statements.append(statement)
+
+    def __enter__(self):
+        from sqlalchemy import event
+
+        self.statements = []
+        event.listen(self._engine, "before_cursor_execute", self._record)
+        return self
+
+    def __exit__(self, *exc):
+        from sqlalchemy import event
+
+        event.remove(self._engine, "before_cursor_execute", self._record)
+
+    @property
+    def count(self) -> int:
+        return len(self.statements)
+
+    def selects(self, table: str | None = None) -> list[str]:
+        """SELECT statements, optionally only those reading ``FROM <table>``."""
+        found = [s for s in self.statements if s.lstrip().upper().startswith("SELECT")]
+        if table is not None:
+            found = [s for s in found if f"FROM {table}" in s]
+        return found
+
+
+@pytest.fixture
+def query_counter(tmp_db):
+    """Count SQL statements on the test engine: ``with query_counter as q: ...; q.count``.
+
+    Use it to pin query counts so N+1 patterns can't creep back in.
+    """
+    engine, _ = tmp_db
+    return QueryCounter(engine)
+
+
 @pytest.fixture
 def make_test_image():
     """Factory fixture that creates minimal test JPEG files."""

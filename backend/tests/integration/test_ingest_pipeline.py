@@ -41,6 +41,7 @@ from backend.pipeline.ingest_queue import (
     resume_job,
     retry_items,
     staged_path,
+    undo_job,
 )
 from backend.pipeline.ingest_worker import IngestWorker
 from backend.pipeline.pipeline_config import PipelineConfig
@@ -914,3 +915,84 @@ def test_paused_worker_reprobes_on_probe_interval(env):
     worker.run_once()  # pauses
     assert worker.status().system_paused
     assert 0.05 <= worker._next_wait() <= 2.0
+
+
+# ---------------------------------------------------------------------------
+# Query counts: per-item queries must not creep back into the hot paths
+# ---------------------------------------------------------------------------
+
+
+_WORDS = ("Amber", "Brook", "Cedar", "Dune", "Ember", "Fjord", "Glade")
+
+
+def _group_name(index: int) -> str:
+    return f"{_WORDS[index // 7 % 7]} {_WORDS[index % 7]}"
+
+
+def _files(count: int, seed: int, groups: int = 2) -> dict[str, bytes]:
+    """``count`` unique images spread over ``groups`` groups not used by other seeds."""
+    names = [_group_name(seed // 100 + g) for g in range(groups)]
+    return {
+        f"Author/{names[i % groups]}/{names[i % groups]} {chr(97 + i)}.png": image_bytes(seed + i)
+        for i in range(count)
+    }
+
+
+def test_batch_commit_selects_do_not_scale_with_batch_size(env, query_counter):
+    env.config = PipelineConfig(enable_image_grid_detection=False, ingestion_batch_size=16)
+    counts = []
+    for count, seed in ((2, 1000), (8, 2000)):
+        make_job(env, _files(count, seed))
+        with query_counter as q:
+            assert env.worker.drain() >= 1
+        counts.append(len(q.selects()))
+    assert counts[0] == counts[1], counts
+
+
+def test_recording_failures_does_not_scale_with_failures(env, query_counter):
+    env.config = PipelineConfig(enable_image_grid_detection=False, ingestion_batch_size=16)
+    counts = []
+    for count in (2, 8):
+        make_job(env, {f"Author/Broken/bad{count}_{i}.png": b"not an image" for i in range(count)})
+        with query_counter as q:
+            env.worker.drain()
+        counts.append(len(q.selects("import_items")))
+    assert counts[0] == counts[1], counts
+
+
+def test_planning_queries_do_not_scale_with_groups(env, query_counter):
+    counts = []
+    for groups in (2, 8):
+        with env.SessionLocal() as db:
+            job = create_job(db)
+            add_manifest_items(
+                db,
+                job,
+                [ManifestEntry(p) for p in _files(groups * 2, groups * 100, groups=groups)],
+            )
+            db.commit()
+            with query_counter as q:
+                assert len(plan_job(db, job.id)) == groups
+            db.commit()
+        # One INSERT per group is inherent: SQLAlchemy can't batch INSERT .. RETURNING
+        # on SQLite (row order isn't guaranteed). Everything else must be constant.
+        counts.append(
+            len([x for x in q.statements if not x.startswith("INSERT INTO import_groups")])
+        )
+    assert counts[0] == counts[1], counts
+
+
+def test_undo_statements_do_not_scale_with_groups(env, query_counter):
+    env.config = PipelineConfig(enable_image_grid_detection=False, ingestion_batch_size=16)
+    counts = []
+    for groups, seed in ((2, 3000), (6, 4000)):
+        job_id = make_job(env, _files(groups * 2, seed, groups=groups))
+        env.worker.drain()
+        with env.SessionLocal() as db, query_counter as q:
+            deleted, _pending = undo_job(db, job_id)
+            db.commit()
+        assert deleted == groups * 2
+        counts.append(q.count)
+    assert counts[0] == counts[1], counts
+    with env.SessionLocal() as db:
+        assert db.query(ImageGroup).count() == 0

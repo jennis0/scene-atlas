@@ -5,8 +5,8 @@ import re
 import zipstream
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import delete, func
+from sqlalchemy.orm import Session, selectinload
 
 from ...pipeline.naming import download_filename, sanitize_segment
 from ..models import (
@@ -25,7 +25,8 @@ from ..models.schemas import (
     MoveImagesRequest,
     MoveImagesResponse,
 )
-from ..services import get_image_store, safe_delete_image
+from ..services import get_image_store
+from ..services.deletion_service import delete_image_rows
 from .dependencies import get_db
 
 router = APIRouter()
@@ -137,8 +138,9 @@ def get_group(
     group = (
         db.query(ImageGroup)
         .options(
-            joinedload(ImageGroup.images).joinedload(Image.tags),
-            joinedload(ImageGroup.images).joinedload(Image.colors),
+            # Separate SELECTs: joining both collections returns tags x colours rows per image.
+            selectinload(ImageGroup.images).selectinload(Image.tags),
+            selectinload(ImageGroup.images).selectinload(Image.colors),
         )
         .filter(ImageGroup.id == group_id)
         .first()
@@ -204,13 +206,13 @@ def edit_group(
     # Images referenced in new_groups are being moved, not deleted — protect them.
     kept_ids = {img.id for img in payload.images}
     moving_ids = {img_id for ng in payload.new_groups for img_id in ng.image_ids}
-    all_images = db.query(Image).filter(Image.group_id == group_id).all()
+    all_images = (
+        db.query(Image).options(selectinload(Image.tags)).filter(Image.group_id == group_id).all()
+    )
 
-    deleted_ids: list[int] = []
-    for image in all_images:
-        if image.id not in kept_ids and image.id not in moving_ids:
-            deleted_ids.append(image.id)
-            safe_delete_image(db, image)
+    deleted = [img for img in all_images if img.id not in kept_ids and img.id not in moving_ids]
+    deleted_ids = [img.id for img in deleted]
+    pending = delete_image_rows(db, deleted)
 
     # 3. Update kept images
     image_map = {img.id: img for img in all_images if img.id in kept_ids}
@@ -273,6 +275,7 @@ def edit_group(
         new_group_ids.append(new_group.id)
 
     db.commit()
+    pending.apply()
     return GroupEditResponse(
         id=group_id,
         new_group_ids=new_group_ids,
@@ -291,11 +294,12 @@ def delete_group(
         raise HTTPException(status_code=404, detail="Group not found")
 
     images = db.query(Image).filter(Image.group_id == group_id).all()
-    for image in images:
-        safe_delete_image(db, image)
-
-    db.delete(group)
+    pending = delete_image_rows(db, images)
+    # Bulk delete: the images are already gone, so there are no foreign keys to
+    # null out (which db.delete(group) would load the collection to do).
+    db.execute(delete(ImageGroup).where(ImageGroup.id == group_id))
     db.commit()
+    pending.apply()
     return {"message": f"Group {group_id} and all its images deleted"}
 
 

@@ -28,31 +28,30 @@ Frontend (GalleryHeader.tsx)
     └── GET /api/v1/search/groups (or /search/)
             │
             ▼
-    Backend (search.py)
-    ├── _build_image_filter_query()
-    │   └── Builds SQL WHERE clause from filters
+    api/search.py — parses params into SearchFilters + SearchMode
+            │
+            ▼
+    services/search_service.py
+    ├── image_conditions() / group_conditions()
+    │   └── SQL WHERE clauses from filters
     │       (image_type, media_type, gridded, authors,
     │        tags, exclude_tags, colors, etc.)
     │
-    ├── [unless semantic_only]
-    │   ├── fts_search(query)
+    ├── rank_candidates()
+    │   ├── [unless semantic_only] fts_search(query)
     │   │   ├── _sanitize_fts_query()     ← preserves "quoted phrases"
     │   │   ├── AND pass (primary)
     │   │   └── OR pass (fallback)
-    │   │
-    │   └── get_alias_expansions(query)
-    │       └── fts_search_terms(aliases)  ← OR semantics, 0.5× weight
+    │   ├── [if text hits] get_alias_expansions(query)
+    │   │   └── fts_search_terms(aliases)  ← OR semantics, 0.5× weight
+    │   ├── [unless text_only] clip_service.encode_text(query)
+    │   │   └── lancedb_service.search_similar(embedding)
+    │   └── fuse_rankings()  ← Reciprocal Rank Fusion
     │
-    ├── [unless text_only]
-    │   ├── clip_service.encode_text(query)
-    │   └── lancedb_service.search_similar(embedding)
-    │
-    ├── Reciprocal Rank Fusion
-    │   └── Merge text + alias + semantic ranked lists
-    │
-    ├── Apply SQL filters to candidate set
-    ├── Sort (by relevance, name, or created_at)
-    └── Paginate and return
+    ├── Filter candidates in SQL as (id, sort key) rows
+    ├── Sort (by relevance, name, or created_at), paginate ids
+    └── _load_images(page ids)  ← tags/colours/group in a fixed
+                                   number of queries
             │
             ▼
     Frontend receives images[] + scores{}
@@ -169,7 +168,7 @@ LanceDB runs **in-process** (disk-backed, memory-mapped, no Docker). Thread-safe
 - **Table:** `embeddings_{EMBEDDING_MODEL}` (model-scoped)
 - **Distance metric:** Cosine distance (service converts to similarity by subtracting from 1.0)
 - **Score threshold:** model-dependent (configured per model in the model registry via `get_semantic_threshold()`)
-- **Candidate pool:** Image search: text candidates = limit×10, semantic candidates = limit×3. Group search: max(limit×20, 1000) for all candidate types.
+- **Candidate pool:** Image search: text candidates = limit×10, alias and semantic candidates = limit×3. Group search: max(limit×20, 1000) for all candidate types.
 
 ### Query Flow
 
@@ -228,7 +227,8 @@ Images only contribute to lists they appear in. The merged score determines fina
 
 ## SQL Filters
 
-After RRF produces a candidate set, SQL filters narrow it:
+After RRF produces a candidate set, SQL filters narrow it (without a query they
+apply to the whole library):
 
 | Filter | Semantics |
 |--------|-----------|
@@ -240,7 +240,40 @@ After RRF produces a candidate set, SQL filters narrow it:
 | `exclude_authors` | NOT IN |
 | `tags` | OR within category, AND across categories |
 | `exclude_tags` | NOT IN (per tag) |
-| `colors` | LAB colour distance via `color_index` |
+| `colors` | Cylindrical-HSL colour distance via `color_index` (OR across colours) |
+
+**Group browse** (no query) applies each filter separately as "the group has at
+least one image that matches", so `image_types=scene&gridded=true` keeps a group with
+one scene and a different gridded battlemap. Authors match the group's own author;
+an `exclude_tags` entry keeps groups with at least one image without that tag.
+
+**Large id sets.** Colour matches and candidate pools can exceed SQLite's limit of
+32,766 bound parameters per statement on a large library, so they are passed as one
+JSON parameter (`id_set()`, `json_each`) rather than as an `IN (?, ?, …)` list.
+
+## Loading and Query Counts
+
+Search never loads full Image objects for every candidate: candidates are filtered
+and sorted as `(id, name, created_at)` rows, then only the returned page is loaded
+with `selectinload` (tags, colours) and `joinedload` (group). Group heroes, mosaics
+and mosaic top-ups come from `row_number() OVER (PARTITION BY group_id …)` queries,
+so each request costs a fixed number of queries whatever the page size (about 5–8;
+`selectinload` adds one query per 500 images loaded). This is pinned by
+`backend/tests/integration/test_query_counts.py`; response shapes and ordering are
+pinned by golden tests (`test_search_characterisation.py`, regenerate with
+`UPDATE_SEARCH_GOLDEN=1` only for intended changes).
+
+To check a change at real-library scale, build a synthetic library and benchmark
+the read paths: `uv run python -m stress_tests.library_scale build 56000 --db /tmp/lib.db`
+then `... run --db /tmp/lib.db`.
+
+## Colour Index
+
+`color_search.ColorIndex` keeps every `(image_id, colour)` pair in memory as numpy
+arrays (~16 bytes per colour: ~5 MB for 56k images at 5 colours each), reloaded
+from SQLite when `color_cache_ttl_seconds` (60 s) has passed. A colour query is a
+vectorised distance over the arrays (~10 ms at 56k images). A SQL-side search would
+need precomputed colour coordinates in the schema and isn't needed at this size.
 
 ## FTS5 Index Maintenance
 
@@ -263,7 +296,8 @@ Three SQLite triggers keep `image_fts` in sync with the `images` table:
 
 | File | Responsibility |
 |------|---------------|
-| `backend/app/api/search.py` | Search API endpoints, RRF orchestration, filter building |
+| `backend/app/api/search.py` | Search API endpoints: parameter parsing, error mapping |
+| `backend/app/services/search_service.py` | Filters, ranking, RRF fusion, image/group search, facets |
 | `backend/app/services/fts_service.py` | FTS5 query building, sanitization, alias expansion, index maintenance |
 | `backend/app/services/clip_service.py` | CLIP model loading, text/image encoding |
 | `backend/app/services/lancedb_service.py` | LanceDB disk-backed vector DB client |
