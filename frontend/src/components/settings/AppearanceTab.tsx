@@ -4,6 +4,7 @@ import { SegmentedControl } from '@/components/settings/SegmentedControl'
 import { SettingRow } from '@/components/settings/SettingRow'
 import { TEXT_SIZES } from '@/lib/textSize'
 import { COMPACT_HEADER_OPTIONS } from '@/lib/compactLayout'
+import { CONTRAST_OPTIONS } from '@/lib/contrast'
 
 const THEMES: readonly { value: Theme; label: string; title: string }[] = [
   { value: 'light', label: 'Light', title: 'Light mode' },
@@ -22,6 +23,8 @@ export function AppearanceTab() {
     setTextSize,
     compactHeader,
     setCompactHeader,
+    contrast,
+    setContrast,
   } = useTheme()
   return (
     <div>
@@ -30,6 +33,17 @@ export function AppearanceTab() {
       </p>
       <SettingRow label="Mode">
         <SegmentedControl label="Mode" options={THEMES} value={theme} onChange={setTheme} />
+      </SettingRow>
+      <SettingRow
+        label="Contrast"
+        description="High: stronger text, outlines and captions on images. Auto follows your system."
+      >
+        <SegmentedControl
+          label="Contrast"
+          options={CONTRAST_OPTIONS}
+          value={contrast}
+          onChange={setContrast}
+        />
       </SettingRow>
       <SettingRow label="Text size" description="Images keep their size.">
         <SegmentedControl

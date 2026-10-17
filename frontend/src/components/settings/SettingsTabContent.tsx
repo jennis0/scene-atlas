@@ -15,6 +15,7 @@ import { modelsApi } from '@/lib/api/modelsApi'
 import { useImportManagerSnapshot } from '@/lib/import/useImports'
 import { isFinished } from '@/components/imports/format'
 import { HARDWARE_BADGE } from '@/lib/modelConstants'
+import { useHueColor } from '@/contexts/TagColorContext'
 import { tagApi } from '@/lib/api/tagApi'
 import { TagPackCard } from '@/components/setup/TagPackCard'
 import type { AppSettings } from '@/types'
@@ -142,6 +143,7 @@ interface SettingsTabContentProps {
 export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabContentProps>(
   ({ dialogOpen }, ref) => {
     const queryClient = useQueryClient()
+    const hueColor = useHueColor()
     const { settings, draft, setField, save, isDirty, isLoading, isError, error } =
       useSettingsDraft({
         enabled: dialogOpen,
@@ -307,7 +309,7 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                 />
 
                 {(pendingAppDataDir || pendingImageLibraryDir) && (
-                  <div className="space-y-2 rounded border border-amber-500/20 bg-amber-500/5 p-3">
+                  <div className="space-y-2 rounded border border-warning/30 bg-warning/5 p-3">
                     <p className="text-xs text-muted-foreground">
                       Changing a path does not move your files. Move them manually before
                       restarting.
@@ -357,7 +359,7 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                           isActive
                             ? 'border-primary bg-primary/5 cursor-default'
                             : isPending
-                              ? 'border-amber-400 bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-50/80'
+                              ? 'border-warning bg-warning/10 hover:bg-warning/15'
                               : 'border-border bg-card hover:border-border/80 hover:bg-accent/30'
                         }`}
                       >
@@ -370,7 +372,7 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="font-medium text-xs">{model.label}</span>
                           <span
-                            className={`text-3xs font-medium px-1 py-0.5 rounded ${hwBadge.className}`}
+                            className={`text-3xs font-medium px-1 py-0.5 rounded ${hueColor(hwBadge.hue).bg} ${hueColor(hwBadge.hue).text}`}
                           >
                             {hwBadge.label}
                           </span>

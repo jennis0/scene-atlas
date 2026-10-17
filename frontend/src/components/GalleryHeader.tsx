@@ -224,14 +224,14 @@ export function GalleryHeader({
           <GallerySearchBar search={search} inputRef={searchRef} />
 
           {embeddingStatus === 'loading' && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 shrink-0">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-warning/15 text-warning shrink-0">
               <Loader2 className="h-3 w-3 animate-spin" />
               AI search loading&hellip;
             </span>
           )}
           {embeddingStatus === 'error' && (
             <span
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 shrink-0 cursor-help"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-destructive/15 text-destructive shrink-0 cursor-help"
               title={embeddingError ?? 'Unknown error'}
             >
               AI search unavailable

@@ -94,7 +94,7 @@ function SaveStatus() {
   }
   if (ops.groupSaved.size > 0) {
     return (
-      <span className="text-xs text-emerald-600 dark:text-emerald-400/70 flex items-center gap-1">
+      <span className="text-xs text-success flex items-center gap-1">
         <Check className="h-3 w-3" />
         Saved
       </span>

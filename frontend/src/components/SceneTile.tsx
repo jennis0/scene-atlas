@@ -80,7 +80,7 @@ export function SceneTile({
 
       <div
         aria-hidden="true"
-        className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/50 to-transparent pt-12 pb-3 px-2.5 pointer-events-none"
+        className="caption-scrim absolute inset-x-0 bottom-0 pb-3 px-2.5 pointer-events-none"
       >
         {/* Same type as the viewer: serif names (group heavier than variant), sans details.
             Names wrap to two lines rather than cutting off mid-word. */}
@@ -88,12 +88,16 @@ export function SceneTile({
           {primaryText}
         </p>
         {variantText && (
-          <p className="font-display text-xs text-white/85 leading-snug line-clamp-2 break-words mt-0.5">
+          <p className="font-display text-xs text-white/85 hc:text-white leading-snug line-clamp-2 break-words mt-0.5">
             {variantText}
           </p>
         )}
-        {secondaryText && <p className="text-2xs text-white/85 truncate mt-0.5">{secondaryText}</p>}
-        {authorText && <p className="text-2xs text-white/85 truncate mt-0.5">{authorText}</p>}
+        {secondaryText && (
+          <p className="text-2xs text-white/85 hc:text-white truncate mt-0.5">{secondaryText}</p>
+        )}
+        {authorText && (
+          <p className="text-2xs text-white/85 hc:text-white truncate mt-0.5">{authorText}</p>
+        )}
       </div>
 
       {/* Covers the whole tile: the tile's single click and keyboard target */}

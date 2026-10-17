@@ -122,7 +122,7 @@ export function ActivityDock({
         }
       >
         {connectionLost ? (
-          <WifiOff className="h-4 w-4 text-primary/80" />
+          <WifiOff className="h-4 w-4 text-primary/80 hc:text-primary" />
         ) : systemPaused ? (
           <PauseCircle className="h-4 w-4 text-primary" />
         ) : totalActiveCount > 0 ? (
@@ -131,7 +131,9 @@ export function ActivityDock({
           <Package className="h-4 w-4 text-primary" />
         )}
         <span className="text-xs font-medium text-muted-foreground">Activity</span>
-        {connectionLost && <span className="text-3xs text-primary/70">Offline</span>}
+        {connectionLost && (
+          <span className="text-3xs text-primary/70 hc:text-primary">Offline</span>
+        )}
         {!connectionLost && totalActiveCount > 0 && (
           <span
             className="min-w-[18px] h-[18px] flex items-center justify-center
@@ -204,7 +206,7 @@ export function ActivityDock({
                       </span>
                     )}
                     {connectionLost && (
-                      <span className="inline-flex items-center gap-1 text-3xs text-primary/70">
+                      <span className="inline-flex items-center gap-1 text-3xs text-primary/70 hc:text-primary">
                         <WifiOff className="h-3 w-3" />
                         Offline
                       </span>
@@ -409,7 +411,7 @@ function JobStatusIcon({ status }: { status: BackgroundJob['status'] }) {
     case 'running':
       return <Cog className="h-3.5 w-3.5 text-primary animate-spin shrink-0 mt-0.5" />
     case 'completed':
-      return <Check className="h-3.5 w-3.5 text-primary/60 shrink-0 mt-0.5" />
+      return <Check className="h-3.5 w-3.5 text-primary/60 hc:text-primary shrink-0 mt-0.5" />
     case 'failed':
       return <AlertCircle className="h-3.5 w-3.5 text-destructive/70 shrink-0 mt-0.5" />
     case 'queued':

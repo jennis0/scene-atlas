@@ -16,11 +16,33 @@ A comprehensive reference for the Scene Atlas UI. All new components must confor
 - **Nightshade & amethyst**: dusky plum greys, muted violet accent.
 
 Every palette is a pair of blocks in `index.css`: `[data-palette='x']` (light) and `.dark[data-palette='x'], .dark [data-palette='x']` (dark). The selectors match any element, not only `<html>`, so the Appearance palette picker (`components/settings/PalettePicker.tsx`) renders each option's preview in that palette's real tokens. No colour values are duplicated. Rules for a new palette:
-- Add the two blocks plus an entry in `PALETTES` (`lib/palette.ts`) and in the accessibility spec's `VARIANTS`.
-- The dark block must set every token the light block sets. The light block also matches `<html>` in dark mode, so anything left out leaks a light value into dark.
-- In dark mode, keep fills saturated and lighten only `--primary-ink`/`--ring` as far as text needs; one light value for both makes fills look pastel.
+- Add the two blocks, the two high-contrast blocks (see Contrast below), an entry in `PALETTES` (`lib/palette.ts`), and one in the accessibility spec's `VARIANTS`.
+- The dark block must set every token the light block sets. The light block also matches `<html>` in dark mode, so anything left out leaks a light value into dark. The same holds for the high-contrast pair.
+- **Fill vs ink.** Accent and status colours come in pairs: a fill (`--primary`, `--destructive`, `--success`, `--warning`) for backgrounds, tints, buttons and outlines, and an ink (`--primary-ink`, `--destructive-ink`, `--success-ink`, `--warning-ink`) for text and icons. `text-primary`, `text-destructive`, `text-success` and `text-warning` resolve to the inks (`textColor` in `tailwind.config.js`). In dark mode keep fills saturated and lighten only the inks as far as text needs: one light value for both makes fills pastel, and text on its own tint drags its tint lighter.
 - Keep accent hues away from the destructive red (hue 0), or override `--destructive` as sienna does.
-- `lib/paletteContrast.test.ts` parses `index.css` and enforces 4.5:1 for every text token on every surface, 4.5:1 for labels on filled primary/destructive, and 3:1 for the focus ring, per palette and mode. It runs as a unit test, ahead of the e2e axe scan.
+- `lib/paletteContrast.test.ts` parses `index.css` and, per palette, mode and contrast level, enforces text contrast for every ink on every surface and on its own tint up to /20, labels on filled buttons, and the focus ring. It rounds colours to 8 bits as browsers render them, so it agrees with axe to the decimal. It runs as a unit test, ahead of the e2e axe scan.
+
+**Contrast (Standard / High).** Appearance → Contrast: Auto (default; follows the system's `prefers-contrast: more`), Standard, High. Stored as `scene-atlas-contrast`; the effective result is `data-contrast="high"` on `<html>` (`lib/contrast.ts`), and components can style it with the `hc:` Tailwind variant. It works with every palette, so nobody trades their palette for legibility.
+
+| | Standard (WCAG AA) | High (WCAG AAA text) |
+|---|---|---|
+| Text, every ink, every surface and own tint | ≥ 4.5:1 | ≥ 7:1 |
+| Labels on filled accent buttons | ≥ 4.5:1 | ≥ 7:1 |
+| Control outlines (`--input`) | not guaranteed | ≥ 3:1 (1.4.11) |
+| Dividers (`--border`) | — | ≥ 2:1 |
+| Names on images, over a pure-white map | ≥ 4.5:1 | ≥ 7:1, full white with a shadow |
+| Tag chips (on chip and bare) | ≥ 4.5:1 | ≥ 7:1 |
+| Focus ring | ≥ 3:1, 2px | ≥ 3:1, 3px |
+
+How High is built, so it still looks like the same app:
+- **Tokens:** per palette and mode, the high-contrast blocks move only lightness (hue and saturation kept), and only as far as each check needs. The values were computed against the tests, not picked by eye; if you retune a palette, nudge lightness until `paletteContrast.test.ts` passes rather than replacing hues.
+- **Text dimmed with opacity** (`text-foreground/80`, `text-primary/70`, …) gets an `hc:` full-strength twin at the same site. Disabled states stay dim (WCAG exempts them). New dimmed text should do the same.
+- **Tag chips** keep their tint; High swaps the text to the least extreme shade of that hue that reaches 7:1 everywhere (`HIGH_CONTRAST_SHADE` in `components/import/tagColors.ts`) and adds a solid outline. Dark mode mostly keeps its standard shade; light mode needs the deep ones. The classes are built at runtime, so they're safelisted in `tailwind.config.js`; `tagContrast.test.ts` checks the safelist matches the hues. Other categorical badges (hardware CPU/GPU/Any) use the tag hues via `useHueColor()` and inherit all of this.
+- **Status colours** are tokens (`success`, `warning`, plus `destructive`), never raw Tailwind colours, so High can lift them.
+- **Captions on images** use `.caption-scrim` / `.caption-band` (`index.css`), whose darkness behind the text is a known minimum (`--scrim-text`, `--band`), checked over pure white by `lib/captionContrast.test.ts`.
+- **Axe:** `e2e/tests/accessibility.spec.ts` scans every palette × theme × contrast level; High also runs axe's AAA `color-contrast-enhanced` rule.
+
+Not covered yet: reflow at 400% zoom (1.4.10), text-spacing overrides (1.4.12), and Windows forced-colors mode.
 
 **NOT:** decorative ornament — glowing stripes, fading underline rules, dot-grid backgrounds, header washes, blur on surfaces that don't overlap anything, hover zoom on artwork, tiny uppercase letter-spaced labels. These were removed in the 2026-10 refresh because they read as generic generated UI and competed with the maps.
 

@@ -173,7 +173,9 @@ function StorageBar({ storage }: { storage: SystemInfo['storage'] }) {
             <div className={`w-2 h-2 rounded-full ${seg.color}`} />
             <span className="text-2xs text-muted-foreground">
               {seg.label}{' '}
-              <span className="tabular-nums text-foreground/70">{formatBytes(seg.bytes)}</span>
+              <span className="tabular-nums text-foreground/70 hc:text-foreground">
+                {formatBytes(seg.bytes)}
+              </span>
             </span>
           </div>
         ))}
@@ -232,7 +234,7 @@ function DangerRow({
   return (
     <div className="flex items-center justify-between">
       <div className="min-w-0">
-        <p className="text-sm text-foreground/90">{title}</p>
+        <p className="text-sm text-foreground/90 hc:text-foreground">{title}</p>
         <p className="text-xs text-muted-foreground">{detail}</p>
       </div>
       {children}
@@ -300,7 +302,7 @@ function PurgeStatus({
     )
   }
   if (job.isComplete) {
-    return <span className="text-sm text-emerald-600 dark:text-emerald-300 shrink-0">Done</span>
+    return <span className="text-sm text-success shrink-0">Done</span>
   }
   if (job.isFailed) {
     return (

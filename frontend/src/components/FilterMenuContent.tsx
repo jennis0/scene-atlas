@@ -558,7 +558,11 @@ function CategoryNavItem({
       {activeCount > 0 && (
         <span
           className={`text-3xs font-semibold tabular-nums flex-shrink-0 ${
-            active ? (colors ? colors.text : 'text-primary/80') : 'text-muted-foreground'
+            active
+              ? colors
+                ? colors.text
+                : 'text-primary/80 hc:text-primary'
+              : 'text-muted-foreground'
           }`}
         >
           {activeCount}
@@ -618,7 +622,7 @@ function AuthorChecklist({
             {opt.count !== undefined && (
               <span
                 className={`text-2xs flex-shrink-0 tabular-nums ${
-                  state === 'include' ? 'text-primary/70' : 'text-muted-foreground'
+                  state === 'include' ? 'text-primary/70 hc:text-primary' : 'text-muted-foreground'
                 }`}
               >
                 {opt.count.toLocaleString()}

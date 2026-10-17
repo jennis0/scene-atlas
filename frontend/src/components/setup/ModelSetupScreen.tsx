@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { modelsApi, type ModelInfo, type SetupStatus } from '@/lib/api/modelsApi'
 import { jobApi } from '@/lib/api/jobApi'
 import { HARDWARE_BADGE } from '@/lib/modelConstants'
+import { useHueColor } from '@/contexts/TagColorContext'
 import { TagPackSetupStep } from '@/components/setup/TagPackSetupStep'
 
 interface ModelSetupScreenProps {
@@ -19,6 +20,7 @@ const GPU_PROVIDER_LABELS: Record<string, string> = {
 type Phase = 'loading' | 'select' | 'submitting' | 'tag-packs' | 'error'
 
 export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupScreenProps) {
+  const hueColor = useHueColor()
   const [phase, setPhase] = useState<Phase>('loading')
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null)
   const [models, setModels] = useState<ModelInfo[]>([])
@@ -163,7 +165,9 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
 
         <div className="flex justify-center">
           {gpuLabel ? (
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
+            <span
+              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${hueColor('purple').bg} ${hueColor('purple').text}`}
+            >
               <span className="h-1.5 w-1.5 rounded-full bg-purple-500" />
               GPU detected: {gpuLabel}
             </span>
@@ -201,7 +205,7 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-semibold text-sm">{model.label}</span>
                   <span
-                    className={`text-3xs font-medium px-1.5 py-0.5 rounded ${hwBadge.className}`}
+                    className={`text-3xs font-medium px-1.5 py-0.5 rounded ${hueColor(hwBadge.hue).bg} ${hueColor(hwBadge.hue).text}`}
                   >
                     {hwBadge.label}
                   </span>

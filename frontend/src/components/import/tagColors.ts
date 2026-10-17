@@ -262,10 +262,19 @@ const DEFAULT_TAG_COLOR_LIGHT: TagColor = {
 
 /**
  * Look up a TagColor by Tailwind color name.
- * Pass the color name from the DB (e.g. "amber", "sky") and the current theme.
- * Returns 4-field TagColor with the correct dark/light variant classes.
+ * Pass the color name from the DB (e.g. "amber", "sky"), the current theme and whether
+ * high contrast is on. Returns 4-field TagColor with the matching variant classes.
  */
-export function getTagColor(colorName: string | null | undefined, theme: Theme = 'dark'): TagColor {
+export function getTagColor(
+  colorName: string | null | undefined,
+  theme: Theme = 'dark',
+  highContrast = false,
+): TagColor {
+  const color = lookup(colorName, theme)
+  return highContrast ? toHighContrast(color, theme) : color
+}
+
+function lookup(colorName: string | null | undefined, theme: Theme): TagColor {
   const fallback = theme === 'light' ? DEFAULT_TAG_COLOR_LIGHT : DEFAULT_TAG_COLOR
   if (!colorName) return fallback
   const entry = COLOR_PALETTE[colorName.toLowerCase()]
@@ -274,6 +283,51 @@ export function getTagColor(colorName: string | null | undefined, theme: Theme =
     return { bg: entry.lightBg, text: entry.lightText, border: entry.lightBorder, dot: entry.dot }
   }
   return { bg: entry.bg, text: entry.text, border: entry.border, dot: entry.dot }
+}
+
+/** Every Tailwind colour the tag palette uses; tailwind.config.js safelists the
+ * high-contrast classes below for each, since they are built at runtime. */
+export const TAG_HUES = [
+  ...new Set(Object.values(COLOR_PALETTE).map((e) => e.dot.split('-')[1])),
+] as const
+
+/** Text shade per hue at high contrast: the least extreme shade that still reaches 7:1
+ * on its chip and bare, on every palette's surfaces (tagContrast.test.ts checks it), so
+ * tags keep as much of their colour as AAA allows. */
+const HIGH_CONTRAST_SHADE: Record<string, { dark: number; light: number }> = {
+  amber: { dark: 300, light: 950 },
+  blue: { dark: 200, light: 900 },
+  cyan: { dark: 300, light: 950 },
+  emerald: { dark: 300, light: 950 },
+  fuchsia: { dark: 300, light: 950 },
+  gray: { dark: 300, light: 700 },
+  green: { dark: 300, light: 950 },
+  indigo: { dark: 200, light: 900 },
+  lime: { dark: 300, light: 950 },
+  neutral: { dark: 300, light: 700 },
+  orange: { dark: 300, light: 950 },
+  pink: { dark: 200, light: 950 },
+  purple: { dark: 300, light: 900 },
+  red: { dark: 200, light: 950 },
+  rose: { dark: 200, light: 950 },
+  sky: { dark: 300, light: 950 },
+  slate: { dark: 300, light: 700 },
+  stone: { dark: 300, light: 700 },
+  teal: { dark: 300, light: 950 },
+  violet: { dark: 200, light: 900 },
+  yellow: { dark: 300, light: 950 },
+  zinc: { dark: 300, light: 700 },
+}
+
+/** High contrast keeps the chip's tint, deepens (or lightens) the text to the shade above
+ * and gives it a solid mid-tone outline. */
+function toHighContrast(color: TagColor, theme: Theme): TagColor {
+  const hue = color.dot.split('-')[1]
+  return {
+    ...color,
+    text: `text-${hue}-${HIGH_CONTRAST_SHADE[hue][theme]}`,
+    border: `border-${hue}-500`,
+  }
 }
 
 /**

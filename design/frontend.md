@@ -46,7 +46,7 @@ frontend/src/
 │   ├── settings/      Settings tab content and setting controls
 │   ├── setup/         First-run wizard: model choice and tag-pack step
 │   └── *.tsx          Gallery-level components (header, grids, cards, viewer, dialogs, dock)
-├── contexts/          ThemeContext (light/dark, palette, text size, compact header; per device in localStorage), TagColorContext (DB-driven colours)
+├── contexts/          ThemeContext (light/dark, palette, text size, compact header, contrast; per device in localStorage), TagColorContext (DB-driven colours)
 ├── hooks/             Search, dialog state, edit-group, settings and job-polling hooks
 ├── lib/
 │   ├── api/           axios client (_client.ts), one module per backend area, urls.ts, index.ts barrel

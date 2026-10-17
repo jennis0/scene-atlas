@@ -139,7 +139,7 @@ export function TagPackSetupStep({
             </>
           )}
           {modelComplete && (
-            <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+            <div className="flex items-center gap-1.5 text-xs text-success">
               <Check className="h-3 w-3" />
               <span>AI model ready</span>
             </div>

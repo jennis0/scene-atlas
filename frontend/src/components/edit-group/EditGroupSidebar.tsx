@@ -288,7 +288,7 @@ function PendingGroupRow({ group, awaited, onOpen, onDemand }: PendingGroupRowPr
       onClick={() => onOpen(group.id)}
       aria-busy={awaited}
       title={onDemand ? undefined : 'Still loading — click to load it next'}
-      className="w-full flex items-center gap-2 pl-3 pr-2 py-2 text-left min-w-0 border-l-2 border-transparent text-muted-foreground/70 hover:text-foreground hover:bg-secondary/50 transition-colors"
+      className="w-full flex items-center gap-2 pl-3 pr-2 py-2 text-left min-w-0 border-l-2 border-transparent text-muted-foreground/70 hc:text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
     >
       <span className="flex-1 text-xs truncate">{group.base_name}</span>
       <span className="text-2xs tabular-nums shrink-0 flex items-center gap-1">
@@ -311,7 +311,7 @@ function GroupRowCounts({ group }: { group: EditableGroupState }) {
       {ops.groupSaving.has(group.id) ? (
         <Loader2 className="h-3 w-3 animate-spin text-muted-foreground ml-1" />
       ) : ops.groupSaved.has(group.id) ? (
-        <Check className="h-3 w-3 text-emerald-600 dark:text-emerald-400/70 ml-1" />
+        <Check className="h-3 w-3 text-success ml-1" />
       ) : null}
     </span>
   )

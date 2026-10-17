@@ -27,7 +27,7 @@
 
     /* Amber as text, icons and focus: gold itself is ~2:1 on parchment, so text-primary
        resolves to this deeper ink (>= 4.5:1 on every surface and on a primary/10 tint) */
-    --primary-ink: 34 85% 30%;
+    --primary-ink: 34 85% 27.5%;
     --secondary: 36 18% 87%; /* subtle warm recessed surface */
     --secondary-foreground: 30 12% 15%;
     --muted: 36 16% 88%;
@@ -35,12 +35,20 @@
     --accent: 36 18% 87%;
     --accent-foreground: 30 12% 15%;
     --destructive: 0 65% 42%; /* >= 4.5:1 as text on every surface */
+    --destructive-ink: 0 65% 35%;
     --destructive-foreground: 0 0% 100%;
     --border: 36 14% 78%; /* warm visible border, more definition */
     --input: 36 14% 78%;
-    --ring: 34 85% 30%; /* matches primary-ink */
+    --ring: 34 85% 27.5%; /* matches primary-ink */
     --radius: 0.375rem; /* 6px — precise, cartographic */
     --surface-canvas: 36 18% 88%; /* ImageViewer canvas */
+
+    /* Status, shared by every palette: >= 4.5:1 as text on every palette's surfaces and
+       on their own /15 tint */
+    --success: 152 62% 22%;
+    --success-ink: 152 62% 20.5%;
+    --warning: 36 88% 23.5%;
+    --warning-ink: 36 88% 22%;
   }
 
   /* ── Navy & gold, dark ── deep navy cartographic ─────────── */
@@ -62,11 +70,16 @@
     --accent: 222 20% 17%;
     --accent-foreground: 37 27% 89%;
     --destructive: 0 75% 67%; /* >= 4.5:1 as text on every surface */
+    --destructive-ink: 0 75% 73.5%;
     --destructive-foreground: 222 30% 8%; /* near-black: light text fails on this red */
     --border: 220 18% 19%; /* subtle dividers */
     --input: 220 18% 19%;
     --ring: 39 68% 59%; /* amber focus ring */
     --surface-canvas: 222 22% 6%; /* ImageViewer deep canvas bg */
+    --success: 152 62% 55%;
+    --success-ink: 152 62% 55%;
+    --warning: 36 88% 58%;
+    --warning-ink: 36 88% 58%;
   }
 
   /* ── Ink & verdigris ── green-black ink, aged-copper accent ── */
@@ -79,7 +92,7 @@
     --popover-foreground: 30 12% 15%;
     --primary: 170 55% 30%;
     --primary-foreground: 45 30% 97%;
-    --primary-ink: 172 60% 25%;
+    --primary-ink: 172 60% 23%;
     --secondary: 45 12% 88%;
     --secondary-foreground: 30 12% 15%;
     --muted: 45 12% 89%;
@@ -88,7 +101,7 @@
     --accent-foreground: 30 12% 15%;
     --border: 45 10% 80%;
     --input: 45 10% 80%;
-    --ring: 172 60% 25%;
+    --ring: 172 60% 23%;
     --surface-canvas: 45 12% 88%;
   }
 
@@ -172,7 +185,7 @@
     --popover-foreground: 20 22% 13%;
     --primary: 20 62% 40%;
     --primary-foreground: 32 40% 97%;
-    --primary-ink: 18 68% 34%;
+    --primary-ink: 18 68% 30%;
     --secondary: 30 20% 84%;
     --secondary-foreground: 20 22% 13%;
     --muted: 30 18% 85.5%;
@@ -180,10 +193,11 @@
     --accent: 30 20% 84%;
     --accent-foreground: 20 22% 13%;
     --destructive: 348 68% 38%;
+    --destructive-ink: 348 68% 33%;
     --destructive-foreground: 0 0% 100%;
     --border: 30 15% 75%;
     --input: 30 15% 75%;
-    --ring: 18 68% 34%;
+    --ring: 18 68% 30%;
     --surface-canvas: 30 20% 85%;
   }
 
@@ -197,7 +211,7 @@
     --popover-foreground: 34 26% 88%;
     --primary: 20 69% 57%;
     --primary-foreground: 22 30% 8%;
-    --primary-ink: 21 72% 64%;
+    --primary-ink: 21 72% 65%;
     --secondary: 22 11% 15.5%;
     --secondary-foreground: 34 26% 88%;
     --muted: 22 11% 13.5%;
@@ -205,10 +219,11 @@
     --accent: 22 11% 15.5%;
     --accent-foreground: 34 26% 88%;
     --destructive: 350 78% 70%;
+    --destructive-ink: 350 78% 74.5%;
     --destructive-foreground: 22 30% 8%;
     --border: 22 10% 18.5%;
     --input: 22 10% 18.5%;
-    --ring: 21 72% 64%;
+    --ring: 21 72% 65%;
     --surface-canvas: 22 14% 5%;
   }
 
@@ -256,6 +271,184 @@
     --input: 266 10% 19.5%;
     --ring: 272 54% 76%;
     --surface-canvas: 266 16% 5.5%;
+  }
+
+  /* ── High contrast ──────────────────────────────────────────
+     Appearance → Contrast sets data-contrast="high" on <html> (lib/contrast.ts). Per
+     palette and mode, only lightness moves from the standard tokens: text reaches
+     >= 7:1 (AAA) on every surface, labels on filled buttons >= 7:1, control outlines
+     (--input) >= 3:1 and dividers 2:1. lib/paletteContrast.test.ts checks all of it.
+     Like the palettes, each dark block sets every token its light block sets, and the
+     nested selectors let the palette picker preview in high contrast too. */
+  /* Status at high contrast: >= 7:1, every palette */
+  [data-contrast='high'] {
+    --success-ink: 152 62% 12.5%;
+    --warning-ink: 36 88% 13.5%;
+  }
+
+  .dark[data-contrast='high'] {
+    --success-ink: 152 62% 78.5%;
+    --warning-ink: 36 88% 80%;
+  }
+
+  [data-contrast='high']:not([data-palette]),
+  [data-contrast='high'] [data-palette='navy'] {
+    --foreground: 30 12% 8%;
+    --card-foreground: 30 12% 8%;
+    --popover-foreground: 30 12% 8%;
+    --secondary-foreground: 30 12% 8%;
+    --accent-foreground: 30 12% 8%;
+    --muted-foreground: 30 9% 27%;
+    --primary: 38 72% 53.5%;
+    --primary-ink: 34 85% 19.5%;
+    --ring: 34 85% 19.5%;
+    --destructive-ink: 0 65% 23.5%;
+    --border: 36 14% 63.5%;
+    --input: 36 14% 50.5%;
+  }
+
+  .dark[data-contrast='high']:not([data-palette]),
+  .dark[data-contrast='high'] [data-palette='navy'] {
+    --foreground: 37 27% 95%;
+    --card-foreground: 37 27% 95%;
+    --popover-foreground: 37 27% 95%;
+    --secondary-foreground: 37 27% 95%;
+    --accent-foreground: 37 27% 95%;
+    --muted-foreground: 37 9% 69.5%;
+    --primary: 39 70% 55%;
+    --primary-ink: 39 68% 79%;
+    --ring: 39 68% 79%;
+    --destructive-ink: 0 75% 86%;
+    --border: 220 18% 32.5%;
+    --input: 220 18% 43.5%;
+  }
+
+  [data-contrast='high'][data-palette='verdigris'],
+  [data-contrast='high'] [data-palette='verdigris'] {
+    --foreground: 30 12% 8%;
+    --card-foreground: 30 12% 8%;
+    --popover-foreground: 30 12% 8%;
+    --secondary-foreground: 30 12% 8%;
+    --accent-foreground: 30 12% 8%;
+    --muted-foreground: 40 6% 27.5%;
+    --primary: 170 55% 24%;
+    --primary-ink: 172 60% 14.5%;
+    --ring: 172 60% 14.5%;
+    --destructive-ink: 0 65% 24%;
+    --border: 45 10% 65%;
+    --input: 45 10% 51.5%;
+  }
+
+  .dark[data-contrast='high'][data-palette='verdigris'],
+  .dark[data-contrast='high'] [data-palette='verdigris'] {
+    --foreground: 45 18% 95%;
+    --card-foreground: 45 18% 95%;
+    --popover-foreground: 45 18% 95%;
+    --secondary-foreground: 45 18% 95%;
+    --accent-foreground: 45 18% 95%;
+    --muted-foreground: 190 6% 69%;
+    --primary: 166 52% 47%;
+    --primary-ink: 165 48% 76%;
+    --ring: 165 48% 76%;
+    --destructive-ink: 0 75% 86%;
+    --border: 200 12% 29.5%;
+    --input: 200 12% 39.5%;
+  }
+
+  [data-contrast='high'][data-palette='lapis'],
+  [data-contrast='high'] [data-palette='lapis'] {
+    --foreground: 220 24% 8%;
+    --card-foreground: 220 24% 8%;
+    --popover-foreground: 220 24% 8%;
+    --secondary-foreground: 220 24% 8%;
+    --accent-foreground: 220 24% 8%;
+    --muted-foreground: 218 10% 27%;
+    --primary: 214 75% 36.5%;
+    --primary-ink: 214 78% 21%;
+    --ring: 214 78% 21%;
+    --destructive-ink: 0 65% 22%;
+    --border: 214 10% 65%;
+    --input: 214 10% 53%;
+  }
+
+  .dark[data-contrast='high'][data-palette='lapis'],
+  .dark[data-contrast='high'] [data-palette='lapis'] {
+    --foreground: 214 16% 95%;
+    --card-foreground: 214 16% 95%;
+    --popover-foreground: 214 16% 95%;
+    --secondary-foreground: 214 16% 95%;
+    --accent-foreground: 214 16% 95%;
+    --muted-foreground: 214 7% 70.5%;
+    --primary: 214 82% 67.5%;
+    --primary-ink: 212 85% 85.5%;
+    --ring: 212 85% 85.5%;
+    --destructive-ink: 0 75% 86%;
+    --border: 215 8% 31%;
+    --input: 215 8% 41.5%;
+  }
+
+  [data-contrast='high'][data-palette='sienna'],
+  [data-contrast='high'] [data-palette='sienna'] {
+    --foreground: 20 22% 8%;
+    --card-foreground: 20 22% 8%;
+    --popover-foreground: 20 22% 8%;
+    --secondary-foreground: 20 22% 8%;
+    --accent-foreground: 20 22% 8%;
+    --muted-foreground: 22 12% 26%;
+    --primary: 20 62% 32.5%;
+    --primary-ink: 18 68% 18.5%;
+    --ring: 18 68% 18.5%;
+    --destructive-ink: 348 68% 20.5%;
+    --border: 30 15% 62.5%;
+    --input: 30 15% 49.5%;
+  }
+
+  .dark[data-contrast='high'][data-palette='sienna'],
+  .dark[data-contrast='high'] [data-palette='sienna'] {
+    --foreground: 34 26% 95%;
+    --card-foreground: 34 26% 95%;
+    --popover-foreground: 34 26% 95%;
+    --secondary-foreground: 34 26% 95%;
+    --accent-foreground: 34 26% 95%;
+    --muted-foreground: 30 9% 69.5%;
+    --primary: 20 69% 63%;
+    --primary-ink: 21 72% 83.5%;
+    --ring: 21 72% 83.5%;
+    --destructive-ink: 350 78% 87%;
+    --border: 22 10% 30.5%;
+    --input: 22 10% 40.5%;
+  }
+
+  [data-contrast='high'][data-palette='nightshade'],
+  [data-contrast='high'] [data-palette='nightshade'] {
+    --foreground: 266 22% 8%;
+    --card-foreground: 266 22% 8%;
+    --popover-foreground: 266 22% 8%;
+    --secondary-foreground: 266 22% 8%;
+    --accent-foreground: 266 22% 8%;
+    --muted-foreground: 266 8% 28%;
+    --primary: 270 36% 41%;
+    --primary-ink: 270 40% 25%;
+    --ring: 270 40% 25%;
+    --destructive-ink: 0 65% 22.5%;
+    --border: 268 9% 67%;
+    --input: 268 9% 55%;
+  }
+
+  .dark[data-contrast='high'][data-palette='nightshade'],
+  .dark[data-contrast='high'] [data-palette='nightshade'] {
+    --foreground: 270 14% 95%;
+    --card-foreground: 270 14% 95%;
+    --popover-foreground: 270 14% 95%;
+    --secondary-foreground: 270 14% 95%;
+    --accent-foreground: 270 14% 95%;
+    --muted-foreground: 268 7% 71%;
+    --primary: 272 50% 70.5%;
+    --primary-ink: 272 54% 87%;
+    --ring: 272 54% 87%;
+    --destructive-ink: 0 75% 86%;
+    --border: 266 10% 32%;
+    --input: 266 10% 43%;
   }
 
   * {
@@ -319,6 +512,10 @@
     outline-offset: 2px;
   }
 
+  [data-contrast='high'] :focus-visible {
+    outline-width: 3px;
+  }
+
   /* ── Reduced motion ──────────────────────────────────────
      Keep state changes, drop the movement: transitions and animations finish
      at once, and looping pulses/spinners stop after their first frame. */
@@ -358,6 +555,47 @@
 
   ::-webkit-scrollbar-thumb:hover {
     background: hsl(var(--muted-foreground) / 35%);
+  }
+}
+
+/* ── Text on images ─────────────────────────────────────────
+   Names over map thumbnails sit on shading whose darkness behind the text has a known
+   minimum, so contrast holds even over a pure-white map: --scrim-text over white gives
+   >= 4.5:1 for white/85 text (AA), and high contrast >= 7:1 (AAA). lib/captionContrast
+   .test.ts checks it. Above the text the shading fades out over --scrim-fade. */
+@layer base {
+  :root {
+    --scrim-text: 0.6;
+    --scrim-bottom: 0.85;
+    --band: 0.6; /* small solid labels on thumbnails */
+  }
+
+  [data-contrast='high'] {
+    --scrim-text: 0.72;
+    --scrim-bottom: 0.95;
+    --band: 0.85;
+  }
+}
+
+@layer components {
+  .caption-scrim {
+    --scrim-fade: 3rem;
+
+    padding-top: var(--scrim-fade);
+    background: linear-gradient(
+      to top,
+      rgb(0 0 0 / var(--scrim-bottom)) 0,
+      rgb(0 0 0 / var(--scrim-text)) calc(100% - var(--scrim-fade)),
+      transparent 100%
+    );
+  }
+
+  .caption-band {
+    background: rgb(0 0 0 / var(--band));
+  }
+
+  [data-contrast='high'] .caption-scrim {
+    text-shadow: 0 1px 3px rgb(0 0 0 / 90%);
   }
 }
 

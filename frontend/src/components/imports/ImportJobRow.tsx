@@ -131,7 +131,7 @@ function StatusIcon({ job, sending }: { job: ImportJobSummary; sending: boolean 
     return job.counts.failed > 0 ? (
       <AlertTriangle className={`${cls} text-destructive/70`} />
     ) : (
-      <Check className={`${cls} text-primary/70`} />
+      <Check className={`${cls} text-primary/70 hc:text-primary`} />
     )
   }
   if (sending) return <Upload className={`${cls} text-primary`} />

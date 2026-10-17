@@ -46,6 +46,8 @@ export default {
           DEFAULT: 'hsl(var(--secondary))',
           foreground: 'hsl(var(--secondary-foreground))',
         },
+        success: 'hsl(var(--success))',
+        warning: 'hsl(var(--warning))',
         destructive: {
           DEFAULT: 'hsl(var(--destructive))',
           foreground: 'hsl(var(--destructive-foreground))',
@@ -68,13 +70,20 @@ export default {
         },
         'surface-canvas': 'hsl(var(--surface-canvas))',
       },
-      // text-primary (and icon colour) uses the ink variant, which stays readable on
-      // light surfaces; bg-/border-primary keep the brighter fill colour.
+      // Text (and icon) colours use the ink variants, tuned to stay readable as text, also
+      // on their own tints; bg-/border- keep the fill colours. See the palette notes in
+      // design/visual-language.md.
       textColor: {
         primary: {
           DEFAULT: 'hsl(var(--primary-ink))',
           foreground: 'hsl(var(--primary-foreground))',
         },
+        destructive: {
+          DEFAULT: 'hsl(var(--destructive-ink))',
+          foreground: 'hsl(var(--destructive-foreground))',
+        },
+        success: 'hsl(var(--success-ink))',
+        warning: 'hsl(var(--warning-ink))',
       },
       borderRadius: {
         lg: 'var(--radius)',
@@ -97,10 +106,21 @@ export default {
       },
     },
   },
+  // Tag chips' high-contrast classes are built at runtime (toHighContrast in
+  // components/import/tagColors.ts), so Tailwind can't see them in the source. The hue
+  // list must match TAG_HUES there (tagColors.test.ts checks it).
+  safelist: [
+    {
+      pattern:
+        /^(text-(red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|slate|gray|zinc|neutral|stone)-(200|300|700|900|950)|border-(red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|slate|gray|zinc|neutral|stone)-500)$/,
+    },
+  ],
   plugins: [
     require('tailwindcss-animate'),
     // short: windows with little height in lines of text (zoomed in, or large text); see
     // lib/compactLayout.ts
     ({ addVariant }) => addVariant('short', 'html[data-short] &'),
+    // hc: high contrast (Appearance → Contrast); see lib/contrast.ts
+    ({ addVariant }) => addVariant('hc', 'html[data-contrast="high"] &'),
   ],
 }

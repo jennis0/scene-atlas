@@ -216,7 +216,7 @@ function StartView({
         >
           {busy ? (
             <>
-              <Loader2 className="h-8 w-8 animate-spin text-primary/70" />
+              <Loader2 className="h-8 w-8 animate-spin text-primary/70 hc:text-primary" />
               <p className="text-xs text-muted-foreground">
                 {reading ? 'Reading the dropped folders' : 'Starting the import'}
               </p>

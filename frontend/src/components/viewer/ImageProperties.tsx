@@ -81,7 +81,9 @@ function SubgroupRow({
           title={image.subgroup ?? undefined}
         >
           {image.subgroup ? (
-            <span className="text-foreground/80 capitalize truncate pr-3">{image.subgroup}</span>
+            <span className="text-foreground/80 hc:text-foreground capitalize truncate pr-3">
+              {image.subgroup}
+            </span>
           ) : (
             <span className="text-muted-foreground italic">—</span>
           )}

@@ -14,6 +14,7 @@ import {
   type TagColor,
 } from '@/components/import/tagColors'
 import { useTheme } from '@/contexts/ThemeContext'
+import { useHighContrast } from '@/lib/contrast'
 import { CATEGORY_ICON_MAP, CATEGORY_ICON_NAMES, getCategoryIcon } from '@/lib/categoryIcons'
 import { onInlineEditKey } from '@/lib/inlineEditKeys'
 import { parseCommonValues, type TagValueEntry } from '@/components/import/types'
@@ -217,6 +218,7 @@ function CategoryList({
   invalidate: () => void
 }) {
   const { theme } = useTheme()
+  const highContrast = useHighContrast()
 
   const createMut = useMutation({
     mutationFn: (name: string) => tagApi.createCategory({ name }),
@@ -237,7 +239,7 @@ function CategoryList({
 
       <div className="flex-1 overflow-y-auto" style={{ paddingTop: 2, paddingBottom: 2 }}>
         {categories.map((cat) => {
-          const colors = getTagColor(cat.color, theme)
+          const colors = getTagColor(cat.color, theme, highContrast)
           const CatIcon = getCategoryIcon(cat.icon)
           const isActive = cat.name === selected
           const valueCount = parseCommonValues(cat.common_values).length
@@ -294,12 +296,13 @@ function CategoryEditor({
   facetCounts: { value: string; count: number }[]
 }) {
   const { theme } = useTheme()
+  const highContrast = useHighContrast()
   const queryClient = useQueryClient()
   const [editingName, setEditingName] = useState(false)
   const [nameInput, setNameInput] = useState(category.name)
   const [description, setDescription] = useState(category.description ?? '')
 
-  const colors = getTagColor(category.color, theme)
+  const colors = getTagColor(category.color, theme, highContrast)
   const CatIcon = getCategoryIcon(category.icon)
   const values = parseCommonValues(category.common_values)
 
@@ -501,14 +504,13 @@ function CategoryEditor({
                     },
                   })
                 }
-                className="flex-shrink-0 flex items-center justify-center transition-colors hover:bg-destructive/10"
+                className="flex-shrink-0 flex items-center justify-center transition-colors hover:bg-destructive/10 text-destructive/55 hc:text-destructive"
                 style={{
                   width: 26,
                   height: 26,
                   background: 'transparent',
                   border: '1px solid hsl(var(--destructive) / 0.2)',
                   borderRadius: 5,
-                  color: 'hsl(var(--destructive) / 0.55)',
                 }}
                 title={`Delete ${category.name}`}
               >
@@ -810,11 +812,10 @@ function TagValueRow({
         {count > 0 && <span className="text-2xs text-muted-foreground tabular-nums">{count}</span>}
         <button
           onClick={onDelete}
-          className="relative target-24 flex items-center justify-center rounded-[3px] transition-colors hover:bg-destructive/10"
+          className="relative target-24 flex items-center justify-center rounded-[3px] transition-colors hover:bg-destructive/10 text-destructive/45 hc:text-destructive"
           style={{
             width: 18,
             height: 18,
-            color: 'hsl(var(--destructive) / 0.45)',
             padding: 0,
           }}
           title="Delete"
@@ -912,7 +913,7 @@ function InlineAddRow({
       <button
         onClick={submit}
         aria-label="Save"
-        className="p-0.5 text-primary hover:text-primary/80"
+        className="p-0.5 text-primary hover:text-primary/80 hc:hover:text-primary"
       >
         <Check style={{ width: 11, height: 11 }} />
       </button>
