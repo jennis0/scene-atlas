@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { GpuStatus } from './GpuStatus'
 import { ModelRatings } from './ModelRatings'
+import { AboutModelsLink } from './AboutModelsLink'
 import type { ModelInfo } from '@/lib/api/modelsApi'
 
 const medium = {
@@ -42,4 +43,15 @@ describe('GpuStatus', () => {
     expect(screen.getByText('No compatible GPU found.')).toBeInTheDocument()
     expect(screen.getByText(/Small is quickest/)).toBeInTheDocument()
   })
+})
+
+it('links to the published models, opening outside the app', () => {
+  render(<AboutModelsLink />)
+  const link = screen.getByRole('link', { name: /About these models/ })
+  expect(link).toHaveAttribute(
+    'href',
+    'https://huggingface.co/collections/jennis0/scene-atlas-models',
+  )
+  expect(link).toHaveAttribute('target', '_blank')
+  expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'))
 })

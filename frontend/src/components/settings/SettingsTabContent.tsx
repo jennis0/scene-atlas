@@ -16,6 +16,7 @@ import { useImportManagerSnapshot } from '@/lib/import/useImports'
 import { isFinished } from '@/components/imports/format'
 import { GpuStatus } from '@/components/models/GpuStatus'
 import { ModelRatings } from '@/components/models/ModelRatings'
+import { AboutModelsLink } from '@/components/models/AboutModelsLink'
 import { tagApi } from '@/lib/api/tagApi'
 import { TagPackCard } from '@/components/setup/TagPackCard'
 import type { AppSettings } from '@/types'
@@ -331,7 +332,7 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                 )}
               </SettingsSection>
             )}
-            <SettingsSection title="AI Model">
+            <SettingsSection title="Search Model">
               <p className="text-xs text-muted-foreground">
                 Active model:{' '}
                 <span className="font-medium text-foreground">
@@ -399,6 +400,8 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                   })}
                 </div>
               )}
+
+              {modelsData && <AboutModelsLink />}
 
               {pendingModel && (
                 <div className="rounded-md border p-3 text-xs space-y-2 border-border bg-muted/50">

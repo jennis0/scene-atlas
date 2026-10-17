@@ -121,7 +121,7 @@ export function TagPackSetupStep({
           {!modelComplete && (
             <>
               <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>{modelProgressMessage ?? 'Setting up AI model...'}</span>
+                <span>{modelProgressMessage ?? 'Setting up the search model\u2026'}</span>
                 {modelProgressPct != null && modelProgressPct > 0 && (
                   <span>{modelProgressPct}%</span>
                 )}
@@ -141,7 +141,7 @@ export function TagPackSetupStep({
           {modelComplete && (
             <div className="flex items-center gap-1.5 text-xs text-success">
               <Check className="h-3 w-3" />
-              <span>AI model ready</span>
+              <span>Search model ready</span>
             </div>
           )}
         </div>
