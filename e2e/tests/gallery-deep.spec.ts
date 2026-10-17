@@ -23,7 +23,9 @@ test.describe("Gallery Deep", () => {
 
     // The relevance range slider should NOT be rendered for text-only searches
     // (Note: "Relevance" text may appear in the sort button, so check the slider input)
-    await expect(page.locator('input[type="range"]')).not.toBeVisible();
+    await expect(
+      page.getByRole("slider", { name: "Minimum relevance" }),
+    ).not.toBeVisible();
 
     await clearSearch(page);
   });
@@ -35,7 +37,9 @@ test.describe("Gallery Deep", () => {
     await searchFor(page, "~dark cave");
 
     // The relevance range slider should be visible for semantic searches
-    await expect(page.locator('input[type="range"]')).toBeVisible({
+    await expect(
+      page.getByRole("slider", { name: "Minimum relevance" }),
+    ).toBeVisible({
       timeout: 5_000,
     });
 
