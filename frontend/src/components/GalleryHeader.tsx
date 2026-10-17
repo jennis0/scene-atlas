@@ -116,7 +116,7 @@ export function GalleryHeader({
         className={
           compact
             ? `flex items-stretch self-stretch ${isApp ? 'no-drag-region' : ''}`
-            : '-mx-4 px-4 flex items-stretch border-b border-border/60'
+            : 'flex items-stretch border-b border-border/60'
         }
       >
         {tabs.map(({ value, label, Icon, count }) => (
