@@ -85,7 +85,6 @@ A zip that fails `check_zip_safety` becomes one failed `archive` item rather tha
 | Constant | Default | Used by |
 |----------|---------|---------|
 | `CLIP_TEXT_CACHE_MAX` | 256 | Text embedding LRU (`clip_service.py`) |
-| `COLOR_CACHE_TTL_SECONDS` | 60 | Colour index cache (`color_search.py`) |
 | `JOB_RETENTION_SECONDS` | 3600 | Finished JobRunner records (`job_runner.py`) |
 | `INGEST_MEMORY_BUDGET_MB` | unset (automatic) | MemoryBudget |
 | `MAX_IMPORT_ITEMS` | 50000 | Imports API |

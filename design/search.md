@@ -239,16 +239,17 @@ apply to the whole library):
 | `exclude_authors` | NOT IN |
 | `tags` | OR within category, AND across categories |
 | `exclude_tags` | NOT IN (per tag) |
-| `colors` | Cylindrical-HSL colour distance via `color_index` (OR across colours) |
+| `colors` | CIE76 delta E in SQL via `color_match_ids` (OR across colours) |
 
 **Group browse** (no query) applies each filter separately as "the group has at
 least one image that matches", so `image_types=scene&gridded=true` keeps a group with
 one scene and a different gridded battlemap. Authors match the group's own author;
 an `exclude_tags` entry keeps groups with at least one image without that tag.
 
-**Large id sets.** Colour matches and candidate pools can exceed SQLite's limit of
-32,766 bound parameters per statement on a large library, so they are passed as one
-JSON parameter (`id_set()`, `json_each`) rather than as an `IN (?, ?, …)` list.
+**Large id sets.** Candidate pools can exceed SQLite's limit of 32,766 bound
+parameters per statement on a large library, so they are passed as one JSON
+parameter (`id_set()`, `json_each`) rather than as an `IN (?, ?, …)` list. Colour
+matches never leave SQLite: they are an `IN (subquery)`.
 
 ## Loading and Query Counts
 
@@ -266,14 +267,43 @@ To check a change at real-library scale, build a synthetic library and benchmark
 the read paths: `uv run python -m stress_tests.library_scale build 56000 --db /tmp/lib.db`
 then `... run --db /tmp/lib.db`.
 
-## Colour Index
+## Colour Search
 
-`color_search.ColorIndex` keeps every `(image_id, colour)` pair in memory as numpy
-arrays (~16 bytes per colour: ~5 MB for 56k images at 5 colours each), reloaded
-from SQLite when `color_cache_ttl_seconds` (60 s) has passed. A colour query is a
-vectorised distance over the arrays (~10 ms at 56k images). The planned replacement
-stores precomputed LAB coordinates per colour row and searches with a SQL distance
-query (see the backlog in [status-and-roadmap.md](status-and-roadmap.md)).
+Every `colors` row stores its CIELAB (D65) coordinates in `lab_l`, `lab_a`, `lab_b`,
+set by a `@validates("color_hex")` hook on the model (`backend/app/colorspace.py`
+does the conversion), so every code path that creates a `Color` gets them; raw SQL
+inserts (the stress library) must compute them too. Migration 024 added and
+backfilled the columns.
+
+A colour filter matches an image when any of its dominant colours is within
+`color_distance_threshold` (app setting, CIE76 delta E, default 25) of any target
+colour. `color_search.color_match_ids` builds the query: a range on `lab_l` that
+`ix_colors_lab (lab_l, lab_a, lab_b, image_id)` answers, then the `lab_a`/`lab_b`
+box and the exact squared distance, all from the covering index. Targets whose
+`lab_l` ranges overlap share one range scan; separate scans would visit shared rows
+once per target. Search embeds the query as `Image.id IN (subquery)`, so the ids
+are never materialised in Python. L* leads the index because extracted map colours
+are mostly low-chroma, so a*/b* ranges are less selective (checked with
+`EXPLAIN QUERY PLAN` and timings on real colour distributions).
+
+**Threshold.** Until migration 024 colour search used distance in an HSL cylinder
+(default 0.35) from an in-memory numpy index refreshed on a TTL. The delta E
+default was calibrated on dominant colours extracted from 3,000 real maps and
+scenes: 25 gives the closest match counts to the old default (median ratio 1.0 for
+colours taken from images, 1.2 for the filter palette; Jaccard overlap 0.80 and
+0.43, since the two metrics have different shapes). The migration maps 0.35 to 25
+and scales custom values by the same ratio. The metrics disagree most on greys and
+pale tints: HSL treats a pale cream as fully saturated and far from white, and a
+mid grey as close to white; delta E does the opposite.
+
+That default is loose. With real colour distributions a grey target matches ~80% of
+the library at delta E 25 (the old 0.35 matched about as many). Most index rows then
+fall in the L* range, so at 56k images the colour query costs ~40 ms for one colour
+and ~80 ms for three, and a colour-filtered browse is 70–140 ms slower than with
+the old in-memory index (which was faster per query but reloaded the whole table,
+~600 ms, every minute). At delta E 12 the query takes 10–30 ms, matches ~30%, and
+browse is as fast as before. Benchmark with `stress_tests/library_scale.py`
+(colour cases) before changing the default.
 
 ## FTS5 Index Maintenance
 
@@ -302,7 +332,8 @@ Three SQLite triggers keep `image_fts` in sync with the `images` table:
 | `backend/app/services/clip_service.py` | CLIP model loading, text/image encoding |
 | `backend/app/services/lancedb_service.py` | LanceDB disk-backed vector DB client |
 | `backend/app/services/image_parser.py` | `build_search_text()`, filename/metadata parsing |
-| `backend/app/services/color_search.py` | `ColorIndex`: in-memory cylindrical-HSL colour distance search |
+| `backend/app/services/color_search.py` | `color_match_ids`: SQL delta E colour search |
+| `backend/app/colorspace.py` | sRGB hex to CIELAB conversion |
 | `frontend/src/hooks/useGallerySearch.ts` | Search state management, prefix parsing |
 | `frontend/src/components/GalleryHeader.tsx` | Search input UI, mode indicator icon |
 | `frontend/src/lib/api/searchApi.ts` | API client for search endpoints |

@@ -39,7 +39,7 @@ backend/
 │   ├── services/
 │   │   ├── app_settings.py       # Read/write app_settings rows
 │   │   ├── clip_service.py       # ONNX embedding models (CLIP / SigLIP2)
-│   │   ├── color_search.py       # Colour proximity search (HSL cylinder distance)
+│   │   ├── color_search.py       # Colour proximity search (CIE76 delta E in SQL)
 │   │   ├── deletion_service.py   # Image deletion with ref-counted file cleanup
 │   │   ├── fts_service.py        # SQLite FTS5 helpers, alias expansion
 │   │   ├── grid/                 # Grid detector v3: detect_grid entry point, features, ONNX models (ADR-019)
@@ -59,6 +59,7 @@ backend/
 │   │   ├── tag_packs.py          # Tag pack import
 │   │   ├── validation.py         # ZIP safety check, MIME verification
 │   │   └── video_utils.py        # Video first frame + dimensions
+│   ├── colorspace.py             # sRGB hex to CIELAB (used by the Color model and colour search)
 │   ├── config.py                 # Pydantic settings (env-driven)
 │   ├── logging_config.py         # Console + rotating file logging; Pillow pixel limit
 │   ├── main.py                   # App creation, middleware, routers, lifespan
@@ -256,7 +257,7 @@ Filename/path parser with DB-driven tag vocabulary. See [parser.md](parser.md).
 SQLite FTS5 over `image_fts` (Porter stemmer), BM25 ranking, query sanitisation and tag alias expansion.
 
 ### Colour search
-Colour proximity using distance in an HSL cylinder, with an in-memory index cached for `color_cache_ttl_seconds`.
+CIE76 delta E between the searched colours and each image's dominant colours, computed in SQL over the LAB columns stored on every `colors` row. See [search.md](search.md#colour-search).
 
 ### Ingest state (`ingest_state.py`)
 Pure transition tables for item states (`awaiting_bytes`, `ready`, `processing`, `done`, `duplicate`, `failed`, `skipped`) and job states (`active`, `paused`, `completed`, `cancelled`). All item updates go through it.
@@ -320,7 +321,6 @@ Two sources:
 | `embedding_model` | `clip-vit-b-32` | Used for `vector_collection_name` |
 | `inference_device` | `auto` | `auto` / `cpu` / `cuda` / `directml` / `coreml` |
 | `clip_text_cache_max` | `256` | Text embedding LRU size |
-| `color_cache_ttl_seconds` | `60.0` | Colour index cache TTL |
 | `job_retention_seconds` | `3600` | How long finished JobRunner records are kept |
 | `thumbnail_sizes` | `[(150,150), (400,400), (800,800)]` | small / medium / large |
 | `max_image_size` | `10 MiB` | Not referenced outside `config.py` |

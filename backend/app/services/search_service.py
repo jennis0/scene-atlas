@@ -19,14 +19,16 @@ from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import Select, false, func, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
 from ..models import Color, Image, ImageGroup, ImageResponse, ImageSearchResponse, Tag
 from ..models.schemas import GroupSearchResponse, GroupSearchResult
 from . import get_clip_service, get_lancedb_service
+from .app_settings import get_settings as get_app_settings
 from .clip_service import get_effective_model_name
+from .color_search import color_match_ids
 from .fts_service import fts_search, fts_search_terms, get_alias_expansions
 from .model_registry import get_semantic_threshold
 
@@ -88,9 +90,9 @@ class CandidatePools:
 def id_set(ids: Iterable[int]) -> Select:
     """An ``IN`` operand for any number of ids, passed as one JSON parameter.
 
-    SQLite caps bound parameters per statement (32766 by default). Colour
-    matches and search candidates can exceed that on a large library, so they
-    must not be bound one parameter per id.
+    SQLite caps bound parameters per statement (32766 by default). Search
+    candidates can exceed that on a large library, so they must not be bound
+    one parameter per id.
     """
     values = func.json_each(json.dumps(sorted(ids))).table_valued("value")
     return select(values.c.value)
@@ -141,10 +143,8 @@ def _image_property_conditions(db: Session, filters: SearchFilters) -> list[Colu
             tagged = select(Tag.image_id).where(Tag.category == parsed[0], Tag.value == parsed[1])
             conditions.append(Image.id.not_in(tagged))
     if filters.colors:
-        from .color_search import color_index
-
-        matching = color_index.find_images_by_colors(db, list(filters.colors))
-        conditions.append(Image.id.in_(id_set(matching)) if matching else false())
+        threshold = get_app_settings(db).color_distance_threshold
+        conditions.append(Image.id.in_(color_match_ids(filters.colors, threshold)))
     return conditions
 
 

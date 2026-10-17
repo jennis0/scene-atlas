@@ -17,7 +17,16 @@ from sqlalchemy import (
     UniqueConstraint,
     create_engine,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    mapped_column,
+    relationship,
+    sessionmaker,
+    validates,
+)
+
+from backend.app.colorspace import hex_to_lab
 
 logger = logging.getLogger(__name__)
 
@@ -200,7 +209,11 @@ class Color(Base):
     """Dominant colors extracted from images."""
 
     __tablename__ = "colors"
-    __table_args__ = (Index("ix_colors_color_hex_image", "color_hex", "image_id"),)
+    __table_args__ = (
+        Index("ix_colors_color_hex_image", "color_hex", "image_id"),
+        # Colour search range-scans lab_l and filters the rest from the index alone.
+        Index("ix_colors_lab", "lab_l", "lab_a", "lab_b", "image_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     image_id: Mapped[int] = mapped_column(
@@ -209,8 +222,17 @@ class Color(Base):
     color_hex: Mapped[str] = mapped_column(String(7), nullable=False, index=True)  # '#1a2b3c'
     percentage: Mapped[float | None] = mapped_column(Float)  # 0.0-100.0
     color_order: Mapped[int | None] = mapped_column(Integer)  # 1 = most dominant
+    # CIELAB (D65) of color_hex, set whenever color_hex is assigned.
+    lab_l: Mapped[float] = mapped_column(Float, nullable=False)
+    lab_a: Mapped[float] = mapped_column(Float, nullable=False)
+    lab_b: Mapped[float] = mapped_column(Float, nullable=False)
 
     image: Mapped["Image"] = relationship("Image", back_populates="colors")
+
+    @validates("color_hex")
+    def _set_lab(self, _key: str, value: str) -> str:
+        self.lab_l, self.lab_a, self.lab_b = hex_to_lab(value)
+        return value
 
     def __repr__(self):
         return f"<Color(hex='{self.color_hex}', percentage={self.percentage})>"
@@ -533,7 +555,7 @@ def seed_default_settings(session):
         "grid_analysis_max_dim": 0,  # full resolution
         # Color extraction
         "num_dominant_colors": 5,
-        "color_distance_threshold": 0.35,
+        "color_distance_threshold": 25.0,  # CIE76 delta E
         "color_clustering_samples": 5000,
         "color_kmeans_n_init": 3,
         # Ingestion performance — resource-aware defaults
