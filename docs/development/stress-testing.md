@@ -2,15 +2,19 @@
 
 The stress testing suite exercises the Scene Atlas import pipeline under concurrent load, adversarial input, and failure conditions.  It runs against a **real server** (not mocked), testing the actual SQLite WAL mode contention, LanceDB write serialisation, and the ThreadPoolExecutor job runner.
 
+::: warning Out of date
+The import scenarios in `stress_tests/scenarios.py` still drive the import API that ADR-018 removed (`/imports/init`, `/upload-batch`, `/analyse`, `/confirm-all`, `/check-hashes`) and check for removed behaviour (`mark_interrupted_jobs`, `expire_stale_jobs`, `broken`/`expired` job states). They will fail against the current backend until they are ported to the manifest → seal → per-file `PUT` flow and the `active`/`paused`/`completed`/`cancelled` job states. The descriptions below document the scenarios as written. The [library-scale benchmark](#library-scale-read-benchmark) does not use the import API.
+:::
+
 ## Quick start
 
 ```bash
 # From the repository root
-python -m stress_tests list                          # show all scenarios
-python -m stress_tests generate-fixtures             # pre-generate test files (~45 MB)
-python -m stress_tests run --scenario endpoint_spam  # single fast scenario
-python -m stress_tests run --all --quick             # all scenarios, reduced load (~7 min)
-python -m stress_tests run --all                     # full suite (~25–40 min)
+uv run python -m stress_tests list                          # show all scenarios
+uv run python -m stress_tests generate-fixtures             # pre-generate test files (~45 MB)
+uv run python -m stress_tests run --scenario endpoint_spam  # single fast scenario
+uv run python -m stress_tests run --all --quick             # all scenarios, reduced load (~7 min)
+uv run python -m stress_tests run --all                     # full suite (~25–40 min)
 ```
 
 ## Requirements
@@ -186,3 +190,14 @@ Fixtures are generated into `stress_tests/.fixtures/` (gitignored) on first use.
 With `--large`: malformed files grow to 500 MB each, videos become 60 s 1080p, ZIP grows to 1 000 images.
 
 Fixtures are cached: if the file already exists it won't be regenerated.  Delete `stress_tests/.fixtures/` to force regeneration.
+
+## Library-scale read benchmark
+
+`stress_tests/library_scale.py` builds a synthetic SQLite library of N images directly (no HTTP, no models; groups of ~7, 4 tags and 5 colours per image, migrated to the current schema) and reports SQL query counts and wall time for the search, gallery, group, and tag read paths. Semantic search is replaced by a fake.
+
+```bash
+uv run python -m stress_tests.library_scale build 56000 --db /tmp/lib.db
+uv run python -m stress_tests.library_scale run --db /tmp/lib.db
+```
+
+Use it to check a change for N+1 queries or slow aggregates at real-library scale. Never point `--db` at a real library database: `build` deletes the file first.

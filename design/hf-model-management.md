@@ -81,15 +81,16 @@ APP_DATA_DIR/
       <name>/
 ```
 
-**Atomic download pattern:**
+**Download pattern:**
 
 1. Fetch the HF commit SHA *before* downloading (avoids a post-download race).
 2. Download via `snapshot_download()` into `.tmp/<name>/` (wiping any pre-existing temp
    dir first).
 3. Verify all required files (`manifest.json`, both `.onnx` files) exist in the temp
    dir.
-4. Atomic rename: `tmp_dir.rename(model_dir)` — replaces any previous installation in
-   one filesystem operation.
+4. Install: remove any previous `model_dir` (`shutil.rmtree`), then
+   `tmp_dir.rename(model_dir)`. This is two steps, not atomic; a crash between them
+   leaves no `version.json`, so the model is treated as not downloaded.
 5. Write `version.json` last as the **completion marker**.
 
 `is_model_downloaded()` checks only for the existence of `version.json`. Any directory
@@ -122,6 +123,10 @@ without going through the models API.
 **`_download_and_activate` job sequence:**
 
 1. Download the model (skipped if already downloaded).
+
+Steps 2–5 run inside `get_ingest_worker().held("Paused while the AI model changes")`, so
+imports pause (shown as a system pause) and no ingest batch spans the switch.
+
 2. `reload_clip_service()` — clears the singleton, resets `_clip_ready`, starts a
    background load thread.
 3. `wait_for_clip_ready()` — blocks the job thread until the new model is loaded (or
@@ -146,7 +151,7 @@ Each model has its own LanceDB table named `embeddings_{model_name}` (e.g.
 model are preserved rather than deleted on switch — the user can inspect and clean them
 up explicitly.
 
-`LanceDBService.delete_table_by_name()` refuses to delete the currently active
+`LanceDBService.delete_collection_by_name()` refuses to delete the currently active
 table (raises `ValueError`). The API layer enforces the same guard, returning HTTP
 409 if the caller tries to delete embeddings for the active model. The user must switch
 to a different model first.
@@ -188,7 +193,9 @@ All endpoints are under `/api/v1/models/`.
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/` | List all models with download status and active flag |
-| `GET` | `/setup-status` | GPU detection + whether a model download is needed |
+| `GET` | `/embedding-status` | CLIP service state: `loading` / `ready` / `error` |
+| `GET` | `/setup-status` | GPU detection, `needs_model`, `needs_tag_packs`, recommended model |
+| `POST` | `/setup-complete` | Store `setup_completed_at` in `app_settings` so the setup wizard is not shown again |
 | `POST` | `/active` | Set the active model; triggers download + re-embed job |
 | `POST` | `/{name}/download` | Download a model without activating it |
 | `GET` | `/{name}/embeddings` | LanceDB table stats for a model's embeddings |
@@ -202,15 +209,19 @@ should poll `GET /api/v1/jobs/{job_id}` to track progress.
 ## First-Boot Experience
 
 **Web / server mode:** `App.tsx` calls `GET /api/v1/models/setup-status` on mount. If
-`needs_model` is true, a full-screen `ModelSetupScreen` overlay is rendered in place of
-the main gallery. The overlay guides the user through model selection and download, then
-calls `onComplete` to dismiss itself and render the gallery.
+`needs_model || needs_tag_packs` is true, a full-screen `ModelSetupScreen` overlay is rendered in place of
+the main gallery. The overlay guides the user through model selection and download
+(skipped when only tag packs are needed), calls `POST /setup-complete`, then calls
+`onComplete` to dismiss itself and render the gallery.
 
 `needs_model` is true when no model that matches `get_effective_model_name()` is
 downloaded. On a fresh install with no DB entry, this means no model is downloaded at
-all.
+all. `needs_tag_packs` is true until `setup_completed_at` exists in `app_settings`.
 
-**Electron mode:** Model selection wizard is implemented as `ModelSetupScreen.tsx` (web/server mode). Electron integration uses the Electron setup window.
+**Electron mode:** The Electron setup window only chooses storage directories. `App.tsx`
+runs the setup-status check only when `isServer` (`frontend/src/lib/appMode.ts`); when
+`window.electronAPI` is present (`isApp`) it skips the check and renders the gallery
+directly, so `ModelSetupScreen` is not shown in Electron.
 
 ---
 
@@ -218,7 +229,7 @@ all.
 
 | Mode | Model storage | First-boot flow | Notes |
 |------|--------------|-----------------|-------|
-| Electron | `APP_DATA_DIR` managed by Electron | Wizard step (stub) | Wizard not yet integrated |
+| Electron | `APP_DATA_DIR` managed by Electron | None (`App.tsx` skips setup when `isApp`) | See First-Boot Experience |
 | Web / server | Operator-controlled `APP_DATA_DIR` | `ModelSetupScreen` overlay | `EMBEDDING_MODEL` env var can pre-select |
 | Dev | `APP_DATA_DIR` or `backend/models/<name>/` fallback | Same as web | Fallback path allows testing with locally exported models |
 
@@ -250,8 +261,8 @@ future update checks — compare the stored SHA against the latest HF commit SHA
 repo. No auto-update is currently planned; this would require a polling mechanism and a
 UI affordance to trigger re-download.
 
-**Electron wizard integration:** Model selection wizard is implemented as `ModelSetupScreen.tsx` (web/server mode). Electron integration uses the Electron setup window. When the split-storage wizard is implemented, the model step
-should be merged into it as a single coherent first-run experience for Electron users.
+**Electron first boot:** Electron needs a model-selection step; the `isServer` gate in
+`App.tsx` currently prevents `ModelSetupScreen` from running there.
 
 **Large model VRAM management:** The large model's ~1 GB footprint is flagged in the
 registry with `recommended_hardware: "gpu"`. ORT session memory management (especially

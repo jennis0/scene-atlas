@@ -1,18 +1,19 @@
 # Security Evaluation — Scene Atlas (Hosted Mode)
 
-**Date**: 2026-03-14 (updated)
-**Scope**: Hosted deployment behind reverse proxy
+**Scope**: Server mode (web server behind a reverse proxy)
 
 ## Deployment Model
 
 Scene Atlas has three deployment modes:
-1. **Electron desktop app** — backend runs as local sidecar; OS provides isolation
-2. **Web server behind reverse proxy** — proxy handles TLS; this doc evaluates what else is needed
-3. **Developer mode** — localhost only, no security expectations
+1. **Electron desktop app** — backend runs as a local sidecar; the OS user boundary provides isolation.
+2. **Web server behind a reverse proxy** — this document evaluates this mode.
+3. **Developer mode** — localhost only, no security expectations.
 
-This evaluation focuses on mode 2.
+## Server mode has no built-in authentication
 
-**Server mode deployment requirement**: Until session-based authentication is implemented, server mode MUST be behind network-level access control (VPN, Tailscale, Cloudflare Access, or similar). The application currently has no authentication — all API endpoints are accessible to anyone who can reach the server.
+The backend has no authentication or authorisation. Every API endpoint, including uploads, deletion of the whole library and settings changes, is available to anyone who can reach the server. There is no `AUTH_TOKEN` or bearer-token support in the code.
+
+Server mode must therefore only be exposed behind a reverse proxy that authenticates every request — HTTP basic auth, forward-auth (e.g. Authelia, Authentik), an OAuth proxy (e.g. oauth2-proxy), or an access gateway such as Cloudflare Access or Tailscale. Never expose the backend port directly to the internet. Because the frontend loads images with plain `<img src>` requests, the proxy must authenticate with a mechanism the browser sends automatically (cookies or basic auth), not a header the app would have to add.
 
 ---
 
@@ -20,17 +21,19 @@ This evaluation focuses on mode 2.
 
 | Area | Details |
 |------|---------|
-| SQL injection | All queries use SQLAlchemy ORM; FTS5 input sanitized in `fts_service.py` |
-| XSS | No unsafe DOM injection patterns; all content via React text interpolation |
-| ZIP bombs | `check_zip_safety()` in `validation.py` validates count, size, zip-slip |
-| MIME validation | `verify_media_mime()` uses PIL to verify headers match extensions |
-| File storage | UUID hash-sharded keys, not user-controlled names (`image_store.py`) |
-| Error handling | Global handler returns generic messages; details logged server-side only |
-| Secrets | No hardcoded secrets; all config via env vars; `.env` in `.gitignore` |
-| Supply chain | Lock files (`uv.lock` with hashes, `package-lock.json`) present |
-| CSP | Restrictive Content-Security-Policy meta tag in `index.html` |
-| Pre-commit | Husky + lint-staged enforces ruff and eslint |
-| Code safety | No shell-invocation or code-execution functions in backend |
+| SQL injection | Queries use the SQLAlchemy ORM; FTS5 input is sanitised in `fts_service.py` |
+| XSS | No unsafe DOM injection; content rendered via React text interpolation |
+| ZIP bombs / zip-slip | `check_zip_safety()` (`validation.py`) checks entry count, uncompressed size and member paths before extraction |
+| MIME validation | `verify_media_mime()` checks file headers match the extension for every uploaded file and archive member |
+| Upload size | Request bodies are streamed with a byte limit (`max_import_file_size` / `max_video_file_size`); 413 when exceeded |
+| File storage | Server-generated UUID keys for staging and store files; client paths are never used as filesystem paths |
+| Disk exhaustion | Seal refuses imports that don't fit on disk (507); the ingest worker pauses below 512 MB free |
+| Error handling | Global handler returns a generic 500; details logged server-side |
+| Secrets | No hardcoded secrets; config via env vars; `.env` is git-ignored |
+| Supply chain | Lock files (`uv.lock`, `package-lock.json`) committed |
+| CSP | Restrictive Content-Security-Policy meta tag in `frontend/index.html` |
+| Pre-commit | Husky + lint-staged runs ruff, ESLint and Prettier |
+| Code safety | No shell invocation or dynamic code execution in the backend |
 
 ---
 
@@ -38,95 +41,81 @@ This evaluation focuses on mode 2.
 
 ### 1. CRITICAL: No Authentication or Authorization
 
-**Status**: DEFERRED to Phase 3 (session-based auth with multi-user support)
+**Status**: Open. Mitigated only by deployment (see above).
 
-All endpoints are currently public. Network-level isolation is required until session-based auth is implemented. Bearer-token auth was prototyped on `feature/security-phase-2` but abandoned because the token baked into the frontend JS bundle provides no real security against anyone who can access the frontend URL.
+Bearer-token auth was prototyped and abandoned: a token baked into the frontend bundle gives no protection against anyone who can load the frontend. The planned approach is session-based auth (login page, HTTP-only session cookies, CSRF protection), which also covers `<img src>` requests. Until then, authentication is the reverse proxy's job.
 
-**Phase 3 plan**: Login page, server-side sessions (HTTP-only cookies), CSRF protection. This approach solves the `<img src>` authentication problem natively (cookies are sent automatically) and provides a foundation for future multi-user support.
+### 2. HIGH: Path Traversal in Uploads
 
-### 2. HIGH: Path Traversal in Upload Endpoint
+**Status**: Fixed.
 
-**Status**: FIXED on main — staging redesign (UUID-flat-file structure with `.file_map.json` sidecar)
+Staging is per job: `{APP_DATA_DIR}/staging/{job_id}/{staging_key}`. `staging_key` is generated by the server (`uuid4().hex` + the lower-cased extension) and stored on `ImportItem.staging_key`. The client-supplied `relative_path` is normalised and used only for display, group planning and resume matching. Uploads go to `PUT /imports/{job_id}/items/{item_id}/content`, addressed by database ids; archive members get their own server-generated keys. See [storage.md](storage.md#staging).
 
-### 3. HIGH: No Rate Limiting
+### 3. HIGH: Rate Limiting
 
-**Status**: DONE (Phase 2)
+**Status**: Done.
 
-Rate limiting implemented via `slowapi` with two tiers:
-- **expensive** (2/min): `POST /search/rebuild-embeddings`, `GET /export/library`, `PATCH /settings/`, `POST /tags/retag-all`, `POST /images/backfill-grids`
-- **destructive** (1/min): `DELETE /system/library`, `POST /system/tags/reset`
+`slowapi`, keyed on the client address, with two tiers:
+- **expensive** (`RATE_LIMIT_EXPENSIVE`, default `2/minute`): `POST /search/rebuild-embeddings`, `GET /export/library`, `PATCH /settings/`, `POST /tags/retag-all`, `POST /tags/packs/{name}/import`, `POST /images/backfill-grids`
+- **destructive** (`RATE_LIMIT_DESTRUCTIVE`, default `1/minute`): `DELETE /system/library`, `POST /system/tags/reset`
 
-Upload-batch is intentionally NOT rate-limited — it's already gated by admission control (`acquire_heavy_op` semaphore) and requires an active import job. Rate limiting caused silent import failures because the frontend treats 429 as a fatal client error.
+`RATE_LIMIT_ENABLED=false` disables it.
 
-Configurable via `RATE_LIMIT_EXPENSIVE`, `RATE_LIMIT_DESTRUCTIVE` env vars. Disable entirely with `RATE_LIMIT_ENABLED=false`.
+Import endpoints are not rate limited: a single import makes one request per file. Per-file uploads (`PUT …/items/{item_id}/content`) are bounded by the per-file size limit and require an existing item awaiting bytes; they do not take the heavy-op semaphore. Archive upload and seal are gated by the heavy-op semaphore (`acquire_heavy_op`, see [resource-management.md](resource-management.md)). `POST /tags/packs/import-multiple` is not rate limited.
 
-**Reverse proxy requirement**: The proxy MUST overwrite (not append to) `X-Forwarded-For` so rate limiting keys on the real client IP. If the proxy appends, an attacker can spoof the header to get unlimited fresh rate limit buckets.
+**Reverse proxy requirement**: the proxy must overwrite (not append to) `X-Forwarded-For` so the limiter keys on the real client IP; otherwise a client can spoof the header to get fresh buckets.
 
-### 4. MEDIUM: No Security Headers
+### 4. MEDIUM: Security Headers
 
-**Status**: DONE (Phase 2)
+**Status**: Done.
 
-Pure ASGI `SecurityHeadersMiddleware` adds to every response:
-- `X-Content-Type-Options: nosniff`
-- `X-Frame-Options: DENY`
-- `Referrer-Policy: strict-origin-when-cross-origin`
-- `Permissions-Policy: camera=(), microphone=()`
+A pure ASGI `SecurityHeadersMiddleware` adds `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin` and `Permissions-Policy: camera=(), microphone=()` to every response. HSTS is omitted on purpose: it must come from the TLS-terminating proxy so non-TLS deployments (Electron, local dev) keep working.
 
-HSTS intentionally omitted — must come from the reverse proxy to avoid breaking non-TLS deployments (Electron, local dev).
+### 5. MEDIUM: Security Scanning in CI
 
-### 5. MEDIUM: No Security Scanning in CI/CD
+**Status**: Partially done; open item.
 
-**Status**: DONE (Phase 2)
-
-CI now includes:
-- `pip-audit --desc` (Python CVE scanning)
+The `backend-security` job in `.github/workflows/ci.yml` (pull requests only) runs:
+- `pip-audit --desc` (Python CVE scan)
 - `bandit -r backend/app backend/pipeline -ll` (Python SAST)
-- `npm audit --audit-level=high` (Frontend dependency audit)
 
-All use `continue-on-error: true` initially. Tracked in `technical-debt.md` to remove within 2 weeks once baseline is triaged.
+Both steps have `continue-on-error: true`, so findings never fail CI. They were meant to be made blocking within two weeks of being added (March 2026); that deadline has passed and this remains open. There is no frontend dependency audit (`npm audit` or equivalent) in CI.
 
-### 6. MEDIUM: Electron IPC Accepts Arbitrary Paths
+### 6. MEDIUM: Electron IPC Changing Storage Paths
 
-**Status**: Not yet implemented (future work)
+**Status**: Partially mitigated.
+
+The renderer can call `system:change-storage-dirs` (exposed as `window.electronAPI.changeStorageDirs`) with two paths. The main process (`electron/src/main.ts`) then writes them to the app config and relaunches the app with the backend pointed at the new data and library roots. Current checks:
+- The handler is registered with `handleTrusted`, which rejects calls whose sender frame is not an app URL (`file:`, or the dev server in development).
+- Both arguments must be non-empty absolute paths.
+- Both directories are created if needed and must pass a write test.
+
+There is no restriction on which absolute paths are accepted, so code running in the renderer could point the backend at any writable location. Renderer windows run with `contextIsolation`, `sandbox` and no `nodeIntegration`, and navigation away from app URLs is blocked, which limits who can reach the channel.
 
 ### 7. MEDIUM: CORS Configuration
 
-**Status**: DONE (Phase 2)
+**Status**: Done.
 
-Startup warning logged when `APP_MODE=server` and CORS origins are still set to localhost defaults.
+A warning is logged at startup when `APP_MODE=server` and `CORS_ORIGINS` is still the localhost default.
 
-### 8. LOW: CSP connect-src Too Broad
+### 8. LOW: CSP `connect-src` Too Broad
 
-**Status**: Not yet implemented (future work)
+**Status**: Open.
+
+`connect-src 'self' http://localhost:*` is needed in Electron (the backend runs on a localhost port) but is broader than necessary for server mode.
 
 ### 9. LOW: No CSRF Protection
 
-**Status**: Will be implemented alongside session-based auth (Phase 3)
-
-### 10. LOW: No Dependency Vulnerability Scanning
-
-**Status**: DONE — covered by Finding 5
+**Status**: Open; to be implemented with session-based auth. Not exploitable while there are no credentials to ride on, but becomes relevant if the proxy uses cookie-based auth.
 
 ---
 
-## Staging Security Redesign
+## Open Items
 
-The path traversal issue (finding 2) was resolved by redesigning the staging directory to use UUID-based flat filenames instead of user-supplied relative paths.
+1. Session-based authentication (Finding 1).
+2. Make `pip-audit` and `bandit` blocking in CI; add a frontend dependency audit (Finding 5).
+3. Constrain the paths accepted by `system:change-storage-dirs` (Finding 6).
+4. CSP hardening for server mode (Finding 8).
+5. CSRF protection alongside auth (Finding 9).
 
-**Before**: `staging_dir / "Author/GroupName/map.jpg"` (user-controlled path)
-**After**: `staging_dir / "a1b2c3d4.jpg"` (UUID, safe by construction)
-
-A `.file_map.json` sidecar maps `{relative_path: staging_key}` so group detection and the frontend still use original paths as logical identifiers.
-
----
-
-## Remediation Priority
-
-1. ~~Path traversal fix via hash-based staging~~ (DONE)
-2. ~~Security headers~~ (DONE — Phase 2)
-3. ~~Rate limiting~~ (DONE — Phase 2)
-4. ~~CI/CD security scanning~~ (DONE — Phase 2)
-5. ~~CORS startup warning~~ (DONE — Phase 2)
-6. Session-based authentication (Phase 3 — planned)
-7. Electron IPC validation (future)
-8. CORS/CSP hardening (future)
+Backlog priorities are tracked in [status-and-roadmap.md](status-and-roadmap.md).

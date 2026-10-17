@@ -14,7 +14,7 @@ Users control which search paths run via a prefix on the query string:
 | `~` | Semantic-only | CLIP only | Visual similarity ("a dark cave with water") |
 | `=` | Text-only | FTS5 only | Exact keyword matching, faster |
 
-The frontend strips the prefix before sending `query`, `semantic_only`, and `text_only` params to the API.
+`useGallerySearch.ts` strips the prefix before sending `query`, `semantic_only`, and `text_only` params to the API.
 
 ## Data Flow
 
@@ -22,7 +22,7 @@ The frontend strips the prefix before sending `query`, `semantic_only`, and `tex
 User types query in search bar
     │
     ▼
-Frontend (GalleryHeader.tsx)
+Frontend (useGallerySearch.ts)
     ├── Strip prefix (~, =)
     ├── Build SearchParams
     └── GET /api/v1/search/groups (or /search/)
@@ -55,7 +55,7 @@ Frontend (GalleryHeader.tsx)
             │
             ▼
     Frontend receives images[] + scores{}
-    └── Client-side relevance slider filters on CLIP score
+    └── Client-side relevance slider filters on RRF score
 ```
 
 ## FTS5 Text Search
@@ -141,7 +141,7 @@ Three models are offered, each hosted on HuggingFace and downloaded on demand to
 | `medium` | SigLIP2-base-patch16-224, vision fp16, text int8 | 768 | jennis0/scene-atlas-medium | Default with GPU |
 | `large` | SigLIP2-so400m-patch14-384, vision fp16/fp16 | 1152 | jennis0/scene-atlas-large | GPU strongly recommended |
 
-A dev fallback path (`backend/models/{name}/`) is checked before the APP_DATA_DIR path, allowing developers to test with locally exported models without a HF download.
+`clip_service._default_models_dir()` uses `APP_DATA_DIR/models/{name}/` when it contains a `manifest.json`. Otherwise, in a non-frozen (dev) run it falls back to `backend/models/{name}/`, so developers can test locally exported models without a HF download. Frozen builds never use the dev fallback.
 
 Each model directory (whether in APP_DATA_DIR or backend/models/) contains:
 - `manifest.json` — model parameters (embedding dim, image size, normalization, tokenizer config)
@@ -159,7 +159,7 @@ Switching models creates a new LanceDB table — the old table is preserved (not
 
 ### Inference
 
-ONNX Runtime with automatic provider selection: CUDA → DirectML → CoreML → CPU (configurable via `INFERENCE_DEVICE` env var). The `ClipService` is lazy-loaded as a singleton on first use.
+ONNX Runtime with automatic provider selection: CUDA → DirectML → CoreML → CPU (configurable via `INFERENCE_DEVICE` env var; see `ort_providers.py`). The model loads on a background thread at startup (`start_clip_background_load()`); `get_clip_service()` blocks until it is ready, and `get_clip_unavailable_reason()` reports a missing or failed model without blocking.
 
 ### Vector Database
 
@@ -179,31 +179,30 @@ LanceDB runs **in-process** (disk-backed, memory-mapped, no Docker). Thread-safe
 
 LanceDB is the **semantic search index, not the source of truth** — SQLite is authoritative. If LanceDB loses data, embeddings can be regenerated from images.
 
-**Population during ingestion** (`backend/pipeline/ingestion.py`):
-1. `batch_generate_clip_embeddings(image_paths)` — CLIP encodes images in batched forward passes
-2. `batch_save_to_vector_db(items)` — upserts `{image_id, embedding, metadata}` rows in a single call
-3. Each row stores payload: `image_id`, `filename`, `author`, `base_name`
-
-**Single-image flow** (`save_to_vector_db` in `persistence.py`):
-- Used by `process_single_image()` for one-off additions
-- Calls `lancedb_service.add_image_embedding(image_id, embedding, metadata)`
+**Population during ingestion** (`backend/pipeline/ingest_process.py`, see [ingestion.md](ingestion.md)):
+1. `embed()` — `embedding_generation.batch_generate_clip_embeddings()` encodes a batch in one call
+2. Images are committed to SQLite first, then `write_vectors()` calls `lancedb_service.batch_add_embeddings()`
+3. Each row stores `image_id`, `filename`, `author`, `base_name`
+4. A failed vector write is logged and left for reconciliation; the images stay committed
 
 **Deletion** (`backend/app/services/deletion_service.py`):
 - Single image: `lancedb_service.delete_image_embedding(image_id)`
-- Batch (failed import cleanup): `lancedb_service.delete_embeddings(image_ids)`
+- Batch (group/bulk deletes): `lancedb_service.delete_embeddings(image_ids)` in chunks
 - Cascade deletion removes the LanceDB row alongside SQLite row and filesystem files
 
-**Desync detection** (`backend/pipeline/maintenance.py`):
-- Scheduled daily: compares `images` row count vs LanceDB row count
-- Logs warning if delta exceeds 10 images
-- Repair: run `write_new_embeddings` pipeline script
+**Reconciliation** (`backend/pipeline/vector_reconcile.py`, `reconcile_vectors()`):
+- Compares the SQLite image id set with the LanceDB id set (ids, not counts)
+- Re-embeds images missing a vector from their stored thumbnails; images without a thumbnail are counted as `unrepairable`
+- Deletes vectors whose image no longer exists
+- Runs once at startup after the model is ready (via the job runner) and every 24 h via the scheduler
 
 **Full rebuild** (`backend/pipeline/write_new_embeddings.py`):
 - `rebuild_all_embeddings()` — deletes the entire LanceDB table and regenerates all embeddings from stored images
-- Used after model changes or to repair desync
+- Without `force`, skipped when the table already holds one row per image
+- Used after model changes (`POST /api/v1/models/active` runs it)
 
 **Backup:**
-- `lancedb_service.backup_storage(target_dir)` — copies the LanceDB storage directory (called by the scheduled backup task)
+- `lancedb_service.backup_storage(target_dir)` — copies the LanceDB storage directory (called by `maintenance.backup_database()`, scheduled every 24 h)
 
 ## Reciprocal Rank Fusion (RRF)
 
@@ -302,14 +301,15 @@ Three SQLite triggers keep `image_fts` in sync with the `images` table:
 | `backend/app/services/clip_service.py` | CLIP model loading, text/image encoding |
 | `backend/app/services/lancedb_service.py` | LanceDB disk-backed vector DB client |
 | `backend/app/services/image_parser.py` | `build_search_text()`, filename/metadata parsing |
-| `backend/app/services/color_search.py` | LAB colour distance search |
+| `backend/app/services/color_search.py` | `ColorIndex`: in-memory cylindrical-HSL colour distance search |
 | `frontend/src/hooks/useGallerySearch.ts` | Search state management, prefix parsing |
 | `frontend/src/components/GalleryHeader.tsx` | Search input UI, mode indicator icon |
 | `frontend/src/lib/api/searchApi.ts` | API client for search endpoints |
-| `backend/pipeline/ingestion.py` | Embedding generation + LanceDB population during ingest |
-| `backend/pipeline/persistence.py` | `batch_save_to_vector_db()`, `save_to_vector_db()` |
+| `backend/pipeline/ingest_process.py` | Embedding generation + LanceDB writes during ingest |
+| `backend/pipeline/tasks/embedding_generation.py` | `batch_generate_clip_embeddings()` |
+| `backend/pipeline/vector_reconcile.py` | SQLite/LanceDB id reconciliation (startup + every 24 h) |
 | `backend/pipeline/write_new_embeddings.py` | Full LanceDB rebuild from stored images |
-| `backend/pipeline/maintenance.py` | Scheduled desync detection (DB vs LanceDB count) |
+| `backend/pipeline/maintenance.py` | Scheduled SQLite + LanceDB backups, orphaned file sweep |
 | `backend/app/services/deletion_service.py` | Cascade deletion (SQLite + LanceDB + filesystem) |
 | `backend/alembic/versions/001_initial_schema.py` | FTS5 table + trigger creation |
 | `backend/alembic/versions/015_search_ranking.py` | Tokenizer upgrade (diacritics) |

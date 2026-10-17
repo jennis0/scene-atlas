@@ -52,7 +52,8 @@ same-file or sibling-file repetition — no cross-layer copy-paste.
 | 10, 10 | `frontend/src/hooks/useFileEditing.ts` (2 clones) | Repeated update handlers |
 
 Semantic duplication (same logic, different text) is not visible to jscpd; that is a step 3
-review concern. [technical-debt.md](technical-debt.md) #1–5 already list known cases.
+review concern. Of the earlier code-review backlog (items #1–5), only the pipeline DB session
+helper rollout remains; it is tracked in [status-and-roadmap.md](status-and-roadmap.md#backlog).
 
 ## Comments
 
@@ -234,10 +235,10 @@ uv run python scripts/quality/comment_density.py
     False (`ListTablesResponse`). Changing the embedding vector size crashed startup
     with a schema mismatch, and `GET /models/{name}/embeddings` always reported 0
     vectors. Fixed via `LanceDBService.table_exists()`, with regression tests.
-- **Search refactor + N+1 fixes** — in progress on `perf/search-and-queries`.
-- **Stale docs found** (for step 3): `design/ingestion.md` still describes the pre-ADR-018
-  pipeline (`process_single_image` etc.), and `design/testing.md` refers to a
-  `mock_heavy_services` fixture that no longer exists.
+- **Search refactor + N+1 fixes** — merged from `perf/search-and-queries`
+  (`backend/app/services/search_service.py`).
+- **Stale docs** (`design/ingestion.md` describing the pre-ADR-018 pipeline,
+  `design/testing.md` fixtures) — rewritten in the pre-release docs pass.
 
 ## Proposed next steps
 
@@ -247,10 +248,11 @@ Each step is a separate PR; all must be behaviour-preserving with tests green.
    `logger.exception`; jscpd clones in `GridFilterIcons.tsx`, `groups.py`, `useFileEditing.ts`.
 3. **Per-area review** against the comment rubric above plus semantic duplication and
    layering: backend API · services · pipeline · frontend components · hooks/lib · electron.
-   Fold in [technical-debt.md](technical-debt.md) #1–5. Refactor `search.py`.
+   Finish the `pipeline_db()` rollout (see [status-and-roadmap.md](status-and-roadmap.md#backlog)).
+   Refactor `search.py`.
 4. **SQLAlchemy `Mapped[]` migration**, then fix remaining pyright errors.
 5. **Gates** — add to pre-push and CI: jscpd threshold (1%), knip, pyright, and the ruff
    rules `ERA`, `SIM`, `RET`, `PIE`, `RUF100`, `TRY400`.
 
-Not in this pass: the performance items in technical-debt.md (#6–10, N+1 queries) need a
-separate decision on whether they block release for large (50k+) libraries.
+The query-scaling items (#6–10, N+1 queries) were resolved or made obsolete on
+`perf/search-and-queries`; query counts are pinned by `integration/test_query_counts.py`.

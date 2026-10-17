@@ -8,12 +8,12 @@ Download, install, and run. No dependencies to manage.
 
 1. **Download** the installer from [GitHub Releases](https://github.com/jennis0/scene-atlas/releases):
    - Windows: `.exe` (NSIS installer)
-   - macOS: `.dmg` (universal, Intel + Apple Silicon)
+   - macOS: `.dmg` (Apple Silicon only; on Intel Macs use the Docker or standalone server)
    - Linux: `.AppImage` or `.deb`
 
-2. **Install and launch.** On first run, Scene Atlas downloads an AI model (~250 MB). This happens once.
+2. **Choose storage locations.** On first run the app asks for an app data location (database, thumbnails, search index) and an image library location (Scene Atlas's managed copy of your images). These are directories Scene Atlas manages itself. Your original images are never modified; they are copied into the library during import.
 
-3. **Choose a storage location.** The app asks where to keep its data (database, thumbnails, search index). This is a dedicated directory that Scene Atlas manages internally. Your original images are never modified; they are copied into managed storage during import.
+3. **Download an AI model.** The app recommends a model for your hardware (Small is ~250 MB) and downloads it once.
 
 4. **Import your first images.** Click **Import**, drag in some files, and let processing run. See [Importing](/guide/importing) for details.
 
@@ -28,7 +28,7 @@ The app auto-selects an AI model based on your hardware. You can switch models l
 | RAM | 8 GB | 16 GB |
 | App Data Disk | 2 GB + ~50% of your library size (for thumbnails, index, and converted copies) | SSD for faster indexing |
 | Image Data Disk | As much storage as is required for your image files! |  |
-| GPU | Not required | Any modern GPU speeds up import processing (NVIDIA, AMD, Intel on Windows; Apple Silicon on Mac) |
+| GPU | Not required | Any DirectX 12 GPU on Windows or Apple Silicon on Mac speeds up import processing (Linux desktop is CPU only) |
 
 ## Docker Server
 
@@ -55,7 +55,7 @@ The container uses two volumes:
 The `IMAGE_DIR` path is where Scene Atlas writes its managed file structure. Do not point it at your existing image collection. Import your images through the web UI instead.
 :::
 
-See the [Docker Server guide](/deploy/server) for reverse proxy setup, authentication, and backups.
+Scene Atlas has no built-in authentication. If anything beyond your own machine can reach it, put it behind an authenticating reverse proxy and never expose it directly to the internet. See the [Docker Server guide](/deploy/server) for reverse proxy setup and backups.
 
 ## Developer Mode
 
@@ -64,7 +64,7 @@ For contributors or anyone running from source.
 ### Prerequisites
 
 - Python 3.12+ with [uv](https://docs.astral.sh/uv/)
-- Node.js 20+ with npm
+- Node.js 24+ with npm
 
 ### Quick Start
 
@@ -77,7 +77,7 @@ cd frontend && npm ci && cd ..
 uv run python scripts/models/setup_models.py
 
 # Terminal 1: backend
-uv run python scripts/start.py
+uv run python scripts/app/start.py
 
 # Terminal 2: frontend
 cd frontend && npm run dev
@@ -92,17 +92,17 @@ See the [Building & Running guide](/development/building) for pre-commit hooks, 
 
 Once Scene Atlas is running:
 
-1. Click **Import** in the top-right corner
-2. Drag and drop images, folders, or ZIP archives into the upload area
-3. Review the detected groups and metadata, then confirm
-4. Browse or search your collection in the gallery
+1. Click **Import**
+2. Choose whether the files are battlemaps or scenes
+3. Drag and drop images, folders, or ZIP archives, or use the folder/file pickers
+4. Images appear in the gallery as they finish processing
 
-Scene Atlas automatically groups related map variants by filename patterns and folder structure. You can adjust groups before or after confirming the import.
+Scene Atlas automatically groups related map variants by folder structure and filename patterns. You can edit groups in the gallery afterwards.
 
 ## Troubleshooting
 
-**Model download is slow:** The initial download can take a few minutes depending on your connection. Progress is shown in the activity dock.
+**Model download is slow:** The initial download can take a few minutes depending on your connection. Progress is shown on the setup screen.
 
-**Port 8000 already in use:** Set `PORT=8001` in your `.env` file, or pass `--port 8001` to uvicorn.
+**Port 8000 already in use:** For Docker, set `PORT=8001` in your `.env` file. For standalone or developer mode, pass `--port 8001` to uvicorn.
 
 **CORS errors in browser console:** If running behind a reverse proxy, set `CORS_ORIGINS` to match your domain. See the [Configuration Reference](/deploy/configuration).

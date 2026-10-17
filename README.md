@@ -7,7 +7,7 @@ A self-hosted scene manager for tabletop RPG art. Search large collections of ba
 - **Hybrid search** — natural-language semantic search (CLIP) combined with keyword full-text search (FTS5 + Porter stemmer)
 - **Tag-based filtering** — grid state, season, lighting, weather, terrain, and more; auto-extracted from filenames
 - **Groups** — related images (different lighting, grid, weather variations) grouped automatically from name and folder structure
-- **Web import** — drag-and-drop uploader with browser-side duplicate detection, ZIP support, and preview editing
+- **Web import** — drag-and-drop files, folders, or ZIPs; browser-side duplicate detection; resumable uploads; server-side grouping
 - **Color search** — filter by dominant colours extracted from each image
 - **Grid detection** — automatic square and hex grid detection for battlemaps (filename-based + optional image analysis)
 - **Type-aware processing** — per-image type selection (battlemap or scene); battlemaps get grid detection, scenes skip it
@@ -30,7 +30,7 @@ A self-hosted scene manager for tabletop RPG art. Search large collections of ba
 ## Prerequisites
 
 - **Python 3.12+** with [uv](https://docs.astral.sh/uv/)
-- **Node.js 20+** with npm
+- **Node.js 24+** with npm
 
 No Docker required — vector search runs in-process via LanceDB.
 
@@ -116,7 +116,7 @@ volume (`scene-atlas-data`). See `.env.example` for all available options.
 
 ```bash
 # Terminal 1: Backend
-uv run python scripts/start.py
+uv run python scripts/app/start.py
 
 # Terminal 2: Frontend
 cd frontend && npm run dev
@@ -131,13 +131,14 @@ cd frontend && npm run dev
 ### Stop the backend
 
 ```bash
-uv run python scripts/stop.py
+uv run python scripts/app/stop.py
 ```
 
 ### Tail logs
 
 ```bash
-tail -f logs/api.log
+tail -f logs/api.log              # stdout/stderr captured by scripts/app/start.py
+tail -f data/logs/scene-atlas.log # backend's own rotating log (under APP_DATA_DIR)
 ```
 
 ---
@@ -173,17 +174,15 @@ cd frontend && npm run build                  # TypeScript + Vite build
 
 ### CI/CD
 
-GitHub Actions runs a tiered pipeline:
-
-| Tier | Trigger | What runs |
+| Stage | Trigger | What runs |
 |---|---|---|
-| Lint + unit tests | Every push & PR | ruff, ESLint, Prettier, pytest unit, vitest, Vite build |
-| Integration + coverage | Push to main | pytest integration, coverage reports (uploaded as artifacts) |
-| Electron build | Version tags (`v*`) | Gate check → multi-platform build (Win/macOS/Linux) → GitHub Release |
+| Pre-push hook (`.husky/pre-push`) | `git push` (local) | ruff check + format check (`backend/`, `scripts/`), pytest unit, ESLint, Prettier, `tsc` (frontend + Electron), vitest |
+| CI (`.github/workflows/ci.yml`) | Pull requests | pip-audit + bandit, backend unit + integration tests with coverage, frontend type check + build |
+| Release (`.github/workflows/release.yml`) | Manual (`workflow_dispatch`) | Full tests, cross-platform unit tests, Playwright E2E, Electron builds; publishes a GitHub Release when run with `publish=true` |
 
 Coverage thresholds: backend 40%, frontend 20% (ratcheted up over time).
 
-For detailed test strategy, conventions, and stress testing, see [docs/testing.md](docs/testing.md).
+For running tests, E2E setup, and stress testing, see [docs/development/testing.md](docs/development/testing.md).
 
 ---
 
@@ -197,8 +196,14 @@ cp .env.example .env
 
 | Variable | Default | Description |
 |---|---|---|
-| `CORS_ORIGINS` | `["http://localhost:5173"]` | Add your LAN IP for remote access |
+| `APP_DATA_DIR` | `./data` | Database, vector index, thumbnails, logs |
+| `IMAGE_LIBRARY_DIR` | `./images` | Managed image store and backups |
+| `CORS_ORIGINS` | `["http://localhost:3000","http://localhost:5173","http://localhost:8000"]` | JSON array; set to your domain behind a reverse proxy |
 | `INFERENCE_DEVICE` | `auto` | GPU acceleration: `auto`/`cpu`/`cuda`/`directml`/`coreml` |
+
+Full reference: [docs/deploy/configuration.md](docs/deploy/configuration.md).
+
+Server mode has **no built-in authentication**. Expose it only behind a reverse proxy that authenticates users (basic auth, forward-auth, or an OAuth proxy), and never directly to the internet.
 
 ---
 
@@ -210,13 +215,13 @@ Schema is managed by **Alembic** (applied automatically on API startup):
 uv run alembic upgrade head   # apply pending migrations manually
 ```
 
-**Backups** run on a scheduled interval and are written to `data/backups/{timestamp}/`:
+**Backups** run every 24 hours (when the scheduler is enabled) and are written to `<IMAGE_LIBRARY_DIR>/backups/{timestamp}/` (default `images/backups/`):
 - `battlemap.db` — consistent SQLite snapshot
 - LanceDB vector index snapshot
 
-Rotation keeps 7 daily + 4 weekly snapshots.
+Rotation keeps the 7 most recent snapshots plus up to 4 older weekly ones.
 
-**Restore from backup:** copy `battlemap.db` from a backup directory to `data/battlemap.db`, then run `uv run alembic upgrade head`.
+**Restore from backup:** stop the backend, copy `battlemap.db` from a backup directory to `<APP_DATA_DIR>/battlemap.db` (default `data/battlemap.db`), then start it again; migrations run on startup.
 
 ---
 
@@ -234,15 +239,15 @@ Starts the Vite dev server and Electron concurrently.
 
 ```bash
 # Full build (sidecar + frontend + Electron)
-uv run python scripts/build_electron.py
+uv run python scripts/build/build_electron.py
 
 # Or step by step
-uv run python scripts/build_sidecar.py   # PyInstaller backend
+uv run python scripts/build/build_sidecar.py   # PyInstaller backend
 cd frontend && npm run build              # Vite frontend
 npm run electron:build                    # electron-builder
 ```
 
-Release builds are automated via GitHub Actions on `v*` tags — push a tag like `v1.0.0` to trigger multi-platform builds and GitHub Release publishing.
+Release builds come from the manual `Release` workflow (`.github/workflows/release.yml`). Run it against `main` to test and build Windows (x64), macOS (Apple Silicon/arm64 only), and Linux (x64) artifacts; re-run with `publish=true` and a `version` to create the GitHub Release.
 
 ---
 
@@ -252,16 +257,13 @@ Release builds are automated via GitHub Actions on `v*` tags — push a tag like
 On first start, an ONNX embedding model is downloaded from HuggingFace. Model sizes vary by selection: small ~250 MB, medium ~500 MB, large ~1 GB. Subsequent starts use the local cache.
 
 **Import fails silently:**
-Check the API log for errors:
+Open the import from the activity dock and view its report for per-file problems, then check the backend log:
 ```bash
-tail -f logs/api.log
+tail -f data/logs/scene-atlas.log
 ```
 
-**Reset database (destructive):**
-```bash
-uv run python reset_database.py
-```
-Drops and recreates the SQLite database. All image metadata will be lost. Image files in `data/images/` are not affected.
+**Start over with an empty library (destructive):**
+Stop the backend, then delete `APP_DATA_DIR` (default `data/`: database, vector index, thumbnails) and `IMAGE_LIBRARY_DIR` (default `images/`: stored files and backups). Both are recreated on the next start. Stored files are content-addressed and cannot be used without the database, so delete both together.
 
 ---
 
@@ -280,6 +282,6 @@ cd docs && npm install && npm run dev
 
 Key docs:
 - [design/status-and-roadmap.md](design/status-and-roadmap.md) — feature inventory, in-progress work, backlog
-- [design/decisions.md](design/decisions.md) — all architecture decision records (ADRs 001-017)
-- [docs/building.md](docs/building.md) — build/deploy/run for all three deployment modes
-- [docs/testing.md](docs/testing.md) — running tests, E2E setup, stress testing
+- [design/decisions.md](design/decisions.md) — architecture decision records
+- [docs/development/building.md](docs/development/building.md) — build/deploy/run for all three deployment modes
+- [docs/development/testing.md](docs/development/testing.md) — running tests, E2E setup, stress testing

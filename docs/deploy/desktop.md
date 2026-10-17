@@ -6,12 +6,13 @@ The desktop app bundles Scene Atlas into a single installer. It runs the backend
 
 Get the latest release from [GitHub Releases](https://github.com/jennis0/scene-atlas/releases).
 
-| Platform | Format | Architectures | Gpu Support |
+| Platform | Format | Architectures | GPU acceleration |
 |----------|--------|---------------|---|
-| Windows | NSIS installer (`.exe`) | x64 | Yes (DirectX12 GPU) |
-| macOS | DMG (`.dmg`) | Universal (Intel + Apple Silicon) | Yes on Applie Silicon |
-| Linux | AppImage (`.AppImage`) + DEB (`.deb`) | x64 | No |
-| Docker | Build Yourself | Windows/Mac/Linux | Yes (via CUDA) |
+| Windows | NSIS installer (`.exe`) | x64 | Yes (DirectML, any DirectX 12 GPU) |
+| macOS | DMG (`.dmg`) | Apple Silicon (arm64) only | Yes (CoreML) |
+| Linux | AppImage (`.AppImage`) + DEB (`.deb`) | x64 | No (CPU only) |
+
+There is a single installer per platform; the Windows build includes DirectML support. Intel Macs are not supported by the desktop app; use the [Docker](/deploy/server) or [standalone](/deploy/standalone) server instead. For NVIDIA CUDA acceleration, use the Docker server with the `gpu` profile.
 
 ## Installation
 
@@ -25,9 +26,9 @@ Get the latest release from [GitHub Releases](https://github.com/jennis0/scene-a
 
 On first launch, Scene Atlas will:
 
-1. **Ask for a storage location**:choose where the app stores its data (database, thumbnails, search index). This is a dedicated directory managed by Scene Atlas, not your existing image folder. Your original files are copied into managed storage during import.
-2. **Download an AI model**:the default model (~250 MB) is downloaded from HuggingFace. Progress is shown in the UI.
-3. **Open the gallery**:once the model is ready, you can start importing images.
+1. **Ask for storage locations.** Choose an *app data location* (database, thumbnails, search index, logs) and an *image library location* (Scene Atlas's managed copy of your images, plus backups). Both default to `Documents/Scene Atlas/`. These are directories managed by Scene Atlas, not your existing image folder; files are copied into the library during import. You can also choose whether to convert images to WebP.
+2. **Choose and download an AI model.** A model is recommended for your hardware (Small ~250 MB without a GPU, Medium ~500 MB with one) and downloaded from HuggingFace, with progress shown. You can also pick tag packs at this step.
+3. **Open the gallery.** Once the model is ready, you can start importing images.
 
 ## System Requirements
 
@@ -36,7 +37,7 @@ On first launch, Scene Atlas will:
 | RAM | 8 GB | 16 GB |
 | App Data Disk | 2 GB + ~50% of your library size (for thumbnails, index, and converted copies) | SSD for faster indexing |
 | Image Data Disk | As much storage as is required for your image files! | This can be slower HDD without significant performance loss |
-| GPU | Not required | NVIDIA GPU (CUDA) for faster import processing |
+| GPU | Not required | DirectX 12 GPU (Windows) or Apple Silicon (macOS) for faster import processing |
 
 ## AI Models
 
@@ -54,9 +55,9 @@ The app auto-selects a model based on your hardware. See the [Configuration Refe
 
 Scene Atlas detects available GPU hardware automatically. You don't need an NVIDIA GPU:
 
-- **Windows:** DirectML works with any modern GPU (NVIDIA, AMD, Intel). CUDA is also supported for NVIDIA cards.
+- **Windows:** DirectML works with any DirectX 12 GPU (NVIDIA, AMD, Intel).
 - **macOS:** CoreML accelerates inference on Apple Silicon.
-- **Linux (desktop):** CPU inference. GPU support is available via Docker with NVIDIA CUDA.
+- **Linux (desktop):** CPU inference only. NVIDIA CUDA is available via the Docker server.
 - **CPU** is always available as a fallback on all platforms.
 
 No manual configuration needed. To force a specific device, set `INFERENCE_DEVICE` in environment variables before launch.
@@ -67,22 +68,23 @@ No manual configuration needed. To force a specific device, set `INFERENCE_DEVIC
 |------|----------|
 | App configuration | `{userData}/scene-atlas-config.json` |
 | Backend log | `{userData}/backend.log` |
-| Default data directory | Chosen during first launch |
+| App data and image library | Chosen during first launch (default `Documents/Scene Atlas/data` and `Documents/Scene Atlas/images`) |
+| Backend application log | `<app data>/logs/scene-atlas.log` |
 
 Where `{userData}` is:
 - **Windows:** `%APPDATA%/Scene Atlas`
 - **macOS:** `~/Library/Application Support/Scene Atlas`
 - **Linux:** `~/.config/Scene Atlas`
 
-The data directory contains the SQLite database, LanceDB vector index, thumbnails, and backups.
+The app data directory contains the SQLite database, LanceDB vector index, and thumbnails. Backups are written to `<image library>/backups/`. Both locations can be changed later in **Settings**.
 
-## Auto-Updates
+## Updates
 
-The app checks for updates via GitHub Releases. When a new version is available, you'll be prompted to download and install. Updates preserve your data and settings.
+The app does not update itself. Download new versions from [GitHub Releases](https://github.com/jennis0/scene-atlas/releases) and install over the existing version; your data directories and settings are kept.
 
 ## Troubleshooting
 
-**App won't start:** Check `{userData}/backend.log` for errors. The most common cause is a port conflict with another process.
+**App won't start:** Check `{userData}/backend.log` for errors. The backend picks a free port automatically, so check for a missing or unreadable data directory first.
 
 **Model download fails:** Check your internet connection. You can retry from Settings.
 

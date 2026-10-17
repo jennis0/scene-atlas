@@ -1,6 +1,6 @@
 # Importing Scenes
 
-Import happens through the web UI. Drag and drop files, folders, or ZIP archives and follow the steps below.
+Import happens through the web UI. Drag and drop files, folders, or ZIP archives; Scene Atlas groups them, uploads them, and processes them in the background.
 
 ## Supported Formats
 
@@ -12,68 +12,76 @@ Import happens through the web UI. Drag and drop files, folders, or ZIP archives
 
 ## The Import Flow
 
-### 1. Upload
+### 1. Choose files
 
-Click **Import** in the top bar, then drag files into the upload area or use the file picker. Files are uploaded in batches with a progress bar.
-
-<!-- TODO: screenshot — import dialog upload step -->
-
-### 2. Analysis
-
-After upload, Scene Atlas analyses your files:
-
-- **Duplicate detection** checks against your existing library by SHA-256 hash. Duplicates are flagged and skipped.
-- **Auto-grouping** runs a two-pass algorithm: first by folder structure, then by filename prefix patterns (e.g., `ForestClearing_Summer.jpg` and `ForestClearing_Winter.jpg` are grouped together).
-- **Metadata extraction** parses author names, grid dimensions, and tags from filenames where possible.
-
-### 3. Review and Confirm
-
-The analysis results show your detected groups. You can:
-
-- Rename groups or change the author
-- Drag images between groups to reorganise them
-- Merge groups together
-- Set image type per file (battlemap or scene)
+Click **Import**, choose whether the files are **Battlemaps** or **Scenes**, then drop files, folders, or ZIP archives onto the dialog, or use **Choose a folder** / **Choose files**. The type applies to every file in that import.
 
 ::: tip
-**Battlemaps** get grid detection applied automatically. **Scenes** (vistas, encounter art) skip grid detection. Choose the right type for best results.
+**Battlemaps** get grid detection. **Scenes** (vistas, encounter art) skip it. Choose the right type for best results; you can change an image's type afterwards in the group editor.
 :::
 
-### 4. Processing
+<!-- TODO: screenshot — import dialog start view -->
 
-Once confirmed, images are processed in batches:
+### 2. Grouping
 
-1. **Thumbnail generation** for fast gallery rendering
-2. **Colour extraction** (5 dominant colours per image)
-3. **Grid detection** for battlemaps only (square and hex)
-4. **AI embedding** for semantic search
-5. **Full-text indexing** of name, filename, author, and tags
+The browser first sends the list of files and their folder paths, then any ZIP archives (expanded on the server). The server then groups the files and parses metadata before any image bytes are uploaded:
 
-The **Activity Dock** in the bottom-right shows progress for all running imports. You can close the import dialog and continue browsing while processing runs in the background.
+- **Auto-grouping** uses folder structure first, then shared filename prefixes (e.g., `ForestClearing_Summer.jpg` and `ForestClearing_Winter.jpg` are grouped together).
+- **Metadata extraction** parses author names, grid dimensions, and tags from filenames and folders where possible.
+
+The import refuses to start if there is not enough free disk space for it.
+
+### 3. Upload and processing
+
+Files are then uploaded one at a time by a small pool of parallel uploads. Each file is hashed in the browser first, and files whose exact bytes are already in the library are skipped without being uploaded. Processing starts as soon as files arrive, so it overlaps the upload:
+
+1. **Duplicate check** on the decoded pixels (catches the same image saved differently)
+2. **Thumbnail generation** for fast gallery rendering
+3. **Colour extraction** (5 dominant colours per image)
+4. **Grid detection** for battlemaps only (square and hex)
+5. **AI embedding** for semantic search
+6. **Full-text indexing** of name, filename, author, and tags
+
+Each file is saved on its own, so finished images appear in the gallery while the rest of the import continues. The dialog shows upload progress and a ledger of groups as they fill in.
+
+### Running imports
+
+- **Close the dialog at any time.** The import keeps running, and the **activity dock** shows progress for all imports. Reopening the import shows the same job.
+- **Pause or resume** from the dialog or the dock, and **cancel** from the dialog. Cancelling keeps the images that already finished.
+- **Interrupted uploads** (closed tab, lost connection) can be resumed by choosing the same folder or files again; only the missing files are sent. A lost connection pauses uploading until it returns.
+- **Restarts are safe.** Work in progress resumes when the backend starts again. Problems such as a full disk or a model change pause the queue and show the reason, rather than failing files.
+
+### Import report
+
+When an import finishes, open its report to see:
+
+- **Groups** created, with links into the group editor
+- **Problems**, grouped by reason, with **Try again**
+- **Files already in the library**, with **Import as new copy** for a file that was wrongly matched as a duplicate
+- **Skipped** files (for example unsupported formats)
+
+From the report you can also **Undo import** (deletes the images it created, after confirmation) or dismiss it.
 
 ## Limits
 
-These defaults can be changed in [Settings](/deploy/configuration):
+These defaults can be changed in **Settings** (see the [Configuration Reference](/deploy/configuration#runtime-settings)):
 
-| Limit | Default |
-|-------|---------|
-| Max file size | 2 GB |
-| Max video file size | 2 GB |
-| Max files per import | 1,000 |
-| Max total import size | 2 GB |
+| Limit | Default | Applies to |
+|-------|---------|------------|
+| Max file size | 2 GB | Each file |
+| Max video file size | 2 GB | Each video |
+| Max files per import | 1,000 | Files inside one ZIP archive |
+| Max total upload size | 2 GB | Uncompressed contents of one ZIP archive |
 
-## WebP Conversion
+A single import can contain up to 50,000 files (server setting `MAX_IMPORT_ITEMS`).
 
-By default, imported images are converted to WebP for storage efficiency. Two modes are available in Settings:
+## Storage
 
-- **Lossless** (default): exact pixel-for-pixel copy in a smaller file
-- **Lossy**: configurable quality level (default 95) for further size reduction
-
-Original filenames are preserved in the database regardless of conversion.
+Imported files are stored as uploaded, under content-addressed names in the image library. Original filenames are kept in the database. The **Convert to WebP** setting is currently not applied by the import pipeline.
 
 ## Tips
 
-- **Large collections:** Import in batches of a few hundred for smoother progress tracking.
+- **Large collections:** A whole library folder can go in one import (up to 50,000 files). Keep the tab open until the upload finishes; processing continues without it.
 - **Naming conventions:** The auto-grouper works best when related files share a prefix (e.g., `TavernBrawl_Grid.jpg`, `TavernBrawl_Gridless.jpg`, `TavernBrawl_Night.jpg`).
 - **Folder structure:** If your files are already organised into folders per scene, Scene Atlas detects that structure as groups.
-- **Duplicates:** Re-importing a file that already exists skips it automatically. No wasted processing.
+- **Duplicates:** Files whose bytes or decoded pixels match an existing image are skipped automatically. Near-identical variants (gridded/gridless, lighting) are not treated as duplicates.

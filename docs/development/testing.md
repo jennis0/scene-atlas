@@ -4,21 +4,28 @@ For testing strategy, conventions, and guidelines on what to test, see [design/t
 
 For stress testing the import pipeline, see [stress-testing.md](stress-testing.md).
 
-## Pre-commit Setup
+## Where Tests Run
 
-Run `npm install` at the repository root to activate Husky pre-commit hooks. This installs git hooks that run `lint-staged` (ruff + ESLint + Prettier) on staged files before committing. If you only run `uv sync` (Python setup), the pre-commit hooks will not be installed.
+| Where | When | What |
+|-------|------|------|
+| Pre-commit hook | `git commit` | lint-staged: ruff fix/format on staged `backend/` and `scripts/` Python, ESLint + Prettier on staged `frontend/src` files, Prettier on `electron/src` |
+| Pre-push hook (`.husky/pre-push`) | `git push` | ruff check + format check (`backend/`, `scripts/`), `pytest backend/tests/unit/`, ESLint, `prettier --check src/`, `tsc --noEmit` (frontend + Electron), vitest |
+| CI (`.github/workflows/ci.yml`) | Pull requests to `main` | pip-audit + bandit, backend unit + integration tests with coverage (small model), frontend `npm run build` |
+| Release (`.github/workflows/release.yml`) | Manual | Everything above plus heavy tests, frontend coverage, unit tests on Windows and macOS, Playwright E2E, then Electron builds |
+
+Run `npm install` at the repository root to install the Husky hooks. If you only run `uv sync`, no hooks are installed and nothing runs before CI.
 
 ## Quick Reference
 
 ```bash
-# All fast tests (unit + integration, ~20s)
-uv run pytest backend/tests/unit backend/tests/integration -v
+# Backend unit tests (what pre-push runs)
+uv run python -m pytest backend/tests/unit -v
 
-# Just parser tests (fastest feedback loop, ~5s)
-uv run pytest backend/tests/unit/test_parser.py -v
+# Unit + integration (integration needs the small model: make ensure-model)
+EMBEDDING_MODEL=small uv run python -m pytest backend/tests/unit backend/tests/integration -v
 
-# Just the critical round-trip test
-uv run pytest backend/tests/integration/test_metadata_roundtrip.py -v
+# A single file (fast feedback loop)
+uv run python -m pytest backend/tests/unit/test_parser.py -v
 
 # Frontend tests
 cd frontend && npx vitest run
@@ -26,7 +33,7 @@ cd frontend && npx vitest run
 # Frontend tests with watch mode
 cd frontend && npx vitest
 
-# Heavy tests (real CLIP ONNX model -- ~289MB FP16, setup via scripts/models/setup_models.py)
+# Heavy tests (real CLIP ONNX model, setup via scripts/models/setup_models.py)
 uv run python -m pytest -m heavy -v
 
 # Run everything including heavy
@@ -53,7 +60,7 @@ make lint-fix       # auto-fix all lint + format issues
 
 ## Integration Tests (CLIP model required)
 
-Integration tests and heavy tests need a real ONNX model. `make test-integration` and `make test-heavy` automatically download the `small` model (~262 MB, quantized) on first run via `make ensure-model`. The model is cached locally and only downloaded once.
+Integration tests and heavy tests need a real ONNX model. `make test-integration` and `make test-heavy` automatically download the `small` model (~250 MB) on first run via `make ensure-model`. The model is cached locally and only downloaded once.
 
 ```bash
 make ensure-model       # download small model if not present
@@ -63,11 +70,11 @@ make test-heavy         # heavy tests with real CLIP inference
 
 ## Heavy Tests (CLIP)
 
-Tests marked with `@pytest.mark.heavy` load the real CLIP ONNX model and run real inference. They are **excluded by default** via `addopts = "-m 'not heavy'"` in pyproject.toml. Currently only `test_clip_heavy.py` uses this marker.
+Tests marked with `@pytest.mark.heavy` load the real CLIP ONNX model and run real inference. They are **excluded by default** via `-m 'not heavy'` in the pytest `addopts` in pyproject.toml. Currently only `test_clip_heavy.py` uses this marker.
 
 **Model caching:**
 - ONNX models are cached in CI via `actions/cache@v4` keyed on `backend/app/services/model_registry.py`
-- Models are only re-exported when the export script or config changes
+- On a cache miss, CI downloads the `small` model from HuggingFace with `scripts/models/setup_models.py` (no export in CI)
 
 **Test fixture:** The `clip_service` fixture is `session`-scoped and also primes the module-level singleton, so both direct `CLIPService` usage and `get_clip_service()` code paths work.
 
@@ -76,8 +83,8 @@ Tests marked with `@pytest.mark.heavy` load the real CLIP ONNX model and run rea
 Quality evaluation is integrated into `scripts/models/export_model_onnx.py` via the `--image-dir` flag. When provided, the export script runs a comprehensive quality assessment using the torch model (still loaded from the export phase) as reference.
 
 **When it runs:**
-- Locally: `make evaluate-onnx` or `uv run python scripts/models/export_model_onnx.py clip-vit-b-32 --image-dir /path/to/images`
-- Not in CI (requires real images and torch model; CI only does quick export)
+- Locally: `uv run python scripts/models/export_model_onnx.py <model> --image-dir /path/to/images`, where `<model>` is a name from `backend/app/services/model_registry.py` (`small`, `medium`, `large`). The `make evaluate-onnx` target still passes the old `clip-vit-b-32` name and `data/store/images` path.
+- Not in CI (requires real images and the torch model)
 
 **What it checks:**
 - Cosine diffs (max, mean) for vision and text encoders vs torch reference
@@ -92,7 +99,11 @@ Quality evaluation is integrated into `scripts/models/export_model_onnx.py` via 
 
 ## E2E Tests (Playwright)
 
-Playwright tests validate critical user flows in a real browser against the full stack (real backend, real frontend, real CLIP model).
+Playwright tests validate critical user flows in a real browser against the full stack (real backend, real frontend, real CLIP model). They run in the release workflow, not on pull requests.
+
+::: warning
+The seed helper (`e2e/helpers/seed.ts`) still calls the import endpoints removed by ADR-018 (`/imports/init`, `/upload-batch`, `/analyse`, `/confirm-all`). Seeding fails against the current backend until it is ported to the manifest → seal → per-file `PUT` flow.
+:::
 
 **Architecture:**
 - Located in `e2e/` at project root (not inside `frontend/`) -- tests exercise the full stack
@@ -105,7 +116,7 @@ Playwright tests validate critical user flows in a real browser against the full
 **Key files:**
 - `e2e/playwright.config.ts` -- Dual webServer, serial execution, CI/local reporter config
 - `e2e/fixtures/base.ts` -- Worker-scoped auto fixture that decrypts real images and seeds via API
-- `e2e/helpers/seed.ts` -- Uploads images via import API, confirms all groups, polls until done
+- `e2e/helpers/seed.ts` -- Seeds images via the import API and polls until done (see warning above)
 - `e2e/helpers/decrypt-fixtures.ts` -- Decrypts `e2e-images.zip.enc` (Git LFS) for CI and local dev
 
 **`reuseExistingServer`:** Locally, if you already have the backend and frontend running, Playwright reuses them -- no cold-start overhead. In CI, Playwright starts both servers fresh.
@@ -126,100 +137,39 @@ Playwright tests validate critical user flows in a real browser against the full
 
 ```
 backend/tests/
-├── conftest.py                    # Shared fixtures, LanceDB/CLIP mocking
-├── unit/                          # Pure logic, no DB, no filesystem side effects
-│   ├── test_parser.py             # ImageParser.parse() and group_files()
-│   ├── test_schemas.py            # Pydantic model validation and round-trips
-│   ├── test_thumbnail_names.py    # Preview thumbnail filename consistency
-│   ├── test_naming.py             # export_path, download_filename, sanitize_segment
-│   ├── test_pipeline_tasks.py     # color_extraction, image_processing, grid_detection, embedding
-│   ├── test_video_utils.py        # verify_video_mime, extract_first_frame, get_video_dimensions
-│   ├── test_color_search.py       # HSL color distance, color index search
-│   ├── test_deletion_service.py   # safe_delete_image, file + DB + LanceDB cleanup
-│   ├── test_system_info.py        # dir_size utility
-│   ├── test_path_traversal.py     # Path traversal prevention
-│   ├── test_validation.py         # Input validation helpers
-│   ├── test_import_state.py       # Import state machine transitions
-│   ├── test_fts_service.py        # FTS5 full-text search
-│   ├── test_grid_detector.py      # Image-based grid detection algorithm
-│   ├── test_image_store.py        # Hash-sharded filesystem storage
-│   ├── test_maintenance.py        # Backup + cleanup tasks
-│   ├── test_config_mode.py        # APP_MODE config detection
-│   ├── test_ort_providers.py      # ONNX Runtime execution provider selection + fallback
-│   ├── test_manifest.py           # Model manifest loading and validation
-│   └── test_resource_detector.py  # compute_resource_defaults concurrency scaling
-├── integration/                   # Real SQLite DB, mocked CLIP/LanceDB
-│   ├── test_metadata_roundtrip.py # User edits survive to DB (highest priority)
-│   ├── test_analyse_upload.py     # analyse_upload (grouping + thumbnails)
-│   ├── test_process_single.py     # process_single_image (both modes)
-│   ├── test_process_import_group.py # process_import_group + process_import_job
-│   ├── test_upload_endpoint.py    # POST /imports/upload
-│   ├── test_confirm_endpoint.py   # POST /imports/{id}/confirm
-│   ├── test_preview_endpoint.py   # GET /imports/{id}/preview/{path}
-│   ├── test_imports_status.py     # GET /imports/{id}/status + active
-│   ├── test_search_endpoint.py    # GET /api/v1/search/ + facets
-│   ├── test_images_endpoint.py    # GET/PATCH/DELETE /api/v1/images/ + scenes + file serving
-│   ├── test_groups_endpoint.py    # Groups CRUD, merge, move-images, download
-│   ├── test_tags_endpoint.py      # Tags/categories CRUD + cascading
-│   ├── test_export_endpoint.py    # GET /api/v1/export/library (ZIP structure + metadata)
-│   ├── test_system_admin.py       # GET /api/v1/system/ endpoints
-│   ├── test_system_endpoint.py    # System info + delete library
-│   ├── test_health_endpoint.py    # GET /health deep health check
-│   ├── test_backup_restore.py     # Backup + restore pipeline
-│   ├── test_expire_stale_jobs.py  # Stale job expiry + staging cleanup
-│   └── test_clip_heavy.py         # Real CLIP model tests (marked @heavy, excluded by default)
+├── conftest.py            # Shared fixtures, LanceDB/CLIP mocking
+├── fixtures/              # Fixture notes (README.md)
+├── unit/                  # Pure logic: parser, schemas, ingest state machine, error
+│                          # classifier, memory budget, image hashes, grid detector,
+│                          # search/FTS, image store, maintenance, config, ORT providers,
+│                          # schema drift (ORM vs Alembic), ...
+├── integration/           # Real SQLite DB, mocked or real CLIP:
+│   ├── test_imports_api.py         # Import job API (manifest, seal, content PUT, actions)
+│   ├── test_ingest_pipeline.py     # IngestWorker end to end
+│   ├── test_search_endpoint.py     # Search + facets
+│   ├── test_search_characterisation.py  # Ranking snapshots (golden/search_responses.json)
+│   ├── test_query_counts.py        # N+1 query guards
+│   ├── test_images_endpoint.py, test_groups_endpoint.py, test_tags_endpoint.py,
+│   ├── test_export_endpoint.py, test_models_api.py, test_system_*.py,
+│   ├── test_health_endpoint.py, test_rate_limits.py, test_backup_restore.py
+│   └── test_clip_heavy.py          # Real CLIP model (marked heavy, excluded by default)
+├── test_prepare_pool.py   # Outside pytest testpaths: run only when targeted explicitly,
+└── test_seed_settings.py  # never by a bare `pytest`, pre-push, or CI
 
-e2e/                                  # Playwright E2E tests (full stack, real browser)
-├── playwright.config.ts              # Dual webServer (backend + frontend)
-├── tsconfig.json
-├── fixtures/
-│   ├── base.ts                       # Worker-scoped seed fixture (decrypts + seeds via API)
-│   └── e2e-images.zip.enc           # Encrypted real test images (Git LFS)
-├── helpers/
-│   ├── actions.ts                    # Reusable test helpers (gallery, import, search, filter)
-│   ├── config.ts                     # Backend URL config
-│   ├── decrypt-fixtures.ts           # Decrypt encrypted fixture archive
-│   └── seed.ts                       # API-based data seeding orchestration
-└── tests/
-    ├── smoke.spec.ts                 # Health check, page load, seeded data
-    ├── gallery.spec.ts               # Image display, type tabs, view toggle, sort
-    ├── gallery-deep.spec.ts          # Text-only search, semantic, filters, grouped view
-    ├── search.spec.ts                # Text search, semantic prefix, clear
-    ├── image-viewer.spec.ts          # Modal open/close, keyboard nav, delete nav
-    ├── import.spec.ts                # Upload dialog, file upload preview
-    ├── upload-flow.spec.ts           # Upload, search, filter, metadata viewer
-    ├── import-deep.spec.ts           # Upload controls, type toggle, processing
-    ├── edit-group.spec.ts            # Context menu, group metadata, escape close
-    └── activity-dock.spec.ts         # Dock pill, expanding job cards
+e2e/                       # Playwright (full stack, real browser)
+├── playwright.config.ts   # Dual webServer (backend + frontend), serial
+├── fixtures/              # base.ts seed fixture, e2e-images.zip.enc (Git LFS)
+├── helpers/               # actions.ts, config.ts, decrypt-fixtures.ts, seed.ts
+└── tests/                 # 10 *.spec.ts files listed above
 
-frontend/src/
-├── components/
-│   ├── ActivityDock.test.tsx
-│   ├── DesktopGate.test.tsx
-│   ├── EditGroupDialog.test.tsx
-│   ├── LibraryInfoDialog.test.tsx
-│   └── import/
-│       ├── fileFilter.test.ts
-│       ├── tagColors.test.ts
-│       └── types.test.ts
-├── contexts/
-│   └── ThemeContext.test.tsx
-├── hooks/
-│   ├── useEditGroupOperations.test.ts
-│   ├── useFileEditing.test.ts
-│   ├── useGalleryDialogs.test.ts
-│   ├── useGallerySearch.test.ts
-│   ├── useImageGrouping.test.ts
-│   ├── useImportState.moveFiles.test.ts
-│   ├── useImportUpload.test.ts
-│   ├── useJobPolling.test.ts
-│   └── useSettingsDraft.test.tsx
-└── lib/
-    ├── apiBase.test.ts
-    ├── appMode.test.ts
-    ├── categoryIcons.test.ts
-    ├── constants.test.ts
-    ├── getErrorMessage.test.ts
-    ├── importStorage.test.ts
-    └── mimeCheck.test.ts
+frontend/src/              # Vitest, colocated *.test.ts(x) files
+├── components/            # ActivityDock, DesktopGate, EditGroupDialog, LibraryInfoDialog,
+│                          # import/*, imports/imports.test.tsx
+├── contexts/              # ThemeContext
+├── hooks/                 # useEditGroupOperations, useFileEditing, useGalleryDialogs,
+│                          # useGallerySearch, useJobPolling, useSettingsDraft
+└── lib/                   # apiBase, appMode, categoryIcons, constants, getErrorMessage,
+                           # import/ImportManager.test.ts
 ```
+
+List the current files with `ls backend/tests/unit backend/tests/integration` and `find frontend/src -name "*.test.ts*"`.

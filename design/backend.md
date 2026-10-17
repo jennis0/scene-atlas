@@ -2,323 +2,367 @@
 
 ## Overview
 
-The backend is a **FastAPI** application serving a REST API for image management, search, and import. It connects to SQLite (relational data), LanceDB (vector embeddings, disk-backed and memory-mapped), and the filesystem (image/thumbnail storage). Background work runs in-process via a `JobRunner` (ThreadPoolExecutor) and periodic maintenance via a `Scheduler` (asyncio).
+The backend is a **FastAPI** application serving a REST API for image management, search and import. It uses SQLite (relational data, source of truth), LanceDB (vector embeddings, disk-backed and memory-mapped) and the filesystem (image and thumbnail storage). In-process background work:
+
+- **IngestWorker** — one thread that processes import items (see [ingestion.md](ingestion.md)).
+- **JobRunner** — a `ThreadPoolExecutor` for user-triggered maintenance jobs (re-embedding, retagging, backfills, model downloads, library deletion).
+- **Scheduler** — asyncio-driven periodic maintenance.
+
+Concurrency limits are described in [resource-management.md](resource-management.md).
 
 ## Directory Structure
 
 ```
 backend/
 ├── app/
-│   ├── api/              # API route handlers
-│   │   ├── groups.py     # Image group CRUD, merge, mass-edit
-│   │   ├── images.py     # CRUD + file serving for images
-│   │   ├── imports.py    # Web import upload/confirm/status
-│   │   ├── jobs.py       # Background job status API
-│   │   ├── search.py     # Text, filter, and semantic search
-│   │   └── tags.py       # Tag categories and tag CRUD
+│   ├── api/                      # Route handlers (one router per module)
+│   │   ├── dependencies.py       # get_db, acquire_heavy_op (admission semaphore)
+│   │   ├── export.py             # Library ZIP export
+│   │   ├── groups.py             # Group detail, edit, merge, move, ZIP download, picker search
+│   │   ├── images.py             # Image CRUD + file/thumbnail serving
+│   │   ├── imports.py            # Import jobs: manifest, archives, seal, content upload, actions
+│   │   ├── jobs.py               # Background job status
+│   │   ├── models.py             # Embedding model list/download/switch
+│   │   ├── rate_limits.py        # Shared slowapi Limiter
+│   │   ├── search.py             # Image and group search, facets
+│   │   ├── settings.py           # DB-backed app settings
+│   │   ├── system.py             # Library info, delete library, reset tags
+│   │   └── tags.py               # Tag categories, values, packs
+│   ├── data/
+│   │   ├── tag_vocabulary.json   # Canonical tag vocabulary + genre packs
+│   │   └── vocabulary.py         # Vocabulary loader
 │   ├── models/
-│   │   ├── database.py   # SQLAlchemy models + DB setup + seed data
-│   │   └── schemas.py    # Pydantic request/response schemas
+│   │   ├── database.py           # SQLAlchemy models, engine, init_db (Alembic), seeding
+│   │   ├── import_schemas.py     # Pydantic models for the imports API
+│   │   └── schemas.py            # Pydantic models for all other APIs, AppSettings
 │   ├── services/
-│   │   ├── clip_service.py      # CLIP model for embeddings
-│   │   ├── color_search.py      # Color-based image search (LAB distance)
-│   │   ├── ort_providers.py     # ONNX Runtime provider resolution + GPU fallback
-│   │   ├── deletion_service.py  # Cascade deletion (image + store + LanceDB)
-│   │   ├── fts_service.py       # SQLite FTS5 full-text search
-│   │   ├── grid_detector.py     # Image-based grid detection algorithm
-│   │   ├── image_parser.py      # Filename/path metadata parser
-│   │   ├── image_store.py       # Hash-sharded filesystem storage
-│   │   ├── job_runner.py        # Background job runner (ThreadPoolExecutor)
-│   │   ├── lancedb_service.py   # LanceDB disk-backed vector DB client
-│   │   ├── scheduler.py         # Periodic task scheduler (asyncio)
-│   │   ├── search_service.py    # Hybrid search, filters, facets (see search.md)
-│   │   ├── validation.py        # Input validation helpers
-│   │   └── video_utils.py       # Video frame extraction + dimensions
-│   ├── config.py         # Pydantic settings (env-driven)
-│   └── main.py           # FastAPI app creation, router mounting, startup
+│   │   ├── app_settings.py       # Read/write app_settings rows
+│   │   ├── clip_service.py       # ONNX embedding models (CLIP / SigLIP2)
+│   │   ├── color_search.py       # Colour proximity search (HSL cylinder distance)
+│   │   ├── deletion_service.py   # Image deletion with ref-counted file cleanup
+│   │   ├── fts_service.py        # SQLite FTS5 helpers, alias expansion
+│   │   ├── grid_detector.py      # Image-based grid detection
+│   │   ├── image_parser.py       # Filename/path metadata parser
+│   │   ├── image_store.py        # Hash-sharded filesystem store
+│   │   ├── ingest_state.py       # Import item/job state machines (pure)
+│   │   ├── job_runner.py         # JobRunner (ThreadPoolExecutor + status tracking)
+│   │   ├── lancedb_service.py    # LanceDB client
+│   │   ├── memory_budget.py      # MemoryBudget for image preparation
+│   │   ├── model_download_service.py  # HuggingFace model downloads
+│   │   ├── model_registry.py     # Static registry of embedding models
+│   │   ├── ort_providers.py      # ONNX Runtime provider selection + GPU fallback
+│   │   ├── prepare_pool.py       # Shared prepare ThreadPoolExecutor
+│   │   ├── scheduler.py          # Periodic task scheduler
+│   │   ├── search_service.py     # Hybrid search, filters, facets (see search.md)
+│   │   ├── tag_packs.py          # Tag pack import
+│   │   ├── validation.py         # ZIP safety check, MIME verification
+│   │   └── video_utils.py        # Video first frame + dimensions
+│   ├── config.py                 # Pydantic settings (env-driven)
+│   ├── logging_config.py         # Console + rotating file logging; Pillow pixel limit
+│   ├── main.py                   # App creation, middleware, routers, lifespan
+│   ├── process_utils.py          # RSS reading
+│   └── resource_detector.py      # CPU/RAM-based concurrency defaults
 ├── pipeline/
-│   ├── ingestion.py              # Image ingestion (analyse, process, bulk ingest)
-│   ├── maintenance.py            # Backup + staging cleanup (scheduled)
-│   ├── logger.py                 # Logging helper for pipeline modules
-│   ├── backfill_content_hash.py  # Hash backfill CLI utility
-│   ├── backfill_grid_detection.py # Grid detection backfill CLI utility
-│   ├── fix_orphaned_images.py    # Orphaned image repair CLI utility
-│   ├── reparse_names.py          # Name reparsing CLI utility
-│   ├── retag_all_images.py       # Retagging CLI utility
-│   ├── write_new_embeddings.py   # Embedding regeneration (background job)
+│   ├── ingest_queue.py           # Durable item/job operations (create, manifest, plan, claim, actions)
+│   ├── ingest_archive.py         # ZIP expansion into import items
+│   ├── ingest_process.py         # Batch processing: prepare → embed → commit → vectors
+│   ├── ingest_worker.py          # IngestWorker thread
+│   ├── ingest_maintenance.py     # Scheduled ingest cleanup (state-driven)
+│   ├── image_hashes.py           # SHA-256, pixel hash, perceptual hash
+│   ├── vector_reconcile.py       # Align LanceDB with SQLite by image id
+│   ├── maintenance.py            # Backups + orphaned store file sweep
+│   ├── error_classifier.py       # Exception → user-facing error kind/reason
+│   ├── pipeline_config.py        # PipelineConfig built from app settings
+│   ├── naming.py                 # Filename/export path helpers
+│   ├── export_library.py         # Export library to a directory tree
+│   ├── write_new_embeddings.py   # Re-embed all images (background job)
+│   ├── retag_all_images.py       # Retag job
+│   ├── backfill_grid_detection.py # Grid detection backfill job
+│   ├── backfill_content_hash.py  # content_hash backfill utility
+│   ├── fix_orphaned_images.py    # Assign groupless images utility
+│   ├── reparse_names.py          # Re-run name parsing utility
+│   ├── db.py                     # Session helper for pipeline scripts
 │   └── tasks/
-│       ├── color_extraction.py      # K-means dominant color extraction
-│       ├── embedding_generation.py  # CLIP embedding generation
-│       ├── grid_detection.py        # Image-based grid analysis
-│       └── image_processing.py      # Thumbnails, dimensions, file size
-├── alembic/              # Database migrations
-└── tests/
+│       ├── color_extraction.py   # K-means dominant colours
+│       ├── embedding_generation.py # Embedding generation
+│       ├── grid_detection.py     # Grid detection wrapper
+│       └── image_processing.py   # Thumbnail generation
+├── alembic/versions/             # Database migrations
+├── pyinstaller/                  # Frozen sidecar entry point + spec
+├── scripts/                      # Developer scripts (grid detection eval)
+└── tests/                        # unit/, integration/, fixtures/
 ```
 
 ## API Endpoints
 
-All endpoints are prefixed with `/api/v1`.
+All API routes are mounted under `/api/v1` (`settings.api_prefix`); router prefixes are set in `main.py`. `/health` and `/` are at the root.
 
 ### Images (`/images`)
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/` | List images (paginated) |
-| GET | `/authors` | List distinct author values |
-| GET | `/{id}` | Get single image |
-| PATCH | `/{id}` | Update image metadata (name, subgroup, grid info, type) |
-| DELETE | `/{id}` | Delete image + files |
-| GET | `/{id}/scenes` | Get group members (scenes) |
-| GET | `/{id}/file` | Serve original image file |
-| GET | `/{id}/thumbnail` | Serve thumbnail (falls back to original) |
-| POST | `/backfill-grids` | Trigger grid detection backfill (background job) |
+| GET | `/` | List images |
+| GET | `/authors` | Distinct author values |
+| GET | `/{id}` | Get one image |
+| PATCH | `/{id}` | Update image metadata |
+| DELETE | `/{id}` | Delete image and its files |
+| GET | `/{id}/scenes` | Other images in the same group |
+| GET | `/{id}/file` | Serve the original file |
+| GET | `/{id}/thumbnail` | Serve a thumbnail (falls back to the original) |
+| POST | `/backfill-grids` | Grid detection backfill job (rate limited: expensive) |
 
 ### Search (`/search`)
+Logic lives in `backend/app/services/search_service.py`; ranking is described in [search.md](search.md).
+
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/` | Multi-faceted search (text + tags + colors + semantic), returns flat Image[] |
-| GET | `/groups` | **[NEW]** Grouped search — returns groups with pagination, image IDs, and scores. See below. |
-| GET | `/facets` | Filter panel facet counts |
-| POST | `/rebuild-embeddings` | Trigger CLIP embedding rebuild (background job) |
+| GET | `/` | Image search → `ImageSearchResponse` (`total`, `limit`, `offset`, `images`, `scores`) |
+| GET | `/groups` | Group search → `GroupSearchResponse` (`total_groups`, `limit`, `offset`, `groups`) |
+| GET | `/facets` | Filter panel option counts |
+| POST | `/rebuild-embeddings` | Re-embed all images job (rate limited: expensive) |
 
-**GET `/groups` — Grouped Search Endpoint**
+Shared parameters for `/` and `/groups`:
+- `query`, `semantic_only`, `text_only` — the frontend maps a `~` prefix to `semantic_only` and `=` to `text_only`.
+- Filters: `tags`, `exclude_tags`, `authors`, `exclude_authors`, `colors`, `image_types`, `media_types`, `gridded`, `gridded_unknown`, `grid_type`. Tags are OR within a category and AND across categories; colours are OR.
+- `sort_by` (`created_at` | `name` | `relevance`, default `created_at`), `sort_dir` (`asc` | `desc`), `limit`, `offset`.
 
-Returns `GroupSearchResponse` with paginated groups. Supports two modes:
-
-**Browse Mode (no query):**
-- Groups sorted alphabetically by `baseName`
-- All groups returned; image IDs included for all images in each group
-- Used for initial gallery view
-
-**Search Mode (query parameter):**
-- Groups sorted by `bestScore` descending (semantic or RRF score)
-- Returns only groups with matching images
-- Image IDs in `all_image_ids` are only matching images (non-matching group members excluded)
-- Non-matching group members marked as `outOfScope` in Edit All dialogs
-
-**Parameters:**
-- `query?: string` — text or semantic search string
-- `authors?: string[]` — filter by author (OR semantics)
-- `tags?: string[]` — filter by tags (OR within category, AND across)
-- `colors?: string[]` — filter by dominant color (OR)
-- `gridded?: 'true' | 'false' | 'unknown'` — filter by grid state
-- `image_type?: 'battlemap' | 'scene'` — filter by image type
-- `media_type?: 'image' | 'video'` — filter by media type
-- `min_score?: number` — relevance slider threshold (0.0-1.0)
-- `semantic_only?: boolean` — restrict to semantic search only (no text/FTS)
-- `text_only?: boolean` — restrict to text/FTS search only (no semantic)
-- `sort_by?: string` — sort field (e.g. `baseName`, `bestScore`)
-- `sort_dir?: string` — sort direction (`asc` or `desc`)
-- `limit?: number` — groups per page (default 50, max 500)
-- `offset?: number` — pagination offset
-- `include_all_image_ids?: boolean` — populate `all_image_ids` field (default false). Used by Edit All to fetch all in-scope image IDs.
-
-**Response (`GroupSearchResponse`):**
-```json
-{
-  "groups": [
-    {
-      "group_id": 123,
-      "base_name": "Forest Variants",
-      "author": "Czepeku",
-      "hero_image": { /* full Image object */ },
-      "mosaic_images": [ /* 3-4 full Image objects */ ],
-      "total_scenes": 45,
-      "matching_scenes": 12,
-      "best_score": 0.876,
-      "all_image_ids": [1, 2, 3, ...] // only present when include_all_image_ids=true
-    }
-  ],
-  "total_groups": 127,
-  "page": 0,
-  "limit": 50
-}
-```
+`/groups` also takes `include_all_image_ids` (populate `all_image_ids`, used by Edit All). Without a query, groups are listed in `sort_by` order; with a query, groups are ranked by their best-matching image and `sort_by` is ignored. Each `GroupSearchResult` has `group_id`, `base_name`, `author`, `hero_image`, `mosaic_images`, `total_scenes`, `matching_scenes`, `best_score`, `all_image_ids`. `limit` defaults to 50 (max 500) for groups and 500 (max 2000) for images.
 
 ### Groups (`/groups`)
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/{id}` | Get group with members |
-| GET | `/{id}/download` | Stream group as ZIP archive |
+| GET | `/search` | Typeahead group picker (`q`, `exclude_id`, `reference_name`) |
+| GET | `/{id}` | Group with members |
+| GET | `/{id}/download` | Stream group as ZIP |
 | PUT | `/{id}` | Update group metadata |
 | DELETE | `/{id}` | Delete group |
 | POST | `/{id}/move-images` | Move images between groups |
-| POST | `/{id}/merge` | Merge another group into this one |
+| POST | `/{id}/merge` | Merge this group into a target group |
 
 ### Tags (`/tags`)
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/categories` | List tag categories |
-| POST | `/categories` | Create new category |
-| GET | `/categories/{name}` | Get specific category |
+| GET | `/categories` | List categories |
+| POST | `/categories` | Create category |
+| GET | `/categories/{name}` | Get category |
 | PATCH | `/categories/{name}` | Update category (cascade renames) |
 | DELETE | `/categories/{name}` | Delete category (cascade deletes) |
 | PUT | `/categories/{name}/tags/{value}` | Add/update tag value + aliases |
-| PATCH | `/categories/{name}/tags/{value}` | Rename a tag value |
-| DELETE | `/categories/{name}/tags/{value}` | Delete a tag value |
-| GET | `/values/{category}` | List values for a category |
-| GET | `/image/{id}` | List tags for an image |
-| POST | `/image/{id}` | Add tag to image |
+| PATCH | `/categories/{name}/tags/{value}` | Rename tag value |
+| DELETE | `/categories/{name}/tags/{value}` | Delete tag value |
+| GET | `/values/{category}` | Values for a category |
+| GET | `/image/{id}` | Tags for an image |
+| POST | `/image/{id}` | Add tag to an image |
 | DELETE | `/{tag_id}` | Remove a tag |
 | GET | `/stats` | Tag statistics |
-| POST | `/retag-all` | Trigger full retag job |
+| GET | `/packs` | Tag packs with import status |
+| POST | `/packs/import-multiple` | Import several packs (setup wizard) |
+| POST | `/packs/{name}/import` | Import one pack (rate limited: expensive) |
+| POST | `/retag-all` | Retag job (rate limited: expensive) |
 
 ### Imports (`/imports`)
+Defined in `backend/app/api/imports.py`. The flow and state machines are in [ingestion.md](ingestion.md).
+
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST | `/check-hashes` | Pre-flight duplicate check via content hash |
-| POST | `/init` | Initialise a new import job |
-| POST | `/upload` | Upload files for import analysis |
-| POST | `/{job_id}/confirm-all` | Confirm all groups at once |
-| GET | `/{job_id}/status` | Check import job progress |
-| GET | `/{job_id}/analysis` | Get or reconnect to analysis results |
-| POST | `/{job_id}/cancel` | Cancel an import job |
-| POST | `/{job_id}/groups/{gid}/cancel` | Cancel a single group |
-| GET | `/{job_id}/preview/{path}` | Serve preview thumbnail |
-| GET | `/active` | List active import jobs |
-| POST | `/{job_id}/upload-batch` | Batch file upload for import job |
-| POST | `/{job_id}/analyse` | Trigger group detection on uploaded files |
-| POST | `/{job_id}/report-skipped` | Report skipped files from client |
-| POST | `/{job_id}/fail` | Client failure reporting (marks job as failed) |
-| DELETE | `/cleanup` | Clean up old/expired imports |
+| GET | `` | Job summaries + queue status (ETag / `If-None-Match`) |
+| POST | `` | Create an import job |
+| POST | `/queue/probe` | Re-check system pause conditions now |
+| GET | `/{job_id}` | Job detail |
+| GET | `/{job_id}/items` | Paginated items (filter by state, group, error kind) |
+| POST | `/{job_id}/manifest` | Add a chunk of file descriptions (no bytes); unsealed jobs only |
+| PUT | `/{job_id}/archives` | Upload a ZIP (raw body); expanded into items; unsealed jobs only. Holds the heavy-op semaphore |
+| POST | `/{job_id}/seal` | Close the file list, plan groups, start processing. Idempotent. Holds the heavy-op semaphore |
+| POST | `/{job_id}/hashes` | Client SHA-256s; known files become duplicates without upload |
+| PUT | `/{job_id}/items/{item_id}/content` | Upload one file's bytes (raw body). Idempotent |
+| POST | `/{job_id}/pause` | Pause |
+| POST | `/{job_id}/resume` | Resume |
+| POST | `/{job_id}/cancel` | Stop; finished files are kept |
+| POST | `/{job_id}/retry` | Retry failed items (all or `item_ids`) |
+| POST | `/{job_id}/import-as-copy` | Import duplicates as independent images |
+| POST | `/{job_id}/finish-upload` | Skip items whose bytes never arrived |
+| POST | `/{job_id}/groups/{group_id}/skip` | Skip a planned group |
+| POST | `/{job_id}/dismiss` | Hide a finished job from the activity dock |
+| DELETE | `/{job_id}` | Undo: delete the images this import created, then the job |
 
 ### Jobs (`/jobs`)
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/` | List background jobs |
-| GET | `/{id}` | Get background job status |
+| GET | `/` | List JobRunner jobs |
+| GET | `/{id}` | JobRunner job status |
 
 ### Export (`/export`)
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/library` | Stream entire library as ZIP |
+| GET | `/library` | Stream library as ZIP (rate limited: expensive) |
 
 ### System (`/system`)
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/info` | Storage usage and library stats |
-| DELETE | `/library` | Delete entire library (background job) |
-| POST | `/tags/reset` | Reset tags to seed defaults |
+| DELETE | `/library` | Delete entire library job (rate limited: destructive) |
+| POST | `/tags/reset` | Reset tags to seed defaults (rate limited: destructive) |
 
 ### Settings (`/settings`)
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/` | Get app settings |
-| PATCH | `/` | Update app settings |
+| PATCH | `/` | Update app settings (rate limited: expensive) |
 
 ### Models (`/models`)
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/setup-status` | First-time setup status (GPU detection, recommended model) |
-| GET | `/` | List available models with download status |
-| POST | `/active` | Set active embedding model (triggers download + re-embed job) |
+| GET | `/` | Models with download status |
+| GET | `/embedding-status` | Embedding service loading status |
+| GET | `/setup-status` | First-run setup status (GPU detection, recommended model) |
 | POST | `/{name}/download` | Download a model without activating it |
-| DELETE | `/{name}/embeddings` | Delete a model's stale embeddings |
-| GET | `/embedding-status` | CLIP service loading status |
-| POST | `/setup-complete` | Mark first-time setup done |
+| GET | `/{name}/embeddings` | LanceDB stats for a model's table |
+| DELETE | `/{name}/embeddings` | Delete a model's embeddings |
+| POST | `/active` | Set active model (download + re-embed job) |
+| POST | `/setup-complete` | Mark first-run setup done |
 
-### Health
+### Root
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/health` | Deep health check (DB + LanceDB + job runner) |
+| GET | `/health` | Deep health check: database, LanceDB, embedding model, JobRunner |
+| GET | `/` | SPA `index.html` when a frontend build exists; otherwise a status page (server mode) or JSON |
+
+When `frontend/dist` exists, `/assets` is served statically and a catch-all route serves `index.html` for client-side routes.
 
 ## Services
 
 ### ImageStore
-Hash-sharded object store. Interface: `put(key, path)`, `get_path(key)`, `delete(key)`, `exists(key)`. Two instances: one for images, one for thumbnails. See [storage.md](storage.md).
+Hash-sharded object store: `put(key, path)`, `put_bytes(key, data)`, `get_path(key)`, `exists(key)`, `delete(key)`. Two instances: images (library root) and thumbnails. See [storage.md](storage.md).
 
 ### CLIPService
-Multi-model embedding service (CLIP ViT-B/32, SigLIP2-base, SigLIP2-so400m) via ONNX Runtime. Lazy-loaded on first use. Methods: `encode_image(path) -> [float]`, `encode_text(query) -> [float]`, `batch_encode_images(paths)`.
+Embedding service for CLIP ViT-B/32, SigLIP2-base and SigLIP2-so400m via ONNX Runtime. Loaded in a background thread at startup. `encode_image(path)`, `encode_text(query)` (LRU-cached), `batch_encode_images(paths)`.
 
-### ModelRegistryService
-Module (not a class): `backend/app/services/model_registry.py` — Static registry of all three ONNX model specs (names, HF repos, descriptions, hardware recommendations). Single source of truth used by the download service, API, and export/publish scripts.
-
-### ModelDownloadService
-`backend/app/services/model_download_service.py` — Downloads models from HuggingFace to `APP_DATA_DIR/models/{name}/` using atomic temp-dir→rename pattern. `version.json` is the completion marker. Exposes `is_model_downloaded()`, `get_version_info()`, `download_model()`, `get_all_model_statuses()`.
+### Model registry and downloads
+`model_registry.py` is the static registry of model specs (names, HF repos, hardware recommendations). `model_download_service.py` downloads to `APP_DATA_DIR/models/{name}/` via temp-dir → rename; `version.json` marks completion.
 
 ### LanceDBService
-Disk-backed LanceDB vector DB client (memory-mapped from disk, no Docker). Manages the `embeddings_{model_name}` table. Thread-safe via `threading.RLock`. Methods: `add_image_embedding`, `search_similar`, `delete_image_embedding`, `batch_add_embeddings`.
+Disk-backed LanceDB client managing `embeddings_{model_name}` tables. A `threading.RLock` serialises write operations. `add_image_embedding`, `batch_add_embeddings`, `search_similar`, `delete_image_embedding`, `delete_embeddings`, `get_all_ids`.
 
 ### ImageParser
 Filename/path parser with DB-driven tag vocabulary. See [parser.md](parser.md).
 
-### FTSService
-SQLite FTS5 full-text search. Manages the `image_fts` virtual table with Porter stemmer. Provides `search(query) -> [(image_id, rank)]` for BM25-ranked text search.
+### FTS service
+SQLite FTS5 over `image_fts` (Porter stemmer), BM25 ranking, query sanitisation and tag alias expansion.
 
-### ColorSearch
-Color-based image search using CIE LAB distance. Finds images with dominant colors near a given hex color within a configurable threshold.
+### Colour search
+Colour proximity using distance in an HSL cylinder, with an in-memory index cached for `color_cache_ttl_seconds`.
 
-### ImportStateService
-State machine for import job lifecycle. Validates transitions between the 7 import statuses (uploading → staging → active → completed/failed/cancelled/expired). See [import-state-machine.md](import-state-machine.md).
+### Ingest state (`ingest_state.py`)
+Pure transition tables for item states (`awaiting_bytes`, `ready`, `processing`, `done`, `duplicate`, `failed`, `skipped`) and job states (`active`, `paused`, `completed`, `cancelled`). All item updates go through it.
+
+### IngestWorker (`backend/pipeline/ingest_worker.py`)
+One daemon thread per process. Sleeps until woken (bytes received, seal, resume, retry) or a 30 s timeout, claims a batch of up to `ingestion_batch_size` ready items round-robin across jobs, and processes it with `process_batch` (prepare on the prepare pool → embed → one `BEGIN IMMEDIATE` commit → LanceDB write → staging cleanup). When the system is unfit (model unavailable, library folder missing, < 512 MB free on an ingest volume) it stops claiming and re-probes instead of failing items. `recover()` clears `.incoming/` temp files and re-queues items left `processing` by a dead process; `stop()` lets the in-flight batch finish. `drain()` runs synchronously for tests.
+
+### MemoryBudget (`backend/app/services/memory_budget.py`)
+Process-wide byte budget. Each prepare step reserves its estimated peak decode memory before decoding and blocks while the budget is exhausted; an item larger than the whole budget runs alone. Capacity is `ingest_memory_budget_mb` or half of RAM beyond a 2 GiB reserve (minimum 1 GiB).
+
+### PreparePool
+Shared `ThreadPoolExecutor` (`max_concurrent_prepare` workers) for per-image preparation: hashing, decode, thumbnails, colours, grid detection.
 
 ### DeletionService
-Cascade deletion of images — removes DB records, ImageStore files, thumbnails, and LanceDB embeddings in a single transaction.
+`safe_delete_image` deletes the row and, if no other row references the same `storage_key`, the stored file and thumbnails, plus the vector. `delete_image_rows` does the same for many images and returns the file deletions to apply after commit.
 
-### ValidationService
-Input validation helpers (file size, file type, path traversal prevention).
+### Validation
+`check_zip_safety` (entry count, uncompressed size, zip-slip) and `verify_media_mime` (file header matches extension).
 
 ### VideoUtils
-Video frame extraction and dimension reading for video media type support.
+First-frame extraction and dimension reading for videos.
 
 ### AppSettingsService
-Manages the `app_settings` database table for runtime-configurable feature flags and tuning parameters (grid detection, color extraction, concurrency limits). Settings are seeded at first boot via `seed_default_settings()`. See `backend/app/services/app_settings.py`.
-
-### StagingService
-Manages temporary files during imports. Handles UUID-based flat-file storage with `.file_map.json` sidecar for path mapping. See `backend/app/services/staging.py`.
-
-### PreparePoolService
-Global `ThreadPoolExecutor` for CPU-heavy image preparation tasks (thumbnails, colors, grid detection). Capped by `max_concurrent_prepare` to prevent OOM. See `backend/app/services/prepare_pool.py`.
+Reads/writes the `app_settings` table (runtime tuning, feature flags, import limits). Seeded on first boot by `seed_default_settings()`.
 
 ### JobRunner
-In-process background job runner using `ThreadPoolExecutor` (default 2 workers). Tracks job status, progress, and results in memory. Jobs are submitted from API endpoints and execute pipeline functions.
+`ThreadPoolExecutor` (`max_job_workers`, created eagerly in the lifespan) with in-memory job status, progress and results. Used for embedding rebuild/reconcile, retagging, grid backfill, model download/activation and library deletion. Not used for imports.
 
 ### Scheduler
-Lightweight asyncio-based periodic task scheduler. Registers maintenance tasks during FastAPI lifespan startup:
-- `backup_database` — every 24h
-- `cleanup_staging` — every 6h
-- `expire_stale_jobs` — every 6h
-- `sweep_orphaned_store_files` — every 24h
-- `check_vector_db_sync` — every 24h
+Asyncio scheduler; each task runs in the default executor. Last successful run times are persisted under `APP_DATA_DIR/scheduler`, so overdue tasks run 60 s after startup. Registered when `scheduler_enabled`:
+
+| Task | Interval | Function |
+|------|----------|----------|
+| `backup_database` | 24 h | `pipeline/maintenance.py` |
+| `ingest_maintenance` | 6 h | `pipeline/ingest_maintenance.py:run_ingest_maintenance` |
+| `sweep_orphaned_store_files` | 24 h | `pipeline/maintenance.py` |
+| `reconcile_vectors` | 24 h | `pipeline/vector_reconcile.py` |
 
 ## Configuration
 
-All config via `backend/app/config.py` using `pydantic-settings`. Reads from `.env` file. Key settings:
+Two sources:
 
-- `database_url` — SQLite path (default: `sqlite:///./data/battlemap.db`)
-- `store_images_dir` / `store_thumbnails_dir` — object store base directories
-- `staging_dir` — temp directory for import uploads
-- `vector_db_path` — LanceDB local storage directory
-- `EMBEDDING_MODEL` env var — operator override for active model name (`small`/`medium`/`large`); bypasses DB setting entirely
-- Active model otherwise resolved from DB `app_settings.active_model` key (set via `POST /api/v1/models/active`)
-- `inference_device` — ONNX Runtime execution provider (`auto`/`cpu`/`cuda`/`directml`/`coreml`)
-- `max_job_workers` — concurrent background job threads (runtime setting, DB-backed via `AppSettings`, not an env var)
-- `scheduler_enabled` — periodic maintenance (runtime setting, DB-backed via `AppSettings`, not an env var)
-- `cors_origins` — allowed origins (localhost:3000, localhost:5173)
+- **`backend/app/config.py`** (`pydantic-settings`, env vars or `.env`, case-insensitive) — infrastructure and service constants.
+- **`app_settings` table** — runtime tuning (concurrency, import limits, algorithm parameters), edited via `PATCH /api/v1/settings`. See [resource-management.md](resource-management.md).
 
-## Startup Sequence
+`config.py` keys:
 
-1. FastAPI app created in `main.py`
-2. On startup: create DB engine, run `init_db()` (create tables), run `seed_tag_categories()` (upsert vocabulary)
-3. Run `cleanup_stale_staging()` and `mark_interrupted_jobs()` to recover from unclean shutdowns
-4. Begin CLIP model background load (non-blocking, loads in a background thread)
-4b. If no model is present in APP_DATA_DIR, CLIPService enters an error state; frontend shows ModelSetupScreen overlay (web mode) blocking access until a model is downloaded.
-5. Start JobRunner (background thread pool), start Scheduler (periodic tasks)
-6. Start event loop heartbeat diagnostics (monitors asyncio event loop health)
-7. Store DB engine in `app.state.db_engine` for dependency injection
-8. Routes mounted with `/api/v1` prefix
+| Key | Default | Notes |
+|-----|---------|-------|
+| `app_mode` | `server` | `app` when run as the Electron sidecar |
+| `debug` | `False` | Debug logging; uvicorn reload when run via `main.py` |
+| `app_data_dir` | `<repo>/data` | Fast storage root |
+| `image_library_dir` | `<repo>/images` | Originals + backups root |
+| `validate_roots` | `False` | Fail startup if roots are missing (frozen entry point) |
+| `database_url` | computed | Always `sqlite:///{app_data_dir}/battlemap.db` |
+| `store_thumbnails_dir`, `staging_dir`, `vector_db_path`, `config_dir`, `store_images_dir`, `backups_dir` | computed | Derived from the two roots in `__init__` |
+| `vector_size` | `512` | Overwritten at startup from the model manifest's `embedding_dim` |
+| `embedding_model` | `clip-vit-b-32` | Used for `vector_collection_name` |
+| `inference_device` | `auto` | `auto` / `cpu` / `cuda` / `directml` / `coreml` |
+| `clip_text_cache_max` | `256` | Text embedding LRU size |
+| `color_cache_ttl_seconds` | `60.0` | Colour index cache TTL |
+| `job_retention_seconds` | `3600` | How long finished JobRunner records are kept |
+| `thumbnail_sizes` | `[(150,150), (400,400), (800,800)]` | small / medium / large |
+| `max_image_size` | `10 MiB` | Not referenced outside `config.py` |
+| `max_image_pixels` | `1_000_000_000` | Pillow `MAX_IMAGE_PIXELS`; above it decoding fails as a decompression bomb |
+| `pixel_hash_max_pixels` | `100_000_000` | JPEGs above this are decoded at reduced scale and skip the pixel hash |
+| `ingest_memory_budget_mb` | `None` | MemoryBudget capacity; `None` = automatic |
+| `max_import_items` | `50_000` | Max files per import job, across all manifest chunks |
+| `ingest_worker_enabled` | `True` | Start the IngestWorker at startup (tests disable it) |
+| `supported_formats` | `.jpg .jpeg .png .webp` | Image extensions |
+| `supported_video_formats` | `.mp4 .webm` | Video extensions |
+| `rate_limit_expensive` | `2/minute` | |
+| `rate_limit_destructive` | `1/minute` | |
+| `rate_limit_enabled` | `True` | |
+| `api_host` / `api_port` / `api_prefix` | `0.0.0.0` / `8000` / `/api/v1` | |
+| `cors_origins` | `localhost:3000`, `:5173`, `:8000` | Startup warning if unchanged in server mode |
+
+Other environment variables: `EMBEDDING_MODEL` (operator override of the active model, read by `clip_service.py`; otherwise `app_settings.active_model`), `CONVERT_TO_WEBP` (initial value of the `convert_to_webp` setting at first boot).
+
+## Startup Sequence (`main.py` lifespan)
+
+1. `setup_logging()` — console + rotating file handlers; sets Pillow's pixel limit to `max_image_pixels` and turns `DecompressionBombWarning` into an error.
+2. `get_engine()` + `init_db()` — runs Alembic migrations (stamps pre-Alembic databases at head).
+3. `seed_tag_categories()`, `seed_default_settings()` (first boot only), `backfill_search_text()`, then read app settings.
+4. `init_prepare_pool(max_concurrent_prepare)`; store engine on `app.state.db_engine`; create `app.state.heavy_op_semaphore`.
+5. Set `settings.vector_size` from the model manifest.
+6. Start the embedding model background load.
+7. Create the JobRunner. A daemon thread waits for the model, calls `IngestWorker.probe_now()`, then submits `reconcile_vectors` if the model loaded.
+8. If `ingest_worker_enabled`: `ingest_worker.recover()`, then `ingest_worker.start()`.
+9. If `scheduler_enabled`: register the four scheduler tasks and start the scheduler.
+10. Log the CORS warning if applicable; print `SCENE_ATLAS_READY port=…` (Electron waits for this line).
+11. Start the 15 s event-loop heartbeat (logs thread count and RSS); install a SIGUSR1 thread-dump handler on non-Windows.
+
+Shutdown: cancel heartbeat → stop scheduler → `ingest_worker.stop(60s)` → `shutdown_job_runner()` → `shutdown_prepare_pool()` → `shutdown_lancedb_service()`.
+
+## Middleware
+
+CORS (`cors_origins`), `SecurityHeadersMiddleware` (pure ASGI) and `SlowAPIMiddleware`. A global exception handler logs unhandled exceptions and returns a generic 500. See [security.md](security.md).
 
 ## Dependencies Between Services
 
 ```
 API endpoints
-  ├── SQLAlchemy (db session via Depends)
+  ├── SQLAlchemy session (Depends(get_db); imports use BEGIN IMMEDIATE write sessions)
   ├── ImageStore / ThumbnailStore (file serving)
-  ├── CLIPService (semantic search)
-  └── LanceDBService (vector search, thread-safe via RLock)
+  ├── search_service → FTS, CLIPService, LanceDBService
+  ├── ingest_queue (imports API) → wakes IngestWorker
+  └── JobRunner (maintenance jobs)
 
-Background jobs (via JobRunner)
-  ├── SQLAlchemy (save_to_database)
-  ├── ImageStore (copy files into store)
-  ├── ImageParser (metadata extraction)
-  ├── CLIPService (embedding generation)
-  └── LanceDBService (save embeddings)
+IngestWorker
+  ├── ingest_queue (claim, record results)
+  ├── PreparePool + MemoryBudget (prepare)
+  ├── CLIPService (embed batch)
+  ├── ImageStore / ThumbnailStore (atomic placement from .incoming/)
+  └── LanceDBService (vectors after commit; vector_reconcile repairs gaps)
 ```

@@ -2,10 +2,14 @@
 
 Run Scene Atlas directly on your machine without Docker. Useful when Docker is unavailable or you want more control over the runtime.
 
+::: danger No built-in authentication
+Scene Atlas has no login or access control. If anything other than your own machine can reach the port, put it behind a reverse proxy that authenticates users (basic auth, forward-auth, or an OAuth proxy) and never expose it directly to the internet. For local-only use, bind to `127.0.0.1` instead of `0.0.0.0`.
+:::
+
 ## Prerequisites
 
 - **Python 3.12+** with [uv](https://docs.astral.sh/uv/)
-- **Node.js 20+** with npm
+- **Node.js 24+** with npm
 
 ## Installation
 
@@ -68,7 +72,7 @@ User=scene-atlas
 WorkingDirectory=/opt/scene-atlas
 Environment=APP_DATA_DIR=/var/lib/scene-atlas
 Environment=IMAGE_LIBRARY_DIR=/var/lib/scene-atlas/images
-ExecStart=/opt/scene-atlas/.venv/bin/uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+ExecStart=/opt/scene-atlas/.venv/bin/uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 Restart=on-failure
 RestartSec=5
 
@@ -82,7 +86,7 @@ sudo systemctl enable --now scene-atlas
 
 ## Reverse Proxy
 
-The same configurations from the [Docker Server guide](/deploy/server#reverse-proxy) apply. Point your proxy at `localhost:8000` and update `CORS_ORIGINS` to match your domain.
+The same configurations from the [Docker Server guide](/deploy/server#reverse-proxy) apply, including the authentication requirement. Run uvicorn with `--host 127.0.0.1` so only the proxy can reach it, point your proxy at `localhost:8000`, and update `CORS_ORIGINS` to match your domain.
 
 ## Updating
 

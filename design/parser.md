@@ -33,9 +33,11 @@ Given a relative path like `czepeku/Island Fort/Gridded/IslandFort_Night_Rain_30
 
 ### 2. Grid Detection (battlemaps only)
 
+<a id="grid-detection"></a>
+
 **Filename-based** (always runs, in `ImageParser.parse()`):
 - CamelCase-split + normalize the filename stem to space-separated words
-- Check negative regex: `\b(no[-_ ]?grid|gridless|ungridded)\b` → `gridded = False`
+- Check negative regex: `\b(no[-_ ]?grid|gridless|ungridded|gl)\b` → `gridded = False`
 - Check hex regex: `\b(hexgrid|hex[-_ ]?grid|hex|hg)\b` → `gridded = True, grid_type = "hex"`.
   - A bare `hex` counts, because partyoftwo marks its hex maps `HexH` / `HexV` (flat/pointy) plus a line colour, e.g. `…_Online_HexHBlack`.
   - `GH` counts in the filename only. In folder names it appears as an unrelated code (a portrait pack's Gnome/Halfling `GH-GH-MS-F101`).
@@ -45,22 +47,22 @@ Given a relative path like `czepeku/Island Fort/Gridded/IslandFort_Night_Rain_30
 - Grid dimensions: `(\d{1,3})\s*[xX]\s*(\d{1,3})` pattern → `grid_width`, `grid_height`
 - **Skipped for `image_type="scene"`** — scenes do not use grid metadata
 
-**Image-analysis-based** (opt-in, in `prepare_single_image()`):
-- Enabled via `enable_image_grid_detection=True` in settings
+**Image-analysis-based** (in `backend/pipeline/ingest_process.py` `_detect_grid`, during ingest):
+- Controlled by the app setting `enable_image_grid_detection` (seeded `true`)
 - Only runs for battlemaps (not scenes), non-video files
 - Decision tree:
-  - If filename says "nogrid" → `gridded=False`, skip analysis
-  - If filename says "grid" but no dimensions → run algorithm for **size only** (lower threshold)
-  - If no keyword → run algorithm for **presence + size**
-- Algorithm: Hybrid constraint + autocorrelation
-  1. Grayscale + Canny edge detection (full resolution, max_dim=20,000)
-  2. Compute row/column projections of edge image
-  3. Find dominant periods via FFT-based autocorrelation
-  4. Classify grid type from period ratio: square (≈1.0) or hex (≈0.866)
-  5. Validate against image dimensions (snap to nearest clean divisor → tile count)
-- Outputs: `grid_type` ("square"/"hex"), `grid_width`/`grid_height` (tile counts), `grid_confidence` (0.0–1.0)
-- Service: `backend/app/services/grid_detector.py`
-- Task: `backend/pipeline/tasks/grid_detection.py`
+  - If the filename says "no grid" (`gridded=False`), or already gives grid dimensions → skip analysis
+  - If the filename says "grid" but no dimensions → run the algorithm for **size only** (`grid_size_threshold`, 0.15)
+  - If no keyword → run the algorithm for **presence + size** (`grid_presence_threshold`, 0.20)
+- Algorithm (`backend/app/services/grid_detector.py`):
+  1. Grayscale read, downscaled so the longest side is at most `grid_detection_max_dim` (default 8,000). JPEGs are read at reduced scale (`cv2.IMREAD_REDUCED_GRAYSCALE_{2,4,8}`) where the cap allows.
+  2. Canny edge detection with adaptive thresholds
+  3. Row/column projections of the edge image; candidate periods via FFT-based autocorrelation
+  4. A second pass on the edges rotated by 30°: a strong signal there (≥ `grid_hex_rot_conf`, 0.20) means hex, since the rotation aligns one set of hex lines with an axis
+  5. Otherwise square if the standard pass is confident and its row/column period ratio is ≥ `grid_period_ratio_threshold` (0.98); tile counts are snapped to clean divisors of the image size. Hex results carry no tile counts.
+- Outputs: `gridded`, `grid_type` ("square"/"hex"), `grid_width`/`grid_height` (tile counts), `grid_confidence` (0.0–1.0)
+- Task wrapper: `backend/pipeline/tasks/grid_detection.py`. Backfill for existing images: `uv run python -m backend.pipeline.backfill_grid_detection`.
+- Accuracy work and a replacement detector: [grid-detection-v3.md](grid-detection-v3.md)
 
 ### 3. Folder Hierarchy Parsing
 
@@ -155,11 +157,11 @@ Example: `AbandonedCampsiteNight30x30` → `Abandoned Campsite Night 30 x 30`
 
 ### Integration with Ingestion
 
-In `pipeline/ingestion.py`, the `Image.name` field is populated from `parsed["name"]` (falling back to `group_name` if absent). This gives each image a distinct, human-readable display name separate from its group.
+In `backend/pipeline/ingest_process.py` (`commit_batch`), `Image.name` is populated from `parsed["name"]`, falling back to the import group's name, then the filename stem. This gives each image a distinct, human-readable display name separate from its group.
 
 ## Group Detection (`group_files()`)
 
-Used by the web import to group uploaded files into image groups.
+Called at seal time (`ingest_queue.plan_job`) to group an import's files into import groups, separately per `image_type`. Groups whose `(name, author)` already exist in the gallery are merged into them; see [ingestion.md](ingestion.md#data-model).
 
 ### Pass 1: Folder-based grouping
 - Run `parse()` on each file
@@ -204,4 +206,4 @@ The parser is type-aware via the `image_type` field (default: `"battlemap"`):
 | Tag extraction | Full | Full |
 | Name/group parsing | Full | Full |
 
-The `image_type` can be set per-file during import (see [web-import.md](web-import.md)). At the storage level, the `Image` model has an `image_type` column that drives conditional UI behavior (e.g., hiding the grid panel for scenes).
+The `image_type` is chosen per import (per file in the manifest API); see [ingestion.md](ingestion.md#upload-protocol). At the storage level, the `Image` model has an `image_type` column that drives conditional UI behavior (e.g., hiding the grid panel for scenes).

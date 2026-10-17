@@ -2,6 +2,10 @@
 
 Run Scene Atlas as a self-hosted web server. A single container serves the API and web UI on one port.
 
+::: danger No built-in authentication
+Server mode has no login and no access control: anyone who can reach the port can browse, upload, edit, and delete your library. Expose it only behind a reverse proxy that authenticates users (for example HTTP basic auth, a forward-auth service such as Authelia or authentik, or an OAuth proxy such as oauth2-proxy). Never expose it directly to the internet.
+:::
+
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) and Docker Compose
@@ -41,7 +45,7 @@ IMAGE_DIR=./images
 # CORS origins (set to your domain if behind a reverse proxy)
 CORS_ORIGINS=["http://localhost:8000"]
 
-# AI model size: small, medium, or large
+# AI model size: small, medium, or large (optional; overrides the model chosen in the UI)
 EMBEDDING_MODEL=small
 
 # Enable debug logging
@@ -62,16 +66,18 @@ In Docker, use `IMAGE_DIR` in your `.env` to set the host-side bind mount path. 
 
 | Volume | Type | Path in container | Purpose |
 |--------|------|-------------------|---------|
-| `scene-atlas-data` | Named | `/app/data` | Database, vector index, thumbnails, backups |
-| `IMAGE_DIR` | Bind mount | `/app/images` | Managed image storage |
+| `scene-atlas-data` | Named | `/app/data` | Database, vector index, thumbnails, logs |
+| `IMAGE_DIR` | Bind mount | `/app/images` | Managed image storage and backups |
 
 ::: warning
-The named volume `scene-atlas-data` contains your database and search index. Back it up regularly, or rely on Scene Atlas's built-in automated backups.
+The named volume `scene-atlas-data` contains your database and search index. The built-in backups are written to the image bind mount, so back up `IMAGE_DIR` (or both) with your normal backup tooling.
 :::
 
 ## Reverse Proxy
 
-Scene Atlas serves everything on a single port, so proxy setup is straightforward.
+Scene Atlas serves everything on a single port, so proxy setup is straightforward. The proxy must also handle authentication (see the warning at the top of this page), and the container port should only be reachable by the proxy. `docker-compose.yml` publishes `${PORT}` on all interfaces; if the proxy runs on the same host, set `PORT=127.0.0.1:8000` in `.env` to bind to loopback only.
+
+The examples below show TLS and forwarding only; add an authentication layer before using them.
 
 ### Nginx
 
@@ -86,10 +92,15 @@ server {
     client_max_body_size 2G;
 
     location / {
+        # Authentication is required; basic auth shown here. Replace with
+        # auth_request (forward-auth) or an OAuth proxy if preferred.
+        auth_basic           "Scene Atlas";
+        auth_basic_user_file /etc/nginx/scene-atlas.htpasswd;
+
         proxy_pass http://127.0.0.1:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_for;
+        proxy_set_header X-Forwarded-For $remote_addr;  # overwrite, do not append
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
@@ -99,6 +110,10 @@ server {
 
 ```
 atlas.example.com {
+    basic_auth {
+        # caddy hash-password generates the hash
+        alice <bcrypt-hash>
+    }
     reverse_proxy localhost:8000
 }
 ```
@@ -111,29 +126,25 @@ CORS_ORIGINS=["https://atlas.example.com"]
 
 ## Authentication
 
-Set `AUTH_TOKEN` to require a bearer token for all API requests:
-
-```bash
-AUTH_TOKEN=your-secret-token-here
-```
-
-When set, all requests must include `Authorization: Bearer your-secret-token-here`. The web UI prompts for the token on first visit.
+Scene Atlas has no built-in authentication or user accounts. All access control must come from the reverse proxy in front of it. Each file in an import is a separate HTTP request, so proxy rate limits must allow a high request rate from authenticated users.
 
 ## Backups
 
-Scene Atlas runs automated daily backups:
-- **7 daily** snapshots retained
-- **4 weekly** snapshots retained
+When the scheduler is enabled (the default), Scene Atlas backs up every 24 hours:
+- The 7 most recent snapshots are kept
+- Up to 4 older snapshots are kept, one per week
 
-Backups include the SQLite database and LanceDB vector index. They're stored inside the `scene-atlas-data` volume at `/app/data/backups/`.
+Each backup contains the SQLite database (`battlemap.db`) and a LanceDB vector index snapshot. They are written to `/app/images/backups/<timestamp>/`, i.e. `IMAGE_DIR/backups/` on the host.
 
-To restore: stop the container, copy the backup database into the data volume, and restart. Schema migrations are applied automatically on startup.
+To restore: stop the container, copy `battlemap.db` from a backup into the data volume as `/app/data/battlemap.db`, and restart. Schema migrations are applied automatically on startup.
 
 ## Updating
 
+The image is built locally from the repository, so update by pulling the source and rebuilding:
+
 ```bash
-docker compose --profile cpu pull
-docker compose --profile cpu up -d
+git pull
+docker compose --profile cpu up -d --build
 ```
 
 Your data volume and images are preserved across updates.

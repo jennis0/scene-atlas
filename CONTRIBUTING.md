@@ -10,9 +10,13 @@ See [docs/development/building.md](docs/development/building.md) for full setup 
 git clone https://github.com/jennis0/scene-atlas.git
 cd scene-atlas
 
-# Backend
+# Root dependencies (installs the Husky git hooks)
+npm install
+
+# Backend (dev tools + CPU onnxruntime; a bare `uv sync` installs no inference runtime)
 uv sync --extra dev --extra cpu
-uv run python scripts/start.py
+uv run python scripts/models/setup_models.py   # download the embedding model
+uv run python scripts/app/start.py
 
 # Frontend (separate terminal)
 cd frontend && npm ci && npm run dev
@@ -20,15 +24,16 @@ cd frontend && npm ci && npm run dev
 
 ## Code Style
 
-- **Python:** [ruff](https://docs.astral.sh/ruff/) for linting and formatting. Run `uv run ruff check backend/` and `uv run ruff format backend/`.
-- **TypeScript:** ESLint + Prettier. Run `cd frontend && npx eslint . --ext ts,tsx` and `npx prettier --check .`.
-- Pre-commit hooks enforce these automatically via Husky + lint-staged.
+- **Python:** [ruff](https://docs.astral.sh/ruff/) for linting and formatting. Run `uv run ruff check backend/ scripts/` and `uv run ruff format backend/ scripts/`.
+- **TypeScript:** ESLint + Prettier over `frontend/src`. Run `cd frontend && npm run lint` and `npm run format:check` (or `npm run format` to fix).
+- The pre-commit hook (Husky + lint-staged) fixes and formats staged `backend/**/*.py`, `scripts/**/*.py`, `frontend/src/**/*.{ts,tsx}`, and `electron/src/**/*.ts` (Prettier only) files.
+- The pre-push hook runs ruff check + format check, backend unit tests, ESLint, Prettier, `tsc --noEmit` (frontend and Electron), and vitest. CI on pull requests adds security scans, integration tests, and a frontend build.
 
 ## Pull Request Process
 
 1. Branch from `main`
 2. Make your changes with clear, focused commits
-3. Ensure all tests pass: `uv run python -m pytest` and `cd frontend && npx vitest run`
+3. Ensure all tests pass: `uv run python -m pytest` and `cd frontend && npx vitest run` (or `make test-all`)
 4. Describe what your PR does and why
 5. Link any related issues
 

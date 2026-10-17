@@ -37,7 +37,7 @@ Scene Atlas organises art you already have. It is not a virtual tabletop, a map 
 | Platform | Desktop App | Server (Docker) | Server (Standalone) |
 |----------|:-----------:|:---------------:|:-------------------:|
 | Windows  | NSIS installer | Docker Desktop | Manual |
-| macOS    | DMG (Intel + Apple Silicon) | Docker Desktop | Manual |
+| macOS    | DMG (Apple Silicon only) | Docker Desktop | Manual |
 | Linux    | AppImage + DEB | Native Docker | Manual |
 
 ## Next Steps

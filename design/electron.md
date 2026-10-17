@@ -9,8 +9,8 @@ Scene Atlas ships as a desktop app using Electron. The Electron shell handles wi
 │  Electron Main Process  (electron/src/main.ts)   │
 │  ┌────────────────┐  ┌────────────────────────┐  │
 │  │  Setup Window   │  │  Main Window            │  │
-│  │  (first-run)    │  │  React app from         │  │
-│  │  setup.html     │  │  frontend/dist/         │  │
+│  │  (first-run)    │  │  React app              │  │
+│  │  setup.html     │  │                         │  │
 │  │  ↕ setup IPC    │  │  ↕ preload IPC          │  │
 │  └────────────────┘  └────────────────────────┘  │
 │                            │                      │
@@ -22,129 +22,139 @@ Scene Atlas ships as a desktop app using Electron. The Electron shell handles wi
 └──────────────────────────────────────────────────┘
 ```
 
-- **Main process** — Window lifecycle, IPC handlers, sidecar management
-- **Preload scripts** — Secure IPC bridges (context-isolated, sandboxed)
-- **Renderer** — The React frontend loaded from `frontend/dist/` (packaged) or `localhost:5173` (dev)
+- **Main process** — Window lifecycle, IPC handlers, sidecar management. Holds a single-instance lock; a second launch focuses the existing window.
+- **Preload scripts** — Secure IPC bridges (context-isolated, sandboxed, no Node integration)
+- **Renderer** — The React frontend (Vite dev server at `localhost:5173` in dev)
 - **Sidecar** — PyInstaller-frozen Python backend (FastAPI + Uvicorn), spawned as a child process
+
+> TODO(coordinator): document how the renderer loads the UI (backend-served at http://127.0.0.1:<port>/).
 
 ## Startup Sequence
 
 ```
-app.whenReady()
+app.whenReady()  (only if the single-instance lock was acquired)
   → loadConfig()
   → config exists?
      ├── YES → launchApp(appDataDir, imageLibraryDir, convertToWebp)
      │         → createMainWindow()
      │         → isDev?
-     │         │   ├── YES → send 'backend-ready' with port 8000 (dev server)
-     │         │   └── NO  → findFreePort()
+     │         │   ├── YES → signal 'backend-ready' with port 8000 (developer-run backend)
+     │         │   └── NO  → prepareStorageDirs()  (create + write-test both roots; error screen if unusable)
+     │         │              → findFreePort()
      │         │              → spawnSidecar(port, appDataDir, imageLibraryDir, convertToWebp)
      │         │              → sidecar prints SCENE_ATLAS_READY
-     │         │              → send 'backend-ready' to renderer
-     │         └── renderer shows DesktopGate → polls /health → Gallery
+     │         │              → signal 'backend-ready' to renderer
+     │         └── renderer shows DesktopGate → polls /health → App
      └── NO  → showSetupWindow()
               → user picks appDataDir, imageLibraryDir, convertToWebp
-              → setup:complete IPC → saveConfig → launchApp(appDataDir, imageLibraryDir, convertToWebp)
+              → setup:complete IPC → validate + prepareStorageDirs → saveConfig → launchApp(...)
 ```
+
+The main process remembers the last `backend-ready` / `backend-error` value and re-sends it on every `did-finish-load`, and the preload caches it, so a renderer that subscribes late still receives it.
+
+The Electron setup window only chooses storage directories. Model and tag-pack setup lives in `App.tsx` / `ModelSetupScreen`, which currently runs only when `isServer` is true, i.e. not inside Electron (see [hf-model-management.md](hf-model-management.md#first-boot-experience)).
 
 ## IPC Channels
 
-### Setup Window (via `setupAPI`)
+Every handler is registered through `handleTrusted()`, which rejects calls whose sender frame is not an app URL (`isAppUrl()` in `main.ts`). Windows are hardened: `window.open` is denied and navigation away from the app is blocked; http(s) links open in the system browser.
+
+### Setup Window (via `setupAPI`, `electron/src/setup.preload.ts`)
 
 | Channel | Direction | Purpose |
 |---------|-----------|---------|
 | `setup:get-default-dirs` | renderer → main | Returns `{ appDataDir, imageLibraryDir }` defaults (`Documents/Scene Atlas/data` and `Documents/Scene Atlas/images`) |
 | `setup:choose-directory` | renderer → main | Opens native folder picker, returns single selected path |
-| `setup:complete` | renderer → main | Saves config (appDataDir, imageLibraryDir, convertToWebp), closes setup, launches app |
+| `setup:complete` | renderer → main | Validates absolute paths, creates and write-tests both roots, saves config, launches app, closes setup. Returns `{ error: string \| null }` |
 
-### Main Window (via `electronAPI`)
+### Main Window (via `electronAPI`, `electron/src/preload.ts`)
 
 | Channel | Direction | Purpose |
 |---------|-----------|---------|
 | `backend-ready` | main → renderer | Delivers backend port number once sidecar is ready |
-| `backend-error` | main → renderer | Delivers error message if sidecar crashes |
+| `backend-error` | main → renderer | Delivers error message if the sidecar fails to start or crashes |
 | `system:get-app-data-dir` | renderer → main | Returns current app data directory path |
 | `system:get-image-library-dir` | renderer → main | Returns current image library directory path |
 | `system:choose-app-data-dir` | renderer → main | Opens native folder picker for new app data location |
 | `system:choose-image-library-dir` | renderer → main | Opens native folder picker for new image library location |
-| `system:change-storage-dirs` | renderer → main | Saves new paths (newAppDataDir, newImageLibraryDir), relaunches app |
-| `fs:read-directory` | renderer → main | Recursively walks a folder, returns relative + absolute paths |
-| `fs:read-file-bytes` | renderer → main | Reads file as `Uint8Array` (for hashing and upload) |
+| `system:change-storage-dirs` | renderer → main | Validates and prepares the new roots, saves config, stops the sidecar, relaunches the app. Resolves with `{ error }` only if the new locations are rejected |
 
 ### Preload API Surface
 
-The renderer accesses IPC via `window.electronAPI`:
-
 ```typescript
 window.electronAPI = {
-  platform: string,                          // 'darwin' | 'win32' | 'linux'
-  onBackendReady: (cb) => void,              // one-shot listener
-  onBackendError: (cb) => void,              // one-shot listener
+  platform: string,                                   // 'darwin' | 'win32' | 'linux'
+  onBackendReady: (cb: (port) => void) => () => void, // replays cached value; returns unsubscribe
+  onBackendError: (cb: (msg) => void) => () => void,  // replays cached value; returns unsubscribe
   getAppDataDir: () => Promise<string | null>,
   getImageLibraryDir: () => Promise<string | null>,
   chooseAppDataDir: () => Promise<string | null>,
   chooseImageLibraryDir: () => Promise<string | null>,
-  changeStorageDirs: (appDataDir, imageLibraryDir) => Promise<void>,
-  readDirectory: (path) => Promise<Array<{relativePath, absolutePath}>>,
-  readFileBytes: (path) => Promise<{data: Uint8Array}>,
+  changeStorageDirs: (appDataDir, imageLibraryDir) => Promise<{ error: string | null }>,
 }
 ```
 
+File and folder imports use standard browser APIs in the renderer; there is no filesystem IPC.
+
 ## Sidecar Lifecycle
 
-1. **Port discovery** — `findFreePort()` binds TCP port 0, reads OS-assigned port, closes socket
-2. **Spawn** — `spawn(sidecarPath, ['--port', port, '--app-data-dir', appDataDir, '--image-library-dir', imageLibraryDir], { env: { CONVERT_TO_WEBP: '1' | '0' } })` with piped stdio
-3. **Ready signal** — Main process scans stdout for `SCENE_ATLAS_READY`; when found, sends `backend-ready` IPC to renderer
-4. **Logging** — All stdout/stderr written to `{userData}/backend.log` with timestamps
-5. **Crash handling** — On non-zero exit, sends `backend-error` IPC with last 10 lines of output
-6. **Shutdown** — `SIGTERM` sent on window close and app quit
+1. **Port discovery** — `findFreePort()` binds `127.0.0.1:0`, reads the OS-assigned port, closes the socket
+2. **Spawn** — `spawn(sidecarPath, ['--port', port, '--app-data-dir', appDataDir, '--image-library-dir', imageLibraryDir], { env: { ...process.env, CONVERT_TO_WEBP: '1' | '0' } })`, stdout/stderr piped. Sidecar path: `path.join(process.resourcesPath, 'sidecar', 'scene-atlas-backend[.exe]')`
+3. **Ready signal** — The main process scans stdout for `SCENE_ATLAS_READY` and then sends `backend-ready`
+4. **Logging** — stdout/stderr appended to `{userData}/backend.log`; the log is rotated to `backend.log.1` when it exceeds 5 MB at startup
+5. **Failure handling** — Spawn errors, any exit before ready, and a non-zero exit after ready send `backend-error` with the last 10 output lines and the log path
+6. **Shutdown** — `stopSidecar()` sends `SIGTERM` and waits up to 5 s; called on `window-all-closed`, `will-quit`, and before relaunching for a storage change
 
-In dev mode, the sidecar is not spawned — the developer runs the backend manually on port 8000.
+In dev mode the sidecar is not spawned — the developer runs the backend on port 8000.
 
 ## Borderless Window
 
 Uses platform-specific titlebar:
 - **macOS:** `titleBarStyle: 'hiddenInset'` (native traffic lights)
-- **Windows/Linux:** `titleBarStyle: 'hidden'` with `titleBarOverlay` (system buttons drawn by Electron, themed to match dark UI: `#0e1118` background, `#ede8dc` symbols)
+- **Windows/Linux:** `titleBarStyle: 'hidden'` with `titleBarOverlay` (system buttons drawn by Electron: `#0e1118` background, `#ede8dc` symbols, 32px high)
 
 The frontend reserves top padding for the window controls drag region.
 
 ## Build & Packaging
 
-**Tool:** electron-builder (`electron-builder.yml`)
+**Tools:** PyInstaller (`backend/pyinstaller/scene_atlas_backend.spec`, driven by `scripts/build/build_sidecar.py`) and electron-builder (`electron-builder.yml`, driven by `scripts/build/build_electron.py`). Release builds run in the `build` matrix of `.github/workflows/release.yml` (see [testing.md](testing.md#where-checks-run)).
 
 **Targets:**
 | Platform | Format | Architectures |
 |----------|--------|---------------|
 | Windows | NSIS installer | x64 |
-| macOS | DMG | x64 + arm64 |
+| macOS | DMG | arm64 (Apple Silicon only) |
 | Linux | AppImage + DEB | x64 |
 
-**Sidecar bundling:** The PyInstaller `--onedir` output (`backend/pyinstaller/dist/scene-atlas-backend/`) is copied into `resources/sidecar/` via `extraResources`. At runtime: `path.join(process.resourcesPath, 'sidecar', 'scene-atlas-backend[.exe]')`.
+macOS is built only on the arm64 runner; there is no Intel or universal build.
 
-**Models:** ONNX models are NOT bundled in the sidecar. They are downloaded from HuggingFace at runtime by `model_download_service`. On first boot, the `ModelSetupScreen` prompts the user to select and download a model. This requires an internet connection on first launch.
+**Sidecar bundling:** The PyInstaller `--onedir` output (`backend/pyinstaller/dist/scene-atlas-backend/`) is copied into `resources/sidecar/` via `extraResources`.
 
-**GPU strategy:** One build per platform — no separate GPU variants. GPU support is baked in by installing the right onnxruntime package at build time:
-| Platform | ORT Package | GPU Provider |
-|----------|------------|--------------|
-| Windows | `onnxruntime-directml` | DirectML (all DirectX 12 GPUs) |
-| macOS | `onnxruntime` | CoreML (Apple Silicon, built-in) |
-| Linux | `onnxruntime` | CPU only |
+**Models:** ONNX models are not bundled. They are downloaded from Hugging Face at runtime by `model_download_service`; first launch therefore needs an internet connection (see [hf-model-management.md](hf-model-management.md)).
 
-The runtime code (`ort_providers.py`) auto-detects available providers and falls back to CPU gracefully.
+### GPU support in desktop builds
 
-**Auto-updates:** Configured to publish to GitHub Releases (`publish.provider: github`). Single `latest` channel for all platforms.
+There is one build per platform; GPU support comes from the onnxruntime package installed at build time, selected by the release matrix `ort_extra` value (`uv sync --extra dev --extra <ort_extra>`):
+
+| Platform | `ort_extra` | ORT package | GPU provider |
+|----------|-------------|-------------|--------------|
+| Windows | `gpu-directml` | `onnxruntime-directml` | DirectML (any DirectX 12 GPU) |
+| macOS | `cpu` | `onnxruntime` | CoreML (built into the macOS wheel) |
+| Linux | `cpu` | `onnxruntime` | none (CPU only) |
+
+The PyInstaller spec keeps onnxruntime's `entry_points.txt` (DirectML plugin registration) and lists `DirectML.dll` and `onnxruntime_providers_dml.dll` in `upx_exclude`, because the DML provider loads them at runtime. At runtime `ort_providers.py` resolves the provider and falls back to CPU (see [gpu-acceleration.md](gpu-acceleration.md)).
+
+**Auto-updates:** electron-builder publishes to GitHub Releases (`publish.provider: github`) on the single `latest` channel for all platforms.
 
 ## Config Storage
 
 | Item | Location |
 |------|----------|
-| App config | `{userData}/scene-atlas-config.json` — stores `{ appDataDir: string, imageLibraryDir: string, convertToWebp: boolean }` |
-| Backend log | `{userData}/backend.log` — sidecar stdout/stderr |
+| App config | `{userData}/scene-atlas-config.json` — `{ appDataDir, imageLibraryDir, convertToWebp }` (`convertToWebp` defaults to `false` if absent) |
+| Backend log | `{userData}/backend.log` (+ `backend.log.1` after rotation) |
 | Default app data dir | `{Documents}/Scene Atlas/data` |
 | Default image library dir | `{Documents}/Scene Atlas/images` |
 
-**Migration:** If an existing config contains only `dataDir` (legacy single-root format), it is automatically migrated: `appDataDir ← dataDir`, `imageLibraryDir ← dataDir/store/images`, `convertToWebp ← true`. The migrated config is persisted immediately.
+**Legacy config migration:** A config containing only `dataDir` (single-root format) is migrated on load to `appDataDir ← dataDir`, `imageLibraryDir ← dataDir/store/images`, `convertToWebp ← false`, and saved immediately.
 
 `userData` is the OS-standard app data path (e.g. `%APPDATA%/Scene Atlas` on Windows, `~/Library/Application Support/Scene Atlas` on macOS).
 
@@ -153,10 +163,12 @@ The runtime code (`ort_providers.py`) auto-detects available providers and falls
 | File | Purpose |
 |------|---------|
 | `electron/src/main.ts` | Main process: windows, IPC handlers, sidecar orchestration |
-| `electron/src/preload.ts` | Main window preload: exposes `electronAPI` to renderer |
+| `electron/src/preload.ts` | Main window preload: exposes `electronAPI` |
 | `electron/src/setup.preload.ts` | Setup window preload: exposes `setupAPI` |
 | `electron/src/sidecar.ts` | Sidecar spawn, port discovery, stdout parsing |
-| `electron/src/config.ts` | Config load/save, default data directory |
+| `electron/src/config.ts` | Config load/save/migration, default directories |
 | `electron/setup.html` | Setup window HTML (first-run directory picker) |
 | `electron-builder.yml` | Build targets, sidecar bundling, auto-update config |
-| `backend/pyinstaller/scene-atlas-backend.spec` | PyInstaller spec for freezing the Python backend |
+| `backend/pyinstaller/scene_atlas_backend.spec` | PyInstaller spec for freezing the Python backend |
+| `backend/pyinstaller/entry.py` | Sidecar entry point |
+| `frontend/src/components/DesktopGate.tsx` | Waits for `backend-ready`, polls `/health`, shows errors |
