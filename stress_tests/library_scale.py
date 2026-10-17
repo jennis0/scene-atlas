@@ -221,7 +221,7 @@ def run(path: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(description="Synthetic-library read benchmark")
     parser.add_argument("command", choices=["build", "run"])
     parser.add_argument("images", type=int, nargs="?", default=56_000)
     parser.add_argument("--db", type=Path, required=True)
