@@ -5,7 +5,19 @@ import, so no pre-import patching is needed. We mock get_lancedb_service()
 in fixtures where vector DB access is required.
 """
 
+import atexit
+import os
+import shutil
+import tempfile
 from pathlib import Path
+
+# Point every storage root at a throwaway directory before any backend module builds
+# its Settings. Otherwise app startup (TestClient lifespan) migrates and writes to the
+# developer's real ./data library.
+_TEST_ROOT = Path(tempfile.mkdtemp(prefix="scene-atlas-tests-"))
+os.environ["APP_DATA_DIR"] = str(_TEST_ROOT / "data")
+os.environ["IMAGE_LIBRARY_DIR"] = str(_TEST_ROOT / "images")
+atexit.register(shutil.rmtree, _TEST_ROOT, ignore_errors=True)
 
 import pytest
 from PIL import Image as PILImage

@@ -109,7 +109,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # unused imports in __init__.py
-"backend/tests/conftest.py" = ["E402"]  # intentional late imports for mock setup
+"backend/tests/conftest.py" = ["E402"]  # storage roots are set before backend imports
 "backend/scripts/*" = ["E402"]  # sys.path manipulation before imports
 
 [tool.ruff.format]
