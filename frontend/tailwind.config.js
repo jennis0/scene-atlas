@@ -17,7 +17,7 @@ export default {
       },
     },
     extend: {
-      // Below Tailwind's text-xs, for dense UI labels: 10px and 11px at the default text
+      // Below Tailwind's text-xs, for dense UI labels: 11px and 11.5px at the default text
       // size. Variables (index.css), because the larger text sizes raise them faster than
       // the rest of the scale. Font size only: line height is inherited.
       fontSize: {

@@ -30,7 +30,7 @@ function sizes(step: TextSize) {
   return { rootPx, xs3: pick('--text-3xs') * rootPx, xs2: pick('--text-2xs') * rootPx }
 }
 
-const FLOOR: Record<TextSize, number> = { small: 10, default: 10, large: 12, larger: 14 }
+const FLOOR: Record<TextSize, number> = { small: 10.5, default: 11, large: 12.5, larger: 14 }
 
 describe.each(TEXT_SIZES.map((t) => t.value))('%s text size', (step) => {
   const { xs3, xs2 } = sizes(step)
