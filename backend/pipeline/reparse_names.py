@@ -15,6 +15,7 @@ from backend.app.models.database import Image, ImageGroup, TagCategory
 from backend.app.services import ImageParser
 from backend.app.services.fts_service import fts_rebuild
 from backend.app.services.image_parser import build_search_text
+from backend.app.services.shutdown import raise_if_shutting_down
 from backend.pipeline.db import pipeline_db
 
 BATCH_SIZE = 200
@@ -119,6 +120,7 @@ def reparse_names():
     # Step 2: Re-parse image names in batches
     totals = {"updated": 0, "unchanged": 0, "errors": 0}
     for i in range(0, total, BATCH_SIZE):
+        raise_if_shutting_down()
         batch_ids = all_ids[i : i + BATCH_SIZE]
         result = reparse_image_names_batch(batch_ids, parser, group_names)
         totals["updated"] += result["updated"]

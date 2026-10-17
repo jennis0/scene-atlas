@@ -26,6 +26,7 @@ from backend.app.models.database import (
 )
 from backend.app.services import get_image_store
 from backend.app.services.memory_budget import get_memory_budget
+from backend.app.services.shutdown import raise_if_shutting_down, shutdown_requested
 from backend.pipeline.db import pipeline_db
 from backend.pipeline.ingest_process import grid_detection_bytes
 from backend.pipeline.pipeline_config import PipelineConfig, load_pipeline_config
@@ -96,6 +97,8 @@ def detect_grids_batch(image_ids: list[int], force: bool = False) -> dict:
     with pipeline_db() as db:
         images = db.query(Image).filter(Image.id.in_(image_ids)).all()
         for image in images:
+            if shutdown_requested():
+                break  # keep what's detected; the caller stops at the batch boundary
             try:
                 mode = detection_mode(image, force)
                 if mode is None or image.width is None or image.height is None:
@@ -168,6 +171,7 @@ def backfill_grid_detection(force: bool = False, progress_fn=None):
         processed = min(i + BATCH_SIZE, total)
         if progress_fn:
             progress_fn(processed, total, f"Processed {processed}/{total}")
+        raise_if_shutting_down()  # also covers a batch cut short
 
     logger.info(
         "Grid backfill complete: %d detected, %d skipped, %d errors",

@@ -32,6 +32,7 @@ from sqlalchemy.orm import joinedload
 
 from backend.app.models.database import Image
 from backend.app.services import get_image_store
+from backend.app.services.shutdown import raise_if_shutting_down
 from backend.pipeline.db import pipeline_db
 from backend.pipeline.naming import export_metadata, unique_export_path
 
@@ -62,6 +63,7 @@ def export_library(output_dir: str, progress_fn=None) -> dict:
     skipped = 0
 
     for i in range(0, total, BATCH_SIZE):
+        raise_if_shutting_down()
         batch_ids = all_ids[i : i + BATCH_SIZE]
 
         # The rows are read inside the session: pipeline_db commits on exit, which

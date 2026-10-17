@@ -43,6 +43,16 @@ def prepare_pool_fixture():
     shutdown_prepare_pool(wait=True)
 
 
+@pytest.fixture(autouse=True)
+def shutdown_signal_cleared():
+    """A TestClient exit runs the lifespan shutdown, which sets the process-wide signal."""
+    from backend.app.services.shutdown import clear_shutdown
+
+    clear_shutdown()
+    yield
+    clear_shutdown()
+
+
 @pytest.fixture
 def tmp_db(tmp_path):
     """Fresh SQLite DB seeded with tag categories."""

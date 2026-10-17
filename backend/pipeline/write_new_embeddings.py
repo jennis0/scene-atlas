@@ -14,6 +14,7 @@ from backend.app.models import Image
 from backend.app.services import get_image_store
 from backend.app.services.clip_service import get_clip_service
 from backend.app.services.lancedb_service import get_lancedb_service
+from backend.app.services.shutdown import raise_if_shutting_down
 from backend.pipeline.db import pipeline_db
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,8 @@ def rebuild_all_embeddings(progress_fn=None, *, force: bool = False) -> dict:
     encode_batch_size = 16  # GPU forward-pass batch for ONNX vision encoder
 
     for i in range(0, total, svc_batch_size):
+        # Stopping leaves a partial table; startup reconciliation re-embeds the rest.
+        raise_if_shutting_down()
         batch = image_dicts[i : i + svc_batch_size]
         batch_num = i // svc_batch_size + 1
         total_batches = (total + svc_batch_size - 1) // svc_batch_size

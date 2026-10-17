@@ -5,7 +5,9 @@ import json
 import pytest
 
 from backend.app.models.database import Image, ImageGroup, Tag
+from backend.app.services import shutdown
 from backend.app.services.image_store import ImageStore
+from backend.app.services.shutdown import ShutdownRequested
 
 
 @pytest.fixture
@@ -99,3 +101,69 @@ def test_backfill_grid_detection_runs(library):
     result = backfill_grid_detection()
     assert result["total"] == 2
     assert result["errors"] == 0
+
+
+# Shutdown: long jobs stop at a batch boundary, keeping committed batches
+
+
+def _stop_after_first_batch(current, total, message=None):
+    shutdown.request_shutdown()
+
+
+def test_retag_stops_at_batch_boundary(library, monkeypatch):
+    from backend.pipeline import retag_all_images as retag
+
+    with library() as db:
+        for image in db.query(Image):
+            db.add(Tag(image_id=image.id, category="x", value="stale", source="auto"))
+        db.commit()
+
+    monkeypatch.setattr(retag, "BATCH_SIZE", 1)
+    with pytest.raises(ShutdownRequested):
+        retag.retag_all_images(progress_fn=_stop_after_first_batch)
+    with library() as db:
+        assert db.query(Tag).filter_by(value="stale").count() == 1
+
+
+def test_grid_backfill_stops_mid_batch_and_keeps_detected_images(library, monkeypatch):
+    from backend.pipeline import backfill_grid_detection as backfill
+
+    def detect_then_shut_down(*args, **kwargs):
+        shutdown.request_shutdown()
+        return {
+            "gridded": False,
+            "grid_width": None,
+            "grid_height": None,
+            "grid_type": None,
+            "confidence": 0.9,
+        }
+
+    monkeypatch.setattr(backfill, "detect_grid_from_image", detect_then_shut_down)
+    with pytest.raises(ShutdownRequested):
+        backfill.backfill_grid_detection()
+    with library() as db:
+        assert db.query(Image).filter(Image.grid_confidence.isnot(None)).count() == 1
+
+    # Not-yet-processed images are picked up by the next run.
+    shutdown.clear_shutdown()
+    monkeypatch.setattr(
+        backfill,
+        "detect_grid_from_image",
+        lambda *a, **k: {
+            "gridded": False,
+            "grid_width": None,
+            "grid_height": None,
+            "grid_type": None,
+            "confidence": 0.9,
+        },
+    )
+    assert backfill.backfill_grid_detection()["total"] == 1
+
+
+def test_export_stops_before_writing_metadata(library, tmp_path):
+    from backend.pipeline.export_library import export_library
+
+    shutdown.request_shutdown()
+    with pytest.raises(ShutdownRequested):
+        export_library(str(tmp_path / "out"))
+    assert not (tmp_path / "out" / "metadata.json").exists()

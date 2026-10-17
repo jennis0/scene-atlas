@@ -32,7 +32,7 @@ Mutating import and group endpoints are decorated with `@write_locked` (`api/dep
 
 ### 3. JobRunner
 
-Runs user-triggered and startup maintenance jobs off the event loop: embedding rebuild, startup `reconcile_vectors`, retagging, grid backfill, model download/activation, library deletion. Tracks status, progress and results in memory (records kept for `job_retention_seconds`). Created eagerly in the lifespan via `get_job_runner()`, which reads `max_job_workers` from the DB. `shutdown_job_runner()` sets the `shutting_down` flag, cancels queued jobs and waits for running ones (no job currently checks the flag, so a running job delays shutdown until it finishes). Imports do not run on the JobRunner. Scheduler tasks run in the asyncio default executor, not on the JobRunner.
+Runs user-triggered and startup maintenance jobs off the event loop: embedding rebuild, startup `reconcile_vectors`, retagging, grid backfill, model download/activation, library deletion. Tracks status, progress and results in memory (records kept for `job_retention_seconds`). Created eagerly in the lifespan via `get_job_runner()`, which reads `max_job_workers` from the DB. `shutdown_job_runner()` cancels queued jobs and waits for running ones; those stop at their next batch boundary (see [Cooperative shutdown](#cooperative-shutdown)). Imports do not run on the JobRunner. Scheduler tasks run in the asyncio default executor, not on the JobRunner.
 
 ### 4. IngestWorker
 
@@ -127,7 +127,22 @@ In the `main.py` lifespan:
 6. `ingest_worker.recover()` and `start()` (when `ingest_worker_enabled`).
 7. Scheduler start (when `scheduler_enabled`), heartbeat start.
 
-Shutdown: scheduler stop → `ingest_worker.stop(60s)` (the in-flight batch commits; anything left is recovered next start) → `shutdown_job_runner()` → `shutdown_prepare_pool()` → LanceDB shutdown. The MemoryBudget is created lazily on first use.
+Shutdown: `request_shutdown()` → scheduler stop → `ingest_worker.stop(60s)` (the in-flight batch commits; anything left is recovered next start) → `shutdown_job_runner()` → `shutdown_prepare_pool()` → LanceDB shutdown. The MemoryBudget is created lazily on first use.
+
+### Cooperative shutdown
+
+JobRunner jobs and scheduler tasks run on pool threads that can't be killed, and the process waits for them on exit. `backend/app/services/shutdown.py` holds a process-wide signal: the lifespan clears it at startup and sets it first thing on shutdown (`JobRunner.shutdown()` sets it too). Long jobs call `raise_if_shutting_down()` at batch boundaries, after a batch has committed, which raises `ShutdownRequested`; the JobRunner records the job as `interrupted` and the scheduler doesn't record the run, so an overdue task runs again shortly after the next start.
+
+| Job | Checks | Resumes by |
+|---|---|---|
+| `reconcile_vectors` | per delete chunk / re-embed batch | next run (startup, 24 h) sees what's still missing |
+| `rebuild_all_embeddings` (also model activation) | per 100-image batch | startup reconciliation re-embeds the images not yet in the new table |
+| `backfill_grid_detection` | per image | next run picks up images without grid info (`force` starts over) |
+| `retag_all_images`, `reparse_names`, `backfill_content_hash` | per batch | re-running (idempotent; content-hash backfill only selects missing hashes) |
+| `export_library` (CLI) | per batch | re-running; an interrupted export has no `metadata.json` |
+| `run_ingest_maintenance`, `sweep_orphaned_store_files` | between steps / stores | next scheduled run |
+
+Not interruptible: `backup_database` (a partial backup could be rotated in as a good one), library purge (stopping half way leaves rows and files out of step), and model download (one `snapshot_download` call). The ZIP export endpoint is a streaming response, which uvicorn drains before the lifespan shutdown runs.
 
 ## Why Not Async SQLAlchemy
 

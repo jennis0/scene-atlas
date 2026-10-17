@@ -733,6 +733,30 @@ def test_vector_write_failure_is_repaired_by_reconciliation(env):
         assert env.vectors.get_all_ids() == {i for (i,) in db.query(Image.id).all()}
 
 
+def test_reconciliation_stops_at_batch_boundary_on_shutdown(env, monkeypatch):
+    from backend.app.services import shutdown
+
+    env.vectors.fail_writes = True
+    make_job(env, {"A/Map/a.png": image_bytes(82), "A/Map/b.png": image_bytes(83)})
+    env.worker.drain()
+    env.vectors.fail_writes = False
+
+    def embed_then_shut_down(paths, **kwargs):
+        shutdown.request_shutdown()
+        return [list(EMBEDDING) for _ in paths]
+
+    monkeypatch.setattr(
+        "backend.pipeline.tasks.embedding_generation.batch_generate_clip_embeddings",
+        embed_then_shut_down,
+    )
+    with pytest.raises(shutdown.ShutdownRequested):
+        reconcile_vectors(batch_size=1)
+    assert len(env.vectors.get_all_ids()) == 1
+
+    shutdown.clear_shutdown()
+    assert reconcile_vectors()["repaired"] == 1
+
+
 # ---------------------------------------------------------------------------
 # Transactions
 # ---------------------------------------------------------------------------

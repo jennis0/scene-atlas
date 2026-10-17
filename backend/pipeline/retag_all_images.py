@@ -12,6 +12,7 @@ import logging
 
 from backend.app.models.database import Image, Tag, TagCategory
 from backend.app.services import ImageParser
+from backend.app.services.shutdown import raise_if_shutting_down
 from backend.pipeline.db import pipeline_db
 
 logger = logging.getLogger(__name__)
@@ -99,6 +100,7 @@ def retag_all_images(progress_fn=None):
     # Process in batches — each batch atomically deletes + re-creates auto tags
     totals = {"tags_created": 0, "tags_deleted": 0, "errors": 0}
     for i in range(0, total, BATCH_SIZE):
+        raise_if_shutting_down()
         batch_ids = all_ids[i : i + BATCH_SIZE]
         result = retag_batch(batch_ids, parser)
         totals["tags_created"] += result["tags_created"]

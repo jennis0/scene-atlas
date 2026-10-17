@@ -24,6 +24,8 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+from .shutdown import ShutdownRequested
+
 logger = logging.getLogger(__name__)
 
 # Delay before the first overdue run, so startup isn't competing with maintenance.
@@ -114,5 +116,8 @@ class Scheduler:
                 logger.info("Scheduled task %s completed", label)
             except asyncio.CancelledError:
                 raise
+            except ShutdownRequested:
+                # Not recorded, so it runs again shortly after the next start.
+                logger.info("Scheduled task %s stopped for shutdown", label)
             except Exception:
                 logger.exception("Scheduled task %s failed", label)

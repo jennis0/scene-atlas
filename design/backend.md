@@ -55,6 +55,7 @@ backend/
 │   │   ├── ort_providers.py      # ONNX Runtime provider selection + GPU fallback
 │   │   ├── prepare_pool.py       # Shared prepare ThreadPoolExecutor
 │   │   ├── scheduler.py          # Periodic task scheduler
+│   │   ├── shutdown.py           # Process-wide shutdown signal for long jobs
 │   │   ├── search_service.py     # Hybrid search, filters, facets (see search.md)
 │   │   ├── tag_packs.py          # Tag pack import
 │   │   ├── validation.py         # ZIP safety check, MIME verification
@@ -286,10 +287,10 @@ First-frame extraction and dimension reading for videos.
 Reads/writes the `app_settings` table (runtime tuning, feature flags, import limits). Seeded on first boot by `seed_default_settings()`.
 
 ### JobRunner
-`ThreadPoolExecutor` (`max_job_workers`, created eagerly in the lifespan) with in-memory job status, progress and results. Used for embedding rebuild/reconcile, retagging, grid backfill, model download/activation and library deletion. Not used for imports.
+`ThreadPoolExecutor` (`max_job_workers`, created eagerly in the lifespan) with in-memory job status, progress and results. Used for embedding rebuild/reconcile, retagging, grid backfill, model download/activation and library deletion. Not used for imports. On shutdown, long jobs stop at their next batch boundary and are recorded as `interrupted` ([resource-management.md](resource-management.md#cooperative-shutdown)).
 
 ### Scheduler
-Asyncio scheduler; each task runs in the default executor. Last successful run times are persisted under `APP_DATA_DIR/scheduler`, so overdue tasks run 60 s after startup. Registered when `scheduler_enabled`:
+Asyncio scheduler; each task runs in the default executor. A task stopped by shutdown (`ShutdownRequested`) isn't recorded as run. Last successful run times are persisted under `APP_DATA_DIR/scheduler`, so overdue tasks run 60 s after startup. Registered when `scheduler_enabled`:
 
 | Task | Interval | Function |
 |------|----------|----------|
@@ -353,7 +354,7 @@ Other environment variables: `EMBEDDING_MODEL` (operator override of the active 
 10. Log the CORS warning if applicable; print `SCENE_ATLAS_READY port=…` (Electron waits for this line).
 11. Start the 15 s event-loop heartbeat (logs thread count and RSS); install a SIGUSR1 thread-dump handler on non-Windows.
 
-Shutdown: cancel heartbeat → stop scheduler → `ingest_worker.stop(60s)` → `shutdown_job_runner()` → `shutdown_prepare_pool()` → `shutdown_lancedb_service()`.
+Shutdown: cancel heartbeat → `request_shutdown()` (long jobs stop at their next batch boundary) → stop scheduler → `ingest_worker.stop(60s)` → `shutdown_job_runner()` → `shutdown_prepare_pool()` → `shutdown_lancedb_service()`.
 
 ## Middleware
 

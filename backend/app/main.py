@@ -134,6 +134,9 @@ async def lifespan(app: FastAPI):
 
     # Start background job runner (eagerly, so it's ready for requests)
     from .services.job_runner import get_job_runner, shutdown_job_runner
+    from .services.shutdown import clear_shutdown, request_shutdown
+
+    clear_shutdown()
 
     runner = get_job_runner()
 
@@ -242,6 +245,8 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down application")
+    # Long jobs and scheduler tasks stop at their next batch boundary.
+    request_shutdown()
     await scheduler.stop()
     # Let the batch in progress commit; anything left is recovered next start.
     await asyncio.to_thread(ingest_worker.stop, 60.0)

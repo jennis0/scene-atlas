@@ -12,6 +12,7 @@ import logging
 
 from backend.app.models.database import Image
 from backend.app.services import get_image_store
+from backend.app.services.shutdown import raise_if_shutting_down
 from backend.pipeline.db import pipeline_db
 
 logger = logging.getLogger(__name__)
@@ -74,6 +75,7 @@ def backfill_content_hash():
     # Process in batches
     totals = {"updated": 0, "skipped": 0, "errors": 0}
     for i in range(0, total, BATCH_SIZE):
+        raise_if_shutting_down()
         batch_ids = image_ids[i : i + BATCH_SIZE]
         result = backfill_batch(batch_ids)
         totals["updated"] += result["updated"]

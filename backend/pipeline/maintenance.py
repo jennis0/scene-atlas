@@ -181,6 +181,7 @@ def sweep_orphaned_store_files(delete: bool = True) -> dict:
 
     from backend.app.models import Image
     from backend.app.services import get_image_store, get_thumbnail_store
+    from backend.app.services.shutdown import raise_if_shutting_down
     from backend.pipeline.db import pipeline_db
 
     with pipeline_db() as db:
@@ -193,6 +194,7 @@ def sweep_orphaned_store_files(delete: bool = True) -> dict:
         ("images", get_image_store(), lambda p: p.name in image_keys),
         ("thumbnails", get_thumbnail_store(), lambda p: _thumbnail_stem(p.name) in thumbnail_stems),
     ):
+        raise_if_shutting_down()
         files = _store_files(store.base_dir)
         orphans = [
             p for p in files if not is_known(p) and now - p.stat().st_mtime > ORPHAN_MIN_AGE_SECONDS
