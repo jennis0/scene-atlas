@@ -101,8 +101,8 @@ export function GalleryHeader({
         aria-label="Image type"
         className={
           compact
-            ? `flex items-stretch self-stretch ${isApp ? 'no-drag-region' : ''}`
-            : 'flex items-stretch border-b border-border/60'
+            ? `flex items-stretch gap-6 self-stretch ${isApp ? 'no-drag-region' : ''}`
+            : 'flex items-stretch gap-6 border-b border-border/60'
         }
       >
         {tabs.map(({ value, label, count }) => (
@@ -110,7 +110,7 @@ export function GalleryHeader({
             key={value}
             aria-pressed={imageType === value}
             onClick={() => handleImageTypeChange(value)}
-            className={`flex items-center gap-2 py-2.5 pr-4 mr-1 text-sm font-medium border-b-2 transition-colors
+            className={`flex items-center gap-2 py-2.5 text-sm font-medium border-b-2 transition-colors
               ${
                 imageType === value
                   ? 'border-primary text-foreground'
