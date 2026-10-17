@@ -72,15 +72,8 @@ def load_pipeline_config() -> PipelineConfig:
     Creates its own short-lived DB session.  Suitable for calling at the
     start of background pipeline jobs that don't already hold a session.
     """
-    from backend.app.config import settings
-    from backend.app.models.database import get_engine, get_session_local
     from backend.app.services.app_settings import get_settings as get_app_settings
+    from backend.pipeline.db import pipeline_db
 
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
-    db = SessionLocal()
-    try:
-        app_settings = get_app_settings(db)
-        return PipelineConfig.from_app_settings(app_settings)
-    finally:
-        db.close()
+    with pipeline_db() as db:
+        return PipelineConfig.from_app_settings(get_app_settings(db))

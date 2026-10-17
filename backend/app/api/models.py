@@ -31,6 +31,7 @@ from ..services.model_registry import (
     get_default_model,
     get_model,
 )
+from ..services.shutdown import ShutdownRequested
 from .dependencies import get_db
 
 logger = logging.getLogger(__name__)
@@ -132,6 +133,8 @@ def _download_and_activate(name: str, progress_fn=None) -> None:
 
         if progress_fn:
             progress_fn(steps, steps, "Done")
+    except ShutdownRequested:
+        raise
     except Exception:
         logger.exception(
             "Model activation failed for '%s'. DB active_model may be out of sync. "

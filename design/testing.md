@@ -6,7 +6,7 @@ For how to run tests and operational details, see [docs/development/testing.md](
 
 Backend tests live in `backend/tests/unit/` and `backend/tests/integration/`; frontend tests are Vitest files next to the code in `frontend/src/`; end-to-end tests are Playwright specs in `e2e/tests/`.
 
-**No infrastructure required.** Backend tests run against a temporary SQLite database and temporary directories. LanceDB does not create files on import, so nothing is patched at import time; tests that touch vectors replace `get_lancedb_service()` per test with a fake (see `FakeVectors` in `test_ingest_pipeline.py` / `test_imports_api.py`, `_FakeLanceDB` in `test_search_characterisation.py`).
+**No infrastructure required.** Backend tests run against a temporary SQLite database and temporary directories. LanceDB does not create files on import, so nothing is patched at import time. Tests that touch vectors use the `lancedb_service` fixture, a real LanceDB in `tmp_path` (ingest, imports API, semantic search); only the embedding model is faked. The search golden tests (`test_search_characterisation.py`) keep a deterministic `_FakeLanceDB` because they pin exact scores.
 
 Tests marked `heavy` (real CLIP ONNX model) are excluded by default (`addopts = -m 'not heavy'` in `pyproject.toml`); run them with `-m heavy`.
 
@@ -36,6 +36,8 @@ CI does not run lint or unit-only jobs on PRs; the pre-push hook is relied on fo
 | `db_session` | A session on `tmp_db`, closed after the test |
 | `query_counter` | `QueryCounter` on the test engine: `with query_counter as q: ...; q.count` / `q.selects("images")`. Used in `test_query_counts.py` to pin query counts against N+1 regressions |
 | `make_test_image` | Factory writing a small JPEG to a given path |
+| `lancedb_service` | Real `LanceDBService` under `tmp_path` (vectors `TEST_VECTOR_SIZE` = 8 wide), installed as the module singleton so every `get_lancedb_service()` returns it |
+| `shutdown_signal_cleared` (autouse) | Clears the process-wide shutdown signal, which a `TestClient` exit sets |
 | `test_client` | FastAPI `TestClient` bound to `tmp_db`, with storage paths and image/thumbnail store singletons redirected to `tmp_path`, rate limiting disabled, and `settings.ingest_worker_enabled = False` |
 
 ## Conventions
@@ -70,7 +72,7 @@ worker = IngestWorker(
 assert worker.drain() >= 1
 ```
 
-Alongside this, ingest tests fake `get_lancedb_service` (in `backend.pipeline.ingest_process` and wherever else it is imported), replace `batch_generate_clip_embeddings` with constant vectors, set `ingest_state.retry_delay` to zero, and swap `services._image_store` / `services._thumbnail_store` for `ImageStore`s under `tmp_path`. API tests additionally set `backend.pipeline.ingest_worker._worker` to the test worker so endpoints and the test share it (`test_imports_api.py`).
+Alongside this, ingest tests use the `lancedb_service` fixture, replace `batch_generate_clip_embeddings` with constant vectors, set `ingest_state.retry_delay` to zero, and swap `services._image_store` / `services._thumbnail_store` for `ImageStore`s under `tmp_path`. API tests additionally set `backend.pipeline.ingest_worker._worker` to the test worker so endpoints and the test share it (`test_imports_api.py`).
 
 ### Mocking the JobRunner
 

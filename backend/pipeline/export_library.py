@@ -28,9 +28,12 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from backend.app.config import settings
-from backend.app.models.database import Image, get_engine, get_session_local
+from sqlalchemy.orm import joinedload
+
+from backend.app.models.database import Image
 from backend.app.services import get_image_store
+from backend.app.services.shutdown import raise_if_shutting_down
+from backend.pipeline.db import pipeline_db
 from backend.pipeline.naming import export_metadata, unique_export_path
 
 logger = logging.getLogger(__name__)
@@ -46,15 +49,9 @@ def export_library(output_dir: str, progress_fn=None) -> dict:
 
     Returns a summary dict: {total, exported, skipped, output_dir}.
     """
-    engine = get_engine(settings.database_url)
-    SessionLocal = get_session_local(engine)
-    db = SessionLocal()
-
-    try:
+    with pipeline_db() as db:
         all_ids = [row[0] for row in db.query(Image.id).order_by(Image.id).all()]
-        total = len(all_ids)
-    finally:
-        db.close()
+    total = len(all_ids)
 
     dest = Path(output_dir)
     dest.mkdir(parents=True, exist_ok=True)
@@ -66,36 +63,33 @@ def export_library(output_dir: str, progress_fn=None) -> dict:
     skipped = 0
 
     for i in range(0, total, BATCH_SIZE):
+        raise_if_shutting_down()
         batch_ids = all_ids[i : i + BATCH_SIZE]
 
-        db = SessionLocal()
-        try:
-            from sqlalchemy.orm import joinedload
-
+        # The rows are read inside the session: pipeline_db commits on exit, which
+        # expires them.
+        with pipeline_db() as db:
             batch = (
                 db.query(Image)
                 .options(joinedload(Image.tags), joinedload(Image.group))
                 .filter(Image.id.in_(batch_ids))
                 .all()
             )
-        finally:
-            db.close()
+            for img in batch:
+                source = image_store.get_path(img.storage_key)
+                if not source or not source.exists():
+                    logger.warning("Export: missing file for image %d", img.id)
+                    skipped += 1
+                    continue
 
-        for img in batch:
-            source = image_store.get_path(img.storage_key)
-            if not source or not source.exists():
-                logger.warning("Export: missing file for image %d", img.id)
-                skipped += 1
-                continue
+                arc = unique_export_path(img, seen_paths)
 
-            arc = unique_export_path(img, seen_paths)
+                target = dest / arc
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
 
-            target = dest / arc
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, target)
-
-            metadata[arc] = export_metadata(img)
-            exported += 1
+                metadata[arc] = export_metadata(img)
+                exported += 1
 
         processed = min(i + BATCH_SIZE, total)
         msg = f"Exported {processed}/{total}"

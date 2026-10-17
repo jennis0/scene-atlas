@@ -14,6 +14,7 @@ from datetime import timedelta
 from backend.app.config import settings
 from backend.app.models import ImportGroup, ImportItem, ImportJob
 from backend.app.services import ingest_state as st
+from backend.app.services.shutdown import raise_if_shutting_down
 
 from .ingest_queue import remove_staged, skip_items, utcnow, write_session
 
@@ -157,11 +158,15 @@ def run_ingest_maintenance() -> dict[str, int]:
     """Scheduled entry point (every 6 h, and on startup when overdue)."""
     from .ingest_worker import get_ingest_worker
 
-    result = {
-        "abandoned": abandon_stale_uploads(),
-        "released": release_staged_bytes(),
-        "pruned": prune_dismissed_jobs(),
-        "stray": sweep_stray_staging_files(),
+    steps = {
+        "abandoned": abandon_stale_uploads,
+        "released": release_staged_bytes,
+        "pruned": prune_dismissed_jobs,
+        "stray": sweep_stray_staging_files,
     }
+    result = {}
+    for key, step in steps.items():
+        raise_if_shutting_down()
+        result[key] = step()
     get_ingest_worker().bump()
     return result

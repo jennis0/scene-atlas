@@ -433,23 +433,12 @@ class TestSearchSemanticFallback:
         assert ids["a1"] in returned_ids
         assert ids["a2"] in returned_ids
 
-    def test_empty_semantic_results_still_returns_text_results(self, library, monkeypatch):
-        """If vector DB returns 0 semantic matches, text results still come through."""
+    def test_empty_semantic_results_still_returns_text_results(
+        self, library, monkeypatch, lancedb_service
+    ):
+        """If the vector index has no matches, text results still come through."""
         client, ids = library
-
-        from unittest.mock import MagicMock
-
-        mock_clip = MagicMock()
-        mock_clip.encode_text.return_value = [0.0] * 768
-        monkeypatch.setattr(
-            "backend.app.services.search_service.get_clip_service", lambda: mock_clip
-        )
-
-        mock_lancedb = MagicMock()
-        mock_lancedb.search_similar.return_value = []  # 0 semantic results
-        monkeypatch.setattr(
-            "backend.app.services.search_service.get_lancedb_service", lambda: mock_lancedb
-        )
+        _fake_text_encoder(monkeypatch, _vec(1))
 
         resp = client.get("/api/v1/search/", params={"query": "forest"})
         assert resp.status_code == 200
@@ -469,6 +458,59 @@ class TestSearchSemanticFallback:
 
         resp = client.get("/api/v1/search/", params={"query": "forest", "text_only": "true"})
         assert resp.status_code == 200
+
+
+def _vec(*weights: float) -> list[float]:
+    """*weights* zero-padded to TEST_VECTOR_SIZE."""
+    from backend.tests.conftest import TEST_VECTOR_SIZE
+
+    return [*weights, *[0.0] * (TEST_VECTOR_SIZE - len(weights))]
+
+
+def _fake_text_encoder(monkeypatch, vector: list[float]) -> None:
+    class _Clip:
+        def encode_text(self, query):
+            return vector
+
+    monkeypatch.setattr("backend.app.services.search_service.get_clip_service", _Clip)
+
+
+class TestSemanticSearchRealIndex:
+    """Semantic search against a real LanceDB index; only the text encoder is faked."""
+
+    @pytest.fixture
+    def indexed(self, library, lancedb_service, monkeypatch):
+        client, ids = library
+        for key, vector in {"a3": _vec(1), "a1": _vec(0.8, 0.6), "b1": _vec(0, 1)}.items():
+            assert lancedb_service.add_image_embedding(ids[key], vector)
+        monkeypatch.setattr(
+            "backend.app.services.search_service.get_semantic_threshold", lambda model: 0.5
+        )
+        _fake_text_encoder(monkeypatch, _vec(1))
+        return client, ids
+
+    def test_semantic_only_ranks_by_cosine_similarity(self, indexed):
+        client, ids = indexed
+        resp = client.get("/api/v1/search/", params={"query": "caverns", "semantic_only": "true"})
+        assert resp.status_code == 200
+        returned = [img["id"] for img in resp.json()["images"]]
+        assert returned == [ids["a3"], ids["a1"]]  # b1 is orthogonal: below the threshold
+
+    def test_hybrid_fuses_semantic_and_text_matches(self, indexed):
+        client, ids = indexed
+        resp = client.get("/api/v1/search/", params={"query": "village"})
+        assert resp.status_code == 200
+        returned = {img["id"] for img in resp.json()["images"]}
+        # "village" matches b1 by text; the fake encoder points at a3 and a1.
+        assert {ids["b1"], ids["a3"], ids["a1"]} <= returned
+
+    def test_filters_apply_to_semantic_results(self, indexed):
+        client, ids = indexed
+        resp = client.get(
+            "/api/v1/search/",
+            params={"query": "caverns", "semantic_only": "true", "gridded": "true"},
+        )
+        assert [img["id"] for img in resp.json()["images"]] == [ids["a1"]]
 
 
 # ---------------------------------------------------------------------------
