@@ -22,7 +22,7 @@ from backend.pipeline.pipeline_config import PipelineConfig
 from backend.pipeline.stored_format import StoredFormat
 
 from .test_imports_api import BASE, image_bytes, import_files
-from .test_imports_api import api as api  # noqa: F401  (fixture)
+from .test_imports_api import api as api
 
 
 @pytest.fixture
