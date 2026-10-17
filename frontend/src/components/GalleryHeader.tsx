@@ -1,17 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react'
-import {
-  Upload,
-  LayoutGrid,
-  Layers,
-  Tag,
-  Settings,
-  Compass,
-  Map,
-  Mountain,
-  Sun,
-  Moon,
-  Loader2,
-} from 'lucide-react'
+import { Upload, LayoutGrid, Layers, Tag, Settings, Sun, Moon, Loader2 } from 'lucide-react'
 import { GalleryFilterPanel } from '@/components/GalleryFilterPanel'
 import { GallerySearchBar } from '@/components/GallerySearchBar'
 import { GalleryResultsBar } from '@/components/GalleryResultsBar'
@@ -95,17 +83,15 @@ export function GalleryHeader({
     )
     const total = Object.values(typeCounts).reduce((s, n) => s + n, 0)
     const tabs = [
-      { value: 'all' as ImageTypeFilter, label: 'All', Icon: Compass, count: total },
+      { value: 'all' as ImageTypeFilter, label: 'All', count: total },
       {
         value: 'battlemap' as ImageTypeFilter,
         label: 'Maps',
-        Icon: Map,
         count: typeCounts['battlemap'] ?? 0,
       },
       {
         value: 'scene' as ImageTypeFilter,
         label: 'Scenes',
-        Icon: Mountain,
         count: typeCounts['scene'] ?? 0,
       },
     ]
@@ -119,7 +105,7 @@ export function GalleryHeader({
             : 'flex items-stretch border-b border-border/60'
         }
       >
-        {tabs.map(({ value, label, Icon, count }) => (
+        {tabs.map(({ value, label, count }) => (
           <button
             key={value}
             aria-pressed={imageType === value}
@@ -131,7 +117,6 @@ export function GalleryHeader({
                   : 'border-transparent text-muted-foreground hover:text-foreground'
               }`}
           >
-            <Icon className="h-3.5 w-3.5 shrink-0" />
             {label}
             {count > 0 && (
               <span
