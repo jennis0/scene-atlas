@@ -1,4 +1,5 @@
 import React from 'react'
+import { WindowDragBar } from './WindowDragBar'
 
 interface Props {
   children: React.ReactNode
@@ -31,6 +32,8 @@ class ErrorBoundary extends React.Component<Props, State> {
     if (this.state.hasError) {
       return (
         <div className="flex flex-col items-center justify-center min-h-screen gap-4 p-8 text-center">
+          {/* The gallery header, with its drag strip, is gone with the crash */}
+          <WindowDragBar />
           <h2 className="text-xl font-semibold text-destructive">Something went wrong</h2>
           <p className="text-muted-foreground text-sm max-w-md">
             {import.meta.env.DEV

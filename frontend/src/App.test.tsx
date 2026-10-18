@@ -4,6 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { modelsApi, type SetupStatus } from './lib/api/modelsApi'
 import App from './App'
 
+const mode = vi.hoisted(() => ({ isApp: false }))
+vi.mock('./lib/appMode', () => ({
+  get isApp() {
+    return mode.isApp
+  },
+}))
 vi.mock('./lib/api/modelsApi', () => ({ modelsApi: { setupStatus: vi.fn() } }))
 vi.mock('./components/setup/SetupWizard', () => ({
   SetupWizard: ({ status }: { status: SetupStatus }) => (
@@ -66,5 +72,48 @@ describe('App first-run gate', () => {
     render(<App />)
     await userEvent.click(await screen.findByRole('button', { name: 'Try again' }))
     expect(await screen.findByText('gallery')).toBeInTheDocument()
+  })
+})
+
+// The desktop window has no title bar: every screen needs a drag region, or the window
+// can't be moved. The gallery header has its own; every other screen gets the strip.
+describe('App window drag strip (desktop)', () => {
+  beforeEach(() => {
+    setupStatus.mockReset()
+    mode.isApp = true
+  })
+  afterEach(() => {
+    mode.isApp = false
+  })
+
+  it('is on the loading and setup screens', async () => {
+    setupStatus.mockResolvedValue(status({ setup_completed: false }))
+    render(<App />)
+    expect(screen.getByRole('status')).toHaveTextContent('Loading')
+    expect(screen.getByTestId('window-drag-bar')).toBeInTheDocument()
+    await screen.findByText('setup wizard')
+    expect(screen.getByTestId('window-drag-bar')).toBeInTheDocument()
+  })
+
+  it('is on the connection error screen', async () => {
+    setupStatus.mockRejectedValue(new Error('offline'))
+    render(<App />)
+    await screen.findByRole('alert')
+    expect(screen.getByTestId('window-drag-bar')).toBeInTheDocument()
+  })
+
+  it('is left to the gallery header in the gallery', async () => {
+    setupStatus.mockResolvedValue(status({}))
+    render(<App />)
+    await screen.findByText('gallery')
+    expect(screen.queryByTestId('window-drag-bar')).not.toBeInTheDocument()
+  })
+
+  it('is not in a browser', async () => {
+    mode.isApp = false
+    setupStatus.mockResolvedValue(status({ setup_completed: false }))
+    render(<App />)
+    await screen.findByText('setup wizard')
+    expect(screen.queryByTestId('window-drag-bar')).not.toBeInTheDocument()
   })
 })
