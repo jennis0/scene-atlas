@@ -6,8 +6,9 @@
  *
  * Sections, each shown only when it has entries: groups, problems (grouped by
  * reason, with retry), files already in the library (with "Import as new
- * copy"), and skipped files (with previews and "Import anyway" for those Auto
- * sorted out). Opens on problems when there are any, else on files Auto skipped.
+ * copy"), and skipped files (with previews and "Include" for those Auto sorted
+ * out and still holds). Opens on problems when there are any, else on files Auto
+ * skipped.
  * Actions: undo the whole import, review its groups in the editor (also what
  * clicking a group does, starting on that group), and Done, which closes the
  * report and clears a finished import from the activity list.
@@ -17,9 +18,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Loader2, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { getThumbnailUrlById } from '@/lib/api/urls'
+import { getThumbnailUrlById, importPreviewUrl } from '@/lib/api/urls'
 import { getImportManager } from '@/lib/import/ImportManager'
-import { previewUrl } from '@/lib/import/importClient'
 import { useImportJob } from '@/lib/import/useImports'
 import type {
   ImportGroupSummary,
@@ -29,7 +29,7 @@ import type {
 } from '@/lib/import/types'
 import { ConfirmOverlay, ImportFrame, TextButton } from './ImportFrame'
 import { GroupLedger } from './GroupLedger'
-import { isFinished, outcomeText, plural, reviewableGroupIds } from './format'
+import { isFinished, outcomeText, plural } from './format'
 
 type Section = 'groups' | 'failed' | 'duplicate' | 'skipped'
 
@@ -99,14 +99,15 @@ export function ResultView({ jobId, open, onClose, onReviewGroups, onUndone }: R
       ? 'skipped'
       : 'groups'
   const active = section && sections.includes(section) ? section : fallback
-  const reviewIds = reviewableGroupIds(detail?.groups ?? [])
+  const reviewIds = detail?.reviewable_group_ids ?? []
 
-  const act = async (action: () => Promise<unknown>, done?: string) => {
+  /** Run an item action, reload the lists, and toast what the server says it did */
+  const act = async <T,>(action: () => Promise<T>, done?: (result: T) => string) => {
     setBusy(true)
     try {
-      await action()
+      const result = await action()
       setItemsVersion((v) => v + 1)
-      if (done) toast.success(done)
+      if (done) toast.success(done(result))
     } catch {
       toast.error("That didn't work", { description: 'The server could not be reached.' })
     } finally {
@@ -223,12 +224,12 @@ export function ResultView({ jobId, open, onClose, onReviewGroups, onUndone }: R
             jobId={jobId}
             state="failed"
             groupBy={(i) => i.error_reason ?? 'Unknown problem'}
-            headerAction={(ids) => (
+            headerAction={(members) => (
               <TextButton
                 onClick={() =>
                   void act(
-                    () => manager.retry(jobId, ids),
-                    `Retrying ${plural(ids.length, 'file')}`,
+                    () => manager.retry(jobId, idsOf(members)),
+                    (n) => `Retrying ${plural(n, 'file')}`,
                   )
                 }
                 disabled={busy}
@@ -251,12 +252,12 @@ export function ResultView({ jobId, open, onClose, onReviewGroups, onUndone }: R
             thumbnailUrlOf={(i) =>
               i.duplicate_of_image_id === null ? null : getThumbnailUrlById(i.duplicate_of_image_id)
             }
-            headerAction={(ids) => (
+            headerAction={(members) => (
               <TextButton
                 onClick={() =>
                   void act(
-                    () => manager.importAsCopy(jobId, ids),
-                    `Importing ${plural(ids.length, 'new copy', 'new copies')}`,
+                    () => manager.importAsCopy(jobId, idsOf(members)),
+                    (n) => `Importing ${plural(n, 'new copy', 'new copies')}`,
                   )
                 }
                 disabled={busy}
@@ -273,20 +274,27 @@ export function ResultView({ jobId, open, onClose, onReviewGroups, onUndone }: R
             jobId={jobId}
             state="skipped"
             groupBy={(i) => i.error_reason ?? 'Skipped'}
-            thumbnailUrlOf={(i) => (i.has_preview ? previewUrl(i) : null)}
-            headerAction={(ids, members) =>
-              members.every((m) => m.error_kind === 'sorted_out') && (
-                <TextButton
-                  onClick={() =>
-                    void act(() => manager.include(ids), `Importing ${plural(ids.length, 'file')}`)
-                  }
-                  disabled={busy}
-                  title="Auto set these aside. Import them anyway"
-                >
-                  Import anyway
-                </TextButton>
+            thumbnailUrlOf={(i) => (i.has_preview ? importPreviewUrl(i) : null)}
+            headerAction={(members) => {
+              // Expired skips can't be included: their bytes are gone
+              const includable = members.filter((m) => m.error_kind === 'sorted_out')
+              return (
+                includable.length > 0 && (
+                  <TextButton
+                    onClick={() =>
+                      void act(
+                        () => manager.include(idsOf(includable)),
+                        (result) => `Importing ${plural(result.affected, 'image')}`,
+                      )
+                    }
+                    disabled={busy}
+                    title="Auto skipped these. Import them after all"
+                  >
+                    Include
+                  </TextButton>
+                )
               )
-            }
+            }}
           />
         )}
       </div>
@@ -319,6 +327,8 @@ type Row =
 
 const PAGE = 500
 
+const idsOf = (items: ImportItem[]) => items.map((i) => i.id)
+
 /**
  * Items in one state, grouped under ruled headers (e.g. by error reason).
  * Loads a page at a time; virtualised so thousands of rows stay cheap.
@@ -333,7 +343,8 @@ function ItemList({
   jobId: string
   state: ItemState
   groupBy: (item: ImportItem) => string
-  headerAction?: (ids: number[], members: ImportItem[]) => React.ReactNode
+  /** An action on a header's items */
+  headerAction?: (members: ImportItem[]) => React.ReactNode
   /** A thumbnail for the row, or null for none */
   thumbnailUrlOf?: (item: ImportItem) => string | null
 }) {
@@ -378,15 +389,17 @@ function ItemList({
       ...members.map((item) => ({ kind: 'item' as const, key: `i:${item.id}`, item })),
     ])
   }, [items, groupBy])
+  // Rows without a thumbnail keep its space when others have one, so names line up
+  const hasThumbnails = useMemo(
+    () => !!thumbnailUrlOf && items.some((i) => thumbnailUrlOf(i) !== null),
+    [items, thumbnailUrlOf],
+  )
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: (i) => {
-      const row = rows[i]
-      return row.kind === 'header' || thumbnailUrlOf?.(row.item) ? 44 : 30
-    },
+    estimateSize: (i) => (rows[i].kind === 'header' || hasThumbnails ? 44 : 30),
     overscan: 12,
     initialRect: { width: 640, height: 480 }, // render rows before the first measure
   })
@@ -425,12 +438,7 @@ function ItemList({
                 <span className="font-mono text-2xs text-muted-foreground tabular-nums">
                   {row.members.length.toLocaleString()}
                 </span>
-                <span className="ml-auto">
-                  {headerAction?.(
-                    row.members.map((m) => m.id),
-                    row.members,
-                  )}
-                </span>
+                <span className="ml-auto">{headerAction?.(row.members)}</span>
               </div>
             )
           }
@@ -441,14 +449,16 @@ function ItemList({
               style={style}
               className="flex items-center gap-3 border-b border-border/20 min-w-0"
             >
-              {thumbUrl !== null && (
+              {hasThumbnails && (
                 <span className="h-8 w-8 shrink-0 rounded bg-secondary overflow-hidden">
-                  <img
-                    src={thumbUrl}
-                    alt=""
-                    loading="lazy"
-                    className="h-full w-full object-cover"
-                  />
+                  {thumbUrl !== null && (
+                    <img
+                      src={thumbUrl}
+                      alt=""
+                      loading="lazy"
+                      className="h-full w-full object-cover"
+                    />
+                  )}
                 </span>
               )}
               <span

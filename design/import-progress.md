@@ -64,9 +64,10 @@ Found on a real 5,800-file import (2026-10-17):
   The worker records each batch's wall time and the files it settled (refunded files, from a
   system pause or a missing folder, don't count). In memory only: a restart starts a new session.
   Exposed as `queue.seconds_per_item`.
-- **Job summary**: `groups_done` (groups with no open items) and `groups_reviewable` (finished
-  groups with at least one imported image, i.e. something the editor can open), from one grouped
-  query each across the listed jobs.
+- **Job summary**: `groups_done` (groups with no open items) and `groups_reviewable` (gallery
+  groups the editor can open: an imported image from this job and no unfinished import group of
+  this job adding to them), from one grouped query each across the listed jobs. The detail lists
+  them as `reviewable_group_ids`; the frontend never re-derives the rule.
 - **Detail**: `GET /imports/{id}?groups=active&limit=3` returns only the first `limit` groups with
   open items. The default (`all`) is unchanged; the report uses it.
 
@@ -89,7 +90,7 @@ Shown when the editor was opened from an import that hasn't finished:
 - **Add them** fetches the job's groups and appends the new reviewable ids; the editor's
   import-review loader already loads only ids it hasn't seen.
 - **Only finished groups are reviewable** (`groups_reviewable` in the summary,
-  `reviewableGroupIds`): a gallery group is held back until every import group adding to it
+  `reviewable_group_ids` in the detail): a gallery group is held back until every import group adding to it
   has nothing awaiting bytes, ready or processing. A group loaded while still filling missed
   the images that landed later, and before deletion was made explicit an edit to it deleted
   them.

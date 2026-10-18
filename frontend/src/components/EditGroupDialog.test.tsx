@@ -1,7 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen, waitFor, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/renderWithProviders'
+import { installFakeImportManager, item, uninstallFakeImportManager } from '@/test/importFakes'
+import type { ImportManager } from '@/lib/import/ImportManager'
 import EditGroupDialog from './EditGroupDialog'
 import type { GroupDetail, GroupSummary, Image } from '@/types'
 
@@ -534,6 +536,57 @@ describe('EditGroupDialog', () => {
           [],
         ),
       )
+    })
+  })
+
+  describe('images Auto skipped', () => {
+    let manager: ImportManager
+    const skippedFrom = (importGroupId: number, id: number) =>
+      item({
+        id,
+        import_group_id: importGroupId,
+        filename: `token_${id}.png`,
+        state: 'skipped',
+        error_kind: 'sorted_out',
+        error_reason: 'Looks like a token',
+      })
+
+    beforeEach(async () => {
+      // Import groups 1 and 2 went into gallery groups 1 (Forest Maps) and 2 (Cave Maps)
+      ;({ manager } = await installFakeImportManager({
+        items: [skippedFrom(1, 50), skippedFrom(1, 51), skippedFrom(2, 52)],
+        importGroups: { 1: 1, 2: 2 },
+      }))
+    })
+    afterEach(() => uninstallFakeImportManager(manager))
+
+    it('offers them above a saved group', async () => {
+      renderDialog({ groupId: 1 })
+      expect(
+        await screen.findByText('2 images from this group were skipped by Auto'),
+      ).toBeInTheDocument()
+    })
+
+    it('counts them on sidebar rows, and offers them only for the one group open', async () => {
+      const { user } = renderDialog({ importReview: { groupIds: [1, 2] } })
+      expect(await screen.findByText('2 groups')).toBeInTheDocument()
+      expect(
+        await screen.findByTitle('2 skipped by Auto: open the group to review'),
+      ).toHaveTextContent('2')
+      expect(screen.getByTitle('1 skipped by Auto: open the group to review')).toBeInTheDocument()
+      // All shows several groups: no strip
+      expect(screen.queryByText(/from this group/)).not.toBeInTheDocument()
+
+      await user.click(sidebarRow('Cave Maps'))
+      expect(screen.getByText('1 image from this group was skipped by Auto')).toBeInTheDocument()
+
+      // Several groups picked at once: no strip either
+      await user.keyboard('{Control>}')
+      await user.click(sidebarRow('Cave Maps'))
+      await user.click(sidebarRow('Forest Maps'))
+      await user.keyboard('{/Control}')
+      expect(screen.getByText('2 selected')).toBeInTheDocument()
+      expect(screen.queryByText(/from this group/)).not.toBeInTheDocument()
     })
   })
 

@@ -359,6 +359,10 @@ class ImageEditPayload(BaseModel):
     image_type: str | None = None
 
 
+# Bounds a group edit's explicit deletions (a group is far smaller than this).
+MAX_GROUP_EDIT_DELETES = 100_000
+
+
 class NewGroupPayload(BaseModel):
     """A split-off group to create during a group edit."""
 
@@ -377,7 +381,7 @@ class GroupEditRequest(BaseModel):
     # Deletion is explicit: an image the client doesn't mention is left alone. The editor
     # may have loaded the group before more images landed in it (a running import, an
     # include from the skipped list); inferring deletes from omission would delete those.
-    delete_image_ids: list[int] = []
+    delete_image_ids: list[int] = Field([], max_length=MAX_GROUP_EDIT_DELETES)
 
 
 class GroupEditResponse(BaseModel):

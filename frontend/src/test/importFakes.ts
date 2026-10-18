@@ -78,7 +78,7 @@ export function group(partial: Partial<ImportGroupSummary> = {}): ImportGroupSum
 export function item(partial: Partial<ImportItem> = {}): ImportItem {
   return {
     id: 1,
-    job_id: 'job-1',
+    job_id: 'job1',
     import_group_id: 1,
     kind: 'image',
     relative_path: 'Czepeku/Island Fort/a.png',
@@ -102,12 +102,23 @@ export function item(partial: Partial<ImportItem> = {}): ImportItem {
   }
 }
 
+/** A job's detail: its summary, groups, and the gallery groups the editor may open. */
+export function jobDetail(partial: Partial<ImportJobDetail> = {}): ImportJobDetail {
+  return { ...jobSummary(partial), groups: [], reviewable_group_ids: [], ...partial }
+}
+
 export interface FakeImportState {
   jobs: ImportJobSummary[]
   queue: QueueStatus
   details: Record<string, ImportJobDetail>
   items: ImportItem[]
+  /** Import group id → the gallery group it imports into (``group()`` is 1 → 41) */
+  importGroups: Record<number, number>
+  /** How many sorted-out items one group's list returns before it's truncated */
+  sortedOutLimit: number
 }
+
+const isSortedOut = (i: ImportItem) => i.state === 'skipped' && i.error_kind === 'sorted_out'
 
 /** A fake client whose responses come from a mutable state object. */
 export function fakeImportClient(state: FakeImportState) {
@@ -144,12 +155,35 @@ export function fakeImportClient(state: FakeImportState) {
     dismissFinished: vi.fn(async () => 0),
     undo: vi.fn(async () => ({ affected: 3, status: 'deleted' })),
     probeQueue: vi.fn(async () => ({ ...state.queue, system_paused: false, reason: null })),
-    include: vi.fn(async (ids: number[]) => ({ affected: ids.length, job_ids: ['job1'] })),
-    sortedOut: vi.fn(async () => ({
-      items: state.items.filter((i) => i.error_kind === 'sorted_out'),
-      truncated: false,
-    })),
-    sortedOutCounts: vi.fn(async () => ({}) as Record<number, number>),
+    // Like the server: included items re-open, and so do their imports
+    include: vi.fn(async (ids: number[]) => {
+      const included = state.items.filter((i) => ids.includes(i.id) && isSortedOut(i))
+      const jobIds = [...new Set(included.map((i) => i.job_id))]
+      state.items = state.items.map((i) =>
+        included.includes(i) ? { ...i, state: 'ready', error_kind: null, has_preview: false } : i,
+      )
+      state.jobs = state.jobs.map((j) =>
+        jobIds.includes(j.id) ? { ...j, status: 'active', dismissed: false } : j,
+      )
+      return { affected: included.length, job_ids: jobIds }
+    }),
+    sortedOut: vi.fn(async (imageGroupId: number) => {
+      const all = state.items.filter(
+        (i) => isSortedOut(i) && state.importGroups[i.import_group_id ?? -1] === imageGroupId,
+      )
+      return {
+        items: all.slice(0, state.sortedOutLimit),
+        truncated: all.length > state.sortedOutLimit,
+      }
+    }),
+    sortedOutCounts: vi.fn(async () => {
+      const byGroup: Record<number, number> = {}
+      for (const i of state.items.filter(isSortedOut)) {
+        const id = state.importGroups[i.import_group_id ?? -1]
+        if (id !== undefined) byGroup[id] = (byGroup[id] ?? 0) + 1
+      }
+      return byGroup
+    }),
   }
 }
 
@@ -157,7 +191,15 @@ export type FakeImportClient = ReturnType<typeof fakeImportClient>
 
 /** Install a manager over ``state`` as the app-wide one; loads the first job list. */
 export async function installFakeImportManager(partial: Partial<FakeImportState> = {}) {
-  const state: FakeImportState = { jobs: [], queue: idleQueue, details: {}, items: [], ...partial }
+  const state: FakeImportState = {
+    jobs: [],
+    queue: idleQueue,
+    details: {},
+    items: [],
+    importGroups: { 1: 41 },
+    sortedOutLimit: 200,
+    ...partial,
+  }
   const client = fakeImportClient(state)
   const manager = new ImportManager({
     client: client as unknown as ImportClient,

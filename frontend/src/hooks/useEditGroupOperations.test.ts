@@ -3,7 +3,7 @@ import { renderHook, act } from '@testing-library/react'
 import { useEditGroupOperations } from './useEditGroupOperations'
 import { tabAfterRemoval } from './useEditGroupLoad'
 import { ALL_TAB } from './useFileEditing'
-import type { EditableGroupState } from '@/types'
+import type { EditableFileState, EditableGroupState } from '@/types'
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
@@ -78,6 +78,42 @@ describe('useEditGroupOperations — autoSaveGroup', () => {
 
     expect(groupApi.edit).not.toHaveBeenCalled()
     expect(invalidateGallery).not.toHaveBeenCalled()
+  })
+})
+
+// ── moveToNewGroup ────────────────────────────────────────────────────────────
+
+const file = (id: number, excluded = false) =>
+  ({
+    relative_path: String(id),
+    name: `Map ${id}`,
+    tags: [],
+    excluded,
+  }) as unknown as EditableFileState
+
+describe('useEditGroupOperations — moveToNewGroup', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('splits off the selection and names the files marked for deletion', async () => {
+    const groups = [makeGroup({ files: [file(1), file(2), file(3, true)] })]
+    const { result } = renderHook(() =>
+      useEditGroupOperations(makeOptions({ groups, selections: { '42': new Set(['1']) } })),
+    )
+
+    await act(async () => {
+      await result.current.moveToNewGroup('42')
+    })
+
+    expect(groupApi.edit).toHaveBeenCalledWith(
+      42,
+      expect.objectContaining({
+        images: [expect.objectContaining({ id: 2 })],
+        new_groups: [expect.objectContaining({ image_ids: [1] })],
+        delete_image_ids: [3],
+      }),
+    )
   })
 })
 

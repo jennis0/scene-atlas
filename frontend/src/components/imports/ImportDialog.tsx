@@ -40,7 +40,6 @@ import {
   jobStatusText,
   outcomeText,
   plural,
-  reviewableGroupIds,
   uploadPhaseText,
 } from './format'
 import { filesFromDrop, filesFromInput } from './pickFiles'
@@ -372,7 +371,7 @@ function ProgressView({
 
   // The editor on every group with images so far; more can be added from there later
   const reviewSoFar = async () => {
-    const ids = reviewableGroupIds((await manager.getDetail(jobId)).groups)
+    const ids = (await manager.getDetail(jobId)).reviewable_group_ids
     if (ids.length > 0) onReviewGroups?.(ids)
   }
   const counts = job?.counts

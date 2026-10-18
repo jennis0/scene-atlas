@@ -318,6 +318,9 @@ class ImportGroup(Base):
 
     job: Mapped["ImportJob"] = relationship("ImportJob", back_populates="import_groups")
 
+    # The group editor finds an import's groups by gallery group (sorted-out items)
+    __table_args__ = (Index("ix_import_groups_image_group", "image_group_id"),)
+
     def __repr__(self):
         return f"<ImportGroup(id={self.id}, group='{self.group_name}')>"
 
@@ -394,6 +397,7 @@ class ImportItem(Base):
         Index("ix_import_items_state_job", "state", "job_id"),
         Index("ix_import_items_job_state", "job_id", "state"),
         Index("ix_import_items_job_group", "job_id", "import_group_id"),
+        Index("ix_import_items_group_state", "import_group_id", "state"),
     )
 
     def __repr__(self):

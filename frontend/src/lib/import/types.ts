@@ -26,7 +26,7 @@ export interface ImportCounts {
   failed: number
   skipped: number
   total: number
-  /** Of skipped: set aside by Auto, and can be included (job counts only; 0 per group) */
+  /** Of skipped: set aside by Auto and still includable (expired ones aren't counted) */
   sorted_out: number
 }
 
@@ -58,8 +58,7 @@ export interface ImportJobSummary {
   group_count: number
   /** Groups with nothing left to import (once planned). */
   groups_done: number
-  /** Groups that have images in the gallery so far: what the editor can review. */
-  /** Finished groups with at least one imported image: what the review editor can open */
+  /** Gallery groups the review editor can open (the detail's ``reviewable_group_ids``) */
   groups_reviewable: number
   created_at: string | null
   updated_at: string | null
@@ -69,6 +68,12 @@ export interface ImportJobSummary {
 
 export interface ImportJobDetail extends ImportJobSummary {
   groups: ImportGroupSummary[]
+  /**
+   * Gallery groups with an image from this import and no unfinished import group of it
+   * adding to them: what the review editor may open. The rule lives only on the server
+   * (design/import-progress.md §5).
+   */
+  reviewable_group_ids: number[]
 }
 
 export interface QueueStatus {
@@ -146,8 +151,18 @@ export interface ImportItem {
   size: number | null
   state: ItemState
   attempts: number
-  /** sorted_out: skipped by Auto, can be included (design/ingestion.md §5.6) */
-  error_kind: 'file' | 'transient' | 'system' | 'bytes_lost' | 'sorted_out' | null
+  /**
+   * sorted_out: skipped by Auto, can be included (design/ingestion.md §5.6).
+   * sorted_out_expired: one whose bytes and preview were released; now a plain skip.
+   */
+  error_kind:
+    | 'file'
+    | 'transient'
+    | 'system'
+    | 'bytes_lost'
+    | 'sorted_out'
+    | 'sorted_out_expired'
+    | null
   error_stage: string | null
   error_reason: string | null
   image_id: number | null
@@ -158,7 +173,7 @@ export interface ImportItem {
   updated_at: string | null
   /** Auto items: the image-type head's verdict */
   classification: ItemClassification | null
-  /** Items Auto sorted out keep a preview (importClient.previewUrl) */
+  /** Items Auto sorted out keep a preview (importPreviewUrl) until they expire */
   has_preview: boolean
 }
 

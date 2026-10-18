@@ -16,7 +16,15 @@ from backend.app.models import ImportGroup, ImportItem, ImportJob
 from backend.app.services import ingest_state as st
 from backend.app.services.shutdown import raise_if_shutting_down
 
-from .ingest_queue import KIND_SORTED_OUT, remove_staged, skip_items, utcnow, write_session
+from .ingest_queue import (
+    KIND_SORTED_OUT,
+    expire_sorted_out,
+    remove_staged,
+    remove_staged_files,
+    skip_items,
+    utcnow,
+    write_session,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +33,9 @@ ABANDON_AFTER = timedelta(days=7)
 # Staged bytes of failed/duplicate items are kept this long after a job finishes,
 # so "Retry" and "Import as new copy" work without a re-upload.
 KEEP_RETRY_BYTES_FOR = timedelta(days=7)
+# Finished imports leave the activity dock this long after they finish (as if the user
+# had dismissed them), and what Auto sorted out of them can no longer be included.
+FINISHED_JOB_TTL = timedelta(hours=24)
 # Dismissed jobs' rows (not their images) are deleted after this long.
 PRUNE_DISMISSED_AFTER = timedelta(days=30)
 # Unreferenced files in staging younger than this may be an upload in progress.
@@ -64,7 +75,8 @@ def release_staged_bytes(now=None) -> int:
     - ``failed``/``duplicate`` items: once their job is dismissed, or finished
       more than ``KEEP_RETRY_BYTES_FOR`` ago.
     - Items Auto sorted out: never. They can be included from the group editor until
-      their job's rows are pruned (design §5.6), which deletes the job's staging folder.
+      their import is dismissed or finished a day ago; ``expire_sorted_out`` then
+      releases them (design §5.6).
     """
     now = now or utcnow()
     cutoff = now - KEEP_RETRY_BYTES_FOR
@@ -92,6 +104,42 @@ def release_staged_bytes(now=None) -> int:
     if released:
         logger.info("Released %d staged file(s)", released)
     return released
+
+
+def expire_finished_jobs(now=None) -> int:
+    """Dismiss imports that finished more than ``FINISHED_JOB_TTL`` ago, and expire what
+    Auto sorted out of every dismissed import (also catching any dismissed another way).
+    Returns how many imports were dismissed."""
+    now = now or utcnow()
+    with write_session() as db:
+        jobs = (
+            db.query(ImportJob)
+            .filter(
+                ImportJob.status.in_(_TERMINAL_JOBS),
+                ImportJob.dismissed_at.is_(None),
+                ImportJob.completed_at < now - FINISHED_JOB_TTL,
+            )
+            .all()
+        )
+        for job in jobs:
+            job.dismissed_at = now
+        db.flush()
+        with_sorted_out = [
+            job_id
+            for (job_id,) in db.query(ImportItem.job_id)
+            .join(ImportJob, ImportJob.id == ImportItem.job_id)
+            .filter(
+                ImportJob.dismissed_at.isnot(None),
+                ImportItem.state == st.SKIPPED,
+                ImportItem.error_kind == KIND_SORTED_OUT,
+            )
+            .distinct()
+        ]
+        files = expire_sorted_out(db, with_sorted_out)
+    remove_staged_files(files)
+    if jobs:
+        logger.info("Dismissed %d import(s) finished over a day ago", len(jobs))
+    return len(jobs)
 
 
 def prune_dismissed_jobs(now=None) -> int:
@@ -160,11 +208,12 @@ def sweep_stray_staging_files() -> int:
 
 
 def run_ingest_maintenance() -> dict[str, int]:
-    """Scheduled entry point (every 6 h, and on startup when overdue)."""
+    """Scheduled entry point (hourly, and on startup when overdue)."""
     from .ingest_worker import get_ingest_worker
 
     steps = {
         "abandoned": abandon_stale_uploads,
+        "dismissed": expire_finished_jobs,
         "released": release_staged_bytes,
         "pruned": prune_dismissed_jobs,
         "stray": sweep_stray_staging_files,

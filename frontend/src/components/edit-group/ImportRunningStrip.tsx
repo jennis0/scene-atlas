@@ -9,7 +9,7 @@ import { useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { TextButton } from '@/components/imports/ImportFrame'
-import { isFinished, plural, reviewableGroupIds } from '@/components/imports/format'
+import { isFinished, plural } from '@/components/imports/format'
 import { getImportManager } from '@/lib/import/ImportManager'
 import { useImportJob } from '@/lib/import/useImports'
 
@@ -29,8 +29,9 @@ export function ImportRunningStrip({
 }: ImportRunningStripProps) {
   const { job } = useImportJob(jobId)
   const [adding, setAdding] = useState(false)
-  // Groups with images when the last "Add" ran. Several import groups can share one
-  // gallery group, so the editor's own id count can't tell what's new.
+  // Reviewable groups when the last "Add" ran. A group the editor has can leave the count
+  // again (an include re-opens its import), so the editor's own id count can't tell
+  // what's new once the user has added some.
   const [counted, setCounted] = useState<number | null>(null)
   if (!job) return null
 
@@ -43,8 +44,8 @@ export function ImportRunningStrip({
     try {
       const reviewed = new Set(reviewedGroupIds)
       const detail = await getImportManager().getDetail(jobId)
-      setCounted(detail.groups_reviewable)
-      const added = reviewableGroupIds(detail.groups).filter((id) => !reviewed.has(id))
+      setCounted(detail.reviewable_group_ids.length)
+      const added = detail.reviewable_group_ids.filter((id) => !reviewed.has(id))
       if (added.length > 0) onAddGroups?.(added)
     } catch {
       toast.error("Couldn't add the new groups", {
@@ -56,15 +57,14 @@ export function ImportRunningStrip({
   }
 
   return (
-    <div
-      role="status"
-      className="flex flex-wrap items-center gap-x-4 gap-y-1 px-6 py-2 border-b border-border/30 bg-primary/[0.05] text-xs"
-    >
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-6 py-2 border-b border-border/30 bg-primary/[0.05] text-xs">
       <span className="flex items-center gap-2 text-foreground/90 hc:text-foreground">
         {!finished && <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" aria-hidden />}
-        {finished
-          ? `Import finished · ${plural(job.group_count, 'group')}`
-          : `Import still running · ${job.groups_done.toLocaleString()} of ${plural(job.group_count, 'group')} done`}
+        <span role="status">
+          {finished
+            ? `Import finished · ${plural(job.group_count, 'group')}`
+            : `Import still running · ${job.groups_done.toLocaleString()} of ${plural(job.group_count, 'group')} done`}
+        </span>
       </span>
       {ready > 0 && onAddGroups && (
         <span className="flex items-center gap-2 text-muted-foreground">

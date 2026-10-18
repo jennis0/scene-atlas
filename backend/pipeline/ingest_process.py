@@ -29,6 +29,7 @@ from pathlib import Path
 from PIL import Image as PILImage
 
 from backend.app.config import settings
+from backend.app.file_hash import file_sha256
 from backend.app.models import Color, Image, ImageGroup, ImportGroup, ImportItem, Tag
 from backend.app.models.database import GRID_FIELDS, GRID_SOURCE_DETECTOR, GRID_SOURCE_FILENAME
 from backend.app.services import (
@@ -45,7 +46,7 @@ from backend.app.services.validation import verify_media_mime
 
 from .error_classifier import KIND_FILE, KIND_SYSTEM, classify_ingest_error
 from .filename_grid import filename_grid_counts
-from .image_hashes import file_sha256, perceptual_hash, pixel_hash
+from .image_hashes import perceptual_hash, pixel_hash
 from .ingest_queue import (
     AUTO,
     BATTLEMAP,
@@ -97,35 +98,6 @@ def clear_incoming() -> None:
 
 
 @dataclass
-class PreparedItem:
-    item: ClaimedItem
-    storage_key: str
-    temp_original: Path
-    temp_thumbnails: dict[str, Path]  # thumbnail_key → temp path
-    thumbnail_key: str  # medium size, stored on the Image row
-    clip_source: Path
-    width: int
-    height: int
-    file_size: int
-    media_type: str
-    source_hash: str
-    stored_hash: str
-    pixel_hash: str | None
-    phash: int | None
-    colors: list[dict]
-    grid: dict = field(default_factory=dict)
-    embedding: list[float] | None = None
-    classification: dict | None = None  # Auto items: the image-type head's verdict
-
-    def temp_paths(self) -> list[Path]:
-        return [self.temp_original, *self.temp_thumbnails.values()]
-
-    def discard(self) -> None:
-        for path in self.temp_paths():
-            path.unlink(missing_ok=True)
-
-
-@dataclass
 class DecodedItem:
     """Prepare up to (not including) grid detection and storing the original: everything
     that doesn't depend on the image type. Auto items wait here for the image-type head."""
@@ -147,10 +119,34 @@ class DecodedItem:
     colors: list[dict]
     features: dict[str, float] | None = None  # image-type head inputs (Auto items)
     embedding: list[float] | None = None
-    classification: dict | None = None
+    classification: dict | None = None  # Auto items: the image-type head's verdict
 
     def temp_paths(self) -> list[Path]:
         return [*self.temp_thumbnails.values(), *([self.source] if self.owned else [])]
+
+    def discard(self) -> None:
+        for path in self.temp_paths():
+            path.unlink(missing_ok=True)
+
+
+@dataclass
+class PreparedItem:
+    """A decoded item with its type-dependent steps done: ready to embed and commit."""
+
+    decoded: DecodedItem
+    storage_key: str
+    temp_original: Path  # the stored original, placed at commit
+    stored_hash: str
+    file_size: int  # of the stored file
+    media_type: str
+    grid: dict = field(default_factory=dict)
+
+    @property
+    def item(self) -> ClaimedItem:
+        return self.decoded.item
+
+    def temp_paths(self) -> list[Path]:
+        return [self.temp_original, *self.decoded.temp_thumbnails.values()]
 
     def discard(self) -> None:
         for path in self.temp_paths():
@@ -338,12 +334,18 @@ class _Progress:
 def _prepare_failed(
     item: ClaimedItem, exc: Exception, progress: _Progress, staged: Path
 ) -> ItemFailure:
-    """Delete what prepare created and say why it failed."""
+    """Delete what prepare created and say why it failed. A missing file is never the
+    file's fault: an upload's staged bytes are asked for again, a local import's source
+    is waited for (its folder is gone) or reported as moved."""
     for path in progress.created:
         path.unlink(missing_ok=True)
     stage = progress.stage
-    if isinstance(exc, FileNotFoundError) and not staged.exists():
-        return ItemFailure(item.id, KIND_BYTES_LOST, stage, _BYTES_LOST_REASON, str(exc))
+    if isinstance(exc, FileNotFoundError):
+        if item.source_path:
+            if not Path(item.source_path).is_file():
+                return _missing_source(item, str(exc))
+        elif not staged.exists():
+            return ItemFailure(item.id, KIND_BYTES_LOST, stage, _BYTES_LOST_REASON, str(exc))
     logger.warning("Prepare failed for %s at %s: %s", item.relative_path, stage, exc)
     info = classify_ingest_error(exc, stage=stage)
     return ItemFailure(item.id, info["kind"], stage, info["reason"], info["detail"])
@@ -395,13 +397,7 @@ def _prepare_local(
             local = replace(item, source_hash=source_hash)
             return _decode_and_finish(local, cfg, copy, plan, progress, stem=stem, owned=True)
     except Exception as exc:
-        for path in progress.created:
-            path.unlink(missing_ok=True)
-        if isinstance(exc, FileNotFoundError) and not source.is_file():
-            return _missing_source(item, str(exc))
-        logger.warning("Prepare failed for %s at %s: %s", item.relative_path, progress.stage, exc)
-        info = classify_ingest_error(exc, stage=progress.stage)
-        return ItemFailure(item.id, info["kind"], progress.stage, info["reason"], info["detail"])
+        return _prepare_failed(item, exc, progress, source)
 
 
 def _decode_and_finish(
@@ -531,24 +527,13 @@ def _finish(decoded: DecodedItem, cfg: PipelineConfig, progress: _Progress) -> P
     )
 
     return PreparedItem(
-        item=item,
+        decoded=decoded,
         storage_key=stored.storage_key,
         temp_original=stored.path,
-        temp_thumbnails=decoded.temp_thumbnails,
-        thumbnail_key=decoded.thumbnail_key,
-        clip_source=decoded.clip_source,
-        width=decoded.width,
-        height=decoded.height,
+        stored_hash=stored.stored_hash,
         file_size=stored.size,
         media_type="video" if item.kind == "video" else "image",
-        source_hash=decoded.source_hash,
-        stored_hash=stored.stored_hash,
-        pixel_hash=decoded.pixel_hash,
-        phash=decoded.phash,
-        colors=decoded.colors,
         grid=grid,
-        embedding=decoded.embedding,
-        classification=decoded.classification,
     )
 
 
@@ -559,13 +544,6 @@ def finish_item(decoded: DecodedItem, cfg: PipelineConfig) -> PreparedItem | Ite
         with get_memory_budget().reserve(finish_peak_bytes(decoded, cfg)):
             return _finish(decoded, cfg, progress)
     except Exception as exc:
-        if decoded.item.source_path:  # the source is our own copy; a vanished one is odd
-            for path in progress.created:
-                path.unlink(missing_ok=True)
-            info = classify_ingest_error(exc, stage=progress.stage)
-            return ItemFailure(
-                decoded.item.id, info["kind"], progress.stage, info["reason"], info["detail"]
-            )
         return _prepare_failed(decoded.item, exc, progress, decoded.source)
 
 
@@ -616,21 +594,21 @@ def _store_original(
 # Embed
 
 
-def embed(prepared: list[PreparedItem | DecodedItem]) -> list[ItemFailure]:
+def embed(decoded: list[DecodedItem]) -> list[ItemFailure]:
     """Generate embeddings for the batch in one call. On error every item fails together."""
     try:
         embeddings = embedding_generation.batch_generate_clip_embeddings(
-            [str(p.clip_source) for p in prepared]
+            [str(d.clip_source) for d in decoded]
         )
     except Exception as exc:
-        logger.exception("Batch embedding failed for %d item(s)", len(prepared))
+        logger.exception("Batch embedding failed for %d item(s)", len(decoded))
         info = classify_ingest_error(exc, stage="embedding")
         return [
-            ItemFailure(p.item.id, info["kind"], "embedding", info["reason"], info["detail"])
-            for p in prepared
+            ItemFailure(d.item.id, info["kind"], "embedding", info["reason"], info["detail"])
+            for d in decoded
         ]
-    for p, embedding in zip(prepared, embeddings, strict=True):
-        p.embedding = embedding
+    for d, embedding in zip(decoded, embeddings, strict=True):
+        d.embedding = embedding
     return []
 
 
@@ -644,6 +622,8 @@ SORTED_OUT_REASONS = {
     "unsure": "Couldn't tell whether this is a map or a scene",
 }
 
+_mismatch_logged: set[str] = set()
+
 
 def _usable_head(decoded: list[DecodedItem]) -> ImageTypeHead | None:
     """The active model's head, if it fits these embeddings."""
@@ -652,23 +632,29 @@ def _usable_head(decoded: list[DecodedItem]) -> ImageTypeHead | None:
         return None
     dims = {len(d.embedding or ()) for d in decoded}
     if dims != {head.embedding_dim}:
-        logger.warning(
-            "Image-type head expects %d dims, embeddings have %s; Auto imports as battlemaps",
-            head.embedding_dim,
-            sorted(dims),
-        )
+        if head.encoder_sha256 not in _mismatch_logged:
+            _mismatch_logged.add(head.encoder_sha256)
+            logger.warning(
+                "Image-type head expects %d dims, embeddings have %s; Auto imports as battlemaps",
+                head.embedding_dim,
+                sorted(dims),
+            )
         return None
     return head
 
 
+def _preview_key(decoded: DecodedItem) -> str:
+    """The item's preview in the job's staging folder: its medium thumbnail, renamed."""
+    return f"preview-{decoded.stem}{decoded.temp_thumbnails[decoded.thumbnail_key].suffix}"
+
+
 def _keep_preview(decoded: DecodedItem) -> str | None:
     """Move the medium thumbnail into the job's staging folder as the item's preview."""
-    temp = decoded.temp_thumbnails[decoded.thumbnail_key]
-    key = f"preview-{decoded.stem}{temp.suffix}"
+    key = _preview_key(decoded)
     try:
         target = staging_dir_for(decoded.item.job_id)
         target.mkdir(parents=True, exist_ok=True)
-        shutil.move(temp, target / key)
+        shutil.move(decoded.temp_thumbnails[decoded.thumbnail_key], target / key)
     except OSError as exc:
         logger.warning("Couldn't keep a preview for %s: %s", decoded.item.relative_path, exc)
         return None
@@ -703,11 +689,37 @@ def sort_auto_items(decoded: list[DecodedItem]) -> tuple[list[DecodedItem], list
             d.classification = classification
             kept.append(d)
             continue
-        reason = SORTED_OUT_REASONS["unsure" if result.fell_back else result.group]
+        key = "unsure" if result.fell_back else result.group
+        reason = SORTED_OUT_REASONS.get(key, SORTED_OUT_REASONS["other"])
         preview_key = _keep_preview(d)
         d.discard()
         sorted_out.append(SortedOut(d.item.id, reason, classification, preview_key))
     return kept, sorted_out
+
+
+def _sort(decoded: list[DecodedItem]) -> tuple[list[DecodedItem], int, list[ItemFailure]]:
+    """Sort the batch's Auto items and record the ones sorted out. Returns (items to
+    finish, how many were sorted out, failures). If sorting fails, every Auto item in the
+    batch fails (stage ``classify``) and nothing it made is left behind."""
+    try:
+        kept, sorted_out = sort_auto_items(decoded)
+        record_sorted_out(sorted_out)
+    except Exception as exc:
+        logger.exception("Sorting failed for %d Auto item(s)", len(decoded))
+        for d in decoded:
+            d.discard()
+            # A preview may already have been moved for it (the key is deterministic)
+            remove_staged(d.item.job_id, _preview_key(d))
+        info = classify_ingest_error(exc, stage="classify")
+        return (
+            [],
+            0,
+            [
+                ItemFailure(d.item.id, info["kind"], "classify", info["reason"], info["detail"])
+                for d in decoded
+            ],
+        )
+    return kept, len(sorted_out), []
 
 
 # Commit
@@ -729,8 +741,8 @@ class CommitResult:
 
 def _existing_hash_matches(db, prepared: list[PreparedItem]) -> tuple[dict, dict]:
     """Existing images matching the batch's byte or pixel hashes."""
-    byte_hashes = {p.source_hash for p in prepared} | {p.stored_hash for p in prepared}
-    pixel_hashes = {p.pixel_hash for p in prepared if p.pixel_hash}
+    byte_hashes = {p.decoded.source_hash for p in prepared} | {p.stored_hash for p in prepared}
+    pixel_hashes = {p.decoded.pixel_hash for p in prepared if p.decoded.pixel_hash}
     by_bytes: dict[str, int] = {}
     by_pixels: dict[str, int] = {}
     rows = (
@@ -798,6 +810,7 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
                 )
             }
             for p in prepared:
+                d = p.decoded
                 row = item_rows.get(p.item.id)
                 if row is None or row.state != st.PROCESSING:
                     logger.warning("Item %s no longer processing; discarding", p.item.id)
@@ -805,21 +818,21 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
 
                 if not p.item.allow_duplicate:
                     tier, duplicate_of = None, None
-                    if p.source_hash in by_bytes or p.stored_hash in by_bytes:
+                    if d.source_hash in by_bytes or p.stored_hash in by_bytes:
                         tier = "bytes"
-                        duplicate_of = by_bytes.get(p.source_hash) or by_bytes[p.stored_hash]
-                    elif p.pixel_hash and p.pixel_hash in by_pixels:
-                        tier, duplicate_of = "pixels", by_pixels[p.pixel_hash]
+                        duplicate_of = by_bytes.get(d.source_hash) or by_bytes[p.stored_hash]
+                    elif d.pixel_hash and d.pixel_hash in by_pixels:
+                        tier, duplicate_of = "pixels", by_pixels[d.pixel_hash]
                     if tier:
                         row.state = st.next_item_state(row.state, ItemEvent.DUPLICATE_AT_COMMIT)
                         row.duplicate_of_image_id = duplicate_of
                         row.duplicate_tier = tier
-                        row.source_hash = p.source_hash
+                        row.source_hash = d.source_hash
                         result.duplicates.append(p)
                         continue
 
                 _place(p.temp_original, image_store.get_path(p.storage_key), placed)
-                for key, temp in p.temp_thumbnails.items():
+                for key, temp in d.temp_thumbnails.items():
                     _place(temp, thumbnail_store.get_path(key), placed)
 
                 group, group_name = _resolve_group(db, p.item.import_group_id, group_cache)
@@ -833,10 +846,10 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
                     name=name,
                     author=author,
                     group_id=group.id if group is not None else None,
-                    width=p.width,
-                    height=p.height,
+                    width=d.width,
+                    height=d.height,
                     file_size=p.file_size,
-                    thumbnail_key=p.thumbnail_key,
+                    thumbnail_key=d.thumbnail_key,
                     gridded=p.grid.get("gridded"),
                     grid_width=p.grid.get("grid_width"),
                     grid_height=p.grid.get("grid_height"),
@@ -846,10 +859,10 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
                     subgroup=parsed.get("subgroup"),
                     image_type=p.item.image_type,
                     media_type=p.media_type,
-                    content_hash=p.source_hash,
+                    content_hash=d.source_hash,
                     stored_hash=p.stored_hash,
-                    pixel_hash=p.pixel_hash,
-                    phash=p.phash,
+                    pixel_hash=d.pixel_hash,
+                    phash=d.phash,
                     import_job_id=p.item.job_id,
                     search_text=build_search_text(
                         name=name,
@@ -871,7 +884,7 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
                             source=tag.get("source", "auto"),
                         )
                     )
-                for color in p.colors:
+                for color in d.colors:
                     db.add(
                         Color(
                             image_id=image.id,
@@ -883,19 +896,19 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
 
                 row.state = st.next_item_state(row.state, ItemEvent.COMMITTED)
                 row.image_id = image.id
-                row.source_hash = p.source_hash
-                if p.classification is not None:
-                    row.classification = json.dumps(p.classification)
+                row.source_hash = d.source_hash
+                if d.classification is not None:
+                    row.classification = json.dumps(d.classification)
                 row.error_kind = row.error_stage = row.error_reason = row.error_detail = None
                 # The staged file is deleted right after commit; a crash in between
                 # leaves an unreferenced file for the stray-staging sweep.
                 row.staging_key = None
 
                 # Later items in this batch dedup against this one too.
-                by_bytes.setdefault(p.source_hash, image.id)
+                by_bytes.setdefault(d.source_hash, image.id)
                 by_bytes.setdefault(p.stored_hash, image.id)
-                if p.pixel_hash:
-                    by_pixels.setdefault(p.pixel_hash, image.id)
+                if d.pixel_hash:
+                    by_pixels.setdefault(d.pixel_hash, image.id)
                 result.done.append(CommittedImage(p, image.id, group_name or None, author))
 
             for job_id in {p.item.job_id for p in prepared}:
@@ -915,7 +928,7 @@ def write_vectors(done: list[CommittedImage]) -> bool:
     items = [
         {
             "image_id": c.image_id,
-            "embedding": c.prepared.embedding,
+            "embedding": c.prepared.decoded.embedding,
             "metadata": {
                 "filename": c.prepared.item.filename,
                 "author": c.author or "",
@@ -923,7 +936,7 @@ def write_vectors(done: list[CommittedImage]) -> bool:
             },
         }
         for c in done
-        if c.prepared.embedding is not None
+        if c.prepared.decoded.embedding is not None
     ]
     if not items:
         return True
@@ -985,7 +998,7 @@ def process_batch(items: list[ClaimedItem], cfg: PipelineConfig, pool) -> BatchO
     record_early_duplicates(split.early)
 
     if prepared or decoded:
-        embed_failures = embed([*prepared, *decoded])
+        embed_failures = embed([*(p.decoded for p in prepared), *decoded])
         if embed_failures:
             for p in [*prepared, *decoded]:
                 p.discard()
@@ -993,9 +1006,8 @@ def process_batch(items: list[ClaimedItem], cfg: PipelineConfig, pool) -> BatchO
             prepared, decoded = [], []
 
     if decoded:
-        kept, sorted_out = sort_auto_items(decoded)
-        record_sorted_out(sorted_out)
-        outcome.sorted_out = len(sorted_out)
+        kept, outcome.sorted_out, sort_failures = _sort(decoded)
+        outcome.failures += sort_failures
         finished = _split([f.result() for f in [pool.submit(finish_item, d, cfg) for d in kept]])
         prepared += finished.prepared
         outcome.failures += finished.failures

@@ -8,6 +8,7 @@ import {
   idleQueue,
   installFakeImportManager,
   item,
+  jobDetail,
   jobSummary,
   uninstallFakeImportManager,
   type FakeImportClient,
@@ -15,13 +16,7 @@ import {
 import type { ImportManager } from '@/lib/import/ImportManager'
 import { toast } from 'sonner'
 import { ImportDialog } from './ImportDialog'
-import {
-  isCleanFinish,
-  jobStatusText,
-  outcomeText,
-  reviewableGroupIds,
-  timeLeftText,
-} from './format'
+import { isCleanFinish, jobStatusText, outcomeText, timeLeftText } from './format'
 
 vi.mock('sonner', async (importOriginal) => {
   const actual = await importOriginal<typeof import('sonner')>()
@@ -164,10 +159,13 @@ describe('ImportDialog: start in the desktop app', () => {
 })
 
 describe('ImportDialog: progress', () => {
-  const detail = (partial = {}) => ({
-    ...jobSummary(partial),
-    groups: [group(), group({ id: 2, group_name: 'Swamp Hut', merged_into_existing: true })],
-  })
+  // Two import groups adding to one gallery group, 41
+  const detail = (partial = {}) =>
+    jobDetail({
+      ...partial,
+      groups: [group(), group({ id: 2, group_name: 'Swamp Hut', merged_into_existing: true })],
+      reviewable_group_ids: [41],
+    })
 
   it('shows overall progress, groups done, time left and the groups importing now', async () => {
     const running = counts({ done: 3, ready: 900 })
@@ -175,13 +173,12 @@ describe('ImportDialog: progress', () => {
       jobs: [jobSummary({ counts: running, group_count: 347, groups_done: 103 })],
       queue: { ...idleQueue, seconds_per_item: 2 },
       details: {
-        job1: {
-          ...jobSummary(),
+        job1: jobDetail({
           groups: [
             group({ group_name: 'Forest Ponds', counts: counts({ done: 12, ready: 6 }) }),
             group({ id: 2, group_name: 'Frozen Lake', counts: counts({ awaiting_bytes: 4 }) }),
           ],
-        },
+        }),
       },
     }))
     renderWithProviders(<ImportDialog jobId="job1" open onClose={noop} onStarted={noop} />)
@@ -215,7 +212,7 @@ describe('ImportDialog: progress', () => {
     const partly = group({ counts: counts({ done: 3, duplicate: 3, skipped: 1, ready: 2 }) })
     ;({ manager, client } = await installFakeImportManager({
       jobs: [jobSummary({ counts: partly.counts })],
-      details: { job1: { ...jobSummary(), groups: [partly] } },
+      details: { job1: jobDetail({ groups: [partly] }) },
     }))
     renderWithProviders(<ImportDialog jobId="job1" open onClose={noop} onStarted={noop} />)
     const row = await screen.findByRole('listitem')
@@ -251,7 +248,7 @@ describe('ImportDialog: progress', () => {
       />,
     )
     await userEvent.click(await screen.findByRole('button', { name: 'Review 2 groups' }))
-    await waitFor(() => expect(onReviewGroups).toHaveBeenCalledWith([41])) // two import groups, one gallery group
+    await waitFor(() => expect(onReviewGroups).toHaveBeenCalledWith([41])) // as the server says
   })
 
   it('offers no review before any group has images', async () => {
@@ -337,7 +334,7 @@ describe('ImportDialog: result', () => {
   async function setup() {
     ;({ manager, client } = await installFakeImportManager({
       jobs: [finished],
-      details: { job1: { ...finished, groups: [group()] } },
+      details: { job1: jobDetail({ ...finished, groups: [group()], reviewable_group_ids: [41] }) },
       items: [
         item({ id: 10 }),
         item({ id: 11, relative_path: 'P/b.png', error_reason: 'File was not found' }),
@@ -460,50 +457,74 @@ describe('ImportDialog: result', () => {
 })
 
 describe('ImportDialog: result, skipped by Auto', () => {
-  it('shows previews and imports a reason group anyway, but not other skips', async () => {
-    const finished = jobSummary({ status: 'completed', counts: counts({ done: 1, skipped: 3 }) })
+  const skipped = (partial: Partial<ReturnType<typeof item>>) =>
+    item({ state: 'skipped', error_reason: 'Looks like a token', ...partial })
+
+  async function setup(items: ReturnType<typeof item>[], sortedOut: number) {
+    const finished = jobSummary({
+      status: 'completed',
+      counts: counts({ done: 1, skipped: items.length, sorted_out: sortedOut }),
+    })
     ;({ manager, client } = await installFakeImportManager({
       jobs: [finished],
-      details: { job1: { ...finished, groups: [group()] } },
-      items: [
-        item({
+      details: { job1: jobDetail({ ...finished, groups: [group()], reviewable_group_ids: [41] }) },
+      items,
+    }))
+    renderWithProviders(<ImportDialog onStarted={noop} jobId="job1" open onClose={noop} />)
+  }
+
+  it('opens on Skipped, shows previews and includes a reason group, but not other skips', async () => {
+    const success = vi.spyOn(toast, 'success')
+    await setup(
+      [
+        skipped({
           id: 20,
-          job_id: 'job1',
-          state: 'skipped',
           error_kind: 'sorted_out',
-          error_reason: 'Looks like a token',
           relative_path: 'P/goblin.png',
           has_preview: true,
         }),
-        item({
+        skipped({
           id: 21,
-          job_id: 'job1',
-          state: 'skipped',
           error_kind: 'sorted_out',
-          error_reason: 'Looks like a token',
           relative_path: 'P/orc.png',
           has_preview: true,
         }),
-        item({
+        skipped({
           id: 22,
-          state: 'skipped',
           error_kind: null,
           error_reason: 'Not a supported image, video or archive',
           relative_path: 'P/readme.txt',
         }),
       ],
-    }))
-    renderWithProviders(<ImportDialog onStarted={noop} jobId="job1" open onClose={noop} />)
-    await userEvent.click(screen.getByRole('tab', { name: /Skipped/ }))
+      2,
+    )
+    expect(screen.getByRole('tab', { name: /Skipped/ })).toHaveAttribute('aria-selected', 'true')
     await waitFor(() => expect(screen.getByText('P/goblin.png')).toBeInTheDocument())
     const previews = document.querySelectorAll('img[src*="/preview"]')
     expect([...previews].map((img) => img.getAttribute('src'))).toEqual([
       '/api/v1/imports/job1/items/20/preview',
       '/api/v1/imports/job1/items/21/preview',
     ])
-    expect(screen.getAllByText('Import anyway')).toHaveLength(1)
-    await userEvent.click(screen.getByText('Import anyway'))
+    expect(screen.getAllByRole('button', { name: 'Include' })).toHaveLength(1)
+    await userEvent.click(screen.getByRole('button', { name: 'Include' }))
     expect(client.include).toHaveBeenCalledWith([20, 21])
+    await waitFor(() => expect(success).toHaveBeenCalledWith('Importing 2 images'))
+    success.mockRestore()
+  })
+
+  it('offers no Include and no preview once they have expired', async () => {
+    await setup(
+      [
+        skipped({ id: 20, error_kind: 'sorted_out_expired', relative_path: 'P/goblin.png' }),
+        skipped({ id: 21, error_kind: 'sorted_out_expired', relative_path: 'P/orc.png' }),
+      ],
+      0,
+    )
+    await userEvent.click(screen.getByRole('tab', { name: /Skipped/ }))
+    await waitFor(() => expect(screen.getByText('P/goblin.png')).toBeInTheDocument())
+    expect(screen.getByText('Looks like a token')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Include' })).not.toBeInTheDocument()
+    expect(document.querySelector('img[src*="/preview"]')).toBeNull()
   })
 })
 
@@ -514,18 +535,5 @@ describe('isCleanFinish', () => {
     expect(isCleanFinish(job({ done: 3 }))).toBe(true)
     expect(isCleanFinish(job({ done: 3, skipped: 1, sorted_out: 1 }))).toBe(false)
     expect(isCleanFinish(job({ done: 3, skipped: 1 }))).toBe(true) // e.g. a readme.txt
-  })
-})
-
-describe('reviewableGroupIds', () => {
-  it('holds back a gallery group until every import group adding to it is finished', () => {
-    const groups = [
-      group({ id: 1, image_group_id: 41, counts: counts({ done: 3 }) }),
-      group({ id: 2, image_group_id: 42, counts: counts({ done: 2, ready: 5 }) }), // filling
-      group({ id: 3, image_group_id: 43, counts: counts({ done: 1 }) }),
-      group({ id: 4, image_group_id: 43, counts: counts({ processing: 2 }) }), // same group
-      group({ id: 5, image_group_id: null, counts: counts({ skipped: 4 }) }),
-    ]
-    expect(reviewableGroupIds(groups)).toEqual([41])
   })
 })

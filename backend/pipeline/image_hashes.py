@@ -2,7 +2,7 @@
 
 Three tiers:
 
-1. ``file_sha256`` — exact bytes. Auto-skip.
+1. ``file_sha256`` (``backend.app.file_hash``) — exact bytes. Auto-skip.
 2. ``pixel_hash``  — canonical decoded pixels. Catches the same image re-saved
    (PNG ↔ lossless WebP, different compression, edited metadata). Auto-skip.
 3. ``perceptual_hash`` — 64-bit DCT pHash. Advisory only, never auto-skips:
@@ -12,25 +12,14 @@ Three tiers:
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
 
 import cv2
 import numpy as np
 from PIL import Image, ImageOps
 
-_FILE_CHUNK = 1024 * 1024
 # Rows hashed per strip: bounds peak memory to ~strip_rows * width * 4 bytes
 # instead of materialising a full RGBA copy of a 50+ megapixel map.
 _PIXEL_STRIP_ROWS = 256
-
-
-def file_sha256(path: Path) -> str:
-    """SHA-256 hex digest of a file's bytes, streamed."""
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        while chunk := f.read(_FILE_CHUNK):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def _oriented(image: Image.Image) -> Image.Image:

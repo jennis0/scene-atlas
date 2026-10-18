@@ -4,7 +4,7 @@
  */
 
 import type { LocalUpload } from '@/lib/import/ImportManager'
-import type { ImportCounts, ImportGroupSummary, ImportJobSummary } from '@/lib/import/types'
+import type { ImportCounts, ImportJobSummary } from '@/lib/import/types'
 
 export const plural = (n: number, one: string, many = `${one}s`) =>
   `${n.toLocaleString()} ${n === 1 ? one : many}`
@@ -42,7 +42,6 @@ export function timeLeftText(c: ImportCounts, secondsPerItem: number | null | un
 export const isFinished = (job: ImportJobSummary) =>
   job.status === 'completed' || job.status === 'cancelled'
 
-/** What this tab is doing for the job right now, or null when it isn't sending anything. */
 /**
  * A finished import with nothing to look at but its groups: completed, every file
  * imported or skipped (no failures, no files already in the library), and the
@@ -56,28 +55,7 @@ export const isCleanFinish = (job: ImportJobSummary) =>
   !job.counts.sorted_out && // a group Auto skipped entirely is only in the report
   !job.upload_interrupted
 
-/**
- * The image groups an import has finished adding images to, for opening in the editor.
- * Each once: several import groups can add to the same gallery group, and it is held back
- * until all of them are finished, so the editor never loads a group that is still filling
- * (an edit to such a group would be missing the images that land after it loaded).
- */
-export function reviewableGroupIds(groups: ImportGroupSummary[]): number[] {
-  const unfinished = new Set(
-    groups
-      .filter((g) => g.image_group_id !== null && openCount(g.counts) > 0)
-      .map((g) => g.image_group_id),
-  )
-  return [
-    ...new Set(
-      groups
-        .filter((g) => g.image_group_id !== null && g.counts.done > 0)
-        .map((g) => g.image_group_id!)
-        .filter((id) => !unfinished.has(id)),
-    ),
-  ]
-}
-
+/** What this tab is doing for the job right now, or null when it isn't sending anything. */
 export function uploadPhaseText(upload: LocalUpload | undefined): string | null {
   if (!upload) return null
   switch (upload.phase) {

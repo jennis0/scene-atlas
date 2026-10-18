@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from backend.app.file_hash import file_sha256
 from backend.app.services import image_type_classifier as itc
 from backend.app.services.model_registry import MODELS
 
@@ -113,6 +114,16 @@ class TestImageTypeHead:
                 }
             },
             {"groups": {"map": ["tactical_map"], "token": ["token"], "other": ["item"]}},  # none
+            {  # a group ingest doesn't know how to act on
+                "groups": {
+                    "map": ["tactical_map"],
+                    "illustration": ["environment"],
+                    "token": ["token"],
+                    "handout": ["item"],
+                },
+                "fallback": {"group": "handout", "min_confidence": 0.0},
+            },
+            {"fallback": {"group": "unsure", "min_confidence": 0.5}},  # not one of its groups
         ],
     )
     def test_rejects_malformed_heads(self, over):
@@ -126,7 +137,7 @@ class TestEncoderSha:
         (tmp_path / "v.onnx").write_bytes(b"weights")
         (tmp_path / "version.json").write_text(json.dumps({"hf_commit_sha": "x"}))
         sha = itc.vision_encoder_sha256(tmp_path)
-        assert sha == itc._sha256(tmp_path / "v.onnx")
+        assert sha == file_sha256(tmp_path / "v.onnx")
         assert json.loads((tmp_path / "version.json").read_text())["vision_sha256"] == sha
         (tmp_path / "v.onnx").write_bytes(b"changed")  # cached value wins
         assert itc.vision_encoder_sha256(tmp_path) == sha
@@ -134,8 +145,41 @@ class TestEncoderSha:
     def test_none_when_not_installed(self, tmp_path):
         assert itc.vision_encoder_sha256(tmp_path) is None
 
+    def test_caching_is_best_effort(self, tmp_path, monkeypatch):
+        """A read-only install still gets its hash; it's just computed again next time."""
+        (tmp_path / "manifest.json").write_text(json.dumps({"vision_encoder": "v.onnx"}))
+        (tmp_path / "v.onnx").write_bytes(b"weights")
+        (tmp_path / "version.json").write_text(json.dumps({"hf_commit_sha": "x"}))
+
+        def read_only(self, *args, **kwargs):
+            raise PermissionError("read-only file system")
+
+        monkeypatch.setattr(itc.Path, "write_text", read_only)
+        assert itc.vision_encoder_sha256(tmp_path) == file_sha256(tmp_path / "v.onnx")
+        assert "vision_sha256" not in json.loads((tmp_path / "version.json").read_text())
+
 
 class TestBundledHeads:
+    @pytest.fixture
+    def heads_dir(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(itc, "HEADS_DIR", tmp_path)
+        monkeypatch.setattr(itc, "_heads", None)
+        yield tmp_path
+        itc._heads = None  # the next caller loads the real bundled heads again
+
+    def test_a_malformed_head_does_not_break_the_others(self, heads_dir):
+        good = _head(encoder_sha256="b" * 64)
+        (heads_dir / f"{'b' * 64}.json").write_text(json.dumps(good))
+        (heads_dir / f"{'c' * 64}.json").write_text("{not json")
+        bad_groups = _head(encoder_sha256="d" * 64, fallback={"group": "x", "min_confidence": 0})
+        (heads_dir / f"{'d' * 64}.json").write_text(json.dumps(bad_groups))
+        misnamed = _head(encoder_sha256="e" * 64)
+        (heads_dir / f"{'f' * 64}.json").write_text(json.dumps(misnamed))
+
+        assert set(itc.bundled_heads()) == {"b" * 64}
+        (heads_dir / f"{'b' * 64}.json").unlink()
+        assert set(itc.bundled_heads()) == {"b" * 64}  # loaded once, cached
+
     def test_all_bundled_heads_load(self):
         heads = itc.bundled_heads()
         for sha, head in heads.items():

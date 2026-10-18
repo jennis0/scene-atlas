@@ -32,6 +32,7 @@ import type { PendingConfirm } from './edit-group/pendingConfirm'
 import { useEditScope } from './edit-group/useEditScope'
 import { EditGroupContext, type EditGroupContextValue } from './edit-group/EditGroupContext'
 import { invalidateGalleryQueries } from '@/lib/queryKeys'
+import { serverId } from '@/lib/serverId'
 import { ImportRunningStrip } from './edit-group/ImportRunningStrip'
 
 /** Import-review mode: several groups by ID, all images in scope (e.g. every group an
@@ -244,9 +245,7 @@ export default function EditGroupDialog({
     [groups, selectedGroupIds, resetMultiselect, pending, dnd.activeDrag, ops, sortedOut],
   )
 
-  // Groups created in the editor have uuid keys and no server id
-  const activeGroupDbId =
-    activeGroup && !Number.isNaN(Number(activeGroup.id)) ? Number(activeGroup.id) : null
+  const activeGroupDbId = activeGroup ? serverId(activeGroup.id) : null
   const activeSelection = selections[selectionId] ?? new Set<string>()
   const hasActiveFilter = !!fileFilter.text || fileFilter.active.length > 0
   const isOriginalGroup = !showsMultipleGroups && !isMassEdit && activeGroup?.id === String(groupId)
@@ -414,6 +413,7 @@ export default function EditGroupDialog({
                       {!showsMultipleGroups && activeGroupDbId !== null && (
                         <div className="px-5 shrink-0">
                           <SortedOutStrip
+                            key={activeGroupDbId}
                             groupId={activeGroupDbId}
                             count={sortedOut.counts[activeGroupDbId] ?? 0}
                             importing={sortedOut.importing[activeGroupDbId] ?? 0}

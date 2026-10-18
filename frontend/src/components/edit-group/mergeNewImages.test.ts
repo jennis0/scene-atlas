@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildPayload, imageToEditable } from '@/hooks/useEditGroupLoad'
+import { imageToEditable } from '@/hooks/useEditGroupLoad'
 import type { EditableGroupState, GroupDetail, Image } from '@/types'
 import { withNewImages } from './mergeNewImages'
 
@@ -41,15 +41,5 @@ describe('withNewImages', () => {
   it('returns the same group object when nothing is new', () => {
     const group = loaded('7', [1])
     expect(withNewImages([group], [detail(7, [1])])[0]).toBe(group)
-  })
-})
-
-describe('buildPayload', () => {
-  it('names the images to delete instead of leaving them out', () => {
-    const group = loaded('7', [1, 2, 3])
-    group.files[1] = { ...group.files[1], excluded: true }
-    const payload = buildPayload(group)
-    expect(payload.images.map((i) => i.id)).toEqual([1, 3])
-    expect(payload.delete_image_ids).toEqual([2])
   })
 })

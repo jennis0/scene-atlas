@@ -190,7 +190,7 @@ This document records all significant architectural decisions for the Scene Atla
 - The `alembic.ini` at project root allows CLI use: `uv run alembic upgrade head`
 - Image store files are not backed up by the script — they are large, append-only blobs and the originals typically exist elsewhere; document this assumption
 - LanceDB embeddings can be regenerated from images via `write_new_embeddings` if the LanceDB backup is unavailable
-- **Status note (2026-10):** `cleanup_staging` no longer exists; staging is cleaned by item state (ADR-018). Scheduled tasks are now `backup_database` (24h), `ingest_maintenance` (6h), `sweep_orphaned_store_files` (24h) and `reconcile_vectors` (24h); see [ingestion.md](ingestion.md#9-maintenance-and-recovery). There is no `reset_database.py`.
+- **Status note (2026-10):** `cleanup_staging` no longer exists; staging is cleaned by item state (ADR-018). Scheduled tasks are now `backup_database` (24h), `ingest_maintenance` (hourly), `sweep_orphaned_store_files` (24h) and `reconcile_vectors` (24h); see [ingestion.md](ingestion.md#9-maintenance-and-recovery). There is no `reset_database.py`.
 
 ---
 
@@ -544,6 +544,7 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 **Consequences:**
 - Mixed packs import without choosing a type, and tokens stay out of the library unless included.
 - On a 320-image real sample with the Small model (2026-10-18, raw catalog labels), about 1 in 10 maps was skipped and 6% became scenes. The review path matters, and head quality is the lever. Re-measure when heads are retrained.
-- Sorted-out uploads keep their staged bytes until the job's rows are pruned (30 days after dismissal). Local imports keep only the preview.
+- Sorted-out items are includable until the import is cleared from Activity or 24 hours after it finished, whichever is first; then bytes and preview go together (user decision 2026-10-18: a preview without its file is pointless). Finished imports leave Activity after 24 hours. Clicking Done in the report clears the import, which ends the editor review of its skips.
+- Videos are sorted from their first frame (user decision: the library has video scenes as well as animated maps).
 - Included images go through the queue; the open editor merges them into the group once their import finishes (`edit-group/useSortedOut.ts`).
 - Found while testing: the editor could load a group that was still filling, and `PUT /groups/{id}` deleted every image the client didn't list, so editing such a group deleted the late images. Fixed on this branch: deletion is now explicit (`delete_image_ids`), and import review holds a group back until its import has finished with it (`groups_reviewable`, `reviewableGroupIds`).

@@ -18,7 +18,6 @@ Export a head with ``uv run release export-heads --release <name>`` in scene-atl
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import threading
@@ -28,6 +27,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from backend.app.file_hash import file_sha256
 from backend.app.services.clip_service import _to_rgb
 from backend.app.services.model_download_service import get_model_dir
 
@@ -37,6 +37,8 @@ HEADS_DIR = Path(__file__).resolve().parents[1] / "data" / "heads" / "image_type
 SUPPORTED_FORMATS = frozenset({"scene-atlas-linear-head/2"})
 # Features this code can compute; a head asking for anything else is rejected at load.
 KNOWN_FEATURES = ("log_aspect", "white_frac", "white_border_frac")
+# The groups ingest knows how to act on (design/ingestion.md §5.6)
+KNOWN_GROUPS = frozenset({"map", "illustration", "token", "other"})
 _FEATURE_SIZE = 128
 _FEATURE_BORDER = 8
 _WHITE_MIN = 245
@@ -82,6 +84,9 @@ class ImageTypeHead:
         self.embedding_dim: int = data["embedding_dim"]
         self.classes: list[str] = data["classes"]
         self.groups: dict[str, list[str]] = data["groups"]
+        unknown_groups = set(self.groups) - KNOWN_GROUPS
+        if unknown_groups:
+            raise ImageTypeHeadError(f"{source}: unknown groups {sorted(unknown_groups)}")
         self.features: list[str] = list((data.get("features") or {}).get("names", []))
         unknown = set(self.features) - set(KNOWN_FEATURES)
         if unknown:
@@ -105,6 +110,10 @@ class ImageTypeHead:
             raise ImageTypeHeadError(f"{source}: every class must belong to exactly one group")
         fallback = data["fallback"]
         self.fallback_group: str = fallback["group"]
+        if self.fallback_group not in self.groups:
+            raise ImageTypeHeadError(
+                f"{source}: fallback group {self.fallback_group!r} is not one of its groups"
+            )
         self.min_confidence: float = float(fallback["min_confidence"])
 
     @property
@@ -150,27 +159,29 @@ _lock = threading.Lock()
 _heads: dict[str, ImageTypeHead] | None = None
 
 
+def _load_head(path: Path) -> ImageTypeHead:
+    head = ImageTypeHead(json.loads(path.read_text(encoding="utf-8")), str(path))
+    if path.stem != head.encoder_sha256:
+        raise ImageTypeHeadError(f"{path}: file name doesn't match encoder_sha256")
+    return head
+
+
 def bundled_heads() -> dict[str, ImageTypeHead]:
-    """{encoder sha256: head} for every bundled head (loaded once)."""
+    """{encoder sha256: head} for every bundled head (loaded once). A malformed file is
+    logged and skipped, so it only costs its own model auto-classification."""
     global _heads
     with _lock:
         if _heads is None:
             heads = {}
             for path in sorted(HEADS_DIR.glob("*.json")):
-                head = ImageTypeHead(json.loads(path.read_text(encoding="utf-8")), str(path))
-                if path.stem != head.encoder_sha256:
-                    raise ImageTypeHeadError(f"{path}: file name doesn't match encoder_sha256")
+                try:
+                    head = _load_head(path)
+                except (ImageTypeHeadError, OSError, ValueError, KeyError, TypeError):
+                    logger.exception("Skipping malformed image-type head %s", path.name)
+                    continue
                 heads[head.encoder_sha256] = head
             _heads = heads
         return _heads
-
-
-def _sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def vision_encoder_sha256(model_dir: Path) -> str | None:
@@ -187,14 +198,17 @@ def vision_encoder_sha256(model_dir: Path) -> str | None:
         return version["vision_sha256"]
     try:
         manifest = json.loads((model_dir / "manifest.json").read_text(encoding="utf-8"))
-        sha = _sha256(model_dir / manifest.get("vision_encoder", "clip_vision_encoder.onnx"))
+        sha = file_sha256(model_dir / manifest.get("vision_encoder", "clip_vision_encoder.onnx"))
     except (OSError, json.JSONDecodeError) as exc:
         logger.warning("Could not hash vision encoder in %s: %s", model_dir, exc)
         return None
     version["vision_sha256"] = sha
     tmp = version_path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(version, indent=2), encoding="utf-8")
-    tmp.replace(version_path)
+    try:
+        tmp.write_text(json.dumps(version, indent=2), encoding="utf-8")
+        tmp.replace(version_path)
+    except OSError as exc:  # a read-only install: hash again next time
+        logger.warning("Could not cache the vision encoder hash in %s: %s", version_path, exc)
     return sha
 
 

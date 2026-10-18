@@ -13,7 +13,6 @@ import type {
   ContentResult,
   HashResult,
   ImageType,
-  ImportItem,
   ImportItemPage,
   ImportJobDetail,
   ImportJobList,
@@ -212,7 +211,3 @@ export const importClient = {
 }
 
 export type ImportClient = typeof importClient
-
-/** The preview kept for an item Auto sorted out (only when ``has_preview``) */
-export const previewUrl = (item: Pick<ImportItem, 'id' | 'job_id'>): string =>
-  `/api/v1${BASE}/${item.job_id}/items/${item.id}/preview`

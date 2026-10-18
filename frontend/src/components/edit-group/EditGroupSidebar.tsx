@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { GroupSidebarShell, type AllTab } from '@/components/import/shared/GroupSidebarShell'
 import { DroppableGroupRow, DraggableGroupRow } from '@/components/import/shared/dnd'
+import { serverId } from '@/lib/serverId'
 import type { EditableGroupState, GroupSummary } from '@/types'
 import { useEditGroupContext } from './EditGroupContext'
 import { SidebarList } from './SidebarList'
@@ -303,7 +304,8 @@ function PendingGroupRow({ group, awaited, onOpen, onDemand }: PendingGroupRowPr
 function GroupRowCounts({ group }: { group: EditableGroupState }) {
   const { ops, sortedOut } = useEditGroupContext()
   const outOfScope = group.files.filter((f) => f.outOfScope).length
-  const skipped = sortedOut.counts[Number(group.id)] ?? 0
+  const dbId = serverId(group.id)
+  const skipped = dbId === null ? 0 : (sortedOut.counts[dbId] ?? 0)
 
   return (
     <span className="text-2xs text-muted-foreground tabular-nums shrink-0 flex items-center gap-1">

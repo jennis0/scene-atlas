@@ -784,10 +784,14 @@ export class ImportManager {
     return result.affected
   }
 
-  /** Import items Auto sorted out after all; says how many, and which imports re-opened */
+  /**
+   * Import items Auto sorted out after all; says how many, and which imports re-opened.
+   * Resolves once the job list shows them re-opened (a fresh poll), so a caller waiting
+   * for those imports to finish never sees them still finished from before.
+   */
   async include(itemIds: number[]): Promise<IncludeResult> {
     const result = await this.client.include(itemIds)
-    await this.refresh()
+    await this.freshRefresh()
     return result
   }
 
@@ -910,6 +914,12 @@ export class ImportManager {
       this.pullPollForward()
     })
     return this.pollInFlight
+  }
+
+  /** Poll after anything already in flight, which may have started before a change */
+  private async freshRefresh(): Promise<void> {
+    await this.pollInFlight
+    await this.refresh()
   }
 
   private schedulePoll(delay: number): void {

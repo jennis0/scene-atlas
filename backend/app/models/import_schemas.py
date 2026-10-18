@@ -30,7 +30,7 @@ class ImportCounts(BaseModel):
     failed: int = 0
     skipped: int = 0
     total: int = 0
-    sorted_out: int = 0  # of skipped: Auto set these aside (job counts only; 0 per group)
+    sorted_out: int = 0  # of skipped: Auto set these aside and they can still be included
 
 
 class ImportGroupSummary(BaseModel):
@@ -58,7 +58,8 @@ class ImportJobSummary(BaseModel):
     counts: ImportCounts
     group_count: int
     groups_done: int = 0  # groups with no open items (planned jobs)
-    # Finished groups with at least one imported image: what the review editor can open
+    # Gallery groups the review editor can open: one of this import's groups that resolved
+    # to it has an imported image, and none of them is still importing
     groups_reviewable: int = 0
     created_at: datetime | None
     updated_at: datetime | None
@@ -68,6 +69,8 @@ class ImportJobSummary(BaseModel):
 
 class ImportJobDetail(ImportJobSummary):
     groups: list[ImportGroupSummary]
+    # The gallery groups counted by ``groups_reviewable``, in import order
+    reviewable_group_ids: list[int] = []
 
 
 class QueueStatus(BaseModel):

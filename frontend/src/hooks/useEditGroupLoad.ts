@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, type MutableRefObject } from 
 import { groupApi, tagApi, imageApi, getThumbnailUrlById, getImageUrlById } from '@/lib/api'
 import { toast } from 'sonner'
 import { getApiErrorMessage, isNotFoundError } from '@/lib/getErrorMessage'
+import { serverId } from '@/lib/serverId'
 import { parseTagVocabulary } from '@/components/import/types'
 import { EMPTY_FILTER } from '@/components/import/fileFilter'
 import type { FileFilter } from '@/components/import/fileFilter'
@@ -85,8 +86,8 @@ export function toImageEdit(f: EditableFileState): GroupEditRequest['images'][nu
 export function deletedImageIds(files: EditableFileState[]): number[] {
   return files
     .filter((f) => f.excluded)
-    .map((f) => Number(f.relative_path))
-    .filter((id) => !Number.isNaN(id))
+    .map((f) => serverId(f.relative_path))
+    .filter((id) => id !== null)
 }
 
 export function buildPayload(group: EditableGroupState): GroupEditRequest {

@@ -5,7 +5,6 @@ version.json is the completion marker (written last, checked by is_model_downloa
 """
 
 import errno
-import hashlib
 import json
 import logging
 import shutil
@@ -14,6 +13,7 @@ from pathlib import Path
 from typing import NoReturn
 
 from backend.app.config import settings as _settings
+from backend.app.file_hash import file_sha256
 from backend.app.services.model_registry import MODEL_BY_NAME, get_model
 
 logger = logging.getLogger(__name__)
@@ -212,7 +212,7 @@ def download_model(name: str, progress_fn=None) -> dict:
         "hf_revision": revision,
         "downloaded_at": downloaded_at,
         # Keys the bundled image-type head (services/image_type_classifier.py).
-        "vision_sha256": _file_sha256(model_dir / "clip_vision_encoder.onnx"),
+        "vision_sha256": file_sha256(model_dir / "clip_vision_encoder.onnx"),
     }
     (model_dir / "version.json").write_text(json.dumps(version_data, indent=2), encoding="utf-8")
 
@@ -221,14 +221,6 @@ def download_model(name: str, progress_fn=None) -> dict:
 
     logger.info("Model '%s' downloaded successfully (sha: %s)", name, commit_sha[:8])
     return {"name": name, "hf_commit_sha": commit_sha, "downloaded_at": downloaded_at}
-
-
-def _file_sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def _raise_download_error(exc: Exception, repo_id: str) -> NoReturn:
