@@ -63,6 +63,8 @@ MODELS: list[dict] = [
     {
         "name": "large",
         "hf_repo": "jennis0/scene-atlas-large",
+        # Pinned so the bundled image-type head (keyed by encoder sha) keeps matching.
+        "hf_revision": "908bd24e15afea04941483c16e761b47545f4f28",
         "label": "Large",
         "description": "The best search, but the slowest. Needs a GPU and about 1 GB of memory.",
         "description_technical": "SigLIP2-so400m-patch14-384 — vision fp16, text fp16. Best-in-class retrieval; high VRAM requirement.",

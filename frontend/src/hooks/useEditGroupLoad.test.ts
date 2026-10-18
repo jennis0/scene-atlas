@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { ALL_TAB } from '@/hooks/useFileEditing'
-import type { GroupSummary } from '@/types'
-import { ALL_VIEW_IMAGE_LIMIT, initialReviewTab, nextReviewBatch } from './useEditGroupLoad'
+import type { EditableGroupState, GroupSummary, Image } from '@/types'
+import {
+  ALL_VIEW_IMAGE_LIMIT,
+  buildPayload,
+  imageToEditable,
+  initialReviewTab,
+  nextReviewBatch,
+} from './useEditGroupLoad'
 
 const ids = (n: number) => Array.from({ length: n }, (_, i) => i + 1)
 
@@ -27,6 +33,8 @@ const summary = (id: number, image_count: number): GroupSummary => ({
   author: null,
   primary_image_id: null,
   image_count,
+  map_count: 0,
+  scene_count: 0,
   image_ids: [],
 })
 
@@ -43,5 +51,23 @@ describe('initialReviewTab', () => {
   it('opens on the first group when All would hold too many images', () => {
     const big = [summary(1, ALL_VIEW_IMAGE_LIMIT), summary(2, 1)]
     expect(initialReviewTab(big, false)).toBe(0)
+  })
+})
+
+describe('buildPayload', () => {
+  const image = (id: number) =>
+    ({ id, filename: `${id}.png`, name: `Image ${id}`, tags: [] }) as unknown as Image
+
+  it('names the images to delete instead of leaving them out', () => {
+    const group: EditableGroupState = {
+      id: '7',
+      author: 'A',
+      group_name: 'Group 7',
+      files: [1, 2, 3].map((id) => imageToEditable(image(id))),
+    }
+    group.files[1] = { ...group.files[1], excluded: true }
+    const payload = buildPayload(group)
+    expect(payload.images.map((i) => i.id)).toEqual([1, 3])
+    expect(payload.delete_image_ids).toEqual([2])
   })
 })

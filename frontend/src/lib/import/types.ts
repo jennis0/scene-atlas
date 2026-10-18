@@ -3,7 +3,8 @@
  * Mirrors backend/app/models/import_schemas.py.
  */
 
-export type ImageType = 'battlemap' | 'scene'
+/** auto: the image-type head picks battlemap or scene and sets aside tokens and other art */
+export type ImageType = 'battlemap' | 'scene' | 'auto'
 
 export type ItemState =
   | 'awaiting_bytes'
@@ -25,6 +26,8 @@ export interface ImportCounts {
   failed: number
   skipped: number
   total: number
+  /** Of skipped: set aside by Auto and still includable (expired ones aren't counted) */
+  sorted_out: number
 }
 
 export interface ImportGroupSummary {
@@ -37,6 +40,9 @@ export interface ImportGroupSummary {
   counts: ImportCounts
   /** An image this import added to the group, for a thumbnail in the report */
   cover_image_id?: number | null
+  /** The images this import added, by type (the report; 0 in the progress view) */
+  map_count: number
+  scene_count: number
 }
 
 export interface ImportJobSummary {
@@ -55,8 +61,8 @@ export interface ImportJobSummary {
   group_count: number
   /** Groups with nothing left to import (once planned). */
   groups_done: number
-  /** Groups that have images in the gallery so far: what the editor can review. */
-  groups_with_images: number
+  /** Gallery groups the review editor can open (the detail's ``reviewable_group_ids``) */
+  groups_reviewable: number
   created_at: string | null
   updated_at: string | null
   completed_at: string | null
@@ -65,6 +71,12 @@ export interface ImportJobSummary {
 
 export interface ImportJobDetail extends ImportJobSummary {
   groups: ImportGroupSummary[]
+  /**
+   * Gallery groups with an image from this import and no unfinished import group of it
+   * adding to them: what the review editor may open. The rule lives only on the server
+   * (design/import-progress.md §5).
+   */
+  reviewable_group_ids: number[]
 }
 
 export interface QueueStatus {
@@ -133,6 +145,7 @@ export interface ArchiveResult {
 
 export interface ImportItem {
   id: number
+  job_id: string
   import_group_id: number | null
   kind: 'image' | 'video' | 'archive'
   relative_path: string
@@ -141,7 +154,18 @@ export interface ImportItem {
   size: number | null
   state: ItemState
   attempts: number
-  error_kind: 'file' | 'transient' | 'system' | 'bytes_lost' | null
+  /**
+   * sorted_out: skipped by Auto, can be included (design/ingestion.md §5.6).
+   * sorted_out_expired: one whose bytes and preview were released; now a plain skip.
+   */
+  error_kind:
+    | 'file'
+    | 'transient'
+    | 'system'
+    | 'bytes_lost'
+    | 'sorted_out'
+    | 'sorted_out_expired'
+    | null
   error_stage: string | null
   error_reason: string | null
   image_id: number | null
@@ -150,6 +174,28 @@ export interface ImportItem {
   allow_duplicate: boolean
   similar_to_image_id: number | null
   updated_at: string | null
+  /** Auto items: the image-type head's verdict */
+  classification: ItemClassification | null
+  /** Items Auto sorted out keep a preview (importPreviewUrl) until they expire */
+  has_preview: boolean
+}
+
+export interface ItemClassification {
+  group: 'map' | 'illustration' | 'token' | 'other'
+  probabilities: Record<string, number>
+  fell_back: boolean
+  head: string
+}
+
+/** Items Auto sorted out of one gallery group, across imports */
+export interface SortedOutList {
+  items: ImportItem[]
+  truncated: boolean
+}
+
+export interface IncludeResult {
+  affected: number
+  job_ids: string[]
 }
 
 export interface ImportItemPage {

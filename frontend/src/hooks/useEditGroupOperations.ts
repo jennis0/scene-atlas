@@ -1,11 +1,13 @@
 import { useState, useCallback, useRef } from 'react'
 import { groupApi } from '@/lib/api'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
+import { serverId } from '@/lib/serverId'
 import { SAVED_INDICATOR_DURATION_MS } from '@/lib/constants'
 import { ALL_TAB } from '@/hooks/useFileEditing'
 import {
   imageToEditable,
   buildPayload,
+  deletedImageIds,
   toImageEdit,
   groupDetailToEditable,
   tabAfterRemoval,
@@ -97,8 +99,8 @@ export function useEditGroupOperations({
   }, [])
 
   const autoSaveGroup = useCallback(async (group: EditableGroupState) => {
-    const gId = Number(group.id)
-    if (isNaN(gId)) return // Skip locally-created groups (UUID keys — not in DB yet)
+    const gId = serverId(group.id)
+    if (gId === null) return // Skip locally-created groups (not in the DB yet)
 
     setGroupSaving((prev) => {
       const s = new Set(prev)
@@ -137,8 +139,8 @@ export function useEditGroupOperations({
     const source = groups[sourceIndex]
     const sel = selections[sourceGroupId] ?? new Set<string>()
     if (sel.size === 0) return
-    const sourceGId = Number(sourceGroupId)
-    if (isNaN(sourceGId)) return
+    const sourceGId = serverId(sourceGroupId)
+    if (sourceGId === null) return
 
     const movedFiles = source.files.filter((f) => sel.has(f.relative_path))
     const remainingFiles = source.files.filter((f) => !sel.has(f.relative_path))
@@ -157,6 +159,7 @@ export function useEditGroupOperations({
             image_ids: movedFiles.filter((f) => !f.excluded).map((f) => Number(f.relative_path)),
           },
         ],
+        delete_image_ids: deletedImageIds(source.files),
       })
 
       // Reload both groups from the API so the new one has its real ID.

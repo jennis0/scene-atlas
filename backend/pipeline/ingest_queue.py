@@ -44,6 +44,18 @@ KIND_BYTES_LOST = "bytes_lost"
 # A local import's folder is missing (drive unplugged): the item goes back to ready and
 # its job waits until the folder is back (design/local-ingest.md §4.4).
 KIND_SOURCE_UNAVAILABLE = "source_unavailable"
+# Auto: the image-type head sorted the item out (a token, or not a map or scene). It is
+# skipped, keeps its bytes and a preview, and the user can include it (design §5.6).
+KIND_SORTED_OUT = "sorted_out"
+# A sorted-out item whose bytes and preview were released: its import was dismissed, or
+# finished more than a day ago. It stays skipped and can no longer be included.
+KIND_SORTED_OUT_EXPIRED = "sorted_out_expired"
+
+# Image types. Auto is resolved to battlemap or scene by the image-type head.
+BATTLEMAP = "battlemap"
+SCENE = "scene"
+AUTO = "auto"
+_FILENAME_GRID_FIELDS = ("gridded", "grid_width", "grid_height", "grid_type")
 
 ARCHIVE_EXTENSIONS = frozenset({".zip"})
 _IN_CHUNK = 500  # Keep IN (...) lists far below SQLite's bound-variable limit
@@ -105,6 +117,16 @@ def staged_path(job_id: str, staging_key: str) -> Path:
 def remove_staged(job_id: str, staging_key: str | None) -> None:
     if staging_key:
         staged_path(job_id, staging_key).unlink(missing_ok=True)
+
+
+# (job id, key) of staged files to delete once the transaction that released them has
+# committed, so a rolled-back transaction never leaves rows naming missing files.
+StagedFiles = list[tuple[str, str]]
+
+
+def remove_staged_files(files: StagedFiles) -> None:
+    for job_id, key in files:
+        remove_staged(job_id, key)
 
 
 def kind_for_path(relative_path: str) -> str | None:
@@ -257,6 +279,20 @@ def _parsed_payload(parsed: dict, group_name: str) -> dict:
     }
 
 
+def effective_parsed(image_type: str, parsed: dict) -> dict:
+    """The parse an item should commit with once its type is known. An Auto item was
+    parsed as a battlemap at seal; as a scene it takes the scene tags and no grid
+    information from its file name, exactly as if it had been imported as a scene."""
+    if image_type != SCENE or "scene_tags" not in parsed:
+        return parsed
+    return {
+        **parsed,
+        "tags": parsed["scene_tags"],
+        **dict.fromkeys(_FILENAME_GRID_FIELDS),
+        "grid_size_alternatives": [],
+    }
+
+
 def _existing_groups(db: Session, names: set[str]) -> dict[tuple[str, str | None], int]:
     """Map (base_name, author) → oldest matching ImageGroup id, querying in chunks."""
     found: dict[tuple[str, str | None], int] = {}
@@ -299,7 +335,9 @@ def plan_job(db: Session, job_id: str) -> list[ImportGroup]:
     by_path = {item.relative_path: item for item in items}
     by_type: dict[str, list[str]] = {}
     for item in items:
-        by_type.setdefault(item.image_type, []).append(item.relative_path)
+        # Auto items are grouped as battlemaps: group names don't depend on the type
+        parse_as = BATTLEMAP if item.image_type == AUTO else item.image_type
+        by_type.setdefault(parse_as, []).append(item.relative_path)
 
     parser = _build_parser(db)
     planned: list[tuple[str | None, str, list[dict]]] = []
@@ -328,7 +366,11 @@ def plan_job(db: Session, job_id: str) -> list[ImportGroup]:
         for file_entry in files:
             item = by_path[file_entry["relative_path"]]
             item.import_group_id = import_group.id
-            item.parsed = json.dumps(_parsed_payload(file_entry["parsed"], group_name))
+            payload = _parsed_payload(file_entry["parsed"], group_name)
+            if item.image_type == AUTO:
+                # Tags differ by type (junk words); keep the scene parse for effective_parsed
+                payload["scene_tags"] = parser.parse(item.relative_path, image_type=SCENE)["tags"]
+            item.parsed = json.dumps(payload)
 
     job.planned_at = utcnow()
     db.flush()
@@ -446,14 +488,37 @@ def apply_client_hashes(db: Session, job_id: str, hashes: dict[int, str]) -> lis
     return items
 
 
-def dismiss_job(db: Session, job_id: str) -> None:
-    """Hide a finished job from the activity dock. Never deletes anything."""
+def expire_sorted_out(db: Session, job_ids: Iterable[str]) -> StagedFiles:
+    """Release the staged bytes and previews of these jobs' sorted-out items, which can no
+    longer be included (design §5.6). Returns the files to delete after the commit. A local
+    item's bytes are its source, which is never touched; only its preview goes."""
+    files: StagedFiles = []
+    ordered = sorted(set(job_ids))
+    for start in range(0, len(ordered), _IN_CHUNK):
+        items = db.query(ImportItem).filter(
+            ImportItem.job_id.in_(ordered[start : start + _IN_CHUNK]),
+            ImportItem.state == st.SKIPPED,
+            ImportItem.error_kind == KIND_SORTED_OUT,
+        )
+        for item in items:
+            files += [(item.job_id, key) for key in (item.staging_key, item.preview_key) if key]
+            item.staging_key = item.preview_key = None
+            item.error_kind = KIND_SORTED_OUT_EXPIRED
+    db.flush()
+    return files
+
+
+def dismiss_job(db: Session, job_id: str) -> StagedFiles:
+    """Hide a finished job from the activity dock. Its images are kept; what Auto sorted
+    out expires. Returns the staged files to delete after the commit."""
     job = db.get_one(ImportJob, job_id)
     job.dismissed_at = job.dismissed_at or utcnow()
+    return expire_sorted_out(db, [job_id])
 
 
-def dismiss_finished_jobs(db: Session) -> int:
-    """Hide every finished job from the activity dock; returns how many."""
+def dismiss_finished_jobs(db: Session) -> tuple[int, StagedFiles]:
+    """Hide every finished job from the activity dock. Returns how many, and the staged
+    files to delete after the commit (see ``dismiss_job``)."""
     jobs = (
         db.query(ImportJob)
         .filter(
@@ -465,7 +530,7 @@ def dismiss_finished_jobs(db: Session) -> int:
     now = utcnow()
     for job in jobs:
         job.dismissed_at = now
-    return len(jobs)
+    return len(jobs), expire_sorted_out(db, [job.id for job in jobs])
 
 
 class JobBusyError(Exception):
@@ -587,7 +652,7 @@ def _snapshot(
         relative_path=item.relative_path,
         filename=item.filename,
         image_type=item.image_type,
-        parsed=json.loads(item.parsed) if item.parsed else {},
+        parsed=effective_parsed(item.image_type, json.loads(item.parsed) if item.parsed else {}),
         staging_key=item.staging_key,
         source_hash=item.source_hash,
         attempts=item.attempts,
@@ -795,6 +860,47 @@ def record_early_duplicates(duplicates: list[EarlyDuplicate]) -> set[str]:
     return job_ids
 
 
+@dataclass(frozen=True)
+class SortedOut:
+    """An Auto item the image-type head sorted out (design §5.6)."""
+
+    item_id: int
+    reason: str
+    classification: dict
+    preview_key: str | None  # already moved into the job's staging folder
+
+
+def record_sorted_out(sorted_out: list[SortedOut]) -> set[str]:
+    """Mark processing items skipped by Auto. Their staged bytes are kept so they can be
+    included later. Returns the affected job ids."""
+    if not sorted_out:
+        return set()
+    job_ids: set[str] = set()
+    with write_session() as db:
+        items = {
+            item.id: item
+            for item in db.query(ImportItem).filter(
+                ImportItem.id.in_([s.item_id for s in sorted_out])
+            )
+        }
+        for entry in sorted_out:
+            item = items.get(entry.item_id)
+            if item is None or item.state != st.PROCESSING:
+                if item is not None:
+                    remove_staged(item.job_id, entry.preview_key)
+                continue
+            item.state = st.next_item_state(item.state, ItemEvent.SORTED_OUT)
+            item.error_kind = KIND_SORTED_OUT
+            item.error_stage = "classify"
+            item.error_reason = entry.reason
+            item.classification = json.dumps(entry.classification)
+            item.preview_key = entry.preview_key
+            job_ids.add(item.job_id)
+        for job_id in job_ids:
+            recompute_job_status(db, job_id)
+    return job_ids
+
+
 # Recovery (startup)
 
 
@@ -880,6 +986,46 @@ def import_as_copy(db: Session, job_id: str, item_ids: list[int] | None = None) 
     db.flush()
     recompute_job_status(db, job_id)
     return len(items)
+
+
+def _included_type(item: ImportItem) -> str:
+    """The type an included item is imported as: whichever of map and illustration the head
+    rated higher (only Auto items are ever sorted out)."""
+    probabilities = json.loads(item.classification or "{}").get("probabilities", {})
+    illustration = probabilities.get("illustration", 0.0)
+    return SCENE if illustration > probabilities.get("map", 0.0) else BATTLEMAP
+
+
+def include_sorted_out(db: Session, item_ids: list[int]) -> tuple[int, set[str], StagedFiles]:
+    """Items Auto sorted out → imported after all, with a fixed type so the head isn't
+    asked again. Their jobs re-open: a paused, cancelled or dismissed one too, since the
+    user asked for these files. Other ids (expired ones too) are ignored. Returns (items
+    included, job ids, previews to delete after the commit)."""
+    items = (
+        db.query(ImportItem)
+        .filter(
+            ImportItem.id.in_(item_ids),
+            ImportItem.state.in_(st.sources_for(ItemEvent.INCLUDE)),
+            ImportItem.error_kind == KIND_SORTED_OUT,
+        )
+        .all()
+    )
+    previews: StagedFiles = []
+    for item in items:
+        item.image_type = _included_type(item)
+        _reopen(item, ItemEvent.INCLUDE, ItemEvent.INCLUDE_NEEDS_BYTES)
+        if item.preview_key:
+            previews.append((item.job_id, item.preview_key))
+        item.preview_key = None
+    db.flush()
+    job_ids = {item.job_id for item in items}
+    for job in db.query(ImportJob).filter(ImportJob.id.in_(job_ids)):
+        if job.status in (st.JOB_CANCELLED, st.JOB_PAUSED):
+            job.status = st.JOB_ACTIVE
+            job.completed_at = None
+        job.dismissed_at = None
+        recompute_job_status(db, job.id)
+    return len(items), job_ids, previews
 
 
 def skip_items(

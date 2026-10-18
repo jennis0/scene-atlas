@@ -4,8 +4,8 @@ import numpy as np
 from PIL import Image, ImageDraw
 from PIL.PngImagePlugin import PngInfo
 
+from backend.app.file_hash import file_sha256
 from backend.pipeline.image_hashes import (
-    file_sha256,
     hamming_distance,
     perceptual_hash,
     pixel_hash,

@@ -261,6 +261,9 @@ export interface GroupSummary {
   author: string | null
   primary_image_id: number | null
   image_count: number
+  /** Images by type, so editor rows can show them before the files load */
+  map_count: number
+  scene_count: number
   image_ids: number[]
 }
 
@@ -295,6 +298,8 @@ export interface GroupEditRequest {
   author?: string
   images: ImageEditPayload[]
   new_groups: NewGroupPayload[]
+  /** Images to delete. Deletion is explicit: images left out of `images` are kept. */
+  delete_image_ids: number[]
 }
 
 export interface GroupEditResponse {

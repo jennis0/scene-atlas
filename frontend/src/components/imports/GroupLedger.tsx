@@ -1,7 +1,8 @@
 /**
  * The finished import's groups as a ruled ledger (the report): compact rows with a
- * cover thumbnail, the image count, and only the exceptions worth reading (failed,
- * already in library, added to an existing group). Virtualised, because a big folder
+ * cover thumbnail, the images by type (TypeCounts: maps, scenes, skipped by Auto), and
+ * only the exceptions worth reading (failed, already in library, added to an existing
+ * group). Virtualised, because a big folder
  * can plan thousands of groups. While importing, the dialog shows only the groups
  * importing now (ImportProgress.tsx).
  */
@@ -9,7 +10,7 @@
 import { useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { getThumbnailUrlById } from '@/lib/api'
-import { plural } from './format'
+import { TypeCounts } from './TypeCounts'
 import type { ImportGroupSummary } from '@/lib/import/types'
 
 const REPORT_ROW_HEIGHT = 44
@@ -109,7 +110,12 @@ function ReportRow({
             {n.text}
           </span>
         ))}
-        <span>{plural(counts.done, 'image')}</span>
+        <TypeCounts
+          maps={group.map_count}
+          scenes={group.scene_count}
+          skipped={counts.sorted_out}
+          className="self-center"
+        />
       </span>
     </>
   )

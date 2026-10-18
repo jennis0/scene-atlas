@@ -28,7 +28,9 @@ import type {
   ItemState,
   ManifestFile,
   PickedFile,
+  IncludeResult,
   QueueStatus,
+  SortedOutList,
 } from './types'
 
 // Public types
@@ -782,6 +784,25 @@ export class ImportManager {
     return result.affected
   }
 
+  /**
+   * Import items Auto sorted out after all; says how many, and which imports re-opened.
+   * Resolves once the job list shows them re-opened (a fresh poll), so a caller waiting
+   * for those imports to finish never sees them still finished from before.
+   */
+  async include(itemIds: number[]): Promise<IncludeResult> {
+    const result = await this.client.include(itemIds)
+    await this.freshRefresh()
+    return result
+  }
+
+  listSortedOut(imageGroupId: number): Promise<SortedOutList> {
+    return this.client.sortedOut(imageGroupId)
+  }
+
+  sortedOutCounts(): Promise<Record<number, number>> {
+    return this.client.sortedOutCounts()
+  }
+
   async skipGroup(jobId: string, groupId: number): Promise<void> {
     await this.client.skipGroup(jobId, groupId)
     await this.refresh()
@@ -893,6 +914,12 @@ export class ImportManager {
       this.pullPollForward()
     })
     return this.pollInFlight
+  }
+
+  /** Poll after anything already in flight, which may have started before a change */
+  private async freshRefresh(): Promise<void> {
+    await this.pollInFlight
+    await this.refresh()
   }
 
   private schedulePoll(delay: number): void {

@@ -28,7 +28,7 @@ export function GroupSidebarShell({
   children,
 }: GroupSidebarShellProps) {
   return (
-    <div className="w-[11.18rem] shrink-0 border-r border-border/30 flex flex-col overflow-hidden bg-muted/20">
+    <div className="w-[14rem] shrink-0 border-r border-border/30 flex flex-col overflow-hidden bg-muted/20">
       <div className="px-3 py-2.5 border-b border-border/30 shrink-0">
         <span className="text-xs text-muted-foreground font-semibold">{headerLabel}</span>
       </div>

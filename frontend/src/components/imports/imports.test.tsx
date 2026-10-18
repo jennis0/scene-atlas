@@ -8,6 +8,7 @@ import {
   idleQueue,
   installFakeImportManager,
   item,
+  jobDetail,
   jobSummary,
   uninstallFakeImportManager,
   type FakeImportClient,
@@ -15,7 +16,7 @@ import {
 import type { ImportManager } from '@/lib/import/ImportManager'
 import { toast } from 'sonner'
 import { ImportDialog } from './ImportDialog'
-import { jobStatusText, outcomeText, timeLeftText } from './format'
+import { isCleanFinish, jobStatusText, outcomeText, timeLeftText } from './format'
 
 vi.mock('sonner', async (importOriginal) => {
   const actual = await importOriginal<typeof import('sonner')>()
@@ -97,6 +98,15 @@ describe('ImportDialog: start', () => {
   })
 })
 
+describe('ImportDialog: Auto', () => {
+  it('starts on Auto and explains what it skips', async () => {
+    ;({ manager, client } = await installFakeImportManager())
+    renderWithProviders(<ImportDialog jobId={null} open onClose={noop} onStarted={noop} />)
+    expect(screen.getByRole('button', { name: /Auto/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText(/Tokens and other art are skipped/)).toBeInTheDocument()
+  })
+})
+
 describe('ImportDialog: start in the desktop app', () => {
   const electron = (overrides = {}) => {
     window.electronAPI = {
@@ -118,7 +128,7 @@ describe('ImportDialog: start in the desktop app', () => {
     await userEvent.click(screen.getByRole('button', { name: /Choose a folder/ }))
 
     await waitFor(() => expect(onStarted).toHaveBeenCalledWith('new-job'))
-    expect(client.create).toHaveBeenCalledWith('Forest Pack', 'battlemap')
+    expect(client.create).toHaveBeenCalledWith('Forest Pack', 'auto')
     await waitFor(() =>
       expect(client.localSources).toHaveBeenCalledWith('new-job', ['/maps/Forest Pack']),
     )
@@ -144,15 +154,18 @@ describe('ImportDialog: start in the desktop app', () => {
     await waitFor(() =>
       expect(client.localSources).toHaveBeenCalledWith('new-job', ['/maps/Forest', '/maps/Cave']),
     )
-    expect(client.create).toHaveBeenCalledWith('2 folders and files', 'battlemap')
+    expect(client.create).toHaveBeenCalledWith('2 folders and files', 'auto')
   })
 })
 
 describe('ImportDialog: progress', () => {
-  const detail = (partial = {}) => ({
-    ...jobSummary(partial),
-    groups: [group(), group({ id: 2, group_name: 'Swamp Hut', merged_into_existing: true })],
-  })
+  // Two import groups adding to one gallery group, 41
+  const detail = (partial = {}) =>
+    jobDetail({
+      ...partial,
+      groups: [group(), group({ id: 2, group_name: 'Swamp Hut', merged_into_existing: true })],
+      reviewable_group_ids: [41],
+    })
 
   it('shows overall progress, groups done, time left and the groups importing now', async () => {
     const running = counts({ done: 3, ready: 900 })
@@ -160,13 +173,12 @@ describe('ImportDialog: progress', () => {
       jobs: [jobSummary({ counts: running, group_count: 347, groups_done: 103 })],
       queue: { ...idleQueue, seconds_per_item: 2 },
       details: {
-        job1: {
-          ...jobSummary(),
+        job1: jobDetail({
           groups: [
             group({ group_name: 'Forest Ponds', counts: counts({ done: 12, ready: 6 }) }),
             group({ id: 2, group_name: 'Frozen Lake', counts: counts({ awaiting_bytes: 4 }) }),
           ],
-        },
+        }),
       },
     }))
     renderWithProviders(<ImportDialog jobId="job1" open onClose={noop} onStarted={noop} />)
@@ -200,7 +212,7 @@ describe('ImportDialog: progress', () => {
     const partly = group({ counts: counts({ done: 3, duplicate: 3, skipped: 1, ready: 2 }) })
     ;({ manager, client } = await installFakeImportManager({
       jobs: [jobSummary({ counts: partly.counts })],
-      details: { job1: { ...jobSummary(), groups: [partly] } },
+      details: { job1: jobDetail({ groups: [partly] }) },
     }))
     renderWithProviders(<ImportDialog jobId="job1" open onClose={noop} onStarted={noop} />)
     const row = await screen.findByRole('listitem')
@@ -221,7 +233,7 @@ describe('ImportDialog: progress', () => {
   it('reviews the groups imported so far', async () => {
     const onReviewGroups = vi.fn()
     ;({ manager, client } = await installFakeImportManager({
-      jobs: [jobSummary({ counts: counts({ ready: 5, done: 6 }), groups_with_images: 2 })],
+      jobs: [jobSummary({ counts: counts({ ready: 5, done: 6 }), groups_reviewable: 2 })],
       details: {
         job1: detail({ counts: counts({ ready: 5, done: 6 }) }),
       },
@@ -236,7 +248,7 @@ describe('ImportDialog: progress', () => {
       />,
     )
     await userEvent.click(await screen.findByRole('button', { name: 'Review 2 groups' }))
-    await waitFor(() => expect(onReviewGroups).toHaveBeenCalledWith([41])) // two import groups, one gallery group
+    await waitFor(() => expect(onReviewGroups).toHaveBeenCalledWith([41])) // as the server says
   })
 
   it('offers no review before any group has images', async () => {
@@ -322,7 +334,7 @@ describe('ImportDialog: result', () => {
   async function setup() {
     ;({ manager, client } = await installFakeImportManager({
       jobs: [finished],
-      details: { job1: { ...finished, groups: [group()] } },
+      details: { job1: jobDetail({ ...finished, groups: [group()], reviewable_group_ids: [41] }) },
       items: [
         item({ id: 10 }),
         item({ id: 11, relative_path: 'P/b.png', error_reason: 'File was not found' }),
@@ -441,5 +453,111 @@ describe('ImportDialog: result', () => {
     await screen.findByText('Island Fort')
     expect(screen.getByText(/· Czepeku$/)).toBeInTheDocument()
     expect(screen.queryByText('Czepeku', { exact: true })).not.toBeInTheDocument()
+  })
+})
+
+describe('ImportDialog: result, skipped by Auto', () => {
+  const skipped = (partial: Partial<ReturnType<typeof item>>) =>
+    item({ state: 'skipped', error_reason: 'Looks like a token', ...partial })
+
+  async function setup(items: ReturnType<typeof item>[], sortedOut: number) {
+    const finished = jobSummary({
+      status: 'completed',
+      counts: counts({ done: 1, skipped: items.length, sorted_out: sortedOut }),
+    })
+    ;({ manager, client } = await installFakeImportManager({
+      jobs: [finished],
+      details: { job1: jobDetail({ ...finished, groups: [group()], reviewable_group_ids: [41] }) },
+      items,
+    }))
+    renderWithProviders(<ImportDialog onStarted={noop} jobId="job1" open onClose={noop} />)
+  }
+
+  it('opens on Skipped, shows previews and includes a reason group, but not other skips', async () => {
+    const success = vi.spyOn(toast, 'success')
+    await setup(
+      [
+        skipped({
+          id: 20,
+          error_kind: 'sorted_out',
+          relative_path: 'P/goblin.png',
+          has_preview: true,
+        }),
+        skipped({
+          id: 21,
+          error_kind: 'sorted_out',
+          relative_path: 'P/orc.png',
+          has_preview: true,
+        }),
+        skipped({
+          id: 22,
+          error_kind: null,
+          error_reason: 'Not a supported image, video or archive',
+          relative_path: 'P/readme.txt',
+        }),
+      ],
+      2,
+    )
+    expect(screen.getByRole('tab', { name: /Skipped/ })).toHaveAttribute('aria-selected', 'true')
+    await waitFor(() => expect(screen.getByText('P/goblin.png')).toBeInTheDocument())
+    const previews = document.querySelectorAll('img[src*="/preview"]')
+    expect([...previews].map((img) => img.getAttribute('src'))).toEqual([
+      '/api/v1/imports/job1/items/20/preview',
+      '/api/v1/imports/job1/items/21/preview',
+    ])
+    expect(screen.getAllByRole('button', { name: 'Include' })).toHaveLength(1)
+    await userEvent.click(screen.getByRole('button', { name: 'Include' }))
+    expect(client.include).toHaveBeenCalledWith([20, 21])
+    await waitFor(() => expect(success).toHaveBeenCalledWith('Importing 2 images'))
+    success.mockRestore()
+  })
+
+  it('offers no Include and no preview once they have expired', async () => {
+    await setup(
+      [
+        skipped({ id: 20, error_kind: 'sorted_out_expired', relative_path: 'P/goblin.png' }),
+        skipped({ id: 21, error_kind: 'sorted_out_expired', relative_path: 'P/orc.png' }),
+      ],
+      0,
+    )
+    await userEvent.click(screen.getByRole('tab', { name: /Skipped/ }))
+    await waitFor(() => expect(screen.getByText('P/goblin.png')).toBeInTheDocument())
+    expect(screen.getByText('Looks like a token')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Include' })).not.toBeInTheDocument()
+    expect(document.querySelector('img[src*="/preview"]')).toBeNull()
+  })
+})
+
+describe('isCleanFinish', () => {
+  it('is not clean when Auto skipped files: a fully skipped group is only in the report', () => {
+    const job = (c: Partial<Parameters<typeof counts>[0]>) =>
+      jobSummary({ status: 'completed', counts: counts(c) })
+    expect(isCleanFinish(job({ done: 3 }))).toBe(true)
+    expect(isCleanFinish(job({ done: 3, skipped: 1, sorted_out: 1 }))).toBe(false)
+    expect(isCleanFinish(job({ done: 3, skipped: 1 }))).toBe(true) // e.g. a readme.txt
+  })
+})
+
+describe('ImportDialog: result, groups by type', () => {
+  it('shows each group as maps, scenes and Auto skips', async () => {
+    const finished = jobSummary({ status: 'completed', counts: counts({ done: 16, skipped: 3 }) })
+    ;({ manager, client } = await installFakeImportManager({
+      jobs: [finished],
+      details: {
+        job1: {
+          ...finished,
+          reviewable_group_ids: [41],
+          groups: [
+            group({
+              map_count: 14,
+              scene_count: 2,
+              counts: counts({ done: 16, skipped: 3, sorted_out: 3 }),
+            }),
+          ],
+        },
+      },
+    }))
+    renderWithProviders(<ImportDialog onStarted={noop} jobId="job1" open onClose={noop} />)
+    expect(await screen.findByTitle('14 maps, 2 scenes, 3 skipped by Auto')).toBeInTheDocument()
   })
 })

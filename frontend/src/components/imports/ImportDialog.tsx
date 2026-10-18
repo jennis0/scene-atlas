@@ -23,6 +23,7 @@ import {
   Pause,
   PauseCircle,
   Play,
+  Wand2,
   UploadCloud,
   WifiOff,
 } from 'lucide-react'
@@ -39,7 +40,6 @@ import {
   jobStatusText,
   outcomeText,
   plural,
-  reviewableGroupIds,
   uploadPhaseText,
 } from './format'
 import { filesFromDrop, filesFromInput } from './pickFiles'
@@ -95,7 +95,7 @@ function StartView({
   onClose: () => void
   onStarted: (jobId: string) => void
 }) {
-  const [imageType, setImageType] = useState<ImageType>('battlemap')
+  const [imageType, setImageType] = useState<ImageType>('auto')
   const [reading, setReading] = useState(false)
   const [starting, setStarting] = useState(false)
   const [dragOver, setDragOver] = useState(false)
@@ -162,6 +162,12 @@ function StartView({
           <legend className="text-xs text-muted-foreground mb-2">Import these as</legend>
           <div className="inline-flex rounded-md overflow-hidden border border-border">
             <TypeOption
+              selected={imageType === 'auto'}
+              onClick={() => setImageType('auto')}
+              icon={<Wand2 className="h-3.5 w-3.5" />}
+              label="Auto"
+            />
+            <TypeOption
               selected={imageType === 'battlemap'}
               onClick={() => setImageType('battlemap')}
               icon={<Grid3X3 className="h-3.5 w-3.5" />}
@@ -174,11 +180,7 @@ function StartView({
               label="Scenes"
             />
           </div>
-          <p className="text-xs text-muted-foreground">
-            {imageType === 'battlemap'
-              ? 'Top-down maps. Grids are detected automatically.'
-              : 'Vistas, portraits and encounter art. No grid detection.'}
-          </p>
+          <p className="text-xs text-muted-foreground">{TYPE_HINT[imageType]}</p>
         </fieldset>
 
         <input
@@ -256,6 +258,12 @@ function StartView({
   )
 }
 
+const TYPE_HINT: Record<ImageType, string> = {
+  auto: 'Sorts each image into battlemaps and scenes. Tokens and other art are skipped for you to check.',
+  battlemap: 'Top-down maps. Grids are detected automatically.',
+  scene: 'Vistas, portraits and encounter art. No grid detection.',
+}
+
 function TypeOption({
   selected,
   onClick,
@@ -272,7 +280,7 @@ function TypeOption({
       type="button"
       aria-pressed={selected}
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 h-8 px-3 text-xs transition-colors focus-visible:outline-offset-[-2px] first:border-r first:border-border ${
+      className={`inline-flex items-center gap-1.5 h-8 px-3 text-xs transition-colors focus-visible:outline-offset-[-2px] border-r border-border last:border-r-0 ${
         selected
           ? 'bg-primary/10 text-primary'
           : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
@@ -363,7 +371,7 @@ function ProgressView({
 
   // The editor on every group with images so far; more can be added from there later
   const reviewSoFar = async () => {
-    const ids = reviewableGroupIds((await manager.getDetail(jobId)).groups)
+    const ids = (await manager.getDetail(jobId)).reviewable_group_ids
     if (ids.length > 0) onReviewGroups?.(ids)
   }
   const counts = job?.counts
@@ -422,9 +430,9 @@ function ProgressView({
             <TextButton tone="outline" onClick={close}>
               Close
             </TextButton>
-            {onReviewGroups && job && job.groups_with_images > 0 && (
+            {onReviewGroups && job && job.groups_reviewable > 0 && (
               <TextButton tone="solid" onClick={() => void run(reviewSoFar)} disabled={busy}>
-                Review {plural(job.groups_with_images, 'group')}
+                Review {plural(job.groups_reviewable, 'group')}
               </TextButton>
             )}
           </div>

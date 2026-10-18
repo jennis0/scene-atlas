@@ -3,7 +3,7 @@
  * one-line status beneath it, close button, and a footer bar.
  */
 
-import { useId, type ReactNode } from 'react'
+import { useId, type AriaAttributes, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 
@@ -68,13 +68,14 @@ export function ImportFrame({
   )
 }
 
-/** Ghost text button used in footers and banners. */
+/** Ghost text button used in footers and banners. Takes aria attributes as they are. */
 export function TextButton({
   children,
   onClick,
   tone = 'default',
   disabled,
   title,
+  ...aria
 }: {
   children: ReactNode
   onClick: () => void
@@ -82,7 +83,7 @@ export function TextButton({
   tone?: 'default' | 'primary' | 'solid' | 'danger' | 'outline' | 'outline-danger'
   disabled?: boolean
   title?: string
-}) {
+} & AriaAttributes) {
   const toneClass =
     tone === 'solid'
       ? 'bg-primary text-primary-foreground hover:bg-primary/85 border-transparent font-medium'
@@ -97,6 +98,7 @@ export function TextButton({
               : 'text-muted-foreground hover:text-foreground hover:bg-secondary border-transparent'
   return (
     <button
+      {...aria}
       onClick={onClick}
       disabled={disabled}
       title={title}

@@ -267,6 +267,8 @@ class GroupSummary(BaseModel):
     author: str | None = None
     primary_image_id: int | None = None
     image_count: int = 0
+    map_count: int = 0  # images by type, so editor rows can show them before files load
+    scene_count: int = 0
     image_ids: list[int] = []
 
 
@@ -359,6 +361,10 @@ class ImageEditPayload(BaseModel):
     image_type: str | None = None
 
 
+# Bounds a group edit's explicit deletions (a group is far smaller than this).
+MAX_GROUP_EDIT_DELETES = 100_000
+
+
 class NewGroupPayload(BaseModel):
     """A split-off group to create during a group edit."""
 
@@ -372,8 +378,12 @@ class GroupEditRequest(BaseModel):
 
     base_name: str
     author: str | None = None
-    images: list[ImageEditPayload]  # images to keep (with metadata updates)
+    images: list[ImageEditPayload]  # metadata updates for images in the group
     new_groups: list[NewGroupPayload] = []  # split-off groups; their images are moved, not deleted
+    # Deletion is explicit: an image the client doesn't mention is left alone. The editor
+    # may have loaded the group before more images landed in it (a running import, an
+    # include from the skipped list); inferring deletes from omission would delete those.
+    delete_image_ids: list[int] = Field([], max_length=MAX_GROUP_EDIT_DELETES)
 
 
 class GroupEditResponse(BaseModel):

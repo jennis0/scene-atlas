@@ -204,7 +204,7 @@ async def lifespan(app: FastAPI):
         from ..pipeline.vector_reconcile import reconcile_vectors
 
         scheduler.register(backup_database, hours=24, name="backup_database")
-        scheduler.register(run_ingest_maintenance, hours=6, name="ingest_maintenance")
+        scheduler.register(run_ingest_maintenance, hours=1, name="ingest_maintenance")
         scheduler.register(sweep_orphaned_store_files, hours=24, name="sweep_orphaned_store_files")
         scheduler.register(reconcile_vectors, hours=24, name="reconcile_vectors")
         await scheduler.start()

@@ -163,14 +163,16 @@ def get_group_summaries(
     """
     groups = db.query(ImageGroup).filter(ImageGroup.id.in_(request.ids)).all()
     image_ids: dict[int, list[int]] = {g.id: [] for g in groups}
+    scenes: dict[int, int] = dict.fromkeys(image_ids, 0)
     rows = (
-        db.query(Image.group_id, Image.id)
+        db.query(Image.group_id, Image.id, Image.image_type)
         .filter(Image.group_id.in_(request.ids))
         .order_by(Image.id)
         .all()
     )
-    for group_id, image_id in rows:
+    for group_id, image_id, image_type in rows:
         image_ids[group_id].append(image_id)
+        scenes[group_id] += image_type == "scene"
     summaries = [
         GroupSummary(
             id=g.id,
@@ -178,6 +180,8 @@ def get_group_summaries(
             author=g.author,
             primary_image_id=g.primary_image_id,
             image_count=g.image_count,
+            map_count=len(image_ids[g.id]) - scenes[g.id],
+            scene_count=scenes[g.id],
             image_ids=image_ids[g.id],
         )
         for g in groups
@@ -279,15 +283,16 @@ def edit_group(
     group.base_name = payload.base_name
     group.author = payload.author
 
-    # 2. Determine which images to keep vs delete.
-    # Images referenced in new_groups are being moved, not deleted — protect them.
+    # 2. Delete only what the client asked to delete (never inferred from omission).
+    # Images kept or referenced in new_groups (moved, not deleted) are protected.
     kept_ids = {img.id for img in payload.images}
     moving_ids = {img_id for ng in payload.new_groups for img_id in ng.image_ids}
+    to_delete = set(payload.delete_image_ids) - kept_ids - moving_ids
     all_images = (
         db.query(Image).options(selectinload(Image.tags)).filter(Image.group_id == group_id).all()
     )
 
-    deleted = [img for img in all_images if img.id not in kept_ids and img.id not in moving_ids]
+    deleted = [img for img in all_images if img.id in to_delete]
     deleted_ids = [img.id for img in deleted]
     pending = delete_image_rows(db, deleted)
 

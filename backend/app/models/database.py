@@ -251,7 +251,9 @@ class ImportJob(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True)  # UUID hex
     status: Mapped[str] = mapped_column(String, nullable=False, default="active")
     source_label: Mapped[str | None] = mapped_column(String, nullable=True)  # e.g. "Pack.zip"
-    default_image_type: Mapped[str] = mapped_column(String, nullable=False, default="battlemap")
+    default_image_type: Mapped[str] = mapped_column(
+        String, nullable=False, default="battlemap"
+    )  # battlemap | scene | auto
     planned_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # Sealed
     last_upload_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     dismissed_at: Mapped[datetime | None] = mapped_column(
@@ -316,6 +318,9 @@ class ImportGroup(Base):
 
     job: Mapped["ImportJob"] = relationship("ImportJob", back_populates="import_groups")
 
+    # The group editor finds an import's groups by gallery group (sorted-out items)
+    __table_args__ = (Index("ix_import_groups_image_group", "image_group_id"),)
+
     def __repr__(self):
         return f"<ImportGroup(id={self.id}, group='{self.group_name}')>"
 
@@ -344,8 +349,12 @@ class ImportItem(Base):
     last_modified: Mapped[int | None] = mapped_column(
         Integer, nullable=True
     )  # Client-reported, ms since epoch
-    image_type: Mapped[str] = mapped_column(String, nullable=False, default="battlemap")
+    image_type: Mapped[str] = mapped_column(
+        String, nullable=False, default="battlemap"
+    )  # battlemap | scene | auto (resolved by the image-type head while processing)
     parsed: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON, set at plan time
+    # Auto items: the image-type head's verdict, JSON {group, probabilities, fell_back, head}
+    classification: Mapped[str | None] = mapped_column(Text, nullable=True)
     state: Mapped[str] = mapped_column(String, nullable=False, default="awaiting_bytes")
     staging_key: Mapped[str | None] = mapped_column(
         String, nullable=True
@@ -373,6 +382,8 @@ class ImportItem(Base):
     similar_to_image_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("images.id"), nullable=True
     )
+    # Items Auto sorted out: a small preview in the job's staging folder, for review
+    preview_key: Mapped[str | None] = mapped_column(String, nullable=True)
     similarity_distance: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime | None] = mapped_column(
@@ -386,6 +397,7 @@ class ImportItem(Base):
         Index("ix_import_items_state_job", "state", "job_id"),
         Index("ix_import_items_job_state", "job_id", "state"),
         Index("ix_import_items_job_group", "job_id", "import_group_id"),
+        Index("ix_import_items_group_state", "import_group_id", "state"),
     )
 
     def __repr__(self):

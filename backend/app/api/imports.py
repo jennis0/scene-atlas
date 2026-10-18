@@ -24,7 +24,8 @@ from typing import Literal, cast
 
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from sqlalchemy import case, func
+from fastapi.responses import FileResponse
+from sqlalchemy import case, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -38,9 +39,10 @@ from ...pipeline.ingest_local import (
     list_roots,
     resolve_roots,
 )
+from ...pipeline.ingest_maintenance import FINISHED_JOB_TTL
 from ...pipeline.ingest_worker import get_ingest_worker
 from ..config import settings
-from ..models import ImportGroup, ImportItem, ImportJob, get_session_local
+from ..models import Image, ImportGroup, ImportItem, ImportJob, get_session_local
 from ..models.import_schemas import (
     ActionResult,
     ArchiveResult,
@@ -58,6 +60,8 @@ from ..models.import_schemas import (
     ImportJobDetail,
     ImportJobList,
     ImportJobSummary,
+    IncludeRequest,
+    IncludeResult,
     ItemActionRequest,
     JobStatus,
     LocalSourcesRequest,
@@ -66,6 +70,8 @@ from ..models.import_schemas import (
     ManifestRequest,
     ManifestResponse,
     QueueStatus,
+    SortedOutCounts,
+    SortedOutList,
 )
 from ..services import ingest_state as st
 from ..services.app_settings import get_settings as get_app_settings
@@ -114,20 +120,69 @@ def _changed(wake: bool = False) -> None:
         worker.wake()
 
 
-def _counts(by_state: dict[str, int]) -> ImportCounts:
+def _counts(by_state: dict[str, int], sorted_out: int = 0) -> ImportCounts:
     known = {state: by_state.get(state, 0) for state in st.ITEM_STATES}
-    return ImportCounts(**known, total=sum(by_state.values()))
+    return ImportCounts(**known, total=sum(by_state.values()), sorted_out=sorted_out)
 
 
 @dataclass
 class _GroupTotals:
     total: int = 0
-    with_images: int = 0  # groups with at least one imported image
-    open: int = 0  # groups with items still awaiting bytes, ready or processing
+    reviewable: int = 0  # gallery groups the review editor can open (_is_reviewable)
+    open: int = 0  # import groups with items still awaiting bytes, ready or processing
+
+
+def _per_gallery_group(db: Session, ids: list[str]):
+    """Each job's import groups, merged where they resolved to the same gallery group:
+    whether any has an imported image, whether any is still open (items awaiting bytes,
+    ready or processing), how many import groups are open, and the first sort order.
+    Import groups without a gallery group yet stay one row each."""
+    is_open = ImportItem.state.in_(st.OPEN_ITEM_STATES)
+    per_group = (
+        db.query(
+            ImportItem.job_id.label("job_id"),
+            ImportItem.import_group_id.label("import_group_id"),
+            func.max(case((ImportItem.state == st.DONE, 1), else_=0)).label("has_done"),
+            func.max(case((is_open, 1), else_=0)).label("has_open"),
+        )
+        .filter(ImportItem.job_id.in_(ids), ImportItem.import_group_id.isnot(None))
+        .group_by(ImportItem.job_id, ImportItem.import_group_id)
+        .subquery()
+    )
+    gallery = ImportGroup.image_group_id
+    return (
+        db.query(
+            per_group.c.job_id.label("job_id"),
+            gallery.label("image_group_id"),
+            func.max(per_group.c.has_done).label("has_done"),
+            func.max(per_group.c.has_open).label("has_open"),
+            func.sum(per_group.c.has_open).label("open_groups"),
+            func.min(ImportGroup.sort_order).label("first_order"),
+        )
+        .join(ImportGroup, ImportGroup.id == per_group.c.import_group_id)
+        .group_by(
+            per_group.c.job_id, gallery, case((gallery.is_(None), per_group.c.import_group_id))
+        )
+        .subquery()
+    )
+
+
+def _is_reviewable(per_gallery):
+    """A gallery group the review editor can open for a job: at least one of the job's
+    import groups that resolved to it has an imported image, and none of them is still
+    open. An unfinished group is held back so the editor never loads a group that is still
+    filling (two import groups can resolve to one gallery group, so one finished import
+    group isn't enough)."""
+    return (
+        per_gallery.c.image_group_id.isnot(None)
+        & (per_gallery.c.has_done == 1)
+        & (per_gallery.c.has_open == 0)
+    )
 
 
 def _group_totals(db: Session, ids: list[str]) -> dict[str, _GroupTotals]:
-    """Per job: its groups, how many have imported images, and how many are still open."""
+    """Per job: its groups, how many gallery groups are reviewable, and how many import
+    groups are still open."""
     totals = {job_id: _GroupTotals() for job_id in ids}
     rows = (
         db.query(ImportGroup.job_id, func.count(ImportGroup.id))
@@ -136,19 +191,14 @@ def _group_totals(db: Session, ids: list[str]) -> dict[str, _GroupTotals]:
     )
     for job_id, total in rows:
         totals[job_id].total = total
-    group_id = ImportItem.import_group_id
-    is_open = ImportItem.state.in_(st.OPEN_ITEM_STATES)
-    state_rows = (
-        db.query(
-            ImportItem.job_id,
-            func.count(func.distinct(case((ImportItem.state == st.DONE, group_id)))),
-            func.count(func.distinct(case((is_open, group_id)))),
-        )
-        .filter(ImportItem.job_id.in_(ids))
-        .group_by(ImportItem.job_id)
-    )
-    for job_id, with_images, open_groups in state_rows:
-        totals[job_id].with_images, totals[job_id].open = with_images, open_groups
+    per_gallery = _per_gallery_group(db, ids)
+    state_rows = db.query(
+        per_gallery.c.job_id,
+        func.sum(case((_is_reviewable(per_gallery), 1), else_=0)),
+        func.sum(per_gallery.c.open_groups),
+    ).group_by(per_gallery.c.job_id)
+    for job_id, reviewable, open_groups in state_rows:
+        totals[job_id].reviewable, totals[job_id].open = reviewable or 0, open_groups or 0
     return totals
 
 
@@ -156,18 +206,28 @@ def _summaries(db: Session, jobs: list[ImportJob]) -> list[ImportJobSummary]:
     """Summaries for many jobs with three grouped queries (no per-job N+1)."""
     ids = [job.id for job in jobs]
     by_job: dict[str, dict[str, int]] = {job_id: {} for job_id in ids}
+    sorted_out: dict[str, int] = dict.fromkeys(ids, 0)
     groups = {job_id: _GroupTotals() for job_id in ids}
     if ids:
         rows = (
-            db.query(ImportItem.job_id, ImportItem.state, func.count(ImportItem.id))
+            db.query(
+                ImportItem.job_id,
+                ImportItem.state,
+                func.count(ImportItem.id),
+                func.count(case((ImportItem.error_kind == q.KIND_SORTED_OUT, 1))),
+            )
             .filter(ImportItem.job_id.in_(ids))
             .group_by(ImportItem.job_id, ImportItem.state)
         )
-        for job_id, state, count in rows:
+        for job_id, state, count, sorted_count in rows:
             by_job[job_id][state] = count
+            sorted_out[job_id] += sorted_count
         groups = _group_totals(db, ids)
     now = q.utcnow()
-    return [_summary(job, _counts(by_job[job.id]), groups[job.id], now) for job in jobs]
+    return [
+        _summary(job, _counts(by_job[job.id], sorted_out[job.id]), groups[job.id], now)
+        for job in jobs
+    ]
 
 
 def _waiting_for(job: ImportJob, counts: ImportCounts) -> list[str]:
@@ -200,7 +260,7 @@ def _summary(job: ImportJob, counts: ImportCounts, groups: _GroupTotals, now) ->
         counts=counts,
         group_count=groups.total,
         groups_done=groups.total - groups.open if job.planned_at is not None else 0,
-        groups_with_images=groups.with_images,
+        groups_reviewable=groups.reviewable,
         created_at=job.created_at,
         updated_at=job.updated_at,
         completed_at=job.completed_at,
@@ -213,25 +273,41 @@ def _detail(db: Session, job: ImportJob, active_limit: int | None = None) -> Imp
     still have open items (the progress view), and no covers."""
     (summary,) = _summaries(db, [job])
     by_group: dict[int | None, dict[str, int]] = {}
+    sorted_out: dict[int | None, int] = {}
     rows = (
-        db.query(ImportItem.import_group_id, ImportItem.state, func.count(ImportItem.id))
+        db.query(
+            ImportItem.import_group_id,
+            ImportItem.state,
+            func.count(ImportItem.id),
+            func.count(case((ImportItem.error_kind == q.KIND_SORTED_OUT, 1))),
+        )
         .filter(ImportItem.job_id == job.id)
         .group_by(ImportItem.import_group_id, ImportItem.state)
     )
-    for group_id, state, count in rows:
+    for group_id, state, count, sorted_count in rows:
         by_group.setdefault(group_id, {})[state] = count
+        sorted_out[group_id] = sorted_out.get(group_id, 0) + sorted_count
+    per_gallery = _per_gallery_group(db, [job.id])
+    reviewable = (
+        db.query(per_gallery.c.image_group_id)
+        .filter(_is_reviewable(per_gallery))
+        .order_by(per_gallery.c.first_order, per_gallery.c.image_group_id)
+    )
+    # The report's cover thumbnail and how many maps / scenes each group imported
     cover_rows = (
-        db.query(ImportItem.import_group_id, func.min(ImportItem.image_id))
-        .filter(
-            ImportItem.job_id == job.id,
-            ImportItem.state == st.DONE,
-            ImportItem.image_id.isnot(None),
+        db.query(
+            ImportItem.import_group_id,
+            func.min(ImportItem.image_id),
+            func.count(case((Image.image_type == q.BATTLEMAP, 1))),
+            func.count(case((Image.image_type == q.SCENE, 1))),
         )
+        .join(Image, Image.id == ImportItem.image_id)
+        .filter(ImportItem.job_id == job.id, ImportItem.state == st.DONE)
         .group_by(ImportItem.import_group_id)
     )
-    covers: dict[int | None, int | None] = {}
+    covers: dict[int | None, tuple[int | None, int, int]] = {}
     if active_limit is None:
-        covers = dict(cover_rows.tuples())
+        covers = {gid: (cover, maps, scenes) for gid, cover, maps, scenes in cover_rows}
     query = db.query(ImportGroup).filter(ImportGroup.job_id == job.id)
     if active_limit is not None:
         open_ids = [gid for gid, by_state in by_group.items() if _is_open(by_state)]
@@ -240,6 +316,7 @@ def _detail(db: Session, job: ImportJob, active_limit: int | None = None) -> Imp
     groups = (query.limit(active_limit) if active_limit is not None else query).all()
     return ImportJobDetail(
         **summary.model_dump(),
+        reviewable_group_ids=[gid for (gid,) in reviewable],
         groups=[
             ImportGroupSummary(
                 id=g.id,
@@ -248,8 +325,10 @@ def _detail(db: Session, job: ImportJob, active_limit: int | None = None) -> Imp
                 image_group_id=g.image_group_id,
                 merged_into_existing=bool(g.merged_into_existing),
                 sort_order=g.sort_order,
-                counts=_counts(by_group.get(g.id, {})),
-                cover_image_id=covers.get(g.id),
+                counts=_counts(by_group.get(g.id, {}), sorted_out.get(g.id, 0)),
+                cover_image_id=covers.get(g.id, (None, 0, 0))[0],
+                map_count=covers.get(g.id, (None, 0, 0))[1],
+                scene_count=covers.get(g.id, (None, 0, 0))[2],
             )
             for g in groups
         ],
@@ -281,6 +360,61 @@ def probe_queue():
     return _queue_status()
 
 
+# Items Auto sorted out, for the group editor (design §5.6)
+
+
+@router.get("/sorted-out/counts", response_model=SortedOutCounts)
+def sorted_out_counts(db: Session = Depends(get_db)):
+    """How many items Auto sorted out of each gallery group, for groups that have any."""
+    rows = (
+        db.query(ImportGroup.image_group_id, func.count(ImportItem.id))
+        .join(ImportItem, ImportItem.import_group_id == ImportGroup.id)
+        .filter(
+            ImportGroup.image_group_id.isnot(None),
+            ImportItem.state == st.SKIPPED,
+            ImportItem.error_kind == q.KIND_SORTED_OUT,
+        )
+        .group_by(ImportGroup.image_group_id)
+    )
+    return SortedOutCounts(counts={gid: n for gid, n in rows.tuples() if gid is not None})
+
+
+@router.get("/sorted-out", response_model=SortedOutList)
+def list_sorted_out(
+    image_group_id: int,
+    limit: int = Query(200, ge=1, le=1000),
+    db: Session = Depends(get_db),
+):
+    """Items Auto sorted out of one gallery group, across imports."""
+    rows = (
+        db.query(ImportItem)
+        .join(ImportGroup, ImportGroup.id == ImportItem.import_group_id)
+        .filter(
+            ImportGroup.image_group_id == image_group_id,
+            ImportItem.state == st.SKIPPED,
+            ImportItem.error_kind == q.KIND_SORTED_OUT,
+        )
+        .order_by(ImportItem.id)
+        .limit(limit + 1)
+        .all()
+    )
+    return SortedOutList(
+        items=[ImportItemOut.model_validate(row) for row in rows[:limit]],
+        truncated=len(rows) > limit,
+    )
+
+
+@router.post("/include", response_model=IncludeResult)
+@write_locked
+def include_sorted_out(body: IncludeRequest, db: Session = Depends(get_db)):
+    """Import items Auto sorted out after all, across imports. Other ids are ignored."""
+    affected, job_ids, previews = q.include_sorted_out(db, body.item_ids)
+    db.commit()
+    q.remove_staged_files(previews)
+    _changed(wake=affected > 0)
+    return IncludeResult(affected=affected, job_ids=sorted(job_ids))
+
+
 @router.get("", response_model=ImportJobList)
 def list_imports(
     request: Request,
@@ -292,8 +426,11 @@ def list_imports(
     """Job summaries for the activity dock, plus queue status.
 
     Supports ``If-None-Match``: the ETag changes whenever ingest state changes
-    (and once a minute, for the time-derived "upload interrupted" flag), so
-    idle polls cost almost nothing.
+    (and once a minute, for the time-derived "upload interrupted" flag and the
+    hiding of finished imports), so idle polls cost almost nothing.
+
+    Finished imports leave the list ``FINISHED_JOB_TTL`` after they finish, even
+    before maintenance dismisses them.
     """
     worker_status = get_ingest_worker().status()
     etag = f'W/"{worker_status.version}-{int(time.time() // 60)}-{int(include_dismissed)}"'
@@ -303,7 +440,14 @@ def list_imports(
 
     query = db.query(ImportJob)
     if not include_dismissed:
-        query = query.filter(ImportJob.dismissed_at.is_(None))
+        query = query.filter(
+            ImportJob.dismissed_at.is_(None),
+            or_(
+                ImportJob.status.not_in((st.JOB_COMPLETED, st.JOB_CANCELLED)),
+                ImportJob.completed_at.is_(None),
+                ImportJob.completed_at >= q.utcnow() - FINISHED_JOB_TTL,
+            ),
+        )
     jobs = query.order_by(ImportJob.created_at.desc(), ImportJob.id).limit(limit).all()
     return ImportJobList(
         jobs=_summaries(db, jobs), queue=_queue_status(), version=worker_status.version
@@ -347,6 +491,18 @@ def list_items(
         items=[ImportItemOut.model_validate(row) for row in page],
         next_after=page[-1].id if len(rows) > limit else None,
     )
+
+
+@router.get("/{job_id}/items/{item_id}/preview")
+def item_preview(job_id: str, item_id: int, db: Session = Depends(get_db)):
+    """The preview kept for an item Auto sorted out."""
+    item = db.get(ImportItem, item_id)
+    if item is None or item.job_id != job_id or not item.preview_key:
+        raise HTTPException(status_code=404, detail="No preview")
+    path = q.staged_path(job_id, item.preview_key)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="No preview")
+    return FileResponse(path, headers={"Cache-Control": "private, max-age=86400"})
 
 
 # Create, manifest, archives, seal, hashes
@@ -806,20 +962,24 @@ def skip_group(job_id: str, group_id: int, db: Session = Depends(get_db)):
 @router.post("/{job_id}/dismiss", response_model=ActionResult)
 @write_locked
 def dismiss_import(job_id: str, db: Session = Depends(get_db)):
-    """Hide a finished import from the activity dock. Deletes nothing."""
+    """Hide a finished import from the activity dock. Its images are kept; what Auto
+    sorted out of it can no longer be included."""
     job = _job_or_404(db, job_id)
     if job.status not in (st.JOB_COMPLETED, st.JOB_CANCELLED):
         raise HTTPException(status_code=409, detail="Only finished imports can be dismissed")
-    q.dismiss_job(db, job_id)
-    return _action(db, job_id, 0)
+    files = q.dismiss_job(db, job_id)
+    result = _action(db, job_id, 0)
+    q.remove_staged_files(files)
+    return result
 
 
 @router.post("/dismiss-finished", response_model=DismissedResult)
 @write_locked
 def dismiss_finished_imports(db: Session = Depends(get_db)):
-    """Hide every finished import from the activity dock. Deletes nothing."""
-    dismissed = q.dismiss_finished_jobs(db)
+    """Hide every finished import from the activity dock (see ``dismiss_import``)."""
+    dismissed, files = q.dismiss_finished_jobs(db)
     db.commit()
+    q.remove_staged_files(files)
     _changed()
     return DismissedResult(dismissed=dismissed)
 

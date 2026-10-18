@@ -32,6 +32,7 @@ function summary(id: string, status: ImportJobSummary['status'] = 'active'): Imp
     failed: 0,
     skipped: 0,
     total: 0,
+    sorted_out: 0,
   }
   return {
     id,
@@ -42,7 +43,7 @@ function summary(id: string, status: ImportJobSummary['status'] = 'active'): Imp
     dismissed: false,
     upload_interrupted: false,
     groups_done: 0,
-    groups_with_images: 0,
+    groups_reviewable: 0,
     local: false,
     waiting_for: [],
     counts,

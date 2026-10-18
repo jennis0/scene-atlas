@@ -9,12 +9,7 @@ import { ImageGrid } from '@/components/ImageGrid'
 import { GroupGrid } from '@/components/GroupGrid'
 import { ImageViewer } from '@/components/ImageViewer'
 import { ImportDialog } from '@/components/imports/ImportDialog'
-import {
-  isCleanFinish,
-  isFinished,
-  outcomeText,
-  reviewableGroupIds,
-} from '@/components/imports/format'
+import { isCleanFinish, isFinished, outcomeText } from '@/components/imports/format'
 import type { ImportJobSummary } from '@/lib/import/types'
 import { ActivityDock } from '@/components/ActivityDock'
 const EditGroupDialog = lazy(() => import('@/components/EditGroupDialog'))
@@ -96,7 +91,7 @@ export function Gallery() {
       if (!isCleanFinish(job)) return openImport(job.id)
       try {
         const detail = await getImportManager().getDetail(job.id)
-        const ids = reviewableGroupIds(detail.groups)
+        const ids = detail.reviewable_group_ids
         if (ids.length > 0) return setReviewGroupIds(ids, undefined, job.id)
       } catch {
         // Fall back to the dialog, which reports what it can

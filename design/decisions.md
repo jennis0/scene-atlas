@@ -190,7 +190,7 @@ This document records all significant architectural decisions for the Scene Atla
 - The `alembic.ini` at project root allows CLI use: `uv run alembic upgrade head`
 - Image store files are not backed up by the script — they are large, append-only blobs and the originals typically exist elsewhere; document this assumption
 - LanceDB embeddings can be regenerated from images via `write_new_embeddings` if the LanceDB backup is unavailable
-- **Status note (2026-10):** `cleanup_staging` no longer exists; staging is cleaned by item state (ADR-018). Scheduled tasks are now `backup_database` (24h), `ingest_maintenance` (6h), `sweep_orphaned_store_files` (24h) and `reconcile_vectors` (24h); see [ingestion.md](ingestion.md#9-maintenance-and-recovery). There is no `reset_database.py`.
+- **Status note (2026-10):** `cleanup_staging` no longer exists; staging is cleaned by item state (ADR-018). Scheduled tasks are now `backup_database` (24h), `ingest_maintenance` (hourly), `sweep_orphaned_store_files` (24h) and `reconcile_vectors` (24h); see [ingestion.md](ingestion.md#9-maintenance-and-recovery). There is no `reset_database.py`.
 
 ---
 
@@ -516,3 +516,38 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 - More CPU on very large maps (up to about 28 s for a 761 Mpx map), with memory reserved through the ingest budget's per-format formula.
 - Known limits: very dark thin-line maps, maps with only a few cells, perfectly regular one-directional patterns such as planks, and faint hex.
 - The legacy detector remains only for small images.
+
+---
+
+## ADR-020: Auto image type on import
+
+**Date:** 2026-10-18
+**Status:** Implemented (branch `feat/auto-image-type`). Current behaviour: [ingestion.md §5.6](ingestion.md#56-auto-image-type).
+
+**Context:** Every import asked the user to choose Battlemaps or Scenes for the whole batch. Real packs mix maps, scene art, tokens and handouts, so one choice was wrong for part of every mixed pack, and tokens and other non-map art ended up in the library. scene-atlas-learning now trains a small linear head per vision encoder (`uv run release heads`) that sorts an image into map, illustration, token or other from its embedding plus three cheap image statistics. The heads ship inside Scene Atlas, keyed by the sha256 of the encoder they were trained on (`backend/app/data/heads/image_type/<sha>.json`, `services/image_type_classifier.py`).
+
+**Decision:**
+
+1. **A third import type, Auto, which is the default in the import dialog.** Map → battlemap and illustration → scene. Token and other are skipped, and so is anything the head is unsure about: it falls back to "other" below its trained confidence threshold. Battlemaps and Scenes stay as fixed types and are **never classified or filtered**, because a fixed type means the user knows what the files are.
+2. **Skips from Auto behave like a user's own skip, not like "not an image".** The item is `skipped` with `error_kind = "sorted_out"` and a reason (token / not a map or scene / unsure). It keeps its staged bytes and a preview, and can be **included**: `skipped → ready` (or `awaiting_bytes` if the bytes are gone), with a fixed type (whichever of map and illustration the head rated higher) so it isn't sorted again. The skip is reversible only for this kind; other skips stay final.
+3. **The group editor shows what Auto skipped.** There is a count on each sidebar row and a strip above the files with previews and Include / Include all. An import with Auto skips always opens its report rather than going straight to the editor, because a folder that was skipped entirely has no gallery group to show it in.
+4. **Classification happens after embedding, before grid detection.** Auto items stop prepare after decoding. The batch embeds, sorts, and finishes maps and scenes on the prepare pool: grid detection (maps only) and storing the original. Fixed-type items keep the single-pass prepare unchanged.
+5. **Seal groups Auto items as battlemaps.** Group names don't depend on type. The scene parse's tags are stored too, and an item sorted as a scene commits with those tags and no grid hints from its file name, exactly as a Scenes import would.
+6. **No head for the active encoder (or a mismatched embedding size) → Auto imports as battlemaps,** with a warning logged once. All three registry models have heads; Large is pinned to the revision its head was trained on.
+
+**Alternatives considered:**
+
+- **Import uncertain predictions instead of skipping them.** The user rejected this: a skipped map is visible and one click to include, while junk in the library is silent. The editor's count and strip are the review path.
+- **Filter fixed-type imports too.** Rejected: a deliberate token or portrait pack imported as Scenes would be skipped wholesale.
+- **Grid-detect every Auto item and drop the result for scenes.** Simpler, but it wastes the most expensive prepare step on every scene, token and handout, and copies skipped files into the library.
+- **A new item state (`sorted_out`).** Rejected: `skipped` already means "deliberately not imported" everywhere (counts, job status, cleanup). The reversible subset is identified by `error_kind`.
+- **A pre-import review step before anything is processed.** Rejected: classification needs the embedding, which needs the bytes and the worker. It would bring back the confirm step ADR-018 removed.
+
+**Consequences:**
+
+- Mixed packs import without choosing a type, and tokens stay out of the library unless included.
+- On a 320-image real sample with the Small model (2026-10-18, raw catalog labels), about 1 in 10 maps was skipped and 6% became scenes. The review path matters, and head quality is the lever. Re-measure when heads are retrained.
+- Sorted-out items are includable until the import is cleared from Activity or 24 hours after it finished, whichever is first; then bytes and preview go together (user decision 2026-10-18: a preview without its file is pointless). Finished imports leave Activity after 24 hours. Clicking Done in the report clears the import, which ends the editor review of its skips.
+- Videos are sorted from their first frame (user decision: the library has video scenes as well as animated maps).
+- Included images go through the queue; the open editor merges them into the group once their import finishes (`edit-group/useSortedOut.ts`).
+- Found while testing: the editor could load a group that was still filling, and `PUT /groups/{id}` deleted every image the client didn't list, so editing such a group deleted the late images. Fixed on this branch: deletion is now explicit (`delete_image_ids`), and import review holds a group back until its import has finished with it (`groups_reviewable`, `reviewableGroupIds`).

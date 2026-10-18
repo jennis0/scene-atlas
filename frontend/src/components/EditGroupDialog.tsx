@@ -19,6 +19,9 @@ import { EditGroupSidebar } from './edit-group/EditGroupSidebar'
 import { BulkEditConfirm } from './edit-group/BulkEditConfirm'
 import { useMetadataSave } from './edit-group/useMetadataSave'
 import { useRefreshLoaded } from './edit-group/useRefreshLoaded'
+import { useSortedOut } from './edit-group/useSortedOut'
+import { useMergeNewImages } from './edit-group/mergeNewImages'
+import { SortedOutStrip } from './edit-group/SortedOutStrip'
 import { BulkPanel, SCOPE_FACETS_KEY } from './edit-group/BulkPanel'
 import { useBulkImageEdit } from '@/hooks/useBulkImageEdit'
 import { gridLabel } from '@/lib/bulkEdit'
@@ -29,6 +32,7 @@ import type { PendingConfirm } from './edit-group/pendingConfirm'
 import { useEditScope } from './edit-group/useEditScope'
 import { EditGroupContext, type EditGroupContextValue } from './edit-group/EditGroupContext'
 import { invalidateGalleryQueries } from '@/lib/queryKeys'
+import { serverId } from '@/lib/serverId'
 import { ImportRunningStrip } from './edit-group/ImportRunningStrip'
 
 /** Import-review mode: several groups by ID, all images in scope (e.g. every group an
@@ -225,6 +229,8 @@ export default function EditGroupDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [multiSelectKey])
 
+  const mergeNewImages = useMergeNewImages(setGroups)
+  const sortedOut = useSortedOut(open, mergeNewImages)
   const context = useMemo<EditGroupContextValue>(
     () => ({
       groups,
@@ -234,10 +240,12 @@ export default function EditGroupDialog({
       setPending,
       activeDrag: dnd.activeDrag,
       ops,
+      sortedOut,
     }),
-    [groups, selectedGroupIds, resetMultiselect, pending, dnd.activeDrag, ops],
+    [groups, selectedGroupIds, resetMultiselect, pending, dnd.activeDrag, ops, sortedOut],
   )
 
+  const activeGroupDbId = activeGroup ? serverId(activeGroup.id) : null
   const activeSelection = selections[selectionId] ?? new Set<string>()
   const hasActiveFilter = !!fileFilter.text || fileFilter.active.length > 0
   const isOriginalGroup = !showsMultipleGroups && !isMassEdit && activeGroup?.id === String(groupId)
@@ -301,7 +309,7 @@ export default function EditGroupDialog({
         <DialogContent
           data-testid="edit-group-dialog"
           aria-label={isMassEdit ? 'Edit search results' : 'Edit group'}
-          className="max-w-5xl h-[85vh] overflow-hidden flex flex-col p-0 gap-0"
+          className="max-w-6xl h-[85vh] overflow-hidden flex flex-col p-0 gap-0"
         >
           <EditGroupHeader
             isMassEdit={isMassEdit}
@@ -401,6 +409,20 @@ export default function EditGroupDialog({
                           groupNameRef={groupNameRef}
                         />
                       </div>
+
+                      {!showsMultipleGroups && activeGroupDbId !== null && (
+                        <div className="px-5 shrink-0">
+                          <SortedOutStrip
+                            key={activeGroupDbId}
+                            groupId={activeGroupDbId}
+                            count={sortedOut.counts[activeGroupDbId] ?? 0}
+                            importing={sortedOut.importing[activeGroupDbId] ?? 0}
+                            onIncluded={(n, jobIds) =>
+                              sortedOut.included(activeGroupDbId, n, jobIds)
+                            }
+                          />
+                        </div>
+                      )}
 
                       <div className="px-5 shrink-0">
                         <FileToolbar

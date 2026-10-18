@@ -3,6 +3,7 @@ import type { ActiveDragState } from '@/components/import/shared/dnd'
 import type { UseEditGroupOperationsReturn } from '@/hooks/useEditGroupOperations'
 import type { EditableGroupState } from '@/types'
 import type { PendingConfirm, SetPendingConfirm } from './pendingConfirm'
+import type { SortedOut } from './useSortedOut'
 
 /** State the edit dialog shares with its sidebar, file grid, footer and confirmations. */
 export interface EditGroupContextValue {
@@ -13,6 +14,8 @@ export interface EditGroupContextValue {
   setPending: SetPendingConfirm
   activeDrag: ActiveDragState | null
   ops: UseEditGroupOperationsReturn
+  /** Images Auto skipped from each group (gallery group id → count) */
+  sortedOut: SortedOut
 }
 
 export const EditGroupContext = createContext<EditGroupContextValue | null>(null)

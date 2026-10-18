@@ -3,7 +3,7 @@
 import pytest
 
 from backend.app.models.import_schemas import HashEntry, ManifestFile, ManifestRequest
-from backend.app.models.schemas import TagBase
+from backend.app.models.schemas import MAX_GROUP_EDIT_DELETES, GroupEditRequest, TagBase
 
 
 class TestTagBase:
@@ -50,3 +50,12 @@ class TestImportSchemas:
         for bad in ("A" * 64, "a" * 63, "g" * 64):
             with pytest.raises(ValueError):
                 HashEntry(item_id=1, sha256=bad)
+
+
+class TestGroupEditRequest:
+    def test_deletions_are_bounded(self):
+        body = {"base_name": "G", "images": []}
+        assert GroupEditRequest(**body).delete_image_ids == []
+        GroupEditRequest(**body, delete_image_ids=[1] * MAX_GROUP_EDIT_DELETES)
+        with pytest.raises(ValueError):
+            GroupEditRequest(**body, delete_image_ids=[1] * (MAX_GROUP_EDIT_DELETES + 1))

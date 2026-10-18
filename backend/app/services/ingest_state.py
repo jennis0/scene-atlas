@@ -63,6 +63,9 @@ class ItemEvent(StrEnum):
     IMPORT_AS_COPY = "import_as_copy"  # user override of a duplicate, bytes present
     IMPORT_AS_COPY_NEEDS_BYTES = "import_as_copy_needs_bytes"
     SKIP = "skip"  # cancel, finish-without, skip group, abandoned upload
+    SORTED_OUT = "sorted_out"  # Auto: the image-type head says token/other (design §5.6)
+    INCLUDE = "include"  # user override of a sorted-out item, bytes present
+    INCLUDE_NEEDS_BYTES = "include_needs_bytes"
 
 
 _TRANSITIONS: dict[tuple[str, ItemEvent], str] = {
@@ -82,10 +85,14 @@ _TRANSITIONS: dict[tuple[str, ItemEvent], str] = {
     (PROCESSING, ItemEvent.SOURCE_UNAVAILABLE): READY,
     (PROCESSING, ItemEvent.RECOVERED): READY,
     (PROCESSING, ItemEvent.CRASH_LIMIT): FAILED,
+    (PROCESSING, ItemEvent.SORTED_OUT): SKIPPED,
     (FAILED, ItemEvent.RETRY): READY,
     (FAILED, ItemEvent.RETRY_NEEDS_BYTES): AWAITING_BYTES,
     (DUPLICATE, ItemEvent.IMPORT_AS_COPY): READY,
     (DUPLICATE, ItemEvent.IMPORT_AS_COPY_NEEDS_BYTES): AWAITING_BYTES,
+    # Only for items skipped by SORTED_OUT (error_kind "sorted_out"); the queue checks that.
+    (SKIPPED, ItemEvent.INCLUDE): READY,
+    (SKIPPED, ItemEvent.INCLUDE_NEEDS_BYTES): AWAITING_BYTES,
 }
 
 

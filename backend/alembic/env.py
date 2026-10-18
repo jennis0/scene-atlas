@@ -21,9 +21,11 @@ from backend.app.models.database import Base
 # Alembic Config object — gives access to values in alembic.ini
 config = context.config
 
-# Set up logging from alembic.ini if a config file is present
+# Set up logging from alembic.ini if a config file is present (the CLI). Never disable
+# loggers that already exist: when Alembic runs inside the app or the test suite, that
+# would silence every module's logger for the rest of the process.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Target metadata for autogenerate support
 target_metadata = Base.metadata

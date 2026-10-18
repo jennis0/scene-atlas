@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, type MutableRefObject } from 
 import { groupApi, tagApi, imageApi, getThumbnailUrlById, getImageUrlById } from '@/lib/api'
 import { toast } from 'sonner'
 import { getApiErrorMessage, isNotFoundError } from '@/lib/getErrorMessage'
+import { serverId } from '@/lib/serverId'
 import { parseTagVocabulary } from '@/components/import/types'
 import { EMPTY_FILTER } from '@/components/import/fileFilter'
 import type { FileFilter } from '@/components/import/fileFilter'
@@ -80,12 +81,22 @@ export function toImageEdit(f: EditableFileState): GroupEditRequest['images'][nu
   }
 }
 
+/** Ids of the files marked for deletion. Deletion is explicit: unlisted images are kept,
+ * so images imported into the group after it loaded are never deleted. */
+export function deletedImageIds(files: EditableFileState[]): number[] {
+  return files
+    .filter((f) => f.excluded)
+    .map((f) => serverId(f.relative_path))
+    .filter((id) => id !== null)
+}
+
 export function buildPayload(group: EditableGroupState): GroupEditRequest {
   return {
     base_name: group.group_name,
     author: group.author || undefined,
     images: group.files.filter((f) => !f.excluded).map(toImageEdit),
     new_groups: [],
+    delete_image_ids: deletedImageIds(group.files),
   }
 }
 

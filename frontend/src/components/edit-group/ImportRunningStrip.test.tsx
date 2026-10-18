@@ -6,6 +6,7 @@ import {
   counts,
   group,
   installFakeImportManager,
+  jobDetail,
   jobSummary,
   uninstallFakeImportManager,
 } from '@/test/importFakes'
@@ -23,7 +24,7 @@ const running = (partial = {}) =>
     counts: counts({ done: 6, ready: 40 }),
     group_count: 347,
     groups_done: 103,
-    groups_with_images: 3,
+    groups_reviewable: 3,
     ...partial,
   })
 
@@ -48,9 +49,16 @@ describe('ImportRunningStrip', () => {
 
   it('adds the groups finished since the editor opened, when asked', async () => {
     const groups = [41, 42, 43, 44, 45].map((id) => group({ id, image_group_id: id }))
+    const reviewable = [41, 42, 43, 44, 45]
     ;({ manager } = await installFakeImportManager({
-      jobs: [running({ groups_with_images: 5 })],
-      details: { job1: { ...running({ groups_with_images: 5 }), groups } },
+      jobs: [running({ groups_reviewable: 5 })],
+      details: {
+        job1: jobDetail({
+          ...running({ groups_reviewable: 5 }),
+          groups,
+          reviewable_group_ids: reviewable,
+        }),
+      },
     }))
     const onAddGroups = vi.fn()
     renderWithProviders(
@@ -61,8 +69,44 @@ describe('ImportRunningStrip', () => {
     await waitFor(() => expect(onAddGroups).toHaveBeenCalledWith([44, 45]))
   })
 
+  it('reads the ready groups from the server, not from the import groups', async () => {
+    // Group 46 is still filling; the server leaves it out
+    const groups = [44, 45, 46].map((id) => group({ id, image_group_id: id }))
+    ;({ manager } = await installFakeImportManager({
+      jobs: [running({ groups_reviewable: 4 })],
+      details: {
+        job1: jobDetail({
+          ...running({ groups_reviewable: 4 }),
+          groups,
+          reviewable_group_ids: [41, 42, 43, 45],
+        }),
+      },
+    }))
+    const onAddGroups = vi.fn()
+    renderWithProviders(
+      <ImportRunningStrip jobId="job1" reviewedGroupIds={[41, 42, 43]} onAddGroups={onAddGroups} />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Add it' }))
+    await waitFor(() => expect(onAddGroups).toHaveBeenCalledWith([45]))
+    // Counted from that answer: nothing more until the summary moves on
+    await waitFor(() => expect(screen.queryByText(/more group/)).not.toBeInTheDocument())
+  })
+
+  it('keeps its buttons out of the status announcement', async () => {
+    ;({ manager } = await installFakeImportManager({ jobs: [running({ groups_reviewable: 5 })] }))
+    renderWithProviders(
+      <ImportRunningStrip
+        jobId="job1"
+        reviewedGroupIds={[41, 42, 43]}
+        onAddGroups={vi.fn()}
+        onShowProgress={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole('status').querySelector('button')).toBeNull()
+  })
+
   it('stays until a finished import has nothing more to add', async () => {
-    const done = running({ status: 'completed', groups_done: 347, groups_with_images: 4 })
+    const done = running({ status: 'completed', groups_done: 347, groups_reviewable: 4 })
     ;({ manager } = await installFakeImportManager({ jobs: [done] }))
     const { rerender } = renderWithProviders(
       <ImportRunningStrip jobId="job1" reviewedGroupIds={[41, 42, 43]} onAddGroups={vi.fn()} />,

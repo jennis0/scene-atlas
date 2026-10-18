@@ -51,6 +51,7 @@ a = Analysis(
         # vocabulary (first-boot tag seeding) and the grid detection models.
         (str(project_root / 'backend' / 'app' / 'data' / 'tag_vocabulary.json'), 'backend/app/data'),
         (str(project_root / 'backend' / 'app' / 'data' / 'grid_models'),         'backend/app/data/grid_models'),
+        (str(project_root / 'backend' / 'app' / 'data' / 'heads'),               'backend/app/data/heads'),
     ],
     hiddenimports=[
         # uvicorn internals
