@@ -23,6 +23,7 @@ Free and open source. Runs as a desktop app on Windows, macOS and Linux, or self
 - **Search by content, not filename:** describe what you're looking for and get the maps that match. You can also search by name, creator or tag.
 - **Import whole collections:** folders and zip files straight from your downloads, with duplicates skipped.
 - **Variants together:** the day, night, winter and gridless versions of a map stay grouped as one.
+- **Animated maps:** MP4 and WebM maps are imported, searched and played alongside the rest.
 - **Grid detection:** square and hex grids found on battlemaps, so you know the grid before it goes into your VTT.
 - **Filters:** by type, grid, colour and tags, with tag packs for fantasy, sci-fi, horror, cyberpunk and historical games.
 - **Handles big libraries:** tested with over 56,000 images.
