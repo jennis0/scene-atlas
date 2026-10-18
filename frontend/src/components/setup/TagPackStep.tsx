@@ -4,6 +4,7 @@ import { Check } from 'lucide-react'
 import { tagApi } from '@/lib/api/tagApi'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import type { TagPack } from '@/types'
+import { LoadFailed } from './LoadFailed'
 import { SetupFrame } from './SetupFrame'
 import type { StepNav } from './steps'
 
@@ -80,10 +81,12 @@ export function TagPackStep({ nav }: { nav: StepNav }) {
       nav={nav}
       title="Add tag packs"
       description="Tag packs add tags for a genre. They're used to tag your imports automatically and to filter your library. Common tags are always included, and you can add packs later in Settings."
-      onPrimary={handleContinue}
-      primaryLabel={importErrors.length > 0 ? 'Try again' : undefined}
-      busy={importing}
-      primaryDisabled={!packs}
+      primary={{
+        onClick: handleContinue,
+        label: importErrors.length > 0 ? 'Try again' : undefined,
+        busy: importing,
+        disabled: !packs,
+      }}
       secondary={
         <button
           type="button"
@@ -119,18 +122,7 @@ export function TagPackStep({ nav }: { nav: StepNav }) {
       )}
 
       {fetchError && !packs && (
-        <div className="text-center space-y-3 py-6">
-          <p role="alert" className="text-sm text-destructive">
-            Couldn't load the tag packs.
-          </p>
-          <button
-            type="button"
-            onClick={() => fetchPacks()}
-            className="px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-muted transition-colors"
-          >
-            Try again
-          </button>
-        </div>
+        <LoadFailed message="Couldn't load the tag packs." onRetry={() => fetchPacks()} />
       )}
 
       {packs && (

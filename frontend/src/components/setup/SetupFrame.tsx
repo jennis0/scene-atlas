@@ -3,16 +3,22 @@ import { Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { STEP_LABELS, type StepId, type StepNav } from './steps'
 
+/** The step's forward button: Continue, or Finish on the last step, unless *label* is set. */
+interface PrimaryAction {
+  /** Defaults to nav.onNext */
+  onClick?: () => void
+  label?: string
+  disabled?: boolean
+  /** Working: disables both buttons and says so */
+  busy?: boolean
+}
+
 interface SetupFrameProps {
   nav: StepNav
   title: string
   description: ReactNode
   children: ReactNode
-  /** The step's forward action; defaults to nav.onNext. Continue, or Finish on the last step. */
-  onPrimary?: () => void
-  primaryLabel?: string
-  busy?: boolean
-  primaryDisabled?: boolean
+  primary?: PrimaryAction
   /** Shown as an alert above the footer */
   error?: ReactNode
   /** Extra footer actions, before the primary button (e.g. "Skip for now") */
@@ -25,14 +31,10 @@ export function SetupFrame({
   title,
   description,
   children,
-  onPrimary,
-  primaryLabel,
-  busy = false,
-  primaryDisabled = false,
+  primary = {},
   error,
   secondary,
 }: SetupFrameProps) {
-  const isLast = nav.index === nav.steps.length - 1
   const heading = useRef<HTMLHeadingElement>(null)
 
   // Each step starts at its heading, so screen readers announce where the user is
@@ -72,21 +74,35 @@ export function SetupFrame({
           </div>
         )}
 
-        <footer className="flex flex-wrap items-center gap-3 border-t border-border/50 pt-4">
-          {nav.onBack && (
-            <Button variant="ghost" onClick={nav.onBack} disabled={busy}>
-              Back
-            </Button>
-          )}
-          <div className="ml-auto flex flex-wrap items-center gap-3">
-            {secondary}
-            <Button onClick={onPrimary ?? nav.onNext} disabled={busy || primaryDisabled}>
-              {busy ? 'Working…' : (primaryLabel ?? (isLast ? 'Finish' : 'Continue'))}
-            </Button>
-          </div>
-        </footer>
+        <SetupFooter nav={nav} primary={primary} secondary={secondary} />
       </main>
     </div>
+  )
+}
+
+interface SetupFooterProps {
+  nav: StepNav
+  primary: PrimaryAction
+  secondary?: ReactNode
+}
+
+function SetupFooter({ nav, primary, secondary }: SetupFooterProps) {
+  const isLast = nav.index === nav.steps.length - 1
+  const label = primary.label ?? (isLast ? 'Finish' : 'Continue')
+  return (
+    <footer className="flex flex-wrap items-center gap-3 border-t border-border/50 pt-4">
+      {nav.onBack && (
+        <Button variant="ghost" onClick={nav.onBack} disabled={primary.busy}>
+          Back
+        </Button>
+      )}
+      <div className="ml-auto flex flex-wrap items-center gap-3">
+        {secondary}
+        <Button onClick={primary.onClick ?? nav.onNext} disabled={primary.busy || primary.disabled}>
+          {primary.busy ? 'Working…' : label}
+        </Button>
+      </div>
+    </footer>
   )
 }
 

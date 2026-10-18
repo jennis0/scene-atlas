@@ -12,61 +12,64 @@ import { CONTRAST_OPTIONS } from '@/lib/contrast'
  * Each applies at once and is saved on this device. *children* adds rows to the
  * Accessibility section. */
 export function AppearanceControls({ children }: { children?: ReactNode }) {
-  const {
-    themePreference,
-    setThemePreference,
-    palette,
-    setPalette,
-    textSize,
-    setTextSize,
-    contrast,
-    setContrast,
-  } = useTheme()
   return (
     <>
-      <SettingsSection title="Theme">
-        <SettingRow label="Mode" description="System follows your computer's setting." stacked>
-          <SegmentedControl
-            label="Mode"
-            options={THEME_OPTIONS}
-            value={themePreference}
-            onChange={setThemePreference}
-          />
-        </SettingRow>
-        <SettingRow label="Palette" stacked>
-          <div className="self-stretch">
-            <PalettePicker value={palette} onChange={setPalette} />
-          </div>
-        </SettingRow>
-      </SettingsSection>
-
-      <SettingsSection title="Accessibility" divider={false}>
-        <SettingRow
-          label="Text size"
-          description="Makes text and controls bigger; images stay the same."
-          stacked
-        >
-          <SegmentedControl
-            label="Text size"
-            options={TEXT_SIZES}
-            value={textSize}
-            onChange={setTextSize}
-          />
-        </SettingRow>
-        <SettingRow
-          label="Contrast"
-          description="Bolder text and outlines. Auto follows your system."
-          stacked
-        >
-          <SegmentedControl
-            label="Contrast"
-            options={CONTRAST_OPTIONS}
-            value={contrast}
-            onChange={setContrast}
-          />
-        </SettingRow>
-        {children}
-      </SettingsSection>
+      <ThemeSection />
+      <AccessibilitySection>{children}</AccessibilitySection>
     </>
+  )
+}
+
+function ThemeSection() {
+  const { themePreference, setThemePreference, palette, setPalette } = useTheme()
+  return (
+    <SettingsSection title="Theme">
+      <SettingRow label="Mode" description="System follows your computer's setting." stacked>
+        <SegmentedControl
+          label="Mode"
+          options={THEME_OPTIONS}
+          value={themePreference}
+          onChange={setThemePreference}
+        />
+      </SettingRow>
+      <SettingRow label="Palette" stacked>
+        <div className="self-stretch">
+          <PalettePicker value={palette} onChange={setPalette} />
+        </div>
+      </SettingRow>
+    </SettingsSection>
+  )
+}
+
+function AccessibilitySection({ children }: { children?: ReactNode }) {
+  const { textSize, setTextSize, contrast, setContrast } = useTheme()
+  return (
+    <SettingsSection title="Accessibility" divider={false}>
+      <SettingRow
+        label="Text size"
+        description="Makes text and controls bigger; images stay the same."
+        stacked
+      >
+        <SegmentedControl
+          label="Text size"
+          options={TEXT_SIZES}
+          value={textSize}
+          onChange={setTextSize}
+        />
+      </SettingRow>
+      <SettingRow
+        label="Contrast"
+        description="Bolder text and outlines. Auto follows your system."
+        stacked
+      >
+        <SegmentedControl
+          label="Contrast"
+          options={CONTRAST_OPTIONS}
+          value={contrast}
+          onChange={setContrast}
+        />
+      </SettingRow>
+      {children}
+    </SettingsSection>
   )
 }

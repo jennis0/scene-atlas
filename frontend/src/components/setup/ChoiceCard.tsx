@@ -1,33 +1,30 @@
 import { useId, type ReactNode } from 'react'
 
-interface ChoiceCardProps {
-  /** Radio group name: one per set of cards */
-  name: string
+/** What a card shows */
+interface Choice {
   value: string
   label: string
   /** Read out with the radio as its description */
   description: ReactNode
-  checked: boolean
-  onSelect: () => void
   /** Short visual tag in the corner, e.g. "Recommended"; also read at the end of the description */
   badge?: string
   /** Below the description, outside the radio's label (e.g. a details disclosure) */
   footer?: ReactNode
 }
 
+interface ChoiceCardProps {
+  /** Radio group name: one per set of cards */
+  name: string
+  choice: Choice
+  checked: boolean
+  onSelect: () => void
+}
+
 /** A radio card: the visually hidden radio carries the name and selection for keyboards and
  * screen readers (one tab stop per group, arrow keys move); the whole card is a mouse
  * target. Wrap a set in a `role="radiogroup"` with a label. */
-export function ChoiceCard({
-  name,
-  value,
-  label,
-  description,
-  checked,
-  onSelect,
-  badge,
-  footer,
-}: ChoiceCardProps) {
+export function ChoiceCard({ name, choice, checked, onSelect }: ChoiceCardProps) {
+  const { value, label, description, badge, footer } = choice
   const descriptionId = useId()
   return (
     <div

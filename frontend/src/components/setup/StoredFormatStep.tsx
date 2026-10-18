@@ -65,9 +65,11 @@ export function StoredFormatStep({ nav }: { nav: StepNav }) {
       nav={nav}
       title="How should imported images be stored?"
       description="Scene Atlas keeps its own copy of everything you import; the files you import from are never changed. This applies to new imports, and you can change it later in Settings."
-      onPrimary={handleContinue}
-      busy={saving}
-      primaryDisabled={saved === null && !loadFailed}
+      primary={{
+        onClick: handleContinue,
+        busy: saving,
+        disabled: saved === null && !loadFailed,
+      }}
       error={
         error ??
         (loadFailed ? 'Could not load the current setting. Continuing keeps the default.' : null)
@@ -82,9 +84,7 @@ export function StoredFormatStep({ nav }: { nav: StepNav }) {
           <ChoiceCard
             key={option.value}
             name="setup-stored-format"
-            value={option.value}
-            label={option.label}
-            description={<p>{option.description}</p>}
+            choice={{ ...option, description: <p>{option.description}</p> }}
             checked={choice === option.value}
             onSelect={() => setChoice(option.value)}
           />
