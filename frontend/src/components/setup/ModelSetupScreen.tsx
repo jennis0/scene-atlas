@@ -82,8 +82,6 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
   const [models, setModels] = useState<ModelInfo[]>([])
   const [selectedModel, setSelectedModel] = useState<string>('')
   const [jobId, setJobId] = useState<string | null>(null)
-  const [progressMessage, setProgressMessage] = useState<string>('Starting...')
-  const [progressPct, setProgressPct] = useState<number | null>(null)
   const [errorMessage, setErrorMessage] = useState<string>('')
   const [modelComplete, setModelComplete] = useState(skipModel)
 
@@ -111,29 +109,16 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
   }, [loadSetup])
 
   // The model downloads in the background while the user picks tag packs.
-  useEffect(() => {
-    if (!jobId || modelComplete || phase !== 'tag-packs') return
-
-    const interval = setInterval(async () => {
-      try {
-        const job = await jobApi.get(jobId)
-        if (job.progress) setProgressMessage(job.progress)
-        if (job.progress_pct != null) setProgressPct(job.progress_pct)
-        if (job.status === 'completed') {
-          clearInterval(interval)
-          setModelComplete(true)
-        } else if (job.status === 'failed') {
-          clearInterval(interval)
-          setErrorMessage(job.error ?? 'Model activation failed.')
-          setPhase('error')
-        }
-      } catch {
-        // transient network error — keep polling
-      }
-    }, 2000)
-
-    return () => clearInterval(interval)
-  }, [phase, jobId, modelComplete])
+  const onJobDone = useCallback(() => setModelComplete(true), [])
+  const onJobFailed = useCallback((message: string) => {
+    setErrorMessage(message)
+    setPhase('error')
+  }, [])
+  const { progressMessage, progressPct } = useModelJobProgress(
+    phase === 'tag-packs' && !modelComplete ? jobId : null,
+    onJobDone,
+    onJobFailed,
+  )
 
   const handleSetupFinished = useCallback(async () => {
     try {
@@ -163,35 +148,18 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
     }
   }
 
-  if (phase === 'loading') {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <p role="status" className="text-muted-foreground text-sm">
-          Loading model information...
-        </p>
-      </div>
-    )
-  }
+  if (phase === 'loading') return <SetupLoading />
 
   if (phase === 'error') {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div role="alert" className="max-w-md text-center space-y-3">
-          <p className="font-semibold text-destructive">Setup Error</p>
-          <p className="text-sm text-muted-foreground">{errorMessage}</p>
-          <button
-            type="button"
-            onClick={() => {
-              setPhase('loading')
-              setErrorMessage('')
-              loadSetup()
-            }}
-            className="px-4 py-2 rounded bg-primary text-primary-foreground text-sm hover:bg-primary/90 transition-colors"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
+      <SetupError
+        message={errorMessage}
+        onRetry={() => {
+          setPhase('loading')
+          setErrorMessage('')
+          loadSetup()
+        }}
+      />
     )
   }
 
@@ -206,8 +174,97 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
     )
   }
 
-  const hasGpu = setupStatus?.has_gpu ?? false
+  return (
+    <ModelSelection
+      setupStatus={setupStatus}
+      models={models}
+      selected={selectedModel}
+      onSelect={setSelectedModel}
+      onStart={handleGetStarted}
+      submitting={phase === 'submitting'}
+    />
+  )
+}
 
+/** Polls the model activation job while *jobId* is set, reporting its progress. */
+function useModelJobProgress(
+  jobId: string | null,
+  onDone: () => void,
+  onFailed: (message: string) => void,
+) {
+  const [progressMessage, setProgressMessage] = useState<string>('Starting...')
+  const [progressPct, setProgressPct] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!jobId) return
+    const interval = setInterval(async () => {
+      try {
+        const job = await jobApi.get(jobId)
+        if (job.progress) setProgressMessage(job.progress)
+        if (job.progress_pct != null) setProgressPct(job.progress_pct)
+        if (job.status === 'completed') {
+          clearInterval(interval)
+          onDone()
+        } else if (job.status === 'failed') {
+          clearInterval(interval)
+          onFailed(job.error ?? 'Model activation failed.')
+        }
+      } catch {
+        // transient network error — keep polling
+      }
+    }, 2000)
+    return () => clearInterval(interval)
+  }, [jobId, onDone, onFailed])
+
+  return { progressMessage, progressPct }
+}
+
+function SetupLoading() {
+  return (
+    <div className="min-h-screen bg-background flex items-center justify-center">
+      <p role="status" className="text-muted-foreground text-sm">
+        Loading model information...
+      </p>
+    </div>
+  )
+}
+
+function SetupError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="min-h-screen bg-background flex items-center justify-center">
+      <div role="alert" className="max-w-md text-center space-y-3">
+        <p className="font-semibold text-destructive">Setup Error</p>
+        <p className="text-sm text-muted-foreground">{message}</p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="px-4 py-2 rounded bg-primary text-primary-foreground text-sm hover:bg-primary/90 transition-colors"
+        >
+          Retry
+        </button>
+      </div>
+    </div>
+  )
+}
+
+interface ModelSelectionProps {
+  setupStatus: SetupStatus | null
+  models: ModelInfo[]
+  selected: string
+  onSelect: (name: string) => void
+  onStart: () => void
+  submitting: boolean
+}
+
+function ModelSelection({
+  setupStatus,
+  models,
+  selected,
+  onSelect,
+  onStart,
+  submitting,
+}: ModelSelectionProps) {
+  const hasGpu = setupStatus?.has_gpu ?? false
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-6">
       <div className="w-full max-w-2xl space-y-6">
@@ -230,9 +287,9 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
               key={model.name}
               model={model}
               hasGpu={hasGpu}
-              selected={selectedModel === model.name}
+              selected={selected === model.name}
               recommended={setupStatus?.recommended === model.name}
-              onSelect={() => setSelectedModel(model.name)}
+              onSelect={() => onSelect(model.name)}
             />
           ))}
         </div>
@@ -244,11 +301,11 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
         <div className="flex justify-center">
           <button
             type="button"
-            onClick={handleGetStarted}
-            disabled={!selectedModel || phase === 'submitting'}
+            onClick={onStart}
+            disabled={!selected || submitting}
             className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {phase === 'submitting' ? 'Starting...' : 'Get Started'}
+            {submitting ? 'Starting...' : 'Get Started'}
           </button>
         </div>
       </div>
