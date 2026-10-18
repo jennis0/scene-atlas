@@ -122,7 +122,7 @@ function StepList({ steps, current }: { steps: readonly StepId[]; current: numbe
               aria-hidden="true"
               className={`flex h-4 w-4 items-center justify-center rounded-full text-3xs tabular-nums ${
                 active
-                  ? 'bg-primary text-primary-foreground'
+                  ? 'bg-primary text-primary-foreground forced-colors:forced-color-adjust-none forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]'
                   : done
                     ? 'bg-primary/15 text-primary'
                     : 'border border-border'

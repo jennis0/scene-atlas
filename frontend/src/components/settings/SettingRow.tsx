@@ -1,5 +1,6 @@
-import { ReactNode } from 'react'
+import { ReactNode, useId } from 'react'
 import { RestartBadge } from './RestartBadge'
+import { SettingRowContext } from './settingRowContext'
 
 interface SettingRowProps {
   label: string
@@ -18,6 +19,7 @@ export function SettingRow({
   stacked = false,
   children,
 }: SettingRowProps) {
+  const descriptionId = useId()
   return (
     <div
       className={
@@ -29,7 +31,9 @@ export function SettingRow({
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-foreground">{label}</p>
         {description && (
-          <p className="mt-0.5 text-xs leading-snug text-muted-foreground">{description}</p>
+          <p id={descriptionId} className="mt-0.5 text-xs leading-snug text-muted-foreground">
+            {description}
+          </p>
         )}
         {requiresRestart && (
           <div className="mt-2">
@@ -38,7 +42,14 @@ export function SettingRow({
         )}
       </div>
       {/* Stacked: a flex column, so inline controls keep their own width */}
-      <div className={stacked ? 'flex flex-col items-start' : 'flex-shrink-0'}>{children}</div>
+      <div className={stacked ? 'flex flex-col items-start' : 'flex-shrink-0'}>
+        {/* Controls that read this describe themselves with the row's description */}
+        <SettingRowContext.Provider
+          value={{ descriptionId: description ? descriptionId : undefined }}
+        >
+          {children}
+        </SettingRowContext.Provider>
+      </div>
     </div>
   )
 }

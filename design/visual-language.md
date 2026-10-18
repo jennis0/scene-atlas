@@ -45,7 +45,7 @@ How High is built, so it still looks like the same app:
 - **Captions on images** use `.caption-scrim` / `.caption-band` (`index.css`), whose darkness behind the text is a known minimum (`--scrim-text`, `--band`), checked over pure white by `lib/captionContrast.test.ts`.
 - **Axe:** `e2e/tests/accessibility.spec.ts` scans every palette × theme × contrast level; High also runs axe's AAA `color-contrast-enhanced` rule.
 
-Not covered yet: reflow at 400% zoom (1.4.10), text-spacing overrides (1.4.12), and Windows forced-colors mode.
+Not covered yet: text-spacing overrides (1.4.12), and Windows forced-colors mode outside the setup wizard and the controls it shares with Settings (see Accessibility below).
 
 **NOT:** decorative ornament — glowing stripes, fading underline rules, dot-grid backgrounds, header washes, blur on surfaces that don't overlap anything, hover zoom on artwork, tiny uppercase letter-spaced labels. These were removed in the 2026-10 refresh because they read as generic generated UI and competed with the maps.
 
@@ -592,13 +592,16 @@ Target: WCAG 2.2 AA in both themes. `e2e/tests/accessibility.spec.ts` runs axe o
 - **Focus.** One indicator for everything: the 2px `--ring` outline set on `:focus-visible` in `index.css`. Don't add `outline-none` or per-component rings. Inside a clipping parent (`overflow-hidden`, segmented controls), use `focus-visible:outline-offset-[-2px]`. Menu items are the exception: Radix menus show focus as the highlighted row.
 - **Clickable cards** (`SceneTile`, `GroupCard`): the container is plain; a full-cover `<button>` (`absolute inset-0`) is the click and keyboard target and carries the spoken name. Its focus outline is drawn outside the card by `focus-ring-within` (an outline over the artwork has no reliable contrast). Joined fields like search input + button use `focus-ring-within-input` the same way. Secondary actions (the card menu) are sibling buttons above it, never nested inside. Caption and thumbnail are `aria-hidden` / `alt=""` so the name isn't read twice.
 - **Hover-revealed controls** must also show on keyboard focus and on touch: `opacity-0 group-hover/x:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100` (or `group-focus-within/x:` for a cluster).
-- **Names and state.** Icon-only buttons get an `aria-label`. Toggles and segmented controls set `aria-pressed`; real panel switchers use `role="tablist"`/`tab`/`tabpanel`. Counts and outcomes that change after an action live in a `role="status"` element that stays mounted.
+- **Names and state.** Icon-only buttons get an `aria-label`. Toggles set `aria-pressed`; real panel switchers use `role="tablist"`/`tab`/`tabpanel`. Counts and outcomes that change after an action live in a `role="status"` element that stays mounted.
 - **Target size.** Controls are at least 24×24px. For small icons use the `target-24` utility, which grows the hit area with an invisible `::after` (the element must be positioned).
 - **Dialogs** are named by their `DialogTitle` / `PanelTitle` automatically; see [dialog-focus-management.md](dialog-focus-management.md) for the modal layer.
 - **Sliders** use the `range` class: a quiet track filled to `--fill`, and a knob that grows on hover and carries the focus outline.
 - **Shortcuts.** `/` focuses search from anywhere (not while typing or with a dialog open; the empty search box shows a `/` hint). In the viewer: ←/→ change image, Esc closes, `G` toggles the grid overlay. Declare them with `aria-keyshortcuts`.
 - **Motion.** `prefers-reduced-motion` collapses transitions and stops looping animations globally.
-- **Reflow.** No fixed widths that exceed the viewport: popovers use `w-[min(400px,calc(100vw-2rem))]`, the header wraps, and the image viewer stacks below `lg`.
+- **Radio groups** (`SegmentedControl`, `PalettePicker`, the setup wizard's `ChoiceCard` sets): `role="radiogroup"` with `role="radio"` items, one tab stop, arrow keys move and select, Home/End jump. Buttons get this from `useRovingRadioGroup`; `ChoiceCard` uses real radio inputs. Inside a `SettingRow`, the row's description is the group's `aria-describedby` (`useSettingRowDescriptionId`), so screen readers read it with the control.
+- **Selection is never colour alone** (1.4.1): a selected card or option also changes shape (a check, a filled radio marker) or, for joined segments, a solid fill.
+- **Windows High Contrast (forced colours)** drops fills, tints and custom border colours. Selected segments and the setup wizard's current-step marker use `forced-colors:forced-color-adjust-none forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]`; filled `Button` variants add `forced-colors:border` so they still look like buttons. Keep `forced-color-adjust-none` to small elements whose colours you set entirely. Check with Playwright's `forcedColors: 'active'`.
+- **Reflow.** No fixed widths that exceed the viewport: popovers use `w-[min(400px,calc(100vw-2rem))]`, the header wraps, segmented controls wrap, and the image viewer stacks below `lg`. The setup wizard is checked at 320px wide with Larger text.
 
 ---
 

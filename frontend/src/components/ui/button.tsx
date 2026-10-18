@@ -7,13 +7,14 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        // Amber — the one strong CTA. Use sparingly.
-        default: 'bg-primary text-primary-foreground hover:bg-primary/85',
+        // Amber — the one strong CTA. Use sparingly. Windows High Contrast drops the fill, so
+        // filled variants get an outline there to still read as buttons.
+        default: 'bg-primary text-primary-foreground hover:bg-primary/85 forced-colors:border',
         destructive:
           'bg-destructive/10 text-destructive border border-destructive/30 hover:bg-destructive/15',
         outline:
           'border border-border bg-transparent text-foreground hover:bg-secondary hover:border-border/70',
-        secondary: 'bg-secondary text-foreground hover:bg-secondary/70',
+        secondary: 'bg-secondary text-foreground hover:bg-secondary/70 forced-colors:border',
         ghost: 'text-muted-foreground hover:bg-secondary hover:text-foreground',
         link: 'text-primary underline-offset-4 hover:underline',
       },
