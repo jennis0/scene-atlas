@@ -10,11 +10,11 @@ A comprehensive reference for the Scene Atlas UI. All new components must confor
 
 **Palettes.** Five, each with light and dark mode, chosen in the Library dialog's Appearance tab and stored per device (`scene-atlas-palette` in localStorage, applied as `data-palette` on `<html>` before first paint; navy, the default, sets no attribute):
 
-- **Navy & gold** (default): deep navy and warm parchment, gold accent. Base tokens in `:root` / `.dark`.
-- **Ink & verdigris**: green-black ink and pale paper, aged-copper green accent.
-- **Slate & lapis**: near-neutral cool grey stone, cobalt accent (hue 214: lapis's own ~224 read as periwinkle).
-- **Walnut & sienna**: oiled-wood browns and sand, burnt-sienna accent. Overrides `--destructive` to crimson so it stays distinct from the orange-red accent.
-- **Nightshade & amethyst**: dusky plum greys, muted violet accent.
+- **Navy** (default; value `navy`): deep navy and warm parchment, gold accent. Base tokens in `:root` / `.dark`.
+- **Green** (`verdigris`): green-black ink and pale paper, aged-copper green accent.
+- **Slate** (`lapis`): near-neutral cool grey stone, cobalt accent (hue 214: lapis's own ~224 read as periwinkle).
+- **Brown** (`sienna`): oiled-wood browns and sand, burnt-sienna accent. Overrides `--destructive` to crimson so it stays distinct from the orange-red accent.
+- **Plum** (`nightshade`): dusky plum greys, muted violet accent.
 
 Every palette is a pair of blocks in `index.css`: `[data-palette='x']` (light) and `.dark[data-palette='x'], .dark [data-palette='x']` (dark). The selectors match any element, not only `<html>`, so the Appearance palette picker (`components/settings/PalettePicker.tsx`) renders each option's preview in that palette's real tokens. No colour values are duplicated. Rules for a new palette:
 

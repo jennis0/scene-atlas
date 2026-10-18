@@ -25,7 +25,7 @@ describe('AppearanceTab', () => {
     expect(document.documentElement.classList.contains('dark')).toBe(false)
     expect(localStorage.getItem('scene-atlas-theme')).toBe('light')
 
-    await user.click(screen.getByRole('radio', { name: /Slate & lapis/ }))
+    await user.click(screen.getByRole('radio', { name: /Slate/ }))
     expect(document.documentElement.dataset.palette).toBe('lapis')
     expect(localStorage.getItem('scene-atlas-palette')).toBe('lapis')
 

@@ -75,7 +75,7 @@ test.describe("200% zoom with Larger text", () => {
 
     // The last Appearance control can be scrolled to and used
     await page.getByRole("tab", { name: "Appearance" }).click();
-    const lastPalette = page.getByRole("radio", { name: /Nightshade/ });
+    const lastPalette = page.getByRole("radio", { name: /Plum/ });
     await lastPalette.scrollIntoViewIfNeeded();
     await expectOnScreen(lastPalette);
   });
