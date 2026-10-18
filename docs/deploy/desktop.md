@@ -16,7 +16,7 @@ There is a single installer per platform; the Windows build includes DirectML su
 
 ## Installation
 
-**Windows:** Run the installer. A desktop shortcut and Start Menu entry are created automatically.
+**Windows:** Run `Scene-Atlas-Setup-<version>.exe`. A desktop shortcut and Start Menu entry are created automatically. The installer isn't code-signed yet, so Windows SmartScreen may warn about an unrecognised app: choose **More info**, then **Run anyway**.
 
 **macOS:** Open the DMG and drag Scene Atlas to Applications.
 
@@ -26,7 +26,7 @@ There is a single installer per platform; the Windows build includes DirectML su
 
 On first launch, Scene Atlas will:
 
-1. **Ask for storage locations.** Choose an *app data location* (database, thumbnails, search index, logs) and an *image library location* (Scene Atlas's managed copy of your images, plus backups). Both default to `Documents/Scene Atlas/`. These are directories managed by Scene Atlas, not your existing image folder; files are copied into the library during import. If a folder you pick already holds other files, the app warns you and offers to choose another.
+1. **Ask for storage locations.** Choose an *app data location* (database, thumbnails, search index, logs) and an *image library location* (Scene Atlas's managed copy of your images, plus backups). Both default to `Scene Atlas` in your local app data folder on Windows (`%LOCALAPPDATA%\Scene Atlas`, which OneDrive never syncs) and to `Documents/Scene Atlas/` on macOS and Linux. These are directories managed by Scene Atlas, not your existing image folder; files are copied into the library during import. If a folder you pick already holds other files, the app warns you and offers to choose another.
 2. **Walk through setup.** Choose a theme and text size, how imported images are stored, which tag packs to start with, and a search model. A model is recommended for your hardware.
 3. **Open the gallery.** The model downloads from Hugging Face in the background; once it's ready, you can start importing images.
 
@@ -69,7 +69,7 @@ No manual configuration needed. To force a specific device, set `INFERENCE_DEVIC
 |------|----------|
 | App configuration | `{userData}/scene-atlas-config.json` |
 | Backend log | `{userData}/backend.log` |
-| App data and image library | Chosen during first launch (default `Documents/Scene Atlas/data` and `Documents/Scene Atlas/images`) |
+| App data and image library | Chosen during first launch (default `data` and `images` in `%LOCALAPPDATA%\Scene Atlas` on Windows, `Documents/Scene Atlas` on macOS and Linux) |
 | Backend application log | `<app data>/logs/scene-atlas.log` |
 
 Where `{userData}` is:

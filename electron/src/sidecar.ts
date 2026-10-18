@@ -92,6 +92,9 @@ export function spawnSidecar(options: SidecarOptions): ChildProcess {
       // stdin is a pipe we never write to: when this process exits, however it exits,
       // the OS closes it and the sidecar's watchdog shuts the backend down.
       stdio: ['pipe', 'pipe', 'pipe'],
+      // The sidecar is a console program (its stdout carries SCENE_ATLAS_READY); without
+      // this Windows opens a console window for it next to the app.
+      windowsHide: true,
     },
   )
 

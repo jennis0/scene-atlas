@@ -7,6 +7,7 @@ import {
   type DisplayPrefs,
   type WindowColors,
 } from './displayPrefs'
+import { defaultStorageBase } from './storageDirs'
 
 interface AppConfig {
   appDataDir: string
@@ -80,7 +81,10 @@ export function updateConfig(patch: Partial<AppConfig>): void {
 }
 
 export function getDefaultDirs(): { appDataDir: string; imageLibraryDir: string } {
-  const base = path.join(app.getPath('documents'), 'Scene Atlas')
+  const base = defaultStorageBase(process.platform, process.env, {
+    home: app.getPath('home'),
+    documents: app.getPath('documents'),
+  })
   return {
     appDataDir: path.join(base, 'data'),
     imageLibraryDir: path.join(base, 'images'),

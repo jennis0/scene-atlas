@@ -72,6 +72,26 @@ export function hasForeignEntries(dir: string, otherRoot?: string): boolean {
   }
 }
 
+/**
+ * Where the two storage folders go by default: `<base>/data` and `<base>/images`.
+ *
+ * On Windows, %LOCALAPPDATA%\Scene Atlas: Documents is often redirected into OneDrive,
+ * which would sync the database, search index and thumbnails while they are open (lock
+ * conflicts, Files On-Demand evicting them) and every library image. Local AppData is
+ * never synced or roamed. Elsewhere, ~/Documents/Scene Atlas.
+ */
+export function defaultStorageBase(
+  platform: NodeJS.Platform,
+  env: Record<string, string | undefined>,
+  dirs: { home: string; documents: string },
+): string {
+  if (platform === 'win32') {
+    const localAppData = env.LOCALAPPDATA || path.win32.join(dirs.home, 'AppData', 'Local')
+    return path.win32.join(localAppData, 'Scene Atlas')
+  }
+  return path.join(dirs.documents, 'Scene Atlas')
+}
+
 /** Create both storage roots and check they are writable. Returns an error message or null. */
 export function prepareStorageDirs(appDataDir: string, imageLibraryDir: string): string | null {
   const dirs: [string, string][] = [

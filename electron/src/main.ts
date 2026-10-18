@@ -28,6 +28,9 @@ const DEV_SERVER_URL = 'http://localhost:5173'
 // A stable port keeps the UI's origin, and so its localStorage, the same across launches.
 const PREFERRED_PORT = 47816
 const MAX_LOG_BYTES = 5 * 1024 * 1024
+// How long quitting waits for the backend's graceful shutdown. An idle backend takes
+// about a second; an import batch is cut short after this and recovered next start.
+const QUIT_GRACE_MS = 15_000
 
 let mainWindow: BrowserWindow | null = null
 let setupWindow: BrowserWindow | null = null
@@ -39,6 +42,11 @@ let currentImageLibraryDir: string | null = null
 let backendOrigin: string | null = null
 // Kept so the loading page can be re-sent the error after a reload.
 let backendError: string | null = null
+
+// The installer's shortcuts carry electron-builder's appId as their AppUserModelID; the
+// process must match, or Windows shows a pinned shortcut and the running app as two
+// taskbar icons.
+if (isWindows) app.setAppUserModelId('com.sceneatlas.app')
 
 // Two instances would run two backends against one SQLite/LanceDB store.
 const hasInstanceLock = app.requestSingleInstanceLock()
@@ -580,14 +588,22 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
-  void stopSidecar()
-  if (process.platform !== 'darwin') app.quit()
+  // macOS keeps the app in the dock without a backend; activate starts a new one.
+  if (isMac) void stopSidecar()
+  else app.quit()
 })
 
 app.on('activate', () => {
   if (hasInstanceLock && BrowserWindow.getAllWindows().length === 0) start()
 })
 
-app.on('will-quit', () => {
-  void stopSidecar()
+// Hold the quit until the backend has shut down. On Windows this is what makes the stop
+// graceful at all: libuv puts spawned children in a kill-on-close job object, so the
+// sidecar is terminated the moment this process exits, mid-shutdown if still running.
+let quitting = false
+app.on('will-quit', (event) => {
+  if (quitting || !sidecarProcess) return
+  event.preventDefault()
+  quitting = true
+  void stopSidecar(QUIT_GRACE_MS).finally(() => app.quit())
 })
