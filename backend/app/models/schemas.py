@@ -458,7 +458,7 @@ class AppSettings(BaseModel):
 
     # Ingestion performance
     ingestion_batch_size: int = 16
-    max_concurrent_prepare: int = 8
+    max_concurrent_prepare: int = 4
     max_concurrent_heavy_requests: int = 4
 
     # Import limits

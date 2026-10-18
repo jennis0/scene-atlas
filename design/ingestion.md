@@ -379,7 +379,7 @@ App settings (database, seeded on first boot by `seed_default_settings` in `back
 | Setting | Seeded default | Purpose |
 |---|---|---|
 | `ingestion_batch_size` | 16 | Claim / embed / commit batch |
-| `max_concurrent_prepare` | `min(cpu, 8, RAM-based cap)` (`resource_detector.py`) | Prepare pool size (fixed at startup) |
+| `max_concurrent_prepare` | `min(cpu, 4, RAM-based cap)` (`resource_detector.py`) | Prepare pool size (fixed at startup) |
 | `max_concurrent_heavy_requests` | `min(cpu // 2, 6)` | Heavy-op semaphore (archive upload, seal) |
 | `max_import_file_size` | 2 GB | Per file, and per uploaded archive body |
 | `max_video_file_size` | 2 GB | Per video file |

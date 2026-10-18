@@ -596,7 +596,7 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
             <SettingsSection title="Performance" divider={false}>
               <SettingRow
                 label="Parallel image processing"
-                description="Images prepared at once across all imports: hashing, thumbnails, colours and grid detection (1-16)"
+                description="Images prepared at once across all imports: hashing, thumbnails, colours and grid detection. Above 4, imports are no faster and the app is slow while they run (1-16)"
                 requiresRestart={true}
               >
                 <NumberSetting
