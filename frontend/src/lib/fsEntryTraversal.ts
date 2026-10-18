@@ -13,7 +13,6 @@ function fileFromEntry(entry: FileSystemFileEntry): Promise<File> {
  */
 async function readAllEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
   const all: FileSystemEntry[] = []
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     const batch = await new Promise<FileSystemEntry[]>((resolve, reject) =>
       reader.readEntries(resolve, reject),

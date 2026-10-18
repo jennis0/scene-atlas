@@ -158,9 +158,11 @@ a = Analysis(
 # ── Post-analysis cleanup ─────────────────────────────────────────────────────
 # Remove directories and files that hooks collect but are never needed at runtime.
 
-# On Windows, strip=True can corrupt DLLs if MSYS2 strip.exe is on PATH.
-# PyInstaller's strip only affects ELF/Mach-O binaries on Linux/macOS.
-_strip_binaries = _platform.system() != 'Windows'
+# Never strip: on Linux it breaks the patchelf-repaired libraries in manylinux wheels
+# (numpy's OpenBLAS and libgfortran fail to load: "ELF load command address/offset not
+# page-aligned"), on macOS it invalidates the wheels' signatures, and on Windows an
+# MSYS2 strip.exe on PATH corrupts DLLs. It saved little; the installers compress.
+_strip_binaries = False
 
 # CUDA shared libraries — always stripped from electron builds.
 # onnxruntime-gpu may be co-installed in the dev venv; collect_dynamic_libs
@@ -205,7 +207,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=_strip_binaries,  # Strip debug symbols (disabled on Windows to protect DLLs)
-    upx=True,           # UPX-compress binaries
+    upx=False,
     console=True,       # Must be True: stdout is how we signal SCENE_ATLAS_READY
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -220,15 +222,9 @@ coll = COLLECT(
     a.binaries,
     a.datas,
     strip=_strip_binaries,  # Strip debug symbols (disabled on Windows to protect DLLs)
-    upx=True,
-    upx_exclude=[
-        # OpenCV — monolithic .so with complex symbol resolution
-        'cv2.abi3.so',
-        # DirectML DLLs must not be UPX-compressed — they are loaded by the
-        # onnxruntime DML execution provider at runtime via LoadLibrary.
-        # Harmless to list on non-Windows (files simply won't exist).
-        'DirectML.dll',
-        'onnxruntime_providers_dml.dll',
-    ],
+    # No UPX: it corrupted numpy's bundled OpenBLAS (ELF segments no longer page-aligned),
+    # slows every start (each library is decompressed on load), and Windows antivirus
+    # flags UPX-packed DLLs. The installers compress the payload anyway.
+    upx=False,
     name='scene-atlas-backend',
 )

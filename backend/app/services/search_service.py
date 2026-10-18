@@ -18,6 +18,7 @@ import logging
 from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 from datetime import datetime
+from typing import cast
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -441,7 +442,8 @@ def _attach_all_image_ids(
     if image_types:
         stmt = stmt.where(Image.image_type.in_(image_types))
     ids_by_group: dict[int, list[int]] = {}
-    for group_id, image_id in db.execute(stmt.order_by(Image.id)):
+    rows = cast(Iterable[tuple[int, int]], db.execute(stmt.order_by(Image.id)))
+    for group_id, image_id in rows:
         ids_by_group.setdefault(group_id, []).append(image_id)
     for result in results:
         result.all_image_ids = ids_by_group.get(result.group_id, [])

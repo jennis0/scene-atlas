@@ -37,14 +37,14 @@
     "npm": ">=10"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.10.2",
-    "@playwright/test": "^1.58.2",
-    "concurrently": "^9.0.0",
-    "electron": "^40.7.0",
-    "electron-builder": "^26.8.1",
+    "@axe-core/playwright": "^4.14.0",
+    "@playwright/test": "^1.64.1",
+    "concurrently": "^10.0.6",
+    "electron": "^44.9.0",
+    "electron-builder": "^26.17.0",
     "husky": "^9.1.7",
-    "lint-staged": "^16.2.7",
-    "typescript": "^5.9.3",
-    "wait-on": "^8.0.0"
+    "lint-staged": "^17.6.0",
+    "typescript": "~6.0.3",
+    "wait-on": "^9.5.1"
   }
 }

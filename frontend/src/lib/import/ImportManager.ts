@@ -132,9 +132,7 @@ export function normaliseRelativePath(path: string): string {
 const isArchive = (path: string) => path.toLowerCase().endsWith('.zip')
 
 type ErrorClass =
-  | { kind: 'aborted' }
-  | { kind: 'network' }
-  | { kind: 'http'; status: number; detail: string }
+  { kind: 'aborted' } | { kind: 'network' } | { kind: 'http'; status: number; detail: string }
 
 interface MaybeAxiosError {
   name?: string

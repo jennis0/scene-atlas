@@ -8,20 +8,20 @@ dependencies = [
     "uvicorn[standard]>=0.27.0,<1.0",
     "sqlalchemy>=2.0.25,<3.0",
     "alembic>=1.13.0,<2.0",
-    "pillow>=10.2.0,<13.0",
-    "opencv-python-headless>=4.9.0,<5.0",
+    "pillow>=10.2.0,<14.0",
+    "opencv-python-headless>=4.9.0,<6.0",
     "tokenizers>=0.15.0,<1.0",
     "sentencepiece>=0.2.0,<1.0",
     "numpy>=1.26.0,<3.0",
     "pydantic>=2.5.0,<3.0",
     "pydantic-settings>=2.1.0,<3.0",
     "python-multipart>=0.0.6,<1.0",
-    "aiofiles>=23.2.0,<25.0",
+    "aiofiles>=23.2.0,<26.0",
     "pyyaml>=6.0.1,<7.0",
     "scikit-learn>=1.4.0,<2.0",
     "scipy>=1.12.0,<2.0",
     "zipstream-ng>=1.7.0,<2.0",
-    "psutil>=5.9.0,<7.0",
+    "psutil>=5.9.0,<8.0",
     "slowapi>=0.1.9,<1.0",
     "huggingface-hub>=0.20.0",
     "lancedb>=0.30.0,<1.0",
@@ -46,14 +46,14 @@ cpu = [
 ]
 cpu-dev = [
     "onnxruntime>=1.24.0,<2.0",
-    "torch>=2.1.0,<3.0",
+    "torch>=2.13.0,<3.0",
 ]
 gpu = [
     "onnxruntime-gpu>=1.24.1,<2.0",
 ]
 gpu-dev = [
     "onnxruntime-gpu>=1.24.1,<2.0",
-    "torch>=2.1.0,<3.0",
+    "torch>=2.13.0,<3.0",
 ]
 gpu-directml = ["onnxruntime-directml>=1.24.0,<2.0"]
 dev = [
@@ -63,7 +63,7 @@ dev = [
     "pytest-cov>=5.0.0",
     "httpx>=0.26.0",
     "pyinstaller",
-    "transformers>=4.36.0,<5.0",
+    "transformers>=5.10.0,<6.0",
     "onnx>=1.14.0,<2.0",   # ONNX export + quantisation tools (dev only)
     "tqdm>=4.60.0",
     "pip-audit>=2.7.0",    # CI: Python CVE scanning
@@ -191,6 +191,6 @@ explicit = true
 
 [[tool.uv.index]]
 name = "pytorch-cuda"
-url  = "https://download.pytorch.org/whl/cu124"
+url  = "https://download.pytorch.org/whl/cu126"
 explicit = true
 

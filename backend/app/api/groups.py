@@ -1,6 +1,7 @@
 """Groups API endpoints."""
 
 import re
+from typing import cast
 
 import zipstream
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -113,7 +114,6 @@ def search_groups(
             db.query(Image.group_id, func.count(Image.id))
             .filter(Image.group_id.in_(group_ids))
             .group_by(Image.group_id)
-            .tuples()
             .all()
         )
         counts = dict(rows)
@@ -126,7 +126,6 @@ def search_groups(
             db.query(Image.group_id, func.min(Image.id))
             .filter(Image.group_id.in_(missing))
             .group_by(Image.group_id)
-            .tuples()
             .all()
         )
         primary_ids = dict(rows)
@@ -164,11 +163,12 @@ def get_group_summaries(
     groups = db.query(ImageGroup).filter(ImageGroup.id.in_(request.ids)).all()
     image_ids: dict[int, list[int]] = {g.id: [] for g in groups}
     scenes: dict[int, int] = dict.fromkeys(image_ids, 0)
-    rows = (
+    rows = cast(
+        list[tuple[int, int, str]],
         db.query(Image.group_id, Image.id, Image.image_type)
         .filter(Image.group_id.in_(request.ids))
         .order_by(Image.id)
-        .all()
+        .all(),
     )
     for group_id, image_id, image_type in rows:
         image_ids[group_id].append(image_id)
