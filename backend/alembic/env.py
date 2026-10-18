@@ -1,8 +1,8 @@
 """Alembic migration environment.
 
-The database URL is read from the Alembic Config object so migrations always
-target the correct database — whether that is the production DB (set in
-alembic.ini) or a temporary test DB (set programmatically by init_db()).
+init_db() passes the app's own connection in ``config.attributes["connection"]``
+and migrations run on it. Otherwise (the CLI, the migration tests) the database
+URL comes from the Config: alembic.ini, or one set with set_main_option().
 """
 
 import sys
@@ -10,7 +10,7 @@ from logging.config import fileConfig
 from pathlib import Path
 
 from alembic import context
-from sqlalchemy import create_engine
+from sqlalchemy import Connection, create_engine
 
 # Ensure the project root is on the path so `backend` package imports work
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -32,13 +32,7 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
-    """Read the database URL from the Alembic Config.
-
-    When called via init_db(), the caller sets ``sqlalchemy.url`` on the
-    Config object so this always targets the correct database (including
-    temporary test databases).  When called from the CLI, the value in
-    alembic.ini is used.
-    """
+    """Read the database URL from the Alembic Config (alembic.ini, or set by the caller)."""
     url = config.get_main_option("sqlalchemy.url")
     if not url:
         raise RuntimeError("sqlalchemy.url is not configured")
@@ -62,21 +56,29 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+def _run_on(connection: Connection) -> None:
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        render_as_batch=True,  # required for SQLite ALTER TABLE workarounds
+    )
+    with context.begin_transaction():
+        context.run_migrations()
+
+
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode (connects to database)."""
+    shared = config.attributes.get("connection")
+    if shared is not None:
+        _run_on(shared)
+        return
+
     url = get_url()
     # check_same_thread=False allows Alembic to use the connection from any thread
     connect_args = {"check_same_thread": False} if "sqlite" in url else {}
     engine = create_engine(url, connect_args=connect_args)
-
     with engine.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata,
-            render_as_batch=True,  # required for SQLite ALTER TABLE workarounds
-        )
-        with context.begin_transaction():
-            context.run_migrations()
+        _run_on(connection)
 
 
 if context.is_offline_mode():

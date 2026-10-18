@@ -111,8 +111,8 @@ def test_backup_creates_readable_snapshot(tmp_path, tmp_db):
     engine, _ = tmp_db
     expected = _seed_test_data(engine)
 
-    # Extract the file path from the engine URL
-    db_path = Path(str(engine.url).replace("sqlite:///", ""))
+    # Not str(engine.url): SQLAlchemy 2.1 percent-encodes a Windows path in it.
+    db_path = Path(engine.url.database)
     backup_dir = tmp_path / "backups" / "20260101_030000"
     backup_path = backup_sqlite(backup_dir, db_path=db_path)
 
@@ -133,9 +133,9 @@ def test_restore_from_backup_preserves_all_data(tmp_path, tmp_db):
     engine, _ = tmp_db
     expected = _seed_test_data(engine)
 
-    # Get path to the test database
-    db_url = str(engine.url)
-    db_path = Path(db_url.replace("sqlite:///", ""))
+    # Get path to the test database (not from str(engine.url), which percent-encodes it)
+    db_path = Path(engine.url.database)
+    db_url = f"sqlite:///{db_path}"
 
     backup_dir = tmp_path / "backup"
     backup_path = backup_sqlite(backup_dir, db_path=db_path)
@@ -159,7 +159,7 @@ def test_restore_from_backup_preserves_all_data(tmp_path, tmp_db):
 
     alembic_ini = _Path(__file__).parent.parent.parent.parent / "alembic.ini"
     alembic_cfg = AlembicConfig(str(alembic_ini))
-    alembic_cfg.set_main_option("sqlalchemy.url", str(restored_engine.url))
+    alembic_cfg.set_main_option("sqlalchemy.url", db_url)
     command.upgrade(alembic_cfg, "head")  # should be a no-op since version is stamped
     # Regression: env.py's fileConfig disabled every existing logger, which silenced
     # the app's logging (and broke caplog in later tests) for the rest of the process.
