@@ -63,7 +63,7 @@ dev = [
     "pytest-cov>=5.0.0",
     "httpx>=0.26.0",
     "pyinstaller",
-    "transformers>=4.36.0,<5.0",
+    "transformers>=4.36.0,<6.0",
     "onnx>=1.14.0,<2.0",   # ONNX export + quantisation tools (dev only)
     "tqdm>=4.60.0",
     "pip-audit>=2.7.0",    # CI: Python CVE scanning
