@@ -27,6 +27,7 @@ export default defineConfig({
   ],
 
   themeConfig: {
+    logo: "/favicon.svg",
     nav: [
       { text: "Guide", link: "/guide/what-is-scene-atlas" },
       { text: "Deploy", link: "/deploy/desktop" },

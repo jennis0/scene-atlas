@@ -42,6 +42,7 @@ Design decisions, visual standards, and security posture.
 |------|-------------|
 | [decisions.md](decisions.md) | **Architecture Decision Log** -- numbered record of all major design decisions (ADRs 001-019) |
 | [visual-language.md](visual-language.md) | Visual design system -- tokens, typography, components, patterns |
+| [brand.md](brand.md) | The Scene Atlas mark and app icons -- construction, files, how to rebuild, directions tried and rejected |
 | [security.md](security.md) | Security evaluation for hosted deployment mode |
 | [testing.md](testing.md) | Testing strategy -- where checks run, fixtures, test conventions |
 | [onnx-int8-quantisation.md](onnx-int8-quantisation.md) | ONNX INT8 quantisation methodology and results |
