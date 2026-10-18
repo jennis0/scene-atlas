@@ -149,7 +149,7 @@ export function GalleryHeader({
             <h1
               className={`flex items-center gap-[0.45em] font-wordmark font-medium tracking-wide text-foreground ${compact ? 'text-xl self-center' : 'text-2xl'}`}
             >
-              <BrandMark className="h-[1.05em] w-auto shrink-0" />
+              <BrandMark className="h-[0.85em] w-auto shrink-0" />
               Scene Atlas
             </h1>
             {compact && tabStrip}

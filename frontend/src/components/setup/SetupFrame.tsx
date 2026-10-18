@@ -48,7 +48,7 @@ export function SetupFrame({
       <main className="w-full max-w-[44rem] flex flex-col gap-6">
         <header className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-3">
           <p className="flex items-center gap-[0.45em] font-wordmark text-2xl font-medium tracking-wide">
-            <BrandMark className="h-[1.05em] w-auto shrink-0" />
+            <BrandMark className="h-[0.85em] w-auto shrink-0" />
             Scene Atlas
           </p>
           {nav.steps.length > 1 && <StepList steps={nav.steps} current={nav.index} />}
