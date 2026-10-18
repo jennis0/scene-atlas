@@ -27,6 +27,8 @@ Why the curves matter: an earlier draft drew the pages as flat panels meeting in
 | `frontend/public/favicon.svg`, `docs/public/favicon.svg` | Web UI and docs site favicons; the docs nav bar also uses it as its logo |
 | `frontend/src/components/brand/markPaths.ts` | The mark's paths for `BrandMark` (generated) |
 | `electron/setup.html`, `electron/loading.html` | Inline SVG between `<!-- brand-mark -->` comments (generated) |
+| `assets/brand/lockup-dark.png`, `lockup-light.png` | Mark and Cinzel wordmark for the README header, swapped by GitHub's light/dark theme |
+| `assets/brand/social-preview.png` | 1280×640 social preview: lockup, tagline, platforms. GitHub has no API for it: upload by hand in **Settings → General → Social preview** |
 
 `electron-builder.yml` already points at `assets/icon.{ico,icns,png}`.
 
@@ -45,7 +47,13 @@ Change the geometry or colours in `scripts/build/build_icons.py`, then run:
 uv run python scripts/build/build_icons.py
 ```
 
-It rewrites every file above. Commit the outputs; nothing generates them at build time.
+It rewrites every file above except the PNG lockups and social preview, which need the Cinzel and Figtree fonts and are built by a second script:
+
+```bash
+uv run python -m scripts.build.build_brand_images
+```
+
+Commit the outputs; nothing generates them at build time.
 
 ## Directions tried and rejected
 

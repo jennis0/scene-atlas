@@ -22,6 +22,20 @@ There is a single installer per platform; the Windows build includes DirectML su
 
 **Linux:** Make the AppImage executable (`chmod +x Scene-Atlas-*.AppImage`) and run it, or install the `.deb` with `sudo dpkg -i Scene-Atlas-*.deb`.
 
+## First-Launch Warnings
+
+The installers aren't code-signed yet, so Windows and macOS can't confirm who made them and warn you the first time you open Scene Atlas. You only need to do this once.
+
+**Windows:** If you see "Windows protected your PC", select **More info**, then **Run anyway**.
+
+**macOS:** If macOS says Scene Atlas "can't be opened" or "could not be verified", select **Done**. Open **System Settings → Privacy & Security**, scroll down and select **Open Anyway** next to the message about Scene Atlas, then confirm with your password.
+
+If macOS says Scene Atlas "is damaged and can't be opened", the app isn't damaged: macOS says this about some unsigned downloads. Run this in Terminal, then open Scene Atlas again:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Scene Atlas.app"
+```
+
 ## First Launch
 
 On first launch, Scene Atlas will:
