@@ -263,7 +263,7 @@ tail -f data/logs/scene-atlas.log
 ```
 
 **Start over with an empty library (destructive):**
-Stop the backend, then delete `APP_DATA_DIR` (default `data/`: database, vector index, thumbnails) and `IMAGE_LIBRARY_DIR` (default `images/`: stored files and backups). Both are recreated on the next start. Stored files are content-addressed and cannot be used without the database, so delete both together.
+Stop the backend, then delete `APP_DATA_DIR` (default `data/`: database, vector index, thumbnails) and `IMAGE_LIBRARY_DIR` (default `images/`: stored files and backups). Both are recreated on the next start. Stored files are content-addressed and cannot be used without the database, so delete both together. Check first that neither points at a folder holding anything else, such as your own map collection.
 
 ---
 

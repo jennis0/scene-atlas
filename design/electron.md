@@ -65,6 +65,13 @@ app.whenReady()  (only if the single-instance lock was acquired)
 
 The main process remembers the last `backend-error` and re-sends it on every `did-finish-load`, and the preload caches it, so the loading page receives it even after a reload.
 
+### Storage folder checks
+
+`electron/src/storageDirs.ts` (no `electron` import, unit tested with `node --test` in `electron/test/`) holds the checks on the two roots:
+
+- **`prepareStorageDirs`** creates both roots and write-tests them, on setup, on a storage change and on every launch (a drive may have been unmounted).
+- **`hasForeignEntries`** is used by `pickStorageDir()` in `main.ts` whenever the user picks either folder, in setup or in Settings. When the folder already holds entries Scene Atlas didn't create, a native warning offers *Choose Another Folder* (the default) or *Use This Folder*. The likely case is someone pointing the image library at their existing map collection: Scene Atlas would never show those files, and the reset instructions say to delete the library folder. Its own entries are dotfiles, two-character lower-case hex shards, `backups` and the app data entries (`battlemap.db*`, `lancedb`, `store`, `logs`, …), plus OS clutter. Both lists are accepted in either folder, so one folder for both is allowed (the backend's storage lock is per resolved root, so that's safe), and so is a folder that contains the other root. Update the lists whenever the backend writes a new top-level entry to either root.
+
 The Electron setup window only chooses storage directories. Model and tag-pack setup runs in the UI (`App.tsx` → `ModelSetupScreen`) in every mode, desktop included (see [hf-model-management.md](hf-model-management.md#first-boot-experience)).
 
 ## IPC Channels
@@ -76,7 +83,7 @@ Every handler is registered through `handleTrusted()`, which rejects calls whose
 | Channel | Direction | Purpose |
 |---------|-----------|---------|
 | `setup:get-default-dirs` | renderer → main | Returns `{ appDataDir, imageLibraryDir }` defaults (`Documents/Scene Atlas/data` and `Documents/Scene Atlas/images`) |
-| `setup:choose-directory` | renderer → main | Opens native folder picker, returns single selected path |
+| `setup:choose-directory` | renderer → main | `(kind, currentDir, otherRoot)`: opens the folder picker at `currentDir` with the non-empty-folder warning (`pickStorageDir`), returns the chosen path or null |
 | `setup:complete` | renderer → main | Validates absolute paths, creates and write-tests both roots, saves config, launches app, closes setup. Returns `{ error: string \| null }` |
 
 ### Main Window (via `electronAPI`, `electron/src/preload.ts`)
@@ -86,8 +93,8 @@ Every handler is registered through `handleTrusted()`, which rejects calls whose
 | `backend-error` | main → loading page | Error message if the sidecar fails to start or crashes |
 | `system:get-app-data-dir` | renderer → main | Returns current app data directory path |
 | `system:get-image-library-dir` | renderer → main | Returns current image library directory path |
-| `system:choose-app-data-dir` | renderer → main | Opens native folder picker for new app data location |
-| `system:choose-image-library-dir` | renderer → main | Opens native folder picker for new image library location |
+| `system:choose-app-data-dir` | renderer → main | Folder picker (with the non-empty-folder warning) for a new app data location |
+| `system:choose-image-library-dir` | renderer → main | Folder picker (with the non-empty-folder warning) for a new image library location |
 | `system:change-storage-dirs` | renderer → main | Validates and prepares the new roots, saves config, stops the sidecar, relaunches the app. Resolves with `{ error }` only if the new locations are rejected |
 
 ### Preload API Surface
@@ -179,6 +186,7 @@ The PyInstaller spec keeps onnxruntime's `entry_points.txt` (DirectML plugin reg
 | `electron/src/setup.preload.ts` | Setup window preload: exposes `setupAPI` |
 | `electron/src/sidecar.ts` | Sidecar spawn, port discovery, stdout parsing |
 | `electron/src/config.ts` | Config load/save/migration, default directories |
+| `electron/src/storageDirs.ts` | Storage folder checks: create + write-test, non-empty-folder detection (tests in `electron/test/`, run with `npm run test:electron`) |
 | `electron/setup.html` | Setup window HTML (first-run directory picker); fonts bundled in `electron/fonts/`, so it needs no network and its CSP has no remote origins |
 | `electron/loading.html` | Startup / error page shown until the sidecar serves the UI |
 | `electron-builder.yml` | Build targets, sidecar bundling, auto-update config |

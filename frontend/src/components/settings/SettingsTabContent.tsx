@@ -308,7 +308,7 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
 
                 <StoragePathRow
                   label="Image library location"
-                  description="Original images and backups. Any drive including external storage."
+                  description="Scene Atlas's own copies of your imported images, plus backups. Any drive, including external storage."
                   current={imageLibraryDir}
                   pending={pendingImageLibraryDir}
                   onBrowse={handleChooseImageLibraryDir}

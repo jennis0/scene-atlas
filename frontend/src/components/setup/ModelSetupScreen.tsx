@@ -104,7 +104,9 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
   if (phase === 'loading') {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <p className="text-muted-foreground text-sm">Loading model information...</p>
+        <p role="status" className="text-muted-foreground text-sm">
+          Loading model information...
+        </p>
       </div>
     )
   }
@@ -112,7 +114,7 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
   if (phase === 'error') {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="max-w-md text-center space-y-3">
+        <div role="alert" className="max-w-md text-center space-y-3">
           <p className="font-semibold text-destructive">Setup Error</p>
           <p className="text-sm text-muted-foreground">{errorMessage}</p>
           <button
@@ -156,30 +158,54 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
 
         {setupStatus && <GpuStatus hasGpu={hasGpu} provider={setupStatus.gpu_provider} />}
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {/* Radio cards: the radio carries the name and selection for keyboards and screen
+            readers; the card is a mouse target. The details disclosure sits beside the
+            radio, not inside a button, so it stays operable on its own. */}
+        <div
+          role="radiogroup"
+          aria-label="Search model"
+          className="grid grid-cols-1 sm:grid-cols-3 gap-3"
+        >
           {models.map((model) => {
             const isSelected = selectedModel === model.name
             const isRecommended = setupStatus?.recommended === model.name
+            const inputId = `setup-model-${model.name}`
 
             return (
-              <button
+              <div
                 key={model.name}
-                type="button"
-                aria-pressed={isSelected}
                 onClick={() => setSelectedModel(model.name)}
-                className={`relative flex flex-col justify-start text-left rounded-lg border p-4 space-y-2.5 transition-colors ${
+                className={`focus-ring-within-input relative flex flex-col justify-start text-left rounded-lg border p-4 space-y-2.5 cursor-pointer transition-colors ${
                   isSelected
                     ? 'border-primary bg-primary/5'
                     : 'border-border bg-card hover:border-border/80 hover:bg-accent/30'
                 }`}
               >
-                <span className="block font-semibold text-sm">{model.label}</span>
+                <label className="block font-semibold text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="setup-model"
+                    value={model.name}
+                    checked={isSelected}
+                    onChange={() => setSelectedModel(model.name)}
+                    aria-describedby={`${inputId}-desc`}
+                    className="sr-only"
+                  />
+                  {model.label}
+                </label>
 
-                <p className="text-xs text-muted-foreground leading-relaxed">{model.description}</p>
+                <div id={`${inputId}-desc`} className="space-y-2.5">
+                  {isRecommended && <p className="sr-only">Recommended for this computer.</p>}
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    {model.description}
+                  </p>
 
-                <ModelRatings model={model} hasGpu={hasGpu} />
+                  <ModelRatings model={model} hasGpu={hasGpu} />
 
-                <p className="text-2xs text-muted-foreground">{model.approx_size_mb} MB download</p>
+                  <p className="text-2xs text-muted-foreground">
+                    {model.approx_size_mb} MB download
+                  </p>
+                </div>
 
                 <details className="text-xs" onClick={(e) => e.stopPropagation()}>
                   <summary className="cursor-pointer text-muted-foreground hover:text-foreground select-none">
@@ -192,11 +218,14 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
 
                 {/* Last, so the spacing between children doesn't count it */}
                 {isRecommended && (
-                  <span className="absolute top-2 right-2 text-2xs font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+                  <span
+                    aria-hidden="true"
+                    className="absolute top-2 right-2 text-2xs font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary"
+                  >
                     Recommended
                   </span>
                 )}
-              </button>
+              </div>
             )
           })}
         </div>

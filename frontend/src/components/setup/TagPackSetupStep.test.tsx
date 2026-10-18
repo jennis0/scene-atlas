@@ -57,6 +57,31 @@ describe('TagPackSetupStep', () => {
     expect(screen.getByRole('button', { name: /Fantasy/ })).toBeEnabled()
   })
 
+  it('exposes each pack as a toggle with its selected state', async () => {
+    renderStep()
+    const fantasy = await screen.findByRole('button', { name: /Fantasy/ })
+    expect(fantasy).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: /Common/ })).toHaveAttribute('aria-pressed', 'true')
+
+    await userEvent.click(fantasy)
+    expect(fantasy).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('shows model setup progress as a progressbar', async () => {
+    render(
+      <TagPackSetupStep
+        modelProgressMessage="Downloading"
+        modelProgressPct={40}
+        modelComplete={false}
+        onComplete={vi.fn()}
+      />,
+    )
+    const bar = screen.getByRole('progressbar', { name: 'Search model setup' })
+    expect(bar).toHaveAttribute('aria-valuenow', '40')
+    expect(screen.getByRole('status')).toBeEmptyDOMElement()
+    await screen.findByRole('button', { name: /Fantasy/ })
+  })
+
   it('imports the selected packs and completes', async () => {
     importMultiple.mockResolvedValue({ imported: ['fantasy', 'scifi'], errors: [] })
     const onComplete = renderStep()

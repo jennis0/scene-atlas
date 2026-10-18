@@ -4,7 +4,12 @@ contextBridge.exposeInMainWorld('setupAPI', {
   getDefaultDirs: (): Promise<{ appDataDir: string; imageLibraryDir: string }> =>
     ipcRenderer.invoke('setup:get-default-dirs'),
 
-  chooseDirectory: (): Promise<string | null> => ipcRenderer.invoke('setup:choose-directory'),
+  chooseDirectory: (
+    kind: 'appData' | 'imageLibrary',
+    currentDir: string,
+    otherRoot: string,
+  ): Promise<string | null> =>
+    ipcRenderer.invoke('setup:choose-directory', kind, currentDir, otherRoot),
 
   complete: (
     appDataDir: string,

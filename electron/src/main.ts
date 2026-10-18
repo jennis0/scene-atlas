@@ -4,6 +4,7 @@ import * as path from 'path'
 import { ChildProcess } from 'child_process'
 import { findFreePort, spawnSidecar } from './sidecar'
 import { getDefaultDirs, loadConfig, saveConfig } from './config'
+import { hasForeignEntries, prepareStorageDirs } from './storageDirs'
 
 const isDev = !app.isPackaged
 const isMac = process.platform === 'darwin'
@@ -106,6 +107,54 @@ async function pickDirectory(
   return result.canceled ? null : result.filePaths[0]
 }
 
+type StorageKind = 'appData' | 'imageLibrary'
+
+const STORAGE_PICKER: Record<StorageKind, { title: string; foreignDetail: string }> = {
+  appData: {
+    title: 'Choose App Data Folder',
+    foreignDetail:
+      'Scene Atlas keeps its database, thumbnails and search index here. ' +
+      'A new or empty folder keeps them apart from your other files.',
+  },
+  imageLibrary: {
+    title: 'Choose Image Library Folder',
+    foreignDetail:
+      'Scene Atlas keeps its own copy of every image you import here, in its own ' +
+      'folder layout. It will not show the files already in this folder: bring ' +
+      'your existing maps in with Import instead.\n\nA new or empty folder is best.',
+  },
+}
+
+/** Pick a storage folder, warning when it already holds files Scene Atlas didn't create
+ * (most likely the user's existing collection, design/electron.md). Null when cancelled. */
+async function pickStorageDir(
+  win: BrowserWindow | null,
+  kind: StorageKind,
+  defaultPath?: string,
+  otherRoot?: string,
+): Promise<string | null> {
+  const { title, foreignDetail } = STORAGE_PICKER[kind]
+  for (;;) {
+    const chosen = await pickDirectory(win, title, defaultPath)
+    if (!chosen || !hasForeignEntries(chosen, otherRoot)) return chosen
+    const options: Electron.MessageBoxOptions = {
+      type: 'warning',
+      title: 'Folder is not empty',
+      message: 'This folder already has other files in it.',
+      detail: foreignDetail,
+      buttons: ['Choose Another Folder', 'Use This Folder'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    }
+    const { response } = win
+      ? await dialog.showMessageBox(win, options)
+      : await dialog.showMessageBox(options)
+    if (response === 1) return chosen
+    defaultPath = chosen
+  }
+}
+
 /** Files and folders to import (design/local-ingest.md). Empty when cancelled. */
 async function pickImportPaths(win: BrowserWindow | null, kind: 'folders' | 'files') {
   const options: Electron.OpenDialogOptions =
@@ -148,30 +197,17 @@ function isAbsolutePath(value: unknown): value is string {
   return typeof value === 'string' && value.trim() !== '' && path.isAbsolute(value)
 }
 
-/** Create both storage roots and check they are writable. Returns an error message or null. */
-function prepareStorageDirs(appDataDir: string, imageLibraryDir: string): string | null {
-  const dirs: [string, string][] = [
-    ['App data directory', appDataDir],
-    ['Image library directory', imageLibraryDir],
-  ]
-  for (const [label, dir] of dirs) {
-    try {
-      fs.mkdirSync(dir, { recursive: true })
-      const testFile = path.join(dir, `.write-test-${Date.now()}`)
-      fs.writeFileSync(testFile, 'test')
-      fs.unlinkSync(testFile)
-    } catch (err) {
-      return `${label} is not usable: ${dir}\n${(err as Error).message}`
-    }
-  }
-  return null
-}
-
 handleTrusted('setup:get-default-dirs', () => getDefaultDirs())
 
-handleTrusted('setup:choose-directory', (event) =>
-  pickDirectory(BrowserWindow.fromWebContents(event.sender), 'Choose Folder'),
-)
+handleTrusted('setup:choose-directory', (event, kind, currentDir, otherRoot) => {
+  if (kind !== 'appData' && kind !== 'imageLibrary') throw new Error('Invalid storage kind')
+  return pickStorageDir(
+    BrowserWindow.fromWebContents(event.sender),
+    kind,
+    isAbsolutePath(currentDir) ? currentDir : undefined,
+    isAbsolutePath(otherRoot) ? otherRoot : undefined,
+  )
+})
 
 // Synchronous on purpose: mainWindow is assigned before this returns, so a
 // second invocation (double-click) sees it and can't spawn a second sidecar.
@@ -209,18 +245,20 @@ handleTrusted('system:get-app-data-dir', () => currentAppDataDir)
 handleTrusted('system:get-image-library-dir', () => currentImageLibraryDir)
 
 handleTrusted('system:choose-app-data-dir', (event) =>
-  pickDirectory(
+  pickStorageDir(
     BrowserWindow.fromWebContents(event.sender),
-    'Choose App Data Location',
+    'appData',
     currentAppDataDir ?? getDefaultDirs().appDataDir,
+    currentImageLibraryDir ?? undefined,
   ),
 )
 
 handleTrusted('system:choose-image-library-dir', (event) =>
-  pickDirectory(
+  pickStorageDir(
     BrowserWindow.fromWebContents(event.sender),
-    'Choose Image Library Location',
+    'imageLibrary',
     currentImageLibraryDir ?? getDefaultDirs().imageLibraryDir,
+    currentAppDataDir ?? undefined,
   ),
 )
 
