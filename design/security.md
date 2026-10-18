@@ -95,7 +95,7 @@ Codacy Cloud analyses every PR (gate: 0 new issues at Info and above). The repos
 | Ruff | on, **uses `pyproject.toml`** | Python lint + security. The `S` (flake8-bandit) rules replace Bandit, so Codacy and the local pre-push lint agree. Test paths ignore `S101`/`S603`/... via `per-file-ignores`. |
 | Opengrep (Semgrep) | on | Cross-language SAST, secrets, GitHub Actions and Dockerfile rules. `package-dependencies-check` (flags every `^` range in `package.json`) is off: the lockfiles pin exact versions. |
 | Trivy | on | Dependency CVEs from `uv.lock` / `package-lock.json`. Accepted ones are listed below. |
-| ESLint | on, uses `frontend/.eslintrc.cjs` | ESLint 8 matches the repo's eslintrc config (not ESLint9/flat config). |
+| ESLint | on, uses `frontend/eslint.config.js` | Flat config (ESLint 10). |
 | Lizard | on | Function length / parameter count / complexity. |
 | Checkov, Hadolint | on | Dockerfile, docker-compose and workflow misconfiguration. |
 | Stylelint, markdownlint, Jackson Linter, Agentlinter | on | CSS, docs, JSON, CLAUDE.md / agent instructions. |
@@ -144,18 +144,18 @@ Electron loads the UI from the backend sidecar, so the frontend is always same-o
 
 ## Accepted scanner findings
 
-Re-check these whenever the dependency in question is upgraded. Last reviewed 2026-10-17.
+Re-check these whenever the dependency in question is upgraded. Last reviewed 2026-10-18.
 
 | Scanner | Finding | Why accepted |
 |---|---|---|
 | bandit B104 / ruff S104 | `api_host = "0.0.0.0"` default in `backend/app/config.py` | Only read when the backend is started with `python -m backend.app.main` (dev, E2E). Electron forces `API_HOST=127.0.0.1`; Docker and the documented uvicorn commands pass `--host` explicitly. Changing the default to loopback is a reasonable follow-up but needs the E2E harness (which probes `localhost`) checked first. |
-| pip-audit | `transformers` <5: PYSEC-2025-217, PYSEC-2026-2288, -2289, -2290, -3929, -4174 (RCE/path traversal when loading untrusted checkpoints, Trainer RNG state, remote code) | Dev-only extra used by `scripts/models/` to export checkpoints we choose. Excluded from the PyInstaller sidecar (`excludes` in `scene_atlas_backend.spec`) and never imported by the app. The fix is transformers 5, a major upgrade of the export pipeline. |
-| Dependabot | `torch` 2.6.0+cu124 (`gpu-dev` extra) | The cu124 PyTorch index stops at 2.6. Dev-only (model export on CUDA); the CPU variant is on a patched release. Fix: move the `pytorch-cuda` index to a newer CUDA (cu126/cu128). |
-| npm audit (frontend, dev) | `braces` (all versions), via `tailwindcss` 3 / `chokidar` / `micromatch` / `knip` | Build-time glob matching over our own patterns. No patched `braces` release exists; removal needs Tailwind 4 / knip 6. |
-| npm audit (frontend, dev) | `postcss-selector-parser` <7.1.6 via `tailwindcss` 3 | Build-time, parses only our own CSS. Fixed only in 7.x, which Tailwind 3 does not accept. |
-| npm audit (frontend, runtime, moderate) | `react-router` 6 open redirect (backslash in `<Link>`/`useNavigate`), `deserializeErrors` constructor injection | Fixed only in React Router 7. The app never navigates to user-supplied URLs and does not use SSR hydration (`deserializeErrors`). |
-| npm audit (root, dev) | `sprintf-js` via `roarr` → `global-agent` → `@electron/get` → `electron-builder` | Build-time only; no patched release. |
-| npm audit (docs, dev) | `vite` 5 / `esbuild` via `vitepress` 1.6.4 | Dev-server-only advisories; CI only runs `vitepress build`. vitepress 1.x pins vite 5 (fix needs vitepress 2). |
+| npm audit (frontend, dev) | `braces` (all versions), via `tailwindcss` 3 / `chokidar` / `micromatch` | Build-time glob matching over our own patterns. No patched `braces` release exists; removal needs Tailwind 4. |
+| npm audit (root, dev) | `sprintf-js` via `roarr` → `global-agent` → `@electron/get` 3 → `app-builder-lib` | Build-time only (roarr formats its own log messages); no patched `sprintf-js`. electron-builder 27 moves to `@electron/get` 5 and drops the chain; it is still alpha. |
+
+Overrides that clear findings without waiting for upstream (drop them once the parent accepts the fixed version):
+
+- `frontend/package.json`: `postcss-selector-parser` ^7.1.6 under `tailwindcss` 3 (which asks for ^6). The built CSS is byte-identical with and without it.
+- `docs/package.json`: `vite` ^6.4.3 under `vitepress` 1.6.4 (which asks for ^5.4). The built site is identical apart from asset hashes. Drop it with vitepress 2.
 
 ---
 

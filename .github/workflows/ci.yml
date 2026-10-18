@@ -143,9 +143,9 @@ jobs:
       - name: Install Python dependencies
         run: uv sync --extra dev --extra cpu
       - name: pyright
-        run: uvx pyright@1.1.403
+        run: uvx pyright@1.1.414
         env:
-          PYRIGHT_PYTHON_FORCE_VERSION: "1.1.403"
+          PYRIGHT_PYTHON_FORCE_VERSION: "1.1.414"
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:

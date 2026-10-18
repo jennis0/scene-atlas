@@ -58,7 +58,6 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 | Sidecar size | ~700 MB on disk, ~170 MB compressed. Biggest parts: lancedb + pyarrow 230 MB, opencv 145 MB (grid v3 and video thumbnails), scipy 66 MB. Replacing LanceDB with brute-force numpy search was considered and rejected (2026-10-17): fast enough at 100k images (~6 ms), but re-implementing updates, per-model tables, re-embedding and reconcile isn't worth ~65 MB of download. Remaining cheap win: scikit-learn (14 MB) is only used for k-means in colour extraction. | Low |
 | Verify the sidecar lifecycle on packaged Windows and macOS | Parent-death watchdog (stdin EOF + PID poll), `msvcrt` storage lock and its loading-page message, graceful stop on Windows, storage-change relaunch waiting on the old lock. Tested on Linux only. | Medium |
 | Colour threshold default is loose | ΔE 25 reproduces the old HSL 0.35, but a typical map colour matches ~80% of the library and colour-filtered browse is 70–140 ms slower at 56k images than the old in-memory index. ΔE 12–15 is faster and more useful. No UI control (API only). [search.md](search.md) | Medium |
-| transformers 5 for `scripts/models` export | Clears 6 accepted pip-audit IDs (dev-only extra). | Medium |
 | Regenerate thumbnails | Transparent images now get RGBA WebP thumbnails, but ones imported before that keep black backgrounds until re-imported. A maintenance job would re-run `write_thumbnails` from the original, update `thumbnail_key` (`.jpg` → `.webp`), delete the old files, and redo colours and pHash. [storage.md](storage.md) | Medium |
 | Possible-duplicate (pHash) flags | Hashes are stored; flags and report UI not built. Must suppress gridded/gridless siblings. [ingestion.md](ingestion.md) | Low |
 | `api_host` defaults to 0.0.0.0 | Only `python -m backend.app.main` uses it (Electron forces 127.0.0.1; Docker passes `--host`). Default to loopback, then drop the `# nosec B104`. | Low |
@@ -69,10 +68,9 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 | Removing tag packs | Packs are opt-in since first boot seeds only `common`, but can't be removed. | Low |
 | Shared `ModelCard` | Model cards are duplicated in `ModelStep` (setup wizard) and `SettingsTabContent`. | Low |
 | E2E first run on a clean machine | The backend can start before the model has downloaded, so the seed import never runs. Download before starting the webServer. | Low |
-| `gpu-dev` torch stuck at 2.6 | The `pytorch-cuda` index is cu124; move to cu126/cu128. | Low |
 | Session-based authentication | Until then server mode must sit behind an authenticating reverse proxy. [security.md](security.md) | Medium |
 | Bulk import of a local library | Local folder import (desktop app), then linked folders read in place, then a drop folder. [local-ingest.md](local-ingest.md) | High |
-| Dependency upgrades | Tailwind 3 → 4 (needs tailwind-merge v3), ESLint flat config, React 19 (blocked by @dnd-kit), React Router 7, vitepress 2, lucide-react. A full in-range frontend refresh breaks `imports.test.tsx` (likely @tanstack/react-virtual). | Low |
+| Framework majors | React 19 (with @types/react 19, then React Router 8, which needs it), Tailwind 3 → 4 with tailwind-merge 3 (also clears the `braces` audit finding), vitepress 2 once stable (then drop the docs `vite` override). Both React 19 and Tailwind 4 need a visual pass. TypeScript 7 waits on typescript-eslint (supports < 6.1). jscpd 5 is a rewrite that scans a different file set; check its coverage before moving the gate off 4.0.5. | Low |
 
 ## Key design constraints
 

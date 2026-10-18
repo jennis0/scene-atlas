@@ -23,7 +23,7 @@ uv run ruff format --check backend/ scripts/ || {
 
 echo ""
 echo "=== Python type check (pyright) ==="
-PYRIGHT_PYTHON_FORCE_VERSION=1.1.403 uvx pyright@1.1.403 || {
+PYRIGHT_PYTHON_FORCE_VERSION=1.1.414 uvx pyright@1.1.414 || {
   echo "❌ Python type check failed."
   exit 1
 }

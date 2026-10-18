@@ -177,8 +177,8 @@ tests is unsafe. Add characterisation tests before touching them.
 - Extended ruff: 19× `TRY400` (`logger.error` inside `except` drops the traceback; use
   `logger.exception`) — worth fixing for supportability. 21× `PLW0603` (`global`) are
   mostly service singletons; leave unless reviewing that module anyway.
-- ESLint is on v8 (EOL) with the legacy `.eslintrc.cjs`; `react-hooks/set-state-in-effect`
-  is disabled globally. Not release-blocking.
+- `react-hooks/set-state-in-effect` is disabled globally (`frontend/eslint.config.js`).
+  Not release-blocking.
 - `uv sync` with no extras gives an environment that can't import the app (`onnxruntime`
   lives in the `cpu`/`gpu` extras). Developers must use `uv sync --extra dev --extra cpu`
   as in CONTRIBUTING.md.
@@ -192,9 +192,9 @@ uv run python -m pytest backend/tests --cov=backend/app --cov=backend/pipeline
 npx jscpd@4.0.5 backend/app backend/pipeline scripts frontend/src electron \
   --ignore "**/node_modules/**,**/dist/**,**/*.test.*,**/__tests__/**,**/tests/**" \
   --min-lines 8 --min-tokens 70
-(cd frontend && npx knip@5.66.0)
+(cd frontend && npx knip@6.42.0)
 uvx vulture backend/app backend/pipeline scripts --min-confidence 60
-uvx pyright@1.1.403 --pythonpath .venv/bin/python
+uvx pyright@1.1.414 --pythonpath .venv/bin/python
 uv run ruff check backend/ scripts/ --exclude backend/tests \
   --select ERA,SIM,RET,PIE,ARG,RUF,PLR,PLW,PERF,TRY \
   --ignore PLR2004,PLR0913,TRY003,RUF001,RUF002,RUF003 --statistics

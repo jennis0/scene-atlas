@@ -13,8 +13,10 @@ See also:
 
 | Layer | Technology |
 |-------|-----------|
-| Framework | React 18 + TypeScript |
-| Build | Vite (dev server on :5173, proxies `/api` to :8000) |
+| Framework | React 18 + TypeScript 6 |
+| Build | Vite 8 (dev server on :5173, proxies `/api` to :8000) |
+| Routing | React Router 7 (`react-router`) |
+| Lint | ESLint 10 flat config (`eslint.config.js`) |
 | Styling | Tailwind CSS 3, tokens in `src/index.css` |
 | UI primitives | Own components in `components/ui/`; Radix only for checkbox, dropdown menu and popover |
 | Server state | TanStack Query (`@tanstack/react-query`) |
@@ -22,7 +24,7 @@ See also:
 | Drag and drop | `@dnd-kit` (edit-group dialog) |
 | HTTP | axios |
 | Toasts | sonner |
-| Tests | Vitest + Testing Library (`src/test/` holds setup and helpers) |
+| Tests | Vitest + Testing Library (`src/test/` holds setup and helpers). jsdom has no layout: tests of virtualised lists give the scroll element a size with `fakeLayout()`, which sets the offset, client and bounding-rect sizes together |
 
 ## Directory Layout
 
