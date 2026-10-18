@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react'
-import { AxiosError } from 'axios'
+import { useCallback, useEffect, useState } from 'react'
 import { Check } from 'lucide-react'
 import { tagApi } from '@/lib/api/tagApi'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
@@ -8,41 +7,36 @@ import { LoadFailed } from './LoadFailed'
 import { SetupFrame } from './SetupFrame'
 import type { StepNav } from './steps'
 
-function importFailureMessage(err: unknown): string {
-  if (err instanceof AxiosError && err.response?.status === 429) {
-    return 'Too many attempts. Wait a minute and try again.'
-  }
-  return getApiErrorMessage(err, 'Could not reach Scene Atlas.')
+interface TagPackStepProps {
+  nav: StepNav
+  /** The packs chosen on an earlier visit (after Back); null the first time, which selects all */
+  chosen: string[] | null
+  onChosen: (packs: string[]) => void
 }
 
-/** Genre tag packs to import. Common is always installed; packs not yet imported start
- * selected. Continue imports the selection; Skip moves on without importing. */
-export function TagPackStep({ nav }: { nav: StepNav }) {
+/** Which tag packs the library starts with, Common included. Continue installs exactly the
+ * selection (PUT /tags/packs), so it can also remove Common. */
+export function TagPackStep({ nav, chosen, onChosen }: TagPackStepProps) {
   const [packs, setPacks] = useState<TagPack[] | null>(null)
-  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [selected, setSelected] = useState<Set<string>>(new Set(chosen ?? []))
   const [fetchError, setFetchError] = useState(false)
-  const [importing, setImporting] = useState(false)
-  const [importErrors, setImportErrors] = useState<string[]>([])
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const fetchPacks = (keepSelection?: Set<string>) => {
+  const fetchPacks = useCallback(() => {
     setFetchError(false)
-    return tagApi
+    tagApi
       .getTagPacks()
       .then((data) => {
         setPacks(data)
-        // After a partial import, keep the user's choice for the packs that failed
-        const initial = new Set<string>()
-        for (const p of data) {
-          if (!p.imported && (!keepSelection || keepSelection.has(p.name))) initial.add(p.name)
-        }
-        setSelected(initial)
+        if (chosen === null) setSelected(new Set(data.map((p) => p.name)))
       })
       .catch(() => setFetchError(true))
-  }
+  }, [chosen])
 
   useEffect(() => {
     fetchPacks()
-  }, [])
+  }, [fetchPacks])
 
   const togglePack = (name: string) => {
     setSelected((prev) => {
@@ -54,64 +48,26 @@ export function TagPackStep({ nav }: { nav: StepNav }) {
   }
 
   const handleContinue = async () => {
-    const toImport = [...selected]
-    if (toImport.length === 0) {
-      nav.onNext()
-      return
-    }
-    setImporting(true)
-    setImportErrors([])
-    let errors: string[]
+    const packNames = [...selected]
+    setSaving(true)
+    setError(null)
     try {
-      errors = (await tagApi.importMultipleTagPacks(toImport)).errors
-    } catch (err) {
-      errors = [importFailureMessage(err)]
-    }
-    setImporting(false)
-    if (errors.length > 0) {
-      setImportErrors(errors)
-      await fetchPacks(selected)
-    } else {
+      await tagApi.setInstalledPacks(packNames)
+      onChosen(packNames)
       nav.onNext()
+    } catch (err) {
+      setError(getApiErrorMessage(err, "Couldn't save the tag packs."))
+      setSaving(false)
     }
   }
 
   return (
     <SetupFrame
       nav={nav}
-      title="Add tag packs"
-      description="Tag packs add tags for a genre. They're used to tag your imports automatically and to filter your library. Common tags are always included, and you can add packs later in Settings."
-      primary={{
-        onClick: handleContinue,
-        label: importErrors.length > 0 ? 'Try again' : undefined,
-        busy: importing,
-        disabled: !packs,
-      }}
-      secondary={
-        <button
-          type="button"
-          onClick={nav.onNext}
-          disabled={importing}
-          className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          Skip for now
-        </button>
-      }
-      error={
-        importErrors.length > 0 ? (
-          <>
-            <p className="font-medium text-destructive">Some tag packs couldn't be imported</p>
-            <ul className="mt-1 list-disc pl-5 text-xs text-muted-foreground">
-              {importErrors.map((error) => (
-                <li key={error}>{error}</li>
-              ))}
-            </ul>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Try again, or skip and add them later in Settings.
-            </p>
-          </>
-        ) : null
-      }
+      title="Choose tag packs"
+      description="Tags help you filter and organise your library. These packs are ready-made sets of tags for common genres. You can add, remove or edit tags at any time."
+      primary={{ onClick: handleContinue, busy: saving, disabled: !packs }}
+      error={error}
     >
       {!packs && !fetchError && (
         <div role="status" aria-label="Loading tag packs" className="grid grid-cols-2 gap-3">
@@ -122,7 +78,7 @@ export function TagPackStep({ nav }: { nav: StepNav }) {
       )}
 
       {fetchError && !packs && (
-        <LoadFailed message="Couldn't load the tag packs." onRetry={() => fetchPacks()} />
+        <LoadFailed message="Couldn't load the tag packs." onRetry={fetchPacks} />
       )}
 
       {packs && (
@@ -132,7 +88,7 @@ export function TagPackStep({ nav }: { nav: StepNav }) {
               key={pack.name}
               pack={pack}
               selected={selected.has(pack.name)}
-              disabled={importing}
+              disabled={saving}
               onToggle={() => togglePack(pack.name)}
             />
           ))}
@@ -150,41 +106,27 @@ interface PackToggleProps {
 }
 
 function PackToggle({ pack, selected, disabled, onToggle }: PackToggleProps) {
-  const included = pack.imported
-  const on = included || selected
   return (
     <button
       type="button"
-      disabled={included || disabled}
-      aria-pressed={on}
+      disabled={disabled}
+      aria-pressed={selected}
       onClick={onToggle}
       className={`relative text-left rounded-lg border p-3 space-y-1 transition-colors ${
-        included
-          ? 'border-border/30 bg-muted/20 cursor-default'
-          : selected
-            ? 'border-primary bg-primary/5'
-            : 'border-border/50 bg-card hover:border-border'
+        selected ? 'border-primary bg-primary/5' : 'border-border/50 bg-card hover:border-border'
       }`}
     >
       <div className="flex items-start gap-2.5">
         <div
           aria-hidden="true"
           className={`mt-0.5 shrink-0 h-4 w-4 rounded border flex items-center justify-center transition-colors ${
-            on ? 'bg-primary border-primary' : 'border-border/70 bg-background'
+            selected ? 'bg-primary border-primary' : 'border-border/70 bg-background'
           }`}
         >
-          {on && <Check className="h-3 w-3 text-primary-foreground" />}
+          {selected && <Check className="h-3 w-3 text-primary-foreground" />}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium">
-            {pack.label}
-            {included && (
-              <span className="ml-1.5 text-3xs font-normal text-muted-foreground">
-                {/* Common comes with every library; others were imported, e.g. before Back */}
-                {pack.name === 'common' ? '(included)' : '(added)'}
-              </span>
-            )}
-          </p>
+          <p className="text-sm font-medium">{pack.label}</p>
           <p className="text-xs text-muted-foreground leading-relaxed mt-0.5">{pack.description}</p>
           <p className="text-3xs text-muted-foreground mt-1">{pack.tag_count} tags</p>
         </div>

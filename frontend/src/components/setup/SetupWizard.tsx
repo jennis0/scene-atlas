@@ -15,6 +15,8 @@ interface SetupWizardProps {
 export function SetupWizard({ status, onComplete }: SetupWizardProps) {
   const steps = useMemo(() => setupSteps(status), [status])
   const [index, setIndex] = useState(0)
+  // Kept here so Back to the tag-pack step shows what was chosen, even nothing
+  const [chosenPacks, setChosenPacks] = useState<string[] | null>(null)
 
   const finish = useCallback(async () => {
     try {
@@ -38,7 +40,7 @@ export function SetupWizard({ status, onComplete }: SetupWizardProps) {
     case 'format':
       return <StoredFormatStep nav={nav} />
     case 'tag-packs':
-      return <TagPackStep nav={nav} />
+      return <TagPackStep nav={nav} chosen={chosenPacks} onChosen={setChosenPacks} />
     case 'model':
       return <ModelStep nav={nav} status={status} />
   }

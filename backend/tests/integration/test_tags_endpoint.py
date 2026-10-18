@@ -459,80 +459,34 @@ class TestTagStatistics:
 
 
 # ---------------------------------------------------------------------------
-# POST /api/v1/tags/packs/import-multiple
+# PUT /api/v1/tags/packs
 # ---------------------------------------------------------------------------
 
 
-class TestImportMultipleTagPacks:
-    def test_import_multiple_returns_200(self, test_client, tmp_db):
-        # Clear categories so packs have something to import
-        engine, SessionLocal = tmp_db
-        db = SessionLocal()
-        db.query(TagCategory).delete()
-        db.commit()
-        db.close()
-
-        resp = test_client.post(
-            "/api/v1/tags/packs/import-multiple",
-            json={"packs": ["common", "fantasy"]},
-        )
+class TestSetTagPacks:
+    def test_sets_exactly_the_chosen_packs(self, test_client):
+        resp = test_client.put("/api/v1/tags/packs", json={"packs": ["fantasy"]})
         assert resp.status_code == 200
-        data = resp.json()
-        assert "common" in data["imported"]
-        assert "fantasy" in data["imported"]
-        assert data["errors"] == []
+        installed = {p["name"]: p["imported"] for p in resp.json()}
+        assert installed["fantasy"] is True
+        assert installed["common"] is False
 
-    def test_import_multiple_empty_list(self, test_client):
-        resp = test_client.post(
-            "/api/v1/tags/packs/import-multiple",
-            json={"packs": []},
-        )
+    def test_empty_choice_removes_common(self, test_client):
+        resp = test_client.put("/api/v1/tags/packs", json={"packs": []})
         assert resp.status_code == 200
-        data = resp.json()
-        assert data["imported"] == []
-        assert data["errors"] == []
+        assert not any(p["imported"] for p in resp.json())
 
-    def test_import_multiple_with_invalid_pack(self, test_client):
-        resp = test_client.post(
-            "/api/v1/tags/packs/import-multiple",
-            json={"packs": ["common", "nonexistent_pack"]},
-        )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "common" in data["imported"]
-        assert len(data["errors"]) == 1
-        assert "nonexistent_pack" in data["errors"][0]
+    def test_unknown_pack_is_rejected(self, test_client):
+        resp = test_client.put("/api/v1/tags/packs", json={"packs": ["common", "nope"]})
+        assert resp.status_code == 400
+        assert "nope" in resp.json()["detail"]
 
-    def test_failed_pack_is_rolled_back_and_others_still_import(
-        self, test_client, tmp_db, monkeypatch
-    ):
-        from backend.app.services import tag_packs
-
-        real_import = tag_packs.import_tag_pack
-
-        def flaky_import(session, pack_name):
-            if pack_name == "horror":
-                session.add(TagCategory(name="half-written", common_values="[]"))
-                session.flush()
-                raise RuntimeError("disk I/O error at /secret/path")
-            return real_import(session, pack_name)
-
-        monkeypatch.setattr(tag_packs, "import_tag_pack", flaky_import)
-        resp = test_client.post(
-            "/api/v1/tags/packs/import-multiple",
-            json={"packs": ["horror", "fantasy"]},
-        )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["imported"] == ["fantasy"]
-        assert data["errors"] == ["horror: import failed, see the server log"]
-
-        _, SessionLocal = tmp_db
-        with SessionLocal() as db:
-            assert db.query(TagCategory).filter_by(name="half-written").first() is None
+    def test_refused_once_setup_is_complete(self, test_client):
+        assert test_client.post("/api/v1/models/setup-complete").status_code == 200
+        resp = test_client.put("/api/v1/tags/packs", json={"packs": []})
+        assert resp.status_code == 409
         packs = {p["name"]: p for p in test_client.get("/api/v1/tags/packs").json()}
-        assert packs["fantasy"]["imported"] is True
-        assert packs["horror"]["imported"] is False
+        assert packs["common"]["imported"] is True
 
 
 def test_renaming_a_used_tag_value_updates_vocabulary(test_client, tmp_db):

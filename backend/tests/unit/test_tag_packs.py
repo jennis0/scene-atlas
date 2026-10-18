@@ -2,8 +2,11 @@
 
 import json
 
+import pytest
+
+from backend.app.data.vocabulary import load_vocabulary
 from backend.app.models.database import TagCategory
-from backend.app.services.tag_packs import get_pack_status, import_tag_pack
+from backend.app.services.tag_packs import get_pack_status, import_tag_pack, set_installed_packs
 
 
 class TestImportTagPack:
@@ -122,3 +125,50 @@ class TestGetPackStatus:
         fantasy = next(p for p in status if p["name"] == "fantasy")
         assert fantasy["new_tags"] > 0
         assert fantasy["imported"] is False
+
+
+def _installed(db_session) -> dict[str, bool]:
+    return {p["name"]: p["imported"] for p in get_pack_status(db_session)}
+
+
+class TestSetInstalledPacks:
+    """The setup wizard's choice: exactly these packs, Common included only if chosen."""
+
+    def test_without_common_leaves_every_category_present_but_empty(self, db_session):
+        set_installed_packs(db_session, [])
+
+        cats = {c.name: c for c in db_session.query(TagCategory).all()}
+        assert set(cats) >= {c["name"] for c in load_vocabulary()["categories"]}
+        assert all(json.loads(c.common_values) == [] for c in cats.values())
+        assert not any(_installed(db_session).values())
+
+    def test_installs_exactly_the_chosen_packs(self, db_session):
+        set_installed_packs(db_session, ["fantasy"])
+
+        installed = _installed(db_session)
+        assert installed["fantasy"] is True
+        assert installed["common"] is False
+        assert installed["scifi"] is False
+
+    def test_keeps_a_tag_shared_with_a_chosen_pack(self, db_session):
+        """'portal' is in fantasy and scifi: choosing scifi alone keeps it."""
+        set_installed_packs(db_session, ["scifi"])
+
+        cat = db_session.query(TagCategory).filter(TagCategory.name == "features").one()
+        values = {v if isinstance(v, str) else v["value"] for v in json.loads(cat.common_values)}
+        assert "portal" in values
+
+    def test_can_change_the_choice(self, db_session):
+        set_installed_packs(db_session, ["fantasy", "horror"])
+        set_installed_packs(db_session, ["common"])
+
+        installed = _installed(db_session)
+        assert installed["common"] is True
+        assert installed["fantasy"] is False
+        assert installed["horror"] is False
+
+    def test_unknown_pack_changes_nothing(self, db_session):
+        before = _installed(db_session)
+        with pytest.raises(ValueError, match="nonexistent"):
+            set_installed_packs(db_session, ["fantasy", "nonexistent"])
+        assert _installed(db_session) == before

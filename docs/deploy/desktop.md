@@ -27,8 +27,8 @@ There is a single installer per platform; the Windows build includes DirectML su
 On first launch, Scene Atlas will:
 
 1. **Ask for storage locations.** Choose an *app data location* (database, thumbnails, search index, logs) and an *image library location* (Scene Atlas's managed copy of your images, plus backups). Both default to `Documents/Scene Atlas/`. These are directories managed by Scene Atlas, not your existing image folder; files are copied into the library during import. If a folder you pick already holds other files, the app warns you and offers to choose another.
-2. **Choose and download an AI model.** A model is recommended for your hardware (Small ~250 MB without a GPU, Medium ~500 MB with one) and downloaded from HuggingFace, with progress shown. While it downloads you pick genre tag packs; Common is always included.
-3. **Open the gallery.** Once the model is ready, you can start importing images.
+2. **Walk through setup.** Choose a theme and text size, how imported images are stored, which tag packs to start with, and a search model. A model is recommended for your hardware.
+3. **Open the gallery.** The model downloads from Hugging Face in the background; once it's ready, you can start importing images.
 
 ## System Requirements
 

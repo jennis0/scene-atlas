@@ -12,6 +12,7 @@ from ..data.vocabulary import (
     get_available_packs,
     get_pack_metadata,
     get_tags_for_packs,
+    load_vocabulary,
 )
 from ..models.database import TagCategory
 
@@ -139,6 +140,46 @@ def import_tag_pack(session: Session, pack_name: str) -> dict[str, int]:
         "tags_added": tags_added,
         "tags_existing": tags_existing,
     }
+
+
+def set_installed_packs(session: Session, pack_names: list[str]) -> None:
+    """Make the vocabulary exactly *pack_names*: the setup wizard's choice, made before
+    anything is tagged (design/tag-packs.md).
+
+    Every vocabulary category is kept, empty when none of its tags are chosen, so packs
+    added later have their categories. Categories that aren't in the vocabulary file are
+    left alone. Raises ValueError for an unknown pack, before changing anything.
+    """
+    unknown = sorted(set(pack_names) - set(get_available_packs()))
+    if unknown:
+        raise ValueError(f"Unknown tag pack: {', '.join(unknown)}")
+
+    chosen = {cat["name"]: cat["tags"] for cat in get_tags_for_packs(pack_names)}
+    db_categories = {cat.name: cat for cat in session.query(TagCategory).all()}
+
+    for cat_data in load_vocabulary()["categories"]:
+        common_values = build_common_values_json(chosen.get(cat_data["name"], []))
+        db_cat = db_categories.get(cat_data["name"])
+        if db_cat:
+            db_cat.common_values = common_values
+        else:
+            session.add(
+                TagCategory(
+                    name=cat_data["name"],
+                    description=cat_data["description"],
+                    color=cat_data["color"],
+                    icon=cat_data.get("icon"),
+                    display_order=cat_data["display_order"],
+                    common_values=common_values,
+                )
+            )
+
+    session.commit()
+
+    from ..services.fts_service import invalidate_alias_cache
+
+    invalidate_alias_cache()
+    logger.info("Installed tag packs set to %s", sorted(pack_names))
 
 
 def _parse_existing_values(common_values_json: str | None) -> set[str]:

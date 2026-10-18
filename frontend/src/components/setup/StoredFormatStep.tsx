@@ -12,13 +12,12 @@ const CHOICES: readonly { value: Choice; label: string; description: string }[] 
   {
     value: 'original',
     label: 'Keep files as they are',
-    description: 'Every image is stored exactly as you import it.',
+    description: 'Every image is kept exactly as imported.',
   },
   {
     value: 'webp',
     label: 'Convert to WebP',
-    description:
-      'Smaller files. PNGs stay pixel-perfect; JPEGs are re-compressed at high quality. The library keeps only the converted file.',
+    description: 'Smaller files. PNGs stay pixel-perfect; JPEGs are re-compressed at high quality.',
   },
 ]
 
@@ -54,7 +53,7 @@ export function StoredFormatStep({ nav }: { nav: StepNav }) {
       setSaved(choice)
       nav.onNext()
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Could not save the stored format.'))
+      setError(getApiErrorMessage(err, "Couldn't save the stored format."))
     } finally {
       setSaving(false)
     }
@@ -64,7 +63,7 @@ export function StoredFormatStep({ nav }: { nav: StepNav }) {
     <SetupFrame
       nav={nav}
       title="How should imported images be stored?"
-      description="Scene Atlas keeps its own copy of everything you import; the files you import from are never changed. This applies to new imports, and you can change it later in Settings."
+      description="Scene Atlas keeps its own copy of each image you import. You can change this later in Settings."
       primary={{
         onClick: handleContinue,
         busy: saving,
@@ -72,7 +71,7 @@ export function StoredFormatStep({ nav }: { nav: StepNav }) {
       }}
       error={
         error ??
-        (loadFailed ? 'Could not load the current setting. Continuing keeps the default.' : null)
+        (loadFailed ? "Couldn't load the current setting. Continuing keeps the default." : null)
       }
     >
       <div

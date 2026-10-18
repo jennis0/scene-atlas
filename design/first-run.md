@@ -18,8 +18,13 @@ The wizard runs once per library, until `POST /models/setup-complete` records `s
 - **Storage folders stay in the Electron window.** The backend can't start without them, so they're chosen before React exists. On a server they're env vars (`APP_DATA_DIR`, `IMAGE_LIBRARY_DIR`) and the UI never shows server paths.
 - **Appearance comes first**, so the rest of setup is already in the user's theme and text size. Every change applies at once and is saved per device (`ThemeContext`).
 - **Stored format is in the wizard, not the Electron window.** It's a library setting (`stored_format`), so both modes set it the same way via `PATCH /settings/`. On a server, `CONVERT_TO_WEBP=1` only changes the default the wizard starts with. This removed the Electron `pendingStoredFormat` handoff.
+- **Every tag pack is optional, Common included.** Common is installed when the library is created; the tag-pack step then installs exactly what the user picks (`PUT /tags/packs`, refused once setup is finished; see [tag-packs.md](tag-packs.md)).
 - **The server keeps the model and tag-pack steps.** They're choices about library content, not deployment config. `EMBEDDING_MODEL` still overrides the model; when a model is already set up, the model step is skipped.
 - **The search model is last, and Finish starts its download.** Earlier, the download ran during the tag-pack step and the wizard could end on "Waiting for model setup to finish…" for minutes. Now the wizard ends right away and the gallery's empty-library screen waits for the model. Putting it last also keeps Back simple: no download is running while earlier steps can still change.
+
+### Copy
+
+Keep setup text short and plain. Say what each step is for and, where there is one, the trade-off ("Larger models give better results but make importing slower"). Leave out reassurance and mechanics the user doesn't act on ("Changes apply straight away", "saved on this device", what happens to files behind the scenes). Keep warnings that prevent data loss, such as not choosing an existing maps folder as the image library. Use "Couldn't" in errors, and sentence case.
 
 ### Gate (`App.tsx`)
 

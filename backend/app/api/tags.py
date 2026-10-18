@@ -389,13 +389,8 @@ def get_tag_statistics(db: Session = Depends(get_db)):
 # ── Tag Packs ─────────────────────────────────────────────────────────────────
 
 
-class ImportMultipleRequest(BaseModel):
+class SetPacksRequest(BaseModel):
     packs: list[str]
-
-
-class ImportMultipleResponse(BaseModel):
-    imported: list[str]
-    errors: list[str]
 
 
 @router.get("/packs")
@@ -406,34 +401,26 @@ def list_tag_packs(db: Session = Depends(get_db)):
     return get_pack_status(db)
 
 
-@router.post("/packs/import-multiple", response_model=ImportMultipleResponse)
-@limiter.limit(lambda: settings.rate_limit_expensive)
-def import_multiple_tag_packs(
-    body: ImportMultipleRequest, request: Request, db: Session = Depends(get_db)
-) -> ImportMultipleResponse:
-    """Import multiple tag packs in a single request.
+@router.put("/packs")
+def set_tag_packs(body: SetPacksRequest, db: Session = Depends(get_db)):
+    """Install exactly these packs, removing any others (the setup wizard's choice).
 
-    Used by the setup wizard to batch-import user-selected genre packs. A pack
-    that fails is rolled back and reported in ``errors``; the others still import.
+    Refused once setup is complete: removing a pack's tags then could strip vocabulary
+    that images use. Afterwards packs are only added (``POST /packs/{name}/import``).
     """
-    from ..services.tag_packs import import_tag_pack as do_import
+    from ..models.database import is_setup_completed
+    from ..services.tag_packs import get_pack_status, set_installed_packs
 
-    imported: list[str] = []
-    errors: list[str] = []
-
-    for pack_name in body.packs:
-        try:
-            do_import(db, pack_name)
-            imported.append(pack_name)
-        except ValueError as exc:
-            db.rollback()
-            errors.append(f"{pack_name}: {exc}")
-        except Exception:
-            db.rollback()
-            logger.exception("Failed to import tag pack %r", pack_name)
-            errors.append(f"{pack_name}: import failed, see the server log")
-
-    return ImportMultipleResponse(imported=imported, errors=errors)
+    if is_setup_completed(db):
+        raise HTTPException(
+            status_code=409,
+            detail="Tag packs can only be replaced during setup. Add packs in Settings.",
+        )
+    try:
+        set_installed_packs(db, body.packs)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return get_pack_status(db)
 
 
 @router.post("/packs/{pack_name}/import")
