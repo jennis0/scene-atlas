@@ -7,7 +7,7 @@ Used by both the groups API (per-group ZIP download) and the export pipeline
 from __future__ import annotations
 
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -71,7 +71,8 @@ def unique_export_path(img: Image, seen: set[str]) -> str:
     """``export_path`` for *img*, suffixed `` (2)``, `` (3)``… if already in *seen*; records it."""
     arc = export_path(img, img.group.base_name if img.group else None, img.author)
     if arc in seen:
-        path = Path(arc)
+        # Zip entry names always use '/': a Path would rejoin them with '\' on Windows.
+        path = PurePosixPath(arc)
         n = 2
         while f"{path.parent}/{path.stem} ({n}){path.suffix}" in seen:
             n += 1

@@ -16,8 +16,9 @@ _HOLD = textwrap.dedent(
     """
     import sys, time
     from backend.app.storage_lock import acquire_storage_lock
+    import os
     acquire_storage_lock(sys.argv[1])
-    print("locked", flush=True)
+    print("locked", os.getpid(), flush=True)
     time.sleep(float(sys.argv[2]))
     """
 )
@@ -42,7 +43,11 @@ def _hold_in_child(data_dir: Path, seconds: float = 60) -> subprocess.Popen:
         text=True,
     )
     assert proc.stdout is not None
-    assert proc.stdout.readline().strip() == "locked"
+    status, pid = proc.stdout.readline().split()
+    assert status == "locked"
+    # The interpreter's own PID: on Windows the venv's python.exe is a launcher that
+    # starts the real interpreter as a child, so proc.pid is not the lock holder.
+    proc.holder_pid = int(pid)  # pyright: ignore[reportAttributeAccessIssue]
     return proc
 
 
@@ -84,7 +89,7 @@ def test_other_process_is_excluded_until_release(tmp_path):
 def test_locked_error_names_dir_and_holder(tmp_path, held_by_child):
     with pytest.raises(StorageLockedError) as excinfo:
         acquire_storage_lock(tmp_path)
-    assert excinfo.value.holder_pid == held_by_child.pid
+    assert excinfo.value.holder_pid == held_by_child.holder_pid
     assert str(tmp_path.resolve()) in str(excinfo.value)
     assert "already using the folder" in str(excinfo.value)
 
