@@ -73,6 +73,12 @@ def image_features(img: Image.Image) -> dict[str, float]:
     }
 
 
+def _reject_unknown(source: str, kind: str, names, known) -> None:
+    unknown = set(names) - set(known)
+    if unknown:
+        raise ImageTypeHeadError(f"{source}: unknown {kind} {sorted(unknown)}")
+
+
 class ImageTypeHead:
     """One bundled head, validated at construction."""
 
@@ -84,15 +90,23 @@ class ImageTypeHead:
         self.embedding_dim: int = data["embedding_dim"]
         self.classes: list[str] = data["classes"]
         self.groups: dict[str, list[str]] = data["groups"]
-        unknown_groups = set(self.groups) - KNOWN_GROUPS
-        if unknown_groups:
-            raise ImageTypeHeadError(f"{source}: unknown groups {sorted(unknown_groups)}")
+        _reject_unknown(source, "groups", self.groups, KNOWN_GROUPS)
         self.features: list[str] = list((data.get("features") or {}).get("names", []))
-        unknown = set(self.features) - set(KNOWN_FEATURES)
-        if unknown:
-            raise ImageTypeHeadError(f"{source}: unknown features {sorted(unknown)}")
+        _reject_unknown(source, "features", self.features, KNOWN_FEATURES)
         self.weight = np.asarray(data["weight"], dtype=np.float32)
         self.bias = np.asarray(data["bias"], dtype=np.float32)
+        self._check_shapes(source)
+        self.group_names = list(self.groups)
+        self._group_matrix = self._class_to_group_matrix(source)
+        fallback = data["fallback"]
+        self.fallback_group: str = fallback["group"]
+        if self.fallback_group not in self.groups:
+            raise ImageTypeHeadError(
+                f"{source}: fallback group {self.fallback_group!r} is not one of its groups"
+            )
+        self.min_confidence: float = float(fallback["min_confidence"])
+
+    def _check_shapes(self, source: str) -> None:
         n_in = self.embedding_dim + len(self.features)
         if self.weight.shape != (len(self.classes), n_in) or self.bias.shape != (
             len(self.classes),
@@ -101,20 +115,16 @@ class ImageTypeHead:
                 f"{source}: weight {self.weight.shape} / bias {self.bias.shape} don't fit "
                 f"{len(self.classes)} classes x {n_in} inputs"
             )
-        self.group_names = list(self.groups)
-        self._group_matrix = np.zeros((len(self.classes), len(self.group_names)), np.float32)
+
+    def _class_to_group_matrix(self, source: str) -> np.ndarray:
+        """classes x groups, 1 where the class belongs to the group (exactly one each)."""
+        matrix = np.zeros((len(self.classes), len(self.group_names)), np.float32)
         for g, members in self.groups.items():
             for c in members:
-                self._group_matrix[self.classes.index(c), self.group_names.index(g)] = 1.0
-        if not np.all(self._group_matrix.sum(axis=1) == 1):
+                matrix[self.classes.index(c), self.group_names.index(g)] = 1.0
+        if not np.all(matrix.sum(axis=1) == 1):
             raise ImageTypeHeadError(f"{source}: every class must belong to exactly one group")
-        fallback = data["fallback"]
-        self.fallback_group: str = fallback["group"]
-        if self.fallback_group not in self.groups:
-            raise ImageTypeHeadError(
-                f"{source}: fallback group {self.fallback_group!r} is not one of its groups"
-            )
-        self.min_confidence: float = float(fallback["min_confidence"])
+        return matrix
 
     @property
     def needs_image(self) -> bool:

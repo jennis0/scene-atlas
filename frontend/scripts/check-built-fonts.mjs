@@ -3,6 +3,7 @@
 // the browser. vite.config.ts keeps fonts out of assetsInlineLimit; this guards it.
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import process from 'node:process'
 
 const assets = join(import.meta.dirname, '..', 'dist', 'assets')
 const offenders = readdirSync(assets)

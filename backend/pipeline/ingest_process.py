@@ -440,41 +440,13 @@ def _decode(
     file_size = staged.stat().st_size
 
     thumbs_dir = incoming_dir(thumbnail_store.base_dir)
-    if item.kind == "video":
-        from backend.app.services.video_utils import extract_first_frame, get_video_dimensions
-
-        progress.stage = "thumbnails"
-        frame = extract_first_frame(staged)
-        try:
-            thumbnails = write_thumbnails(frame, stem, thumbs_dir)
-        finally:
-            frame.close()
-        progress.created += [path for _, path in thumbnails.values()]
-        width, height = get_video_dimensions(staged)
-        image_pixel_hash = None
-        image_phash = None
-    else:
-        width, height = plan.width, plan.height
-        progress.stage = "decode"
-        with PILImage.open(staged) as decoded:
-            if not plan.full_decode:
-                decoded.draft("RGB", (800, 800))
-            decoded.load()
-            progress.stage = "hash"
-            image_pixel_hash = pixel_hash(decoded) if plan.full_decode else None
-            progress.stage = "thumbnails"
-            thumbnails = write_thumbnails(decoded, stem, thumbs_dir)
-        progress.created += [path for _, path in thumbnails.values()]
-        progress.stage = "hash"
-        with PILImage.open(thumbnails["large"][1]) as large:
-            image_phash = perceptual_hash(large)
-
-    features = None
-    if item.image_type == AUTO:
-        # The heads were trained on 800 px thumbnails, so read the large one
-        progress.stage = "classify"
-        with PILImage.open(thumbnails["large"][1]) as large:
-            features = image_features(large)
+    pictures = (
+        _video_pictures(staged, stem, thumbs_dir, progress)
+        if item.kind == "video"
+        else _image_pictures(staged, stem, thumbs_dir, plan, progress)
+    )
+    thumbnails = pictures.thumbnails
+    features = _head_features(thumbnails["large"][1], progress) if item.image_type == AUTO else None
 
     progress.stage = "colors"
     colors = color_extraction.extract_dominant_colors(
@@ -491,15 +463,70 @@ def _decode(
         temp_thumbnails=dict(thumbnails.values()),
         thumbnail_key=medium_key,
         clip_source=medium_path,
-        width=width,
-        height=height,
+        width=pictures.width,
+        height=pictures.height,
         file_size=file_size,
         source_hash=source_hash,
-        pixel_hash=image_pixel_hash,
-        phash=image_phash,
+        pixel_hash=pictures.pixel_hash,
+        phash=pictures.phash,
         colors=colors,
         features=features,
     )
+
+
+def _head_features(large_thumbnail: Path, progress: _Progress) -> dict[str, float]:
+    """The image-type head's image statistics, from the large thumbnail: the heads were
+    trained on 800 px thumbnails."""
+    progress.stage = "classify"
+    with PILImage.open(large_thumbnail) as large:
+        return image_features(large)
+
+
+@dataclass(frozen=True)
+class _Pictures:
+    """What decoding gives: thumbnails ({size: (key, temp path)}), pixel size and hashes."""
+
+    thumbnails: dict[str, tuple[str, Path]]
+    width: int
+    height: int
+    pixel_hash: str | None
+    phash: int | None
+
+
+def _video_pictures(staged: Path, stem: str, thumbs_dir: Path, progress: _Progress) -> _Pictures:
+    """Thumbnails from a video's first frame; videos get no pixel hash or pHash."""
+    from backend.app.services.video_utils import extract_first_frame, get_video_dimensions
+
+    progress.stage = "thumbnails"
+    frame = extract_first_frame(staged)
+    try:
+        thumbnails = write_thumbnails(frame, stem, thumbs_dir)
+    finally:
+        frame.close()
+    progress.created += [path for _, path in thumbnails.values()]
+    width, height = get_video_dimensions(staged)
+    return _Pictures(thumbnails, width, height, None, None)
+
+
+def _image_pictures(
+    staged: Path, stem: str, thumbs_dir: Path, plan: DecodePlan, progress: _Progress
+) -> _Pictures:
+    """Decode once (reduced scale for huge JPEGs) for the pixel hash and thumbnails; the
+    perceptual hash reads the large thumbnail."""
+    progress.stage = "decode"
+    with PILImage.open(staged) as decoded:
+        if not plan.full_decode:
+            decoded.draft("RGB", (800, 800))
+        decoded.load()
+        progress.stage = "hash"
+        image_pixel_hash = pixel_hash(decoded) if plan.full_decode else None
+        progress.stage = "thumbnails"
+        thumbnails = write_thumbnails(decoded, stem, thumbs_dir)
+    progress.created += [path for _, path in thumbnails.values()]
+    progress.stage = "hash"
+    with PILImage.open(thumbnails["large"][1]) as large:
+        image_phash = perceptual_hash(large)
+    return _Pictures(thumbnails, plan.width, plan.height, image_pixel_hash, image_phash)
 
 
 def _finish(decoded: DecodedItem, cfg: PipelineConfig, progress: _Progress) -> PreparedItem:
