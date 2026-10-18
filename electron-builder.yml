@@ -1,10 +1,15 @@
 appId: com.sceneatlas.app
 productName: Scene Atlas
-copyright: Copyright © 2024 Scene Atlas
+copyright: Copyright © 2026 Scene Atlas
 
 directories:
   output: dist-electron
+  # icon.png (1024 px, scripts/build/make_icon.py) is found here; electron-builder
+  # derives the Windows .ico and the macOS .icns from it.
   buildResources: assets
+
+# Installers named without spaces (GitHub rewrites spaces in release asset names).
+artifactName: Scene-Atlas-${version}-${arch}.${ext}
 
 # Files to include in the app package
 files:
@@ -23,14 +28,42 @@ extraResources:
     filter:
       - "**/*"
 
+# Chromium's own UI strings and, more importantly, the locale the renderer reports
+# (navigator.language, the Intl default): with no .pak for the system locale it falls
+# back to en-US. en-GB is here so UK systems keep UK date and number formats. The app
+# itself is English only; dropping the other 53 saves ~47 MB installed.
+electronLanguages:
+  - en-US
+  - en-GB
+
+# Hardening (design/electron.md#fuses). The app never runs Node outside Electron, never
+# needs --inspect or NODE_OPTIONS, and only loads its own asar, which is integrity-checked.
+# The packaged-app tests drive it over --remote-debugging-port instead of --inspect.
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  # Left on (Electron's default): without it file:// can't read inside app.asar, so
+  # setup.html and loading.html fail with ERR_FILE_NOT_FOUND. Turning it off means
+  # serving them from a custom protocol (protocol.handle) instead.
+  grantFileProtocolExtraPrivileges: true
+
+# Releases are created by the Release workflow's publish job from the build artifacts.
+# There is no auto-updater, so no update metadata (latest.yml, blockmaps) is generated.
+publish: null
+
 # ── Windows ─────────────────────────────────────────────────────────────────
 win:
   target:
     - target: nsis
       arch: [x64]
-  icon: assets/icon.ico
 
 nsis:
+  artifactName: Scene-Atlas-Setup-${version}.${ext}
+  # The .blockmap only serves differential auto-updates, which the app doesn't do.
+  differentialPackage: false
   oneClick: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
@@ -41,7 +74,6 @@ mac:
   target:
     - target: dmg
       arch: [arm64]  # sidecar is built only on the arm64 runner
-  icon: assets/icon.icns
   category: public.app-category.utilities
   hardenedRuntime: true
   entitlements: assets/entitlements.mac.plist
@@ -57,12 +89,4 @@ linux:
       arch: [x64]
     - target: deb
       arch: [x64]
-  icon: assets/icon.png
   category: Graphics
-
-# ── Auto-updates ─────────────────────────────────────────────────────────────
-# Publish to GitHub Releases (set GH_TOKEN in CI environment)
-publish:
-  provider: github
-  releaseType: release
-  channel: latest
