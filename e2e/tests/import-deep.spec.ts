@@ -23,7 +23,7 @@ test.describe("Import: end to end", () => {
     const before = await getSceneCount(page);
 
     await openImportDialog(page);
-    await importFiles(page, [file]);
+    await importFiles(page, [file], { as: "Battlemaps" });
 
     // Progress view, titled with the import's label, then the result in place.
     const dialog = page.getByRole("dialog");

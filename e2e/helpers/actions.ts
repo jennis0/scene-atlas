@@ -19,12 +19,27 @@ export async function openImportDialog(page: Page): Promise<void> {
   ).toBeVisible({ timeout: 5_000 });
 }
 
-/** Pick files in the start view; the import starts and the progress view opens. */
+/** The start view's "Import these as" choice. */
+export type ImportAs = "Auto" | "Battlemaps" | "Scenes";
+
+/**
+ * Pick files in the start view; the import starts and the progress view opens.
+ * `as` sets the image type first. Without it the dialog's default, Auto, sorts
+ * each file by what the classifier makes of it, so pass a type whenever the
+ * test needs the file to be imported.
+ */
 export async function importFiles(
   page: Page,
   filePaths: string[],
-  timeout = 30_000,
+  { as, timeout = 30_000 }: { as?: ImportAs; timeout?: number } = {},
 ): Promise<void> {
+  if (as) {
+    const option = page
+      .getByRole("dialog")
+      .getByRole("button", { name: as, exact: true });
+    await option.click();
+    await expect(option).toHaveAttribute("aria-pressed", "true");
+  }
   const fileChooserPromise = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "Choose files" }).click();
   const fileChooser = await fileChooserPromise;

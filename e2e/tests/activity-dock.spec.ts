@@ -16,7 +16,7 @@ test.describe("Activity Dock", () => {
     await page.goto("/");
     await waitForGalleryLoad(page);
     await openImportDialog(page);
-    await importFiles(page, [file]);
+    await importFiles(page, [file], { as: "Battlemaps" });
 
     // Closing the dialog never stops the import; the dock keeps it.
     await page
