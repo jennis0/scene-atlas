@@ -170,9 +170,12 @@ function SortedOutTile({
       <span className="text-3xs text-muted-foreground leading-tight line-clamp-2">
         {item.error_reason}
       </span>
-      <TextButton onClick={onInclude} disabled={busy}>
-        Include
-      </TextButton>
+      {/* At the foot, so buttons line up when a reason wraps */}
+      <span className="mt-auto">
+        <TextButton onClick={onInclude} disabled={busy}>
+          Include
+        </TextButton>
+      </span>
     </li>
   )
 }
