@@ -5,10 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"
+      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; font-src 'self'"
     />
     <title>Scene Atlas</title>
     <style>
+      /* The app's fonts, bundled beside this page like setup.html's (OFL, see fonts/). */
+      @font-face {
+        font-family: 'Cinzel';
+        font-weight: 400 900;
+        font-display: swap;
+        src: url(fonts/cinzel-latin-wght.woff2) format('woff2');
+      }
+      @font-face {
+        font-family: 'Figtree';
+        font-weight: 300 900;
+        font-display: swap;
+        src: url(fonts/figtree-latin-wght.woff2) format('woff2');
+      }
       /* The app's navy palette (frontend/src/index.css); follows the system theme, since
          the user's own choice lives in the app, which isn't loaded yet. */
       :root {
@@ -45,6 +58,7 @@
         background: var(--bg);
         color: var(--fg);
         font-family:
+          'Figtree',
           system-ui,
           -apple-system,
           'Segoe UI',
@@ -62,7 +76,7 @@
         text-align: center;
       }
       h1 {
-        font-family: Georgia, 'Times New Roman', serif;
+        font-family: 'Cinzel', Georgia, 'Times New Roman', serif;
         font-weight: 500;
         letter-spacing: 0.08em;
         font-size: 26px;

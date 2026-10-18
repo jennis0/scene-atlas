@@ -54,6 +54,29 @@ test("first launch shows the setup window, offline fonts and the system locale",
   await waitUntil("app to quit", () => !isAlive(app.child.pid!));
 });
 
+test("an unusable storage folder is reported on the loading page, in the app's fonts", async () => {
+  profile = makeProfile(false);
+  // A folder can't be created inside a file, on any OS.
+  const blocker = path.join(profile.root, "not-a-folder");
+  fs.writeFileSync(blocker, "");
+  fs.writeFileSync(
+    path.join(profile.userData, "scene-atlas-config.json"),
+    JSON.stringify({ appDataDir: path.join(blocker, "data"), imageLibraryDir: profile.images }),
+  );
+  const app = await launch(profile);
+  const loading = await waitForPage(app.browser, (url) => url.endsWith("/loading.html"));
+
+  await expect(loading.locator("body")).toContainText("can't be used", { timeout: 30_000 });
+  const loaded = await loading.evaluate(async () => {
+    await document.fonts.ready;
+    return [...document.fonts].filter((f) => f.status === "loaded").map((f) => f.family);
+  });
+  expect(loaded.map((f) => f.replace(/['"]/g, ""))).toEqual(
+    expect.arrayContaining(["Figtree", "Cinzel"]),
+  );
+  expect(await sidecars(profile.root)).toHaveLength(0);
+});
+
 test("serves the UI from the backend; closing the window stops the backend", async () => {
   profile = makeProfile(true);
   const app = await launch(profile);
