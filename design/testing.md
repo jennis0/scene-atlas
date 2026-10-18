@@ -4,7 +4,7 @@ For how to run tests and operational details, see [docs/development/testing.md](
 
 ## Overview
 
-Backend tests live in `backend/tests/unit/` and `backend/tests/integration/`; frontend tests are Vitest files next to the code in `frontend/src/`; end-to-end tests are Playwright specs in `e2e/tests/`.
+Backend tests live in `backend/tests/unit/` and `backend/tests/integration/`; frontend tests are Vitest files next to the code in `frontend/src/`; Electron main-process helpers that don't import `electron` are tested with Node's built-in runner in `electron/test/` (`npm run test:electron`, TypeScript run directly via Node's type stripping); end-to-end tests are Playwright specs in `e2e/tests/`.
 
 **No infrastructure required.** Backend tests run against a temporary SQLite database and temporary directories. LanceDB does not create files on import, so nothing is patched at import time. Tests that touch vectors use the `lancedb_service` fixture, a real LanceDB in `tmp_path` (ingest, imports API, semantic search); only the embedding model is faked. The search golden tests (`test_search_characterisation.py`) keep a deterministic `_FakeLanceDB` because they pin exact scores.
 
@@ -15,7 +15,7 @@ Tests marked `heavy` (real CLIP ONNX model) are excluded by default (`addopts = 
 | Stage | Defined in | Runs |
 |---|---|---|
 | Pre-commit (local) | `.husky/pre-commit` | `lint-staged` on staged files |
-| Pre-push (local) | `.husky/pre-push` | ruff check + format check (`backend/`, `scripts/`), pyright, backend unit tests, ESLint, Prettier check, `tsc --noEmit`, knip, Vitest, Electron `tsc`, jscpd duplication threshold |
+| Pre-push (local) | `.husky/pre-push` | ruff check + format check (`backend/`, `scripts/`), pyright, backend unit tests, ESLint, Prettier check, `tsc --noEmit`, knip, Vitest, Electron `tsc`, Electron unit tests, jscpd duplication threshold |
 | Pull request to `main` | `.github/workflows/ci.yml` | `backend-security` (pip-audit, bandit; blocking, accepted findings in [security.md](security.md#accepted-scanner-findings)), `backend-integration` (unit + integration tests with coverage, small ONNX model), `frontend-build` (`npm audit --omit=dev --audit-level=high`, `npm run build`), `quality` (pyright, knip, jscpd) |
 | Release (manual `workflow_dispatch`) | `.github/workflows/release.yml` | full backend suite incl. heavy tests, frontend lint/tests/coverage/build, backend unit tests on Windows and macOS, Playwright E2E, Electron builds per platform, optional publish |
 

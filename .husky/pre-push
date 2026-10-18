@@ -89,6 +89,13 @@ npx tsc -p electron/tsconfig.json --noEmit || {
 }
 
 echo ""
+echo "=== Electron unit tests (node --test) ==="
+npm run --silent test:electron || {
+  echo "❌ Electron unit tests failed."
+  exit 1
+}
+
+echo ""
 echo "=== Duplication (jscpd, threshold in .jscpd.json) ==="
 npx --yes jscpd@4.0.5 --silent || {
   echo "❌ Copy-paste duplication is above the threshold. Run: npx jscpd@4.0.5"

@@ -30,8 +30,8 @@
       --primary:     #d4a853;
       --primary-dim: rgba(212, 168, 83, 0.10);
       --fg:          #ede8dc;
-      --fg-muted:    rgba(237, 232, 220, 0.45);
-      --fg-subtle:   rgba(237, 232, 220, 0.28);
+      --fg-muted:    rgba(237, 232, 220, 0.62);
+      --fg-subtle:   rgba(237, 232, 220, 0.5);
       --radius:      6px;
     }
 
@@ -72,7 +72,6 @@
       gap: 1.25rem;
     }
 
-    /* ── Header — unchanged from existing setup.html ── */
     .header {
       display: flex; flex-direction: column;
       align-items: center; gap: 0.625rem;
@@ -91,7 +90,6 @@
       background: linear-gradient(90deg, transparent, var(--primary), transparent);
     }
 
-    /* Welcome body — 0.875rem matches existing setup.html .description */
     .welcome-body {
       font-size: 0.875rem;
       color: var(--fg-muted);
@@ -99,10 +97,8 @@
       margin-top: 0.125rem;
     }
 
-    /* ── Field label — matches setup.html `label` pattern but bumped to 0.8125rem
-          (existing: 0.75rem 500 uppercase tracking-0.08em --fg-muted)
-          Change: size up to 0.8125rem, weight 600, color to --fg for more presence ── */
     .field-label {
+      display: block;
       font-size: 0.8125rem;
       font-weight: 600;
       letter-spacing: 0.08em;
@@ -111,7 +107,6 @@
       margin-bottom: 0.35rem;
     }
 
-    /* Field hint — 0.75rem matches setup.html .note / app text-xs */
     .field-hint {
       font-size: 0.75rem;
       color: var(--fg-muted);
@@ -123,7 +118,6 @@
 
     .dir-row { display: flex; gap: 0.5rem; }
 
-    /* dir-display — identical to existing setup.html #dirDisplay */
     .dir-display {
       flex: 1;
       background: var(--bg);
@@ -145,7 +139,6 @@
       transition: opacity 0.15s, background 0.15s, color 0.15s, border-color 0.15s;
     }
 
-    /* Browse button — identical to existing setup.html #browseBtn */
     .browse-btn {
       background: transparent;
       border: 1px solid var(--border);
@@ -167,14 +160,12 @@
       border-radius: var(--radius);
     }
 
-    /* Toggle label — same 0.8125rem uppercase pattern as field-label */
     .toggle-label {
       font-size: 0.8125rem; font-weight: 600;
       letter-spacing: 0.08em; text-transform: uppercase;
       color: var(--fg); margin-bottom: 0.25rem;
     }
 
-    /* Toggle hint — 0.75rem matches field-hint / .note */
     .toggle-hint { font-size: 0.75rem; color: var(--fg-muted); line-height: 1.5; }
 
     .toggle-control { display: flex; flex-direction: column; align-items: center; gap: 3px; flex-shrink: 0; }
@@ -195,7 +186,6 @@
       letter-spacing: 0.06em; text-transform: uppercase; color: var(--primary);
     }
 
-    /* Start button — identical to existing setup.html #startBtn */
     .start-btn {
       width: 100%;
       background: var(--primary); color: #0e1118;
@@ -218,22 +208,26 @@
       word-break: break-word;
     }
 
-    /* Note — 0.75rem matches existing setup.html .note */
     .note { font-size: 0.75rem; color: var(--fg-muted); text-align: center; line-height: 1.5; }
 
     button, input, .dir-row, .card {
       -webkit-app-region: no-drag;
     }
+
+    :focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
   </style>
 </head>
 <body>
-  <div class="page">
+  <main class="page">
     <div class="card">
 
       <div class="header">
         <svg class="compass" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
              fill="none" stroke="currentColor" stroke-width="1.2"
-             stroke-linecap="round" stroke-linejoin="round">
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="10"/>
           <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>
         </svg>
@@ -245,53 +239,59 @@
         </p>
       </div>
 
-      <div>
-        <p class="field-label">App data location</p>
-        <p class="field-hint">
+      <section aria-labelledby="app-data-label">
+        <h2 class="field-label" id="app-data-label">App data folder</h2>
+        <p class="field-hint" id="app-data-hint">
           Database, thumbnails and search index.
           <strong>SSD recommended</strong> &mdash; accessed constantly while the app runs.
           Allow at least 2&thinsp;GB free (your default max import size).
         </p>
         <div class="dir-row">
-          <div class="dir-display" id="app-data-dir">Loading&hellip;</div>
-          <button class="browse-btn" id="browse-app-data">Browse&hellip;</button>
+          <output class="dir-display" id="app-data-dir" aria-labelledby="app-data-label">Loading&hellip;</output>
+          <button type="button" class="browse-btn" id="browse-app-data"
+                  aria-label="Browse for app data folder" aria-describedby="app-data-hint">Browse&hellip;</button>
         </div>
-      </div>
+      </section>
 
       <div class="separator"></div>
 
-      <div>
-        <p class="field-label">Image library location</p>
-        <p class="field-hint">
-          Your original image files. Any drive works &mdash; external storage and NAS are fine here.
+      <section aria-labelledby="image-library-label">
+        <h2 class="field-label" id="image-library-label">Image library folder</h2>
+        <p class="field-hint" id="image-library-hint">
+          Scene Atlas keeps its own copy of every image you import here, plus backups.
+          <strong>Choose a new or empty folder, not your existing maps folder</strong>
+          &mdash; you&rsquo;ll bring those in with Import. Any drive works, including
+          external storage and NAS.
         </p>
         <div class="dir-row">
-          <div class="dir-display" id="image-library-dir">Loading&hellip;</div>
-          <button class="browse-btn" id="browse-image-library">Browse&hellip;</button>
+          <output class="dir-display" id="image-library-dir" aria-labelledby="image-library-label">Loading&hellip;</output>
+          <button type="button" class="browse-btn" id="browse-image-library"
+                  aria-label="Browse for image library folder" aria-describedby="image-library-hint">Browse&hellip;</button>
         </div>
-      </div>
+      </section>
 
       <div class="separator"></div>
 
       <div class="toggle-row">
         <div>
-          <div class="toggle-label">Convert images to WebP</div>
-          <div class="toggle-hint">Saves 20&ndash;40% storage with no quality loss (lossless). Originals are not kept.</div>
+          <div class="toggle-label" id="webp-label">Convert images to WebP</div>
+          <div class="toggle-hint" id="webp-hint">Saves 20&ndash;40% storage with no quality loss (lossless). Originals are not kept.</div>
         </div>
         <div class="toggle-control">
-          <button class="toggle-switch off" title="Toggle WebP conversion"></button>
-          <span class="toggle-state">Off</span>
+          <button type="button" class="toggle-switch off" role="switch" aria-checked="false"
+                  aria-labelledby="webp-label" aria-describedby="webp-hint"></button>
+          <span class="toggle-state" aria-hidden="true">Off</span>
         </div>
       </div>
 
-      <button class="start-btn">Get Started</button>
+      <button type="button" class="start-btn">Get Started</button>
 
-      <p class="setup-error" id="setup-error" style="display:none;"></p>
+      <p class="setup-error" id="setup-error" role="alert" hidden></p>
 
       <p class="note">These settings can be changed later in Settings.</p>
 
     </div>
-  </div>
+  </main>
 
   <script>
     let appDataDir = ''
@@ -307,7 +307,7 @@
     })
 
     document.getElementById('browse-app-data').addEventListener('click', async function() {
-      const chosen = await window.setupAPI.chooseDirectory()
+      const chosen = await window.setupAPI.chooseDirectory('appData', appDataDir, imageLibraryDir)
       if (chosen) {
         appDataDir = chosen
         document.getElementById('app-data-dir').textContent = chosen
@@ -315,7 +315,7 @@
     })
 
     document.getElementById('browse-image-library').addEventListener('click', async function() {
-      const chosen = await window.setupAPI.chooseDirectory()
+      const chosen = await window.setupAPI.chooseDirectory('imageLibrary', imageLibraryDir, appDataDir)
       if (chosen) {
         imageLibraryDir = chosen
         document.getElementById('image-library-dir').textContent = chosen
@@ -329,6 +329,7 @@
     toggleBtn.addEventListener('click', function() {
       convertToWebp = !convertToWebp
       toggleBtn.classList.toggle('off', !convertToWebp)
+      toggleBtn.setAttribute('aria-checked', String(convertToWebp))
       toggleState.textContent = convertToWebp ? 'On' : 'Off'
       toggleState.style.color = convertToWebp ? 'var(--primary)' : 'var(--fg-muted)'
     })
@@ -339,7 +340,7 @@
     startBtn.addEventListener('click', async function() {
       if (!appDataDir || !imageLibraryDir || startBtn.disabled) return
       startBtn.disabled = true
-      errorEl.style.display = 'none'
+      errorEl.hidden = true
       let error
       try {
         const result = await window.setupAPI.complete(appDataDir, imageLibraryDir, convertToWebp)
@@ -349,7 +350,7 @@
       }
       if (error) {
         errorEl.textContent = error
-        errorEl.style.display = 'block'
+        errorEl.hidden = false
         startBtn.disabled = false
       }
     })

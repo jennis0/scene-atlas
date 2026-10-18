@@ -97,9 +97,9 @@
     <main>
       <h1>Scene Atlas</h1>
       <div class="rule"></div>
-      <p id="status">Starting up…</p>
+      <p id="status" role="status">Starting up…</p>
       <div id="error">
-        <p id="summary"></p>
+        <p id="summary" role="alert"></p>
         <pre id="detail"></pre>
         <p class="hint">
           Restart Scene Atlas to try again. The full log is at the path shown above.
@@ -127,9 +127,10 @@
       window.electronAPI?.onBackendError((message) => {
         clearTimeout(slow)
         status.style.display = 'none'
+        // Shown before the text is set, so screen readers announce the alert.
+        document.getElementById('error').style.display = 'block'
         document.getElementById('summary').textContent = summarise(message)
         document.getElementById('detail').textContent = message
-        document.getElementById('error').style.display = 'block'
       })
     </script>
   </body>

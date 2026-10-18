@@ -42,6 +42,13 @@ def _dir_size(path: Path) -> int:
     return total
 
 
+def _distinct_roots(*roots: Path) -> list[Path]:
+    """*roots* without any that lie inside another, so nothing is counted twice: one
+    folder for both, or the server default of the library inside the data folder."""
+    resolved = list(dict.fromkeys(r.resolve() for r in roots))
+    return [r for r in resolved if not any(r != o and r.is_relative_to(o) for o in resolved)]
+
+
 @router.get("/info")
 def system_info(db: Session = Depends(get_db)):
     """Return storage usage and library statistics.
@@ -57,7 +64,10 @@ def system_info(db: Session = Depends(get_db)):
     vector_db_bytes = _dir_size(settings.vector_db_path)
     db_path = settings.app_data_dir / "battlemap.db"
     db_bytes = db_path.stat().st_size if db_path.exists() else 0
-    total_bytes = _dir_size(settings.app_data_dir) + _dir_size(settings.image_library_dir)
+    total_bytes = sum(
+        _dir_size(root)
+        for root in _distinct_roots(settings.app_data_dir, settings.image_library_dir)
+    )
 
     result = {
         "mode": settings.app_mode,

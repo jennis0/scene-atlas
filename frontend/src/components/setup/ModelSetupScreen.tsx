@@ -14,14 +14,74 @@ interface ModelSetupScreenProps {
 
 type Phase = 'loading' | 'select' | 'submitting' | 'tag-packs' | 'error'
 
+interface ModelCardProps {
+  model: ModelInfo
+  hasGpu: boolean
+  selected: boolean
+  recommended: boolean
+  onSelect: () => void
+}
+
+/** A radio card: the radio carries the name and selection for keyboards and screen readers;
+ * the card is a mouse target. The details disclosure sits beside the radio, not inside a
+ * button, so it stays operable on its own. */
+function ModelCard({ model, hasGpu, selected, recommended, onSelect }: ModelCardProps) {
+  const descriptionId = `setup-model-${model.name}-desc`
+  return (
+    <div
+      onClick={onSelect}
+      className={`focus-ring-within-input relative flex flex-col justify-start text-left rounded-lg border p-4 space-y-2.5 cursor-pointer transition-colors ${
+        selected
+          ? 'border-primary bg-primary/5'
+          : 'border-border bg-card hover:border-border/80 hover:bg-accent/30'
+      }`}
+    >
+      <label className="block font-semibold text-sm cursor-pointer">
+        <input
+          type="radio"
+          name="setup-model"
+          value={model.name}
+          checked={selected}
+          onChange={onSelect}
+          aria-describedby={descriptionId}
+          className="sr-only"
+        />
+        {model.label}
+      </label>
+
+      <div id={descriptionId} className="space-y-2.5">
+        {recommended && <p className="sr-only">Recommended for this computer.</p>}
+        <p className="text-xs text-muted-foreground leading-relaxed">{model.description}</p>
+        <ModelRatings model={model} hasGpu={hasGpu} />
+        <p className="text-2xs text-muted-foreground">{model.approx_size_mb} MB download</p>
+      </div>
+
+      <details className="text-xs" onClick={(e) => e.stopPropagation()}>
+        <summary className="cursor-pointer text-muted-foreground hover:text-foreground select-none">
+          Technical details
+        </summary>
+        <p className="mt-1 text-muted-foreground leading-relaxed">{model.description_technical}</p>
+      </details>
+
+      {/* Last, so the spacing between children doesn't count it */}
+      {recommended && (
+        <span
+          aria-hidden="true"
+          className="absolute top-2 right-2 text-2xs font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary"
+        >
+          Recommended
+        </span>
+      )}
+    </div>
+  )
+}
+
 export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupScreenProps) {
   const [phase, setPhase] = useState<Phase>('loading')
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null)
   const [models, setModels] = useState<ModelInfo[]>([])
   const [selectedModel, setSelectedModel] = useState<string>('')
   const [jobId, setJobId] = useState<string | null>(null)
-  const [progressMessage, setProgressMessage] = useState<string>('Starting...')
-  const [progressPct, setProgressPct] = useState<number | null>(null)
   const [errorMessage, setErrorMessage] = useState<string>('')
   const [modelComplete, setModelComplete] = useState(skipModel)
 
@@ -49,29 +109,16 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
   }, [loadSetup])
 
   // The model downloads in the background while the user picks tag packs.
-  useEffect(() => {
-    if (!jobId || modelComplete || phase !== 'tag-packs') return
-
-    const interval = setInterval(async () => {
-      try {
-        const job = await jobApi.get(jobId)
-        if (job.progress) setProgressMessage(job.progress)
-        if (job.progress_pct != null) setProgressPct(job.progress_pct)
-        if (job.status === 'completed') {
-          clearInterval(interval)
-          setModelComplete(true)
-        } else if (job.status === 'failed') {
-          clearInterval(interval)
-          setErrorMessage(job.error ?? 'Model activation failed.')
-          setPhase('error')
-        }
-      } catch {
-        // transient network error — keep polling
-      }
-    }, 2000)
-
-    return () => clearInterval(interval)
-  }, [phase, jobId, modelComplete])
+  const onJobDone = useCallback(() => setModelComplete(true), [])
+  const onJobFailed = useCallback((message: string) => {
+    setErrorMessage(message)
+    setPhase('error')
+  }, [])
+  const { progressMessage, progressPct } = useModelJobProgress(
+    phase === 'tag-packs' && !modelComplete ? jobId : null,
+    onJobDone,
+    onJobFailed,
+  )
 
   const handleSetupFinished = useCallback(async () => {
     try {
@@ -101,33 +148,18 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
     }
   }
 
-  if (phase === 'loading') {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <p className="text-muted-foreground text-sm">Loading model information...</p>
-      </div>
-    )
-  }
+  if (phase === 'loading') return <SetupLoading />
 
   if (phase === 'error') {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="max-w-md text-center space-y-3">
-          <p className="font-semibold text-destructive">Setup Error</p>
-          <p className="text-sm text-muted-foreground">{errorMessage}</p>
-          <button
-            type="button"
-            onClick={() => {
-              setPhase('loading')
-              setErrorMessage('')
-              loadSetup()
-            }}
-            className="px-4 py-2 rounded bg-primary text-primary-foreground text-sm hover:bg-primary/90 transition-colors"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
+      <SetupError
+        message={errorMessage}
+        onRetry={() => {
+          setPhase('loading')
+          setErrorMessage('')
+          loadSetup()
+        }}
+      />
     )
   }
 
@@ -142,8 +174,97 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
     )
   }
 
-  const hasGpu = setupStatus?.has_gpu ?? false
+  return (
+    <ModelSelection
+      setupStatus={setupStatus}
+      models={models}
+      selected={selectedModel}
+      onSelect={setSelectedModel}
+      onStart={handleGetStarted}
+      submitting={phase === 'submitting'}
+    />
+  )
+}
 
+/** Polls the model activation job while *jobId* is set, reporting its progress. */
+function useModelJobProgress(
+  jobId: string | null,
+  onDone: () => void,
+  onFailed: (message: string) => void,
+) {
+  const [progressMessage, setProgressMessage] = useState<string>('Starting...')
+  const [progressPct, setProgressPct] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!jobId) return
+    const interval = setInterval(async () => {
+      try {
+        const job = await jobApi.get(jobId)
+        if (job.progress) setProgressMessage(job.progress)
+        if (job.progress_pct != null) setProgressPct(job.progress_pct)
+        if (job.status === 'completed') {
+          clearInterval(interval)
+          onDone()
+        } else if (job.status === 'failed') {
+          clearInterval(interval)
+          onFailed(job.error ?? 'Model activation failed.')
+        }
+      } catch {
+        // transient network error — keep polling
+      }
+    }, 2000)
+    return () => clearInterval(interval)
+  }, [jobId, onDone, onFailed])
+
+  return { progressMessage, progressPct }
+}
+
+function SetupLoading() {
+  return (
+    <div className="min-h-screen bg-background flex items-center justify-center">
+      <p role="status" className="text-muted-foreground text-sm">
+        Loading model information...
+      </p>
+    </div>
+  )
+}
+
+function SetupError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="min-h-screen bg-background flex items-center justify-center">
+      <div role="alert" className="max-w-md text-center space-y-3">
+        <p className="font-semibold text-destructive">Setup Error</p>
+        <p className="text-sm text-muted-foreground">{message}</p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="px-4 py-2 rounded bg-primary text-primary-foreground text-sm hover:bg-primary/90 transition-colors"
+        >
+          Retry
+        </button>
+      </div>
+    </div>
+  )
+}
+
+interface ModelSelectionProps {
+  setupStatus: SetupStatus | null
+  models: ModelInfo[]
+  selected: string
+  onSelect: (name: string) => void
+  onStart: () => void
+  submitting: boolean
+}
+
+function ModelSelection({
+  setupStatus,
+  models,
+  selected,
+  onSelect,
+  onStart,
+  submitting,
+}: ModelSelectionProps) {
+  const hasGpu = setupStatus?.has_gpu ?? false
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-6">
       <div className="w-full max-w-2xl space-y-6">
@@ -156,49 +277,21 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
 
         {setupStatus && <GpuStatus hasGpu={hasGpu} provider={setupStatus.gpu_provider} />}
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {models.map((model) => {
-            const isSelected = selectedModel === model.name
-            const isRecommended = setupStatus?.recommended === model.name
-
-            return (
-              <button
-                key={model.name}
-                type="button"
-                aria-pressed={isSelected}
-                onClick={() => setSelectedModel(model.name)}
-                className={`relative flex flex-col justify-start text-left rounded-lg border p-4 space-y-2.5 transition-colors ${
-                  isSelected
-                    ? 'border-primary bg-primary/5'
-                    : 'border-border bg-card hover:border-border/80 hover:bg-accent/30'
-                }`}
-              >
-                <span className="block font-semibold text-sm">{model.label}</span>
-
-                <p className="text-xs text-muted-foreground leading-relaxed">{model.description}</p>
-
-                <ModelRatings model={model} hasGpu={hasGpu} />
-
-                <p className="text-2xs text-muted-foreground">{model.approx_size_mb} MB download</p>
-
-                <details className="text-xs" onClick={(e) => e.stopPropagation()}>
-                  <summary className="cursor-pointer text-muted-foreground hover:text-foreground select-none">
-                    Technical details
-                  </summary>
-                  <p className="mt-1 text-muted-foreground leading-relaxed">
-                    {model.description_technical}
-                  </p>
-                </details>
-
-                {/* Last, so the spacing between children doesn't count it */}
-                {isRecommended && (
-                  <span className="absolute top-2 right-2 text-2xs font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary">
-                    Recommended
-                  </span>
-                )}
-              </button>
-            )
-          })}
+        <div
+          role="radiogroup"
+          aria-label="Search model"
+          className="grid grid-cols-1 sm:grid-cols-3 gap-3"
+        >
+          {models.map((model) => (
+            <ModelCard
+              key={model.name}
+              model={model}
+              hasGpu={hasGpu}
+              selected={selected === model.name}
+              recommended={setupStatus?.recommended === model.name}
+              onSelect={() => onSelect(model.name)}
+            />
+          ))}
         </div>
 
         <div className="flex justify-center">
@@ -208,11 +301,11 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
         <div className="flex justify-center">
           <button
             type="button"
-            onClick={handleGetStarted}
-            disabled={!selectedModel || phase === 'submitting'}
+            onClick={onStart}
+            disabled={!selected || submitting}
             className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {phase === 'submitting' ? 'Starting...' : 'Get Started'}
+            {submitting ? 'Starting...' : 'Get Started'}
           </button>
         </div>
       </div>

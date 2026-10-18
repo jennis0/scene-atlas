@@ -1,12 +1,12 @@
 """Unit tests for the system info helpers (backend/app/api/system.py).
 
-Tests the _dir_size() helper function in isolation — no DB or API needed.
+Tests the _dir_size() and _distinct_roots() helpers in isolation — no DB or API needed.
 """
 
 import os
 from pathlib import Path
 
-from backend.app.api.system import _dir_size
+from backend.app.api.system import _dir_size, _distinct_roots
 
 
 class TestDirSize:
@@ -44,3 +44,25 @@ class TestDirSize:
 
         monkeypatch.setattr(os, "scandir", _raise)
         assert _dir_size(tmp_path) == 0
+
+
+class TestDistinctRoots:
+    """The storage total counts each byte once however the two roots overlap."""
+
+    def test_separate_roots(self, tmp_path: Path):
+        data, images = tmp_path / "data", tmp_path / "images"
+        assert _distinct_roots(data, images) == [data.resolve(), images.resolve()]
+
+    def test_same_folder_for_both(self, tmp_path: Path):
+        assert _distinct_roots(tmp_path, tmp_path) == [tmp_path.resolve()]
+
+    def test_library_inside_data(self, tmp_path: Path):
+        """The server default when only APP_DATA_DIR is set."""
+        assert _distinct_roots(tmp_path, tmp_path / "images") == [tmp_path.resolve()]
+
+    def test_data_inside_library(self, tmp_path: Path):
+        assert _distinct_roots(tmp_path / "data", tmp_path) == [tmp_path.resolve()]
+
+    def test_sibling_with_shared_prefix_is_not_inside(self, tmp_path: Path):
+        data, images = tmp_path / "data", tmp_path / "data-images"
+        assert _distinct_roots(data, images) == [data.resolve(), images.resolve()]

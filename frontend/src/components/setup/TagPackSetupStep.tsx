@@ -12,6 +12,30 @@ function importFailureMessage(err: unknown): string {
   return getApiErrorMessage(err, 'Could not reach the server.')
 }
 
+/** The search model download, determinate once the backend reports a percentage. */
+function ModelProgressBar({ pct, className }: { pct: number | null; className: string }) {
+  const known = pct != null && pct > 0
+  return (
+    <div
+      role="progressbar"
+      aria-label="Search model setup"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={known ? pct : undefined}
+      className={`bg-muted rounded-full overflow-hidden ${className}`}
+    >
+      {known ? (
+        <div
+          className="h-full bg-primary/60 rounded-full transition-all duration-500"
+          style={{ width: `${pct}%` }}
+        />
+      ) : (
+        <div className="h-full bg-primary/60 rounded-full animate-pulse w-1/3" />
+      )}
+    </div>
+  )
+}
+
 interface TagPackSetupStepProps {
   /** Current model download progress message, shown in the status bar */
   modelProgressMessage: string | null
@@ -126,24 +150,18 @@ export function TagPackSetupStep({
                   <span>{modelProgressPct}%</span>
                 )}
               </div>
-              <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
-                {modelProgressPct != null && modelProgressPct > 0 ? (
-                  <div
-                    className="h-full bg-primary/60 rounded-full transition-all duration-500"
-                    style={{ width: `${modelProgressPct}%` }}
-                  />
-                ) : (
-                  <div className="h-full bg-primary/60 rounded-full animate-pulse w-1/3" />
-                )}
-              </div>
+              <ModelProgressBar pct={modelProgressPct} className="w-full h-1" />
             </>
           )}
-          {modelComplete && (
-            <div className="flex items-center gap-1.5 text-xs text-success">
-              <Check className="h-3 w-3" />
-              <span>Search model ready</span>
-            </div>
-          )}
+          {/* Always rendered, so screen readers announce when the model becomes ready */}
+          <div role="status" className={modelComplete ? '' : 'sr-only'}>
+            {modelComplete && (
+              <div className="flex items-center gap-1.5 text-xs text-success">
+                <Check className="h-3 w-3" aria-hidden="true" />
+                <span>Search model ready</span>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="text-center space-y-2">
@@ -164,7 +182,7 @@ export function TagPackSetupStep({
 
         {fetchError && !loading && !packs && (
           <div className="text-center space-y-3 py-6">
-            <p className="text-sm text-destructive">
+            <p role="alert" className="text-sm text-destructive">
               Failed to load tag packs. Please check your connection and try again.
             </p>
             <button
@@ -188,6 +206,7 @@ export function TagPackSetupStep({
                   key={pack.name}
                   type="button"
                   disabled={isCommon || importing}
+                  aria-pressed={isCommon || isSelected}
                   onClick={() => togglePack(pack.name)}
                   className={`relative text-left rounded-lg border p-3 space-y-1 transition-colors ${
                     isCommon
@@ -199,6 +218,7 @@ export function TagPackSetupStep({
                 >
                   <div className="flex items-start gap-2.5">
                     <div
+                      aria-hidden="true"
                       className={`mt-0.5 shrink-0 h-4 w-4 rounded border flex items-center justify-center transition-colors ${
                         isCommon || isSelected
                           ? 'bg-primary border-primary'
@@ -251,16 +271,7 @@ export function TagPackSetupStep({
           {importDone && !modelComplete ? (
             <>
               <p className="text-sm text-muted-foreground">Waiting for model setup to finish...</p>
-              <div className="w-48 h-1.5 bg-muted rounded-full overflow-hidden">
-                {modelProgressPct != null && modelProgressPct > 0 ? (
-                  <div
-                    className="h-full bg-primary rounded-full transition-all duration-500"
-                    style={{ width: `${modelProgressPct}%` }}
-                  />
-                ) : (
-                  <div className="h-full bg-primary rounded-full animate-pulse w-1/3" />
-                )}
-              </div>
+              <ModelProgressBar pct={modelProgressPct} className="w-48 h-1.5" />
             </>
           ) : (
             <>
