@@ -268,7 +268,9 @@ function GroupRow({ group, index, isActive, hasGroupActions, onClick }: GroupRow
         onClick={(e) => onClick(index, group.id, e)}
         className="flex-1 flex items-center gap-2 pl-3 pr-1 py-2 text-left min-w-0"
       >
-        <span className="flex-1 text-sm truncate">{group.group_name}</span>
+        <span className="flex-1 text-sm truncate" title={group.group_name}>
+          {group.group_name}
+        </span>
         <GroupRowCounts group={group} />
       </button>
       {hasGroupActions && <GroupRowMenu groupId={group.id} />}
@@ -293,7 +295,9 @@ function PendingGroupRow({ group, awaited, onOpen, onDemand }: PendingGroupRowPr
       title={onDemand ? undefined : 'Still loading — click to load it next'}
       className="w-full flex items-center gap-2 pl-3 pr-2 py-2 text-left min-w-0 border-l-2 border-transparent text-muted-foreground/70 hc:text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
     >
-      <span className="flex-1 text-sm truncate">{group.base_name}</span>
+      <span className="flex-1 text-sm truncate" title={group.base_name}>
+        {group.base_name}
+      </span>
       <span className="text-xs shrink-0 flex items-center gap-1">
         <TypeCounts
           maps={group.map_count}

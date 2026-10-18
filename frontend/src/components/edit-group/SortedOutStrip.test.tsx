@@ -103,6 +103,24 @@ describe('SortedOutStrip', () => {
     expect(screen.getByRole('button', { name: 'Hide' })).toBeInTheDocument()
   })
 
+  it('keeps the list in place through an include, so it keeps its scroll position', async () => {
+    const items = [1, 2, 3, 4].map((n) => skipped(n, `token-${n}.png`))
+    ;({ manager, client } = await installFakeImportManager({ jobs: [finished], items }))
+    renderWithProviders(
+      <SortedOutStrip groupId={41} count={4} importing={0} onIncluded={() => {}} />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Review' }))
+    const list = (await screen.findByText('token-3.png')).closest('ul')!
+    list.scrollLeft = 300
+    await userEvent.click(screen.getByRole('button', { name: 'Include token-3.png' }))
+    await waitFor(() => expect(screen.queryByText('token-3.png')).not.toBeInTheDocument())
+    expect(screen.queryByLabelText('Loading skipped images')).not.toBeInTheDocument()
+    // Same element, never swapped for the spinner: the browser keeps its scroll offset
+    expect(screen.getByText('token-4.png').closest('ul')).toBe(list)
+    expect(list.scrollLeft).toBe(300)
+    await waitFor(() => expect(client.sortedOut).toHaveBeenCalledTimes(2))
+  })
+
   it('names its controls and keeps them out of the status announcement', async () => {
     ;({ manager, client } = await installFakeImportManager({
       jobs: [finished],

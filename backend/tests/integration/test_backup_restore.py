@@ -161,6 +161,16 @@ def test_restore_from_backup_preserves_all_data(tmp_path, tmp_db):
     alembic_cfg = AlembicConfig(str(alembic_ini))
     alembic_cfg.set_main_option("sqlalchemy.url", str(restored_engine.url))
     command.upgrade(alembic_cfg, "head")  # should be a no-op since version is stamped
+    # Regression: env.py's fileConfig disabled every existing logger, which silenced
+    # the app's logging (and broke caplog in later tests) for the rest of the process.
+    import logging
+
+    disabled = [
+        name
+        for name, logger in logging.Logger.manager.loggerDict.items()
+        if name.startswith("backend.") and isinstance(logger, logging.Logger) and logger.disabled
+    ]
+    assert disabled == []
 
     counts = _query_counts(restored_engine)
     assert counts["image_count"] == expected["image_count"]

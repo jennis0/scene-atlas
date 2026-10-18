@@ -15,6 +15,13 @@ describe('TypeCounts', () => {
     expect(screen.getByTitle('1 scene')).toBeInTheDocument()
   })
 
+  it('tints the skipped count, the one to act on, apart from scenes', () => {
+    const { container } = render(<TypeCounts maps={0} scenes={1} skipped={2} />)
+    const [scenes, skipped] = container.querySelectorAll('[aria-hidden]')
+    expect(scenes).not.toHaveClass('text-warning')
+    expect(skipped).toHaveClass('text-warning')
+  })
+
   it('renders nothing for an empty group', () => {
     const { container } = render(<TypeCounts maps={0} scenes={0} skipped={0} />)
     expect(container).toBeEmptyDOMElement()

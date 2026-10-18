@@ -572,6 +572,8 @@ describe('EditGroupDialog', () => {
     it('counts them on sidebar rows, and offers them only for the one group open', async () => {
       const { user } = renderDialog({ importReview: { groupIds: [1, 2] } })
       expect(await screen.findByText('2 groups')).toBeInTheDocument()
+      // A long name is cut off on the row; hovering shows it in full
+      expect(screen.getByTitle('Cave Maps')).toHaveTextContent('Cave Maps')
       // Each row reads as counts per kind: maps, scenes, skipped by Auto
       expect(await screen.findByTitle(/, 2 skipped by Auto$/)).toBeInTheDocument()
       expect(screen.getByTitle(/, 1 skipped by Auto$/)).toBeInTheDocument()

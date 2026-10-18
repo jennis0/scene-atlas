@@ -26,6 +26,9 @@ const KINDS: {
   { key: 'skipped', icon: ImageOff, label: (n) => `${n.toLocaleString()} skipped by Auto` },
 ]
 
+// Skipped is the count to act on (check, include): tinted so it stands apart from scenes
+const TONE: Partial<Record<(typeof KINDS)[number]['key'], string>> = { skipped: 'text-warning' }
+
 export function TypeCounts({ maps, scenes, skipped = 0, className = '' }: TypeCountsProps) {
   const values = { maps, scenes, skipped }
   const shown = KINDS.filter((k) => values[k.key] > 0)
@@ -38,7 +41,11 @@ export function TypeCounts({ maps, scenes, skipped = 0, className = '' }: TypeCo
     >
       <span className="sr-only">{description}</span>
       {shown.map(({ key, icon: Icon }) => (
-        <span key={key} className="inline-flex items-center gap-0.5" aria-hidden>
+        <span
+          key={key}
+          className={`inline-flex items-center gap-0.5 ${TONE[key] ?? ''}`}
+          aria-hidden
+        >
           {values[key].toLocaleString()}
           <Icon className="h-3 w-3 shrink-0" />
         </span>

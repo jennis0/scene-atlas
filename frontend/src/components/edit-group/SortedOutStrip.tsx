@@ -34,9 +34,12 @@ export function SortedOutStrip({ groupId, count, importing, onIncluded }: Sorted
   const [truncated, setTruncated] = useState(false)
   const [error, setError] = useState(false)
   const [busy, setBusy] = useState(false)
+  // Bumped to re-read the list in place: what's shown stays until the fresh list
+  // arrives, so the strip keeps its scroll position
+  const [version, setVersion] = useState(0)
 
   useEffect(() => {
-    if (!open || items !== null) return
+    if (!open) return
     let cancelled = false
     setError(false)
     getImportManager()
@@ -50,7 +53,7 @@ export function SortedOutStrip({ groupId, count, importing, onIncluded }: Sorted
     return () => {
       cancelled = true
     }
-  }, [open, items, groupId])
+  }, [open, groupId, version])
 
   if (count === 0 && importing === 0) return null
 
@@ -58,8 +61,9 @@ export function SortedOutStrip({ groupId, count, importing, onIncluded }: Sorted
     setBusy(true)
     try {
       const result = await getImportManager().include(ids)
-      // Reload: a truncated list brings in the next ones, and the count is re-read
-      setItems(null)
+      // Drop them in place, then re-read: a truncated list brings in the next ones
+      setItems((prev) => prev?.filter((i) => !ids.includes(i.id)) ?? null)
+      setVersion((v) => v + 1)
       onIncluded(result.affected, result.job_ids)
       toast.success(`Importing ${plural(result.affected, 'image')}`, {
         description: 'They will appear in this group once imported.',
@@ -114,7 +118,10 @@ export function SortedOutStrip({ groupId, count, importing, onIncluded }: Sorted
           {error ? (
             <p className="text-xs text-muted-foreground">
               Couldn't load them.{' '}
-              <button className="text-primary hover:underline" onClick={() => setItems(null)}>
+              <button
+                className="text-primary hover:underline"
+                onClick={() => setVersion((v) => v + 1)}
+              >
                 Try again
               </button>
             </p>
