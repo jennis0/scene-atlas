@@ -5,32 +5,31 @@
   </picture>
 </p>
 
-<p align="center"><strong>Find any map in your collection by describing it.</strong></p>
+<p align="center"><strong>Art and map management for game masters.</strong></p>
 
 <p align="center">
   <a href="#download">Download</a> ·
   <a href="docs/guide/what-is-scene-atlas.md">Guide</a> ·
-  <a href="#run-it-on-a-server">Self-hosting</a> ·
+  <a href="#self-hosting">Self-hosting</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
-Scene Atlas organises and searches large collections of battlemaps and scene art. Type "a snowy ruined temple at night" and it finds the maps that look like that, whatever the files are called. It runs on your own computer, or on your own server.
+Scene Atlas keeps your battlemaps and scene art in one place and helps you find the right one fast. Describe the map you need, like "flooded crypt" or "market square at dusk", and it finds it by what's in the image, not what the file is called. Drop in the folders and zips from your map downloads and it groups the variants and detects the grid.
 
-## What it does
+Free and open source. Runs as a desktop app on Windows, macOS and Linux, or self-hosted on your own server.
 
-- **Search by description.** Describe what you're after and get the maps that look like it. Narrow it down with keywords, tags, colour and grid type.
-- **Variants kept together.** The day, night, snowy and gridless versions of a map sit together as one scene.
-- **Battlemaps and scenes.** Battlemaps get their grid detected. Vistas, portraits and encounter art are kept alongside them.
-- **Tags that fit your games.** Start from packs for fantasy, sci-fi, horror, cyberpunk or historical play, then add your own.
-- **Built for big libraries.** Tested on a library of 56,000 images.
+## Features
 
-## Your data stays with you
-
-Your images, your library and your searches stay on your machine. There are no accounts and no analytics. Scene Atlas goes online only to download its search model from Hugging Face.
+- **Search by content, not filename:** describe what you're looking for and get the maps that match. You can also search by name, creator or tag.
+- **Import whole collections:** folders and zip files straight from your downloads, with duplicates skipped.
+- **Variants together:** the day, night, winter and gridless versions of a map stay grouped as one.
+- **Grid detection:** square and hex grids found on battlemaps, so you know the grid before it goes into your VTT.
+- **Filters:** by type, grid, colour and tags, with tag packs for fantasy, sci-fi, horror, cyberpunk and historical games.
+- **Handles big libraries:** tested with over 56,000 images.
 
 ## Download
 
-Get the installer for your computer from [Releases](https://github.com/jennis0/scene-atlas/releases).
+Get the installer for your system from [Releases](https://github.com/jennis0/scene-atlas/releases).
 
 | System | Download |
 |---|---|
@@ -38,15 +37,13 @@ Get the installer for your computer from [Releases](https://github.com/jennis0/s
 | macOS 13 or later | `.dmg`, Apple Silicon only |
 | Linux | `.AppImage` or `.deb` (x64) |
 
-The installers aren't signed yet, so Windows and macOS warn you the first time you open Scene Atlas. [How to open it anyway](docs/deploy/desktop.md#first-launch-warnings).
+The installers aren't signed yet, so Windows and macOS warn you the first time you open Scene Atlas: [how to open it anyway](docs/deploy/desktop.md#first-launch-warnings). You'll need 8 GB of RAM, 16 GB recommended.
 
 > No release has been published yet. Until the first one, run Scene Atlas [from source](docs/development/building.md).
 
-You'll need 8 GB of RAM (16 GB recommended), and room on disk for a copy of your images.
+## Self-hosting
 
-## Run it on a server
-
-Run Scene Atlas on a home server to reach your library from anywhere:
+Run Scene Atlas on your own server to reach your library from anywhere:
 
 ```bash
 git clone https://github.com/jennis0/scene-atlas.git

@@ -22,7 +22,7 @@ from scripts.build.build_icons import GOLD, NAVY, PARCHMENT, ROOT, _bounds, mark
 
 FONTS = ROOT / "electron" / "fonts"
 WORDMARK = "Scene Atlas"
-TAGLINE = "Find any map in your collection by describing it."
+TAGLINE = "Art and map management for game masters."
 SUBLINE = "Free and open source  ·  Windows, macOS, Linux and self-hosted"
 
 # Light theme colours from the Navy palette's light mode (frontend/src/index.css)
