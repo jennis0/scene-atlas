@@ -9,6 +9,9 @@ import { LibraryInfoDialog } from './LibraryInfoDialog'
 function makeMockElectronAPI(): NonNullable<Window['electronAPI']> {
   return {
     platform: 'win32',
+    displayPrefs: {},
+    setDisplayPref: vi.fn().mockResolvedValue(undefined),
+    setWindowColors: vi.fn().mockResolvedValue(undefined),
     onBackendError: vi.fn(),
     getAppDataDir: vi.fn().mockResolvedValue('C:\\Users\\test\\AppData\\Roaming\\Scene Atlas'),
     getImageLibraryDir: vi

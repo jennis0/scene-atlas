@@ -7,6 +7,7 @@ import { applyTextSize, getStoredTextSize } from './lib/textSize'
 import { watchShortWindow } from './lib/compactLayout'
 import { watchContrast } from './lib/contrast'
 import { applyTheme, readThemePreference, resolveTheme } from './lib/theme'
+import { syncPrefsWithDesktop } from './lib/prefsStorage'
 import { TagColorProvider } from './contexts/TagColorContext'
 import App from './App'
 // Bundled so the desktop app renders correctly offline.
@@ -17,6 +18,8 @@ import '@fontsource-variable/jetbrains-mono/wght.css'
 import '@fontsource-variable/newsreader/opsz.css'
 import './index.css'
 
+// Desktop: the app config's display choices win over this origin's localStorage
+syncPrefsWithDesktop()
 // Apply saved display choices before first paint (default = follow the system, navy)
 applyTheme(resolveTheme(readThemePreference()))
 applyPalette(getStoredPalette())

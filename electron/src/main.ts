@@ -11,7 +11,14 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { ChildProcess } from 'child_process'
 import { findFreePort, spawnSidecar } from './sidecar'
-import { getDefaultDirs, loadConfig, saveConfig } from './config'
+import { getDefaultDirs, loadConfig, saveConfig, updateConfig } from './config'
+import {
+  isDisplayPref,
+  sanitizeWindowColors,
+  themeSourceFor,
+  THEME_PREF_KEY,
+  withDisplayPref,
+} from './displayPrefs'
 import { hasForeignEntries, prepareStorageDirs } from './storageDirs'
 
 const isDev = !app.isPackaged
@@ -41,9 +48,11 @@ if (!hasInstanceLock) {
 
 // Window helpers
 
-/** The navy palette's page background and text (frontend/src/index.css), per system theme.
- * Windows open before the UI can say which theme the user chose (design/first-run.md). */
+/** The colours a new window starts in: the UI's last reported ones, else the navy palette's
+ * page background and text (frontend/src/index.css) for the current light/dark. */
 function windowColors(): { background: string; foreground: string } {
+  const saved = loadConfig()?.windowColors
+  if (saved) return saved
   return nativeTheme.shouldUseDarkColors
     ? { background: '#0e1118', foreground: '#ede8dc' }
     : { background: '#eee9e2', foreground: '#2b2622' }
@@ -194,7 +203,7 @@ const IMPORT_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'webm', 'zip']
 
 // IPC
 
-function assertTrusted(event: IpcMainInvokeEvent): void {
+function assertTrusted(event: { senderFrame?: Electron.WebFrameMain | null }): void {
   const url = event.senderFrame?.url
   if (!url || !isAppUrl(url)) {
     throw new Error(`Rejected IPC from untrusted origin: ${url ?? '<unknown>'}`)
@@ -214,6 +223,41 @@ function handleTrusted(
 function isAbsolutePath(value: unknown): value is string {
   return typeof value === 'string' && value.trim() !== '' && path.isAbsolute(value)
 }
+
+// Display choices (design/first-run.md): the UI keeps them in the config as well as its
+// localStorage, which is tied to the backend's port. Synchronous on purpose: the preload
+// needs them before the page's first paint.
+ipcMain.on('prefs:get-sync', (event) => {
+  try {
+    assertTrusted(event)
+    event.returnValue = loadConfig()?.displayPrefs ?? {}
+  } catch {
+    event.returnValue = {}
+  }
+})
+
+handleTrusted('prefs:set', (_event, key, value) => {
+  const config = loadConfig()
+  if (!config || typeof value !== 'string' || !isDisplayPref(key, value)) return
+  const prefs = config.displayPrefs ?? {}
+  if (prefs[key] === value) return
+  updateConfig({ displayPrefs: withDisplayPref(prefs, key, value) })
+  if (key === THEME_PREF_KEY) nativeTheme.themeSource = themeSourceFor({ [key]: value })
+})
+
+// The UI reports its colours whenever its theme changes, so the window background and the
+// Windows/Linux title-bar controls match it, now and at the next launch.
+handleTrusted('window:set-colors', (event, raw) => {
+  const colors = sanitizeWindowColors(raw)
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (!colors || !win) return
+  win.setBackgroundColor(colors.background)
+  if (!isMac) win.setTitleBarOverlay({ color: colors.background, symbolColor: colors.foreground })
+  const saved = loadConfig()?.windowColors
+  if (saved?.background !== colors.background || saved?.foreground !== colors.foreground) {
+    updateConfig({ windowColors: colors })
+  }
+})
 
 handleTrusted('setup:get-default-dirs', () => getDefaultDirs())
 
@@ -514,6 +558,8 @@ function stopSidecar(timeoutMs = 5000): Promise<void> {
 
 function start(): void {
   const config = loadConfig()
+  // Every window, including the loading page, follows the UI's theme choice
+  nativeTheme.themeSource = themeSourceFor(config?.displayPrefs ?? {})
   if (config) {
     void launchApp(config.appDataDir, config.imageLibraryDir)
   } else {

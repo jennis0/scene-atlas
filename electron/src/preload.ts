@@ -10,8 +10,23 @@ ipcRenderer.on('backend-error', (_event, message: string) => {
   errorListeners.forEach((cb) => cb(message))
 })
 
+// The UI's display choices from the app config, read before the page's first paint
+// (design/first-run.md). A snapshot: the UI keeps later changes itself.
+let displayPrefs: Record<string, string> = {}
+try {
+  displayPrefs = ipcRenderer.sendSync('prefs:get-sync') ?? {}
+} catch {
+  // Main process unavailable: the UI falls back to its localStorage
+}
+
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
+
+  displayPrefs,
+  setDisplayPref: (key: string, value: string): Promise<void> =>
+    ipcRenderer.invoke('prefs:set', key, value),
+  setWindowColors: (colors: { background: string; foreground: string }): Promise<void> =>
+    ipcRenderer.invoke('window:set-colors', colors),
 
   onBackendError: (callback: (message: string) => void): (() => void) => {
     errorListeners.add(callback)

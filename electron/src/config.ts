@@ -1,10 +1,20 @@
 import { app } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
+import {
+  sanitizeDisplayPrefs,
+  sanitizeWindowColors,
+  type DisplayPrefs,
+  type WindowColors,
+} from './displayPrefs'
 
 interface AppConfig {
   appDataDir: string
   imageLibraryDir: string
+  /** The UI's display choices, so they survive a change of backend port (displayPrefs.ts) */
+  displayPrefs?: DisplayPrefs
+  /** The UI's last background and text colours, for the window and title bar at launch */
+  windowColors?: WindowColors
 }
 
 /** Legacy config shape written by older versions. */
@@ -45,7 +55,13 @@ export function loadConfig(): AppConfig | null {
     if (!parsed.appDataDir || !parsed.imageLibraryDir) return null
     // Older configs may also carry convertToWebp or pendingStoredFormat: the stored format
     // is now chosen in the setup wizard and kept by the backend (design/first-run.md).
-    return { appDataDir: parsed.appDataDir, imageLibraryDir: parsed.imageLibraryDir }
+    const windowColors = sanitizeWindowColors(parsed.windowColors)
+    return {
+      appDataDir: parsed.appDataDir,
+      imageLibraryDir: parsed.imageLibraryDir,
+      displayPrefs: sanitizeDisplayPrefs(parsed.displayPrefs),
+      ...(windowColors ? { windowColors } : {}),
+    }
   } catch {
     return null
   }
@@ -55,6 +71,12 @@ export function saveConfig(config: AppConfig): void {
   const configPath = getConfigPath()
   fs.mkdirSync(path.dirname(configPath), { recursive: true })
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2))
+}
+
+/** Merge *patch* into the saved config. No-op before setup has saved one. */
+export function updateConfig(patch: Partial<AppConfig>): void {
+  const config = loadConfig()
+  if (config) saveConfig({ ...config, ...patch })
 }
 
 export function getDefaultDirs(): { appDataDir: string; imageLibraryDir: string } {

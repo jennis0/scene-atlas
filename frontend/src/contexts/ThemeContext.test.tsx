@@ -186,4 +186,29 @@ describe('ThemeContext', () => {
     expect(localStorage.getItem(STORAGE_KEY)).toBe('system')
     expect(document.documentElement.classList.contains('dark')).toBe(false)
   })
+
+  it('reports the window colours to the desktop app, and again when the theme changes', async () => {
+    const setWindowColors = vi.fn().mockResolvedValue(undefined)
+    ;(window as { electronAPI?: unknown }).electronAPI = {
+      displayPrefs: {},
+      setDisplayPref: vi.fn().mockResolvedValue(undefined),
+      setWindowColors,
+    }
+    document.body.style.backgroundColor = 'rgb(14, 17, 24)'
+    document.body.style.color = 'rgb(237, 232, 220)'
+    try {
+      const user = userEvent.setup()
+      renderConsumer()
+      expect(setWindowColors).toHaveBeenLastCalledWith({
+        background: '#0e1118',
+        foreground: '#ede8dc',
+      })
+      const calls = setWindowColors.mock.calls.length
+      await user.click(screen.getByText('Toggle'))
+      expect(setWindowColors.mock.calls.length).toBeGreaterThan(calls)
+    } finally {
+      delete (window as { electronAPI?: unknown }).electronAPI
+      document.body.removeAttribute('style')
+    }
+  })
 })
