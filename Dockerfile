@@ -10,7 +10,7 @@ RUN npm run build
 
 
 # ── Stage 2: Backend runtime ─────────────────────────────────────────────────
-FROM python:3.12-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 # Build arg: which onnxruntime extra to install (cpu, gpu, gpu-directml)
 ARG EXTRA=cpu
