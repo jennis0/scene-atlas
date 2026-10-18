@@ -168,7 +168,7 @@ Bulk edits (`services/bulk_edit_service.py`) have the single-image endpoints' si
 | DELETE | `/{tag_id}` | Remove a tag |
 | GET | `/stats` | Tag statistics |
 | GET | `/packs` | Tag packs with import status |
-| POST | `/packs/import-multiple` | Import several packs (setup wizard; rate limited: expensive) |
+| PUT | `/packs` | Install exactly these packs (setup wizard only: 409 once setup is complete) |
 | POST | `/packs/{name}/import` | Import one pack (rate limited: expensive) |
 | POST | `/retag-all` | Retag job (rate limited: expensive) |
 

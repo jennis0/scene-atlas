@@ -1,34 +1,29 @@
-import { useRef, type KeyboardEvent } from 'react'
 import { Check } from 'lucide-react'
+import { useRovingRadioGroup } from '@/hooks/useRovingRadioGroup'
 import { PALETTES, type Palette } from '@/lib/palette'
+import { useSettingRowDescriptionId } from './settingRowContext'
 
 interface PalettePickerProps {
   value: Palette
   onChange: (palette: Palette) => void
 }
 
-const NEXT_KEYS = ['ArrowRight', 'ArrowDown']
-const PREV_KEYS = ['ArrowLeft', 'ArrowUp']
-
 /** One card per palette, each drawn in that palette's own tokens (the data-palette
  * attribute scopes them; see index.css) and in the current light/dark mode. A radio
  * group: one tab stop, arrow keys move and select. */
 export function PalettePicker({ value, onChange }: PalettePickerProps) {
-  const buttons = useRef<(HTMLButtonElement | null)[]>([])
-
-  const onKeyDown = (event: KeyboardEvent, index: number) => {
-    const step = NEXT_KEYS.includes(event.key) ? 1 : PREV_KEYS.includes(event.key) ? -1 : 0
-    if (!step) return
-    event.preventDefault()
-    const next = (index + step + PALETTES.length) % PALETTES.length
-    onChange(PALETTES[next].value)
-    buttons.current[next]?.focus()
-  }
+  const itemProps = useRovingRadioGroup(
+    PALETTES.map((p) => p.value),
+    value,
+    onChange,
+  )
+  const descriptionId = useSettingRowDescriptionId()
 
   return (
     <div
       role="radiogroup"
       aria-label="Palette"
+      aria-describedby={descriptionId}
       className="grid grid-cols-[repeat(auto-fill,minmax(7.5rem,1fr))] gap-2"
     >
       {PALETTES.map((option, index) => {
@@ -36,16 +31,8 @@ export function PalettePicker({ value, onChange }: PalettePickerProps) {
         return (
           <button
             key={option.value}
-            ref={(el) => {
-              buttons.current[index] = el
-            }}
-            type="button"
-            role="radio"
-            aria-checked={selected}
-            tabIndex={selected ? 0 : -1}
+            {...itemProps(index)}
             title={option.title}
-            onClick={() => onChange(option.value)}
-            onKeyDown={(e) => onKeyDown(e, index)}
             className={`group flex flex-col rounded-md border p-1 text-left transition-colors ${
               selected ? 'border-primary' : 'border-border/60 hover:border-border'
             }`}
@@ -70,7 +57,10 @@ export function PalettePicker({ value, onChange }: PalettePickerProps) {
             >
               <span>{option.label}</span>
               {selected && (
-                <Check className="ml-auto mt-0.5 h-3 w-3 flex-shrink-0 text-primary-ink" />
+                <Check
+                  aria-hidden="true"
+                  className="ml-auto mt-0.5 h-3 w-3 flex-shrink-0 text-primary-ink"
+                />
               )}
             </span>
           </button>

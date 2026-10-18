@@ -113,13 +113,10 @@ export const tagApi = {
     return data
   },
 
-  importMultipleTagPacks: async (
-    packNames: string[],
-  ): Promise<{ imported: string[]; errors: string[] }> => {
-    const { data } = await api.post<{ imported: string[]; errors: string[] }>(
-      '/tags/packs/import-multiple',
-      { packs: packNames },
-    )
+  /** Install exactly these packs, removing any others. Setup wizard only: refused once
+   * setup is complete. Returns the packs' new status. */
+  setInstalledPacks: async (packNames: string[]): Promise<TagPack[]> => {
+    const { data } = await api.put<TagPack[]>('/tags/packs', { packs: packNames })
     return data
   },
 }

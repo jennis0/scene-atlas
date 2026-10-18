@@ -15,7 +15,7 @@ describe('PalettePicker', () => {
   it('marks the current palette checked and makes it the only tab stop', () => {
     render(<PalettePicker value="lapis" onChange={() => {}} />)
     const checked = screen.getByRole('radio', { checked: true })
-    expect(checked).toHaveAccessibleName(/Slate & lapis/)
+    expect(checked).toHaveAccessibleName(/Slate/)
     expect(checked).toHaveAttribute('tabindex', '0')
     expect(screen.getAllByRole('radio').filter((r) => r.tabIndex === 0)).toHaveLength(1)
   })
@@ -23,7 +23,7 @@ describe('PalettePicker', () => {
   it('selects on click', () => {
     const onChange = vi.fn()
     render(<PalettePicker value="navy" onChange={onChange} />)
-    fireEvent.click(screen.getByRole('radio', { name: /Walnut & sienna/ }))
+    fireEvent.click(screen.getByRole('radio', { name: /Brown/ }))
     expect(onChange).toHaveBeenCalledWith('sienna')
   })
 

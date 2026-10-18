@@ -1,4 +1,5 @@
 import { useId, type ReactNode } from 'react'
+import { Circle, CircleDot } from 'lucide-react'
 
 /** What a card shows */
 interface Choice {
@@ -35,7 +36,9 @@ export function ChoiceCard({ name, choice, checked, onSelect }: ChoiceCardProps)
           : 'border-border bg-card hover:border-border/80 hover:bg-accent/30'
       }`}
     >
-      <label className="block font-semibold text-sm cursor-pointer">
+      {/* The marker shows the choice by shape, not only by colour (WCAG 1.4.1), so it also
+          survives Windows High Contrast, which drops the border and tint colours */}
+      <label className="flex items-center gap-2 font-semibold text-sm cursor-pointer">
         <input
           type="radio"
           name={name}
@@ -45,6 +48,11 @@ export function ChoiceCard({ name, choice, checked, onSelect }: ChoiceCardProps)
           aria-describedby={descriptionId}
           className="sr-only"
         />
+        {checked ? (
+          <CircleDot aria-hidden="true" className="h-4 w-4 shrink-0 text-primary-ink" />
+        ) : (
+          <Circle aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
+        )}
         {label}
       </label>
 

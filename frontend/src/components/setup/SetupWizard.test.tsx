@@ -14,7 +14,7 @@ vi.mock('@/lib/api/modelsApi', () => ({
 }))
 vi.mock('@/lib/api/settingsApi', () => ({ settingsApi: { get: vi.fn(), patch: vi.fn() } }))
 vi.mock('@/lib/api/tagApi', () => ({
-  tagApi: { getTagPacks: vi.fn(), importMultipleTagPacks: vi.fn() },
+  tagApi: { getTagPacks: vi.fn(), setInstalledPacks: vi.fn() },
 }))
 
 const NEW_LIBRARY: SetupStatus = {
@@ -59,6 +59,7 @@ describe('SetupWizard', () => {
     localStorage.clear()
     vi.mocked(settingsApi.get).mockResolvedValue({ stored_format: 'original' } as AppSettings)
     vi.mocked(tagApi.getTagPacks).mockResolvedValue([])
+    vi.mocked(tagApi.setInstalledPacks).mockResolvedValue([])
     vi.mocked(modelsApi.list).mockResolvedValue({ models: [] })
     vi.mocked(modelsApi.setActiveModel).mockResolvedValue({ status: 'started', job_id: 'j1' })
     vi.mocked(modelsApi.setupComplete).mockResolvedValue(undefined as never)
@@ -84,13 +85,13 @@ describe('SetupWizard', () => {
 
     await screen.findByRole('heading', { name: /How should imported images be stored/ })
     await user.click(screen.getByRole('button', { name: 'Back' }))
-    expect(await screen.findByRole('heading', { name: /Welcome/ })).toHaveFocus()
+    expect(await screen.findByRole('heading', { name: 'Welcome to Scene Atlas' })).toHaveFocus()
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     await screen.findByRole('radio', { name: 'Keep files as they are', checked: true })
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    await screen.findByRole('heading', { name: 'Add tag packs' })
+    await screen.findByRole('heading', { name: 'Choose tag packs' })
     await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled())
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
@@ -110,7 +111,7 @@ describe('SetupWizard', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findByRole('radio', { name: 'Keep files as they are', checked: true })
     await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findByRole('heading', { name: 'Add tag packs' })
+    await screen.findByRole('heading', { name: 'Choose tag packs' })
     await waitFor(() => expect(screen.getByRole('button', { name: 'Finish' })).toBeEnabled())
     await user.click(screen.getByRole('button', { name: 'Finish' }))
     await waitFor(() => expect(onComplete).toHaveBeenCalled())

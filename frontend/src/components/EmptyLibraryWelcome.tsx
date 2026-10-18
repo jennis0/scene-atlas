@@ -10,8 +10,7 @@ const steps = [
   {
     Icon: Upload,
     title: '1. Import',
-    description:
-      'Drag in a folder, or use the Import button. Scene Atlas keeps its own copy; your files are never changed.',
+    description: 'Drag in a folder, or use the Import button.',
   },
   {
     Icon: Search,
@@ -21,7 +20,7 @@ const steps = [
   {
     Icon: FolderOpen,
     title: '3. Organize',
-    description: 'Images are grouped and tagged automatically, and you can edit everything.',
+    description: 'Images are grouped and tagged automatically. Edit anything.',
   },
 ]
 
@@ -34,7 +33,7 @@ export function EmptyLibraryWelcome({ embeddingReady, onImport }: EmptyLibraryWe
             Your library is empty
           </h2>
           <p className="text-sm text-muted-foreground">
-            Import your battlemaps, scenes and encounter art to get started.
+            Import your battlemaps, scenes and encounter art.
           </p>
         </div>
 
@@ -62,8 +61,7 @@ export function EmptyLibraryWelcome({ embeddingReady, onImport }: EmptyLibraryWe
           </Button>
           {!embeddingReady && (
             <p role="status" className="text-xs text-muted-foreground">
-              Getting the search model ready. If it&rsquo;s downloading, this can take a few
-              minutes.
+              Getting the search model ready&hellip;
             </p>
           )}
         </div>

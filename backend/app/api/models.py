@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from ..models.database import AppSetting
+from ..models.database import SETUP_COMPLETED_KEY, AppSetting, is_setup_completed
 from ..services import clip_service as _clip_module
 from ..services.clip_service import (
     get_effective_model_name,
@@ -231,9 +231,7 @@ def get_setup_status(db: Session = Depends(get_db)) -> SetupStatusResponse:
 
     recommended = get_default_model(has_gpu)
 
-    setup_completed = (
-        db.query(AppSetting).filter(AppSetting.key == "setup_completed_at").first() is not None
-    )
+    setup_completed = is_setup_completed(db)
     runner = get_job_runner()
     model_activating = any(
         runner.get_active_job_id(_activation_job_name(name)) is not None for name in MODEL_NAMES
@@ -373,6 +371,6 @@ def mark_setup_complete(db: Session = Depends(get_db)) -> dict:
     wizard is not shown again on subsequent visits.
     """
     now_iso = datetime.now(UTC).isoformat()
-    db.merge(AppSetting(key="setup_completed_at", value_json=json.dumps(now_iso)))
+    db.merge(AppSetting(key=SETUP_COMPLETED_KEY, value_json=json.dumps(now_iso)))
     db.commit()
     return {"status": "ok", "setup_completed_at": now_iso}

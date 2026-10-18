@@ -517,6 +517,16 @@ def init_db(engine):
         command.upgrade(alembic_cfg, "head")
 
 
+SETUP_COMPLETED_KEY = "setup_completed_at"
+
+
+def is_setup_completed(session) -> bool:
+    """Whether the first-run setup wizard has been finished (design/first-run.md)."""
+    return (
+        session.query(AppSetting).filter(AppSetting.key == SETUP_COMPLETED_KEY).first() is not None
+    )
+
+
 def seed_tag_categories(session):
     """Seed the tag categories with the ``common`` tag pack.
 

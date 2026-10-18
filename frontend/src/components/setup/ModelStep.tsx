@@ -42,7 +42,7 @@ export function ModelStep({ nav, status }: ModelStepProps) {
       await modelsApi.setActiveModel(selected)
       nav.onNext()
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Could not start the model download.'))
+      setError(getApiErrorMessage(err, "Couldn't start the model download."))
       setStarting(false)
     }
   }
@@ -51,7 +51,7 @@ export function ModelStep({ nav, status }: ModelStepProps) {
     <SetupFrame
       nav={nav}
       title="Choose a search model"
-      description="The model lets you find maps by describing them, like “a snowy forest road at night”. Finish starts the download; you can start importing as soon as it's ready. You can switch models later in Settings."
+      description="Scene Atlas uses a search model to find images from a description, like “a snowy forest road at night”. Larger models give better results but make importing slower."
       primary={{ onClick: handleFinish, busy: starting, disabled: !models }}
       error={error}
     >

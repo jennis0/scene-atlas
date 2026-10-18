@@ -4,7 +4,7 @@
 
 Tag packs are curated vocabularies of tag values grouped by genre. They allow users to install only the tags relevant to their content -- a fantasy-focused library does not need cyberpunk or sci-fi tags cluttering its filters and auto-detection.
 
-Packs exist because Scene Atlas supports a wide range of tabletop RPG genres. Rather than seeding every possible tag at first boot, the system ships a single canonical vocabulary file where each tag value declares which packs it belongs to. First boot installs only the `common` pack (see [First-Boot Seeding](#first-boot-seeding)); genre packs are added from the setup wizard or Settings.
+Packs exist because Scene Atlas supports a wide range of tabletop RPG genres. Rather than seeding every possible tag at first boot, the system ships a single canonical vocabulary file where each tag value declares which packs it belongs to. First boot installs only the `common` pack (see [First-Boot Seeding](#first-boot-seeding)). The setup wizard then installs exactly the packs the user picks, which may leave out `common`; afterwards packs are added from Settings.
 
 ## Vocabulary File
 
@@ -104,7 +104,7 @@ All under `/api/v1/tags`.
 |--------|------|---------|
 | GET | `/packs` | List all packs with import status (`imported`, `new_tags`, `tag_count`) |
 | POST | `/packs/{name}/import` | Import/merge a single pack. 404 for an unknown pack. Rate-limited (`rate_limit_expensive`, default 2/minute) |
-| POST | `/packs/import-multiple` | Body `{"packs": [...]}`. Imports each pack in turn (a failed pack is rolled back without affecting the others); returns `{"imported": [...], "errors": ["name: message", ...]}` with HTTP 200 even when some fail. Rate-limited (`rate_limit_expensive`). Used by the setup wizard |
+| PUT | `/packs` | Body `{"packs": [...]}`. Installs exactly these packs (`set_installed_packs`): every vocabulary category is rebuilt from the chosen packs' tags, and kept even when empty so packs added later have their categories. Returns the pack list as `GET /packs` does. 400 for an unknown pack (nothing changes); 409 once setup is complete, because removing tags then could strip vocabulary images use. Used by the setup wizard |
 
 ## Frontend Integration
 
@@ -120,7 +120,7 @@ Import calls `tagApi.importTagPack(packName)`, invalidates the tag-pack and tag 
 
 ### Setup Wizard
 
-`components/setup/TagPackStep.tsx` is the third step of the setup wizard ([first-run.md](first-run.md)). It lists packs, pre-selects every pack not yet `imported` (already-imported packs, normally just `common`, are shown checked and disabled as "included"), and on Continue sends the selection to `POST /tags/packs/import-multiple`. If the response lists `errors` (or the request fails, e.g. 429), the step stays open with an alert listing them, refreshes the pack list and keeps only the failed packs selected; the user can "Try again" or "Skip for now". Packs imported earlier in the wizard (e.g. before Back) show as "added". When the wizard finishes it calls `POST /api/v1/models/setup-complete`, which writes the `setup_completed_at` app setting.
+`components/setup/TagPackStep.tsx` is the third step of the setup wizard ([first-run.md](first-run.md)). It lists every pack, `common` included, all selected the first time; every pack can be unticked. Continue sends the selection to `PUT /tags/packs`, so the library starts with exactly those packs (possibly none). The wizard keeps the selection, so Back shows it again. If saving fails, the step stays open with the error. When the wizard finishes it calls `POST /api/v1/models/setup-complete`, which writes the `setup_completed_at` app setting and ends the window in which `PUT /tags/packs` is allowed.
 
 `GET /api/v1/models/setup-status` returns `setup_completed: false` until `setup_completed_at` exists, and `App.tsx` shows the wizard until then. The wizard runs in every mode, desktop included.
 
@@ -133,11 +133,11 @@ Import calls `tagApi.importTagPack(packName)`, invalidates the tag-pack and tag 
 | `backend/app/data/tag_vocabulary.json` | Canonical vocabulary -- all packs, categories, tags, and aliases |
 | `backend/app/data/vocabulary.py` | Vocabulary loader -- `load_vocabulary()`, `get_tags_for_packs()`, `build_common_values_json()` |
 | `backend/app/services/tag_packs.py` | Pack import logic -- `get_pack_status()`, `import_tag_pack()` |
-| `backend/app/api/tags.py` | API endpoints -- `GET /packs`, `POST /packs/{name}/import`, `POST /packs/import-multiple` |
+| `backend/app/api/tags.py` | API endpoints -- `GET /packs`, `PUT /packs`, `POST /packs/{name}/import` |
 | `backend/app/api/models.py` | `GET /models/setup-status` (`setup_completed`), `POST /models/setup-complete` |
 | `backend/app/models/database.py` | `TagCategory` model, `seed_tag_categories()` first-boot seeding |
 | `frontend/src/components/settings/SettingsTabContent.tsx` | `TagPacksSection` (Settings) |
 | `frontend/src/components/setup/TagPackCard.tsx` | Pack card used in Settings |
 | `frontend/src/components/setup/TagPackStep.tsx` | Setup wizard pack selection step |
-| `frontend/src/lib/api/tagApi.ts` | Frontend API client -- `getTagPacks()`, `importTagPack()`, `importMultipleTagPacks()` |
+| `frontend/src/lib/api/tagApi.ts` | Frontend API client -- `getTagPacks()`, `importTagPack()`, `setInstalledPacks()` |
 | `frontend/src/types/index.ts` | `TagPack` TypeScript interface |

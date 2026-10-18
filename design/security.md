@@ -58,7 +58,7 @@ Staging is per job: `{APP_DATA_DIR}/staging/{job_id}/{staging_key}`. `staging_ke
 
 `slowapi`, keyed on the client address (`request.client.host`), with two tiers:
 
-- **expensive** (`RATE_LIMIT_EXPENSIVE`, default `2/minute`): `POST /search/rebuild-embeddings`, `GET /export/library`, `PATCH /settings/`, `POST /tags/retag-all`, `POST /tags/packs/{name}/import`, `POST /tags/packs/import-multiple`, `POST /images/backfill-grids`
+- **expensive** (`RATE_LIMIT_EXPENSIVE`, default `2/minute`): `POST /search/rebuild-embeddings`, `GET /export/library`, `PATCH /settings/`, `POST /tags/retag-all`, `POST /tags/packs/{name}/import`, `POST /images/backfill-grids`
 - **destructive** (`RATE_LIMIT_DESTRUCTIVE`, default `1/minute`): `DELETE /system/library`, `POST /system/tags/reset`
 
 `RATE_LIMIT_ENABLED=false` disables it.
