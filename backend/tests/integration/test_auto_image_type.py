@@ -223,16 +223,17 @@ def test_scene_takes_the_scene_parse(auto):
     job_id = import_files(
         auto,
         {
-            "A/Keep/Keep_Gridded_20x30.png": solid("red"),
-            "A/Keep/Keep_Gridded_30x20.png": solid("green"),
+            # Landscape sizes for the 64x48 test images (ingest orients NxM to the image)
+            "A/Keep/Keep_Day_Gridded_30x20.png": solid("red"),
+            "A/Keep/Keep_Night_Gridded_30x20.png": solid("green"),
         },
     )
     auto.worker.drain()
     items = rows(auto, job_id)
-    assert "scene_tags" in json.loads(items["A/Keep/Keep_Gridded_20x30.png"].parsed)
-    as_map = image_for(auto, items["A/Keep/Keep_Gridded_20x30.png"])
-    as_scene = image_for(auto, items["A/Keep/Keep_Gridded_30x20.png"])
-    assert (as_map.gridded, as_map.grid_width, as_map.grid_height) == (True, 20, 30)
+    assert "scene_tags" in json.loads(items["A/Keep/Keep_Day_Gridded_30x20.png"].parsed)
+    as_map = image_for(auto, items["A/Keep/Keep_Day_Gridded_30x20.png"])
+    as_scene = image_for(auto, items["A/Keep/Keep_Night_Gridded_30x20.png"])
+    assert (as_map.gridded, as_map.grid_width, as_map.grid_height) == (True, 30, 20)
     assert (as_scene.gridded, as_scene.grid_width, as_scene.grid_height) == (None, None, None)
     assert as_map.group_id == as_scene.group_id  # one group, as before
 

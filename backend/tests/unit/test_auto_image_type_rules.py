@@ -15,6 +15,7 @@ PARSED = {
     "grid_width": 20,
     "grid_height": 30,
     "grid_type": "square",
+    "grid_size_alternatives": [[2, 30]],
 }
 
 
@@ -22,6 +23,7 @@ def test_effective_parse_of_a_scene_drops_the_file_names_grid():
     scene = effective_parsed("scene", PARSED)
     assert scene["tags"] == []
     assert all(scene[k] is None for k in ("gridded", "grid_width", "grid_height", "grid_type"))
+    assert scene["grid_size_alternatives"] == []
     assert scene["name"] == "Keep"
 
 

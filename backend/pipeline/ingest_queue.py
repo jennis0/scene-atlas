@@ -289,6 +289,7 @@ def effective_parsed(image_type: str, parsed: dict) -> dict:
         **parsed,
         "tags": parsed["scene_tags"],
         **dict.fromkeys(_FILENAME_GRID_FIELDS),
+        "grid_size_alternatives": [],
     }
 
 
