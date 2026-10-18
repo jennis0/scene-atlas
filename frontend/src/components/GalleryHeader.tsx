@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { Upload, LayoutGrid, Layers, Tag, Settings, Sun, Moon, Loader2 } from 'lucide-react'
+import { BrandMark } from '@/components/brand/BrandMark'
 import { GalleryFilterPanel } from '@/components/GalleryFilterPanel'
 import { GallerySearchBar } from '@/components/GallerySearchBar'
 import { GalleryResultsBar } from '@/components/GalleryResultsBar'
@@ -146,8 +147,9 @@ export function GalleryHeader({
         >
           <div className={compact ? 'flex items-stretch gap-x-6 self-stretch' : ''}>
             <h1
-              className={`font-wordmark font-medium tracking-wide text-foreground ${compact ? 'text-xl self-center' : 'text-2xl'}`}
+              className={`flex items-center gap-[0.45em] font-wordmark font-medium tracking-wide text-foreground ${compact ? 'text-xl self-center' : 'text-2xl'}`}
             >
+              <BrandMark className="h-[1.05em] w-auto shrink-0" />
               Scene Atlas
             </h1>
             {compact && tabStrip}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { Check } from 'lucide-react'
+import { BrandMark } from '@/components/brand/BrandMark'
 import { Button } from '@/components/ui/button'
 import { STEP_LABELS, type StepId, type StepNav } from './steps'
 
@@ -46,7 +47,10 @@ export function SetupFrame({
     <div className="min-h-dvh bg-background text-foreground flex justify-center px-4 py-8 sm:py-12">
       <main className="w-full max-w-[44rem] flex flex-col gap-6">
         <header className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-3">
-          <p className="font-wordmark text-2xl font-medium tracking-wide">Scene Atlas</p>
+          <p className="flex items-center gap-[0.45em] font-wordmark text-2xl font-medium tracking-wide">
+            <BrandMark className="h-[1.05em] w-auto shrink-0" />
+            Scene Atlas
+          </p>
           {nav.steps.length > 1 && <StepList steps={nav.steps} current={nav.index} />}
         </header>
 

@@ -25,8 +25,17 @@ Why the curves matter: an earlier draft drew the pages as flat panels meeting in
 | `assets/icon.png`, `assets/icon.icns` | Linux and macOS app icons (1024 px), from `icon.svg` |
 | `assets/icon.ico` | Windows app icon, 16–256 px, from the full-bleed tile (Windows shows icons small and without the macOS margin) |
 | `frontend/public/favicon.svg`, `docs/public/favicon.svg` | Web UI and docs site favicons; the docs nav bar also uses it as its logo |
+| `frontend/src/components/brand/markPaths.ts` | The mark's paths for `BrandMark` (generated) |
+| `electron/setup.html`, `electron/loading.html` | Inline SVG between `<!-- brand-mark -->` comments (generated) |
 
 `electron-builder.yml` already points at `assets/icon.{ico,icns,png}`.
+
+## In the app: themed
+
+The icons and favicons are fixed in the Navy palette: the OS shows app icons before the app runs, and a stable favicon is easier to find among tabs. Inside the app, the mark follows the theme:
+
+- **Web UI:** `BrandMark` (`frontend/src/components/brand/`) sits beside the wordmark in the gallery header and the setup wizard. The pages use `fill-foreground` and the band `fill-primary`, so the mark follows palette, light/dark and contrast level: parchment pages on dark themes, ink pages on light ones. It is sized in `em` so it scales with the wordmark and the text size setting, and is `aria-hidden` because the wordmark next to it carries the name.
+- **Electron storage and loading windows:** these are plain HTML before React loads. The script injects the same paths as inline SVG, coloured by each page's `--fg` and `--primary` (classes `mark-page` and `mark-band`), so they follow the OS light/dark setting like the rest of those pages.
 
 ## Rebuilding
 

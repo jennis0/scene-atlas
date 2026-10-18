@@ -10,9 +10,11 @@ from scripts.build.build_icons import (
     MARK,
     _bounds,
     _placement,
+    inject_inline_svg,
     mark_shapes,
     render,
     to_svg,
+    to_typescript,
 )
 
 SVG_NS = "{http://www.w3.org/2000/svg}"
@@ -52,3 +54,34 @@ def test_render_size_and_transparent_corners(px):
     # the full-bleed tile has rounded corners, so the very corner pixel is transparent
     alpha = img.getpixel((0, 0))
     assert isinstance(alpha, tuple) and alpha[3] < 64
+
+
+def test_typescript_has_the_tight_viewbox_and_two_of_each_path():
+    ts = to_typescript()
+    assert "export const MARK_VIEWBOX = '52 " in ts
+    bands = ts.split("MARK_BANDS = [")[1].split("]")[0]
+    pages = ts.split("MARK_PAGES = [")[1].split("]")[0]
+    assert bands.count("'M") == 2
+    assert pages.count("'M") == 2
+
+
+def test_inject_replaces_the_marked_block_and_is_repeatable(tmp_path):
+    page = tmp_path / "page.html"
+    page.write_text("<h1><!-- brand-mark -->old<!-- /brand-mark -->Scene Atlas</h1>")
+    inject_inline_svg(page)
+    once = page.read_text()
+    inject_inline_svg(page)
+    assert page.read_text() == once
+    assert "old" not in once
+    assert once.count('class="mark-band"') == 2
+    assert once.count('class="mark-page"') == 2
+
+
+@pytest.mark.parametrize(
+    "html", ["<h1>Scene Atlas</h1>", "<!-- brand-mark --><!-- /brand-mark -->" * 2]
+)
+def test_inject_refuses_a_page_without_exactly_one_block(tmp_path, html):
+    page = tmp_path / "page.html"
+    page.write_text(html)
+    with pytest.raises(SystemExit):
+        inject_inline_svg(page)
