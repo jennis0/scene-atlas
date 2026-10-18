@@ -6,9 +6,11 @@ import logging
 
 import cv2
 import numpy as np
-from sklearn.cluster import KMeans
 
 from backend.pipeline.pipeline_config import PipelineConfig
+
+# Stop when no centre moves by more than half a colour level, or after 100 rounds.
+_KMEANS_CRITERIA = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.5)
 
 
 def rgb_to_hex(rgb: tuple) -> str:
@@ -72,15 +74,24 @@ def extract_dominant_colors(
         indices = np.random.choice(len(pixels), _clustering_samples, replace=False)
         pixels = pixels[indices]
 
-    # Apply k-means clustering
-    kmeans = KMeans(n_clusters=_num_colors, random_state=42, n_init=_n_init)  # pyright: ignore[reportArgumentType]
-    labels = kmeans.fit_predict(pixels)
-
-    # Get cluster centers (dominant colors)
-    colors = kmeans.cluster_centers_
+    # k-means++ (OpenCV's, not scikit-learn's: one less dependency in the desktop
+    # sidecar). A tiny image can have fewer pixels than clusters.
+    k = min(_num_colors, len(pixels))
+    # bestLabels=None (no initial labels) is OpenCV's documented usage; its stubs omit it.
+    _, labels, colors = cv2.kmeans(  # pyright: ignore[reportCallIssue]
+        pixels.astype(np.float32),
+        k,
+        None,  # pyright: ignore[reportArgumentType]
+        _KMEANS_CRITERIA,
+        _n_init,
+        cv2.KMEANS_PP_CENTERS,
+    )
+    labels = labels.ravel()
+    # float32 centres land just under whole numbers (29.99998), which rgb_to_hex truncates
+    colors = np.rint(colors)
 
     # Get the percentage of each color
-    label_counts = np.bincount(labels)
+    label_counts = np.bincount(labels, minlength=k)
     total_pixels = len(labels)
     percentages = (label_counts / total_pixels) * 100
 

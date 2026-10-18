@@ -4,11 +4,12 @@
 #
 # Build with:
 #   uv run python scripts/build/build_sidecar.py
-# or directly:
-#   uv run pyinstaller backend/pyinstaller/scene_atlas_backend.spec
+# which runs PyInstaller from .venv-sidecar, a venv holding only the runtime
+# dependencies. Don't run it from the dev venv: PyInstaller bundles whatever optional
+# imports it can resolve, so the dev tools (IPython, transformers, onnx...) come too.
 #
-# Output: backend/pyinstaller/dist/scene-atlas-backend/
-# The build_sidecar.py script copies this to the Electron extraResources path.
+# Output: backend/pyinstaller/dist/scene-atlas-backend/, which electron-builder's
+# extraResources bundles as resources/sidecar/.
 #
 # ONNX models are NOT bundled — they are downloaded from HuggingFace at
 # runtime by model_download_service.  The sidecar only needs huggingface_hub
@@ -93,12 +94,7 @@ a = Analysis(
         'pyarrow',
         # OpenCV (headless)
         'cv2',
-        # scikit-learn
-        'sklearn',
-        'sklearn.utils._cython_blas',
-        'sklearn.neighbors._partition_nodes',
-        'sklearn.tree._utils',
-        # scipy (full package collected — sklearn has transitive deps throughout)
+        # scipy (grid detection: ndimage, signal)
         'scipy',
         'scipy.special._ufuncs_cxx',
         'scipy.linalg.cython_blas',
@@ -119,36 +115,27 @@ a = Analysis(
         'PIL.Image',
         'yaml',
     ] + tokenizers_hiddenimports + lancedb_hiddenimports,
+    # Dev tools need no excludes: the build venv doesn't have them (see the header).
+    # These are optional parts of runtime packages that their importers already treat
+    # as missing-is-fine (try/except ImportError), checked against the import tables.
     excludes=[
-        # GUI toolkits — not needed server-side
         'tkinter',
         '_tkinter',
-        'wx',
-        'PyQt5',
-        'PyQt6',
-        # Dev/test tools
-        'pytest',
-        'pytest_asyncio',
-        'ruff',
-        'ipywidgets',
-        'matplotlib',
-        'notebook',
-        'jupyter',
-        'ipython',
-        'jedi',           # IDE code completion — not needed at runtime
-        # torch/transformers — replaced by onnxruntime (exclude in case of transitive deps)
-        'torch',
-        'transformers',
-        'triton',         # GPU JIT compiler
-        # Unused database drivers (project uses SQLite, not PostgreSQL)
-        'asyncpg',
-        # gRPC — no longer needed (was required by qdrant_client)
-        'grpc',
-        'grpcio',
-        # HuggingFace download accelerator — not needed in frozen sidecar
+        # pyarrow: Arrow Flight RPC, Substrait plans and the cloud filesystems. LanceDB
+        # uses none of them; pyarrow.fs imports each filesystem inside try/except.
+        'pyarrow.flight',
+        'pyarrow._flight',
+        'pyarrow.substrait',
+        'pyarrow._substrait',
+        'pyarrow._s3fs',
+        'pyarrow._gcsfs',
+        'pyarrow._azurefs',
+        'pyarrow._hdfs',
+        # Pillow's AVIF codec (7 MB): AVIF isn't an import format, and the plugin
+        # sets SUPPORTED = False without it.
+        'PIL._avif',
+        # Download accelerator: plain HTTP is enough for a one-off model download.
         'hf_xet',
-        # Prefect (removed — exclude in case of transitive dependency)
-        'prefect',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -165,12 +152,23 @@ a = Analysis(
 _strip_binaries = False
 
 # CUDA shared libraries — always stripped from electron builds.
-# onnxruntime-gpu may be co-installed in the dev venv; collect_dynamic_libs
-# will scoop up ~1.8 GB of CUDA .so/.dll files we don't want.
+# With --ort-extra gpu, collect_dynamic_libs would scoop up ~1.8 GB of CUDA
+# .so/.dll files we don't want.
 _CUDA_LIB_RE = _re.compile(
     r'(libcu(blas|fft|rand|dnn|solver|sparse|pti|dart)'
     r'|libnv(rtc|JitLink)'
     r'|libonnxruntime_providers_cuda)'
+)
+
+# pyarrow files nothing loads at runtime: the libraries of the modules excluded above
+# (only those modules link them, per their import tables), and the C++ headers,
+# Cython sources, import libraries and tests the wheel ships for building extensions.
+_PYARROW_UNUSED_RE = _re.compile(
+    r'^pyarrow/('
+    r'(lib)?arrow_(python_)?(flight|substrait|s3)[^/]*\.(dll|so[.\d]*|dylib)'
+    r'|(include|includes|src|tests)/.*'
+    r'|[^/]*\.(lib|pxd|pyx|pxi|h)'
+    r')$'
 )
 
 # .dist-info directories are package metadata — safe to strip at runtime
@@ -188,7 +186,7 @@ def _keep_entry(entry):
             pass  # keep — lancedb reads its own version via importlib.metadata at import
         else:
             return False
-    if _CUDA_LIB_RE.search(name):
+    if _CUDA_LIB_RE.search(name) or _PYARROW_UNUSED_RE.search(name):
         return False
     return True
 
