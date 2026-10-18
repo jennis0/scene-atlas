@@ -67,7 +67,6 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 | `PermissionError` at commit classified `file` | On Windows, antivirus can briefly lock a file during the rename; consider `transient` at stage `db_save`. | Low |
 | Removing tag packs | Packs are opt-in since first boot seeds only `common`, but can't be removed. | Low |
 | Shared `ModelCard` | Model cards are duplicated in `ModelStep` (setup wizard) and `SettingsTabContent`. | Low |
-| E2E import specs predate Auto image type | `activity-dock`, `import-deep` ("imports a new file…") and `import` ("battlemap/scene choice toggles") fail on main: they expect Battlemap as the default type, but the default is now Auto, which sorts their random-noise PNGs out as "other". Pick the type explicitly in `importFiles` and expect Auto as the default. Blocks the Release workflow's E2E step. | High |
 | E2E first run on a clean machine | The backend can start before the model has downloaded, so the seed import never runs. Download before starting the webServer. | Low |
 | Session-based authentication | Until then server mode must sit behind an authenticating reverse proxy. [security.md](security.md) | Medium |
 | Bulk import of a local library | Local folder import (desktop app), then linked folders read in place, then a drop folder. [local-ingest.md](local-ingest.md) | High |
