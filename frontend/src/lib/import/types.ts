@@ -7,13 +7,7 @@
 export type ImageType = 'battlemap' | 'scene' | 'auto'
 
 export type ItemState =
-  | 'awaiting_bytes'
-  | 'ready'
-  | 'processing'
-  | 'done'
-  | 'duplicate'
-  | 'failed'
-  | 'skipped'
+  'awaiting_bytes' | 'ready' | 'processing' | 'done' | 'duplicate' | 'failed' | 'skipped'
 
 export type JobStatus = 'active' | 'paused' | 'completed' | 'cancelled'
 
@@ -159,13 +153,7 @@ export interface ImportItem {
    * sorted_out_expired: one whose bytes and preview were released; now a plain skip.
    */
   error_kind:
-    | 'file'
-    | 'transient'
-    | 'system'
-    | 'bytes_lost'
-    | 'sorted_out'
-    | 'sorted_out_expired'
-    | null
+    'file' | 'transient' | 'system' | 'bytes_lost' | 'sorted_out' | 'sorted_out_expired' | null
   error_stage: string | null
   error_reason: string | null
   image_id: number | null

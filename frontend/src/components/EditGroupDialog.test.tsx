@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen, waitFor, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/renderWithProviders'
+import { fakeLayout } from '@/test/fakeLayout'
 import { installFakeImportManager, item, uninstallFakeImportManager } from '@/test/importFakes'
 import type { ImportManager } from '@/lib/import/ImportManager'
 import EditGroupDialog from './EditGroupDialog'
@@ -254,12 +255,7 @@ describe('EditGroupDialog', () => {
         ids.map((id) => structuredClone(all[id])),
       )
       // jsdom has no layout: give the scroll area a height so the list has a window
-      const size = { width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }
-      const rect = vi
-        .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
-        .mockReturnValue({ ...size, x: 0, y: 0, toJSON: () => size } as DOMRect)
-      const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600)
-      const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800)
+      const restoreLayout = fakeLayout({ width: 800, height: 600 })
       try {
         renderDialog({ importReview: { groupIds: [1, 4] } })
         // Unlabelled files come first, so the summer/winter subgroups are off screen
@@ -270,9 +266,7 @@ describe('EditGroupDialog', () => {
         expect(shown.length).toBeLessThan(73)
         expect(within(dialog()).queryByText('Big 69')).not.toBeInTheDocument()
       } finally {
-        rect.mockRestore()
-        height.mockRestore()
-        width.mockRestore()
+        restoreLayout()
       }
     })
 
@@ -500,14 +494,7 @@ describe('EditGroupDialog', () => {
       vi.mocked(groupApi.details).mockImplementation(async (asked) =>
         asked.map((id) => ({ ...structuredClone(GROUPS[1]), id, base_name: `Pack ${id}` })),
       )
-      const size = { width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }
-      const spies = [
-        vi
-          .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
-          .mockReturnValue({ ...size, x: 0, y: 0, toJSON: () => size } as DOMRect),
-        vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600),
-        vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800),
-      ]
+      const restoreLayout = fakeLayout({ width: 800, height: 600 })
       try {
         renderDialog({ importReview: { groupIds: ids } })
         expect(await screen.findByText('2,000 groups')).toBeInTheDocument()
@@ -516,7 +503,7 @@ describe('EditGroupDialog', () => {
         expect(rows.length).toBeLessThan(100)
         expect(screen.queryByRole('button', { name: /^Pack 2000/ })).not.toBeInTheDocument()
       } finally {
-        spies.forEach((spy) => spy.mockRestore())
+        restoreLayout()
       }
     })
 

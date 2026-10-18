@@ -13,6 +13,8 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
+    /* TS 6 no longer loads every @types package; tests read files with node:fs */
+    "types": ["node"],
 
     /* Linting */
     "strict": true,
@@ -20,8 +22,7 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
 
-    /* Path mapping */
-    "baseUrl": ".",
+    /* Path mapping (relative to this file; no baseUrl, which TS 6 deprecates) */
     "paths": {
       "@/*": ["./src/*"]
     }

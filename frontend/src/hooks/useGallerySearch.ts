@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { searchApi } from '@/lib/api'
 import { QUERY_KEYS } from '@/lib/queryKeys'

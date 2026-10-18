@@ -17,7 +17,8 @@ describe('TypeCounts', () => {
 
   it('tints the skipped count, the one to act on, apart from scenes', () => {
     const { container } = render(<TypeCounts maps={0} scenes={1} skipped={2} />)
-    const [scenes, skipped] = container.querySelectorAll('[aria-hidden]')
+    // span: lucide's svg icons are aria-hidden too
+    const [scenes, skipped] = container.querySelectorAll('span[aria-hidden]')
     expect(scenes).not.toHaveClass('text-warning')
     expect(skipped).toHaveClass('text-warning')
   })

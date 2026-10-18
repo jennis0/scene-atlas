@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/renderWithProviders'
+import { fakeLayout } from '@/test/fakeLayout'
 import {
   counts,
   group,
@@ -33,12 +34,11 @@ afterEach(() => {
 const noop = () => {}
 
 // jsdom has no layout; give elements a size so virtualised lists render rows.
-const sizes: Array<ReturnType<typeof vi.spyOn>> = []
+let restoreLayout = noop
 beforeAll(() => {
-  sizes.push(vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(480))
-  sizes.push(vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(640))
+  restoreLayout = fakeLayout({ width: 640, height: 480 })
 })
-afterAll(() => sizes.forEach((spy) => spy.mockRestore()))
+afterAll(() => restoreLayout())
 
 // ---------------------------------------------------------------------------
 // Wording

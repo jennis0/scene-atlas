@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { HashRouter as Router, Routes, Route } from 'react-router-dom'
+import { HashRouter as Router, Routes, Route } from 'react-router'
 import { createPortal } from 'react-dom'
 import { Toaster } from 'sonner'
 import { Gallery } from './pages/Gallery'

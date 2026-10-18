@@ -146,12 +146,7 @@ function StartView({
       return
     }
     setReading(true)
-    let files: PickedFile[] = []
-    try {
-      files = await filesFromDrop(e.dataTransfer)
-    } finally {
-      setReading(false)
-    }
+    const files = await filesFromDrop(e.dataTransfer).finally(() => setReading(false))
     await start(files)
   }
 
