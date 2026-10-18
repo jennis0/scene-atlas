@@ -14,6 +14,68 @@ interface ModelSetupScreenProps {
 
 type Phase = 'loading' | 'select' | 'submitting' | 'tag-packs' | 'error'
 
+interface ModelCardProps {
+  model: ModelInfo
+  hasGpu: boolean
+  selected: boolean
+  recommended: boolean
+  onSelect: () => void
+}
+
+/** A radio card: the radio carries the name and selection for keyboards and screen readers;
+ * the card is a mouse target. The details disclosure sits beside the radio, not inside a
+ * button, so it stays operable on its own. */
+function ModelCard({ model, hasGpu, selected, recommended, onSelect }: ModelCardProps) {
+  const descriptionId = `setup-model-${model.name}-desc`
+  return (
+    <div
+      onClick={onSelect}
+      className={`focus-ring-within-input relative flex flex-col justify-start text-left rounded-lg border p-4 space-y-2.5 cursor-pointer transition-colors ${
+        selected
+          ? 'border-primary bg-primary/5'
+          : 'border-border bg-card hover:border-border/80 hover:bg-accent/30'
+      }`}
+    >
+      <label className="block font-semibold text-sm cursor-pointer">
+        <input
+          type="radio"
+          name="setup-model"
+          value={model.name}
+          checked={selected}
+          onChange={onSelect}
+          aria-describedby={descriptionId}
+          className="sr-only"
+        />
+        {model.label}
+      </label>
+
+      <div id={descriptionId} className="space-y-2.5">
+        {recommended && <p className="sr-only">Recommended for this computer.</p>}
+        <p className="text-xs text-muted-foreground leading-relaxed">{model.description}</p>
+        <ModelRatings model={model} hasGpu={hasGpu} />
+        <p className="text-2xs text-muted-foreground">{model.approx_size_mb} MB download</p>
+      </div>
+
+      <details className="text-xs" onClick={(e) => e.stopPropagation()}>
+        <summary className="cursor-pointer text-muted-foreground hover:text-foreground select-none">
+          Technical details
+        </summary>
+        <p className="mt-1 text-muted-foreground leading-relaxed">{model.description_technical}</p>
+      </details>
+
+      {/* Last, so the spacing between children doesn't count it */}
+      {recommended && (
+        <span
+          aria-hidden="true"
+          className="absolute top-2 right-2 text-2xs font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary"
+        >
+          Recommended
+        </span>
+      )}
+    </div>
+  )
+}
+
 export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupScreenProps) {
   const [phase, setPhase] = useState<Phase>('loading')
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null)
@@ -158,76 +220,21 @@ export function ModelSetupScreen({ onComplete, skipModel = false }: ModelSetupSc
 
         {setupStatus && <GpuStatus hasGpu={hasGpu} provider={setupStatus.gpu_provider} />}
 
-        {/* Radio cards: the radio carries the name and selection for keyboards and screen
-            readers; the card is a mouse target. The details disclosure sits beside the
-            radio, not inside a button, so it stays operable on its own. */}
         <div
           role="radiogroup"
           aria-label="Search model"
           className="grid grid-cols-1 sm:grid-cols-3 gap-3"
         >
-          {models.map((model) => {
-            const isSelected = selectedModel === model.name
-            const isRecommended = setupStatus?.recommended === model.name
-            const inputId = `setup-model-${model.name}`
-
-            return (
-              <div
-                key={model.name}
-                onClick={() => setSelectedModel(model.name)}
-                className={`focus-ring-within-input relative flex flex-col justify-start text-left rounded-lg border p-4 space-y-2.5 cursor-pointer transition-colors ${
-                  isSelected
-                    ? 'border-primary bg-primary/5'
-                    : 'border-border bg-card hover:border-border/80 hover:bg-accent/30'
-                }`}
-              >
-                <label className="block font-semibold text-sm cursor-pointer">
-                  <input
-                    type="radio"
-                    name="setup-model"
-                    value={model.name}
-                    checked={isSelected}
-                    onChange={() => setSelectedModel(model.name)}
-                    aria-describedby={`${inputId}-desc`}
-                    className="sr-only"
-                  />
-                  {model.label}
-                </label>
-
-                <div id={`${inputId}-desc`} className="space-y-2.5">
-                  {isRecommended && <p className="sr-only">Recommended for this computer.</p>}
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    {model.description}
-                  </p>
-
-                  <ModelRatings model={model} hasGpu={hasGpu} />
-
-                  <p className="text-2xs text-muted-foreground">
-                    {model.approx_size_mb} MB download
-                  </p>
-                </div>
-
-                <details className="text-xs" onClick={(e) => e.stopPropagation()}>
-                  <summary className="cursor-pointer text-muted-foreground hover:text-foreground select-none">
-                    Technical details
-                  </summary>
-                  <p className="mt-1 text-muted-foreground leading-relaxed">
-                    {model.description_technical}
-                  </p>
-                </details>
-
-                {/* Last, so the spacing between children doesn't count it */}
-                {isRecommended && (
-                  <span
-                    aria-hidden="true"
-                    className="absolute top-2 right-2 text-2xs font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary"
-                  >
-                    Recommended
-                  </span>
-                )}
-              </div>
-            )
-          })}
+          {models.map((model) => (
+            <ModelCard
+              key={model.name}
+              model={model}
+              hasGpu={hasGpu}
+              selected={selectedModel === model.name}
+              recommended={setupStatus?.recommended === model.name}
+              onSelect={() => setSelectedModel(model.name)}
+            />
+          ))}
         </div>
 
         <div className="flex justify-center">
