@@ -1,9 +1,10 @@
 import { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react'
 import { compactHeaderChoice, type CompactHeader } from '@/lib/compactLayout'
-import { contrastChoice, type Contrast } from '@/lib/contrast'
+import { contrastChoice, useHighContrast, type Contrast } from '@/lib/contrast'
 import type { DisplayChoice } from '@/lib/displayChoice'
 import { paletteChoice, type Palette } from '@/lib/palette'
 import { textSizeChoice, type TextSize } from '@/lib/textSize'
+import { reportWindowColors } from '@/lib/windowColors'
 import {
   applyTheme,
   readThemePreference,
@@ -92,6 +93,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [textSize, setTextSize] = useDisplayChoice(textSizeChoice)
   const [compactHeader, setCompactHeader] = useDisplayChoice(compactHeaderChoice)
   const [contrast, setContrast] = useDisplayChoice(contrastChoice)
+
+  // Desktop: the window background and title bar follow the colours actually in effect
+  const highContrast = useHighContrast()
+  useEffect(() => {
+    reportWindowColors()
+  }, [theme, palette, highContrast])
 
   const value = useMemo(
     () => ({

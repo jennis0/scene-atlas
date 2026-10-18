@@ -72,7 +72,7 @@ The main process remembers the last `backend-error` and re-sends it on every `di
 - **`prepareStorageDirs`** creates both roots and write-tests them, on setup, on a storage change and on every launch (a drive may have been unmounted).
 - **`hasForeignEntries`** is used by `pickStorageDir()` in `main.ts` whenever the user picks either folder, in setup or in Settings. When the folder already holds entries Scene Atlas didn't create, a native warning offers *Choose Another Folder* (the default) or *Use This Folder*. The likely case is someone pointing the image library at their existing map collection: Scene Atlas would never show those files, and the reset instructions say to delete the library folder. Its own entries are dotfiles, two-character lower-case hex shards, `backups` and the app data entries (`battlemap.db*`, `lancedb`, `store`, `logs`, …), plus OS clutter. Both lists are accepted in either folder, so one folder for both is allowed (the backend's storage lock is per resolved root, so that's safe), and so is a folder that contains the other root. Update the lists whenever the backend writes a new top-level entry to either root.
 
-The Electron setup window only chooses storage directories. Everything else (appearance, stored format, tag packs, search model) is the React setup wizard, the same in every mode (see [first-run.md](first-run.md)). The setup window and loading page can't read the user's theme choice, so they follow the system light/dark setting, as do the window background and title-bar overlay colours (`windowColors()`).
+The Electron setup window only chooses storage directories. Everything else (appearance, stored format, tag packs, search model) is the React setup wizard, the same in every mode (see [first-run.md](first-run.md)). The UI's display choices and colours are kept in the config too, so every window, the title bar included, follows the theme chosen in the app (see [first-run.md](first-run.md#desktop-display-choices-and-window-colours)).
 
 ## IPC Channels
 
@@ -96,6 +96,9 @@ Every handler is registered through `handleTrusted()`, which rejects calls whose
 | `system:choose-app-data-dir` | renderer → main | Folder picker (with the non-empty-folder warning) for a new app data location |
 | `system:choose-image-library-dir` | renderer → main | Folder picker (with the non-empty-folder warning) for a new image library location |
 | `system:change-storage-dirs` | renderer → main | Validates and prepares the new roots, saves config, stops the sidecar, relaunches the app. Resolves with `{ error }` only if the new locations are rejected |
+| `prefs:get-sync` | preload → main | Synchronous (`sendSync`), once per page load: the config's `displayPrefs`, exposed as `electronAPI.displayPrefs` |
+| `prefs:set` | renderer → main | `(key, value)`: saves one display choice (validated); the theme also sets `nativeTheme.themeSource` |
+| `window:set-colors` | renderer → main | `{ background, foreground }` hex: sets the window background and the Windows/Linux title-bar overlay, and saves them for the next launch |
 
 ### Preload API Surface
 
@@ -168,7 +171,7 @@ The PyInstaller spec keeps onnxruntime's `entry_points.txt` (DirectML plugin reg
 
 | Item | Location |
 |------|----------|
-| App config | `{userData}/scene-atlas-config.json` — `{ appDataDir, imageLibraryDir }`. Older configs may also hold `convertToWebp` or `pendingStoredFormat`, which are ignored: the stored format is chosen in the setup wizard |
+| App config | `{userData}/scene-atlas-config.json` — `{ appDataDir, imageLibraryDir, displayPrefs?, windowColors? }`. `displayPrefs` and `windowColors` are the UI's display choices and colours (see [first-run.md](first-run.md#desktop-display-choices-and-window-colours)); they're sanitised on load (`displayPrefs.ts`). Older configs may also hold `convertToWebp` or `pendingStoredFormat`, which are ignored: the stored format is chosen in the setup wizard |
 | Backend log | `{userData}/backend.log` (+ `backend.log.1` after rotation) |
 | Default app data dir | `{Documents}/Scene Atlas/data` |
 | Default image library dir | `{Documents}/Scene Atlas/images` |
@@ -186,6 +189,7 @@ The PyInstaller spec keeps onnxruntime's `entry_points.txt` (DirectML plugin reg
 | `electron/src/setup.preload.ts` | Setup window preload: exposes `setupAPI` |
 | `electron/src/sidecar.ts` | Sidecar spawn, port discovery, stdout parsing |
 | `electron/src/config.ts` | Config load/save/migration, default directories |
+| `electron/src/displayPrefs.ts` | Validation for display choices and window colours from the UI or config; `themeSourceFor` (tests in `electron/test/`) |
 | `electron/src/storageDirs.ts` | Storage folder checks: create + write-test, non-empty-folder detection (tests in `electron/test/`, run with `npm run test:electron`) |
 | `electron/setup.html` | Setup window HTML (first-run directory picker); fonts bundled in `electron/fonts/`, so it needs no network and its CSP has no remote origins |
 | `electron/loading.html` | Startup / error page shown until the sidecar serves the UI |

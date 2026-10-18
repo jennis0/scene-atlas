@@ -6,6 +6,14 @@
 interface ElectronAPI {
   readonly platform: 'darwin' | 'win32' | 'linux'
 
+  // Display choices (design/first-run.md): localStorage is tied to the backend's port, so
+  // the desktop app also keeps them in its config.
+  /** The saved choices, read before the page loaded (a snapshot) */
+  readonly displayPrefs: Readonly<Record<string, string>>
+  setDisplayPref(key: string, value: string): Promise<void>
+  /** Match the window background and the Windows/Linux title bar to these hex colours */
+  setWindowColors(colors: { background: string; foreground: string }): Promise<void>
+
   /** Subscribe to fatal backend errors (fires immediately if one already arrived). Used by loading.html. */
   onBackendError(callback: (message: string) => void): () => void
 

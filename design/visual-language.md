@@ -8,7 +8,7 @@ A comprehensive reference for the Scene Atlas UI. All new components must confor
 
 **Theme:** Cartographic / archival, carried by the maps themselves rather than by ornament. Surfaces are quiet so the art leads; character comes from type (a book serif for names, the Cinzel wordmark) and a single accent colour.
 
-**Palettes.** Five, each with light and dark mode, chosen in the Library dialog's Appearance tab and stored per device (`scene-atlas-palette` in localStorage, applied as `data-palette` on `<html>` before first paint; navy, the default, sets no attribute):
+**Palettes.** Five, each with light and dark mode, chosen in the Library dialog's Appearance tab and stored per device (`scene-atlas-palette` through `lib/prefsStorage.ts`: localStorage, plus the desktop app's config; applied as `data-palette` on `<html>` before first paint; navy, the default, sets no attribute):
 
 - **Navy** (default; value `navy`): deep navy and warm parchment, gold accent. Base tokens in `:root` / `.dark`.
 - **Green** (`verdigris`): green-black ink and pale paper, aged-copper green accent.

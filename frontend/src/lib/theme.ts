@@ -3,6 +3,8 @@
  * live; consumers mostly want the resolved theme. Dark mode is the `dark` class on <html>
  * (Tailwind darkMode: "class"). See design/first-run.md.
  */
+import { readPref, registerPref, writePref } from './prefsStorage'
+
 export type Theme = 'light' | 'dark'
 export type ThemePreference = 'system' | Theme
 
@@ -13,25 +15,18 @@ export const THEME_OPTIONS: readonly { value: ThemePreference; label: string; ti
 ]
 
 export const THEME_STORAGE_KEY = 'scene-atlas-theme'
+registerPref(THEME_STORAGE_KEY)
 
 const systemDarkQuery = () => window.matchMedia?.('(prefers-color-scheme: dark)')
 
 /** The saved preference; nothing saved (or unreadable storage) means System. */
 export function readThemePreference(): ThemePreference {
-  try {
-    const stored = localStorage.getItem(THEME_STORAGE_KEY)
-    return THEME_OPTIONS.find((o) => o.value === stored)?.value ?? 'system'
-  } catch {
-    return 'system'
-  }
+  const stored = readPref(THEME_STORAGE_KEY)
+  return THEME_OPTIONS.find((o) => o.value === stored)?.value ?? 'system'
 }
 
 export function saveThemePreference(preference: ThemePreference) {
-  try {
-    localStorage.setItem(THEME_STORAGE_KEY, preference)
-  } catch {
-    // Storage blocked (private mode, quota): the theme still applies for this session.
-  }
+  writePref(THEME_STORAGE_KEY, preference)
 }
 
 /** System resolves to the OS setting, or dark (the app's original look) when unknown. */

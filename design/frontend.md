@@ -73,7 +73,7 @@ Tests sit next to the code they cover (`*.test.ts(x)`).
 - **EditGroupDialog** — edit one group, or many via Edit All.
 - **ImportDialog**, **ActivityDock**, **TagManagementDialog**, **LibraryInfoDialog**, **EmptyLibraryWelcome**.
 
-On first run (any mode) `App.tsx` shows **SetupWizard** until setup is finished, or when the model is missing and isn't downloading; see [first-run.md](first-run.md). In Electron the startup screen is `electron/loading.html`, outside React. The theme preference is System / Light / Dark (`lib/theme.ts`, `ThemeContext`), defaulting to System.
+On first run (any mode) `App.tsx` shows **SetupWizard** until setup is finished, or when the model is missing and isn't downloading; see [first-run.md](first-run.md). In Electron the startup screen is `electron/loading.html`, outside React. The theme preference is System / Light / Dark (`lib/theme.ts`, `ThemeContext`), defaulting to System. Display choices are read and written through `lib/prefsStorage.ts`, which in the desktop app also keeps them in the app config so they survive a change of backend port; `lib/windowColors.ts` reports the page's colours to the desktop window.
 
 ### Search state (`hooks/useGallerySearch.ts`)
 
