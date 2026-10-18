@@ -33,6 +33,10 @@ function toImageGroup(result: GroupSearchResult): ImageGroup {
   }
 }
 
+/** A group's identity; an ungrouped image stands alone */
+export const groupKey = (g: ImageGroup) =>
+  g.groupId !== null ? `g${g.groupId}` : `solo-${g.heroImage.id}`
+
 /**
  * Paged group search for infinite scroll. Groups below `minScore` are dropped client-side;
  * groups with a null bestScore (no query, so nothing to score) are always kept.
@@ -57,14 +61,22 @@ export function useGroupSearch(
     },
   })
 
-  const groups = useMemo(
-    () =>
+  // Pages are fetched by offset, so groups added (by an import) since the last page shift the
+  // next page onto groups already loaded: keep each group once.
+  const groups = useMemo(() => {
+    const seen = new Set<string>()
+    return (
       query.data?.pages
         .flatMap((p) => p.groups)
         .map(toImageGroup)
-        .filter((g) => g.bestScore === null || g.bestScore >= minScore) ?? [],
-    [query.data?.pages, minScore],
-  )
+        .filter((g) => {
+          const key = groupKey(g)
+          if (seen.has(key)) return false
+          seen.add(key)
+          return g.bestScore === null || g.bestScore >= minScore
+        }) ?? []
+    )
+  }, [query.data?.pages, minScore])
 
   const totalGroups = query.data?.pages[0]?.total_groups ?? 0
 

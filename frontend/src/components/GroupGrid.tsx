@@ -1,6 +1,7 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useRef, useState, useEffect } from 'react'
 import { GroupCard } from '@/components/GroupCard'
+import { groupKey } from '@/hooks/useGroupSearch'
 import type { ImageGroup } from '@/types'
 
 interface GroupGridProps {
@@ -86,7 +87,7 @@ export function GroupGrid({
               >
                 {rowGroups.map((group) => (
                   <GroupCard
-                    key={group.groupId ?? `solo-${group.heroImage.id}`}
+                    key={groupKey(group)}
                     group={group}
                     onClick={() => onGroupClick(group)}
                     onEdit={() => onEditGroup?.(group)}

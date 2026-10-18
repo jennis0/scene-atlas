@@ -18,6 +18,24 @@ Scene Atlas runs on hardware from small laptops to servers, against libraries wh
 
 A single pool shared by everything that prepares images, so `max_concurrent_prepare` is a system-wide limit rather than a per-import multiplier. The IngestWorker submits each item of a batch to it (`prepare_item`: hash, decode, pixel hash, thumbnails, colours, perceptual hash, grid detection, copy to `.incoming/`). Created in the lifespan by `init_prepare_pool()`; `get_prepare_pool()` raises if it was not initialised.
 
+**Why at most 4 workers by default (2026-10-18).** The workers are threads in the API's process, so they
+compete with requests for the GIL. Grid detection (~180 ms per battlemap) and colour extraction mostly
+hold it: neither gets faster per map with more threads, even with native threading pinned to one.
+Measured on a synthetic 56k-image library, with real prepare steps on real maps as the load:
+
+| Workers | Gallery groups page 1 | Search, 500 images | Maps/s (prepare only) |
+|---|---|---|---|
+| 0 | ~30 ms | ~200 ms | — |
+| 4 | 0.3–0.7 s | 0.6–1.5 s | 2.5–2.8 |
+| 8 | 1.4–5 s | 4–33 s | 2.7–2.9 |
+
+So 8 workers import no faster than 4 and make the app unusable during an import. Timings are noisy
+(two runs, ranges shown); a shorter `sys.setswitchinterval` looked promising once and didn't hold up on
+a re-run. The real fix is preparing in worker processes, which would also let grid detection use more
+cores; that is a larger change (Windows process start-up, the memory budget, the frozen app) not yet
+made. The default applies to new installs only: the value is seeded into `app_settings` on first boot,
+so existing libraries keep theirs (Settings → Performance).
+
 ### 2. Heavy-op semaphore
 
 Gates the two import endpoints that do large amounts of synchronous work in `asyncio.to_thread()`: `PUT /imports/{job}/archives` (stream + expand a zip) and `POST /imports/{job}/seal` (free-space check + group planning). Applied with the `acquire_heavy_op` dependency (`api/dependencies.py`). Created in the lifespan because `asyncio.Semaphore()` needs a running loop on some platforms.
@@ -57,15 +75,15 @@ available_gb = max(0.5, total_ram_gb - 2.0)     # reserve ~2 GB for model, Lance
 ram_cap      = max(1, int(available_gb / 0.5))   # ~500 MB per prepare worker
 
 max_job_workers               = max(1, min(4, cpu // 2))
-max_concurrent_prepare        = max(1, min(cpu, 8, ram_cap))
+max_concurrent_prepare        = max(1, min(cpu, 4, ram_cap))
 max_concurrent_heavy_requests = max(1, min(max(1, cpu // 2), 6))
 ```
 
 | Host | CPUs | RAM | `max_job_workers` | `max_concurrent_prepare` | `max_concurrent_heavy_requests` |
 |------|------|-----|-------------------|--------------------------|---------------------------------|
 | Low-end laptop | 2 | 4 GB | 1 | 2 | 1 |
-| Mid-range desktop | 8 | 16 GB | 4 | 8 | 4 |
-| Server | 16 | 32 GB | 4 | 8 | 6 |
+| Mid-range desktop | 8 | 16 GB | 4 | 4 | 4 |
+| Server | 16 | 32 GB | 4 | 4 | 6 |
 
 ## Request Limits
 

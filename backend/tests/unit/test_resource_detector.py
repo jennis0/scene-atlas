@@ -31,7 +31,16 @@ def test_high_spec_machine_scales_up():
         mock_mem.return_value.total = 32 * 1024**3
         defaults = compute_resource_defaults()
     assert defaults["max_job_workers"] >= 4
-    assert defaults["max_concurrent_prepare"] >= 8
+    assert defaults["max_concurrent_prepare"] >= 4
+
+
+def test_prepare_workers_capped_at_four_however_big_the_machine():
+    """Prepare threads share the GIL with API requests: past 4 they starve searches
+    during an import without importing any faster."""
+    with patch("os.cpu_count", return_value=64), patch("psutil.virtual_memory") as mock_mem:
+        mock_mem.return_value.total = 256 * 1024**3
+        defaults = compute_resource_defaults()
+    assert defaults["max_concurrent_prepare"] == 4
 
 
 def test_low_ram_caps_concurrent_prepare():

@@ -1,4 +1,4 @@
-import type { QueryClient } from '@tanstack/react-query'
+import type { InfiniteData, QueryClient } from '@tanstack/react-query'
 
 /**
  * Centralized query key constants for React Query.
@@ -31,6 +31,23 @@ export function invalidateGalleryQueries(queryClient: QueryClient) {
   queryClient.invalidateQueries({ queryKey: QUERY_KEYS.search })
   queryClient.invalidateQueries({ queryKey: QUERY_KEYS.searchFacets })
   queryClient.resetQueries({ queryKey: QUERY_KEYS.groups })
+}
+
+/**
+ * Brings the gallery results up to date without clearing what's on screen: they refetch in the
+ * background and replace the old ones when they arrive. Grouped results keep only their first
+ * page, so the refetch is one request and later pages load against the new order. A refetch
+ * already running is left to finish rather than restarted, so a slow search still lands.
+ */
+export function refreshGalleryInPlace(queryClient: QueryClient) {
+  queryClient.setQueriesData<InfiniteData<unknown>>({ queryKey: QUERY_KEYS.groups }, (data) =>
+    data && data.pages.length > 1
+      ? { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) }
+      : data,
+  )
+  const keepRunning = { cancelRefetch: false }
+  queryClient.invalidateQueries({ queryKey: QUERY_KEYS.search }, keepRunning)
+  queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups }, keepRunning)
 }
 
 /** Invalidates tag categories and search facets (after tag CRUD operations). */

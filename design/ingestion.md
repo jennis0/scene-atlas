@@ -379,7 +379,7 @@ App settings (database, seeded on first boot by `seed_default_settings` in `back
 | Setting | Seeded default | Purpose |
 |---|---|---|
 | `ingestion_batch_size` | 16 | Claim / embed / commit batch |
-| `max_concurrent_prepare` | `min(cpu, 8, RAM-based cap)` (`resource_detector.py`) | Prepare pool size (fixed at startup) |
+| `max_concurrent_prepare` | `min(cpu, 4, RAM-based cap)` (`resource_detector.py`) | Prepare pool size (fixed at startup) |
 | `max_concurrent_heavy_requests` | `min(cpu // 2, 6)` | Heavy-op semaphore (archive upload, seal) |
 | `max_import_file_size` | 2 GB | Per file, and per uploaded archive body |
 | `max_video_file_size` | 2 GB | Per video file |
@@ -394,7 +394,7 @@ App settings (database, seeded on first boot by `seed_default_settings` in `back
 
 - **Pillow plugins load at startup** (`PILImage.init()` in the lifespan). Otherwise Pillow dlopens plugins on its first unidentifiable file; when that happened while prepare threads were inside threadpoolctl's `dl_iterate_phdr` (sklearn KMeans in colour extraction), the process deadlocked on the loader lock and the GIL. The stress suite found it with corrupt uploads.
 - **Library purge refuses** while any import has open items.
-- **Gallery refresh**: the gallery refreshes as images land (throttled to 4 s); every finished import gets a toast with "View report" unless its dialog is open.
+- **Gallery refresh**: the gallery picks up images as they land without moving what's on screen (see [import-progress.md §6](import-progress.md#6-gallery-while-importing)); every finished import gets a toast with "View report" unless its dialog is open.
 
 ## 14. Open questions
 

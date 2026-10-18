@@ -43,7 +43,7 @@ export function ImageGrid({ images, tileWidth, onImageClick }: ImageGridProps) {
   })
 
   return (
-    <div ref={parentRef} className="h-full overflow-auto pt-8 px-4 pb-4">
+    <div ref={parentRef} data-results-scroller className="h-full overflow-auto pt-8 px-4 pb-4">
       <div
         style={{
           height: `${rowVirtualizer.getTotalSize()}px`,

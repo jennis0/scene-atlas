@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Loader2 } from 'lucide-react'
 import { searchApi } from '@/lib/api'
-import { invalidateGalleryQueries } from '@/lib/queryKeys'
+import { QUERY_KEYS } from '@/lib/queryKeys'
 import type { SeedImage } from '@/types'
 import { ImageGrid } from '@/components/ImageGrid'
 import { GroupGrid } from '@/components/GroupGrid'
@@ -25,6 +25,7 @@ import { LibraryInfoDialog } from '@/components/LibraryInfoDialog'
 import { EmptyLibraryWelcome } from '@/components/EmptyLibraryWelcome'
 import { GalleryHeader } from '@/components/GalleryHeader'
 import { useGallerySearch } from '@/hooks/useGallerySearch'
+import { useImportGalleryRefresh } from '@/hooks/useImportGalleryRefresh'
 import { useGalleryDialogs } from '@/hooks/useGalleryDialogs'
 import { useEmbeddingStatus } from '@/hooks/useEmbeddingStatus'
 import { getImportManager } from '@/lib/import/ImportManager'
@@ -70,20 +71,17 @@ export function Gallery() {
     return () => observer.disconnect()
   }, [search])
 
-  // Images appear in the gallery as they're imported: refresh at most every few
-  // seconds while the imported count grows.
-  const importedTotal = importSnapshot.jobs.reduce((sum, j) => sum + j.counts.done, 0)
-  const lastRefreshRef = useRef({ total: importedTotal, at: 0 })
-  useEffect(() => {
-    const last = lastRefreshRef.current
-    if (importedTotal === last.total) return
-    const wait = Math.max(0, 4000 - (Date.now() - last.at))
-    const timer = setTimeout(() => {
-      lastRefreshRef.current = { total: importedTotal, at: Date.now() }
-      invalidateGalleryQueries(queryClient)
-    }, wait)
-    return () => clearTimeout(timer)
-  }, [importedTotal, queryClient])
+  // Images appear in the gallery as they're imported, without moving what's on screen.
+  const resultsRef = useRef<HTMLElement>(null)
+  const libraryEmpty = !search.hasActiveSearch && (search.facets?.total_images ?? 0) === 0
+  const { markFinished } = useImportGalleryRefresh({
+    containerRef: resultsRef,
+    importedTotal: importSnapshot.jobs.reduce((sum, j) => sum + j.counts.done, 0),
+    newestAtTop:
+      !search.submittedQuery && search.sortBy === 'created_at' && search.sortDir === 'desc',
+    paused: dialogs.selectedImage !== null,
+    libraryEmpty,
+  })
 
   // An import whose dialog is on screen already shows its outcome: no toast.
   const watchedJobRef = useRef<string | null>(null)
@@ -111,7 +109,8 @@ export function Gallery() {
   // Tell the user when an import finishes, including when files had problems.
   useEffect(() => {
     return getImportManager().onJobFinished((job) => {
-      invalidateGalleryQueries(queryClient)
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.searchFacets })
+      markFinished()
       if (job.status === 'cancelled' || watchedJobRef.current === job.id) return
       const action = {
         label: isCleanFinish(job) ? 'Review' : 'View',
@@ -128,7 +127,7 @@ export function Gallery() {
         toast.success(`${job.label ?? 'Import'} finished`, { description, duration: 8000, action })
       }
     })
-  }, [queryClient, openFinishedImport])
+  }, [queryClient, openFinishedImport, markFinished])
 
   // The dock opens a running import's progress, or a finished import as above.
   const openImportFromDock = (jobId: string) => {
@@ -193,6 +192,7 @@ export function Gallery() {
       />
 
       <main
+        ref={resultsRef}
         id="results"
         tabIndex={-1}
         aria-label="Results"
@@ -205,7 +205,7 @@ export function Gallery() {
               Searching&hellip;
             </p>
           </div>
-        ) : !search.hasActiveSearch && (search.facets?.total_images ?? 0) === 0 ? (
+        ) : libraryEmpty ? (
           <EmptyLibraryWelcome
             embeddingReady={embedding.status === 'ready'}
             onImport={() => dialogs.openImport()}
@@ -252,7 +252,7 @@ export function Gallery() {
             />
           </div>
         ) : (
-          <div className="h-full overflow-y-auto">
+          <div data-results-scroller className="h-full overflow-y-auto">
             <div className="max-w-[1400px] mx-auto">
               <GroupGrid
                 groups={search.imageGroups}
