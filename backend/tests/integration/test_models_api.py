@@ -48,21 +48,28 @@ class TestSetupStatus:
 
     def test_setup_status_has_required_fields(self, test_client):
         data = test_client.get("/api/v1/models/setup-status").json()
-        for field in ("needs_model", "needs_tag_packs", "recommended", "has_gpu", "gpu_provider"):
+        for field in (
+            "needs_model",
+            "setup_completed",
+            "model_activating",
+            "recommended",
+            "has_gpu",
+            "gpu_provider",
+        ):
             assert field in data
 
-    def test_setup_status_needs_tag_packs_true_before_setup_complete(self, test_client):
+    def test_setup_status_not_completed_before_setup_complete(self, test_client):
         data = test_client.get("/api/v1/models/setup-status").json()
-        assert data["needs_tag_packs"] is True
+        assert data["setup_completed"] is False
 
-    def test_setup_status_needs_tag_packs_false_after_setup_complete(self, test_client):
+    def test_setup_status_completed_after_setup_complete(self, test_client):
         # Mark setup as complete
         resp = test_client.post("/api/v1/models/setup-complete")
         assert resp.status_code == 200
 
         # Now check setup status
         data = test_client.get("/api/v1/models/setup-status").json()
-        assert data["needs_tag_packs"] is False
+        assert data["setup_completed"] is True
 
     def test_setup_status_recommended_is_valid_name(self, test_client):
         data = test_client.get("/api/v1/models/setup-status").json()
@@ -71,6 +78,17 @@ class TestSetupStatus:
     def test_setup_status_needs_model_is_bool(self, test_client):
         data = test_client.get("/api/v1/models/setup-status").json()
         assert isinstance(data["needs_model"], bool)
+
+    def test_setup_status_reports_a_running_model_activation(self, test_client, monkeypatch):
+        from backend.app.api import models as models_api
+
+        class FakeRunner:
+            def get_active_job_id(self, name):
+                return "job-1" if name == "Activate model: large" else None
+
+        assert test_client.get("/api/v1/models/setup-status").json()["model_activating"] is False
+        monkeypatch.setattr(models_api, "get_job_runner", lambda: FakeRunner())
+        assert test_client.get("/api/v1/models/setup-status").json()["model_activating"] is True
 
     def test_setup_status_has_gpu_is_bool(self, test_client):
         data = test_client.get("/api/v1/models/setup-status").json()

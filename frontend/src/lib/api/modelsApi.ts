@@ -18,7 +18,10 @@ export interface ModelInfo {
 
 export interface SetupStatus {
   needs_model: boolean
-  needs_tag_packs: boolean
+  /** The first-run wizard has been finished */
+  setup_completed: boolean
+  /** A model download/activation is queued or running */
+  model_activating: boolean
   recommended: string // "small" | "medium" | "large"
   has_gpu: boolean
   gpu_provider: string | null // e.g. "CUDAExecutionProvider" or null

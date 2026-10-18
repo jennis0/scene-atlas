@@ -555,7 +555,7 @@ def seed_default_settings(session):
 
     Values are the AppSettings schema defaults, except the concurrency settings
     (computed by resource_detector from CPU count and RAM) and the stored format
-    (seeded from CONVERT_TO_WEBP so the setup wizard choice is honoured).
+    (seeded from CONVERT_TO_WEBP, which sets the setup wizard's starting choice).
     """
     from backend.app.models.schemas import AppSettings
     from backend.app.resource_detector import compute_resource_defaults

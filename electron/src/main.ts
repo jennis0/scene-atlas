@@ -1,4 +1,12 @@
-import { app, BrowserWindow, dialog, ipcMain, IpcMainInvokeEvent, shell } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  IpcMainInvokeEvent,
+  nativeTheme,
+  shell,
+} from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import { ChildProcess } from 'child_process'
@@ -33,14 +41,24 @@ if (!hasInstanceLock) {
 
 // Window helpers
 
-/** Borderless titlebar config: hiddenInset on macOS, hidden + overlay on Win/Linux. */
+/** The navy palette's page background and text (frontend/src/index.css), per system theme.
+ * Windows open before the UI can say which theme the user chose (design/first-run.md). */
+function windowColors(): { background: string; foreground: string } {
+  return nativeTheme.shouldUseDarkColors
+    ? { background: '#0e1118', foreground: '#ede8dc' }
+    : { background: '#eee9e2', foreground: '#2b2622' }
+}
+
+/** Borderless window config: hiddenInset on macOS, hidden + overlay on Win/Linux. */
 function borderlessOptions(): Partial<Electron.BrowserWindowConstructorOptions> {
+  const { background, foreground } = windowColors()
   return {
+    backgroundColor: background,
     titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
     ...(!isMac && {
       titleBarOverlay: {
-        color: '#0e1118',
-        symbolColor: '#ede8dc',
+        color: background,
+        symbolColor: foreground,
         height: 32,
       },
     }),
@@ -211,24 +229,17 @@ handleTrusted('setup:choose-directory', (event, kind, currentDir, otherRoot) => 
 
 // Synchronous on purpose: mainWindow is assigned before this returns, so a
 // second invocation (double-click) sees it and can't spawn a second sidecar.
-handleTrusted('setup:complete', (_event, appDataDir, imageLibraryDir, convertToWebp) => {
+handleTrusted('setup:complete', (_event, appDataDir, imageLibraryDir) => {
   if (mainWindow) return { error: null }
   if (!isAbsolutePath(appDataDir) || !isAbsolutePath(imageLibraryDir)) {
     return { error: 'Both locations must be absolute folder paths.' }
-  }
-  if (typeof convertToWebp !== 'boolean') {
-    return { error: 'Invalid WebP setting.' }
   }
 
   // The backend refuses to start unless both roots already exist.
   const dirError = prepareStorageDirs(appDataDir, imageLibraryDir)
   if (dirError) return { error: dirError }
 
-  saveConfig({
-    appDataDir,
-    imageLibraryDir,
-    ...(convertToWebp ? { pendingStoredFormat: 'webp' as const } : {}),
-  })
+  saveConfig({ appDataDir, imageLibraryDir })
   void launchApp(appDataDir, imageLibraryDir)
   setupWindow?.close()
   return { error: null }
@@ -289,7 +300,6 @@ function showSetupWindow(): void {
     resizable: true,
     minWidth: 520,
     minHeight: 560,
-    backgroundColor: '#0e1118',
     ...borderlessOptions(),
     webPreferences: {
       preload: path.join(__dirname, 'setup.preload.js'),
@@ -314,7 +324,6 @@ function createMainWindow(): BrowserWindow {
     height: 900,
     minWidth: 900,
     minHeight: 600,
-    backgroundColor: '#0e1118',
     ...borderlessOptions(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -363,27 +372,8 @@ async function showBackendUi(port: number): Promise<void> {
     signalBackendError(`The backend did not respond on ${origin}.`)
     return
   }
-  await applyPendingStoredFormat(origin)
   backendOrigin = origin
   await mainWindow?.loadURL(`${origin}/`)
-}
-
-/** Save the setup wizard's "convert to WebP" choice as the Stored format setting, once.
- * If the backend refuses, it stays pending and is tried again on the next launch. */
-async function applyPendingStoredFormat(origin: string): Promise<void> {
-  const config = loadConfig()
-  if (!config?.pendingStoredFormat) return
-  try {
-    const response = await fetch(`${origin}/api/v1/settings/`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stored_format: config.pendingStoredFormat }),
-    })
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    saveConfig({ appDataDir: config.appDataDir, imageLibraryDir: config.imageLibraryDir })
-  } catch (err) {
-    console.error('[electron] Could not save the Stored format setting:', err)
-  }
 }
 
 function signalBackendError(message: string): void {

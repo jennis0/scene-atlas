@@ -9,14 +9,29 @@
     />
     <title>Scene Atlas</title>
     <style>
+      /* The app's navy palette (frontend/src/index.css); follows the system theme, since
+         the user's own choice lives in the app, which isn't loaded yet. */
       :root {
-        --bg: #0e1118;
-        --surface: #161c28;
-        --border: #1e2736;
-        --primary: #d4a853;
-        --fg: #ede8dc;
-        --fg-muted: rgba(237, 232, 220, 0.55);
-        --danger: #e5786d;
+        color-scheme: light;
+        --bg: hsl(36 28% 91%);
+        --surface: hsl(36 26% 94%);
+        --border: hsl(36 14% 78%);
+        --primary: hsl(38 72% 50%);
+        --fg: hsl(30 12% 15%);
+        --fg-muted: hsl(30 9% 34%);
+        --danger: hsl(0 65% 35%);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --bg: hsl(222 22% 8%);
+          --surface: hsl(222 22% 12%);
+          --border: hsl(220 18% 19%);
+          --primary: hsl(39 70% 55%);
+          --fg: hsl(37 27% 89%);
+          --fg-muted: hsl(37 9% 58%);
+          --danger: hsl(0 75% 73.5%);
+        }
       }
       * {
         box-sizing: border-box;

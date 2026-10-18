@@ -56,10 +56,10 @@ app.whenReady()  (only if the single-instance lock was acquired)
      │         │              → findFreePort(47816)
      │         │              → spawnSidecar(port, appDataDir, imageLibraryDir)
      │         │              → sidecar prints SCENE_ATLAS_READY (once uvicorn is listening)
-     │         │              → poll /health → applyPendingStoredFormat() → loadURL(http://127.0.0.1:<port>/)
-     │         └── App.tsx checks /models/setup-status → ModelSetupScreen or gallery
+     │         │              → poll /health → loadURL(http://127.0.0.1:<port>/)
+     │         └── App.tsx checks /models/setup-status → SetupWizard or gallery
      └── NO  → showSetupWindow()
-              → user picks appDataDir, imageLibraryDir, and whether to convert to WebP
+              → user picks appDataDir and imageLibraryDir
               → setup:complete IPC → validate + prepareStorageDirs → saveConfig → launchApp(...)
 ```
 
@@ -72,7 +72,7 @@ The main process remembers the last `backend-error` and re-sends it on every `di
 - **`prepareStorageDirs`** creates both roots and write-tests them, on setup, on a storage change and on every launch (a drive may have been unmounted).
 - **`hasForeignEntries`** is used by `pickStorageDir()` in `main.ts` whenever the user picks either folder, in setup or in Settings. When the folder already holds entries Scene Atlas didn't create, a native warning offers *Choose Another Folder* (the default) or *Use This Folder*. The likely case is someone pointing the image library at their existing map collection: Scene Atlas would never show those files, and the reset instructions say to delete the library folder. Its own entries are dotfiles, two-character lower-case hex shards, `backups` and the app data entries (`battlemap.db*`, `lancedb`, `store`, `logs`, …), plus OS clutter. Both lists are accepted in either folder, so one folder for both is allowed (the backend's storage lock is per resolved root, so that's safe), and so is a folder that contains the other root. Update the lists whenever the backend writes a new top-level entry to either root.
 
-The Electron setup window only chooses storage directories. Model and tag-pack setup runs in the UI (`App.tsx` → `ModelSetupScreen`) in every mode, desktop included (see [hf-model-management.md](hf-model-management.md#first-boot-experience)).
+The Electron setup window only chooses storage directories. Everything else (appearance, stored format, tag packs, search model) is the React setup wizard, the same in every mode (see [first-run.md](first-run.md)). The setup window and loading page can't read the user's theme choice, so they follow the system light/dark setting, as do the window background and title-bar overlay colours (`windowColors()`).
 
 ## IPC Channels
 
@@ -84,7 +84,7 @@ Every handler is registered through `handleTrusted()`, which rejects calls whose
 |---------|-----------|---------|
 | `setup:get-default-dirs` | renderer → main | Returns `{ appDataDir, imageLibraryDir }` defaults (`Documents/Scene Atlas/data` and `Documents/Scene Atlas/images`) |
 | `setup:choose-directory` | renderer → main | `(kind, currentDir, otherRoot)`: opens the folder picker at `currentDir` with the non-empty-folder warning (`pickStorageDir`), returns the chosen path or null |
-| `setup:complete` | renderer → main | Validates absolute paths, creates and write-tests both roots, saves config, launches app, closes setup. Returns `{ error: string \| null }` |
+| `setup:complete` | renderer → main | `(appDataDir, imageLibraryDir)`: validates absolute paths, creates and write-tests both roots, saves config, launches app, closes setup. Returns `{ error: string \| null }` |
 
 ### Main Window (via `electronAPI`, `electron/src/preload.ts`)
 
@@ -116,7 +116,7 @@ Imports name local files by path ([local-ingest.md](local-ingest.md)): the prelo
 ## Sidecar Lifecycle
 
 1. **Port discovery** — `findFreePort(47816)` uses the preferred port if free, otherwise binds `127.0.0.1:0` for an OS-assigned port
-2. **Spawn** — `spawn(sidecarPath, ['--port', port, '--app-data-dir', appDataDir, '--image-library-dir', imageLibraryDir, '--parent-pid', process.pid])`, stdin/stdout/stderr piped (stdin is never written to; see the parent watchdog below). Sidecar path: `path.join(process.resourcesPath, 'sidecar', 'scene-atlas-backend[.exe]')`. Configuration goes on the command line, not in environment variables. The setup wizard's WebP choice is saved after start instead: once `/health` answers, `applyPendingStoredFormat()` PATCHes `/api/v1/settings/` with `stored_format: "webp"` and drops `pendingStoredFormat` from the config (kept for the next launch if the request fails). After that, Settings → Stored format is authoritative.
+2. **Spawn** — `spawn(sidecarPath, ['--port', port, '--app-data-dir', appDataDir, '--image-library-dir', imageLibraryDir, '--parent-pid', process.pid])`, stdin/stdout/stderr piped (stdin is never written to; see the parent watchdog below). Sidecar path: `path.join(process.resourcesPath, 'sidecar', 'scene-atlas-backend[.exe]')`. Configuration goes on the command line, not in environment variables.
 3. **Ready signal** — `entry.py` runs uvicorn through a `uvicorn.Server` subclass that prints `SCENE_ATLAS_READY port=…` after startup has bound the socket (so after the lifespan, too). The main process scans stdout for it, polls `/health`, then loads the UI from the sidecar. Only the sidecar prints the marker; other launchers (E2E, the stress runner) poll `/health`
 4. **Logging** — stdout/stderr appended to `{userData}/backend.log`; the log is rotated to `backend.log.1` when it exceeds 5 MB at startup
 5. **Failure handling** — Spawn errors, any exit before ready, and a non-zero exit after ready send `backend-error` with the last 10 output lines and the log path. `loading.html` headlines the last Python exception message in those lines (e.g. another backend already holding the data folder's lock, see [backend.md](backend.md#startup-sequence-mainpy-lifespan)), else the first line of the error
@@ -168,7 +168,7 @@ The PyInstaller spec keeps onnxruntime's `entry_points.txt` (DirectML plugin reg
 
 | Item | Location |
 |------|----------|
-| App config | `{userData}/scene-atlas-config.json` — `{ appDataDir, imageLibraryDir, pendingStoredFormat? }`. `pendingStoredFormat: "webp"` records the setup wizard's WebP choice until the backend has saved it (see Spawn) |
+| App config | `{userData}/scene-atlas-config.json` — `{ appDataDir, imageLibraryDir }`. Older configs may also hold `convertToWebp` or `pendingStoredFormat`, which are ignored: the stored format is chosen in the setup wizard |
 | Backend log | `{userData}/backend.log` (+ `backend.log.1` after rotation) |
 | Default app data dir | `{Documents}/Scene Atlas/data` |
 | Default image library dir | `{Documents}/Scene Atlas/images` |

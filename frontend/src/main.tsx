@@ -6,6 +6,7 @@ import { applyPalette, getStoredPalette } from './lib/palette'
 import { applyTextSize, getStoredTextSize } from './lib/textSize'
 import { watchShortWindow } from './lib/compactLayout'
 import { watchContrast } from './lib/contrast'
+import { applyTheme, readThemePreference, resolveTheme } from './lib/theme'
 import { TagColorProvider } from './contexts/TagColorContext'
 import App from './App'
 // Bundled so the desktop app renders correctly offline.
@@ -16,10 +17,8 @@ import '@fontsource-variable/jetbrains-mono/wght.css'
 import '@fontsource-variable/newsreader/opsz.css'
 import './index.css'
 
-// Apply saved display choices before first paint (default = dark, navy)
-if (localStorage.getItem('scene-atlas-theme') !== 'light') {
-  document.documentElement.classList.add('dark')
-}
+// Apply saved display choices before first paint (default = follow the system, navy)
+applyTheme(resolveTheme(readThemePreference()))
 applyPalette(getStoredPalette())
 applyTextSize(getStoredTextSize())
 watchShortWindow()

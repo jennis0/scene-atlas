@@ -1,15 +1,27 @@
-import { createContext, useContext, useState, useCallback, useMemo } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react'
 import { compactHeaderChoice, type CompactHeader } from '@/lib/compactLayout'
 import { contrastChoice, type Contrast } from '@/lib/contrast'
 import type { DisplayChoice } from '@/lib/displayChoice'
 import { paletteChoice, type Palette } from '@/lib/palette'
 import { textSizeChoice, type TextSize } from '@/lib/textSize'
+import {
+  applyTheme,
+  readThemePreference,
+  resolveTheme,
+  saveThemePreference,
+  watchSystemTheme,
+  type Theme,
+  type ThemePreference,
+} from '@/lib/theme'
 
-export type Theme = 'light' | 'dark'
+export type { Theme, ThemePreference }
 
 interface ThemeContextValue {
+  /** The theme in effect: the preference, with System resolved */
   theme: Theme
-  setTheme: (theme: Theme) => void
+  themePreference: ThemePreference
+  setThemePreference: (preference: ThemePreference) => void
+  /** Switch to an explicit light or dark, the opposite of what's showing */
   toggleTheme: () => void
   palette: Palette
   setPalette: (palette: Palette) => void
@@ -21,20 +33,10 @@ interface ThemeContextValue {
   setContrast: (value: Contrast) => void
 }
 
-const STORAGE_KEY = 'scene-atlas-theme'
-
-function getStoredTheme(): Theme {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    return stored === 'light' ? 'light' : 'dark'
-  } catch {
-    return 'dark'
-  }
-}
-
 const ThemeContext = createContext<ThemeContextValue>({
   theme: 'dark',
-  setTheme: () => {},
+  themePreference: 'system',
+  setThemePreference: () => {},
   toggleTheme: () => {},
   palette: 'navy',
   setPalette: () => {},
@@ -60,21 +62,30 @@ function useDisplayChoice<T extends string>(choice: DisplayChoice<T>) {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>(getStoredTheme)
+  const [themePreference, setPreferenceState] = useState<ThemePreference>(readThemePreference)
+  const [theme, setThemeState] = useState<Theme>(() => resolveTheme(themePreference))
 
-  const setTheme = useCallback((next: Theme) => {
-    try {
-      localStorage.setItem(STORAGE_KEY, next)
-    } catch {
-      // Storage blocked (private mode, quota): the theme still applies for this session.
-    }
-    document.documentElement.classList.toggle('dark', next === 'dark')
-    setThemeState(next)
+  const setThemePreference = useCallback((next: ThemePreference) => {
+    saveThemePreference(next)
+    setPreferenceState(next)
+    const resolved = resolveTheme(next)
+    applyTheme(resolved)
+    setThemeState(resolved)
   }, [])
 
+  // System follows the OS setting while the app is open
+  useEffect(() => {
+    if (themePreference !== 'system') return
+    return watchSystemTheme(() => {
+      const resolved = resolveTheme('system')
+      applyTheme(resolved)
+      setThemeState(resolved)
+    })
+  }, [themePreference])
+
   const toggleTheme = useCallback(
-    () => setTheme(theme === 'dark' ? 'light' : 'dark'),
-    [theme, setTheme],
+    () => setThemePreference(theme === 'dark' ? 'light' : 'dark'),
+    [theme, setThemePreference],
   )
 
   const [palette, setPalette] = useDisplayChoice(paletteChoice)
@@ -85,7 +96,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo(
     () => ({
       theme,
-      setTheme,
+      themePreference,
+      setThemePreference,
       toggleTheme,
       palette,
       setPalette,
@@ -98,7 +110,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       theme,
-      setTheme,
+      themePreference,
+      setThemePreference,
       toggleTheme,
       palette,
       setPalette,

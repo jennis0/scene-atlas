@@ -5,17 +5,20 @@ function Dots({ label, value }: { label: string; value: number }) {
   return (
     <>
       <dt className="text-2xs text-muted-foreground">{label}</dt>
-      <dd
-        className="flex items-center gap-[3px]"
-        role="img"
-        aria-label={`${label}: ${value} out of 5`}
-      >
-        {[1, 2, 3, 4, 5].map((i) => (
-          <span
-            key={i}
-            className={`h-2 w-2 rounded-full border border-foreground/70 ${i <= value ? 'bg-foreground/80' : ''}`}
-          />
-        ))}
+      {/* The role goes inside the dd: a dd with role="img" no longer counts as a dd */}
+      <dd>
+        <span
+          className="flex items-center gap-[3px]"
+          role="img"
+          aria-label={`${label}: ${value} out of 5`}
+        >
+          {[1, 2, 3, 4, 5].map((i) => (
+            <span
+              key={i}
+              className={`h-2 w-2 rounded-full border border-foreground/70 ${i <= value ? 'bg-foreground/80' : ''}`}
+            />
+          ))}
+        </span>
       </dd>
     </>
   )

@@ -231,7 +231,7 @@ Mutating routes are `@write_locked` (`BEGIN IMMEDIATE` on the endpoint's own thr
 |--------|------|---------|
 | GET | `/` | Models with download status |
 | GET | `/embedding-status` | Embedding service loading status |
-| GET | `/setup-status` | First-run setup status (GPU detection, recommended model) |
+| GET | `/setup-status` | First-run setup status: `needs_model`, `setup_completed`, `model_activating`, GPU detection, recommended model ([first-run.md](first-run.md)) |
 | POST | `/{name}/download` | Download a model without activating it |
 | GET | `/{name}/embeddings` | LanceDB stats for a model's table |
 | DELETE | `/{name}/embeddings` | Delete a model's embeddings |
@@ -348,7 +348,7 @@ Two sources:
 
 Derived values are `cached_property`s, not fields, so no env var can set them (`DATABASE_URL`, `STAGING_DIR` etc. are ignored). Each is computed once on first access; tests assign them to redirect storage. `__init__` creates the thumbnail, staging and LanceDB directories inside the roots.
 
-Other environment variables: `EMBEDDING_MODEL` (operator override of the active model, read by `clip_service.py`; otherwise `app_settings.active_model`), `CONVERT_TO_WEBP` (server mode: `1` seeds the `stored_format` setting as `webp` at first boot; the desktop app doesn't use it).
+Other environment variables: `EMBEDDING_MODEL` (operator override of the active model, read by `clip_service.py`; otherwise `app_settings.active_model`), `CONVERT_TO_WEBP` (server mode: `1` seeds the `stored_format` setting as `webp` at first boot, the setup wizard's starting choice; the desktop app doesn't use it).
 
 ## Startup Sequence (`main.py` lifespan)
 
