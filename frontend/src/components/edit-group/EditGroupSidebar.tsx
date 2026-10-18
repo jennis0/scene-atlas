@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Check, EyeOff, Loader2, Merge, MoreHorizontal, ScanSearch, Trash2 } from 'lucide-react'
+import { Check, EyeOff, Loader2, Merge, MoreHorizontal, Trash2 } from 'lucide-react'
+import { TypeCounts } from '@/components/imports/TypeCounts'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -267,7 +268,7 @@ function GroupRow({ group, index, isActive, hasGroupActions, onClick }: GroupRow
         onClick={(e) => onClick(index, group.id, e)}
         className="flex-1 flex items-center gap-2 pl-3 pr-1 py-2 text-left min-w-0"
       >
-        <span className="flex-1 text-xs truncate">{group.group_name}</span>
+        <span className="flex-1 text-sm truncate">{group.group_name}</span>
         <GroupRowCounts group={group} />
       </button>
       {hasGroupActions && <GroupRowMenu groupId={group.id} />}
@@ -284,6 +285,7 @@ interface PendingGroupRowProps {
 }
 
 function PendingGroupRow({ group, awaited, onOpen, onDemand }: PendingGroupRowProps) {
+  const { sortedOut } = useEditGroupContext()
   return (
     <button
       onClick={() => onOpen(group.id)}
@@ -291,35 +293,34 @@ function PendingGroupRow({ group, awaited, onOpen, onDemand }: PendingGroupRowPr
       title={onDemand ? undefined : 'Still loading — click to load it next'}
       className="w-full flex items-center gap-2 pl-3 pr-2 py-2 text-left min-w-0 border-l-2 border-transparent text-muted-foreground/70 hc:text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
     >
-      <span className="flex-1 text-xs truncate">{group.base_name}</span>
-      <span className="text-2xs tabular-nums shrink-0 flex items-center gap-1">
-        {group.image_count.toLocaleString()}
+      <span className="flex-1 text-sm truncate">{group.base_name}</span>
+      <span className="text-xs shrink-0 flex items-center gap-1">
+        <TypeCounts
+          maps={group.map_count}
+          scenes={group.scene_count}
+          skipped={sortedOut.counts[group.id] ?? 0}
+        />
         {awaited && <Loader2 className="h-3 w-3 animate-spin ml-1" />}
       </span>
     </button>
   )
 }
 
-/** In-scope image count, out-of-scope extras, and the auto-save indicator. */
+/** In-scope images by type, images Auto skipped, out-of-scope extras, and the
+ * auto-save indicator. */
 function GroupRowCounts({ group }: { group: EditableGroupState }) {
   const { ops, sortedOut } = useEditGroupContext()
+  const inScope = group.files.filter((f) => !f.excluded && !f.outOfScope)
+  const scenes = inScope.filter((f) => f.image_type === 'scene').length
   const outOfScope = group.files.filter((f) => f.outOfScope).length
   const dbId = serverId(group.id)
   const skipped = dbId === null ? 0 : (sortedOut.counts[dbId] ?? 0)
 
   return (
-    <span className="text-2xs text-muted-foreground tabular-nums shrink-0 flex items-center gap-1">
-      {group.files.filter((f) => !f.excluded && !f.outOfScope).length}
-      {outOfScope > 0 && <span className="ml-0.5 opacity-80">+{outOfScope}</span>}
-      {skipped > 0 && (
-        <span
-          className="ml-1 inline-flex items-center gap-0.5"
-          title={`${skipped} skipped by Auto: open the group to review`}
-        >
-          <ScanSearch className="h-3 w-3" aria-hidden />
-          <span className="sr-only">skipped by Auto:</span>
-          {skipped}
-        </span>
+    <span className="text-xs text-muted-foreground shrink-0 flex items-center gap-1">
+      <TypeCounts maps={inScope.length - scenes} scenes={scenes} skipped={skipped} />
+      {outOfScope > 0 && (
+        <span className="ml-0.5 opacity-80 hc:opacity-100 tabular-nums">+{outOfScope}</span>
       )}
       {ops.groupSaving.has(group.id) ? (
         <Loader2 className="h-3 w-3 animate-spin text-muted-foreground ml-1" />

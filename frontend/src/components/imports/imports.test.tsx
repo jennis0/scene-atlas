@@ -537,3 +537,27 @@ describe('isCleanFinish', () => {
     expect(isCleanFinish(job({ done: 3, skipped: 1 }))).toBe(true) // e.g. a readme.txt
   })
 })
+
+describe('ImportDialog: result, groups by type', () => {
+  it('shows each group as maps, scenes and Auto skips', async () => {
+    const finished = jobSummary({ status: 'completed', counts: counts({ done: 16, skipped: 3 }) })
+    ;({ manager, client } = await installFakeImportManager({
+      jobs: [finished],
+      details: {
+        job1: {
+          ...finished,
+          reviewable_group_ids: [41],
+          groups: [
+            group({
+              map_count: 14,
+              scene_count: 2,
+              counts: counts({ done: 16, skipped: 3, sorted_out: 3 }),
+            }),
+          ],
+        },
+      },
+    }))
+    renderWithProviders(<ImportDialog onStarted={noop} jobId="job1" open onClose={noop} />)
+    expect(await screen.findByTitle('14 maps, 2 scenes, 3 skipped by Auto')).toBeInTheDocument()
+  })
+})

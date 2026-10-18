@@ -33,6 +33,8 @@ const summary = (id: number, image_count: number): GroupSummary => ({
   author: null,
   primary_image_id: null,
   image_count,
+  map_count: 0,
+  scene_count: 0,
   image_ids: [],
 })
 

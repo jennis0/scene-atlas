@@ -261,6 +261,9 @@ export interface GroupSummary {
   author: string | null
   primary_image_id: number | null
   image_count: number
+  /** Images by type, so editor rows can show them before the files load */
+  map_count: number
+  scene_count: number
   image_ids: number[]
 }
 

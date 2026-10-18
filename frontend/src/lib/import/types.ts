@@ -40,6 +40,9 @@ export interface ImportGroupSummary {
   counts: ImportCounts
   /** An image this import added to the group, for a thumbnail in the report */
   cover_image_id?: number | null
+  /** The images this import added, by type (the report; 0 in the progress view) */
+  map_count: number
+  scene_count: number
 }
 
 export interface ImportJobSummary {

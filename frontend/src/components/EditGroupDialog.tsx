@@ -309,7 +309,7 @@ export default function EditGroupDialog({
         <DialogContent
           data-testid="edit-group-dialog"
           aria-label={isMassEdit ? 'Edit search results' : 'Edit group'}
-          className="max-w-5xl h-[85vh] overflow-hidden flex flex-col p-0 gap-0"
+          className="max-w-6xl h-[85vh] overflow-hidden flex flex-col p-0 gap-0"
         >
           <EditGroupHeader
             isMassEdit={isMassEdit}

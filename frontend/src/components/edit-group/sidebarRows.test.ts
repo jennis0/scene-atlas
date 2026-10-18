@@ -11,6 +11,8 @@ const summary = (id: number, name = `G${id}`) =>
     author: null,
     primary_image_id: null,
     image_count: 1,
+    map_count: 0,
+    scene_count: 0,
     image_ids: [],
   }) as GroupSummary
 const keys = (rows: ReturnType<typeof sidebarRows>) => rows.map((r) => r.key)

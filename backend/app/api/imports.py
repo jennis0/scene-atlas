@@ -42,7 +42,7 @@ from ...pipeline.ingest_local import (
 from ...pipeline.ingest_maintenance import FINISHED_JOB_TTL
 from ...pipeline.ingest_worker import get_ingest_worker
 from ..config import settings
-from ..models import ImportGroup, ImportItem, ImportJob, get_session_local
+from ..models import Image, ImportGroup, ImportItem, ImportJob, get_session_local
 from ..models.import_schemas import (
     ActionResult,
     ArchiveResult,
@@ -293,18 +293,21 @@ def _detail(db: Session, job: ImportJob, active_limit: int | None = None) -> Imp
         .filter(_is_reviewable(per_gallery))
         .order_by(per_gallery.c.first_order, per_gallery.c.image_group_id)
     )
+    # The report's cover thumbnail and how many maps / scenes each group imported
     cover_rows = (
-        db.query(ImportItem.import_group_id, func.min(ImportItem.image_id))
-        .filter(
-            ImportItem.job_id == job.id,
-            ImportItem.state == st.DONE,
-            ImportItem.image_id.isnot(None),
+        db.query(
+            ImportItem.import_group_id,
+            func.min(ImportItem.image_id),
+            func.count(case((Image.image_type == q.BATTLEMAP, 1))),
+            func.count(case((Image.image_type == q.SCENE, 1))),
         )
+        .join(Image, Image.id == ImportItem.image_id)
+        .filter(ImportItem.job_id == job.id, ImportItem.state == st.DONE)
         .group_by(ImportItem.import_group_id)
     )
-    covers: dict[int | None, int | None] = {}
+    covers: dict[int | None, tuple[int | None, int, int]] = {}
     if active_limit is None:
-        covers = dict(cover_rows.tuples())
+        covers = {gid: (cover, maps, scenes) for gid, cover, maps, scenes in cover_rows}
     query = db.query(ImportGroup).filter(ImportGroup.job_id == job.id)
     if active_limit is not None:
         open_ids = [gid for gid, by_state in by_group.items() if _is_open(by_state)]
@@ -323,7 +326,9 @@ def _detail(db: Session, job: ImportJob, active_limit: int | None = None) -> Imp
                 merged_into_existing=bool(g.merged_into_existing),
                 sort_order=g.sort_order,
                 counts=_counts(by_group.get(g.id, {}), sorted_out.get(g.id, 0)),
-                cover_image_id=covers.get(g.id),
+                cover_image_id=covers.get(g.id, (None, 0, 0))[0],
+                map_count=covers.get(g.id, (None, 0, 0))[1],
+                scene_count=covers.get(g.id, (None, 0, 0))[2],
             )
             for g in groups
         ],

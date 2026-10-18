@@ -71,6 +71,8 @@ export function group(partial: Partial<ImportGroupSummary> = {}): ImportGroupSum
     merged_into_existing: false,
     sort_order: 0,
     counts: counts({ done: 3 }),
+    map_count: 3,
+    scene_count: 0,
     ...partial,
   }
 }

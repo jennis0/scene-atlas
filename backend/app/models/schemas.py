@@ -267,6 +267,8 @@ class GroupSummary(BaseModel):
     author: str | None = None
     primary_image_id: int | None = None
     image_count: int = 0
+    map_count: int = 0  # images by type, so editor rows can show them before files load
+    scene_count: int = 0
     image_ids: list[int] = []
 
 

@@ -174,6 +174,13 @@ def test_auto_sorts_each_image(auto):
     assert detail["status"] == "completed"
     assert detail["counts"]["done"] == 2 and detail["counts"]["skipped"] == 3
     assert detail["counts"]["sorted_out"] == 3
+    # Per group, by type: the report shows these so surprising sorts stand out
+    group = detail["groups"][0]
+    assert (group["map_count"], group["scene_count"]) == (1, 1)
+    summaries = auto.client.post(
+        "/api/v1/groups/summaries", json={"ids": [group["image_group_id"]]}
+    ).json()
+    assert (summaries[0]["map_count"], summaries[0]["scene_count"]) == (1, 1)
     assert detail["groups"][0]["counts"]["sorted_out"] == 3
     with auto.SessionLocal() as db:
         assert db.query(Image).count() == 2

@@ -23,7 +23,7 @@ import {
   Pause,
   PauseCircle,
   Play,
-  ScanSearch,
+  Wand2,
   UploadCloud,
   WifiOff,
 } from 'lucide-react'
@@ -164,7 +164,7 @@ function StartView({
             <TypeOption
               selected={imageType === 'auto'}
               onClick={() => setImageType('auto')}
-              icon={<ScanSearch className="h-3.5 w-3.5" />}
+              icon={<Wand2 className="h-3.5 w-3.5" />}
               label="Auto"
             />
             <TypeOption

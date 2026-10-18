@@ -163,14 +163,16 @@ def get_group_summaries(
     """
     groups = db.query(ImageGroup).filter(ImageGroup.id.in_(request.ids)).all()
     image_ids: dict[int, list[int]] = {g.id: [] for g in groups}
+    scenes: dict[int, int] = dict.fromkeys(image_ids, 0)
     rows = (
-        db.query(Image.group_id, Image.id)
+        db.query(Image.group_id, Image.id, Image.image_type)
         .filter(Image.group_id.in_(request.ids))
         .order_by(Image.id)
         .all()
     )
-    for group_id, image_id in rows:
+    for group_id, image_id, image_type in rows:
         image_ids[group_id].append(image_id)
+        scenes[group_id] += image_type == "scene"
     summaries = [
         GroupSummary(
             id=g.id,
@@ -178,6 +180,8 @@ def get_group_summaries(
             author=g.author,
             primary_image_id=g.primary_image_id,
             image_count=g.image_count,
+            map_count=len(image_ids[g.id]) - scenes[g.id],
+            scene_count=scenes[g.id],
             image_ids=image_ids[g.id],
         )
         for g in groups

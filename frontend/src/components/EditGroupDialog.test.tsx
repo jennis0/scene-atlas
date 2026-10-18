@@ -102,6 +102,8 @@ function summaryOf(g: GroupDetail): GroupSummary {
     author: g.author,
     primary_image_id: g.primary_image_id,
     image_count: g.images.length,
+    map_count: g.images.filter((img) => img.image_type !== 'scene').length,
+    scene_count: g.images.filter((img) => img.image_type === 'scene').length,
     image_ids: g.images.map((img) => img.id),
   }
 }
@@ -570,10 +572,9 @@ describe('EditGroupDialog', () => {
     it('counts them on sidebar rows, and offers them only for the one group open', async () => {
       const { user } = renderDialog({ importReview: { groupIds: [1, 2] } })
       expect(await screen.findByText('2 groups')).toBeInTheDocument()
-      expect(
-        await screen.findByTitle('2 skipped by Auto: open the group to review'),
-      ).toHaveTextContent('2')
-      expect(screen.getByTitle('1 skipped by Auto: open the group to review')).toBeInTheDocument()
+      // Each row reads as counts per kind: maps, scenes, skipped by Auto
+      expect(await screen.findByTitle(/, 2 skipped by Auto$/)).toBeInTheDocument()
+      expect(screen.getByTitle(/, 1 skipped by Auto$/)).toBeInTheDocument()
       // All shows several groups: no strip
       expect(screen.queryByText(/from this group/)).not.toBeInTheDocument()
 

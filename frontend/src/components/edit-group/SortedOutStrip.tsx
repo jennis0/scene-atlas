@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useId, useState } from 'react'
-import { Loader2, ScanSearch } from 'lucide-react'
+import { ImageOff, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { TextButton } from '@/components/imports/ImportFrame'
 import { plural } from '@/components/imports/format'
@@ -74,7 +74,7 @@ export function SortedOutStrip({ groupId, count, importing, onIncluded }: Sorted
   return (
     <div className="border-b border-border/30">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-xs">
-        <ScanSearch className="h-3.5 w-3.5 text-muted-foreground shrink-0" aria-hidden />
+        <ImageOff className="h-3.5 w-3.5 text-muted-foreground shrink-0" aria-hidden />
         <span role="status" className="flex flex-wrap gap-x-1">
           <span className="text-foreground/90 hc:text-foreground">
             {count > 0
@@ -171,7 +171,7 @@ function SortedOutTile({
             className="max-h-full max-w-full object-contain"
           />
         ) : (
-          <ScanSearch className="h-5 w-5 text-muted-foreground" aria-hidden />
+          <ImageOff className="h-5 w-5 text-muted-foreground" aria-hidden />
         )}
       </div>
       <span className="font-mono text-3xs text-muted-foreground truncate">{item.filename}</span>

@@ -43,6 +43,9 @@ class ImportGroupSummary(BaseModel):
     counts: ImportCounts
     # An image this import added to the group, for a thumbnail in the report
     cover_image_id: int | None = None
+    # The images this import added, by type (the report; 0 for groups=active)
+    map_count: int = 0
+    scene_count: int = 0
 
 
 class ImportJobSummary(BaseModel):
