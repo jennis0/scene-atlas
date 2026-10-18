@@ -279,15 +279,16 @@ def edit_group(
     group.base_name = payload.base_name
     group.author = payload.author
 
-    # 2. Determine which images to keep vs delete.
-    # Images referenced in new_groups are being moved, not deleted — protect them.
+    # 2. Delete only what the client asked to delete (never inferred from omission).
+    # Images kept or referenced in new_groups (moved, not deleted) are protected.
     kept_ids = {img.id for img in payload.images}
     moving_ids = {img_id for ng in payload.new_groups for img_id in ng.image_ids}
+    to_delete = set(payload.delete_image_ids) - kept_ids - moving_ids
     all_images = (
         db.query(Image).options(selectinload(Image.tags)).filter(Image.group_id == group_id).all()
     )
 
-    deleted = [img for img in all_images if img.id not in kept_ids and img.id not in moving_ids]
+    deleted = [img for img in all_images if img.id in to_delete]
     deleted_ids = [img.id for img in deleted]
     pending = delete_image_rows(db, deleted)
 

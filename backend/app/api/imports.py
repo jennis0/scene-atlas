@@ -127,12 +127,16 @@ def _counts(by_state: dict[str, int], sorted_out: int = 0) -> ImportCounts:
 @dataclass
 class _GroupTotals:
     total: int = 0
-    with_images: int = 0  # groups with at least one imported image
+    # Finished groups (nothing awaiting bytes, ready or processing) with at least one
+    # imported image: what the review editor can open. An unfinished group is held back
+    # so the editor never loads a group that is still filling.
+    reviewable: int = 0
     open: int = 0  # groups with items still awaiting bytes, ready or processing
 
 
 def _group_totals(db: Session, ids: list[str]) -> dict[str, _GroupTotals]:
-    """Per job: its groups, how many have imported images, and how many are still open."""
+    """Per job: its groups, how many are finished with imported images, and how many are
+    still open."""
     totals = {job_id: _GroupTotals() for job_id in ids}
     rows = (
         db.query(ImportGroup.job_id, func.count(ImportGroup.id))
@@ -141,19 +145,25 @@ def _group_totals(db: Session, ids: list[str]) -> dict[str, _GroupTotals]:
     )
     for job_id, total in rows:
         totals[job_id].total = total
-    group_id = ImportItem.import_group_id
     is_open = ImportItem.state.in_(st.OPEN_ITEM_STATES)
-    state_rows = (
+    per_group = (
         db.query(
-            ImportItem.job_id,
-            func.count(func.distinct(case((ImportItem.state == st.DONE, group_id)))),
-            func.count(func.distinct(case((is_open, group_id)))),
+            ImportItem.job_id.label("job_id"),
+            func.max(case((ImportItem.state == st.DONE, 1), else_=0)).label("has_done"),
+            func.max(case((is_open, 1), else_=0)).label("has_open"),
         )
-        .filter(ImportItem.job_id.in_(ids))
-        .group_by(ImportItem.job_id)
+        .filter(ImportItem.job_id.in_(ids), ImportItem.import_group_id.isnot(None))
+        .group_by(ImportItem.job_id, ImportItem.import_group_id)
+        .subquery()
     )
-    for job_id, with_images, open_groups in state_rows:
-        totals[job_id].with_images, totals[job_id].open = with_images, open_groups
+    finished_with_images = (per_group.c.has_done == 1) & (per_group.c.has_open == 0)
+    state_rows = db.query(
+        per_group.c.job_id,
+        func.sum(case((finished_with_images, 1), else_=0)),
+        func.sum(per_group.c.has_open),
+    ).group_by(per_group.c.job_id)
+    for job_id, reviewable, open_groups in state_rows:
+        totals[job_id].reviewable, totals[job_id].open = reviewable or 0, open_groups or 0
     return totals
 
 
@@ -215,7 +225,7 @@ def _summary(job: ImportJob, counts: ImportCounts, groups: _GroupTotals, now) ->
         counts=counts,
         group_count=groups.total,
         groups_done=groups.total - groups.open if job.planned_at is not None else 0,
-        groups_with_images=groups.with_images,
+        groups_reviewable=groups.reviewable,
         created_at=job.created_at,
         updated_at=job.updated_at,
         completed_at=job.completed_at,

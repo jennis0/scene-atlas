@@ -57,16 +57,26 @@ export const isCleanFinish = (job: ImportJobSummary) =>
   !job.upload_interrupted
 
 /**
- * The image groups an import has added images to, for opening in the editor. Each once:
- * several import groups can add to the same gallery group.
+ * The image groups an import has finished adding images to, for opening in the editor.
+ * Each once: several import groups can add to the same gallery group, and it is held back
+ * until all of them are finished, so the editor never loads a group that is still filling
+ * (an edit to such a group would be missing the images that land after it loaded).
  */
-export const reviewableGroupIds = (groups: ImportGroupSummary[]) => [
-  ...new Set(
+export function reviewableGroupIds(groups: ImportGroupSummary[]): number[] {
+  const unfinished = new Set(
     groups
-      .filter((g) => g.image_group_id !== null && g.counts.done > 0)
-      .map((g) => g.image_group_id!),
-  ),
-]
+      .filter((g) => g.image_group_id !== null && openCount(g.counts) > 0)
+      .map((g) => g.image_group_id),
+  )
+  return [
+    ...new Set(
+      groups
+        .filter((g) => g.image_group_id !== null && g.counts.done > 0)
+        .map((g) => g.image_group_id!)
+        .filter((id) => !unfinished.has(id)),
+    ),
+  ]
+}
 
 export function uploadPhaseText(upload: LocalUpload | undefined): string | null {
   if (!upload) return null

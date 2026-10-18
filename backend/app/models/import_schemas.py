@@ -58,7 +58,8 @@ class ImportJobSummary(BaseModel):
     counts: ImportCounts
     group_count: int
     groups_done: int = 0  # groups with no open items (planned jobs)
-    groups_with_images: int = 0  # groups with at least one imported image: what to review
+    # Finished groups with at least one imported image: what the review editor can open
+    groups_reviewable: int = 0
     created_at: datetime | None
     updated_at: datetime | None
     completed_at: datetime | None

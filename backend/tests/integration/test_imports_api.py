@@ -592,7 +592,8 @@ def test_progress_fields(api):
 
     assert summary()["group_count"] == 4
     assert summary()["groups_done"] == 1  # Group0 has both files; the rest await bytes
-    assert summary()["groups_with_images"] == 2
+    # Group1 has an image but still awaits a file: not reviewable until it's finished
+    assert summary()["groups_reviewable"] == 1
 
     active = api.client.get(f"{BASE}/{job_id}", params={"groups": "active", "limit": 2}).json()
     assert [g["group_name"] for g in active["groups"]] == ["Group 1", "Group 2"]  # parser spacing

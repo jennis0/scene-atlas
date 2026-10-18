@@ -347,6 +347,7 @@ class TestGroupEdit:
                     for img_id in kept_ids
                 ],
                 "new_groups": [],
+                "delete_image_ids": [img_ids[2]],
             },
         )
         assert resp.status_code == 200
@@ -356,6 +357,36 @@ class TestGroupEdit:
         # Group still exists with 2 images
         detail = client.get(f"/api/v1/groups/{group_id}").json()
         assert len(detail["images"]) == 2
+
+    def test_images_the_client_does_not_mention_are_kept(self, seeded_group):
+        """Regression: an editor that loaded the group before more images were imported
+        into it (a running import, an include from the skipped list) saved without them,
+        and the server deleted them because they weren't in the list."""
+        client, group_id, img_ids = seeded_group
+        resp = client.put(
+            f"/api/v1/groups/{group_id}",
+            json={
+                "base_name": "Renamed",
+                "author": "TestAuthor",
+                "images": [
+                    {
+                        "id": img_ids[0],
+                        "name": "only this one is loaded",
+                        "gridded": None,
+                        "grid_width": None,
+                        "grid_height": None,
+                        "subgroup": None,
+                        "image_type": None,
+                        "tags": [],
+                    }
+                ],
+                "new_groups": [],
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["deleted_image_ids"] == []
+        detail = client.get(f"/api/v1/groups/{group_id}").json()
+        assert sorted(img["id"] for img in detail["images"]) == sorted(img_ids)
 
     def test_update_author(self, seeded_group):
         client, group_id, img_ids = seeded_group
@@ -576,6 +607,7 @@ class TestGroupEditAdvanced:
                     for i, img_id in enumerate(kept)
                 ],
                 "new_groups": [],
+                "delete_image_ids": [img_ids[0]],
             },
         )
         assert resp.status_code == 200
@@ -678,11 +710,13 @@ class TestGroupEditAdvanced:
                         "image_ids": [img_ids[1]],
                     }
                 ],
+                # Asking to delete a moved image must not delete it either
+                "delete_image_ids": [img_ids[1], img_ids[2]],
             },
         )
         assert resp.status_code == 200
         data = resp.json()
-        # img_ids[2] was in neither images nor new_groups — it should be deleted
+        # img_ids[2] was asked for and is in neither images nor new_groups — deleted
         assert img_ids[2] in data["deleted_image_ids"]
         # img_ids[1] was in new_groups — it must NOT be deleted
         assert img_ids[1] not in data["deleted_image_ids"]

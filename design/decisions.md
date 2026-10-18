@@ -545,4 +545,5 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 - Mixed packs import without choosing a type, and tokens stay out of the library unless included.
 - On a 320-image real sample with the Small model (2026-10-18, raw catalog labels), about 1 in 10 maps was skipped and 6% became scenes. The review path matters, and head quality is the lever. Re-measure when heads are retrained.
 - Sorted-out uploads keep their staged bytes until the job's rows are pruned (30 days after dismissal). Local imports keep only the preview.
-- Included images go through the queue. An open editor doesn't add them mid-edit; they show the next time the group opens.
+- Included images go through the queue; the open editor merges them into the group once their import finishes (`edit-group/useSortedOut.ts`).
+- Found while testing: the editor could load a group that was still filling, and `PUT /groups/{id}` deleted every image the client didn't list, so editing such a group deleted the late images. Fixed on this branch: deletion is now explicit (`delete_image_ids`), and import review holds a group back until its import has finished with it (`groups_reviewable`, `reviewableGroupIds`).

@@ -295,6 +295,8 @@ export interface GroupEditRequest {
   author?: string
   images: ImageEditPayload[]
   new_groups: NewGroupPayload[]
+  /** Images to delete. Deletion is explicit: images left out of `images` are kept. */
+  delete_image_ids: number[]
 }
 
 export interface GroupEditResponse {

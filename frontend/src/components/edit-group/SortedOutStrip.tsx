@@ -1,9 +1,9 @@
 /**
  * In the group editor: the images Auto skipped from this group when it was imported
  * (tokens, other art, and images it couldn't place), so they can be checked and
- * included (design/ingestion.md §5.6). Collapsed to one line until asked; included
- * images go through the import queue and are in the group the next time it opens,
- * rather than appearing under the user mid-edit.
+ * included (design/ingestion.md §5.6). Collapsed to one line until asked. Included
+ * images go through the import queue; the editor adds them to the group once they're
+ * imported (useSortedOut).
  */
 
 import { useEffect, useState } from 'react'
@@ -20,23 +20,23 @@ interface SortedOutStripProps {
   groupId: number
   /** From the sorted-out counts; the strip renders nothing at 0 */
   count: number
-  /** Re-read the counts after an include */
-  onIncluded: () => void
+  /** Included images from this group still being imported */
+  importing: number
+  /** Images were included, re-opening these imports */
+  onIncluded: (count: number, jobIds: string[]) => void
 }
 
-export function SortedOutStrip({ groupId, count, onIncluded }: SortedOutStripProps) {
+export function SortedOutStrip({ groupId, count, importing, onIncluded }: SortedOutStripProps) {
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState<ImportItem[] | null>(null)
   const [truncated, setTruncated] = useState(false)
   const [error, setError] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [included, setIncluded] = useState(0)
 
   // A different group: start collapsed, and load its list only when opened
   useEffect(() => {
     setOpen(false)
     setItems(null)
-    setIncluded(0)
   }, [groupId])
 
   useEffect(() => {
@@ -56,17 +56,16 @@ export function SortedOutStrip({ groupId, count, onIncluded }: SortedOutStripPro
     }
   }, [open, items, groupId])
 
-  if (count === 0 && included === 0) return null
+  if (count === 0 && importing === 0) return null
 
   const include = async (ids: number[]) => {
     setBusy(true)
     try {
-      const n = await getImportManager().include(ids)
+      const result = await getImportManager().include(ids)
       setItems((prev) => prev?.filter((i) => !ids.includes(i.id)) ?? null)
-      setIncluded((prev) => prev + n)
-      onIncluded()
-      toast.success(`Importing ${plural(n, 'image')}`, {
-        description: 'They will be in this group the next time you open it.',
+      onIncluded(result.affected, result.job_ids)
+      toast.success(`Importing ${plural(result.affected, 'image')}`, {
+        description: 'They will appear in this group once imported.',
       })
     } catch {
       toast.error("Couldn't include them", { description: 'The server could not be reached.' })
@@ -85,9 +84,9 @@ export function SortedOutStrip({ groupId, count, onIncluded }: SortedOutStripPro
             ? `${plural(remaining, 'image')} from this group ${remaining === 1 ? 'was' : 'were'} skipped by Auto`
             : 'No skipped images left'}
         </span>
-        {included > 0 && (
+        {importing > 0 && (
           <span className="text-muted-foreground">
-            · {included.toLocaleString()} being imported
+            · {importing.toLocaleString()} being imported
           </span>
         )}
         <span className="ml-auto flex items-center gap-1">

@@ -156,7 +156,9 @@ opened, the sidebar is windowed with a name filter, and All is `edit-group/BulkP
 save on blur only if they changed (`edit-group/useMetadataSave.ts`); an author set for many
 groups is one `POST /groups/bulk-update`.
 
-Images Auto skipped at import ([ingestion.md §5.6](ingestion.md#56-auto-image-type)): `edit-group/useSortedOut.ts` reads `GET /imports/sorted-out/counts` when the editor opens (shared through `EditGroupContext.sortedOut`). Sidebar rows show the count, and `edit-group/SortedOutStrip.tsx` sits above the active group's files: collapsed to one line, then previews with Include / Include all. Included images go through the import queue and are in the group the next time it opens; the editor doesn't add them mid-edit.
+Images Auto skipped at import ([ingestion.md §5.6](ingestion.md#56-auto-image-type)): `edit-group/useSortedOut.ts` reads `GET /imports/sorted-out/counts` when the editor opens (shared through `EditGroupContext.sortedOut`). Sidebar rows show the count, and `edit-group/SortedOutStrip.tsx` sits above the active group's files: collapsed to one line, then previews with Include / Include all. Included images go through the import queue; once the imports they re-opened finish, `useSortedOut` merges the group's new images into the editor (`edit-group/mergeNewImages.ts`: appended, loaded files and edits untouched, no save).
+
+Saving never deletes by omission: `PUT /groups/{id}` deletes only `delete_image_ids` (the files marked for deletion), so images that reach a group after the editor loaded it are safe.
 
 Confirmations (inline delete, merge picker, modal merges and deletes) are one `PendingConfirm`
 state in the dialog, so only one is open at a time. Operations a confirmation gates resolve to

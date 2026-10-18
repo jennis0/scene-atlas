@@ -15,7 +15,13 @@ import {
 import type { ImportManager } from '@/lib/import/ImportManager'
 import { toast } from 'sonner'
 import { ImportDialog } from './ImportDialog'
-import { isCleanFinish, jobStatusText, outcomeText, timeLeftText } from './format'
+import {
+  isCleanFinish,
+  jobStatusText,
+  outcomeText,
+  reviewableGroupIds,
+  timeLeftText,
+} from './format'
 
 vi.mock('sonner', async (importOriginal) => {
   const actual = await importOriginal<typeof import('sonner')>()
@@ -230,7 +236,7 @@ describe('ImportDialog: progress', () => {
   it('reviews the groups imported so far', async () => {
     const onReviewGroups = vi.fn()
     ;({ manager, client } = await installFakeImportManager({
-      jobs: [jobSummary({ counts: counts({ ready: 5, done: 6 }), groups_with_images: 2 })],
+      jobs: [jobSummary({ counts: counts({ ready: 5, done: 6 }), groups_reviewable: 2 })],
       details: {
         job1: detail({ counts: counts({ ready: 5, done: 6 }) }),
       },
@@ -508,5 +514,18 @@ describe('isCleanFinish', () => {
     expect(isCleanFinish(job({ done: 3 }))).toBe(true)
     expect(isCleanFinish(job({ done: 3, skipped: 1, sorted_out: 1 }))).toBe(false)
     expect(isCleanFinish(job({ done: 3, skipped: 1 }))).toBe(true) // e.g. a readme.txt
+  })
+})
+
+describe('reviewableGroupIds', () => {
+  it('holds back a gallery group until every import group adding to it is finished', () => {
+    const groups = [
+      group({ id: 1, image_group_id: 41, counts: counts({ done: 3 }) }),
+      group({ id: 2, image_group_id: 42, counts: counts({ done: 2, ready: 5 }) }), // filling
+      group({ id: 3, image_group_id: 43, counts: counts({ done: 1 }) }),
+      group({ id: 4, image_group_id: 43, counts: counts({ processing: 2 }) }), // same group
+      group({ id: 5, image_group_id: null, counts: counts({ skipped: 4 }) }),
+    ]
+    expect(reviewableGroupIds(groups)).toEqual([41])
   })
 })

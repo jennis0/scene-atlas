@@ -372,8 +372,12 @@ class GroupEditRequest(BaseModel):
 
     base_name: str
     author: str | None = None
-    images: list[ImageEditPayload]  # images to keep (with metadata updates)
+    images: list[ImageEditPayload]  # metadata updates for images in the group
     new_groups: list[NewGroupPayload] = []  # split-off groups; their images are moved, not deleted
+    # Deletion is explicit: an image the client doesn't mention is left alone. The editor
+    # may have loaded the group before more images landed in it (a running import, an
+    # include from the skipped list); inferring deletes from omission would delete those.
+    delete_image_ids: list[int] = []
 
 
 class GroupEditResponse(BaseModel):

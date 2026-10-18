@@ -23,7 +23,7 @@ const running = (partial = {}) =>
     counts: counts({ done: 6, ready: 40 }),
     group_count: 347,
     groups_done: 103,
-    groups_with_images: 3,
+    groups_reviewable: 3,
     ...partial,
   })
 
@@ -49,8 +49,8 @@ describe('ImportRunningStrip', () => {
   it('adds the groups finished since the editor opened, when asked', async () => {
     const groups = [41, 42, 43, 44, 45].map((id) => group({ id, image_group_id: id }))
     ;({ manager } = await installFakeImportManager({
-      jobs: [running({ groups_with_images: 5 })],
-      details: { job1: { ...running({ groups_with_images: 5 }), groups } },
+      jobs: [running({ groups_reviewable: 5 })],
+      details: { job1: { ...running({ groups_reviewable: 5 }), groups } },
     }))
     const onAddGroups = vi.fn()
     renderWithProviders(
@@ -62,7 +62,7 @@ describe('ImportRunningStrip', () => {
   })
 
   it('stays until a finished import has nothing more to add', async () => {
-    const done = running({ status: 'completed', groups_done: 347, groups_with_images: 4 })
+    const done = running({ status: 'completed', groups_done: 347, groups_reviewable: 4 })
     ;({ manager } = await installFakeImportManager({ jobs: [done] }))
     const { rerender } = renderWithProviders(
       <ImportRunningStrip jobId="job1" reviewedGroupIds={[41, 42, 43]} onAddGroups={vi.fn()} />,

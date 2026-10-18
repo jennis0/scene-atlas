@@ -28,6 +28,7 @@ import type {
   ItemState,
   ManifestFile,
   PickedFile,
+  IncludeResult,
   QueueStatus,
   SortedOutList,
 } from './types'
@@ -783,11 +784,11 @@ export class ImportManager {
     return result.affected
   }
 
-  /** Import items Auto sorted out after all; returns how many were included */
-  async include(itemIds: number[]): Promise<number> {
+  /** Import items Auto sorted out after all; says how many, and which imports re-opened */
+  async include(itemIds: number[]): Promise<IncludeResult> {
     const result = await this.client.include(itemIds)
     await this.refresh()
-    return result.affected
+    return result
   }
 
   listSortedOut(imageGroupId: number): Promise<SortedOutList> {

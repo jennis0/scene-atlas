@@ -6,6 +6,7 @@ import { ALL_TAB } from '@/hooks/useFileEditing'
 import {
   imageToEditable,
   buildPayload,
+  deletedImageIds,
   toImageEdit,
   groupDetailToEditable,
   tabAfterRemoval,
@@ -157,6 +158,7 @@ export function useEditGroupOperations({
             image_ids: movedFiles.filter((f) => !f.excluded).map((f) => Number(f.relative_path)),
           },
         ],
+        delete_image_ids: deletedImageIds(source.files),
       })
 
       // Reload both groups from the API so the new one has its real ID.

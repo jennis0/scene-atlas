@@ -35,7 +35,7 @@ export function ImportRunningStrip({
   if (!job) return null
 
   const finished = isFinished(job)
-  const ready = Math.max(0, job.groups_with_images - (counted ?? reviewedGroupIds.length))
+  const ready = Math.max(0, job.groups_reviewable - (counted ?? reviewedGroupIds.length))
   if (finished && ready === 0) return null
 
   const addGroups = async () => {
@@ -43,7 +43,7 @@ export function ImportRunningStrip({
     try {
       const reviewed = new Set(reviewedGroupIds)
       const detail = await getImportManager().getDetail(jobId)
-      setCounted(detail.groups_with_images)
+      setCounted(detail.groups_reviewable)
       const added = reviewableGroupIds(detail.groups).filter((id) => !reviewed.has(id))
       if (added.length > 0) onAddGroups?.(added)
     } catch {

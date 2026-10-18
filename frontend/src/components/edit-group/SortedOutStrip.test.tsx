@@ -34,7 +34,7 @@ describe('SortedOutStrip', () => {
   it('renders nothing when Auto skipped nothing from the group', async () => {
     ;({ manager, client } = await installFakeImportManager())
     const { container } = renderWithProviders(
-      <SortedOutStrip groupId={41} count={0} onIncluded={() => {}} />,
+      <SortedOutStrip groupId={41} count={0} importing={0} onIncluded={() => {}} />,
     )
     expect(container).toBeEmptyDOMElement()
   })
@@ -44,7 +44,9 @@ describe('SortedOutStrip', () => {
       items: [skipped(20, 'goblin.png'), skipped(21, 'orc.png')],
     }))
     const onIncluded = vi.fn()
-    renderWithProviders(<SortedOutStrip groupId={41} count={2} onIncluded={onIncluded} />)
+    const { rerender } = renderWithProviders(
+      <SortedOutStrip groupId={41} count={2} importing={0} onIncluded={onIncluded} />,
+    )
     expect(screen.getByText('2 images from this group were skipped by Auto')).toBeInTheDocument()
     expect(client.sortedOut).not.toHaveBeenCalled()
 
@@ -55,7 +57,9 @@ describe('SortedOutStrip', () => {
     await userEvent.click(screen.getAllByRole('button', { name: 'Include' })[0])
     expect(client.include).toHaveBeenCalledWith([20])
     await waitFor(() => expect(screen.queryByText('goblin.png')).not.toBeInTheDocument())
-    expect(onIncluded).toHaveBeenCalled()
+    expect(onIncluded).toHaveBeenCalledWith(1, ['job1'])
+    // The dialog tracks the import and passes back how many are still on their way
+    rerender(<SortedOutStrip groupId={41} count={2} importing={1} onIncluded={onIncluded} />)
     expect(screen.getByText(/1 being imported/)).toBeInTheDocument()
     expect(screen.getByText('1 image from this group was skipped by Auto')).toBeInTheDocument()
   })
@@ -64,7 +68,9 @@ describe('SortedOutStrip', () => {
     ;({ manager, client } = await installFakeImportManager({
       items: [skipped(20, 'goblin.png'), skipped(21, 'orc.png')],
     }))
-    renderWithProviders(<SortedOutStrip groupId={41} count={2} onIncluded={() => {}} />)
+    renderWithProviders(
+      <SortedOutStrip groupId={41} count={2} importing={0} onIncluded={() => {}} />,
+    )
     await userEvent.click(screen.getByRole('button', { name: 'Review' }))
     await userEvent.click(await screen.findByRole('button', { name: 'Include all' }))
     expect(client.include).toHaveBeenCalledWith([20, 21])

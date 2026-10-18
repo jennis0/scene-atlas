@@ -431,9 +431,9 @@ function ProgressView({
             <TextButton tone="outline" onClick={close}>
               Close
             </TextButton>
-            {onReviewGroups && job && job.groups_with_images > 0 && (
+            {onReviewGroups && job && job.groups_reviewable > 0 && (
               <TextButton tone="solid" onClick={() => void run(reviewSoFar)} disabled={busy}>
-                Review {plural(job.groups_with_images, 'group')}
+                Review {plural(job.groups_reviewable, 'group')}
               </TextButton>
             )}
           </div>

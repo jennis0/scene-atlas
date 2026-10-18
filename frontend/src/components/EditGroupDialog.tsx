@@ -19,7 +19,8 @@ import { EditGroupSidebar } from './edit-group/EditGroupSidebar'
 import { BulkEditConfirm } from './edit-group/BulkEditConfirm'
 import { useMetadataSave } from './edit-group/useMetadataSave'
 import { useRefreshLoaded } from './edit-group/useRefreshLoaded'
-import { useSortedOutCounts } from './edit-group/useSortedOut'
+import { useSortedOut } from './edit-group/useSortedOut'
+import { useMergeNewImages } from './edit-group/mergeNewImages'
 import { SortedOutStrip } from './edit-group/SortedOutStrip'
 import { BulkPanel, SCOPE_FACETS_KEY } from './edit-group/BulkPanel'
 import { useBulkImageEdit } from '@/hooks/useBulkImageEdit'
@@ -227,7 +228,8 @@ export default function EditGroupDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [multiSelectKey])
 
-  const sortedOut = useSortedOutCounts(open)
+  const mergeNewImages = useMergeNewImages(setGroups)
+  const sortedOut = useSortedOut(open, mergeNewImages)
   const context = useMemo<EditGroupContextValue>(
     () => ({
       groups,
@@ -414,7 +416,10 @@ export default function EditGroupDialog({
                           <SortedOutStrip
                             groupId={activeGroupDbId}
                             count={sortedOut.counts[activeGroupDbId] ?? 0}
-                            onIncluded={sortedOut.refresh}
+                            importing={sortedOut.importing[activeGroupDbId] ?? 0}
+                            onIncluded={(n, jobIds) =>
+                              sortedOut.included(activeGroupDbId, n, jobIds)
+                            }
                           />
                         </div>
                       )}

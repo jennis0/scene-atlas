@@ -59,7 +59,8 @@ export interface ImportJobSummary {
   /** Groups with nothing left to import (once planned). */
   groups_done: number
   /** Groups that have images in the gallery so far: what the editor can review. */
-  groups_with_images: number
+  /** Finished groups with at least one imported image: what the review editor can open */
+  groups_reviewable: number
   created_at: string | null
   updated_at: string | null
   completed_at: string | null
