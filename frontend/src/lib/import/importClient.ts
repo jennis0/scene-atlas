@@ -13,14 +13,17 @@ import type {
   ContentResult,
   HashResult,
   ImageType,
+  ImportItem,
   ImportItemPage,
   ImportJobDetail,
   ImportJobList,
   ImportJobSummary,
   ItemState,
   ManifestFile,
+  IncludeResult,
   ManifestResponse,
   QueueStatus,
+  SortedOutList,
 } from './types'
 
 const BASE = '/imports'
@@ -183,6 +186,25 @@ export const importClient = {
     return data
   },
 
+  /** Import items Auto sorted out after all, across imports */
+  async include(itemIds: number[]): Promise<IncludeResult> {
+    const { data } = await api.post<IncludeResult>(`${BASE}/include`, { item_ids: itemIds })
+    return data
+  },
+
+  async sortedOut(imageGroupId: number): Promise<SortedOutList> {
+    const { data } = await api.get<SortedOutList>(`${BASE}/sorted-out`, {
+      params: { image_group_id: imageGroupId },
+    })
+    return data
+  },
+
+  /** Gallery group id → items Auto sorted out of it, for groups that have any */
+  async sortedOutCounts(): Promise<Record<number, number>> {
+    const { data } = await api.get<{ counts: Record<number, number> }>(`${BASE}/sorted-out/counts`)
+    return data.counts
+  },
+
   async probeQueue(): Promise<QueueStatus> {
     const { data } = await api.post<QueueStatus>(`${BASE}/queue/probe`)
     return data
@@ -190,3 +212,7 @@ export const importClient = {
 }
 
 export type ImportClient = typeof importClient
+
+/** The preview kept for an item Auto sorted out (only when ``has_preview``) */
+export const previewUrl = (item: Pick<ImportItem, 'id' | 'job_id'>): string =>
+  `/api/v1${BASE}/${item.job_id}/items/${item.id}/preview`

@@ -29,6 +29,7 @@ import type {
   ManifestFile,
   PickedFile,
   QueueStatus,
+  SortedOutList,
 } from './types'
 
 // Public types
@@ -780,6 +781,21 @@ export class ImportManager {
     const result = await this.client.itemAction(jobId, 'import-as-copy', itemIds)
     await this.refresh()
     return result.affected
+  }
+
+  /** Import items Auto sorted out after all; returns how many were included */
+  async include(itemIds: number[]): Promise<number> {
+    const result = await this.client.include(itemIds)
+    await this.refresh()
+    return result.affected
+  }
+
+  listSortedOut(imageGroupId: number): Promise<SortedOutList> {
+    return this.client.sortedOut(imageGroupId)
+  }
+
+  sortedOutCounts(): Promise<Record<number, number>> {
+    return this.client.sortedOutCounts()
   }
 
   async skipGroup(jobId: string, groupId: number): Promise<void> {

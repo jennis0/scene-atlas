@@ -32,6 +32,7 @@ function summary(id: string, status: ImportJobSummary['status'] = 'active'): Imp
     failed: 0,
     skipped: 0,
     total: 0,
+    sorted_out: 0,
   }
   return {
     id,

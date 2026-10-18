@@ -29,6 +29,9 @@ LEGAL = [
     (st.FAILED, ItemEvent.RETRY_NEEDS_BYTES, st.AWAITING_BYTES),
     (st.DUPLICATE, ItemEvent.IMPORT_AS_COPY, st.READY),
     (st.DUPLICATE, ItemEvent.IMPORT_AS_COPY_NEEDS_BYTES, st.AWAITING_BYTES),
+    (st.PROCESSING, ItemEvent.SORTED_OUT, st.SKIPPED),
+    (st.SKIPPED, ItemEvent.INCLUDE, st.READY),
+    (st.SKIPPED, ItemEvent.INCLUDE_NEEDS_BYTES, st.AWAITING_BYTES),
 ]
 
 
@@ -47,11 +50,15 @@ def test_every_other_combination_is_illegal():
                 st.next_item_state(state, event)
 
 
-def test_done_and_skipped_are_final():
+def test_done_is_final_and_skipped_only_reopens_by_include():
+    """A skip only re-opens when the user includes an item Auto sorted out (the queue
+    restricts INCLUDE to those items)."""
     for event in ItemEvent:
-        for state in (st.DONE, st.SKIPPED):
+        with pytest.raises(IllegalTransitionError):
+            st.next_item_state(st.DONE, event)
+        if event not in (ItemEvent.INCLUDE, ItemEvent.INCLUDE_NEEDS_BYTES):
             with pytest.raises(IllegalTransitionError):
-                st.next_item_state(state, event)
+                st.next_item_state(st.SKIPPED, event)
 
 
 def test_processing_can_never_be_skipped():

@@ -16,7 +16,7 @@ from backend.app.models import ImportGroup, ImportItem, ImportJob
 from backend.app.services import ingest_state as st
 from backend.app.services.shutdown import raise_if_shutting_down
 
-from .ingest_queue import remove_staged, skip_items, utcnow, write_session
+from .ingest_queue import KIND_SORTED_OUT, remove_staged, skip_items, utcnow, write_session
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +63,8 @@ def release_staged_bytes(now=None) -> int:
       catches a crash between commit and cleanup).
     - ``failed``/``duplicate`` items: once their job is dismissed, or finished
       more than ``KEEP_RETRY_BYTES_FOR`` ago.
+    - Items Auto sorted out: never. They can be included from the group editor until
+      their job's rows are pruned (design §5.6), which deletes the job's staging folder.
     """
     now = now or utcnow()
     cutoff = now - KEEP_RETRY_BYTES_FOR
@@ -71,6 +73,7 @@ def release_staged_bytes(now=None) -> int:
         finished = db.query(ImportItem).filter(
             ImportItem.staging_key.isnot(None),
             ImportItem.state.in_([st.DONE, st.SKIPPED]),
+            ImportItem.error_kind.is_(None) | (ImportItem.error_kind != KIND_SORTED_OUT),
         )
         retained = (
             db.query(ImportItem)
@@ -127,9 +130,11 @@ def sweep_stray_staging_files() -> int:
         job_ids = {job_id for (job_id,) in db.query(ImportJob.id)}
         referenced = {
             (job_id, key)
-            for job_id, key in db.query(ImportItem.job_id, ImportItem.staging_key).filter(
-                ImportItem.staging_key.isnot(None)
-            )
+            for job_id, staging_key, preview_key in db.query(
+                ImportItem.job_id, ImportItem.staging_key, ImportItem.preview_key
+            ).filter(ImportItem.staging_key.isnot(None) | ImportItem.preview_key.isnot(None))
+            for key in (staging_key, preview_key)
+            if key
         }
     removed = 0
     cutoff = time.time() - STRAY_FILE_GRACE_SECONDS

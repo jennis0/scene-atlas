@@ -1,11 +1,14 @@
 """Request and response models for the imports API (ADR-018, design/ingestion.md §7)."""
 
+import json
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
-ImageType = Literal["battlemap", "scene"]
+# auto: the image-type head picks battlemap or scene, and sorts out tokens and other
+# images (design/ingestion.md §5.6)
+ImageType = Literal["battlemap", "scene", "auto"]
 JobStatus = Literal["active", "paused", "completed", "cancelled"]
 
 MAX_MANIFEST_CHUNK = 2000
@@ -27,6 +30,7 @@ class ImportCounts(BaseModel):
     failed: int = 0
     skipped: int = 0
     total: int = 0
+    sorted_out: int = 0  # of skipped: Auto set these aside (job counts only; 0 per group)
 
 
 class ImportGroupSummary(BaseModel):
@@ -174,6 +178,7 @@ class ImportItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    job_id: str
     import_group_id: int | None
     kind: str
     relative_path: str
@@ -191,6 +196,20 @@ class ImportItemOut(BaseModel):
     allow_duplicate: bool
     similar_to_image_id: int | None
     updated_at: datetime | None
+    # Auto items: {group, probabilities, fell_back, head}
+    classification: dict | None = None
+    preview_key: str | None = Field(None, exclude=True)
+
+    @field_validator("classification", mode="before")
+    @classmethod
+    def _parse_classification(cls, value):
+        return json.loads(value) if isinstance(value, str) else value
+
+    @computed_field
+    @property
+    def has_preview(self) -> bool:
+        """Items Auto sorted out keep a preview: GET /imports/{job}/items/{id}/preview."""
+        return self.preview_key is not None
 
 
 class ImportItemPage(BaseModel):
@@ -200,6 +219,24 @@ class ImportItemPage(BaseModel):
 
 class ItemActionRequest(BaseModel):
     item_ids: list[int] | None = Field(None, max_length=MAX_ACTION_ITEMS)
+
+
+class IncludeRequest(BaseModel):
+    item_ids: list[int] = Field(..., min_length=1, max_length=MAX_ACTION_ITEMS)
+
+
+class IncludeResult(BaseModel):
+    affected: int
+    job_ids: list[str]
+
+
+class SortedOutList(BaseModel):
+    items: list[ImportItemOut]
+    truncated: bool  # more than the limit; the rest are in each import's report
+
+
+class SortedOutCounts(BaseModel):
+    counts: dict[int, int]  # gallery group id → items Auto sorted out of it
 
 
 class ActionResult(BaseModel):

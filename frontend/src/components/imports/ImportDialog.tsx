@@ -23,6 +23,7 @@ import {
   Pause,
   PauseCircle,
   Play,
+  ScanSearch,
   UploadCloud,
   WifiOff,
 } from 'lucide-react'
@@ -95,7 +96,7 @@ function StartView({
   onClose: () => void
   onStarted: (jobId: string) => void
 }) {
-  const [imageType, setImageType] = useState<ImageType>('battlemap')
+  const [imageType, setImageType] = useState<ImageType>('auto')
   const [reading, setReading] = useState(false)
   const [starting, setStarting] = useState(false)
   const [dragOver, setDragOver] = useState(false)
@@ -162,6 +163,12 @@ function StartView({
           <legend className="text-xs text-muted-foreground mb-2">Import these as</legend>
           <div className="inline-flex rounded-md overflow-hidden border border-border">
             <TypeOption
+              selected={imageType === 'auto'}
+              onClick={() => setImageType('auto')}
+              icon={<ScanSearch className="h-3.5 w-3.5" />}
+              label="Auto"
+            />
+            <TypeOption
               selected={imageType === 'battlemap'}
               onClick={() => setImageType('battlemap')}
               icon={<Grid3X3 className="h-3.5 w-3.5" />}
@@ -174,11 +181,7 @@ function StartView({
               label="Scenes"
             />
           </div>
-          <p className="text-xs text-muted-foreground">
-            {imageType === 'battlemap'
-              ? 'Top-down maps. Grids are detected automatically.'
-              : 'Vistas, portraits and encounter art. No grid detection.'}
-          </p>
+          <p className="text-xs text-muted-foreground">{TYPE_HINT[imageType]}</p>
         </fieldset>
 
         <input
@@ -256,6 +259,12 @@ function StartView({
   )
 }
 
+const TYPE_HINT: Record<ImageType, string> = {
+  auto: 'Sorts each image into battlemaps and scenes. Tokens and other art are skipped for you to check.',
+  battlemap: 'Top-down maps. Grids are detected automatically.',
+  scene: 'Vistas, portraits and encounter art. No grid detection.',
+}
+
 function TypeOption({
   selected,
   onClick,
@@ -272,7 +281,7 @@ function TypeOption({
       type="button"
       aria-pressed={selected}
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 h-8 px-3 text-xs transition-colors focus-visible:outline-offset-[-2px] first:border-r first:border-border ${
+      className={`inline-flex items-center gap-1.5 h-8 px-3 text-xs transition-colors focus-visible:outline-offset-[-2px] border-r border-border last:border-r-0 ${
         selected
           ? 'bg-primary/10 text-primary'
           : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'

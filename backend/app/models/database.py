@@ -251,7 +251,9 @@ class ImportJob(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True)  # UUID hex
     status: Mapped[str] = mapped_column(String, nullable=False, default="active")
     source_label: Mapped[str | None] = mapped_column(String, nullable=True)  # e.g. "Pack.zip"
-    default_image_type: Mapped[str] = mapped_column(String, nullable=False, default="battlemap")
+    default_image_type: Mapped[str] = mapped_column(
+        String, nullable=False, default="battlemap"
+    )  # battlemap | scene | auto
     planned_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # Sealed
     last_upload_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     dismissed_at: Mapped[datetime | None] = mapped_column(
@@ -344,8 +346,12 @@ class ImportItem(Base):
     last_modified: Mapped[int | None] = mapped_column(
         Integer, nullable=True
     )  # Client-reported, ms since epoch
-    image_type: Mapped[str] = mapped_column(String, nullable=False, default="battlemap")
+    image_type: Mapped[str] = mapped_column(
+        String, nullable=False, default="battlemap"
+    )  # battlemap | scene | auto (resolved by the image-type head while processing)
     parsed: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON, set at plan time
+    # Auto items: the image-type head's verdict, JSON {group, probabilities, fell_back, head}
+    classification: Mapped[str | None] = mapped_column(Text, nullable=True)
     state: Mapped[str] = mapped_column(String, nullable=False, default="awaiting_bytes")
     staging_key: Mapped[str | None] = mapped_column(
         String, nullable=True
@@ -373,6 +379,8 @@ class ImportItem(Base):
     similar_to_image_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("images.id"), nullable=True
     )
+    # Items Auto sorted out: a small preview in the job's staging folder, for review
+    preview_key: Mapped[str | None] = mapped_column(String, nullable=True)
     similarity_distance: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime | None] = mapped_column(

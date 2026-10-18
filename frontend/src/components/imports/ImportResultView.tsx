@@ -6,7 +6,8 @@
  *
  * Sections, each shown only when it has entries: groups, problems (grouped by
  * reason, with retry), files already in the library (with "Import as new
- * copy"), and skipped files. Opens on problems when there are any.
+ * copy"), and skipped files (with previews and "Import anyway" for those Auto
+ * sorted out). Opens on problems when there are any, else on files Auto skipped.
  * Actions: undo the whole import, review its groups in the editor (also what
  * clicking a group does, starting on that group), and Done, which closes the
  * report and clears a finished import from the activity list.
@@ -18,6 +19,7 @@ import { Loader2, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { getThumbnailUrlById } from '@/lib/api/urls'
 import { getImportManager } from '@/lib/import/ImportManager'
+import { previewUrl } from '@/lib/import/importClient'
 import { useImportJob } from '@/lib/import/useImports'
 import type {
   ImportGroupSummary,
@@ -91,7 +93,11 @@ export function ResultView({ jobId, open, onClose, onReviewGroups, onUndone }: R
 
   const counts = job?.counts
   const sections = sectionsFor(job)
-  const fallback: Section = job?.counts.failed ? 'failed' : 'groups'
+  const fallback: Section = job?.counts.failed
+    ? 'failed'
+    : job?.counts.sorted_out
+      ? 'skipped'
+      : 'groups'
   const active = section && sections.includes(section) ? section : fallback
   const reviewIds = reviewableGroupIds(detail?.groups ?? [])
 
@@ -242,7 +248,9 @@ export function ResultView({ jobId, open, onClose, onReviewGroups, onUndone }: R
                 ? 'Same picture as a file already in your library'
                 : 'Identical to a file already in your library'
             }
-            thumbnailOf={(i) => i.duplicate_of_image_id}
+            thumbnailUrlOf={(i) =>
+              i.duplicate_of_image_id === null ? null : getThumbnailUrlById(i.duplicate_of_image_id)
+            }
             headerAction={(ids) => (
               <TextButton
                 onClick={() =>
@@ -265,6 +273,20 @@ export function ResultView({ jobId, open, onClose, onReviewGroups, onUndone }: R
             jobId={jobId}
             state="skipped"
             groupBy={(i) => i.error_reason ?? 'Skipped'}
+            thumbnailUrlOf={(i) => (i.has_preview ? previewUrl(i) : null)}
+            headerAction={(ids, members) =>
+              members.every((m) => m.error_kind === 'sorted_out') && (
+                <TextButton
+                  onClick={() =>
+                    void act(() => manager.include(ids), `Importing ${plural(ids.length, 'file')}`)
+                  }
+                  disabled={busy}
+                  title="Auto set these aside. Import them anyway"
+                >
+                  Import anyway
+                </TextButton>
+              )
+            }
           />
         )}
       </div>
@@ -292,7 +314,7 @@ export function ResultView({ jobId, open, onClose, onReviewGroups, onUndone }: R
 // Item lists
 
 type Row =
-  | { kind: 'header'; key: string; title: string; ids: number[] }
+  | { kind: 'header'; key: string; title: string; members: ImportItem[] }
   | { kind: 'item'; key: string; item: ImportItem }
 
 const PAGE = 500
@@ -306,13 +328,14 @@ function ItemList({
   state,
   groupBy,
   headerAction,
-  thumbnailOf,
+  thumbnailUrlOf,
 }: {
   jobId: string
   state: ItemState
   groupBy: (item: ImportItem) => string
-  headerAction?: (ids: number[]) => React.ReactNode
-  thumbnailOf?: (item: ImportItem) => number | null
+  headerAction?: (ids: number[], members: ImportItem[]) => React.ReactNode
+  /** A thumbnail for the row, or null for none */
+  thumbnailUrlOf?: (item: ImportItem) => string | null
 }) {
   const [items, setItems] = useState<ImportItem[]>([])
   const [nextAfter, setNextAfter] = useState<number | null>(null)
@@ -351,7 +374,7 @@ function ItemList({
       groups.set(key, [...(groups.get(key) ?? []), item])
     }
     return [...groups].flatMap(([title, members]) => [
-      { kind: 'header' as const, key: `h:${title}`, title, ids: members.map((m) => m.id) },
+      { kind: 'header' as const, key: `h:${title}`, title, members },
       ...members.map((item) => ({ kind: 'item' as const, key: `i:${item.id}`, item })),
     ])
   }, [items, groupBy])
@@ -360,7 +383,10 @@ function ItemList({
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: (i) => (rows[i].kind === 'header' ? 44 : thumbnailOf ? 44 : 30),
+    estimateSize: (i) => {
+      const row = rows[i]
+      return row.kind === 'header' || thumbnailUrlOf?.(row.item) ? 44 : 30
+    },
     overscan: 12,
     initialRect: { width: 640, height: 480 }, // render rows before the first measure
   })
@@ -397,29 +423,32 @@ function ItemList({
               >
                 <span className="text-xs font-medium text-foreground truncate">{row.title}</span>
                 <span className="font-mono text-2xs text-muted-foreground tabular-nums">
-                  {row.ids.length.toLocaleString()}
+                  {row.members.length.toLocaleString()}
                 </span>
-                <span className="ml-auto">{headerAction?.(row.ids)}</span>
+                <span className="ml-auto">
+                  {headerAction?.(
+                    row.members.map((m) => m.id),
+                    row.members,
+                  )}
+                </span>
               </div>
             )
           }
-          const thumbId = thumbnailOf?.(row.item) ?? null
+          const thumbUrl = thumbnailUrlOf?.(row.item) ?? null
           return (
             <div
               key={row.key}
               style={style}
               className="flex items-center gap-3 border-b border-border/20 min-w-0"
             >
-              {thumbnailOf && (
+              {thumbUrl !== null && (
                 <span className="h-8 w-8 shrink-0 rounded bg-secondary overflow-hidden">
-                  {thumbId !== null && (
-                    <img
-                      src={getThumbnailUrlById(thumbId)}
-                      alt=""
-                      loading="lazy"
-                      className="h-full w-full object-cover"
-                    />
-                  )}
+                  <img
+                    src={thumbUrl}
+                    alt=""
+                    loading="lazy"
+                    className="h-full w-full object-cover"
+                  />
                 </span>
               )}
               <span

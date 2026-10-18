@@ -3,7 +3,8 @@
  * Mirrors backend/app/models/import_schemas.py.
  */
 
-export type ImageType = 'battlemap' | 'scene'
+/** auto: the image-type head picks battlemap or scene and sets aside tokens and other art */
+export type ImageType = 'battlemap' | 'scene' | 'auto'
 
 export type ItemState =
   | 'awaiting_bytes'
@@ -25,6 +26,8 @@ export interface ImportCounts {
   failed: number
   skipped: number
   total: number
+  /** Of skipped: set aside by Auto, and can be included (job counts only; 0 per group) */
+  sorted_out: number
 }
 
 export interface ImportGroupSummary {
@@ -133,6 +136,7 @@ export interface ArchiveResult {
 
 export interface ImportItem {
   id: number
+  job_id: string
   import_group_id: number | null
   kind: 'image' | 'video' | 'archive'
   relative_path: string
@@ -141,7 +145,8 @@ export interface ImportItem {
   size: number | null
   state: ItemState
   attempts: number
-  error_kind: 'file' | 'transient' | 'system' | 'bytes_lost' | null
+  /** sorted_out: skipped by Auto, can be included (design/ingestion.md §5.6) */
+  error_kind: 'file' | 'transient' | 'system' | 'bytes_lost' | 'sorted_out' | null
   error_stage: string | null
   error_reason: string | null
   image_id: number | null
@@ -150,6 +155,28 @@ export interface ImportItem {
   allow_duplicate: boolean
   similar_to_image_id: number | null
   updated_at: string | null
+  /** Auto items: the image-type head's verdict */
+  classification: ItemClassification | null
+  /** Items Auto sorted out keep a preview (importClient.previewUrl) */
+  has_preview: boolean
+}
+
+export interface ItemClassification {
+  group: 'map' | 'illustration' | 'token' | 'other'
+  probabilities: Record<string, number>
+  fell_back: boolean
+  head: string
+}
+
+/** Items Auto sorted out of one gallery group, across imports */
+export interface SortedOutList {
+  items: ImportItem[]
+  truncated: boolean
+}
+
+export interface IncludeResult {
+  affected: number
+  job_ids: string[]
 }
 
 export interface ImportItemPage {

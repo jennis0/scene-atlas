@@ -24,6 +24,7 @@ from typing import Literal, cast
 
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.responses import FileResponse
 from sqlalchemy import case, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -58,6 +59,8 @@ from ..models.import_schemas import (
     ImportJobDetail,
     ImportJobList,
     ImportJobSummary,
+    IncludeRequest,
+    IncludeResult,
     ItemActionRequest,
     JobStatus,
     LocalSourcesRequest,
@@ -66,6 +69,8 @@ from ..models.import_schemas import (
     ManifestRequest,
     ManifestResponse,
     QueueStatus,
+    SortedOutCounts,
+    SortedOutList,
 )
 from ..services import ingest_state as st
 from ..services.app_settings import get_settings as get_app_settings
@@ -114,9 +119,9 @@ def _changed(wake: bool = False) -> None:
         worker.wake()
 
 
-def _counts(by_state: dict[str, int]) -> ImportCounts:
+def _counts(by_state: dict[str, int], sorted_out: int = 0) -> ImportCounts:
     known = {state: by_state.get(state, 0) for state in st.ITEM_STATES}
-    return ImportCounts(**known, total=sum(by_state.values()))
+    return ImportCounts(**known, total=sum(by_state.values()), sorted_out=sorted_out)
 
 
 @dataclass
@@ -156,18 +161,28 @@ def _summaries(db: Session, jobs: list[ImportJob]) -> list[ImportJobSummary]:
     """Summaries for many jobs with three grouped queries (no per-job N+1)."""
     ids = [job.id for job in jobs]
     by_job: dict[str, dict[str, int]] = {job_id: {} for job_id in ids}
+    sorted_out: dict[str, int] = dict.fromkeys(ids, 0)
     groups = {job_id: _GroupTotals() for job_id in ids}
     if ids:
         rows = (
-            db.query(ImportItem.job_id, ImportItem.state, func.count(ImportItem.id))
+            db.query(
+                ImportItem.job_id,
+                ImportItem.state,
+                func.count(ImportItem.id),
+                func.count(case((ImportItem.error_kind == q.KIND_SORTED_OUT, 1))),
+            )
             .filter(ImportItem.job_id.in_(ids))
             .group_by(ImportItem.job_id, ImportItem.state)
         )
-        for job_id, state, count in rows:
+        for job_id, state, count, sorted_count in rows:
             by_job[job_id][state] = count
+            sorted_out[job_id] += sorted_count
         groups = _group_totals(db, ids)
     now = q.utcnow()
-    return [_summary(job, _counts(by_job[job.id]), groups[job.id], now) for job in jobs]
+    return [
+        _summary(job, _counts(by_job[job.id], sorted_out[job.id]), groups[job.id], now)
+        for job in jobs
+    ]
 
 
 def _waiting_for(job: ImportJob, counts: ImportCounts) -> list[str]:
@@ -281,6 +296,60 @@ def probe_queue():
     return _queue_status()
 
 
+# Items Auto sorted out, for the group editor (design §5.6)
+
+
+@router.get("/sorted-out/counts", response_model=SortedOutCounts)
+def sorted_out_counts(db: Session = Depends(get_db)):
+    """How many items Auto sorted out of each gallery group, for groups that have any."""
+    rows = (
+        db.query(ImportGroup.image_group_id, func.count(ImportItem.id))
+        .join(ImportItem, ImportItem.import_group_id == ImportGroup.id)
+        .filter(
+            ImportGroup.image_group_id.isnot(None),
+            ImportItem.state == st.SKIPPED,
+            ImportItem.error_kind == q.KIND_SORTED_OUT,
+        )
+        .group_by(ImportGroup.image_group_id)
+    )
+    return SortedOutCounts(counts={gid: n for gid, n in rows.tuples() if gid is not None})
+
+
+@router.get("/sorted-out", response_model=SortedOutList)
+def list_sorted_out(
+    image_group_id: int,
+    limit: int = Query(200, ge=1, le=1000),
+    db: Session = Depends(get_db),
+):
+    """Items Auto sorted out of one gallery group, across imports."""
+    rows = (
+        db.query(ImportItem)
+        .join(ImportGroup, ImportGroup.id == ImportItem.import_group_id)
+        .filter(
+            ImportGroup.image_group_id == image_group_id,
+            ImportItem.state == st.SKIPPED,
+            ImportItem.error_kind == q.KIND_SORTED_OUT,
+        )
+        .order_by(ImportItem.id)
+        .limit(limit + 1)
+        .all()
+    )
+    return SortedOutList(
+        items=[ImportItemOut.model_validate(row) for row in rows[:limit]],
+        truncated=len(rows) > limit,
+    )
+
+
+@router.post("/include", response_model=IncludeResult)
+@write_locked
+def include_sorted_out(body: IncludeRequest, db: Session = Depends(get_db)):
+    """Import items Auto sorted out after all, across imports. Other ids are ignored."""
+    affected, job_ids = q.include_sorted_out(db, body.item_ids)
+    db.commit()
+    _changed(wake=affected > 0)
+    return IncludeResult(affected=affected, job_ids=sorted(job_ids))
+
+
 @router.get("", response_model=ImportJobList)
 def list_imports(
     request: Request,
@@ -347,6 +416,18 @@ def list_items(
         items=[ImportItemOut.model_validate(row) for row in page],
         next_after=page[-1].id if len(rows) > limit else None,
     )
+
+
+@router.get("/{job_id}/items/{item_id}/preview")
+def item_preview(job_id: str, item_id: int, db: Session = Depends(get_db)):
+    """The preview kept for an item Auto sorted out."""
+    item = db.get(ImportItem, item_id)
+    if item is None or item.job_id != job_id or not item.preview_key:
+        raise HTTPException(status_code=404, detail="No preview")
+    path = q.staged_path(job_id, item.preview_key)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="No preview")
+    return FileResponse(path, headers={"Cache-Control": "private, max-age=86400"})
 
 
 # Create, manifest, archives, seal, hashes

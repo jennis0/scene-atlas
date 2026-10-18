@@ -19,6 +19,8 @@ import { EditGroupSidebar } from './edit-group/EditGroupSidebar'
 import { BulkEditConfirm } from './edit-group/BulkEditConfirm'
 import { useMetadataSave } from './edit-group/useMetadataSave'
 import { useRefreshLoaded } from './edit-group/useRefreshLoaded'
+import { useSortedOutCounts } from './edit-group/useSortedOut'
+import { SortedOutStrip } from './edit-group/SortedOutStrip'
 import { BulkPanel, SCOPE_FACETS_KEY } from './edit-group/BulkPanel'
 import { useBulkImageEdit } from '@/hooks/useBulkImageEdit'
 import { gridLabel } from '@/lib/bulkEdit'
@@ -225,6 +227,7 @@ export default function EditGroupDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [multiSelectKey])
 
+  const sortedOut = useSortedOutCounts(open)
   const context = useMemo<EditGroupContextValue>(
     () => ({
       groups,
@@ -234,10 +237,14 @@ export default function EditGroupDialog({
       setPending,
       activeDrag: dnd.activeDrag,
       ops,
+      sortedOut,
     }),
-    [groups, selectedGroupIds, resetMultiselect, pending, dnd.activeDrag, ops],
+    [groups, selectedGroupIds, resetMultiselect, pending, dnd.activeDrag, ops, sortedOut],
   )
 
+  // Groups created in the editor have uuid keys and no server id
+  const activeGroupDbId =
+    activeGroup && !Number.isNaN(Number(activeGroup.id)) ? Number(activeGroup.id) : null
   const activeSelection = selections[selectionId] ?? new Set<string>()
   const hasActiveFilter = !!fileFilter.text || fileFilter.active.length > 0
   const isOriginalGroup = !showsMultipleGroups && !isMassEdit && activeGroup?.id === String(groupId)
@@ -401,6 +408,16 @@ export default function EditGroupDialog({
                           groupNameRef={groupNameRef}
                         />
                       </div>
+
+                      {!showsMultipleGroups && activeGroupDbId !== null && (
+                        <div className="px-5 shrink-0">
+                          <SortedOutStrip
+                            groupId={activeGroupDbId}
+                            count={sortedOut.counts[activeGroupDbId] ?? 0}
+                            onIncluded={sortedOut.refresh}
+                          />
+                        </div>
+                      )}
 
                       <div className="px-5 shrink-0">
                         <FileToolbar

@@ -12,7 +12,8 @@ Section numbers are referenced from code comments (`design/ingestion.md §N`); k
 |---|---|
 | `backend/app/services/ingest_state.py` | Pure item/job state machines (no DB). `sources_for(event)` feeds DB `WHERE` clauses so illegal transitions can't be written. |
 | `backend/pipeline/ingest_queue.py` | Durable operations: create, manifest, plan (seal), byte receipt, client hashes, claim, failures, recovery, retry, import-as-copy, skip, pause/resume/cancel, undo, `recompute_job_status`, `write_session()` (`BEGIN IMMEDIATE`). |
-| `backend/pipeline/ingest_process.py` | One batch: `prepare_item` → `embed` → `commit_batch` → `write_vectors`, orchestrated by `process_batch`. |
+| `backend/pipeline/ingest_process.py` | One batch: `prepare_item` → `embed` → (`sort_auto_items` → `finish_item`) → `commit_batch` → `write_vectors`, orchestrated by `process_batch`. |
+| `backend/app/services/image_type_classifier.py` | Bundled image-type heads (map / illustration / token / other), matched to the installed encoder by sha256; Auto imports ([§5.6](#56-auto-image-type)). |
 | `backend/pipeline/ingest_worker.py` | `IngestWorker` loop thread and `get_ingest_worker()`. |
 | `backend/pipeline/ingest_archive.py` | Server-side zip expansion into items (before seal). |
 | `backend/pipeline/ingest_local.py` | Local imports (desktop app): list picked folders and files into ready items read in place ([local-ingest.md](local-ingest.md)). |
@@ -55,7 +56,7 @@ Defined in `backend/app/models/database.py`; tables created by Alembic `020_inge
 | `id` | uuid hex |
 | `status` | `active` \| `paused` \| `completed` \| `cancelled` |
 | `source_label` | Display label, e.g. "Forest Pack.zip" (sent as `label` by the API) |
-| `default_image_type` | `battlemap` \| `scene`; used for items whose manifest entry has no type |
+| `default_image_type` | `battlemap` \| `scene` \| `auto`; used for items whose manifest entry has no type |
 | `planned_at` | Set at seal. Items are claimable only after this. |
 | `last_upload_at` | Last byte receipt; drives "upload interrupted" and abandonment |
 | `source_roots` | Local imports: JSON list of the folders the job reads from; the worker skips the job while any is missing |
@@ -84,14 +85,16 @@ One row per file. All durable ingest state lives here.
 | `kind` | `image` \| `video` \| `archive` (a zip that failed to expand is one failed `archive` item) |
 | `relative_path`, `filename` | Display and resume matching only; **never used as a filesystem path**. Unique per job (`uq_import_items_job_path`). |
 | `size`, `last_modified` | From the client manifest |
-| `image_type` | `battlemap` \| `scene` |
-| `parsed` | JSON parser output (name, subgroup, tags, filename grid info), set at plan time |
+| `image_type` | `battlemap` \| `scene` \| `auto` (resolved while processing; set to a fixed type on include) |
+| `parsed` | JSON parser output (name, subgroup, tags, filename grid info), set at plan time. Auto items also carry `scene_tags` ([§5.6](#56-auto-image-type)) |
+| `classification` | Auto items: JSON `{group, probabilities, fell_back, head}` from the image-type head |
+| `preview_key` | Items Auto sorted out: a preview (the medium thumbnail) in the job's staging folder |
 | `state` | See [§4.1](#41-item-states) |
 | `staging_key` | Server-generated staged filename; NULL until received and cleared once no longer needed |
 | `source_hash` | SHA-256 of the original bytes. Client hint before upload; server-computed (authoritative) on receipt |
 | `source_path` | Local imports: absolute path of the original, read by the worker and never written. Exactly one of `staging_key` / `source_path` locates an item's bytes |
 | `attempts`, `retry_after` | Claim counter (crash/poison detection) and transient-error backoff |
-| `error_kind`, `error_stage`, `error_reason`, `error_detail` | `error_kind` ∈ `file` \| `transient` \| `system` \| `bytes_lost`; `error_reason` is user-facing, `error_detail` the raw exception (truncated to 4000 chars) |
+| `error_kind`, `error_stage`, `error_reason`, `error_detail` | `error_kind` ∈ `file` \| `transient` \| `system` \| `bytes_lost`, or `sorted_out` on a skipped item Auto set aside; `error_reason` is user-facing, `error_detail` the raw exception (truncated to 4000 chars) |
 | `image_id` | Set when `done` |
 | `duplicate_of_image_id`, `duplicate_tier` | Set when `duplicate` (`bytes` \| `pixels`) |
 | `allow_duplicate` | Set by "Import as new copy"; skips dedup |
@@ -140,8 +143,10 @@ The table in `ingest_state._TRANSITIONS` is the source of truth:
 | `processing` | `CRASH_LIMIT` (startup, attempts ≥ 3: "Repeatedly crashed during processing") | `failed` |
 | `failed` | `RETRY` / `RETRY_NEEDS_BYTES` | `ready` / `awaiting_bytes` |
 | `duplicate` | `IMPORT_AS_COPY` / `IMPORT_AS_COPY_NEEDS_BYTES` | `ready` / `awaiting_bytes`, with `allow_duplicate` |
+| `processing` | `SORTED_OUT` (Auto: token, other or unsure; `error_kind = sorted_out`) | `skipped` |
+| `skipped` | `INCLUDE` / `INCLUDE_NEEDS_BYTES` (only items with `error_kind = sorted_out`; the queue checks it) | `ready` / `awaiting_bytes`, with a fixed `image_type` |
 
-Terminal: `done`, `duplicate`, `failed`, `skipped`. `failed` and `duplicate` can be re-opened by user action. `MAX_ATTEMPTS = 3`.
+Terminal: `done`, `duplicate`, `failed`, `skipped`. `failed`, `duplicate` and sorted-out `skipped` items can be re-opened by user action. `MAX_ATTEMPTS = 3`.
 
 ### 4.2 Job states
 
@@ -198,7 +203,8 @@ One batch, in `ingest_process.py`:
    - Otherwise copy the original to `{image library}/.incoming/`. Thumbnails are written to `{thumbnail store}/.incoming/`. Temp files sit on their destination's volume, so final placement is a rename, and the one unavoidable library-drive write happens in parallel with CPU work, outside the write lock.
    - Videos: first frame for thumbnails and embedding; no pixel hash or pHash.
    - Failures are classified with the stage reached (`decode`, `hash`, `thumbnails`, `colors`, `grid_detection`, `convert`, `copy`) and temp files are deleted.
-2. **`embed`**: one batched embedding call over the medium thumbnails. On error, every item in the batch fails together (stage `embedding`).
+   - Auto items stop after colours (and the head's image features), as a `DecodedItem`: grid detection and storing the original wait for their type ([§5.6](#56-auto-image-type)). Everything else is prepared in one pass and one memory reservation, as above.
+2. **`embed`**: one batched embedding call over the medium thumbnails. On error, every item in the batch fails together (stage `embedding`). Auto items are then sorted, and maps and scenes are finished on the prepare pool (`finish_item`, with its own reservation from `finish_peak_bytes`).
 3. **`commit_batch`**: one `BEGIN IMMEDIATE` transaction (`write_session`). SQLite's single writer makes check-then-insert race-free.
    - Dedup against the library and earlier items in the batch, unless `allow_duplicate`: `content_hash`/`stored_hash` → tier `bytes`, `pixel_hash` → tier `pixels`.
    - Rename temp files into place; insert image, tags and colours; resolve or create the `ImageGroup` and record it on `import_groups.image_group_id`; mark items `done`, clear `staging_key`; recompute job status.
@@ -247,6 +253,21 @@ Held in worker memory and re-detected after a restart. `default_probe()` checks:
 
 `MemoryBudget` (`backend/app/services/memory_budget.py`) bounds the total estimated peak memory of concurrent prepare steps, independent of `max_concurrent_prepare`. Capacity is `ingest_memory_budget_mb` if set, else half of RAM beyond a 2 GiB reserve (minimum 1 GiB). An item larger than the whole budget runs alone rather than deadlocking. Estimates come from `plan_decode`: decoded pixels × bytes per pixel, progressive-JPEG coefficient buffers, and grid detection's per-format peak (`grid_detection_bytes`, measured on 2,400 real maps; only baseline JPEGs shrink when `grid_analysis_max_dim` is set). Progressive JPEGs and PNG/WebP still decode at full size (up to about 1.3 GB at 200+ Mpx); only a streaming decoder would fix that.
 
+### 5.6 Auto image type
+
+Rationale: [ADR-020](decisions.md#adr-020-auto-image-type-on-import). Heads: `backend/app/services/image_type_classifier.py`, trained and exported by scene-atlas-learning (`release heads`, `release export-heads`).
+
+- **Which items:** only those whose type is `auto` (the job default or a manifest entry). Battlemaps and Scenes are never classified.
+- **Seal:** Auto items are parsed and grouped as battlemaps (group names don't depend on type). The scene parse's tags are kept as `parsed.scene_tags`. `ingest_queue.effective_parsed` gives a scene its scene tags and no filename grid fields, both when an item is sorted and when an included item is claimed.
+- **Prepare:** decode as usual, then compute the head's image features (`log_aspect`, `white_frac`, `white_border_frac`) from the **800 px** thumbnail, which is what the heads were trained on. Stop there.
+- **Sort** (`sort_auto_items`, after the batch embedding): `active_head()` is the bundled head whose `encoder_sha256` matches the active model's vision encoder (recorded in `version.json` at download, hashed once for older installs). map → `battlemap`, illustration → `scene`. token, other, and anything below the head's `fallback.min_confidence` (which falls back to other) are sorted out. The verdict is stored in `classification` on every Auto item.
+- **Sorted out:** the medium thumbnail moves to `staging/{job}/preview-<stem>.<ext>` (`preview_key`), the other temp files are deleted, and `record_sorted_out` marks the item `skipped` with `error_kind = sorted_out` and a reason: "Looks like a token", "Doesn't look like a map or a scene", or "Couldn't tell whether this is a map or a scene". Staged bytes are kept. Local imports keep only the preview; the source is still on disk.
+- **Finish** (`finish_item`): grid detection for maps, then convert or copy the original, then commit as usual.
+- **No head** for the active encoder, or a head whose `embedding_dim` doesn't match: Auto items import as battlemaps (warning logged once per encoder).
+- **Include** (`include_sorted_out`, `POST /imports/include`): ids across imports. Only sorted-out items move; other ids are ignored. Each item gets a fixed type (the requested one, or for Auto whichever of map/illustration scored higher), so it isn't sorted again. Its preview is deleted, and it re-opens to `ready` (`awaiting_bytes` if the staged bytes are gone). Its job re-opens too, even if cancelled or dismissed, because the user asked for these files.
+- **Counts:** job summaries carry `counts.sorted_out` (a subset of `skipped`). The frontend treats an import with Auto skips as not a clean finish, so its report opens on Skipped: a folder skipped entirely has no gallery group for the editor to show it in.
+- **Group editor:** `GET /imports/sorted-out/counts` (gallery group → count, via `import_groups.image_group_id`) and `GET /imports/sorted-out?image_group_id=` (items across imports). A group gets its gallery id at its first commit, so only groups with at least one imported image (or merged into an existing group) appear there.
+
 ## 6. Duplicate detection
 
 | Tier | Hash | Where | Catches | Action |
@@ -284,6 +305,10 @@ All routes are under `/api/v1/imports` (`backend/app/api/imports.py`). Mutating 
 | `POST /imports/dismiss-finished` | Hide every completed/cancelled job (the dock's "Clear finished") |
 | `DELETE /imports/{id}` | Undo import |
 | `POST /imports/queue/probe` | Re-check system conditions now ("Retry now") |
+| `GET /imports/sorted-out/counts` | `{counts: {gallery group id: n}}` of items Auto sorted out ([§5.6](#56-auto-image-type)) |
+| `GET /imports/sorted-out?image_group_id=` | Items Auto sorted out of one gallery group, across imports (`limit` ≤ 1000, `truncated`) |
+| `POST /imports/include` | `{item_ids}` (≤10,000, across imports): include items Auto sorted out; others are ignored. `{affected, job_ids}` |
+| `GET /imports/{id}/items/{item_id}/preview` | The preview kept for a sorted-out item (404 if none) |
 
 Security properties ([security.md](security.md)): `item_id` is always scoped to `job_id`; staged filenames are server-generated; `relative_path` never reaches the filesystem.
 
@@ -323,7 +348,7 @@ create job → manifest chunks → (archives) → seal ──▶ show group plan
 | Task | When | Behaviour |
 |---|---|---|
 | `IngestWorker.recover()` | Startup, after the storage locks are taken (so no other backend is using the stores) | Deletes `.incoming/` in both stores; `recover_interrupted()` returns `processing` items to `ready`, or fails them at 3 attempts. Deletes no images. |
-| `ingest_maintenance` (`run_ingest_maintenance`) | Scheduler, every 6 h | `abandon_stale_uploads`: active/paused jobs with no bytes for 7 days → `awaiting_bytes` items `skipped` ("Not uploaded"). `release_staged_bytes`: staged files of `done`/`skipped` items always; of `failed`/`duplicate` items once the job is dismissed or finished more than 7 days ago. `prune_dismissed_jobs`: job/group/item rows of jobs dismissed over 30 days ago (images untouched). `sweep_stray_staging_files`: unreferenced staging files and directories older than 1 h. |
+| `ingest_maintenance` (`run_ingest_maintenance`) | Scheduler, every 6 h | `abandon_stale_uploads`: active/paused jobs with no bytes for 7 days → `awaiting_bytes` items `skipped` ("Not uploaded"). `release_staged_bytes`: staged files of `done`/`skipped` items always, except items Auto sorted out, which keep theirs until the job's rows are pruned; of `failed`/`duplicate` items once the job is dismissed or finished more than 7 days ago. `prune_dismissed_jobs`: job/group/item rows of jobs dismissed over 30 days ago (images untouched). `sweep_stray_staging_files`: staging files and directories older than 1 h that no item's `staging_key` or `preview_key` refers to. |
 | `reconcile_vectors` | Startup (once the model has loaded, via `JobRunner`, shown as "Updating image embeddings" with progress) and scheduler every 24 h | Compares SQLite and LanceDB id sets; re-embeds missing images from their thumbnails and deletes orphaned vectors. |
 | `sweep_orphaned_store_files` | Scheduler, every 24 h | Deletes store files no image references. Only considers the `xx/yy/<key>` shard layout (so `.incoming/` and `backups/` are never touched), ignores files younger than 1 h, and deletes nothing if more than 25% of the store looks orphaned. |
 | `backup_database` | Scheduler, every 24 h | SQLite + LanceDB snapshot with rotation |

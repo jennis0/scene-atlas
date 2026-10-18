@@ -86,6 +86,14 @@ class TestImageTypeHead:
             head.classify([1, 0, 0, 0])
         assert head.classify([1, 0, 0, 0], Image.new("RGB", (8, 8))).group == "map"
 
+    def test_precomputed_features_match_the_image(self):
+        """Ingest computes features on the prepare pool and classifies later."""
+        head = itc.ImageTypeHead(_head(features=list(itc.KNOWN_FEATURES)))
+        img = _contract_image()
+        from_image = head.classify([1, 0.5, 0, 0], img)
+        precomputed = head.classify([1, 0.5, 0, 0], features=itc.image_features(img))
+        assert precomputed == from_image
+
     def test_wrong_embedding_size(self):
         with pytest.raises(ValueError):
             itc.ImageTypeHead(_head()).classify([1, 0, 0])

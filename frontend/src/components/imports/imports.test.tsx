@@ -15,7 +15,7 @@ import {
 import type { ImportManager } from '@/lib/import/ImportManager'
 import { toast } from 'sonner'
 import { ImportDialog } from './ImportDialog'
-import { jobStatusText, outcomeText, timeLeftText } from './format'
+import { isCleanFinish, jobStatusText, outcomeText, timeLeftText } from './format'
 
 vi.mock('sonner', async (importOriginal) => {
   const actual = await importOriginal<typeof import('sonner')>()
@@ -97,6 +97,15 @@ describe('ImportDialog: start', () => {
   })
 })
 
+describe('ImportDialog: Auto', () => {
+  it('starts on Auto and explains what it skips', async () => {
+    ;({ manager, client } = await installFakeImportManager())
+    renderWithProviders(<ImportDialog jobId={null} open onClose={noop} onStarted={noop} />)
+    expect(screen.getByRole('button', { name: /Auto/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText(/Tokens and other art are skipped/)).toBeInTheDocument()
+  })
+})
+
 describe('ImportDialog: start in the desktop app', () => {
   const electron = (overrides = {}) => {
     window.electronAPI = {
@@ -118,7 +127,7 @@ describe('ImportDialog: start in the desktop app', () => {
     await userEvent.click(screen.getByRole('button', { name: /Choose a folder/ }))
 
     await waitFor(() => expect(onStarted).toHaveBeenCalledWith('new-job'))
-    expect(client.create).toHaveBeenCalledWith('Forest Pack', 'battlemap')
+    expect(client.create).toHaveBeenCalledWith('Forest Pack', 'auto')
     await waitFor(() =>
       expect(client.localSources).toHaveBeenCalledWith('new-job', ['/maps/Forest Pack']),
     )
@@ -144,7 +153,7 @@ describe('ImportDialog: start in the desktop app', () => {
     await waitFor(() =>
       expect(client.localSources).toHaveBeenCalledWith('new-job', ['/maps/Forest', '/maps/Cave']),
     )
-    expect(client.create).toHaveBeenCalledWith('2 folders and files', 'battlemap')
+    expect(client.create).toHaveBeenCalledWith('2 folders and files', 'auto')
   })
 })
 
@@ -441,5 +450,63 @@ describe('ImportDialog: result', () => {
     await screen.findByText('Island Fort')
     expect(screen.getByText(/· Czepeku$/)).toBeInTheDocument()
     expect(screen.queryByText('Czepeku', { exact: true })).not.toBeInTheDocument()
+  })
+})
+
+describe('ImportDialog: result, skipped by Auto', () => {
+  it('shows previews and imports a reason group anyway, but not other skips', async () => {
+    const finished = jobSummary({ status: 'completed', counts: counts({ done: 1, skipped: 3 }) })
+    ;({ manager, client } = await installFakeImportManager({
+      jobs: [finished],
+      details: { job1: { ...finished, groups: [group()] } },
+      items: [
+        item({
+          id: 20,
+          job_id: 'job1',
+          state: 'skipped',
+          error_kind: 'sorted_out',
+          error_reason: 'Looks like a token',
+          relative_path: 'P/goblin.png',
+          has_preview: true,
+        }),
+        item({
+          id: 21,
+          job_id: 'job1',
+          state: 'skipped',
+          error_kind: 'sorted_out',
+          error_reason: 'Looks like a token',
+          relative_path: 'P/orc.png',
+          has_preview: true,
+        }),
+        item({
+          id: 22,
+          state: 'skipped',
+          error_kind: null,
+          error_reason: 'Not a supported image, video or archive',
+          relative_path: 'P/readme.txt',
+        }),
+      ],
+    }))
+    renderWithProviders(<ImportDialog onStarted={noop} jobId="job1" open onClose={noop} />)
+    await userEvent.click(screen.getByRole('tab', { name: /Skipped/ }))
+    await waitFor(() => expect(screen.getByText('P/goblin.png')).toBeInTheDocument())
+    const previews = document.querySelectorAll('img[src*="/preview"]')
+    expect([...previews].map((img) => img.getAttribute('src'))).toEqual([
+      '/api/v1/imports/job1/items/20/preview',
+      '/api/v1/imports/job1/items/21/preview',
+    ])
+    expect(screen.getAllByText('Import anyway')).toHaveLength(1)
+    await userEvent.click(screen.getByText('Import anyway'))
+    expect(client.include).toHaveBeenCalledWith([20, 21])
+  })
+})
+
+describe('isCleanFinish', () => {
+  it('is not clean when Auto skipped files: a fully skipped group is only in the report', () => {
+    const job = (c: Partial<Parameters<typeof counts>[0]>) =>
+      jobSummary({ status: 'completed', counts: counts(c) })
+    expect(isCleanFinish(job({ done: 3 }))).toBe(true)
+    expect(isCleanFinish(job({ done: 3, skipped: 1, sorted_out: 1 }))).toBe(false)
+    expect(isCleanFinish(job({ done: 3, skipped: 1 }))).toBe(true) // e.g. a readme.txt
   })
 })

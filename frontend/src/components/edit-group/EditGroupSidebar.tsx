@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Check, EyeOff, Loader2, Merge, MoreHorizontal, Trash2 } from 'lucide-react'
+import { Check, EyeOff, Loader2, Merge, MoreHorizontal, ScanSearch, Trash2 } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -301,13 +301,24 @@ function PendingGroupRow({ group, awaited, onOpen, onDemand }: PendingGroupRowPr
 
 /** In-scope image count, out-of-scope extras, and the auto-save indicator. */
 function GroupRowCounts({ group }: { group: EditableGroupState }) {
-  const { ops } = useEditGroupContext()
+  const { ops, sortedOut } = useEditGroupContext()
   const outOfScope = group.files.filter((f) => f.outOfScope).length
+  const skipped = sortedOut.counts[Number(group.id)] ?? 0
 
   return (
     <span className="text-2xs text-muted-foreground tabular-nums shrink-0 flex items-center gap-1">
       {group.files.filter((f) => !f.excluded && !f.outOfScope).length}
       {outOfScope > 0 && <span className="ml-0.5 opacity-80">+{outOfScope}</span>}
+      {skipped > 0 && (
+        <span
+          className="ml-1 inline-flex items-center gap-0.5"
+          title={`${skipped} skipped by Auto: open the group to review`}
+        >
+          <ScanSearch className="h-3 w-3" aria-hidden />
+          <span className="sr-only">skipped by Auto:</span>
+          {skipped}
+        </span>
+      )}
       {ops.groupSaving.has(group.id) ? (
         <Loader2 className="h-3 w-3 animate-spin text-muted-foreground ml-1" />
       ) : ops.groupSaved.has(group.id) ? (

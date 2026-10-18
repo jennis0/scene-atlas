@@ -53,6 +53,7 @@ export const isCleanFinish = (job: ImportJobSummary) =>
   job.counts.done > 0 &&
   job.counts.failed === 0 &&
   job.counts.duplicate === 0 &&
+  !job.counts.sorted_out && // a group Auto skipped entirely is only in the report
   !job.upload_interrupted
 
 /**

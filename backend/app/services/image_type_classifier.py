@@ -111,17 +111,26 @@ class ImageTypeHead:
     def needs_image(self) -> bool:
         return bool(self.features)
 
-    def classify(self, embedding, image: Image.Image | None = None) -> ImageTypeResult:
-        """Classify one image from its embedding (and the image itself if the head uses
-        features). The embedding is L2-normalised here, so raw or normalised both work."""
+    def classify(
+        self,
+        embedding,
+        image: Image.Image | None = None,
+        *,
+        features: dict[str, float] | None = None,
+    ) -> ImageTypeResult:
+        """Classify one image from its embedding, plus the image itself or its precomputed
+        ``image_features`` if the head uses features. The embedding is L2-normalised here,
+        so raw or normalised both work."""
         x = np.asarray(embedding, dtype=np.float32).ravel()
         if x.shape[0] != self.embedding_dim:
             raise ValueError(f"embedding has {x.shape[0]} dims, head expects {self.embedding_dim}")
         x = x / max(float(np.linalg.norm(x)), 1e-12)
         if self.features:
-            if image is None:
-                raise ValueError("this head uses image features; pass the image")
-            feats = image_features(image)
+            if features is None:
+                if image is None:
+                    raise ValueError("this head uses image features; pass the image or features")
+                features = image_features(image)
+            feats = features
             x = np.concatenate([x, np.array([feats[f] for f in self.features], np.float32)])
         logits = self.weight @ x + self.bias
         p = np.exp(logits - logits.max())
@@ -189,6 +198,9 @@ def vision_encoder_sha256(model_dir: Path) -> str | None:
     return sha
 
 
+_missing_logged: set[str] = set()
+
+
 def head_for_model(name: str) -> ImageTypeHead | None:
     """The bundled head for an installed model, or None (not installed, or no head trained
     for this exact encoder)."""
@@ -196,6 +208,14 @@ def head_for_model(name: str) -> ImageTypeHead | None:
     if sha is None:
         return None
     head = bundled_heads().get(sha)
-    if head is None:
-        logger.info("No image-type head for model '%s' (encoder %s)", name, sha[:12])
+    if head is None and sha not in _missing_logged:
+        _missing_logged.add(sha)
+        logger.warning("No image-type head for model '%s' (encoder %s)", name, sha[:12])
     return head
+
+
+def active_head() -> ImageTypeHead | None:
+    """The head for the model currently producing embeddings, or None."""
+    from backend.app.services.clip_service import get_effective_model_name
+
+    return head_for_model(get_effective_model_name())

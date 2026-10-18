@@ -30,6 +30,7 @@ export function counts(partial: Partial<ImportCounts> = {}): ImportCounts {
     duplicate: 0,
     failed: 0,
     skipped: 0,
+    sorted_out: 0,
     ...partial,
   }
   return {
@@ -77,6 +78,7 @@ export function group(partial: Partial<ImportGroupSummary> = {}): ImportGroupSum
 export function item(partial: Partial<ImportItem> = {}): ImportItem {
   return {
     id: 1,
+    job_id: 'job-1',
     import_group_id: 1,
     kind: 'image',
     relative_path: 'Czepeku/Island Fort/a.png',
@@ -94,6 +96,8 @@ export function item(partial: Partial<ImportItem> = {}): ImportItem {
     allow_duplicate: false,
     similar_to_image_id: null,
     updated_at: null,
+    classification: null,
+    has_preview: false,
     ...partial,
   }
 }
@@ -140,6 +144,12 @@ export function fakeImportClient(state: FakeImportState) {
     dismissFinished: vi.fn(async () => 0),
     undo: vi.fn(async () => ({ affected: 3, status: 'deleted' })),
     probeQueue: vi.fn(async () => ({ ...state.queue, system_paused: false, reason: null })),
+    include: vi.fn(async (ids: number[]) => ({ affected: ids.length, job_ids: ['job1'] })),
+    sortedOut: vi.fn(async () => ({
+      items: state.items.filter((i) => i.error_kind === 'sorted_out'),
+      truncated: false,
+    })),
+    sortedOutCounts: vi.fn(async () => ({}) as Record<number, number>),
   }
 }
 
