@@ -35,7 +35,7 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 | Activity dock | `frontend/src/components/ActivityDock.tsx`, `frontend/src/components/imports/ImportJobRow.tsx` | Import and background-job progress, connection state |
 | Video support | `backend/app/services/video_utils.py` | `.mp4`/`.webm`; first frame for thumbnails and embeddings |
 | Multi-model ONNX inference | `backend/app/services/clip_service.py`, `backend/app/services/model_registry.py` | Small (CLIP ViT-B/32, 512-d), medium (SigLIP2-base, 768-d), large (SigLIP2-so400m, 1152-d). [onnx-int8-quantisation.md](onnx-int8-quantisation.md) |
-| Model download and switching | `backend/app/services/model_download_service.py`, `backend/app/api/models.py`, `frontend/src/components/setup/ModelSetupScreen.tsx` | Hugging Face-hosted ONNX; switch pauses ingest and re-embeds. [hf-model-management.md](hf-model-management.md) |
+| Model download and switching | `backend/app/services/model_download_service.py`, `backend/app/api/models.py`, `frontend/src/components/setup/ModelStep.tsx` | Hugging Face-hosted ONNX; switch pauses ingest and re-embeds. [hf-model-management.md](hf-model-management.md) |
 | GPU acceleration | `backend/app/services/ort_providers.py`, `clip_service.py` | `inference_device=auto`; CUDA / DirectML / CoreML / CPU. [gpu-acceleration.md](gpu-acceleration.md) |
 | Electron desktop app | `electron/src/`, `backend/pyinstaller/` | Sidecar lifecycle, storage-folder setup. No built-in auto-updater. [electron.md](electron.md) |
 | Maintenance | `backend/app/services/scheduler.py`, `backend/pipeline/maintenance.py`, `ingest_maintenance.py`, `vector_reconcile.py` | Daily backups, 6-hourly ingest cleanup, orphan sweep, vector reconciliation |
@@ -67,7 +67,7 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 | Purge and backup can't stop part-way | Library purge and `backup_database` ignore the shutdown signal; make them resumable or atomic first. | Low |
 | `PermissionError` at commit classified `file` | On Windows, antivirus can briefly lock a file during the rename; consider `transient` at stage `db_save`. | Low |
 | Removing tag packs | Packs are opt-in since first boot seeds only `common`, but can't be removed. | Low |
-| Shared `ModelCard` | Model cards are duplicated in `ModelSetupScreen` and `SettingsTabContent`. | Low |
+| Shared `ModelCard` | Model cards are duplicated in `ModelStep` (setup wizard) and `SettingsTabContent`. | Low |
 | E2E first run on a clean machine | The backend can start before the model has downloaded, so the seed import never runs. Download before starting the webServer. | Low |
 | `gpu-dev` torch stuck at 2.6 | The `pytorch-cuda` index is cu124; move to cu126/cu128. | Low |
 | Session-based authentication | Until then server mode must sit behind an authenticating reverse proxy. [security.md](security.md) | Medium |

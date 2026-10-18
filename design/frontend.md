@@ -28,7 +28,7 @@ See also:
 
 ```
 frontend/src/
-├── App.tsx            HashRouter, setup-wizard gate (server mode), theme
+├── App.tsx            HashRouter, setup-wizard gate (every mode), theme
 ├── main.tsx           Entry point, providers
 ├── index.css          Tailwind base + design tokens
 ├── electron.d.ts      Types for window.electronAPI
@@ -44,7 +44,7 @@ frontend/src/
 │   ├── import/        Shared file-card, toolbar, tag/grid pickers and dnd pieces, used by the
 │   │                  edit-group dialog, viewer and filter UI (name predates the import rewrite)
 │   ├── settings/      Settings tab content and setting controls
-│   ├── setup/         First-run wizard: model choice and tag-pack step
+│   ├── setup/         First-run wizard: appearance, stored format, tag packs, search model
 │   └── *.tsx          Gallery-level components (header, grids, cards, viewer, dialogs, dock)
 ├── contexts/          ThemeContext (light/dark, palette, text size, compact header, contrast; per device in localStorage), TagColorContext (DB-driven colours)
 ├── hooks/             Search, dialog state, edit-group, settings and job-polling hooks
@@ -73,7 +73,7 @@ Tests sit next to the code they cover (`*.test.ts(x)`).
 - **EditGroupDialog** — edit one group, or many via Edit All.
 - **ImportDialog**, **ActivityDock**, **TagManagementDialog**, **LibraryInfoDialog**, **EmptyLibraryWelcome**.
 
-On first run (any mode) `App.tsx` shows **ModelSetupScreen** until a model and tag packs are set up. In Electron the startup screen is `electron/loading.html`, outside React.
+On first run (any mode) `App.tsx` shows **SetupWizard** until setup is finished, or when the model is missing and isn't downloading; see [first-run.md](first-run.md). In Electron the startup screen is `electron/loading.html`, outside React. The theme preference is System / Light / Dark (`lib/theme.ts`, `ThemeContext`), defaulting to System.
 
 ### Search state (`hooks/useGallerySearch.ts`)
 

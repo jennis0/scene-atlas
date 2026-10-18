@@ -61,7 +61,7 @@ Not covered yet: reflow at 400% zoom (1.4.10), text-spacing overrides (1.4.12), 
 
 All values sourced from CSS custom properties defined in `frontend/src/index.css`. **Never use raw hex/rgb/hsl values** — always use `hsl(var(--token))` or Tailwind token classes. For opacity variants, use `hsl(var(--token) / 0.N)`.
 
-**Theme switching:** Light mode values are in `:root`, dark mode values in `.dark`. The `dark` class on `<html>` activates dark mode (Tailwind `darkMode: ["class"]`). Default theme is dark; toggled via `ThemeContext` (stored in localStorage as `scene-atlas-theme`).
+**Theme switching:** Light mode values are in `:root`, dark mode values in `.dark`. The `dark` class on `<html>` activates dark mode (Tailwind `darkMode: ["class"]`). The preference is System (the default: follows `prefers-color-scheme`, live), Light or Dark, set in Appearance or the setup wizard, or toggled to an explicit light/dark from the header; `ThemeContext` and `lib/theme.ts`, stored in localStorage as `scene-atlas-theme`.
 
 ### Surface Hierarchy — Dark Mode (darkest → lightest)
 | Token | Approx. hex | Role |

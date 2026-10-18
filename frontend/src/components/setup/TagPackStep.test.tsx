@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { AxiosError, AxiosHeaders } from 'axios'
 import { tagApi } from '@/lib/api/tagApi'
 import type { TagPack } from '@/types'
-import { TagPackSetupStep } from './TagPackSetupStep'
+import { TagPackStep } from './TagPackStep'
 
 vi.mock('@/lib/api/tagApi', () => ({
   tagApi: {
@@ -27,19 +27,13 @@ function pack(name: string, imported: boolean): TagPack {
   }
 }
 
-function renderStep(onComplete = vi.fn()) {
-  render(
-    <TagPackSetupStep
-      modelProgressMessage={null}
-      modelProgressPct={null}
-      modelComplete={true}
-      onComplete={onComplete}
-    />,
-  )
-  return onComplete
+/** Renders the step mid-wizard; returns its onNext, which "completes" the step. */
+function renderStep(onNext = vi.fn()) {
+  render(<TagPackStep nav={{ steps: ['tag-packs', 'model'], index: 0, onNext }} />)
+  return onNext
 }
 
-describe('TagPackSetupStep', () => {
+describe('TagPackStep', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     getTagPacks.mockResolvedValue([
@@ -67,28 +61,37 @@ describe('TagPackSetupStep', () => {
     expect(fantasy).toHaveAttribute('aria-pressed', 'false')
   })
 
-  it('shows model setup progress as a progressbar', async () => {
-    render(
-      <TagPackSetupStep
-        modelProgressMessage="Downloading"
-        modelProgressPct={40}
-        modelComplete={false}
-        onComplete={vi.fn()}
-      />,
-    )
-    const bar = screen.getByRole('progressbar', { name: 'Search model setup' })
-    expect(bar).toHaveAttribute('aria-valuenow', '40')
-    expect(screen.getByRole('status')).toBeEmptyDOMElement()
-    await screen.findByRole('button', { name: /Fantasy/ })
+  it('marks genre packs imported earlier (e.g. before Back) as added', async () => {
+    getTagPacks.mockResolvedValue([pack('common', true), pack('fantasy', true)])
+    renderStep()
+    expect(await screen.findByRole('button', { name: /Fantasy/ })).toHaveTextContent('(added)')
   })
 
-  it('imports the selected packs and completes', async () => {
+  it('moves on without importing when nothing is selected', async () => {
+    getTagPacks.mockResolvedValue([pack('common', true), pack('fantasy', false)])
+    const onNext = renderStep()
+    await userEvent.click(await screen.findByRole('button', { name: /Fantasy/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(importMultiple).not.toHaveBeenCalled()
+    expect(onNext).toHaveBeenCalled()
+  })
+
+  it('offers to try again when the packs cannot be loaded', async () => {
+    getTagPacks.mockRejectedValueOnce(new Error('offline'))
+    renderStep()
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't load the tag packs")
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByRole('button', { name: /Fantasy/ })).toBeInTheDocument()
+  })
+
+  it('imports the selected packs and moves on', async () => {
     importMultiple.mockResolvedValue({ imported: ['fantasy', 'scifi'], errors: [] })
-    const onComplete = renderStep()
+    const onNext = renderStep()
     await userEvent.click(await screen.findByRole('button', { name: 'Continue' }))
 
     expect(importMultiple).toHaveBeenCalledWith(['fantasy', 'scifi'])
-    await waitFor(() => expect(onComplete).toHaveBeenCalled())
+    await waitFor(() => expect(onNext).toHaveBeenCalled())
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
@@ -97,7 +100,7 @@ describe('TagPackSetupStep', () => {
       imported: ['fantasy'],
       errors: ['scifi: database is locked'],
     })
-    const onComplete = renderStep()
+    const onNext = renderStep()
     await screen.findByRole('button', { name: /Fantasy/ })
     getTagPacks.mockResolvedValue([
       pack('common', true),
@@ -108,13 +111,13 @@ describe('TagPackSetupStep', () => {
 
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('scifi: database is locked')
-    expect(onComplete).not.toHaveBeenCalled()
+    expect(onNext).not.toHaveBeenCalled()
     await waitFor(() => expect(screen.getByRole('button', { name: /Fantasy/ })).toBeDisabled())
 
     importMultiple.mockResolvedValueOnce({ imported: ['scifi'], errors: [] })
     await userEvent.click(await screen.findByRole('button', { name: 'Try again' }))
     expect(importMultiple).toHaveBeenLastCalledWith(['scifi'])
-    await waitFor(() => expect(onComplete).toHaveBeenCalled())
+    await waitFor(() => expect(onNext).toHaveBeenCalled())
   })
 
   it('explains a rate-limited request', async () => {
@@ -127,20 +130,20 @@ describe('TagPackSetupStep', () => {
         config: { headers: new AxiosHeaders() },
       }),
     )
-    const onComplete = renderStep()
+    const onNext = renderStep()
     await userEvent.click(await screen.findByRole('button', { name: 'Continue' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Too many attempts')
-    expect(onComplete).not.toHaveBeenCalled()
+    expect(onNext).not.toHaveBeenCalled()
   })
 
   it('lets the user skip after a failure', async () => {
     importMultiple.mockResolvedValue({ imported: [], errors: ['fantasy: boom'] })
-    const onComplete = renderStep()
+    const onNext = renderStep()
     await userEvent.click(await screen.findByRole('button', { name: 'Continue' }))
     await screen.findByRole('alert')
 
     await userEvent.click(screen.getByRole('button', { name: 'Skip for now' }))
-    await waitFor(() => expect(onComplete).toHaveBeenCalled())
+    await waitFor(() => expect(onNext).toHaveBeenCalled())
   })
 })

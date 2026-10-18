@@ -69,7 +69,10 @@ class ModelListResponse(BaseModel):
 
 class SetupStatusResponse(BaseModel):
     needs_model: bool
-    needs_tag_packs: bool
+    # The first-run wizard has been finished (design/first-run.md)
+    setup_completed: bool
+    # A model download/activation job is queued or running
+    model_activating: bool
     recommended: str
     has_gpu: bool
     gpu_provider: str | None
@@ -199,6 +202,10 @@ def get_embedding_status() -> EmbeddingStatusResponse:
     return EmbeddingStatusResponse(status="loading", error=None)
 
 
+def _activation_job_name(model_name: str) -> str:
+    return f"Activate model: {model_name}"
+
+
 @router.get("/setup-status", response_model=SetupStatusResponse)
 def get_setup_status(db: Session = Depends(get_db)) -> SetupStatusResponse:
     """Return setup status: whether a model is needed and GPU detection results."""
@@ -224,13 +231,18 @@ def get_setup_status(db: Session = Depends(get_db)) -> SetupStatusResponse:
 
     recommended = get_default_model(has_gpu)
 
-    # Tag packs are needed if setup has never been completed
-    setup_completed = db.query(AppSetting).filter(AppSetting.key == "setup_completed_at").first()
-    needs_tag_packs = setup_completed is None
+    setup_completed = (
+        db.query(AppSetting).filter(AppSetting.key == "setup_completed_at").first() is not None
+    )
+    runner = get_job_runner()
+    model_activating = any(
+        runner.get_active_job_id(_activation_job_name(name)) is not None for name in MODEL_NAMES
+    )
 
     return SetupStatusResponse(
         needs_model=needs_model,
-        needs_tag_packs=needs_tag_packs,
+        setup_completed=setup_completed,
+        model_activating=model_activating,
         recommended=recommended,
         has_gpu=has_gpu,
         gpu_provider=gpu_provider,
@@ -322,7 +334,7 @@ def set_active_model(
 
     # Guard: reject if a model activation job is already running
     runner = get_job_runner()
-    existing_job_id = runner.get_active_job_id(f"Activate model: {model_name}")
+    existing_job_id = runner.get_active_job_id(_activation_job_name(model_name))
     if existing_job_id is not None:
         return ActiveModelResponse(status="already_downloading", job_id=existing_job_id)
 
@@ -346,7 +358,7 @@ def set_active_model(
     job_id = runner.submit(
         _download_and_activate,
         model_name,
-        name=f"Activate model: {model_name}",
+        name=_activation_job_name(model_name),
     )
 
     status = "rebuilding" if already_downloaded else "downloading"

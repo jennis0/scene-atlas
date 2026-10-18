@@ -13,7 +13,7 @@ Download, install, and run. No dependencies to manage.
 
 2. **Choose storage locations.** On first run the app asks for an app data location (database, thumbnails, search index) and an image library location (Scene Atlas's managed copy of your images). These are directories Scene Atlas manages itself. Your original images are never modified; they are copied into the library during import.
 
-3. **Download an AI model.** The app recommends a model for your hardware (Small is ~250 MB) and downloads it once.
+3. **Finish setup.** Choose a theme and text size, how imported images are stored, which genre tag packs to add, and a search model. The app recommends a model for your hardware (Small is ~250 MB); it downloads in the background once you finish.
 
 4. **Import your first images.** Click **Import**, drag in some files, and let processing run. See [Importing](/guide/importing) for details.
 
@@ -101,7 +101,7 @@ Scene Atlas automatically groups related map variants by folder structure and fi
 
 ## Troubleshooting
 
-**Model download is slow:** The initial download can take a few minutes depending on your connection. Progress is shown on the setup screen.
+**Model download is slow:** The initial download can take a few minutes depending on your connection. It continues in the background after setup; you can start importing once it's ready.
 
 **Port 8000 already in use:** For Docker, set `PORT=8001` in your `.env` file. For standalone or developer mode, pass `--port 8001` to uvicorn.
 

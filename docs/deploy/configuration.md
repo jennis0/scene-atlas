@@ -54,7 +54,7 @@ Scene Atlas has **no built-in authentication**. In server mode, anyone who can r
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CONVERT_TO_WEBP` | `0` | `1` seeds the Stored format setting as WebP; used only when settings are first seeded |
+| `CONVERT_TO_WEBP` | `0` | `1` seeds the Stored format setting as WebP, the setup wizard's starting choice; used only when settings are first seeded |
 | `MAX_IMPORT_ITEMS` | `50000` | Most files a single import job may contain |
 | `MAX_IMAGE_PIXELS` | `1000000000` | Largest image (in pixels) that will be decoded; larger files are rejected |
 | `PIXEL_HASH_MAX_PIXELS` | `100000000` | JPEGs above this size are decoded at reduced scale and skip the decoded-pixel duplicate check |

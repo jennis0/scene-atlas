@@ -1,17 +1,44 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ThemeProvider, useTheme } from './ThemeContext'
 
 const STORAGE_KEY = 'scene-atlas-theme'
 
 function TestConsumer() {
-  const { theme, toggleTheme } = useTheme()
+  const { theme, themePreference, setThemePreference, toggleTheme } = useTheme()
   return (
     <div>
       <span data-testid="theme">{theme}</span>
+      <span data-testid="preference">{themePreference}</span>
       <button onClick={toggleTheme}>Toggle</button>
+      <button onClick={() => setThemePreference('system')}>System</button>
     </div>
+  )
+}
+
+/** A controllable prefers-color-scheme: dark query; jsdom has no matchMedia. */
+function mockSystemTheme(dark: boolean) {
+  const listeners = new Set<() => void>()
+  const query = {
+    matches: dark,
+    addEventListener: (_: string, fn: () => void) => listeners.add(fn),
+    removeEventListener: (_: string, fn: () => void) => listeners.delete(fn),
+  }
+  vi.stubGlobal('matchMedia', () => query)
+  return {
+    set(nextDark: boolean) {
+      query.matches = nextDark
+      act(() => listeners.forEach((fn) => fn()))
+    },
+  }
+}
+
+function renderConsumer() {
+  render(
+    <ThemeProvider>
+      <TestConsumer />
+    </ThemeProvider>,
   )
 }
 
@@ -19,9 +46,10 @@ describe('ThemeContext', () => {
   beforeEach(() => {
     localStorage.clear()
     document.documentElement.classList.remove('dark')
+    vi.unstubAllGlobals()
   })
 
-  it('defaults to dark when localStorage is empty', () => {
+  it('follows the system by default: dark when the system setting is unknown', () => {
     render(
       <ThemeProvider>
         <TestConsumer />
@@ -50,7 +78,7 @@ describe('ThemeContext', () => {
     expect(screen.getByTestId('theme').textContent).toBe('dark')
   })
 
-  it('defaults to dark for unrecognised localStorage value', () => {
+  it('treats an unrecognised localStorage value as System', () => {
     localStorage.setItem(STORAGE_KEY, 'sepia')
     render(
       <ThemeProvider>
@@ -120,5 +148,42 @@ describe('ThemeContext', () => {
     expect(screen.getByTestId('theme').textContent).toBe('dark')
 
     spy.mockRestore()
+  })
+
+  it('follows a light system setting, and its changes, while on System', () => {
+    const system = mockSystemTheme(false)
+    renderConsumer()
+    expect(screen.getByTestId('preference').textContent).toBe('system')
+    expect(screen.getByTestId('theme').textContent).toBe('light')
+
+    system.set(true)
+    expect(screen.getByTestId('theme').textContent).toBe('dark')
+    expect(document.documentElement.classList.contains('dark')).toBe(true)
+  })
+
+  it('toggling from System picks an explicit theme that ignores the system', async () => {
+    const system = mockSystemTheme(true)
+    const user = userEvent.setup()
+    renderConsumer()
+
+    await user.click(screen.getByText('Toggle'))
+    expect(screen.getByTestId('preference').textContent).toBe('light')
+    expect(localStorage.getItem(STORAGE_KEY)).toBe('light')
+
+    system.set(false)
+    system.set(true)
+    expect(screen.getByTestId('theme').textContent).toBe('light')
+  })
+
+  it('switching back to System applies the system setting at once', async () => {
+    localStorage.setItem(STORAGE_KEY, 'dark')
+    mockSystemTheme(false)
+    const user = userEvent.setup()
+    renderConsumer()
+
+    await user.click(screen.getByText('System'))
+    expect(screen.getByTestId('theme').textContent).toBe('light')
+    expect(localStorage.getItem(STORAGE_KEY)).toBe('system')
+    expect(document.documentElement.classList.contains('dark')).toBe(false)
   })
 })

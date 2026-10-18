@@ -5,9 +5,6 @@ import * as path from 'path'
 interface AppConfig {
   appDataDir: string
   imageLibraryDir: string
-  /** The setup wizard's "convert to WebP" choice, until the backend has saved it as the
-   * Stored format setting (applyPendingStoredFormat in main.ts) */
-  pendingStoredFormat?: 'webp'
 }
 
 /** Legacy config shape written by older versions. */
@@ -46,13 +43,9 @@ export function loadConfig(): AppConfig | null {
     }
 
     if (!parsed.appDataDir || !parsed.imageLibraryDir) return null
-    return {
-      appDataDir: parsed.appDataDir,
-      imageLibraryDir: parsed.imageLibraryDir,
-      // Configs from before pendingStoredFormat carry convertToWebp instead; the backend
-      // already seeded Stored format from it on their first start.
-      ...(parsed.pendingStoredFormat === 'webp' ? { pendingStoredFormat: 'webp' as const } : {}),
-    }
+    // Older configs may also carry convertToWebp or pendingStoredFormat: the stored format
+    // is now chosen in the setup wizard and kept by the backend (design/first-run.md).
+    return { appDataDir: parsed.appDataDir, imageLibraryDir: parsed.imageLibraryDir }
   } catch {
     return null
   }

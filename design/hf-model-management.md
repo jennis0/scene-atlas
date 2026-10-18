@@ -218,7 +218,7 @@ All endpoints are under `/api/v1/models/`.
 |--------|------|-------------|
 | `GET` | `/` | List all models with download status and active flag |
 | `GET` | `/embedding-status` | CLIP service state: `loading` / `ready` / `error` |
-| `GET` | `/setup-status` | GPU detection, `needs_model`, `needs_tag_packs`, recommended model |
+| `GET` | `/setup-status` | GPU detection, `needs_model`, `setup_completed`, `model_activating`, recommended model |
 | `POST` | `/setup-complete` | Store `setup_completed_at` in `app_settings` so the setup wizard is not shown again |
 | `POST` | `/active` | Set the active model; triggers download + re-embed job |
 | `POST` | `/{name}/download` | Download a model without activating it |
@@ -232,19 +232,14 @@ should poll `GET /api/v1/jobs/{job_id}` to track progress.
 
 ## First-Boot Experience
 
-**Web / server mode:** `App.tsx` calls `GET /api/v1/models/setup-status` on mount. If
-`needs_model || needs_tag_packs` is true, a full-screen `ModelSetupScreen` overlay is rendered in place of
-the main gallery. The overlay guides the user through model selection and download
-(skipped when only tag packs are needed), calls `POST /setup-complete`, then calls
-`onComplete` to dismiss itself and render the gallery.
+Both modes run the same setup wizard (`components/setup/SetupWizard.tsx`); the model is its
+last step, and Finish starts the download in the background without waiting for it. The flow,
+the gate in `App.tsx` and the reasons are in [first-run.md](first-run.md).
 
-`needs_model` is true when no model that matches `get_effective_model_name()` is
-downloaded. On a fresh install with no DB entry, this means no model is downloaded at
-all. `needs_tag_packs` is true until `setup_completed_at` exists in `app_settings`.
-
-**Electron mode:** The Electron setup window only chooses storage directories. The UI is then
-served by the sidecar and `App.tsx` runs the same setup-status check as server mode, so
-`ModelSetupScreen` (model download and tag packs) appears on first boot.
+`GET /setup-status` returns `needs_model` (no model matching `get_effective_model_name()` is
+downloaded; on a fresh install with no DB entry, no model is downloaded at all),
+`setup_completed` (`setup_completed_at` exists in `app_settings`) and `model_activating` (an
+`Activate model: <name>` job is queued or running).
 
 ---
 
@@ -252,8 +247,8 @@ served by the sidecar and `App.tsx` runs the same setup-status check as server m
 
 | Mode | Model storage | First-boot flow | Notes |
 |------|--------------|-----------------|-------|
-| Electron | `APP_DATA_DIR` managed by Electron | `ModelSetupScreen` on first boot, as in server mode | See First-Boot Experience |
-| Web / server | Operator-controlled `APP_DATA_DIR` | `ModelSetupScreen` overlay | `EMBEDDING_MODEL` env var can pre-select |
+| Electron | `APP_DATA_DIR` managed by Electron | Setup wizard, as in server mode | See First-Boot Experience |
+| Web / server | Operator-controlled `APP_DATA_DIR` | Setup wizard | `EMBEDDING_MODEL` env var presets the model (the model step is skipped) |
 | Dev | `APP_DATA_DIR` or `backend/models/<name>/` fallback | Same as web | Fallback path allows testing with locally exported models |
 
 Fallback path in `_default_models_dir()` (`clip_service.py`) checks `APP_DATA_DIR/models/<name>/` first,

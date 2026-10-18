@@ -120,9 +120,9 @@ Import calls `tagApi.importTagPack(packName)`, invalidates the tag-pack and tag 
 
 ### Setup Wizard
 
-`components/setup/TagPackSetupStep.tsx` is a step of `ModelSetupScreen`, shown while the chosen model downloads. It lists packs, pre-selects every pack not yet `imported` (already-imported packs, normally just `common`, are shown checked and disabled as "included"), and on Continue sends the selection to `POST /tags/packs/import-multiple`. If the response lists `errors` (or the request fails, e.g. 429), the step stays open with an alert listing them, refreshes the pack list and keeps only the failed packs selected; the user can "Try again" or "Skip for now". When both the pack import and the model are done, `ModelSetupScreen` calls `POST /api/v1/models/setup-complete`, which writes the `setup_completed_at` app setting.
+`components/setup/TagPackStep.tsx` is the third step of the setup wizard ([first-run.md](first-run.md)). It lists packs, pre-selects every pack not yet `imported` (already-imported packs, normally just `common`, are shown checked and disabled as "included"), and on Continue sends the selection to `POST /tags/packs/import-multiple`. If the response lists `errors` (or the request fails, e.g. 429), the step stays open with an alert listing them, refreshes the pack list and keeps only the failed packs selected; the user can "Try again" or "Skip for now". Packs imported earlier in the wizard (e.g. before Back) show as "added". When the wizard finishes it calls `POST /api/v1/models/setup-complete`, which writes the `setup_completed_at` app setting.
 
-`GET /api/v1/models/setup-status` returns `needs_tag_packs: true` until `setup_completed_at` exists. `App.tsx` shows the wizard when `needs_model` or `needs_tag_packs` is true (skipping the model step if only packs are needed). The wizard runs in every mode, desktop included.
+`GET /api/v1/models/setup-status` returns `setup_completed: false` until `setup_completed_at` exists, and `App.tsx` shows the wizard until then. The wizard runs in every mode, desktop included.
 
 **Interaction with seeding.** Seeding runs before the wizard and installs only `common`, so the wizard's defaults (all genre packs selected) give the same vocabulary as before, while deselecting packs or skipping leaves them out. Packs cannot be removed once imported.
 
@@ -134,10 +134,10 @@ Import calls `tagApi.importTagPack(packName)`, invalidates the tag-pack and tag 
 | `backend/app/data/vocabulary.py` | Vocabulary loader -- `load_vocabulary()`, `get_tags_for_packs()`, `build_common_values_json()` |
 | `backend/app/services/tag_packs.py` | Pack import logic -- `get_pack_status()`, `import_tag_pack()` |
 | `backend/app/api/tags.py` | API endpoints -- `GET /packs`, `POST /packs/{name}/import`, `POST /packs/import-multiple` |
-| `backend/app/api/models.py` | `GET /models/setup-status` (`needs_tag_packs`), `POST /models/setup-complete` |
+| `backend/app/api/models.py` | `GET /models/setup-status` (`setup_completed`), `POST /models/setup-complete` |
 | `backend/app/models/database.py` | `TagCategory` model, `seed_tag_categories()` first-boot seeding |
 | `frontend/src/components/settings/SettingsTabContent.tsx` | `TagPacksSection` (Settings) |
 | `frontend/src/components/setup/TagPackCard.tsx` | Pack card used in Settings |
-| `frontend/src/components/setup/TagPackSetupStep.tsx` | Setup wizard pack selection step |
+| `frontend/src/components/setup/TagPackStep.tsx` | Setup wizard pack selection step |
 | `frontend/src/lib/api/tagApi.ts` | Frontend API client -- `getTagPacks()`, `importTagPack()`, `importMultipleTagPacks()` |
 | `frontend/src/types/index.ts` | `TagPack` TypeScript interface |

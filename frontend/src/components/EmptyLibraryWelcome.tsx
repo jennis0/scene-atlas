@@ -11,17 +11,17 @@ const steps = [
     Icon: Upload,
     title: '1. Import',
     description:
-      'Add your battlemaps, scenes, and encounter art. Drag a folder or use the Import button.',
+      'Drag in a folder, or use the Import button. Scene Atlas keeps its own copy; your files are never changed.',
   },
   {
     Icon: Search,
     title: '2. Search',
-    description: 'Find any scene instantly with keywords, tags, or natural-language descriptions.',
+    description: 'Find any scene by name, tag, or by describing it in your own words.',
   },
   {
     Icon: FolderOpen,
     title: '3. Organize',
-    description: 'Images are automatically grouped, tagged, and indexed. Edit anytime.',
+    description: 'Images are grouped and tagged automatically, and you can edit everything.',
   },
 ]
 
@@ -30,9 +30,11 @@ export function EmptyLibraryWelcome({ embeddingReady, onImport }: EmptyLibraryWe
     <div className="flex h-full items-center justify-center">
       <div className="w-full max-w-lg text-center space-y-8 px-6">
         <div className="space-y-2">
-          <h2 className="text-2xl font-bold text-foreground">Welcome to Scene Atlas</h2>
+          <h2 className="font-display text-2xl font-semibold text-foreground">
+            Your library is empty
+          </h2>
           <p className="text-sm text-muted-foreground">
-            Your personal library for tabletop RPG scenes, battlemaps, and encounter art.
+            Import your battlemaps, scenes and encounter art to get started.
           </p>
         </div>
 
@@ -59,8 +61,9 @@ export function EmptyLibraryWelcome({ embeddingReady, onImport }: EmptyLibraryWe
             Import your first scenes
           </Button>
           {!embeddingReady && (
-            <p className="text-xs text-muted-foreground">
-              Waiting for the search model to load&hellip;
+            <p role="status" className="text-xs text-muted-foreground">
+              Getting the search model ready. If it&rsquo;s downloading, this can take a few
+              minutes.
             </p>
           )}
         </div>
