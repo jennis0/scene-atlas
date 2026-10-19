@@ -313,7 +313,7 @@ A refresh item points at an existing image. It re-runs hashing, decoding, thumbn
 - Names, tags, group and type are kept.
 - Grid results with `grid_source = user` are kept.
 
-Planned as the last backend phase. Until it's built, a changed file is re-processed as a new file and its old image is marked missing.
+Built (phase 6); details in [ingestion.md §5.7](ingestion.md#57-linked-items).
 
 ### 4.6 What existing code changes
 
