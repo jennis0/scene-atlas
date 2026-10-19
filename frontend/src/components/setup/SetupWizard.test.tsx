@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ThemeProvider } from '@/contexts/ThemeContext'
@@ -15,6 +15,18 @@ vi.mock('@/lib/api/modelsApi', () => ({
 vi.mock('@/lib/api/settingsApi', () => ({ settingsApi: { get: vi.fn(), patch: vi.fn() } }))
 vi.mock('@/lib/api/tagApi', () => ({
   tagApi: { getTagPacks: vi.fn(), setInstalledPacks: vi.fn() },
+}))
+vi.mock('@/lib/api/libraryApi', () => ({
+  libraryApi: {
+    status: vi.fn().mockResolvedValue({ library_id: 'lib', linked: null }),
+    inspect: vi.fn().mockResolvedValue({
+      outcome: 'new',
+      message: null,
+      linked: null,
+      library: null,
+      store_has_maps: false,
+    }),
+  },
 }))
 
 const NEW_LIBRARY: SetupStatus = {
@@ -50,6 +62,27 @@ describe('setupSteps', () => {
 
   it('asks only for the model once setup is done', () => {
     expect(setupSteps({ ...NEW_LIBRARY, setup_completed: true })).toEqual(['model'])
+    expect(setupSteps({ ...NEW_LIBRARY, setup_completed: true }, { libraryChosen: false })).toEqual(
+      ['model'],
+    )
+  })
+
+  it('chooses the library on the desktop, right after Appearance', () => {
+    expect(setupSteps(NEW_LIBRARY, { libraryChosen: false })).toEqual([
+      'appearance',
+      'library',
+      'format',
+      'tag-packs',
+      'model',
+    ])
+  })
+
+  it('resumes after the library step once the desktop app has it', () => {
+    expect(setupSteps(NEW_LIBRARY, { libraryChosen: true })).toEqual([
+      'format',
+      'tag-packs',
+      'model',
+    ])
   })
 })
 
@@ -116,6 +149,50 @@ describe('SetupWizard', () => {
     await user.click(screen.getByRole('button', { name: 'Finish' }))
     await waitFor(() => expect(onComplete).toHaveBeenCalled())
     expect(modelsApi.setActiveModel).not.toHaveBeenCalled()
+  })
+
+  describe('in the desktop app', () => {
+    const DIRS = { appData: 'C:\\data', store: 'C:\\images' }
+    const desktop = (libraryChosen: boolean) =>
+      ({
+        platform: 'win32',
+        libraryChosen,
+        getStorageDirs: vi.fn().mockResolvedValue({ ...DIRS, linked: null, defaults: DIRS }),
+        chooseFolder: vi.fn(),
+        applyLibrary: vi.fn().mockResolvedValue({ error: null, restarted: false }),
+      }) as unknown as Window['electronAPI']
+
+    afterEach(() => {
+      delete window.electronAPI
+    })
+
+    it('chooses the library after Appearance', async () => {
+      window.electronAPI = desktop(false)
+      const user = userEvent.setup()
+      renderWizard(NEW_LIBRARY)
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+      expect(await screen.findByRole('heading', { name: 'Set up your library' })).toHaveFocus()
+      expect(screen.getByRole('listitem', { current: 'step' })).toHaveTextContent('Your library')
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled())
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+      expect(window.electronAPI!.applyLibrary).toHaveBeenCalled()
+      await screen.findByRole('heading', { name: /How should imported images be stored/ })
+    })
+
+    it('resumes at Stored format after the backend restarted on the chosen folders', async () => {
+      window.electronAPI = desktop(true)
+      renderWizard(NEW_LIBRARY)
+      expect(
+        await screen.findByRole('heading', { name: /How should imported images be stored/ }),
+      ).toBeInTheDocument()
+      const steps = screen.getByRole('list', { name: 'Setup steps' })
+      expect(
+        within(steps)
+          .getAllByRole('listitem')
+          .map((li) => li.textContent),
+      ).toEqual(['1Stored format', '2Tag packs', '3Search model'])
+      expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument()
+    })
   })
 
   it('shows only the model step, without a step list, when just the model is missing', async () => {

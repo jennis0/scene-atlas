@@ -24,6 +24,7 @@ export const QUERY_KEYS = {
   modelSetupStatus: ['models', 'setup-status'] as const,
   tagPacks: ['tag-packs'] as const,
   backgroundJobs: ['background-jobs'] as const,
+  libraryStatus: ['library-status'] as const,
 }
 
 /** Invalidates all queries affected by changes to the scene library (add/edit/delete). */

@@ -14,6 +14,7 @@ import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { QUERY_KEYS, invalidateTagQueries } from '@/lib/queryKeys'
 import { useJobPolling } from '@/hooks/useJobPolling'
 import { useStorageDirs } from '@/hooks/useStorageDirs'
+import { LinkedFolderSection } from './LinkedFolderSection'
 import { downloadFile } from '@/lib/download'
 import { formatBytes } from '@/lib/format'
 
@@ -36,6 +37,7 @@ export function LibraryTab({ open }: { open: boolean }) {
   return (
     <div className="px-5 pb-5 pt-4 space-y-5">
       <LibraryOverview open={open} />
+      <LinkedFolderSection open={open} />
       <div className="border-t border-border/50" />
       <ExportLibraryButton />
       <section className="rounded-md border border-destructive/15 bg-destructive/[0.03] p-3 space-y-2.5">
@@ -51,7 +53,7 @@ export function LibraryTab({ open }: { open: boolean }) {
 
 function LibraryOverview({ open }: { open: boolean }) {
   const isElectron = typeof window !== 'undefined' && !!window.electronAPI
-  const { appDataDir, imageLibraryDir } = useStorageDirs(open)
+  const { dirs } = useStorageDirs(open)
   const {
     data: info,
     isLoading,
@@ -97,14 +99,14 @@ function LibraryOverview({ open }: { open: boolean }) {
           <p className="section-label">Storage</p>
           <div className="space-y-0.5">
             <p className="text-xs text-muted-foreground">
-              App data: <span className="font-mono">{appDataDir ?? '—'}</span>
+              Search data: <span className="font-mono">{dirs?.appData ?? '—'}</span>
             </p>
             <p className="text-xs text-muted-foreground">
-              Images: <span className="font-mono">{imageLibraryDir ?? '—'}</span>
+              Imported maps: <span className="font-mono">{dirs?.store ?? '—'}</span>
             </p>
           </div>
           <p className="text-xs text-muted-foreground">
-            To change, go to Settings → Storage Locations.
+            To change, go to Settings → Storage locations.
           </p>
         </div>
       )}

@@ -3,6 +3,14 @@
  * preload script.  Only present when the app is running inside Electron.
  */
 
+interface StorageDirs {
+  appData: string
+  store: string
+  linked: string | null
+  /** The provisional defaults (getDefaultDirs) */
+  defaults: { appData: string; store: string }
+}
+
 interface ElectronAPI {
   readonly platform: 'darwin' | 'win32' | 'linux'
 
@@ -17,16 +25,23 @@ interface ElectronAPI {
   /** Subscribe to fatal backend errors (fires immediately if one already arrived). Used by loading.html. */
   onBackendError(callback: (message: string) => void): () => void
 
-  // Storage path IPC
-  getAppDataDir(): Promise<string | null>
-  getImageLibraryDir(): Promise<string | null>
-  chooseAppDataDir(): Promise<string | null>
-  chooseImageLibraryDir(): Promise<string | null>
+  // Library folders (design/library-setup.md "Interfaces between the parts")
+  /** The wizard's library step is done (config `libraryChosen`), read with displayPrefs */
+  readonly libraryChosen: boolean
+  getStorageDirs(): Promise<StorageDirs>
+  /** A plain folder picker, no warning box: the wizard checks the folder with inspect */
+  chooseFolder(kind: 'appData' | 'store' | 'linked', current?: string): Promise<string | null>
   /**
-   * Saves config and restarts the app. Call only when user confirms file-move intent.
-   * Resolves (with an error) only if the new locations can't be used.
+   * Validates and prepares the folders, then saves the config with libraryChosen: true.
+   * Nothing changed: resolves { error: null, restarted: false }. Something changed: stops
+   * the backend, deletes replaced provisional folders and restarts the backend in this
+   * window (loading page, then the UI reloads); it never resolves in that case.
    */
-  changeStorageDirs(appDataDir: string, imageLibraryDir: string): Promise<{ error: string | null }>
+  applyLibrary(dirs: {
+    appData: string
+    store: string
+    linked: string | null
+  }): Promise<{ error: string | null; restarted: boolean }>
 
   // Local imports (design/local-ingest.md)
   /** The file's path on disk, or '' if it has none. */

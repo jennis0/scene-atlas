@@ -18,11 +18,14 @@ import { MergeGroupPicker } from '@/components/MergeGroupPicker'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { LibraryInfoDialog } from '@/components/LibraryInfoDialog'
 import { EmptyLibraryWelcome } from '@/components/EmptyLibraryWelcome'
+import { LinkedFolderBanner } from '@/components/LinkedFolderBanner'
 import { GalleryHeader } from '@/components/GalleryHeader'
 import { useGallerySearch } from '@/hooks/useGallerySearch'
 import { useImportGalleryRefresh } from '@/hooks/useImportGalleryRefresh'
 import { useGalleryDialogs } from '@/hooks/useGalleryDialogs'
 import { useEmbeddingStatus } from '@/hooks/useEmbeddingStatus'
+import { useLibraryStatus } from '@/hooks/useLibraryStatus'
+import { useLinkedFocusRescan } from '@/hooks/useLinkedFocusRescan'
 import { getImportManager } from '@/lib/import/ImportManager'
 import { useImportManagerSnapshot, useImportPollingLifecycle } from '@/lib/import/useImports'
 import { useBackgroundJobs } from '@/hooks/useBackgroundJobs'
@@ -46,6 +49,12 @@ export function Gallery() {
   const backgroundJobs = useBackgroundJobs()
   useImportPollingLifecycle()
   const importSnapshot = useImportManagerSnapshot()
+  const { data: libraryStatus } = useLibraryStatus()
+  useLinkedFocusRescan(libraryStatus)
+  // A scan of the linked folder is adding maps (its job, or the walk before there is one)
+  const addingLinkedMaps =
+    !!libraryStatus?.linked?.scanning ||
+    importSnapshot.jobs.some((job) => job.linked && !isFinished(job))
   const sentinelRef = useRef<HTMLDivElement>(null)
 
   // Infinite scroll sentinel for grouped view
@@ -186,6 +195,8 @@ export function Gallery() {
         onTileWidthChange={setTileWidth}
       />
 
+      <LinkedFolderBanner status={libraryStatus} />
+
       <main
         ref={resultsRef}
         id="results"
@@ -203,6 +214,7 @@ export function Gallery() {
         ) : libraryEmpty ? (
           <EmptyLibraryWelcome
             embeddingReady={embedding.status === 'ready'}
+            addingMaps={addingLinkedMaps}
             onImport={() => dialogs.openImport()}
           />
         ) : (

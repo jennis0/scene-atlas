@@ -13,13 +13,15 @@ function makeMockElectronAPI(): NonNullable<Window['electronAPI']> {
     setDisplayPref: vi.fn().mockResolvedValue(undefined),
     setWindowColors: vi.fn().mockResolvedValue(undefined),
     onBackendError: vi.fn(),
-    getAppDataDir: vi.fn().mockResolvedValue('C:\\Users\\test\\AppData\\Roaming\\Scene Atlas'),
-    getImageLibraryDir: vi
-      .fn()
-      .mockResolvedValue('C:\\Users\\test\\Scene Atlas\\data\\store\\images'),
-    chooseAppDataDir: vi.fn().mockResolvedValue(null),
-    chooseImageLibraryDir: vi.fn().mockResolvedValue(null),
-    changeStorageDirs: vi.fn().mockResolvedValue({ error: null }),
+    libraryChosen: true,
+    getStorageDirs: vi.fn().mockResolvedValue({
+      appData: 'C:\\Users\\test\\AppData\\Roaming\\Scene Atlas',
+      store: 'C:\\Users\\test\\Scene Atlas\\data\\store\\images',
+      linked: null,
+      defaults: { appData: 'C:\\default\\data', store: 'C:\\default\\images' },
+    }),
+    chooseFolder: vi.fn().mockResolvedValue(null),
+    applyLibrary: vi.fn().mockResolvedValue({ error: null, restarted: false }),
     getPathForFile: vi.fn().mockReturnValue(''),
     chooseImportFolders: vi.fn().mockResolvedValue([]),
     chooseImportFiles: vi.fn().mockResolvedValue([]),
@@ -62,6 +64,10 @@ vi.mock('@/lib/api', () => ({
     }),
   },
   getLibraryExportUrl: vi.fn().mockReturnValue('/api/v1/export'),
+}))
+
+vi.mock('@/lib/api/libraryApi', () => ({
+  libraryApi: { status: vi.fn().mockResolvedValue({ library_id: 'lib', linked: null }) },
 }))
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
