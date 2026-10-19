@@ -135,3 +135,6 @@ docs/node_modules
 test-results/
 playwright-report/
 stress_tests/results/
+
+# Openly licensed maps for README screenshots (design/brand.md); never commit them
+demo_maps/

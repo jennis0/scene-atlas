@@ -55,6 +55,30 @@ uv run python -m scripts.build.build_brand_images
 
 Commit the outputs; nothing generates them at build time.
 
+## Screenshots
+
+The README screenshot (`docs/public/screenshots/search-{dark,light}.webp`) is a search for "giant skull in the desert" in the grouped Maps view: it shows search by content and variant groups in one image.
+
+**Rules for the art in screenshots:**
+
+- Only openly licensed art, credited under the screenshot: Moonlight Maps (CC BY-NC-SA 4.0: their licence covers all their works, paid ones included, for non-commercial use) and Fantasy Atlas's free maps (CC BY-NC 4.0). Because Moonlight's licence is ShareAlike, the screenshot is shared under CC BY-NC-SA 4.0. The non-commercial licences hold only while Scene Atlas and its promotion stay free.
+- Thumbnails only: no screenshot shows an individual map at full size, so no screenshot works as a copy of a map. Captures are at 1x.
+- Never commit the maps themselves.
+
+Other creators' terms, checked 2026-10-19, are in the project's research notes. In short: Elven Tower's Creative Commons Collection is CC BY 4.0 and Manea Roliste's packs are CC BY-NC 4.0, both usable. Czepeku, Neutral Party, Domille, Venatus and Seafoot need permission. Forgotten Adventures is personal use only. Tom Cartos's open licence has an AI clause that needs his confirmation first.
+
+**Regenerating:** put the maps in `demo_maps/` (gitignored locally; layout in `scripts/demo/import_library.py`), then:
+
+```bash
+uv run python -m scripts.demo.download_paintings /tmp/paintings     # CC0 scenes, optional
+APP_DATA_DIR=/tmp/demo/data IMAGE_LIBRARY_DIR=/tmp/demo/images \
+  uv run uvicorn backend.app.main:app --port 8123                   # a clean instance
+# set it up: POST /api/v1/models/medium/download, PUT /api/v1/tags/packs {"packs": ["common", "fantasy"]},
+# POST /api/v1/models/setup-complete, then restart so the model loads
+uv run python -m scripts.demo.import_library http://127.0.0.1:8123 demo_maps /tmp/paintings
+node scripts/demo/screenshots.mjs http://127.0.0.1:8123 /tmp/shots   # then convert to WebP
+```
+
 ## Directions tried and rejected
 
 Recorded so they aren't re-explored without a new reason. The brief was a mark that says "tabletop RPG maps"; every literal tabletop symbol either cluttered the mark or looked like stock clip art, so the plain book won.
