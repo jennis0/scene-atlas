@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from ..config import settings
+from ..library_identity import rewrite_markers
 from ..models import (
     Color,
     Image,
@@ -21,6 +22,7 @@ from ..models import (
     TagCategory,
     seed_tag_categories,
 )
+from ..storage_lock import LOCK_FILENAME
 from .dependencies import get_db
 from .rate_limits import limiter
 
@@ -93,6 +95,21 @@ def system_info(db: Session = Depends(get_db)):
 # Library purge (background job)
 
 
+def _empty_store(store: Path) -> None:
+    """Delete everything in the store except its lock file, which this process holds
+    open: Windows can't delete it, and elsewhere a second backend could then lock a new
+    one. The library marker goes too, and is written again afterwards."""
+    if not store.is_dir():
+        return
+    for entry in os.scandir(store):
+        if entry.name == LOCK_FILENAME:
+            continue
+        if entry.is_dir(follow_symlinks=False):
+            shutil.rmtree(entry.path)
+        else:
+            os.unlink(entry.path)
+
+
 def _purge_library(
     db_engine,
     progress_fn: Callable[[int, int, str | None], None] | None = None,
@@ -135,9 +152,8 @@ def _purge_library(
         db.commit()
 
         _step("Removing image files")
-        if settings.store_images_dir.exists():
-            shutil.rmtree(settings.store_images_dir)
-            settings.store_images_dir.mkdir(parents=True, exist_ok=True)
+        _empty_store(settings.store_images_dir)
+        rewrite_markers(db)
 
         _step("Removing thumbnail files")
         if settings.store_thumbnails_dir.exists():

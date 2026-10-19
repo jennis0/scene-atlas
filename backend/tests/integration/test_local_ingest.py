@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from backend.app.library_identity import MARKER_FILENAME
 from backend.app.models import Image, ImportItem
 from backend.app.services import get_image_store
 from backend.app.services import ingest_state as st
@@ -69,7 +70,11 @@ def items(api, job_id: str) -> dict[str, ImportItem]:
 
 def library_files() -> list[Path]:
     base = get_image_store().base_dir
-    return [p for p in base.rglob("*") if p.is_file() and ".incoming" not in p.parts]
+    return [
+        p
+        for p in base.rglob("*")
+        if p.is_file() and ".incoming" not in p.parts and p.name != MARKER_FILENAME
+    ]
 
 
 def summary(api, job_id: str) -> dict:
