@@ -511,3 +511,27 @@ class AppSettingsPatch(BaseModel):
     stored_format: StoredFormatName | None = None
     stored_quality: int | None = Field(None, ge=1, le=100)
     stored_lossless: bool | None = None
+
+
+# Updates (server mode, ADR-022)
+
+
+# disabled: no checks (desktop app, or CHECK_FOR_UPDATES=false); pending: no check has
+# succeeded yet; up_to_date: no newer release, or none published yet; available:
+# latest_version is newer; unknown: the running version isn't a release (a dev build), so
+# it isn't compared
+UpdateStatusKind = Literal["disabled", "pending", "up_to_date", "available", "unknown"]
+
+
+class UpdateCheckResponse(BaseModel):
+    """The server's last update check (``GET /system/updates``). Never triggers a check."""
+
+    status: UpdateStatusKind
+    current_version: str
+    checks_enabled: bool
+    latest_version: str | None
+    update_available: bool
+    # The latest release's page, or the releases list when there isn't one
+    release_url: str
+    # When a check last succeeded
+    last_checked: datetime | None

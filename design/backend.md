@@ -26,7 +26,7 @@ backend/
 │   │   ├── rate_limits.py        # Shared slowapi Limiter
 │   │   ├── search.py             # Image and group search, facets
 │   │   ├── settings.py           # DB-backed app settings
-│   │   ├── system.py             # Library info, delete library, reset tags
+│   │   ├── system.py             # Library info, update check status, delete library, reset tags
 │   │   └── tags.py               # Tag categories, values, packs
 │   ├── data/
 │   │   ├── grid_models/          # Grid detector v3 ONNX models (presence GBM, hex LR) + meta.json
@@ -58,6 +58,7 @@ backend/
 │   │   ├── shutdown.py           # Process-wide shutdown signal for long jobs
 │   │   ├── search_service.py     # Hybrid search, filters, facets (see search.md)
 │   │   ├── tag_packs.py          # Tag pack import
+│   │   ├── update_check.py       # Server mode: daily check for a newer release (ADR-022)
 │   │   ├── validation.py         # ZIP safety check, MIME verification
 │   │   └── video_utils.py        # Video first frame + dimensions
 │   ├── colorspace.py             # sRGB hex to CIELAB (used by the Color model and colour search)
@@ -217,6 +218,7 @@ Mutating routes are `@write_locked` (`BEGIN IMMEDIATE` on the endpoint's own thr
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/info` | Storage usage and library stats |
+| GET | `/updates` | The server's last update check: `status`, `current_version`, `checks_enabled`, `latest_version`, `update_available`, `release_url`, `last_checked`. Cached only; never contacts GitHub (see [Update check](#update-check)) |
 | DELETE | `/library` | Delete entire library job (rate limited: destructive) |
 | POST | `/tags/reset` | Reset tags to seed defaults (rate limited: destructive) |
 
@@ -309,6 +311,13 @@ Asyncio scheduler; each task runs in the default executor. A task stopped by shu
 | `sweep_orphaned_store_files` | 24 h | `pipeline/maintenance.py` |
 | `reconcile_vectors` | 24 h | `pipeline/vector_reconcile.py` |
 
+### Update check
+`services/update_check.py` ([ADR-022](decisions.md#adr-022-server-mode-update-check)). In server mode with `check_for_updates` on, an asyncio task started in the lifespan asks GitHub's `releases/latest` API for the latest release 60 s after startup and then every 24 h (the fetch runs in a thread, stdlib `urllib`, 10 s timeout, 1 MB cap). The answer is kept in memory; `GET /system/updates` only reads it, so users can't spend the server's unauthenticated GitHub rate limit. Otherwise (desktop sidecar, `CHECK_FOR_UPDATES=false`) no request is ever made and the status is `disabled`; Electron has its own updater ([electron.md](electron.md#updates)).
+
+- **Versions.** `parse_version` accepts `1.2.3`, `1.2.3-pre.1` (semver) and `1.2.3b1` / `rc1` / `a1` (PEP 440), with an optional leading `v`. Only the release numbers and whether it is a prerelease are kept. A stable release is newer if its numbers are higher, or equal to a running prerelease's. Prereleases (and drafts) from GitHub are never offered. A running version that doesn't parse (a dev build such as `1.2.3.dev4+g…`) is `unknown` and never compared.
+- **Failures.** 404 (no release published yet, or a private repository) is a successful check with no latest version. Timeouts, offline / air-gapped hosts, rate limiting (403/429) and malformed responses keep the last good result; the first failure of a streak logs a warning, later ones log at debug. A newer version is logged once at info.
+- **URLs.** `release_url` is built from the parsed numbers (`…/releases/tag/v<x.y.z>`), never from response text, else the releases list, like `releasePageUrl` in `electron/src/updatePolicy.ts`. The frontend also accepts only URLs under our releases.
+
 ## Configuration
 
 Two sources:
@@ -321,6 +330,7 @@ Two sources:
 | Key | Default | Notes |
 |-----|---------|-------|
 | `app_mode` | `server` | `app` when run as the Electron sidecar |
+| `check_for_updates` | `True` | Server mode only: daily update check against GitHub ([Update check](#update-check)); `False` makes no request. Tests and E2E set it off |
 | `debug` | `False` | Debug logging; uvicorn reload when run via `main.py` |
 | `app_data_dir` | `<repo>/data` | Fast storage root |
 | `image_library_dir` | `<repo>/images`; `{app_data_dir}/images` when only `APP_DATA_DIR` is set (`default_image_library_dir`: a data dir with a database but no `images/` keeps `<repo>/images`, with a warning) | Originals + backups root |
@@ -362,10 +372,10 @@ Other environment variables: `EMBEDDING_MODEL` (operator override of the active 
 8. Create the JobRunner. A daemon thread waits for the model, calls `IngestWorker.probe_now()`, then submits `reconcile_vectors` if the model loaded.
 9. If `ingest_worker_enabled`: `ingest_worker.recover()`, then `ingest_worker.start()`.
 10. If `scheduler_enabled`: register the four scheduler tasks and start the scheduler.
-11. Log the CORS warning if applicable. (The desktop sidecar prints `SCENE_ATLAS_READY` from `backend/pyinstaller/entry.py` once uvicorn is listening, not from here; see [electron.md](electron.md#sidecar-lifecycle).)
+11. Start the update checker (server mode with `check_for_updates`; first check after 60 s, never blocking startup). Log the CORS warning if applicable. (The desktop sidecar prints `SCENE_ATLAS_READY` from `backend/pyinstaller/entry.py` once uvicorn is listening, not from here; see [electron.md](electron.md#sidecar-lifecycle).)
 12. Start the 15 s event-loop heartbeat (logs thread count and RSS); install a SIGUSR1 thread-dump handler on non-Windows.
 
-Shutdown: cancel heartbeat → `request_shutdown()` (long jobs stop at their next batch boundary) → stop scheduler → `ingest_worker.stop(60s)` → `shutdown_job_runner()` → `shutdown_prepare_pool()` → `shutdown_lancedb_service()` → release the storage locks (the OS also drops them if the process dies).
+Shutdown: cancel heartbeat → `request_shutdown()` (long jobs stop at their next batch boundary) → stop the update checker → stop scheduler → `ingest_worker.stop(60s)` → `shutdown_job_runner()` → `shutdown_prepare_pool()` → `shutdown_lancedb_service()` → release the storage locks (the OS also drops them if the process dies).
 
 ## Middleware
 

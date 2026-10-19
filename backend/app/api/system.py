@@ -1,4 +1,4 @@
-"""System information and admin endpoints — storage, library stats, purge."""
+"""System information and admin endpoints — storage, library stats, updates, purge."""
 
 import logging
 import os
@@ -21,6 +21,8 @@ from ..models import (
     TagCategory,
     seed_tag_categories,
 )
+from ..models.schemas import UpdateCheckResponse
+from ..services.update_check import get_update_checker
 from .dependencies import get_db
 from .rate_limits import limiter
 
@@ -88,6 +90,16 @@ def system_info(db: Session = Depends(get_db)):
         result["app_data_path"] = str(settings.app_data_dir)
         result["image_library_path"] = str(settings.image_library_dir)
     return result
+
+
+@router.get("/updates", response_model=UpdateCheckResponse)
+def update_status():
+    """Whether a newer release is out, from the server's last daily check (server mode).
+
+    Returns the cached result only: a request never contacts GitHub, so users can't use
+    up the server's rate limit. Disabled in the desktop app, which checks for itself.
+    """
+    return get_update_checker().status()
 
 
 # Library purge (background job)

@@ -17,6 +17,8 @@ vi.mock('./components/setup/SetupWizard', () => ({
   ),
 }))
 vi.mock('./pages/Gallery', () => ({ Gallery: () => <div>gallery</div> }))
+// Tested in UpdatesSection.test.tsx; it needs a QueryClient, which main.tsx provides
+vi.mock('./components/UpdateNotifier', () => ({ UpdateNotifier: () => null }))
 vi.mock('./contexts/ThemeContext', () => ({ useTheme: () => ({ theme: 'dark' }) }))
 
 const setupStatus = vi.mocked(modelsApi.setupStatus)

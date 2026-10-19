@@ -42,6 +42,8 @@ x-common: &common
     FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1,::1}
     INFERENCE_DEVICE: ${INFERENCE_DEVICE:-auto}
     DEBUG: ${DEBUG:-false}
+    # Daily check for a newer release, shown in Settings; false makes no request.
+    CHECK_FOR_UPDATES: ${CHECK_FOR_UPDATES:-true}
   restart: unless-stopped
 
 services:

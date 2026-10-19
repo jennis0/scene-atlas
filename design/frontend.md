@@ -189,6 +189,10 @@ The CSP in `index.html` allows fonts from `'self'` only, so `vite.config.ts` nev
 
 `components/ui/dialog.tsx` is a custom modal rendered through `createPortal` (not Radix); `confirm-dialog.tsx` builds on it. Focus handling is described in [dialog-focus-management.md](dialog-focus-management.md).
 
+## Updates
+
+`settings/UpdatesSection.tsx` (Settings → Updates) and `UpdateNotifier.tsx` (a toast once per version) serve both modes. In the desktop app they read `useAppUpdates` (Electron's updater over IPC: automatic-check toggle, Check now, install or download; [electron.md](electron.md#updates)). In a browser they read `useServerUpdates`, which fetches `GET /system/updates` hourly with React Query: the backend's cached daily check ([backend.md](backend.md#update-check)). Server mode is read-only: the version, a status line, and when a version is out, links to its release notes and to the upgrade guide (`SERVER_UPGRADE_DOCS_URL`). There is no toggle or Check now; the admin turns checks off with `CHECK_FOR_UPDATES`, and Settings then says so. The server toast remembers the announced version in localStorage, so a reload doesn't repeat it. Release links are accepted only under the project's GitHub releases.
+
 ## API Client (`lib/api/`)
 
 - `_client.ts` — axios instance with base URL `/api/v1`. Every mode is same-origin: server mode, the Vite dev proxy, and Electron (the sidecar serves the UI).

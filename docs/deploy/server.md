@@ -68,6 +68,9 @@ EMBEDDING_MODEL=small
 
 # Enable debug logging
 DEBUG=false
+
+# Daily check for a newer release, shown in Settings (false: never contact GitHub)
+CHECK_FOR_UPDATES=true
 ```
 
 ::: warning

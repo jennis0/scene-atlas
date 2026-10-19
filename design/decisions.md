@@ -585,6 +585,39 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 - The packaged-app tests point the updater at a closed port, so test runs never update.
 - The upgrade test runs on Windows only, from a build of the same code. Upgrading from the previous published release (real migrations, the old updater's own code) and Linux are on the roadmap.
 
+---
+
+## ADR-022: Server-mode update check
+
+**Date:** 2026-10-19
+**Status:** Implemented (branch `feature/release-process`). Current behaviour: [backend.md](backend.md#update-check), [frontend.md](frontend.md#updates).
+
+**Context:** ADR-021 gave the desktop app an updater, but a self-hosted server (Docker or standalone) said nothing about new releases, and Settings didn't even show its version. A server can't update itself: its admin pulls and rebuilds. Server mode has no authentication or roles, so anything Settings shows, every user behind the proxy sees, and any endpoint every user can call.
+
+**Decision:**
+
+1. **The backend checks, not the browser,** in server mode only: GitHub's `releases/latest` API, 60 s after startup and then every 24 h, in an asyncio task that never blocks startup. The desktop sidecar never checks; Electron does.
+2. **`CHECK_FOR_UPDATES` (default on) turns it off,** and then no outbound request is made at all. It is an environment setting for the admin, not a UI toggle, because there are no roles to keep users from changing it.
+3. **The API only returns the cached answer** (`GET /system/updates`). There is no Check now: unauthenticated users could spend the server's 60-requests-an-hour GitHub limit.
+4. **Failures are quiet and keep the last good answer.** 404 (no release yet) counts as up to date; timeouts, offline hosts, rate limiting and malformed responses log one warning per streak.
+5. **Versions are compared by their release numbers,** and a stable release beats a prerelease of the same numbers. Prereleases are never offered. A running version that isn't a plain release (a dev build) is reported as `unknown` and never nags.
+6. **One Settings section and one toast for both modes,** fed by Electron or the backend. Server mode is read-only: the version, the status, and links to the release notes and the upgrade guide. The server toast is remembered per browser.
+7. **Stdlib `urllib`, no new dependency,** and a small comparator rather than `packaging`: neither an HTTP client nor `packaging` is a declared runtime dependency (both arrive only through `huggingface-hub`).
+
+**Alternatives considered:**
+
+- **Check from the browser.** Rejected: every user and every page load would call GitHub, from users' IPs, and it would bypass the admin's off switch.
+- **Run it on the maintenance Scheduler.** Rejected: that is gated by the `scheduler_enabled` runtime setting and persists last-run times, so after a restart the cached answer would be empty for up to a day.
+- **Persist the last answer to disk.** Not needed: restarts are rare on a server, and the first check after one is a minute away.
+- **The releases Atom feed** (what electron-updater reads, with no rate limit). Rejected for now: it lists prereleases, so finding the latest stable means parsing XML entries; once a day the API limit is no concern.
+
+**Consequences:**
+
+- Every server with the default setting contacts `api.github.com` daily, revealing its IP address and running version (in the `User-Agent`). Documented in [configuration.md](../docs/deploy/configuration.md#updates).
+- A private repository looks the same as one with no releases (404), so checks report up to date until the repository is public.
+- The upgrade link points at the Docker guide (`deploy/server#updating`); standalone installs upgrade differently ([standalone.md](../docs/deploy/standalone.md#updating)).
+- The comparator handles only `x.y.z` releases; a release tag in another form makes every check fail (logged once).
+
 ## ADR-023: Versions in the repo, draft releases and a published Docker image
 
 **Date:** 2026-10-19
