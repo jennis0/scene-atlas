@@ -47,6 +47,10 @@ logger = logging.getLogger(__name__)
 
 DESKTOP_LOCK_WAIT_SECS = 30.0
 
+# Set when the library check refused the folders, so the desktop sidecar can exit with a
+# code of its own and Electron can offer to choose other folders (library-setup.md §3.3).
+library_refused = False
+
 
 def _database_path() -> Path:
     return Path(make_url(settings.database_url).database or "")
@@ -55,6 +59,7 @@ def _database_path() -> Path:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
+    global library_refused
     # Configure logging first so all startup messages go to our handlers.
     setup_logging(settings.app_data_dir, debug=settings.debug)
 
@@ -89,6 +94,7 @@ async def lifespan(app: FastAPI):
     try:
         check_library(**library_dirs, database=_database_path())
     except (LibraryMismatchError, sqlite3.Error) as exc:
+        library_refused = isinstance(exc, LibraryMismatchError)
         for lock in storage_locks:
             lock.release()
         logger.warning(

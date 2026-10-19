@@ -22,6 +22,8 @@ MAX_RESTARTS = 10
 WINDOW_SECS = 300
 MAX_BACKOFF = 30
 STARTUP_FAILURE = 3  # uvicorn's exit code when startup fails
+# The library check refused the folders; Electron offers to choose others (library-setup.md).
+LIBRARY_REFUSED = 4
 
 # Bundled modules the app never imports, which may fail outside their intended use.
 SELF_CHECK_SKIP: set[str] = set()
@@ -123,6 +125,7 @@ def main():
 
     import uvicorn
 
+    import backend.app.main as app_main
     from backend.app.main import app
 
     class SidecarServer(uvicorn.Server):
@@ -159,11 +162,14 @@ def main():
         try:
             server.run()
             if not server.started:
-                sys.exit(STARTUP_FAILURE)
+                sys.exit(LIBRARY_REFUSED if app_main.library_refused else STARTUP_FAILURE)
             break  # Clean exit (e.g. graceful shutdown from Electron)
         except SystemExit:
             # Propagate the code: uvicorn exits non-zero when startup fails (e.g. the
-            # port is taken), and Electron reports a non-ready exit to the user.
+            # port is taken), and Electron reports a non-ready exit to the user. A refused
+            # library gets its own code, whichever way uvicorn stopped.
+            if app_main.library_refused:
+                sys.exit(LIBRARY_REFUSED)
             raise
         except Exception:
             now = time.time()

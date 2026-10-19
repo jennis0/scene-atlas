@@ -13,6 +13,8 @@ function makeMockElectronAPI(): NonNullable<Window['electronAPI']> {
     setDisplayPref: vi.fn().mockResolvedValue(undefined),
     setWindowColors: vi.fn().mockResolvedValue(undefined),
     onBackendError: vi.fn(),
+    retryStartup: vi.fn().mockResolvedValue(undefined),
+    chooseFoldersAgain: vi.fn().mockResolvedValue(undefined),
     libraryChosen: true,
     getStorageDirs: vi.fn().mockResolvedValue({
       appData: 'C:\\Users\\test\\AppData\\Roaming\\Scene Atlas',

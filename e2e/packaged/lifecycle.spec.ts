@@ -97,6 +97,36 @@ test("an unusable storage folder is reported on the loading page, in the app's f
   expect(await sidecars(profile.root)).toHaveLength(0);
 });
 
+test("folders the backend refuses can be chosen again from the loading page", async () => {
+  // The image folder belongs to another library, whose search data isn't here.
+  profile = makeProfile(true);
+  fs.mkdirSync(profile.images, { recursive: true });
+  const marker = path.join(profile.images, "scene-atlas-library.json");
+  fs.writeFileSync(
+    marker,
+    JSON.stringify({ format: 1, library_id: "4f1c0000-0000-4000-8000-000000000000", role: "store", hints: {} }),
+  );
+  const app = await launch(profile);
+  const loading = await waitForPage(app.browser, (url) => url.endsWith("/loading.html"));
+
+  await expect(loading.getByRole("button", { name: "Try again" })).toBeVisible({ timeout: 60_000 });
+  await loading.getByRole("button", { name: "Choose folders…" }).click();
+
+  // Back on the default folders, in the same window, with the library step to show again.
+  const page = await waitForBackendUi(app.browser);
+  expect(await page.evaluate(() => (window as any).electronAPI.libraryChosen)).toBe(false);
+  expect(readConfig(profile)).toMatchObject({
+    appDataDir: profile.defaults.appData,
+    imageLibraryDir: profile.defaults.store,
+    provisional: true,
+    libraryChosen: false,
+  });
+  expect(await mainProcesses(profile)).toHaveLength(1);
+  // The refused folders are left as they were.
+  expect(fs.existsSync(marker)).toBe(true);
+  expect(fs.existsSync(path.join(profile.appData, "battlemap.db"))).toBe(false);
+});
+
 test("serves the UI from the backend; closing the window stops the backend", async () => {
   profile = makeProfile(true);
   const app = await launch(profile);

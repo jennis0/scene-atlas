@@ -160,7 +160,8 @@ def test_library_refusal_is_a_startup_error(sidecar_factory, tmp_path):
     (tmp_path / "images").mkdir()
     write_marker(tmp_path / "images", Marker(str(uuid.uuid4()), "store", {}))
     sidecar = sidecar_factory()
-    assert sidecar.proc.wait(timeout=STARTUP_TIMEOUT) != 0
+    # Its own exit code, so Electron offers to choose other folders
+    assert sidecar.proc.wait(timeout=STARTUP_TIMEOUT) == 4
     expected = f"STARTUP ERROR: {STARTUP_MESSAGES[APP_DATA_NOT_HERE]}"
     output = []
     while not any(expected in line for line in output):

@@ -5,6 +5,7 @@ import {
   libraryDirsOf,
   parseConfig,
   withChosenLibrary,
+  withDefaultLibrary,
 } from '../src/appConfig.ts'
 
 const base = { appDataDir: '/sa/data', imageLibraryDir: '/sa/images' }
@@ -144,5 +145,31 @@ describe('withChosenLibrary', () => {
       linked: '/old/maps',
     })
     assert.equal(libraryDirsOf({ ...base, provisional: false, libraryChosen: true }).linked, null)
+  })
+})
+
+describe('withDefaultLibrary', () => {
+  const defaults = { appData: '/sa/data', store: '/sa/images' }
+  const refused = {
+    appDataDir: '/elsewhere/data',
+    imageLibraryDir: '/mnt/maps/Scene Atlas',
+    linkedLibraryDir: '/mnt/maps',
+    provisional: false,
+    libraryChosen: true,
+    displayPrefs: { 'scene-atlas-theme': 'dark' },
+  }
+
+  test('back on the defaults, with the library step to show again', () => {
+    assert.deepEqual(withDefaultLibrary(refused, defaults, true), {
+      appDataDir: '/sa/data',
+      imageLibraryDir: '/sa/images',
+      provisional: true,
+      libraryChosen: false,
+      displayPrefs: { 'scene-atlas-theme': 'dark' },
+    })
+  })
+
+  test('defaults that already hold something are never provisional', () => {
+    assert.equal(withDefaultLibrary(refused, defaults, false).provisional, false)
   })
 })

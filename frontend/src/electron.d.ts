@@ -37,7 +37,13 @@ export interface ElectronAPI {
   setWindowColors(colors: { background: string; foreground: string }): Promise<void>
 
   /** Subscribe to fatal backend errors (fires immediately if one already arrived). Used by loading.html. */
-  onBackendError(callback: (message: string) => void): () => void
+  onBackendError(
+    callback: (message: string, actions: { retry: boolean; chooseFolders: boolean }) => void,
+  ): () => void
+  /** Loading page: start the backend again on the same folders. */
+  retryStartup(): Promise<void>
+  /** Loading page: back to the default folders and the setup wizard's library step. */
+  chooseFoldersAgain(): Promise<void>
 
   // The library's folders (design/library-setup.md)
   /** The setup wizard's library step is done, so it resumes after it (read before the page loaded) */

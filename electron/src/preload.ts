@@ -2,12 +2,22 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 // Remember the last error so a subscriber that registers after it arrived still
 // receives it. The main process re-sends it on every page load.
-let backendError: string | null = null
-const errorListeners = new Set<(message: string) => void>()
+// What the loading page can offer after a startup failure (design/library-setup.md §3.3).
+interface StartupActions {
+  retry: boolean
+  chooseFolders: boolean
+}
+type ErrorListener = (message: string, actions: StartupActions) => void
+const NO_ACTIONS: StartupActions = { retry: false, chooseFolders: false }
 
-ipcRenderer.on('backend-error', (_event, message: string) => {
+let backendError: string | null = null
+let backendErrorActions: StartupActions = NO_ACTIONS
+const errorListeners = new Set<ErrorListener>()
+
+ipcRenderer.on('backend-error', (_event, message: string, actions?: StartupActions) => {
   backendError = message
-  errorListeners.forEach((cb) => cb(message))
+  backendErrorActions = { ...NO_ACTIONS, ...actions }
+  errorListeners.forEach((cb) => cb(message, backendErrorActions))
 })
 
 // Read from the app config before the page's first paint (a snapshot):
@@ -39,13 +49,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setWindowColors: (colors: { background: string; foreground: string }): Promise<void> =>
     ipcRenderer.invoke('window:set-colors', colors),
 
-  onBackendError: (callback: (message: string) => void): (() => void) => {
+  onBackendError: (callback: ErrorListener): (() => void) => {
     errorListeners.add(callback)
-    if (backendError !== null) callback(backendError)
+    if (backendError !== null) callback(backendError, backendErrorActions)
     return () => {
       errorListeners.delete(callback)
     }
   },
+  // The loading page's actions: start the backend again on the same folders, or go back to
+  // the default folders and the setup wizard's library step. Both replace the page.
+  retryStartup: (): Promise<void> => ipcRenderer.invoke('startup:retry'),
+  chooseFoldersAgain: (): Promise<void> => ipcRenderer.invoke('startup:choose-folders'),
 
   // The library's folders (design/library-setup.md)
   libraryChosen,

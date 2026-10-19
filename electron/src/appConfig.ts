@@ -104,6 +104,18 @@ export function libraryDirsOf(config: AppConfig): LibraryDirs {
   }
 }
 
+/** *config* back on the default folders, for when the backend refused the configured ones
+ * (design/library-setup.md §3.3): the setup wizard's library step shows again so the user
+ * can choose them. Display choices are kept; the refused folders are left as they are. */
+export function withDefaultLibrary(
+  config: AppConfig,
+  defaults: { appData: string; store: string },
+  defaultsAreEmpty: boolean,
+): AppConfig {
+  const { linkedLibraryDir: _dropped, ...rest } = config
+  return { ...rest, ...firstLaunchConfig(defaults, defaultsAreEmpty) }
+}
+
 /** *config* with the folders chosen in setup or Settings: no longer provisional, since
  * the user has now chosen them, even if they kept the defaults. */
 export function withChosenLibrary(config: AppConfig, dirs: LibraryDirs): AppConfig {

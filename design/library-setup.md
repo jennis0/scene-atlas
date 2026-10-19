@@ -161,7 +161,14 @@ The check runs in the lifespan after the storage locks and before anything touch
 - **No C, but a row exists:** the source is **detached**. Its images show as offline, and Settings offers to remove them.
 - **C missing on disk:** the source is **offline**, not an error. The app starts, and search and thumbnails work because both live in app data.
 
-**Refusals.** In the desktop app a refusal surfaces on the loading page, as the storage-lock error does today, with "Choose folders…" to reopen the library step. In server mode it is a startup error in the logs.
+**Refusals.** In the desktop app a refusal surfaces on the loading page, as the storage-lock error does. The sidecar exits with code 4 (`LIBRARY_REFUSED`) so Electron can tell it apart from other failures. The loading page then offers two actions:
+
+- **Try again** restarts the backend on the same folders. This covers a drive that's been reconnected. It's offered for every startup failure.
+- **Choose folders…** switches the config back to the default folders, provisional only if they're empty and with `libraryChosen: false`, and restarts in the same window. The wizard's library step then shows again, so the user can point at the moved folders; the folder check finds the library from its marker. The refused folders are left exactly as they were.
+  - It's offered for refusals and for folders that can't be used (`prepareStorageDirs` failing). It isn't offered when the refused folders are the defaults, because it would only refuse them again.
+  - If the defaults already hold a completed library, the user lands in that library's gallery and changes folders in Settings (user decision 2026-10-19, option B).
+
+In server mode a refusal is a startup error in the logs.
 
 ### 3.4 `POST /library/inspect` (desktop only)
 

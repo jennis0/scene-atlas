@@ -18,7 +18,12 @@ import {
   setAsideUnusableConfig,
   updateConfig,
 } from './config'
-import { firstLaunchConfig, libraryDirsOf, withChosenLibrary } from './appConfig'
+import {
+  firstLaunchConfig,
+  libraryDirsOf,
+  withChosenLibrary,
+  withDefaultLibrary,
+} from './appConfig'
 import {
   isDisplayPref,
   sanitizeWindowColors,
@@ -60,6 +65,12 @@ let restarting = false
 let backendOrigin: string | null = null
 // Kept so the loading page can be re-sent the error after a reload.
 let backendError: string | null = null
+// The failure is about the folders (refused by the library check, or unusable), so the
+// loading page also offers to choose them again (design/library-setup.md §3.3).
+let backendErrorIsFolders = false
+
+// The backend's exit code when its library check refused the folders (pyinstaller/entry.py)
+const LIBRARY_REFUSED = 4
 
 // The installer's shortcuts carry electron-builder's appId as their AppUserModelID; the
 // process must match, or Windows shows a pinned shortcut and the running app as two
@@ -331,7 +342,7 @@ function createMainWindow(): BrowserWindow {
   hardenWindow(win)
 
   win.webContents.on('did-finish-load', () => {
-    if (backendError !== null) win.webContents.send('backend-error', backendError)
+    if (backendError !== null) sendBackendError(win)
   })
 
   if (isDev) {
@@ -371,14 +382,23 @@ async function showBackendUi(port: number): Promise<void> {
   await mainWindow?.loadURL(`${origin}/`)
 }
 
-function signalBackendError(message: string): void {
+function signalBackendError(message: string, aboutFolders = false): void {
   backendError = message
+  backendErrorIsFolders = aboutFolders
   const win = mainWindow
   if (!win) return
   // A crash after startup leaves the UI on a dead origin; go back to the loading page,
   // which receives the error on did-finish-load.
-  if (win.webContents.getURL().startsWith('file:')) win.webContents.send('backend-error', message)
+  if (win.webContents.getURL().startsWith('file:')) sendBackendError(win)
   else void win.loadFile(LOADING_PAGE)
+}
+
+function sendBackendError(win: BrowserWindow): void {
+  // Choosing folders again means the defaults, so it can't help when those were refused.
+  const defaults = { ...getDefaultDirs(), linked: null }
+  const chooseFolders =
+    backendErrorIsFolders && currentDirs !== null && dirsChanged(currentDirs, defaults)
+  win.webContents.send('backend-error', backendError, { chooseFolders, retry: !isDev })
 }
 
 // Backend sidecar
@@ -396,6 +416,7 @@ function rotateLog(logPath: string): void {
 function launchApp(dirs: LibraryDirs): void {
   backendOrigin = null
   backendError = null
+  backendErrorIsFolders = false
   mainWindow = createMainWindow()
   void startBackend(dirs)
 }
@@ -405,6 +426,7 @@ async function startBackend(dirs: LibraryDirs): Promise<void> {
   currentDirs = dirs
   backendOrigin = null
   backendError = null
+  backendErrorIsFolders = false
 
   // Dev: the developer runs the backend themselves; Vite proxies /api to it.
   if (isDev) return
@@ -413,7 +435,7 @@ async function startBackend(dirs: LibraryDirs): Promise<void> {
   // A config-loaded start can point at a drive that is no longer mounted.
   const dirError = unavailableLinkedError(dirs) ?? prepareStorageDirs(appDataDir, imageLibraryDir)
   if (dirError) {
-    signalBackendError(dirError)
+    signalBackendError(dirError, true)
     return
   }
 
@@ -486,6 +508,7 @@ async function startBackend(dirs: LibraryDirs): Promise<void> {
     const what = ready ? 'Backend crashed' : 'Backend exited during startup'
     signalBackendError(
       `${what} (exit code ${code ?? signal}).\n\nLast output:\n${tail}\n\nFull log: ${logPath}`,
+      !ready && code === LIBRARY_REFUSED,
     )
   })
 }
@@ -520,6 +543,25 @@ function stopSidecar(timeoutMs = 5000, force = false): Promise<void> {
     if (!isWindows) child.kill('SIGTERM')
   })
 }
+
+// The loading page's actions after a startup failure (design/library-setup.md §3.3)
+
+handleTrusted('startup:retry', () => {
+  if (restarting || !currentDirs || isDev) return
+  void restartBackend(currentDirs, [])
+})
+
+// Back to the default folders, with the setup wizard's library step to choose the real
+// ones. The refused folders are left exactly as they are.
+handleTrusted('startup:choose-folders', () => {
+  const config = loadConfig()
+  if (restarting || !config || isDev) return
+  const defaults = getDefaultDirs()
+  const empty = isMissingOrEmpty(defaults.appData) && isMissingOrEmpty(defaults.store)
+  const next = withDefaultLibrary(config, defaults, empty)
+  saveConfig(next)
+  void restartBackend(libraryDirsOf(next), [])
+})
 
 /**
  * Swap the backend for one on *dirs* without closing the window (design/library-setup.md

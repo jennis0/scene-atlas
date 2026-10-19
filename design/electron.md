@@ -66,6 +66,8 @@ There is no storage window. A first launch runs a provisional library on the def
 
 The main process remembers the last `backend-error` and re-sends it on every `did-finish-load`, and the preload caches it, so the loading page receives it even after a reload.
 
+With the error, main sends the actions the loading page offers. **Try again** (`startup:retry`) restarts the backend on the same folders after any startup failure. **Choose folders…** (`startup:choose-folders`) is offered when the folders were refused (the sidecar exits with code 4, `LIBRARY_REFUSED`) or can't be used, and they aren't the defaults. It puts the config back on the default folders with `libraryChosen: false` and restarts, so the setup wizard's library step shows again ([library-setup.md §3.3](library-setup.md#33-startup-check-both-modes)).
+
 ### Storage folder checks
 
 Node-only modules (no `electron` import, unit tested with `node --test` in `electron/test/`; they import each other with `.ts` extensions, which `rewriteRelativeImportExtensions` turns into `.js`):
@@ -106,7 +108,9 @@ Every handler is registered through `handleTrusted()`, which rejects calls whose
 
 | Channel | Direction | Purpose |
 |---------|-----------|---------|
-| `backend-error` | main → loading page | Error message if the sidecar fails to start or crashes |
+| `backend-error` | main → loading page | Error message if the sidecar fails to start or crashes, and the actions to offer (`{retry, chooseFolders}`) |
+| `startup:retry` | loading page → main | Restart the backend on the same folders |
+| `startup:choose-folders` | loading page → main | Back to the default folders and the wizard's library step |
 | `library:get-dirs` | renderer → main | `{ appData, store, linked, defaults: { appData, store } }`: the folders the backend runs on, and the first-launch defaults |
 | `library:choose-folder` | renderer → main | `(kind, current?)`, kind `appData` \| `store` \| `linked`: a plain native folder picker starting at `current`; the path, or null |
 | `library:apply` | renderer → main | `({ appData, store, linked })`: see [Changing folders](#changing-folders-in-window-restart). Resolves `{ error, restarted: false }`, or never when the backend restarts |
