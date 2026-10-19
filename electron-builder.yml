@@ -4,8 +4,8 @@ copyright: Copyright © 2026 Scene Atlas
 
 directories:
   output: dist-electron
-  # icon.png (1024 px, scripts/build/make_icon.py) is found here; electron-builder
-  # derives the Windows .ico and the macOS .icns from it.
+  # icon.ico, icon.icns and icon.png (scripts/build/build_icons.py, design/brand.md)
+  # are found here by name, for Windows, macOS and Linux.
   buildResources: assets
 
 # Installers named without spaces (GitHub rewrites spaces in release asset names).

@@ -204,7 +204,7 @@ The PyInstaller spec keeps onnxruntime's `entry_points.txt` (DirectML plugin reg
 
 **Releases and updates:** there is no auto-updater, so electron-builder publishes nothing (`publish: null`) and writes no update metadata (`latest.yml`, `.blockmap`). The Release workflow's `publish` job creates the GitHub Release `v<version>` from the three builds' installers, and only once all three have passed. An updater would need code signing first: an unsigned Windows installer warns in SmartScreen on every update.
 
-**Windows specifics:** installers are named without spaces (`Scene-Atlas-Setup-<version>.exe`; GitHub rewrites spaces in asset names). The icon is `assets/icon.png` (1024 px, drawn by `scripts/build/make_icon.py`, a placeholder); electron-builder derives the `.ico` and `.icns` from it. `main.ts` sets the AppUserModelID to the `appId`, matching the installer's shortcuts, or a pinned shortcut and the running app show as two taskbar icons. The sidecar is spawned with `windowsHide`: it is a console program, and Windows would otherwise open a console window beside the app.
+**Windows specifics:** installers are named without spaces (`Scene-Atlas-Setup-<version>.exe`; GitHub rewrites spaces in asset names). electron-builder picks up `assets/icon.ico`, `icon.icns` and `icon.png` by name from `buildResources` ([brand.md](brand.md) covers how they're drawn). `main.ts` sets the AppUserModelID to the `appId`, matching the installer's shortcuts, or a pinned shortcut and the running app show as two taskbar icons. The sidecar is spawned with `windowsHide`: it is a console program, and Windows would otherwise open a console window beside the app.
 
 ## Config Storage
 
@@ -238,7 +238,6 @@ On Windows, Documents is often redirected into OneDrive (the Windows 11 default 
 | `scripts/build/build_sidecar.py` | Syncs `.venv-sidecar` and runs PyInstaller |
 | `scripts/build/build_electron.py` | Frontend → sidecar → TypeScript → electron-builder (`--dev` for an unpacked app only) |
 | `scripts/build/smoke_sidecar.py` | Runs the built sidecar's `--self-check`, then starts it and checks it serves the API and UI |
-| `scripts/build/make_icon.py` | Draws the placeholder `assets/icon.png` |
 | `e2e/packaged/` | Packaged-app tests (windows, sidecar lifecycle), `npm run test:packaged` |
 | `backend/pyinstaller/scene_atlas_backend.spec` | PyInstaller spec for freezing the Python backend |
 | `backend/pyinstaller/entry.py` | Sidecar entry point |
