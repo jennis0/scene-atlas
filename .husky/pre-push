@@ -7,16 +7,23 @@ echo "🔍 Running pre-push checks..."
 
 # ── Backend ──────────────────────────────────────────────────────────────────
 
+# Lint exactly the Python files git tracks, which is what gets pushed. Given directories,
+# ruff run from inside `git push` has linted gitignored local scripts under scripts/ and
+# failed on them, though the same command passes when run by hand.
+python_files() {
+  git ls-files -z -- 'backend/*.py' 'scripts/*.py'
+}
+
 echo ""
 echo "=== Python lint (ruff check) ==="
-uv run ruff check backend/ scripts/ || {
+python_files | xargs -0 uv run ruff check || {
   echo "❌ Python lint failed. Fix issues before pushing."
   exit 1
 }
 
 echo ""
 echo "=== Python format check (ruff format) ==="
-uv run ruff format --check backend/ scripts/ || {
+python_files | xargs -0 uv run ruff format --check || {
   echo "❌ Python format check failed. Run: uv run ruff format backend/ scripts/"
   exit 1
 }
