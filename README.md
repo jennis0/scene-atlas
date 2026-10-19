@@ -7,12 +7,11 @@
 
 <p align="center"><strong>Art and map management for game masters.</strong></p>
 
-<p align="center">
-  <a href="#download">Download</a> ·
-  <a href="docs/guide/what-is-scene-atlas.md">Guide</a> ·
-  <a href="#self-hosting">Self-hosting</a> ·
-  <a href="CONTRIBUTING.md">Contributing</a>
-</p>
+<div align="center">
+
+[Website](https://jennis0.github.io/scene-atlas/) · [Download](#download) · [Guide](https://jennis0.github.io/scene-atlas/guide/what-is-scene-atlas) · [Self-hosting](#self-hosting) · [Contributing](CONTRIBUTING.md)
+
+</div>
 
 Scene Atlas keeps your battlemaps and scene art in one place and helps you find the right one fast. Describe the map you need, like "flooded crypt" or "market square at dusk", and it finds it by what's in the image, not what the file is called. Drop in the folders and zips from your map downloads and it groups the variants and detects the grid.
 
@@ -42,9 +41,9 @@ Get the installer for your system from [Releases](https://github.com/jennis0/sce
 | macOS 13 or later | `.dmg`, Apple Silicon only |
 | Linux | `.AppImage` or `.deb` (x64) |
 
-The installers aren't signed yet, so Windows and macOS warn you the first time you open Scene Atlas: [how to open it anyway](docs/deploy/desktop.md#first-launch-warnings). You'll need 8 GB of RAM, 16 GB recommended.
+The installers aren't signed yet, so Windows and macOS warn you the first time you open Scene Atlas: [how to open it anyway](https://jennis0.github.io/scene-atlas/deploy/desktop#first-launch-warnings). You'll need 8 GB of RAM, 16 GB recommended.
 
-> No release has been published yet. Until the first one, run Scene Atlas [from source](docs/development/building.md).
+> No release has been published yet. Until the first one, run Scene Atlas [from source](https://jennis0.github.io/scene-atlas/development/building).
 
 ## Self-hosting
 
@@ -56,12 +55,12 @@ cd scene-atlas
 docker compose --profile cpu up -d     # --profile gpu for an NVIDIA GPU
 ```
 
-Then open http://localhost:8000. Scene Atlas has no sign-in of its own, so put it behind a reverse proxy that handles sign-in before you open it up beyond your own network. See [Docker server](docs/deploy/server.md).
+Then open <http://localhost:8000>. Scene Atlas has no sign-in of its own, so put it behind a reverse proxy that handles sign-in before you open it up beyond your own network. See [Docker server](https://jennis0.github.io/scene-atlas/deploy/server).
 
 ## Documentation
 
-- **Using it:** [getting started](docs/guide/getting-started.md), [importing](docs/guide/importing.md), [searching](docs/guide/searching.md), [groups](docs/guide/groups.md), [tags](docs/guide/tags.md)
-- **Installing it:** [desktop app](docs/deploy/desktop.md), [Docker server](docs/deploy/server.md), [standalone server](docs/deploy/standalone.md), [configuration](docs/deploy/configuration.md)
+- **Using it:** [getting started](https://jennis0.github.io/scene-atlas/guide/getting-started), [importing](https://jennis0.github.io/scene-atlas/guide/importing), [searching](https://jennis0.github.io/scene-atlas/guide/searching), [groups](https://jennis0.github.io/scene-atlas/guide/groups), [tags](https://jennis0.github.io/scene-atlas/guide/tags)
+- **Installing it:** [desktop app](https://jennis0.github.io/scene-atlas/deploy/desktop), [Docker server](https://jennis0.github.io/scene-atlas/deploy/server), [standalone server](https://jennis0.github.io/scene-atlas/deploy/standalone), [configuration](https://jennis0.github.io/scene-atlas/deploy/configuration)
 
 ## Contributing
 
