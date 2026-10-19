@@ -13,6 +13,7 @@ Scene Atlas runs on hardware from small laptops to servers, against libraries wh
 | 3 | JobRunner | `ThreadPoolExecutor` (`job_runner.py`) | Concurrent maintenance jobs | `max_job_workers` |
 | 4 | IngestWorker | One thread (`pipeline/ingest_worker.py`) | One import batch at a time, process-wide | `ingestion_batch_size` (items per batch) |
 | 5 | MemoryBudget | `threading.Condition` byte budget (`memory_budget.py`) | Total estimated decode memory across prepare workers | `ingest_memory_budget_mb` (env) |
+| 6 | LinkedScanner | A flag and one daemon thread per scan (`pipeline/linked_scan.py`) | One linked folder scan at a time | `linked_rescan_minutes` (how often) |
 
 ### 1. Prepare pool
 
@@ -65,6 +66,10 @@ Capacity: `ingest_memory_budget_mb` if set, otherwise half of total RAM beyond a
 Related decode limits in `config.py`:
 - `max_image_pixels` (1,000,000,000) — Pillow's decompression-bomb limit; larger images fail.
 - `pixel_hash_max_pixels` (100,000,000) — JPEGs above this are decoded at reduced scale (libjpeg DCT scaling) and skip the pixel-hash duplicate check.
+
+### 6. LinkedScanner
+
+Scans of the linked folder run one at a time on a thread of their own; a request while one runs is refused (`started: false`). The walk holds no lock; the diff is applied in one short write transaction, and the scan's job is sealed with its paths parsed before the lock is taken again ([ingestion.md §5.7](ingestion.md#57-linked-items)). A 60k-file first scan held the write lock for about 4 s in total (measured in WSL), below the 10 s `busy_timeout` other writers wait. The rescan timer is an asyncio task that wakes every minute and starts a scan when `linked_rescan_minutes` have passed since the last one. Scans stop at `raise_if_shutting_down()` after the walk.
 
 ## Resource Detection
 
@@ -120,7 +125,7 @@ A zip that fails `check_zip_safety` becomes one failed `archive` item rather tha
 | `scheduler_enabled` | `True` | Restart |
 | `ingestion_batch_size` | 16 | Next batch (read per batch) |
 | Import limits | hardcoded | Next request (read per request) |
-| `linked_rescan_minutes` | 15 (allowed: 0, 5, 15, 60) | Not read yet: linked folder scanning is planned ([library-setup.md](library-setup.md#43-scanning)) |
+| `linked_rescan_minutes` | 15 (allowed: 0, 5, 15, 60) | How often the linked folder is scanned; 0 = only at startup. Read at each timer wake ([ingestion.md §5.7](ingestion.md#57-linked-items)) |
 
 The Settings UI exposes `max_concurrent_prepare` (labelled "Parallel image processing", 1–16; restart required); the others are only editable through the API.
 
@@ -142,7 +147,7 @@ In the `main.py` lifespan:
 3. `init_prepare_pool(max_concurrent_prepare)`.
 4. `asyncio.Semaphore(max_concurrent_heavy_requests)` → `app.state.heavy_op_semaphore`.
 5. `get_job_runner()` — creates the JobRunner.
-6. `ingest_worker.recover()` and `start()` (when `ingest_worker_enabled`).
+6. `ingest_worker.recover()` and `start()` (when `ingest_worker_enabled`), then, with a linked folder configured, its first scan and the rescan timer.
 7. Scheduler start (when `scheduler_enabled`), heartbeat start.
 
 Shutdown: `request_shutdown()` → scheduler stop → `ingest_worker.stop(60s)` (the in-flight batch commits; anything left is recovered next start) → `shutdown_job_runner()` → `shutdown_prepare_pool()` → LanceDB shutdown. The MemoryBudget is created lazily on first use.

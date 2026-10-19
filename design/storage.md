@@ -5,7 +5,7 @@
 Three storage backends:
 1. **SQLite** — relational metadata (images, groups, tags, colours, import jobs, settings). The source of truth.
 2. **LanceDB** — vector embeddings for semantic search. Derived; can be rebuilt by re-encoding images.
-3. **Filesystem (ImageStore)** — original files and thumbnails.
+3. **Filesystem** — originals and thumbnails. Originals are in the store (`ImageStore`, which Scene Atlas writes) or in the linked folder (the user's own maps, only ever read; see [Linked folder](#linked-folder)).
 
 Schema changes are Alembic migrations in `backend/alembic/versions/`, applied by `init_db()` at startup. A test fails if the ORM models drift from the migrated schema.
 
@@ -21,7 +21,10 @@ Physical column names are shown; ORM attribute aliases are noted.
 images
   id               INTEGER PK
   filename         TEXT NOT NULL       -- Original filename (display only)
-  storage_key      TEXT NOT NULL       -- Key into the image store (indexed, not unique)
+  storage_key      TEXT                -- Key into the image store (indexed, not unique);
+                                       --   NULL for linked images (migration 028)
+  source_file_id   INTEGER FK → source_files.id UNIQUE  -- Linked images: their file
+                                       --   CHECK (storage_key IS NOT NULL OR source_file_id IS NOT NULL)
   name             TEXT                -- Display name
   author           TEXT
   variant_group_id INTEGER FK → variant_groups.id   -- ORM: group_id
@@ -91,6 +94,8 @@ import_jobs
   planned_at       DATETIME            -- Set when sealed
   last_upload_at   DATETIME
   dismissed_at     DATETIME            -- Hidden from the activity dock
+  source_roots     TEXT                -- Local imports: JSON list of folders read from
+  library_source_id INTEGER FK → library_sources.id  -- A scan of the linked folder (no Undo)
   created_at, updated_at, completed_at  DATETIME
 
 import_groups                          -- Groups planned at seal time
@@ -119,6 +124,8 @@ import_items                           -- One file; all durable ingest state
                                        -- done | duplicate | failed | skipped
   staging_key      TEXT                -- Server-generated staged filename
   source_hash      TEXT(64)            -- SHA-256 of the uploaded bytes
+  source_path      TEXT                -- Local imports: the file's absolute path
+  source_file_id   INTEGER FK → source_files.id  -- Linked items: the file, read by its key
   attempts         INTEGER NOT NULL DEFAULT 0
   retry_after      DATETIME
   error_kind       TEXT                -- file | transient | system | bytes_lost
@@ -133,6 +140,27 @@ import_items                           -- One file; all durable ingest state
   similarity_distance INTEGER
   created_at, updated_at  DATETIME
   UNIQUE (job_id, relative_path)
+
+library_sources                        -- The linked folder; one row today (migration 028)
+  id               INTEGER PK
+  kind             TEXT NOT NULL       -- "folder" (S3 later)
+  location         TEXT NOT NULL       -- Last-known absolute path
+  state            TEXT NOT NULL       -- online | offline | detached
+  last_scan_at     DATETIME
+
+source_files                           -- The durable index of the linked folder
+  id               INTEGER PK
+  source_id        INTEGER FK → library_sources.id NOT NULL
+  rel_key          TEXT                -- POSIX path relative to the folder ("Author/Pack/x.png");
+                                       --   NULL once an edited file replaced it (see below)
+  size             INTEGER NOT NULL
+  mtime_ns         INTEGER NOT NULL    -- The version: a rescan compares size and mtime only
+  content_hash     TEXT(64)            -- Set once read
+  state            TEXT NOT NULL       -- pending | image | duplicate | skipped | failed | removed
+  image_id         INTEGER FK → images.id  -- The image (image) or the one matched (duplicate)
+  reason           TEXT                -- skipped / failed: why
+  missing_since    DATETIME            -- The file is gone; its image is kept
+  UNIQUE (source_id, rel_key)
 
 app_settings
   key              TEXT PK
@@ -211,9 +239,20 @@ A library is its database and its store, plus an optional linked folder (`LINKED
 
 The store and app data may sit inside the linked folder, but may not be it or contain it (purge empties the store); those refuse too. Refusals are logged as `STARTUP ERROR: <text>`, which the desktop app shows on its loading page. `POST /library/inspect` applies the same rules (`decide()`) to folders the setup wizard proposes, with the wizard's wording.
 
-The walk used by local imports (and later the linked folder scan) skips any folder holding a marker or `.backend.lock`, so a library's own folders are never imported.
+The walk used by local imports and the linked folder scan (`ingest_local.walk_files`) skips any folder holding a marker or `.backend.lock`, so a library's own folders are never imported.
 
 `ImageStore` doesn't create its root, so a missing store stays missing (an unmounted drive) until the check decides. Library purge deletes everything in the store except `.backend.lock`, then writes the markers again.
+
+### Linked folder
+
+The linked folder (`settings.linked_library_dir`, from `LINKED_LIBRARY_DIR` or the desktop app's `--linked-library-dir`) holds the user's own maps. They are read where they are and never written, moved or deleted. Plan: [library-setup.md §4](library-setup.md#4-linked-library); ingest side: [ingestion.md §5.7](ingestion.md#57-linked-items).
+
+- **Reading originals.** Every original, stored or linked, is read through the source interface in `backend/app/services/originals.py`: `original_path(image)` returns the file or raises `OriginalUnavailable` (`missing`, or `offline` with a reason). The store is `ImageStore` (`stat`, `local_path`, `put`, `delete`); the linked folder is `LinkedFolder` (`list`, `stat`, `local_path`), which has no `put` or `delete`. `LinkedFolder.local_path` is the containment check: the key must be relative with no `..`, and joined to the root it must resolve inside the root to a regular file that isn't a symlink. File serving, the thumbnail fallback, group download, library export and the backfills all go through it; nothing else builds a path to an original.
+- **Rows.** `library_sources` is the folder; `source_files` records what became of each of its files, so a rescan never reads a file it has seen. Images read from the folder have `storage_key` NULL and `source_file_id` set. `backend/app/services/linked_files.py` keeps the rows in step: item outcomes are written back, removing an image marks its file `removed` (rescans leave it out; files recorded as its duplicates too), and a missing image takes over a file with its bytes (a move).
+- **Edited files.** Until refresh is built (library-setup.md §4.5), a file edited in place is imported as a new image. Its old row keeps the old image but gives up its path (`rel_key` NULL) and is marked missing. A file only touched (same bytes) matches the old image by hash, which moves to it.
+- **States.** `library_sources.state` is written at startup and by scans. Reads check the folder live: `linked_folder_available()` (cached for 5 s, since a stat of an unreachable share can hang) decides `file_state` (`ok | missing | offline`) in image responses. Offline means the folder isn't there (nothing is marked missing); detached means a row exists but no folder is configured, or "Stop using this folder" ran.
+- **Purge** deletes `library_sources` and `source_files` with the other rows and never touches the folder; its next scan adds its maps again. The orphan sweep only walks the store's shard folders, and vector reconciliation and model switches read thumbnails, so both work while the folder is offline.
+- **The library's own folders.** The store and app data may sit inside the linked folder (the desktop default) but may not be it or contain it; the scan's walk skips them by their marker or lock.
 
 ### Sharding
 
@@ -232,7 +271,7 @@ path: {base}/a1/b2/a1b2c3d4....jpg
 
 ### Shared storage keys
 
-The ingest pipeline generates a new key for every image, including "import as copy". `storage_key` is not unique because older rows may share a file; `deletion_service` therefore only deletes a file (and its thumbnails) when no other row references the same `storage_key`.
+The ingest pipeline generates a new key for every image, including "import as copy". `storage_key` is not unique because older rows may share a file; `deletion_service` therefore only deletes a file (and its thumbnails) when no other row references the same `storage_key`. A linked image has no `storage_key`: its thumbnails are always deleted with it, and its file never is (its `source_files` row becomes `removed`).
 
 ### DB Is the Source of Truth
 The filesystem is a blob store; `storage_key` and `thumbnail_key` are the authoritative references. `sweep_orphaned_store_files` (every 24 h) deletes store files that no row references. It only considers files in the shard layout (so `backups/` and `.incoming/` are never touched), skips files younger than an hour, and deletes nothing if more than 25% of a store looks orphaned (wrong database or unmounted drive).
