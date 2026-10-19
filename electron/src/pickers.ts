@@ -74,14 +74,16 @@ export async function pickStorageDir(
   const { title, foreignDetail } = storagePicker(kind)
   try {
     for (;;) {
-      const [chosen] = await openDialog(sender, {
+      const paths = await openDialog(sender, {
         title,
         // Electron 43+ opens dialogs in Downloads unless given a starting folder.
         defaultPath: defaultPath ?? app.getPath('home'),
         properties: ['openDirectory', 'createDirectory'],
         buttonLabel: 'Select Folder',
       })
-      if (!chosen || !hasForeignEntries(chosen, otherRoot)) return chosen ?? null
+      if (paths.length === 0) return null
+      const chosen = paths[0]
+      if (!hasForeignEntries(chosen, otherRoot)) return chosen
       if (await confirmForeignFolder(sender, foreignDetail)) return chosen
       defaultPath = chosen
     }
