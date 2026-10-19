@@ -22,6 +22,7 @@ backend/
 │   │   ├── images.py             # Image CRUD + file/thumbnail serving
 │   │   ├── imports.py            # Import jobs: manifest, archives, seal, content upload, actions
 │   │   ├── jobs.py               # Background job status
+│   │   ├── library.py            # Library status, folder inspection for the setup wizard
 │   │   ├── models.py             # Embedding model list/download/switch
 │   │   ├── rate_limits.py        # Shared slowapi Limiter
 │   │   ├── search.py             # Image and group search, facets
@@ -62,6 +63,7 @@ backend/
 │   │   └── video_utils.py        # Video first frame + dimensions
 │   ├── colorspace.py             # sRGB hex to CIELAB (used by the Color model and colour search)
 │   ├── config.py                 # Pydantic settings (env-driven)
+│   ├── library_identity.py       # library_id, folder markers, the rules for opening a library
 │   ├── logging_config.py         # Console + rotating file logging; Pillow pixel limit
 │   ├── main.py                   # App creation, middleware, routers, lifespan
 │   ├── process_utils.py          # RSS reading
@@ -220,6 +222,14 @@ Mutating routes are `@write_locked` (`BEGIN IMMEDIATE` on the endpoint's own thr
 | DELETE | `/library` | Delete entire library job (rate limited: destructive) |
 | POST | `/tags/reset` | Reset tags to seed defaults (rate limited: destructive) |
 
+### Library (`/library`)
+See [library-setup.md](library-setup.md) ("Interfaces between the parts") for the response shapes.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/status` | `library_id` and the linked folder (`linked: null` when none). Until linked scanning exists, the linked state is only online/offline (whether the folder exists) and counts are 0. The path is only returned in app mode |
+| POST | `/inspect` | Desktop only (404 in server mode). What opening the given folders (`app_data`, `store`, `linked`; absolute paths, any left out) would do: `new` / `open` / `error` with the wizard's message, a media count for a maps folder (capped at `max_local_import_items`), and a library found in them with its hints. Read-only; admission-controlled like other heavy requests |
+
 ### Settings (`/settings`)
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -249,7 +259,10 @@ When `frontend/dist` exists, `/assets` is served statically and a catch-all rout
 ## Services
 
 ### ImageStore
-Hash-sharded object store: `put(key, path)`, `put_bytes(key, data)`, `get_path(key)`, `exists(key)`, `delete(key)`. Two instances: images (library root) and thumbnails. See [storage.md](storage.md).
+Hash-sharded object store: `put(key, path)`, `put_bytes(key, data)`, `get_path(key)`, `exists(key)`, `delete(key)`. Two instances: images (library root) and thumbnails. Creating one doesn't create its root: the startup check decides when a store may be created. See [storage.md](storage.md).
+
+### Library identity (`library_identity.py`)
+`library_id`, the `scene-atlas-library.json` markers, and `decide()`, the one implementation of the rules for opening a set of folders. The startup check (`check_library`, then `open_library`) and `POST /library/inspect` (`inspect_folders`) both use it; refusals carry a code with two texts, the startup one and the wizard's. See [storage.md](storage.md#library-identity).
 
 ### CLIPService
 Embedding service for CLIP ViT-B/32, SigLIP2-base and SigLIP2-so400m via ONNX Runtime. Loaded in a background thread at startup. `encode_image(path)`, `encode_text(query)` (LRU-cached), `batch_encode_images(paths)`.
@@ -324,6 +337,7 @@ Two sources:
 | `debug` | `False` | Debug logging; uvicorn reload when run via `main.py` |
 | `app_data_dir` | `<repo>/data` | Fast storage root |
 | `image_library_dir` | `<repo>/images`; `{app_data_dir}/images` when only `APP_DATA_DIR` is set (`default_image_library_dir`: a data dir with a database but no `images/` keeps `<repo>/images`, with a warning) | Originals + backups root |
+| `linked_library_dir` | `None` | The linked folder (`LINKED_LIBRARY_DIR`, or the sidecar's `--linked-library-dir`). Read-only; need not exist. Empty means unset |
 | `validate_roots` | `False` | Fail startup if roots are missing (frozen entry point) |
 | `database_url` | derived | Always `sqlite:///{app_data_dir}/battlemap.db` |
 | `store_thumbnails_dir`, `staging_dir`, `vector_db_path`, `store_images_dir`, `backups_dir` | derived | From the two roots |
@@ -354,16 +368,17 @@ Other environment variables: `EMBEDDING_MODEL` (operator override of the active 
 
 1. `setup_logging()` — console + rotating file handlers; sets Pillow's pixel limit to `max_image_pixels` and turns `DecompressionBombWarning` into an error.
 2. Lock both storage roots (`storage_lock.py`): an OS lock on `<root>/.backend.lock` in `APP_DATA_DIR` and, if it exists, `IMAGE_LIBRARY_DIR`. If another process holds either, startup fails with `StorageLockedError` (uvicorn exits with code 3). The desktop sidecar (`APP_MODE=app`) waits up to 30 s first, so a relaunch can outlast the previous sidecar's graceful shutdown. Filesystems without lock support (some network shares) log a warning and run unguarded.
-3. `get_engine()` + `init_db()` — runs Alembic migrations (stamps pre-Alembic databases at head).
-4. `seed_tag_categories()`, `seed_default_settings()` (first boot only), `backfill_search_text()`, then read app settings.
-5. `init_prepare_pool(max_concurrent_prepare)`; store engine on `app.state.db_engine`; create `app.state.heavy_op_semaphore`.
-6. Set `settings.vector_size` from the model manifest.
-7. Start the embedding model background load.
-8. Create the JobRunner. A daemon thread waits for the model, calls `IngestWorker.probe_now()`, then submits `reconcile_vectors` if the model loaded.
-9. If `ingest_worker_enabled`: `ingest_worker.recover()`, then `ingest_worker.start()`.
-10. If `scheduler_enabled`: register the four scheduler tasks and start the scheduler.
-11. Log the CORS warning if applicable. (The desktop sidecar prints `SCENE_ATLAS_READY` from `backend/pyinstaller/entry.py` once uvicorn is listening, not from here; see [electron.md](electron.md#sidecar-lifecycle).)
-12. Start the 15 s event-loop heartbeat (logs thread count and RSS); install a SIGUSR1 thread-dump handler on non-Windows.
+3. Library check (`check_library`, [storage.md](storage.md#library-identity)): reads the database (read-only), the store's marker and the linked folder setting, and refuses with `LibraryMismatchError` (logged as `STARTUP ERROR: …`, locks released) if the folders don't belong to one library. Nothing is created before it passes.
+4. `get_engine()` + `init_db()` — runs Alembic migrations (stamps pre-Alembic databases at head).
+5. `seed_tag_categories()`, `seed_default_settings()` (first boot only), `backfill_search_text()`, then read app settings. `open_library()` creates `library_id` if needed, creates an empty store if there's none, and writes both markers; a store created here is then locked.
+6. `init_prepare_pool(max_concurrent_prepare)`; store engine on `app.state.db_engine`; create `app.state.heavy_op_semaphore`.
+7. Set `settings.vector_size` from the model manifest.
+8. Start the embedding model background load.
+9. Create the JobRunner. A daemon thread waits for the model, calls `IngestWorker.probe_now()`, then submits `reconcile_vectors` if the model loaded.
+10. If `ingest_worker_enabled`: `ingest_worker.recover()`, then `ingest_worker.start()`.
+11. If `scheduler_enabled`: register the four scheduler tasks and start the scheduler.
+12. Log the CORS warning if applicable. (The desktop sidecar prints `SCENE_ATLAS_READY` from `backend/pyinstaller/entry.py` once uvicorn is listening, not from here; see [electron.md](electron.md#sidecar-lifecycle).)
+13. Start the 15 s event-loop heartbeat (logs thread count and RSS); install a SIGUSR1 thread-dump handler on non-Windows.
 
 Shutdown: cancel heartbeat → `request_shutdown()` (long jobs stop at their next batch boundary) → stop scheduler → `ingest_worker.stop(60s)` → `shutdown_job_runner()` → `shutdown_prepare_pool()` → `shutdown_lancedb_service()` → release the storage locks (the OS also drops them if the process dies).
 

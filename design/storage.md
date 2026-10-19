@@ -140,6 +140,8 @@ app_settings
   updated_at       DATETIME
 ```
 
+Besides the `AppSettings` fields, `app_settings` holds two keys the settings API can't change: `setup_completed_at` and `library_id` (see [Library identity](#library-identity)).
+
 State machines for `import_jobs.status` and `import_items.state` are in `backend/app/services/ingest_state.py`; see [ingestion.md](ingestion.md).
 
 ### Duplicate detection columns
@@ -189,6 +191,29 @@ Two storage roots, so originals can live on a different volume:
 | Staging | `{APP_DATA_DIR}/staging/{job_id}/{staging_key}` |
 | Ingest temp files | `{store_root}/.incoming/` (one per store) |
 | Backups | `{IMAGE_LIBRARY_DIR}/backups/{YYYYmmdd_HHMMSS}/` |
+
+### Library identity
+
+A library is its database and its store, plus an optional linked folder (`LINKED_LIBRARY_DIR`; the user's own maps, never written). The plan is [library-setup.md](library-setup.md); the code is `backend/app/library_identity.py`.
+
+- **`library_id`**: a UUID in `app_settings`, created for a new library, or for a library from before IDs the first time it opens. The database is authoritative.
+- **Markers**: `scene-atlas-library.json` at the root of the app data folder and of the store: `{"format": 1, "library_id", "role": "app_data" | "store", "hints"}`. Hints are the other folders' last-known paths; a store inside its linked folder records the linked folder as a relative path (`".."`). When app data and the store are one folder, only the store marker is written. A marker that can't be parsed counts as no marker.
+- **Startup check**: after the storage locks and before the database is opened for writing, `check_library` reads the database read-only (`library_id`, a few `storage_key`s) and the store marker, and refuses to start unless the folders form one library. `open_library` then creates the ID if needed, creates an empty store if there's none, and writes both markers (hints refreshed every start).
+
+| Database | Store marker | Outcome |
+|---|---|---|
+| none | none | New library: create the ID and the store, write both markers |
+| X | X | Open |
+| X | Y, or any marker with a database from before IDs | Refuse: "The image folder belongs to a different library." |
+| none | X | Refuse: "This image folder belongs to a library whose search data folder isn't here." |
+| X or no ID | none, and none of a sample of the database's stored files is in the store (including a missing store) | Refuse: "The image folder doesn't contain this library's maps." |
+| X or no ID | none, and the store holds the database's files, or there are none | Open: create the ID if needed, write the marker |
+
+The store and app data may sit inside the linked folder, but may not be it or contain it (purge empties the store); those refuse too. Refusals are logged as `STARTUP ERROR: <text>`, which the desktop app shows on its loading page. `POST /library/inspect` applies the same rules (`decide()`) to folders the setup wizard proposes, with the wizard's wording.
+
+The walk used by local imports (and later the linked folder scan) skips any folder holding a marker or `.backend.lock`, so a library's own folders are never imported.
+
+`ImageStore` doesn't create its root, so a missing store stays missing (an unmounted drive) until the check decides. Library purge deletes everything in the store except `.backend.lock`, then writes the markers again.
 
 ### Sharding
 
