@@ -216,6 +216,59 @@ describe('LibraryStep', () => {
     })
   })
 
+  it("drops a found library's folders when another maps folder is picked", async () => {
+    const found = {
+      library_id: 'other',
+      setup_completed: true,
+      hints: hints({ app_data: 'E:\\Atlas\\data', store: 'E:\\Atlas\\images', linked: 'D:\\Maps' }),
+    }
+    respond((body) =>
+      body.linked === 'D:\\Maps'
+        ? {
+            outcome: 'open',
+            library: found,
+            linked: { kind: 'library', image_count: 0, capped: false },
+          }
+        : {},
+    )
+    const user = userEvent.setup()
+    renderStep()
+    await pickLinked(user, 'D:\\Maps')
+    expect(await screen.findByText('E:\\Atlas\\data')).toBeInTheDocument()
+
+    api.chooseFolder.mockResolvedValueOnce('D:\\Other')
+    await user.click(screen.getByRole('button', { name: 'Choose a maps folder' }))
+    expect(await screen.findByText(DEFAULTS.appData)).toBeInTheDocument()
+    expect(screen.getByText('D:\\Other\\Scene Atlas')).toBeInTheDocument()
+    await waitFor(() => expect(continueButton()).toBeEnabled())
+    await user.click(continueButton())
+    expect(api.applyLibrary).toHaveBeenCalledWith({
+      appData: DEFAULTS.appData,
+      store: 'D:\\Other\\Scene Atlas',
+      linked: 'D:\\Other',
+    })
+  })
+
+  it('starts from the folders the desktop app is already using', async () => {
+    vi.mocked(window.electronAPI!.getStorageDirs).mockResolvedValue({
+      appData: 'E:\\data',
+      store: 'D:\\Maps\\Scene Atlas',
+      linked: 'D:\\Maps',
+      defaults: DEFAULTS,
+    })
+    const user = userEvent.setup()
+    renderStep()
+    expect(await screen.findByRole('radio', { name: /Use a folder of maps/ })).toBeChecked()
+    expect(screen.getByText('E:\\data')).toBeInTheDocument()
+    await waitFor(() => expect(continueButton()).toBeEnabled())
+    await user.click(continueButton())
+    expect(api.applyLibrary).toHaveBeenCalledWith({
+      appData: 'E:\\data',
+      store: 'D:\\Maps\\Scene Atlas',
+      linked: 'D:\\Maps',
+    })
+  })
+
   it.each([
     "This library's search data folder is missing. Choose it, or pick another folder.",
     'These folders belong to different libraries.',

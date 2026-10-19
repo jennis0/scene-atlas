@@ -66,24 +66,6 @@ describe('setupSteps', () => {
       ['model'],
     )
   })
-
-  it('chooses the library on the desktop, right after Appearance', () => {
-    expect(setupSteps(NEW_LIBRARY, { libraryChosen: false })).toEqual([
-      'appearance',
-      'library',
-      'format',
-      'tag-packs',
-      'model',
-    ])
-  })
-
-  it('resumes after the library step once the desktop app has it', () => {
-    expect(setupSteps(NEW_LIBRARY, { libraryChosen: true })).toEqual([
-      'format',
-      'tag-packs',
-      'model',
-    ])
-  })
 })
 
 describe('SetupWizard', () => {
