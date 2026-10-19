@@ -134,14 +134,14 @@ export function StorageSection({ open }: { open: boolean }) {
     <SettingsSection title="Storage locations">
       <StoragePathRow
         label="Search data"
-        description="Metadata, thumbnails and the search index. Best on a fast drive."
+        description="Stores metadata and thumbnails. Best on a fast drive."
         current={dirs?.appData ?? null}
         pending={pending.appData}
         onBrowse={() => void browse('appData')}
       />
       <StoragePathRow
         label="Imported maps"
-        description="Full resolution copies of the maps you import, and backups. Any large drive works."
+        description="Stores full resolution images. It can be stored on any large drive."
         current={dirs?.store ?? null}
         pending={pending.store}
         onBrowse={() => void browse('store')}
