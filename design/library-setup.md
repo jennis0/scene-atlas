@@ -243,11 +243,22 @@ A scan runs:
 
 - at backend startup;
 - when a linked folder is first configured;
-- **every 15 minutes** while the app runs, through the scheduler;
+- **on a timer** while the app runs, every `linked_rescan_minutes` (default 15);
 - in the desktop app, **when the window regains focus**, at most once a minute. This covers copying maps in with Explorer or Finder and switching back;
 - when **Check for changes** is clicked in Settings.
 
 A scan that finds nothing new reads no files. It lists the folder and compares sizes and modification times, which takes about 3 s for 60k files on a local disk. It also creates no job, so it is invisible.
+
+**Setting.** `linked_rescan_minutes` is a DB-backed app setting (`AppSettings`), shown in Settings → Library next to Check for changes:
+
+| Choice | Value | Effect |
+|---|---|---|
+| Every 5 minutes | 5 | |
+| Every 15 minutes (default) | 15 | |
+| Every hour | 60 | |
+| Only when the app starts | 0 | No timer and no focus rescans. Check for changes still works |
+
+It's a library behaviour, not deployment config, so it's shown on servers too ([first-run.md](first-run.md): no paths or deployment settings in the UI). The scheduler registers fixed intervals at startup, so the timer is a separate loop that reads the setting each time it wakes. A change applies without a restart.
 
 It never watches the folder. OS file events are unreliable on large synced folders, network shares and Docker bind mounts, and need a handle per folder.
 
@@ -329,7 +340,7 @@ From the inventory of every caller of `get_image_store()`:
 - **Offline source.** A banner reads "Battle Maps isn't available", and originals can't be opened. Search, thumbnails and editing all work.
 - **Settings → Library** shows:
   - the folder's state;
-  - "Check for changes";
+  - "Check for changes", and how often to check (§4.3);
   - a missing count with "Remove missing maps";
   - "Stop using this folder", which removes that folder's maps from the library after confirming the count. This is the way out of linking the wrong folder.
 
@@ -405,7 +416,7 @@ Each phase leaves main working, but the feature ships as one PR from `feature/li
    - migration: `library_sources`, `source_files`, `images.source_file_id`, nullable `storage_key`, `import_items.source_file_id`;
    - the source interface, the walker shared with local import, scan and diff;
    - processing linked items, moves and duplicates, write-back to `source_files`;
-   - scans at startup, every 15 minutes, on window focus (a desktop IPC event to a scan endpoint, rate-limited to once a minute) and on demand, never two at once;
+   - scans at startup, on the `linked_rescan_minutes` timer (a setting, default 15), on window focus (a desktop IPC event to a scan endpoint, rate-limited to once a minute) and on demand, never two at once;
    - offline and detached states.
 3. **Everything that touches originals** (backend): the §4.6 table, including the two deletion bugs, `file_state` in the API, purge, export, removing images and "Stop using this folder".
 4. **Electron:**
