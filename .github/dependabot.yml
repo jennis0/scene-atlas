@@ -66,7 +66,7 @@ updates:
         patterns: ["*"]
 
   # The image's Python and Node versions move together with CI, the release build and
-  # .python-version/.nvmrc, which Dependabot can't do, and CI doesn't build the image.
+  # .python-version/.nvmrc, which Dependabot can't do, and PR CI doesn't build the image.
   - package-ecosystem: docker
     directory: "/"
     schedule:
