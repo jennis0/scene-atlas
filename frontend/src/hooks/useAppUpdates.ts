@@ -3,10 +3,10 @@ import type { AppUpdateState } from '@/electron'
 
 /**
  * The desktop app's update state, kept current (design/electron.md#updates). The state is
- * null outside the desktop app, in a dev build, and until the main process has answered.
+ * undefined outside the desktop app, in a dev build, and until the main process has answered.
  */
 export function useAppUpdates() {
-  const [state, setState] = useState<AppUpdateState | null>(null)
+  const [state, setState] = useState<AppUpdateState>()
 
   useEffect(() => {
     const api = window.electronAPI
@@ -23,18 +23,17 @@ export function useAppUpdates() {
     }
   }, [])
 
-  const keep = useCallback((next: AppUpdateState | null) => {
-    if (next) setState(next)
-  }, [])
+  // The main process answers null before the updater has started: keep what we have.
   const check = useCallback(() => {
-    void window.electronAPI?.checkForUpdates().then(keep)
-  }, [keep])
-  const setEnabled = useCallback(
-    (enabled: boolean) => {
-      void window.electronAPI?.setUpdatesEnabled(enabled).then(keep)
-    },
-    [keep],
-  )
+    void window.electronAPI?.checkForUpdates().then((next) => {
+      if (next) setState(next)
+    })
+  }, [])
+  const setEnabled = useCallback((enabled: boolean) => {
+    void window.electronAPI?.setUpdatesEnabled(enabled).then((next) => {
+      if (next) setState(next)
+    })
+  }, [])
   const install = useCallback(() => {
     void window.electronAPI?.installUpdate()
   }, [])
@@ -43,7 +42,7 @@ export function useAppUpdates() {
   }, [])
 
   return {
-    state: state?.status === 'unsupported' ? null : state,
+    state: state?.status === 'unsupported' ? undefined : state,
     check,
     setEnabled,
     install,

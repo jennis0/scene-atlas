@@ -74,7 +74,7 @@ export class Updater {
   private firstCheck: NodeJS.Timeout | null = null
   private interval: NodeJS.Timeout | null = null
   private readonly log: ReturnType<typeof fileLogger>
-  private readonly updater: AppUpdater | null = null
+  private readonly updater?: AppUpdater
 
   constructor(private readonly options: UpdaterOptions) {
     this.log = fileLogger(options.logPath)

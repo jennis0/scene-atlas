@@ -1,5 +1,6 @@
 // Native folder and file pickers: the storage folders (setup and Settings) and local
-// imports. main.ts registers the IPC that opens them.
+// imports. main.ts registers the IPC that opens them; each picker opens over the window
+// that asked, or on its own if that window has gone.
 import { app, BrowserWindow, dialog } from 'electron'
 import { hasForeignEntries } from './storageDirs'
 
@@ -7,22 +8,38 @@ export type StorageKind = 'appData' | 'imageLibrary'
 
 const IMPORT_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'webm', 'zip']
 
-async function pickDirectory(
-  win: BrowserWindow | null,
-  title: string,
-  defaultPath?: string,
-): Promise<string | null> {
-  const options: Electron.OpenDialogOptions = {
-    title,
-    // Electron 43+ opens dialogs in Downloads unless given a starting folder.
-    defaultPath: defaultPath ?? app.getPath('home'),
-    properties: ['openDirectory', 'createDirectory'],
-    buttonLabel: 'Select Folder',
-  }
+/** The chosen paths; empty when cancelled. */
+async function openDialog(
+  sender: Electron.WebContents,
+  options: Electron.OpenDialogOptions,
+): Promise<string[]> {
+  const win = BrowserWindow.fromWebContents(sender)
   const result = win
     ? await dialog.showOpenDialog(win, options)
     : await dialog.showOpenDialog(options)
-  return result.canceled ? null : result.filePaths[0]
+  return result.canceled ? [] : result.filePaths
+}
+
+/** Whether the user still wants a folder that already holds other files. */
+async function confirmForeignFolder(
+  sender: Electron.WebContents,
+  detail: string,
+): Promise<boolean> {
+  const win = BrowserWindow.fromWebContents(sender)
+  const options: Electron.MessageBoxOptions = {
+    type: 'warning',
+    title: 'Folder is not empty',
+    message: 'This folder already has other files in it.',
+    detail,
+    buttons: ['Choose Another Folder', 'Use This Folder'],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+  }
+  const { response } = win
+    ? await dialog.showMessageBox(win, options)
+    : await dialog.showMessageBox(options)
+  return response === 1
 }
 
 function storagePicker(kind: StorageKind): { title: string; foreignDetail: string } {
@@ -46,38 +63,38 @@ function storagePicker(kind: StorageKind): { title: string; foreignDetail: strin
 }
 
 /** Pick a storage folder, warning when it already holds files Scene Atlas didn't create
- * (most likely the user's existing collection, design/electron.md). Null when cancelled. */
+ * (most likely the user's existing collection, design/electron.md). Null when cancelled,
+ * and when a dialog fails: the user can just try again. */
 export async function pickStorageDir(
-  win: BrowserWindow | null,
+  sender: Electron.WebContents,
   kind: StorageKind,
   defaultPath?: string,
   otherRoot?: string,
 ): Promise<string | null> {
   const { title, foreignDetail } = storagePicker(kind)
-  for (;;) {
-    const chosen = await pickDirectory(win, title, defaultPath)
-    if (!chosen || !hasForeignEntries(chosen, otherRoot)) return chosen
-    const options: Electron.MessageBoxOptions = {
-      type: 'warning',
-      title: 'Folder is not empty',
-      message: 'This folder already has other files in it.',
-      detail: foreignDetail,
-      buttons: ['Choose Another Folder', 'Use This Folder'],
-      defaultId: 0,
-      cancelId: 0,
-      noLink: true,
+  try {
+    for (;;) {
+      const [chosen] = await openDialog(sender, {
+        title,
+        // Electron 43+ opens dialogs in Downloads unless given a starting folder.
+        defaultPath: defaultPath ?? app.getPath('home'),
+        properties: ['openDirectory', 'createDirectory'],
+        buttonLabel: 'Select Folder',
+      })
+      if (!chosen || !hasForeignEntries(chosen, otherRoot)) return chosen ?? null
+      if (await confirmForeignFolder(sender, foreignDetail)) return chosen
+      defaultPath = chosen
     }
-    const { response } = win
-      ? await dialog.showMessageBox(win, options)
-      : await dialog.showMessageBox(options)
-    if (response === 1) return chosen
-    defaultPath = chosen
+  } catch (err) {
+    console.error('[electron] Folder picker failed:', err)
+    return null
   }
 }
 
-/** Files and folders to import (design/local-ingest.md). Empty when cancelled. */
+/** Files and folders to import (design/local-ingest.md). Empty when cancelled, and when
+ * the dialog fails. */
 export async function pickImportPaths(
-  win: BrowserWindow | null,
+  sender: Electron.WebContents,
   kind: 'folders' | 'files',
 ): Promise<string[]> {
   const options: Electron.OpenDialogOptions =
@@ -89,8 +106,10 @@ export async function pickImportPaths(
           filters: [{ name: 'Images, videos and zips', extensions: IMPORT_EXTENSIONS }],
         }
   options.buttonLabel = 'Import'
-  const result = win
-    ? await dialog.showOpenDialog(win, options)
-    : await dialog.showOpenDialog(options)
-  return result.canceled ? [] : result.filePaths
+  try {
+    return await openDialog(sender, options)
+  } catch (err) {
+    console.error('[electron] Import picker failed:', err)
+    return []
+  }
 }

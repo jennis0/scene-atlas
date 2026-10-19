@@ -184,7 +184,7 @@ handleTrusted('setup:get-default-dirs', () => getDefaultDirs())
 handleTrusted('setup:choose-directory', (event, kind, currentDir, otherRoot) => {
   if (kind !== 'appData' && kind !== 'imageLibrary') throw new Error('Invalid storage kind')
   return pickStorageDir(
-    BrowserWindow.fromWebContents(event.sender),
+    event.sender,
     kind,
     isAbsolutePath(currentDir) ? currentDir : undefined,
     isAbsolutePath(otherRoot) ? otherRoot : undefined,
@@ -209,19 +209,15 @@ handleTrusted('setup:complete', (_event, appDataDir, imageLibraryDir) => {
   return { error: null }
 })
 
-handleTrusted('imports:choose-folders', (event) =>
-  pickImportPaths(BrowserWindow.fromWebContents(event.sender), 'folders'),
-)
-handleTrusted('imports:choose-files', (event) =>
-  pickImportPaths(BrowserWindow.fromWebContents(event.sender), 'files'),
-)
+handleTrusted('imports:choose-folders', (event) => pickImportPaths(event.sender, 'folders'))
+handleTrusted('imports:choose-files', (event) => pickImportPaths(event.sender, 'files'))
 
 handleTrusted('system:get-app-data-dir', () => currentAppDataDir)
 handleTrusted('system:get-image-library-dir', () => currentImageLibraryDir)
 
 handleTrusted('system:choose-app-data-dir', (event) =>
   pickStorageDir(
-    BrowserWindow.fromWebContents(event.sender),
+    event.sender,
     'appData',
     currentAppDataDir ?? getDefaultDirs().appDataDir,
     currentImageLibraryDir ?? undefined,
@@ -230,7 +226,7 @@ handleTrusted('system:choose-app-data-dir', (event) =>
 
 handleTrusted('system:choose-image-library-dir', (event) =>
   pickStorageDir(
-    BrowserWindow.fromWebContents(event.sender),
+    event.sender,
     'imageLibrary',
     currentImageLibraryDir ?? getDefaultDirs().imageLibraryDir,
     currentAppDataDir ?? undefined,
