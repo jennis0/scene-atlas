@@ -8,6 +8,7 @@ scales to O(100k+) images, and the interface is designed to be
 swappable to S3/MinIO later.
 """
 
+import os
 import shutil
 from pathlib import Path
 
@@ -45,6 +46,21 @@ class ImageStore:
     def get_path(self, key: str) -> Path:
         """Resolve a storage key to its filesystem path."""
         return self._key_to_path(key)
+
+    def stat(self, key: str) -> os.stat_result | None:
+        """The stored file's size and modification time, or None if it isn't there."""
+        try:
+            return self._key_to_path(key).stat()
+        except OSError:
+            return None
+
+    def local_path(self, key: str) -> Path:
+        """The stored file to read (the source interface, ``services.originals``). Raises
+        ``FileNotFoundError`` if it isn't there."""
+        path = self._key_to_path(key)
+        if not path.is_file():
+            raise FileNotFoundError(path)
+        return path
 
     def exists(self, key: str) -> bool:
         """Check if a key exists in the store."""
