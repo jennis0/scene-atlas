@@ -224,30 +224,12 @@ describe('UpdateNotifier', () => {
 })
 
 describe('UpdateNotifier on a server', () => {
-  it('announces a new version once per browser, linking to its release notes', async () => {
+  // Most people behind a server's proxy can't upgrade it: Settings shows the update instead
+  it('stays quiet', async () => {
     getUpdates.mockResolvedValue(SERVER_AVAILABLE)
-    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
-    const first = render(<UpdateNotifier />)
-    await waitFor(() => expect(toastInfo).toHaveBeenCalledTimes(1))
-    expect(toastInfo).toHaveBeenCalledWith(
-      'Scene Atlas 0.3.0 is out',
-      expect.objectContaining({ action: expect.objectContaining({ label: 'Release notes' }) }),
-    )
-    toastInfo.mock.calls[0][1].action.onClick()
-    expect(open).toHaveBeenCalledWith(`${RELEASES}/tag/v0.3.0`, '_blank', 'noopener,noreferrer')
-    first.unmount()
-
-    // A reload doesn't repeat it
     render(<UpdateNotifier />)
-    await waitFor(() => expect(getUpdates).toHaveBeenCalledTimes(2))
-    expect(toastInfo).toHaveBeenCalledTimes(1)
-    open.mockRestore()
-  })
-
-  it('stays quiet when up to date or checks are off', async () => {
-    getUpdates.mockResolvedValue({ ...SERVER, status: 'disabled', checks_enabled: false })
-    render(<UpdateNotifier />)
-    await waitFor(() => expect(getUpdates).toHaveBeenCalled())
+    await act(async () => {})
+    expect(getUpdates).not.toHaveBeenCalled()
     expect(toastInfo).not.toHaveBeenCalled()
   })
 })
