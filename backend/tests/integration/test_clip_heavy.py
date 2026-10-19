@@ -16,6 +16,7 @@ Requires ONNX models to be exported first:
     uv run python -m scripts.models.export_model_onnx large
 """
 
+import os
 from pathlib import Path
 
 import numpy as np
@@ -30,7 +31,29 @@ _MODEL_SPECS = {
     "large": {"embedding_dim": 1152, "vision_quant": "fp16", "text_quant": "fp16"},
 }
 
-_MODELS_ROOT = Path(__file__).parent.parent.parent / "models"
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+# Where models live, since conftest points APP_DATA_DIR (CLIPService's default) at a
+# throwaway folder: downloaded by scripts/models/setup_models.py into ./data/models (as
+# the Release workflow does), or exported into backend/models.
+_MODEL_ROOTS = (_REPO_ROOT / "data" / "models", _REPO_ROOT / "backend" / "models")
+
+
+def _model_dir(name: str) -> Path | None:
+    for root in _MODEL_ROOTS:
+        if (root / name / "manifest.json").exists():
+            return root / name
+    return None
+
+
+def _require_model_dir(name: str) -> Path:
+    """The model's folder; skips locally without it, but fails on CI, which downloads it."""
+    found = _model_dir(name)
+    if found is None:
+        where = " or ".join(str(root / name) for root in _MODEL_ROOTS)
+        if os.environ.get("CI"):
+            pytest.fail(f"Model '{name}' not found at {where}")
+        pytest.skip(f"Model '{name}' not found at {where}")
+    return found
 
 
 @pytest.fixture(scope="session")
@@ -41,9 +64,10 @@ def clip_service():
     ``get_clip_service()`` work without needing ``start_clip_background_load()``.
     """
     import backend.app.services.clip_service as clip_mod
-    from backend.app.services.clip_service import CLIPService
+    from backend.app.services.clip_service import CLIPService, _get_active_model_name
 
-    service = CLIPService(device="cpu")
+    models_dir = _require_model_dir(_get_active_model_name())
+    service = CLIPService(models_dir=models_dir, device="cpu")
 
     # Prime the singleton so get_clip_service() returns this instance
     clip_mod._clip_service = service
@@ -159,9 +183,10 @@ def named_model_service(request):
     from backend.app.services.clip_service import CLIPService
 
     model_name = request.param
-    models_dir = _MODELS_ROOT / model_name
-    if not models_dir.exists():
-        pytest.skip(f"Model '{model_name}' not found at {models_dir}")
+    models_dir = _model_dir(model_name)
+    if models_dir is None:
+        # Only the active model is downloaded on CI, so a missing one is a skip there too.
+        pytest.skip(f"Model '{model_name}' not downloaded or exported")
     return model_name, CLIPService(models_dir=models_dir, device="cpu")
 
 
