@@ -18,7 +18,7 @@ There is a single installer per platform; the Windows build includes DirectML su
 
 **Windows:** Run `Scene-Atlas-Setup-<version>.exe`. A desktop shortcut and Start Menu entry are created automatically. The installer isn't code-signed yet, so Windows SmartScreen may warn about an unrecognised app: choose **More info**, then **Run anyway**.
 
-**macOS:** Open the DMG and drag Scene Atlas to Applications.
+**macOS:** Open the DMG and drag Scene Atlas to Applications. The app isn't signed or notarized yet, so macOS blocks the first launch: open it once, then go to **System Settings → Privacy & Security** and choose **Open Anyway**.
 
 **Linux:** Make the AppImage executable (`chmod +x Scene-Atlas-*.AppImage`) and run it, or install the `.deb` with `sudo dpkg -i Scene-Atlas-*.deb`.
 

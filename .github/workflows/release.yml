@@ -319,7 +319,10 @@ jobs:
 
       # ── Build Electron app ───────────────────────────────────────────────
       # Signed (macOS) whether or not this run publishes, so the artifacts verified
-      # in a dry run are the ones that get released.
+      # in a dry run are the ones that get released. Unsigned while the signing secrets
+      # aren't set: an unset secret arrives as an empty string, which electron-builder
+      # reads as a path (CSC_LINK="" fails with "<repo> not a file"), so empty ones are
+      # unset first.
       - name: Build Electron app
         env:
           TARGET_PLATFORM: ${{ matrix.platform }}
@@ -329,7 +332,14 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         shell: bash
-        run: uv run --no-project python scripts/build/build_electron.py --skip-sidecar --skip-frontend --platform "$TARGET_PLATFORM"
+        run: |
+          for var in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            [ -n "${!var}" ] || unset "$var"
+          done
+          if [ "$TARGET_PLATFORM" = macos ] && [ -z "${CSC_LINK:-}" ]; then
+            echo "::warning::macOS signing secrets not set; the app will be unsigned and not notarized"
+          fi
+          uv run --no-project python scripts/build/build_electron.py --skip-sidecar --skip-frontend --platform "$TARGET_PLATFORM"
 
       # The packaged app's windows and sidecar lifecycle (e2e/packaged). Windows only
       # for now: the specs are cross-platform but have only been run there.
