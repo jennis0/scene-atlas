@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron'
 
 // Remember the last error so a subscriber that registers after it arrived still
 // receives it. The main process re-sends it on every page load.
@@ -18,6 +18,17 @@ try {
 } catch {
   // Main process unavailable: the UI falls back to its localStorage
 }
+
+// Zoom (frontend/src/lib/zoom.ts): a percentage display choice, applied here so the page
+// paints at it from the start. A sandboxed preload can't import displayPrefs.ts, hence the
+// key and range here.
+const ZOOM_PREF_KEY = 'scene-atlas-zoom'
+function zoomFactor(percent: unknown): number | null {
+  const value = Number(percent)
+  return Number.isFinite(value) && value >= 50 && value <= 300 ? value / 100 : null
+}
+const savedZoom = zoomFactor(displayPrefs[ZOOM_PREF_KEY])
+if (savedZoom !== null) webFrame.setZoomFactor(savedZoom)
 
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
@@ -55,4 +66,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
   chooseImportFolders: (): Promise<string[]> => ipcRenderer.invoke('imports:choose-folders'),
   chooseImportFiles: (): Promise<string[]> => ipcRenderer.invoke('imports:choose-files'),
+
+  setZoom: (percent: number): void => {
+    const factor = zoomFactor(percent)
+    if (factor !== null) webFrame.setZoomFactor(factor)
+  },
 })

@@ -98,7 +98,7 @@ Every handler is registered through `handleTrusted()`, which rejects calls whose
 | `system:change-storage-dirs` | renderer → main | Validates and prepares the new roots, saves config, stops the sidecar, relaunches the app. Resolves with `{ error }` only if the new locations are rejected |
 | `prefs:get-sync` | preload → main | Synchronous (`sendSync`), once per page load: the config's `displayPrefs`, exposed as `electronAPI.displayPrefs` |
 | `prefs:set` | renderer → main | `(key, value)`: saves one display choice (validated); the theme also sets `nativeTheme.themeSource` |
-| `window:set-colors` | renderer → main | `{ background, foreground }` hex: sets the window background and the Windows/Linux title-bar overlay, and saves them for the next launch |
+| `window:set-colors` | renderer → main | `{ background, foreground }` hex: sets the window background and the Windows title-bar overlay, and saves them for the next launch |
 
 ### Preload API Surface
 
@@ -128,13 +128,31 @@ Imports name local files by path ([local-ingest.md](local-ingest.md)): the prelo
 
 In dev mode the sidecar is not spawned — the developer runs the backend on port 8000.
 
-## Borderless Window
+## Window Frame
 
-Uses platform-specific titlebar:
-- **macOS:** `titleBarStyle: 'hiddenInset'` (native traffic lights)
-- **Windows/Linux:** `titleBarStyle: 'hidden'` with `titleBarOverlay` (system buttons drawn by Electron: `#0e1118` background, `#ede8dc` symbols, 32px high)
+`frameOptions()` in `main.ts`; the frontend's counterpart is `windowChrome` in `frontend/src/lib/appMode.ts`.
 
-The frontend reserves top padding for the window controls drag region.
+| Platform | Frame | Title bar drawn by |
+|---|---|---|
+| macOS | `titleBarStyle: 'hiddenInset'` | The page (gallery header, `WindowDragBar`), around the native traffic lights |
+| Windows | `titleBarStyle: 'hidden'` with `titleBarOverlay` (32px, the UI's background and text colours) | The page, beside Electron's caption buttons |
+| Linux | The window manager's own frame | The system |
+
+Linux kept the borderless overlay until 2026-10-19 ([ADR-022](decisions.md#adr-022-system-title-bar-on-linux-and-desktop-zoom)). Electron draws GNOME-style (Adwaita) caption buttons there, circles that look wrong on any other desktop, and a system frame matches the desktop's theme and scaling. On macOS and Windows, pages mark drag regions (`isFrameless`); on Linux they don't need to, and the gallery header drops the overlay's top band.
+
+### Zoom
+
+Settings → Appearance → Zoom (80–200%, desktop only: a browser has its own) and Ctrl + / − / 0 (⌘ on macOS). It scales the whole page, images included; Text size scales only text and its spacing. Kept as the `scene-atlas-zoom` display choice ([first-run.md](first-run.md#desktop-display-choices-and-window-colours)), not Chromium's per-origin zoom, which is lost whenever the backend's port changes.
+
+- The preload applies the saved zoom with `webFrame.setZoomFactor` before the page paints (the loading page too), and exposes `setZoom(percent)`.
+- `frontend/src/lib/zoom.ts` keeps the level and handles the shortcuts (`zoomStepForKey`, a `keydown` listener that prevents the default), for the Settings control and the keys alike.
+- The page, not the main process, handles the keys: Playwright's key presses (CDP) skip `before-input-event`, so a main-process handler couldn't be tested, and the menus have no zoom items to clash with ([Menus](#menus)).
+
+### Menus
+
+`removeMenu()` and `setMacMenu()` in `main.ts`. Electron's default menu had zoom shortcuts that changed the zoom without saving it, plus Reload and Toggle Developer Tools, which a release shouldn't offer. Windows and Linux windows have no menu (Chromium handles copy, paste and undo itself; on Linux the frame would show the menu as a bar). macOS keeps the app, Edit and Window menus, and View with full screen only. In dev, F12 still opens DevTools.
+
+**HiDPI.** Electron follows the desktop's scale on Linux (Wayland, or `Xft.dpi`/`GDK_SCALE` on X11). WSLg reports none: a 4K screen arrives as 3840×2160 at scale 1, so Linux apps there are tiny. That's the WSL setup, not the app: set `GDK_SCALE=2` in WSL ([building.md](../docs/development/building.md)), or use Zoom.
 
 ## Build & Packaging
 

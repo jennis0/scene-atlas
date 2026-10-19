@@ -96,6 +96,36 @@ test("serves the UI from the backend; closing the window stops the backend", asy
   expect(backendAppLog(profile.appData)).toContain("Shutdown complete");
 });
 
+test("zoom applies at once, follows the shortcuts and comes back at the next launch", async () => {
+  profile = makeProfile(true);
+  const app = await launch(profile);
+  const page = await waitForBackendUi(app.browser);
+  // Chromium folds the zoom into devicePixelRatio.
+  const dpr = () => page.evaluate(() => window.devicePixelRatio);
+  const base = await dpr();
+
+  await page.evaluate(() => {
+    const api = (window as any).electronAPI;
+    api.setDisplayPref("scene-atlas-zoom", "150");
+    api.setZoom(150);
+  });
+  await expect.poll(dpr).toBeCloseTo(base * 1.5);
+
+  // The main process catches Ctrl (Cmd) + 0 before the page and the default menu.
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+0" : "Control+0");
+  await expect.poll(dpr).toBeCloseTo(base);
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+=" : "Control+=");
+  await expect.poll(dpr).toBeCloseTo(base * 1.1);
+
+  await page.evaluate(() => window.close());
+  await waitUntil("app to quit", () => !isAlive(app.child.pid!), 30_000);
+
+  // The preload applies the saved zoom before the page paints.
+  const again = await launch(profile);
+  const relaunched = await waitForBackendUi(again.browser);
+  expect(await relaunched.evaluate(() => window.devicePixelRatio)).toBeCloseTo(base * 1.1);
+});
+
 test("the backend doesn't outlive a killed app", async () => {
   profile = makeProfile(true);
   const app = await launch(profile);

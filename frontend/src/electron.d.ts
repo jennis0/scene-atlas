@@ -34,6 +34,10 @@ interface ElectronAPI {
   /** Native pickers; resolve to [] when cancelled. */
   chooseImportFolders(): Promise<string[]>
   chooseImportFiles(): Promise<string[]>
+
+  // Zoom (lib/zoom.ts)
+  /** Zoom the page to this percentage (50–300) */
+  setZoom(percent: number): void
 }
 
 declare global {

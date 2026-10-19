@@ -4,6 +4,7 @@ import {
   dialog,
   ipcMain,
   IpcMainInvokeEvent,
+  Menu,
   nativeTheme,
   shell,
 } from 'electron'
@@ -24,6 +25,7 @@ import { hasForeignEntries, prepareStorageDirs } from './storageDirs'
 const isDev = !app.isPackaged
 const isMac = process.platform === 'darwin'
 const isWindows = process.platform === 'win32'
+const isLinux = process.platform === 'linux'
 const DEV_SERVER_URL = 'http://localhost:5173'
 // A stable port keeps the UI's origin, and so its localStorage, the same across launches.
 const PREFERRED_PORT = 47816
@@ -66,13 +68,19 @@ function windowColors(): { background: string; foreground: string } {
     : { background: '#eee9e2', foreground: '#2b2622' }
 }
 
-/** Borderless window config: hiddenInset on macOS, hidden + overlay on Win/Linux. */
-function borderlessOptions(): Partial<Electron.BrowserWindowConstructorOptions> {
+/**
+ * The window frame (design/electron.md#window-frame): borderless with the traffic lights
+ * inset on macOS, borderless with Electron's caption buttons on Windows. Linux keeps the
+ * window manager's title bar, which matches the desktop and its scaling; Electron draws
+ * GNOME-style buttons there that look wrong on any other desktop.
+ */
+function frameOptions(): Partial<Electron.BrowserWindowConstructorOptions> {
   const { background, foreground } = windowColors()
+  if (isLinux) return { backgroundColor: background }
   return {
     backgroundColor: background,
     titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
-    ...(!isMac && {
+    ...(isWindows && {
       titleBarOverlay: {
         color: background,
         symbolColor: foreground,
@@ -80,6 +88,29 @@ function borderlessOptions(): Partial<Electron.BrowserWindowConstructorOptions> 
       },
     }),
   }
+}
+
+/**
+ * Menus (design/electron.md#menus). Electron's default menu has zoom shortcuts of its own,
+ * which change the zoom without saving it (the UI keeps zoom: lib/zoom.ts), and Reload and
+ * Toggle Developer Tools, which a release shouldn't have. Windows and Linux need no menu:
+ * Chromium handles copy and paste itself, and on Linux the frame would show it as a bar.
+ * macOS needs one for the app, Edit and Window commands, so it gets those only.
+ */
+function removeMenu(win: BrowserWindow): void {
+  if (!isMac) win.removeMenu()
+}
+
+function setMacMenu(): void {
+  if (!isMac) return
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      { role: 'appMenu' },
+      { role: 'editMenu' },
+      { label: 'View', submenu: [{ role: 'togglefullscreen' }] },
+      { role: 'windowMenu' },
+    ]),
+  )
 }
 
 const LOADING_PAGE = path.join(__dirname, '..', 'loading.html')
@@ -261,7 +292,8 @@ handleTrusted('window:set-colors', (event, raw) => {
   const win = BrowserWindow.fromWebContents(event.sender)
   if (!colors || !win) return
   win.setBackgroundColor(colors.background)
-  if (!isMac) win.setTitleBarOverlay({ color: colors.background, symbolColor: colors.foreground })
+  if (isWindows)
+    win.setTitleBarOverlay({ color: colors.background, symbolColor: colors.foreground })
   const saved = loadConfig()?.windowColors
   if (saved?.background !== colors.background || saved?.foreground !== colors.foreground) {
     updateConfig({ windowColors: colors })
@@ -353,7 +385,7 @@ function showSetupWindow(): void {
     resizable: true,
     minWidth: 520,
     minHeight: 560,
-    ...borderlessOptions(),
+    ...frameOptions(),
     webPreferences: {
       preload: path.join(__dirname, 'setup.preload.js'),
       contextIsolation: true,
@@ -363,6 +395,7 @@ function showSetupWindow(): void {
   })
 
   hardenWindow(setupWindow)
+  removeMenu(setupWindow)
   setupWindow.loadFile(path.join(__dirname, '..', 'setup.html'))
 
   setupWindow.on('closed', () => {
@@ -377,7 +410,7 @@ function createMainWindow(): BrowserWindow {
     height: 900,
     minWidth: 900,
     minHeight: 600,
-    ...borderlessOptions(),
+    ...frameOptions(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -387,6 +420,7 @@ function createMainWindow(): BrowserWindow {
   })
 
   hardenWindow(win)
+  removeMenu(win)
 
   win.webContents.on('did-finish-load', () => {
     if (backendError !== null) win.webContents.send('backend-error', backendError)
@@ -584,7 +618,9 @@ app.on('second-instance', () => {
 })
 
 app.whenReady().then(() => {
-  if (hasInstanceLock) start()
+  if (!hasInstanceLock) return
+  setMacMenu()
+  start()
 })
 
 app.on('window-all-closed', () => {

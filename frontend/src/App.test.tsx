@@ -4,10 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { modelsApi, type SetupStatus } from './lib/api/modelsApi'
 import App from './App'
 
-const mode = vi.hoisted(() => ({ isApp: false }))
+const mode = vi.hoisted(() => ({ isApp: false, hasTitleBar: false }))
 vi.mock('./lib/appMode', () => ({
   get isApp() {
     return mode.isApp
+  },
+  get isFrameless() {
+    return mode.isApp && !mode.hasTitleBar
   },
 }))
 vi.mock('./lib/api/modelsApi', () => ({ modelsApi: { setupStatus: vi.fn() } }))
@@ -75,8 +78,9 @@ describe('App first-run gate', () => {
   })
 })
 
-// The desktop window has no title bar: every screen needs a drag region, or the window
-// can't be moved. The gallery header has its own; every other screen gets the strip.
+// The desktop window has no title bar on Windows and macOS: every screen needs a drag
+// region, or the window can't be moved. The gallery header has its own; every other
+// screen gets the strip.
 describe('App window drag strip (desktop)', () => {
   beforeEach(() => {
     setupStatus.mockReset()
@@ -84,6 +88,15 @@ describe('App window drag strip (desktop)', () => {
   })
   afterEach(() => {
     mode.isApp = false
+    mode.hasTitleBar = false
+  })
+
+  it('is not on Linux, where the window has a title bar', async () => {
+    mode.hasTitleBar = true
+    setupStatus.mockResolvedValue(status({ setup_completed: false }))
+    render(<App />)
+    await screen.findByText('setup wizard')
+    expect(screen.queryByTestId('window-drag-bar')).not.toBeInTheDocument()
   })
 
   it('is on the loading and setup screens', async () => {
