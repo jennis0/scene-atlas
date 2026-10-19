@@ -427,16 +427,18 @@ class TestRaiseDownloadErrorMapping:
             _raise_download_error,
         )
 
-        with socket.socket() as closed:  # bound but not listening: connections are refused
-            closed.bind(("127.0.0.1", 0))
-            endpoint = f"http://127.0.0.1:{closed.getsockname()[1]}"
-            with pytest.raises(Exception) as caught:
-                if call == "model_info":
-                    HfApi(endpoint=endpoint).model_info("org/repo", timeout=5)
-                else:
-                    snapshot_download(
-                        "org/repo", endpoint=endpoint, cache_dir=tmp_path, local_dir=tmp_path / "d"
-                    )
+        # A port that was free a moment ago, now closed: connections to it are refused. (Bound
+        # but not listening isn't enough: macOS drops those connections, so they time out.)
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            endpoint = f"http://127.0.0.1:{probe.getsockname()[1]}"
+        with pytest.raises(Exception) as caught:
+            if call == "model_info":
+                HfApi(endpoint=endpoint).model_info("org/repo", timeout=5)
+            else:
+                snapshot_download(
+                    "org/repo", endpoint=endpoint, cache_dir=tmp_path, local_dir=tmp_path / "d"
+                )
         with pytest.raises(ModelDownloadError, match="Could not connect"):
             _raise_download_error(caught.value, "org/repo")
 
