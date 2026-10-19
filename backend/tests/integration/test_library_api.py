@@ -6,7 +6,6 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -15,6 +14,7 @@ from backend.app import library_identity as li
 from backend.app.config import settings
 from backend.app.main import app
 from backend.app.storage_lock import LOCK_FILENAME
+from backend.tests.unit.test_library_identity import maps_folder
 
 BASE = "/api/v1/library"
 
@@ -24,17 +24,7 @@ def app_mode(monkeypatch):
     monkeypatch.setattr(settings, "app_mode", "app")
 
 
-def _maps(root: Path, count: int) -> Path:
-    for i in range(count):
-        path = root / "Author" / f"Map {i}.png"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b"x")
-    return root
-
-
-# ---------------------------------------------------------------------------
 # POST /library/inspect
-# ---------------------------------------------------------------------------
 
 
 def test_inspect_is_not_found_in_server_mode(test_client, tmp_path):
@@ -43,7 +33,7 @@ def test_inspect_is_not_found_in_server_mode(test_client, tmp_path):
 
 
 def test_inspect_counts_a_maps_folder(test_client, app_mode, tmp_path):
-    r = test_client.post(f"{BASE}/inspect", json={"linked": str(_maps(tmp_path / "Maps", 3))})
+    r = test_client.post(f"{BASE}/inspect", json={"linked": str(maps_folder(tmp_path / "Maps", 3))})
     assert r.status_code == 200, r.text
     assert r.json() == {
         "outcome": "new",
@@ -68,9 +58,7 @@ def test_inspect_needs_absolute_paths(test_client, app_mode):
     assert r.status_code == 422
 
 
-# ---------------------------------------------------------------------------
 # GET /library/status
-# ---------------------------------------------------------------------------
 
 
 def test_status_without_a_linked_folder(test_client, tmp_db):
@@ -94,9 +82,7 @@ def test_status_names_the_linked_folder(test_client, monkeypatch, tmp_path, mode
     assert test_client.get(f"{BASE}/status").json()["linked"]["state"] == "online"
 
 
-# ---------------------------------------------------------------------------
 # Startup
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -146,9 +132,7 @@ def test_startup_refuses_a_store_containing_the_linked_folder(roots, monkeypatch
         pass
 
 
-# ---------------------------------------------------------------------------
 # Purge
-# ---------------------------------------------------------------------------
 
 
 def test_purge_rewrites_the_store_marker(test_client, tmp_db):

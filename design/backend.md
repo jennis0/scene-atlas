@@ -262,10 +262,10 @@ When `frontend/dist` exists, `/assets` is served statically and a catch-all rout
 ## Services
 
 ### ImageStore
-Hash-sharded object store: `put(key, path)`, `put_bytes(key, data)`, `get_path(key)`, `stat(key)`, `local_path(key)`, `exists(key)`, `delete(key)`. Two instances: images (library root) and thumbnails. Creating one doesn't create its root: the startup check decides when a store may be created. See [storage.md](storage.md).
+Hash-sharded object store: `put(key, path)`, `put_bytes(key, data)`, `get_path(key)`, `local_path(key)`, `exists(key)`, `delete(key)`. Two instances: images (library root) and thumbnails. Creating one doesn't create its root: the startup check decides when a store may be created. See [storage.md](storage.md).
 
 ### Originals (`originals.py`)
-The source interface: `original_path(image)` reads any original, from the store or the linked folder, and raises `OriginalUnavailable` (`missing` → 404, `offline` → 503 with the reason). `LinkedFolder` (`list`, `stat`, `local_path` with the containment check; no `put` or `delete`) is the only way to the linked folder's files. `Image.file_state` (`ok | missing | offline`) is in every image response. See [storage.md](storage.md#linked-folder).
+The source interface: `original_path(image)` reads any original, from the store or the linked folder, and raises `OriginalUnavailable` (`missing` → 404, `offline` → 503 with the reason). `LinkedFolder` (`list`, `local_path` with the containment check; no `put` or `delete`) is the only way to the linked folder's files. `Image.file_state` (`ok | missing | offline`) is in every image response. See [storage.md](storage.md#linked-folder).
 
 ### Linked folder (`linked_files.py`, `pipeline/linked_scan.py`)
 `linked_scan` scans the linked folder (one at a time, in a thread; at startup, on the `linked_rescan_minutes` timer, and on `POST /library/scan`) and queues new files as one sealed import job. `linked_files` keeps `source_files` in step: item outcomes, moves, removed images. See [ingestion.md §5.7](ingestion.md#57-linked-items).

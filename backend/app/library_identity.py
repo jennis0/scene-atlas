@@ -247,13 +247,6 @@ def read_database(path: Path) -> DatabaseState | None:
         conn.close()
 
 
-def _holds_stored_files(store: Path, keys: tuple[str, ...]) -> bool:
-    from .services.image_store import ImageStore
-
-    files = ImageStore(store)
-    return any(files.get_path(key).is_file() for key in keys)
-
-
 def _store_in_linked(linked: Path) -> Path | None:
     """The store found in a linked folder: the folder itself, or its Scene Atlas
     subfolder, when it holds a store marker."""
@@ -274,6 +267,20 @@ class Found:
     database: DatabaseState | None  # None: no database (a new library)
     store_marker: Marker | None
     store_holds_files: bool  # some of the files the database references are in the store
+
+
+def _found(
+    database: DatabaseState | None, store: Path | None, store_marker: Marker | None
+) -> Found:
+    """What the rules need. The store is only searched for the database's files when it
+    has no marker to go by."""
+    from .services.image_store import ImageStore
+
+    holds = False
+    if database is not None and store is not None and store_marker is None:
+        files = ImageStore(store)
+        holds = any(files.get_path(key).is_file() for key in database.stored_keys)
+    return Found(database, store_marker, holds)
 
 
 @dataclass(frozen=True)
@@ -343,16 +350,11 @@ def check_library(*, app_data: Path, store: Path, linked: Path | None, database:
 
     Read-only. ``open_library`` finishes the job once the database is ready.
     """
-    state = read_database(database)
-    store_marker = read_marker(store)
-    holds = (
-        state is not None and store_marker is None and _holds_stored_files(store, state.stored_keys)
-    )
     decision = decide(
         app_data=app_data.resolve(),
         store=store.resolve(),
         linked=linked.resolve() if linked is not None else None,
-        found=Found(state, store_marker, holds),
+        found=_found(read_database(database), store, read_marker(store)),
     )
     if decision.refusal is not None:
         raise LibraryMismatchError(STARTUP_MESSAGES[decision.refusal])
@@ -374,7 +376,7 @@ def open_library(db: Session, *, app_data: Path, store: Path, linked: Path | Non
 
 
 @dataclass(frozen=True)
-class LinkedFolder:
+class LinkedSummary:
     kind: LinkedKind
     image_count: int
     capped: bool
@@ -391,19 +393,19 @@ class FoundLibrary:
 class Inspection:
     outcome: Outcome
     message: str | None  # the wizard's text: a refusal, or the "already has maps" warning
-    linked: LinkedFolder | None
+    linked: LinkedSummary | None
     library: FoundLibrary | None
     store_has_maps: bool
 
 
-def _inspect_linked(linked: Path, max_items: int) -> tuple[LinkedFolder, Path | None]:
+def _inspect_linked(linked: Path, max_items: int) -> tuple[LinkedSummary, Path | None]:
     from backend.pipeline.ingest_local import count_media
 
     store = _store_in_linked(linked)
     if store is not None:
-        return LinkedFolder("library", 0, False), store
+        return LinkedSummary("library", 0, False), store
     count, capped = count_media(linked, max_items) if linked.is_dir() else (0, False)
-    return LinkedFolder("maps" if count else "empty", count, capped), None
+    return LinkedSummary("maps" if count else "empty", count, capped), None
 
 
 def _has_maps(store: Path) -> bool:
@@ -432,7 +434,6 @@ def inspect_folders(
     store_marker = read_marker(store) if store is not None else None
     app_marker = read_marker(app_data) if app_data is not None else None
 
-    # The folders not given come from the found library's hints.
     hints: dict[str, str | None] = {}
     if store_marker is not None and store is not None:
         hints = marker_hints(store, store_marker)
@@ -453,14 +454,8 @@ def inspect_folders(
         logger.warning("Could not read the database in %s: %s", app_data, exc)
         return Inspection("error", WIZARD_DATABASE_UNREADABLE, linked_info, None, store_has_maps)
 
-    holds = (
-        state is not None
-        and store is not None
-        and store_marker is None
-        and _holds_stored_files(store, state.stored_keys)
-    )
     decision = decide(
-        app_data=app_data, store=store, linked=linked, found=Found(state, store_marker, holds)
+        app_data=app_data, store=store, linked=linked, found=_found(state, store, store_marker)
     )
 
     library = None

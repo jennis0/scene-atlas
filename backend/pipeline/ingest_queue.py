@@ -43,10 +43,16 @@ from backend.app.models import (
 from backend.app.services import ImageParser
 from backend.app.services import ingest_state as st
 from backend.app.services.ingest_state import ItemEvent
-from backend.app.services.linked_files import Version, move_if_missing, sync_files
+from backend.app.services.linked_files import Version, sync_files
 
 from .error_classifier import KIND_FILE, KIND_SYSTEM, KIND_TRANSIENT
-from .linked_refresh import KIND_REFRESH_GONE, REFRESH_GONE_REASON, RefreshTarget, load_targets
+from .linked_refresh import (
+    KIND_REFRESH_GONE,
+    REFRESH_GONE_REASON,
+    RefreshTarget,
+    load_targets,
+    refreshed_image,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -978,10 +984,6 @@ def record_early_duplicates(duplicates: list[EarlyDuplicate]) -> set[str]:
         settled = [items[d.item_id] for d in duplicates if items.get(d.item_id) is not None]
         versions = {d.item_id: d.source_version for d in duplicates if d.source_version}
         sync_files(db, settled, versions)
-        for item in settled:
-            # A linked image whose file is missing: this is its file, moved (§4.4)
-            if item.source_file_id is not None and item.duplicate_of_image_id is not None:
-                move_if_missing(db, item.duplicate_of_image_id, item.source_file_id)
         for job_id in job_ids:
             recompute_job_status(db, job_id)
     return job_ids
@@ -1006,10 +1008,11 @@ def finish_refresh_gone(item: ImportItem) -> None:
     item.error_reason = REFRESH_GONE_REASON
 
 
-def refresh_target_present(db: Session, image_id: int, file_id: int | None) -> bool:
-    """Whether the image a refresh targets still exists and is still that file's."""
-    image = db.get(Image, image_id)
-    return image is not None and file_id is not None and image.source_file_id == file_id
+def finish_committed(item: ImportItem, image_id: int, source_hash: str) -> None:
+    item.state = st.next_item_state(item.state, ItemEvent.COMMITTED)
+    item.image_id = image_id
+    item.source_hash = source_hash
+    item.error_kind = item.error_stage = item.error_reason = item.error_detail = None
 
 
 def record_refresh_unchanged(unchanged: list[RefreshUnchanged]) -> set[str]:
@@ -1032,13 +1035,10 @@ def record_refresh_unchanged(unchanged: list[RefreshUnchanged]) -> set[str]:
                 continue
             job_ids.add(item.job_id)
             settled.append(item)
-            if not refresh_target_present(db, entry.image_id, item.source_file_id):
+            if refreshed_image(db, entry.image_id, item.source_file_id) is None:
                 finish_refresh_gone(item)
-                continue
-            item.state = st.next_item_state(item.state, ItemEvent.COMMITTED)
-            item.image_id = entry.image_id
-            item.source_hash = entry.source_hash
-            item.error_kind = item.error_stage = item.error_reason = item.error_detail = None
+            else:
+                finish_committed(item, entry.image_id, entry.source_hash)
         sync_files(db, settled, {u.item_id: u.source_version for u in unchanged})
         for job_id in job_ids:
             recompute_job_status(db, job_id)

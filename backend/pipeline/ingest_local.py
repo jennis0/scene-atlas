@@ -126,13 +126,17 @@ def walk_files(top: Path) -> Iterator[os.DirEntry]:
         stack.extend(reversed(subfolders))
 
 
+def is_media(relative: str) -> bool:
+    """A supported image or video, not OS junk: what a linked folder offers."""
+    return not is_os_junk(relative) and kind_for_path(relative) in ("image", "video")
+
+
 def count_media(root: Path, limit: int) -> tuple[int, bool]:
     """How many supported images and videos are under the folder ``root``, junk left out:
     ``(count, capped)``, where ``capped`` means counting stopped at ``limit``."""
     count = 0
     for entry in walk_files(root):
-        relative = Path(entry.path).relative_to(root).as_posix()
-        if is_os_junk(relative) or kind_for_path(relative) not in ("image", "video"):
+        if not is_media(Path(entry.path).relative_to(root).as_posix()):
             continue
         if count == limit:
             return count, True

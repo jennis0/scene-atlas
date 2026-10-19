@@ -129,9 +129,7 @@ def touch(path: Path, mtime_ns: int) -> None:
     os.utime(path, ns=(mtime_ns, mtime_ns))
 
 
-# ---------------------------------------------------------------------------
 # The first scan
-# ---------------------------------------------------------------------------
 
 
 def test_first_scan_imports_the_folder_in_place(linked):
@@ -220,9 +218,7 @@ def test_a_no_change_rescan_of_a_large_folder_is_a_few_queries(linked, monkeypat
     assert elapsed < 10, elapsed
 
 
-# ---------------------------------------------------------------------------
 # Rescans: add, delete, move, edit
-# ---------------------------------------------------------------------------
 
 
 def test_added_files_join_their_pack(forest):
@@ -271,9 +267,7 @@ def test_a_moved_file_keeps_its_image(forest):
     assert forest.client.get(f"/api/v1/images/{image.id}/file").status_code == 200
 
 
-# ---------------------------------------------------------------------------
 # Edited files: refresh (§4.5)
-# ---------------------------------------------------------------------------
 
 DAY = "Czepeku/Forest/Forest_Day.png"
 NIGHT = "Czepeku/Forest/Forest_Night.png"
@@ -565,9 +559,7 @@ def test_the_source_tree_is_never_changed(linked):
     assert tree_digest(linked.root) == before
 
 
-# ---------------------------------------------------------------------------
 # Processing guards
-# ---------------------------------------------------------------------------
 
 
 def test_a_file_changed_while_read_is_read_again(linked, monkeypatch):
@@ -616,9 +608,7 @@ def test_a_key_outside_the_folder_is_never_read(linked, tmp_path):
     assert linked.client.get(f"/api/v1/images/{image_id}/file").status_code == 404
 
 
-# ---------------------------------------------------------------------------
 # Offline
-# ---------------------------------------------------------------------------
 
 
 def test_an_offline_folder_marks_nothing_missing(forest):
@@ -657,9 +647,7 @@ def test_a_scan_waits_while_its_folder_is_offline(linked):
     assert linked.api.detail(job_id)["counts"]["done"] == 1
 
 
-# ---------------------------------------------------------------------------
 # Removing images (§4.6, §4.7)
-# ---------------------------------------------------------------------------
 
 
 def test_a_removed_image_stays_removed(forest):
@@ -718,6 +706,24 @@ def test_stop_using_the_folder(forest):
     assert tree_digest(forest.root) == before
 
 
+def test_stop_using_waits_for_a_scan_or_a_batch_in_progress(forest, monkeypatch):
+    """Removing the folder's images under a running scan or commit would race them."""
+    scanner = linked_scan.get_linked_scanner()
+    monkeypatch.setattr(scanner, "_running", True)
+    assert forest.client.delete(f"{LIBRARY}/linked").status_code == 409
+    monkeypatch.setattr(scanner, "_running", False)
+
+    (forest.root / DAY).write_bytes(image_bytes(9))
+    job_id = forest.scan().job_id
+    with forest.api.SessionLocal() as db:  # its batch is being processed
+        db.query(ImportItem).filter(ImportItem.job_id == job_id).update({"state": st.PROCESSING})
+        db.commit()
+    assert forest.client.delete(f"{LIBRARY}/linked").status_code == 409
+    assert forest.jobs()[-1].status == st.JOB_CANCELLED  # the cancellation is kept
+    assert len(forest.images()) == 2
+    assert forest.status()["state"] == "online"
+
+
 def test_undo_is_refused_for_a_linked_scan(forest):
     job_id = forest.jobs()[0].id
     r = forest.client.delete(f"{BASE}/{job_id}")
@@ -757,9 +763,7 @@ def test_purge_never_touches_the_linked_folder(forest):
     assert forest.sync().new == 2
 
 
-# ---------------------------------------------------------------------------
 # The scan endpoint and startup
-# ---------------------------------------------------------------------------
 
 
 def test_scan_endpoint(linked):
@@ -868,6 +872,15 @@ def test_an_oversized_file_fails_without_being_read(linked):
     row = linked.rows()["A/Big.png"]
     assert (row.state, row.reason) == ("failed", q.OVERSIZED_REASON)
     assert linked.images() == {}
+
+
+def test_files_over_a_scans_limit_are_added_by_the_next_scan(linked, monkeypatch):
+    monkeypatch.setattr(settings, "max_local_import_items", 2)
+    write_tree(linked.root, {f"A/Map {i}.png": image_bytes(i + 1) for i in range(3)})
+    assert linked.sync().new == 2
+    assert linked.sync().new == 1
+    assert len(linked.images()) == 3
+    assert linked.sync().job_id is None
 
 
 def test_a_scan_interrupted_before_sealing_is_redone(linked, monkeypatch):

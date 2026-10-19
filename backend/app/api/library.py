@@ -8,9 +8,10 @@ from sqlalchemy.orm import Session
 
 from ...pipeline import ingest_queue as q
 from ...pipeline.ingest_worker import get_ingest_worker
-from ...pipeline.linked_scan import get_linked_scanner, linked_jobs_busy
+from ...pipeline.linked_scan import get_linked_scanner
 from ..config import settings
 from ..library_identity import get_library_id, inspect_folders
+from ..models import LibrarySource
 from ..models.database import SOURCE_DETACHED, SOURCE_OFFLINE, SOURCE_ONLINE
 from ..models.schemas import (
     InspectHints,
@@ -30,6 +31,7 @@ from ..services.linked_files import (
     current_source,
     detach_source,
     linked_image_ids,
+    linked_jobs_busy,
     missing_image_ids,
     open_linked_jobs,
     remove_images,
@@ -146,8 +148,10 @@ def scan_linked_folder(body: LibraryScanRequest, db: Session = Depends(get_db)):
     return LibraryScanStarted(started=get_linked_scanner().start(body.reason))
 
 
-def _remove(db: Session, image_ids: list[int]) -> int:
+def _remove(db: Session, image_ids: list[int], detach: LibrarySource | None = None) -> int:
     pending = remove_images(db, image_ids)
+    if detach is not None:
+        detach_source(db, detach)
     db.commit()
     pending.apply()
     get_ingest_worker().bump()
@@ -185,10 +189,4 @@ def stop_using_linked_folder(db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=409, detail="Finishing the current batch; try again in a moment"
         )
-    image_ids = linked_image_ids(db, source.id)
-    pending = remove_images(db, image_ids)
-    detach_source(db, source)
-    db.commit()
-    pending.apply()
-    get_ingest_worker().bump()
-    return LinkedRemoved(removed=len(image_ids))
+    return LinkedRemoved(removed=_remove(db, linked_image_ids(db, source.id), detach=source))

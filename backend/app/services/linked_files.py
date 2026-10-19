@@ -9,7 +9,7 @@ everything that happens to their files and images:
   is that image's file, moved: the image is repointed to it (§4.4);
 - ``forget_images``: removing an image marks its file ``removed``, so rescans leave it
   out (§4.6);
-- ``remove_linked_images``: "Remove missing maps" and "Stop using this folder" (§4.7).
+- ``remove_images``: "Remove missing maps" and "Stop using this folder" (§4.7).
 
 The rows never reach the disk; reading a file is ``services.originals``' job. No
 function here commits: callers own the transaction.
@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable
-from datetime import UTC, datetime
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
@@ -49,13 +48,17 @@ _SORTED_OUT_KINDS = frozenset({"sorted_out", "sorted_out_expired"})
 Version = tuple[int, int]
 
 
-def utcnow() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
-
-
 def chunks[T](values: list[T], size: int = _CHUNK) -> Iterable[list[T]]:
     for start in range(0, len(values), size):
         yield values[start : start + size]
+
+
+def files_by_id(db: Session, file_ids: list[int]) -> dict[int, SourceFile]:
+    return {
+        row.id: row
+        for chunk in chunks(file_ids)
+        for row in db.query(SourceFile).filter(SourceFile.id.in_(chunk))
+    }
 
 
 # The source
@@ -96,19 +99,17 @@ def sync_files(
     - failed → ``failed`` with the reason; open again (Retry, Include) → ``pending``;
     - a file that already is an image's (a refresh, §4.5) stays the image's: see
       ``_sync_refresh``.
+
+    A byte duplicate of a linked image whose own file is missing is that file, moved
+    (``move_if_missing``).
     """
-    linked = [item for item in items if item.source_file_id is not None]
+    linked = [(item, item.source_file_id) for item in items if item.source_file_id is not None]
     if not linked:
         return
-    ids = [item.source_file_id for item in linked]
-    rows = {
-        row.id: row
-        for chunk in chunks(ids)
-        for row in db.query(SourceFile).filter(SourceFile.id.in_(chunk))
-    }
+    rows = files_by_id(db, [file_id for _, file_id in linked])
     forgotten: list[int] = []
-    for item in linked:
-        row = rows.get(item.source_file_id)  # pyright: ignore[reportArgumentType]
+    for item, file_id in linked:
+        row = rows.get(file_id)
         if row is None or row.state == FILE_REMOVED:
             continue
         version = (versions or {}).get(item.id)
@@ -132,6 +133,10 @@ def sync_files(
         else:  # open again
             row.state, row.image_id, row.reason = FILE_PENDING, None, None
     delete_files(db, forgotten)
+    for item, file_id in linked:
+        duplicate_of = item.duplicate_of_image_id
+        if item.state == st.DUPLICATE and item.duplicate_tier == "bytes" and duplicate_of:
+            move_if_missing(db, duplicate_of, file_id)
 
 
 def _sync_refresh(row: SourceFile, item: ImportItem, version: Version | None) -> None:
@@ -298,7 +303,6 @@ def detach_source(db: Session, source: LibrarySource) -> None:
 
 
 def open_linked_jobs(db: Session, source_id: int) -> list[ImportJob]:
-    """The source's imports that haven't finished."""
     return (
         db.query(ImportJob)
         .filter(
@@ -306,6 +310,16 @@ def open_linked_jobs(db: Session, source_id: int) -> list[ImportJob]:
             ImportJob.status.in_((st.JOB_ACTIVE, st.JOB_PAUSED)),
         )
         .all()
+    )
+
+
+def linked_jobs_busy(db: Session, source_id: int) -> bool:
+    """Whether a batch of the source's items is being processed right now."""
+    return bool(
+        db.query(ImportItem.id)
+        .join(ImportJob, ImportJob.id == ImportItem.job_id)
+        .filter(ImportJob.library_source_id == source_id, ImportItem.state == st.PROCESSING)
+        .first()
     )
 
 

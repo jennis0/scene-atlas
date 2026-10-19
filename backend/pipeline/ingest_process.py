@@ -51,7 +51,7 @@ from backend.app.services.deletion_service import PendingFileDeletes
 from backend.app.services.image_parser import build_search_text
 from backend.app.services.image_type_classifier import ImageTypeHead, active_head, image_features
 from backend.app.services.ingest_state import ItemEvent
-from backend.app.services.linked_files import move_if_missing, sync_files
+from backend.app.services.linked_files import sync_files
 from backend.app.services.memory_budget import get_memory_budget
 from backend.app.services.originals import OriginalUnavailable, linked_folder
 from backend.app.services.validation import verify_media_mime
@@ -73,6 +73,7 @@ from .ingest_queue import (
     RefreshUnchanged,
     SortedOut,
     effective_parsed,
+    finish_committed,
     finish_refresh_gone,
     library_byte_duplicate,
     missing_roots,
@@ -86,7 +87,7 @@ from .ingest_queue import (
     staging_dir_for,
     write_session,
 )
-from .linked_refresh import RefreshTarget, grid_snapshot, refresh_grid
+from .linked_refresh import RefreshTarget, grid_snapshot, refresh_grid, refreshed_image
 from .pipeline_config import PipelineConfig
 from .stored_format import FORMAT_ORIGINAL
 from .stored_format import convert as convert_stored_format
@@ -100,6 +101,7 @@ _BYTES_LOST_REASON = "The uploaded file is missing; upload it again"
 _SOURCE_GONE_REASON = "The file was moved or deleted after it was chosen"
 _LINKED_GONE_REASON = "The file was moved or deleted"
 _SOURCE_CHANGED_REASON = "The file changed while it was read"
+_MIME_MISMATCH_REASON = "File content doesn't match its type"
 
 
 def incoming_dir(store_base: Path) -> Path:
@@ -173,7 +175,6 @@ class PreparedItem:
             path.unlink(missing_ok=True)
 
 
-# What preparing an item can give
 type Prepared = PreparedItem | DecodedItem | ItemFailure | EarlyDuplicate | RefreshUnchanged
 
 
@@ -441,11 +442,7 @@ def _prepare_linked(item: ClaimedItem, cfg: PipelineConfig) -> Prepared:
     try:
         if not verify_media_mime(source, source.suffix.lower()):
             return ItemFailure(
-                item.id,
-                KIND_FILE,
-                "validate",
-                "File content doesn't match its type",
-                source_version=version,
+                item.id, KIND_FILE, "validate", _MIME_MISMATCH_REASON, source_version=version
             )
         source_hash = file_sha256(source)
         if item.refresh is not None:
@@ -476,9 +473,7 @@ def _prepare_local(item: ClaimedItem, cfg: PipelineConfig) -> Prepared:
             return _missing_source(item)
         ext = source.suffix.lower()
         if not verify_media_mime(source, ext):
-            return ItemFailure(
-                item.id, KIND_FILE, "validate", "File content doesn't match its type"
-            )
+            return ItemFailure(item.id, KIND_FILE, "validate", _MIME_MISMATCH_REASON)
         source_hash = file_sha256(source)
         duplicate_of = None if item.allow_duplicate else library_byte_duplicate(source_hash)
         if duplicate_of is not None:
@@ -957,28 +952,22 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
                     )
                     continue
 
+                tier, duplicate_of = None, None
                 if p.item.source_file_id in taken:
-                    row.state = st.next_item_state(row.state, ItemEvent.DUPLICATE_AT_COMMIT)
-                    row.duplicate_of_image_id = taken[p.item.source_file_id]
-                    row.duplicate_tier = "bytes"
-                    row.source_hash = d.source_hash
-                    result.duplicates.append(p)
-                    continue
-
-                if not p.item.allow_duplicate:
-                    tier, duplicate_of = None, None
+                    tier, duplicate_of = "bytes", taken[p.item.source_file_id]
+                elif not p.item.allow_duplicate:
                     if d.source_hash in by_bytes or p.stored_hash in by_bytes:
                         tier = "bytes"
                         duplicate_of = by_bytes.get(d.source_hash) or by_bytes[p.stored_hash]
                     elif d.pixel_hash and d.pixel_hash in by_pixels:
                         tier, duplicate_of = "pixels", by_pixels[d.pixel_hash]
-                    if tier:
-                        row.state = st.next_item_state(row.state, ItemEvent.DUPLICATE_AT_COMMIT)
-                        row.duplicate_of_image_id = duplicate_of
-                        row.duplicate_tier = tier
-                        row.source_hash = d.source_hash
-                        result.duplicates.append(p)
-                        continue
+                if tier:
+                    row.state = st.next_item_state(row.state, ItemEvent.DUPLICATE_AT_COMMIT)
+                    row.duplicate_of_image_id = duplicate_of
+                    row.duplicate_tier = tier
+                    row.source_hash = d.source_hash
+                    result.duplicates.append(p)
+                    continue
 
                 if p.temp_original is not None and p.storage_key is not None:
                     _place(p.temp_original, image_store.get_path(p.storage_key), placed)
@@ -1035,34 +1024,21 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
                             source=tag.get("source", "auto"),
                         )
                     )
-                for color in d.colors:
-                    db.add(
-                        Color(
-                            image_id=image.id,
-                            color_hex=color["color_hex"],
-                            percentage=color["percentage"],
-                            color_order=color["color_order"],
-                        )
-                    )
+                _add_colors(db, image.id, d.colors)
 
-                row.state = st.next_item_state(row.state, ItemEvent.COMMITTED)
-                row.image_id = image.id
-                row.source_hash = d.source_hash
+                finish_committed(row, image.id, d.source_hash)
                 if d.classification is not None:
                     row.classification = json.dumps(d.classification)
-                row.error_kind = row.error_stage = row.error_reason = row.error_detail = None
                 # The staged file is deleted right after commit; a crash in between
                 # leaves an unreferenced file for the stray-staging sweep.
                 row.staging_key = None
 
-                # Later items in this batch dedup against this one too.
-                by_bytes.setdefault(d.source_hash, image.id)
-                by_bytes.setdefault(p.stored_hash, image.id)
-                if d.pixel_hash:
-                    by_pixels.setdefault(d.pixel_hash, image.id)
+                _index(p, image.id, (by_bytes, by_pixels))
                 result.done.append(CommittedImage(p, image.id, group_name or None, author))
 
-            _write_back_linked(db, prepared, item_rows)
+            db.flush()
+            versions = {p.item.id: p.item.source_version for p in prepared if p.item.source_version}
+            sync_files(db, item_rows.values(), versions)
             for job_id in {p.item.job_id for p in prepared}:
                 recompute_job_status(db, job_id)
     except Exception:
@@ -1070,6 +1046,27 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
             path.unlink(missing_ok=True)
         raise
     return result
+
+
+def _add_colors(db, image_id: int, colors: list[dict]) -> None:
+    for color in colors:
+        db.add(
+            Color(
+                image_id=image_id,
+                color_hex=color["color_hex"],
+                percentage=color["percentage"],
+                color_order=color["color_order"],
+            )
+        )
+
+
+def _index(p: PreparedItem, image_id: int, matches: tuple[dict, dict]) -> None:
+    """Later items in the batch dedup against this image too."""
+    by_bytes, by_pixels = matches
+    by_bytes.setdefault(p.decoded.source_hash, image_id)
+    by_bytes.setdefault(p.stored_hash, image_id)
+    if p.decoded.pixel_hash:
+        by_pixels.setdefault(p.decoded.pixel_hash, image_id)
 
 
 def _commit_refresh(
@@ -1085,8 +1082,8 @@ def _commit_refresh(
     batch's transaction. Only columns that come from the file are written: name, author,
     tags, group and type stay the user's, and the grid only changes if nobody changed it
     since the item was claimed. An image removed meanwhile skips the item."""
-    image = db.get(Image, target.image_id)
-    if image is None or image.source_file_id != p.item.source_file_id:
+    image = refreshed_image(db, target.image_id, p.item.source_file_id)
+    if image is None:
         logger.info("Refresh of %s skipped: its image was removed", p.item.relative_path)
         finish_refresh_gone(row)
         return
@@ -1117,23 +1114,10 @@ def _commit_refresh(
         for column, value in p.grid.items():
             setattr(image, column, value)
     db.execute(delete(Color).where(Color.image_id == image.id))
-    for color in d.colors:
-        db.add(
-            Color(
-                image_id=image.id,
-                color_hex=color["color_hex"],
-                percentage=color["percentage"],
-                color_order=color["color_order"],
-            )
-        )
+    _add_colors(db, image.id, d.colors)
 
-    row.state = st.next_item_state(row.state, ItemEvent.COMMITTED)
-    row.image_id = image.id
-    row.source_hash = d.source_hash
-    row.error_kind = row.error_stage = row.error_reason = row.error_detail = None
-    by_bytes.setdefault(d.source_hash, image.id)
-    if d.pixel_hash:
-        by_pixels.setdefault(d.pixel_hash, image.id)
+    finish_committed(row, image.id, d.source_hash)
+    _index(p, image.id, matches)
     group = db.get(ImageGroup, image.group_id) if image.group_id is not None else None
     result.done.append(
         CommittedImage(p, image.id, group.base_name if group else None, image.author)
@@ -1148,22 +1132,6 @@ def _linked_images(db, file_ids: list[int | None]) -> dict[int, int]:
         return {}
     rows = db.query(Image.source_file_id, Image.id).filter(Image.source_file_id.in_(ids))
     return dict(cast(Iterable[tuple[int, int]], rows))
-
-
-def _write_back_linked(db, prepared: list[PreparedItem], item_rows: dict) -> None:
-    """Record the batch's linked outcomes on their files, as read (§4.4). A byte duplicate
-    of a linked image whose file is missing is that file, moved: the image takes it."""
-    linked = [p for p in prepared if p.item.source_file_id is not None]
-    if not linked:
-        return
-    rows = [item_rows[p.item.id] for p in linked if p.item.id in item_rows]
-    versions = {p.item.id: p.item.source_version for p in linked if p.item.source_version}
-    db.flush()
-    sync_files(db, rows, versions)
-    for row in rows:
-        duplicate_of = row.duplicate_of_image_id
-        if row.state == st.DUPLICATE and row.duplicate_tier == "bytes" and duplicate_of:
-            move_if_missing(db, duplicate_of, row.source_file_id)
 
 
 def changed_since_read(prepared: list[PreparedItem]) -> list[ItemFailure]:

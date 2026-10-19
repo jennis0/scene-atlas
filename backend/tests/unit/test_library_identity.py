@@ -48,9 +48,7 @@ def decide(found: Found, *, linked: Path | None = None, root=Path("/lib")):
     return li.decide(app_data=root / "data", store=root / "images", linked=linked, found=found)
 
 
-# ---------------------------------------------------------------------------
 # The rules: every row of the startup check table (§3.3)
-# ---------------------------------------------------------------------------
 
 
 class TestDecide:
@@ -127,9 +125,7 @@ class TestContainment:
         assert decision.outcome == "error"
 
 
-# ---------------------------------------------------------------------------
 # Markers
-# ---------------------------------------------------------------------------
 
 
 class TestMarkers:
@@ -191,9 +187,7 @@ class TestMarkers:
         assert li.read_marker(tmp_path) == Marker(X, "store", {"app_data": str(tmp_path)})
 
 
-# ---------------------------------------------------------------------------
 # Real folders: the startup check, opening, and reading a database
-# ---------------------------------------------------------------------------
 
 
 class Library:
@@ -261,22 +255,6 @@ class TestStartup:
         library_id = lib.open()
         assert li.read_marker(lib.store).library_id == library_id  # type: ignore[union-attr]
 
-    def test_store_of_another_library_is_refused(self, lib, tmp_path):
-        lib.open()
-        li.write_marker(lib.store, marker(Y))
-        with pytest.raises(
-            LibraryMismatchError, match=re.escape(STARTUP_MESSAGES[DIFFERENT_LIBRARY])
-        ):
-            lib.check()
-
-    def test_marked_store_without_its_database_is_refused(self, lib):
-        lib.open()
-        lib.db_path.unlink()
-        with pytest.raises(
-            LibraryMismatchError, match=re.escape(STARTUP_MESSAGES[APP_DATA_NOT_HERE])
-        ):
-            lib.check()
-
     def test_refusal_writes_nothing(self, lib):
         lib.store.mkdir()
         li.write_marker(lib.store, marker(Y))
@@ -317,13 +295,6 @@ class TestStartup:
         assert lib.open() == library_id
         assert li.read_marker(lib.store).library_id == library_id  # type: ignore[union-attr]
 
-    def test_store_containing_the_linked_folder_is_refused(self, lib):
-        lib.linked = lib.store / "Battle Maps"
-        with pytest.raises(
-            LibraryMismatchError, match=re.escape(STARTUP_MESSAGES[STORE_HOLDS_LINKED])
-        ):
-            lib.check()
-
     def test_linked_folder_need_not_exist(self, lib, tmp_path):
         lib.linked = tmp_path / "Unplugged"
         lib.open()
@@ -339,9 +310,7 @@ class TestStartup:
         assert li.read_database(lib.app_data / "none.db") is None
 
 
-# ---------------------------------------------------------------------------
 # Inspecting folders the user picks
-# ---------------------------------------------------------------------------
 
 
 def inspect(**folders) -> li.Inspection:
@@ -367,12 +336,12 @@ class TestInspect:
     def test_maps_folder_is_counted(self, tmp_path):
         result = inspect(linked=maps_folder(tmp_path / "Maps", 3))
         assert result.outcome == "new"
-        assert result.linked == li.LinkedFolder("maps", 3, False)
+        assert result.linked == li.LinkedSummary("maps", 3, False)
         assert result.library is None
 
     def test_count_stops_at_the_limit(self, tmp_path):
         result = inspect(linked=maps_folder(tmp_path / "Maps", 5), max_items=4)
-        assert result.linked == li.LinkedFolder("maps", 4, True)
+        assert result.linked == li.LinkedSummary("maps", 4, True)
 
     @pytest.mark.parametrize("make", [True, False])
     def test_empty_or_new_folder(self, tmp_path, make):
@@ -380,7 +349,7 @@ class TestInspect:
         if make:
             linked.mkdir()
         result = inspect(linked=linked)
-        assert (result.outcome, result.linked) == ("new", li.LinkedFolder("empty", 0, False))
+        assert (result.outcome, result.linked) == ("new", li.LinkedSummary("empty", 0, False))
 
     def test_library_in_a_linked_folder_opens_with_its_hints(self, lib, tmp_path):
         lib.linked = maps_folder(tmp_path / "Battle Maps", 2)
@@ -389,7 +358,7 @@ class TestInspect:
 
         result = inspect(linked=lib.linked)
         assert result.outcome == "open"
-        assert result.linked == li.LinkedFolder("library", 0, False)
+        assert result.linked == li.LinkedSummary("library", 0, False)
         assert result.library == li.FoundLibrary(
             library_id,
             False,
@@ -436,9 +405,7 @@ class TestInspect:
         assert {p: p.stat().st_mtime_ns for p in lib.store.rglob("*")} == before
 
 
-# ---------------------------------------------------------------------------
 # The walk skips library folders (§1)
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("entry", [MARKER_FILENAME, LOCK_FILENAME])

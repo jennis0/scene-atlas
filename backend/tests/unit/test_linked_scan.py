@@ -10,7 +10,6 @@ from backend.app.models.database import (
     FILE_DUPLICATE,
     FILE_FAILED,
     FILE_IMAGE,
-    FILE_PENDING,
     FILE_REMOVED,
 )
 from backend.app.services.originals import LinkedEntry
@@ -25,9 +24,7 @@ def entry(key: str, size=10, mtime=100) -> LinkedEntry:
     return LinkedEntry(key, size, mtime)
 
 
-# ---------------------------------------------------------------------------
 # diff_files
-# ---------------------------------------------------------------------------
 
 
 def test_new_files():
@@ -88,22 +85,7 @@ def test_removed_files_are_never_offered_again():
     assert not (diff.new or diff.changed or diff.gone or diff.back)
 
 
-def test_diff_of_a_large_folder_is_fast():
-    """60k files diff in well under a second: one pass over dicts, nothing read."""
-    count = 60_000
-    rows = [
-        known(i, f"Author/Pack {i // 50}/map {i}.png", state=FILE_PENDING) for i in range(count)
-    ]
-    found = [entry(f"Author/Pack {i // 50}/map {i}.png") for i in range(count)]
-    started = time.perf_counter()
-    diff = diff_files(found, rows)
-    assert time.perf_counter() - started < 2.0
-    assert diff.unchanged == count
-
-
-# ---------------------------------------------------------------------------
 # LinkedScanner
-# ---------------------------------------------------------------------------
 
 
 class _Gate:

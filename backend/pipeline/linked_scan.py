@@ -37,7 +37,7 @@ import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
-from typing import Literal, cast
+from typing import Literal
 
 from sqlalchemy import delete, exists, insert, select, update
 from sqlalchemy.orm import Session
@@ -62,11 +62,16 @@ from backend.app.services.linked_files import (
     current_source,
     delete_files,
     ensure_source,
+    files_by_id,
     open_linked_jobs,
     repoint_to_duplicates,
-    utcnow,
 )
-from backend.app.services.originals import LinkedEntry, LinkedFolder, linked_folder
+from backend.app.services.originals import (
+    LinkedEntry,
+    LinkedFolder,
+    forget_availability,
+    linked_folder,
+)
 from backend.app.services.shutdown import ShutdownRequested, raise_if_shutting_down
 
 from .error_classifier import KIND_FILE
@@ -80,6 +85,7 @@ from .ingest_queue import (
     compute_plan,
     create_job,
     kind_for_path,
+    utcnow,
     write_session,
 )
 
@@ -201,15 +207,6 @@ def _orphan_pending(db: Session, source_id: int) -> list[SourceFile]:
     )
 
 
-def _fresh_rows(db: Session, ids: list[int]) -> dict[int, SourceFile]:
-    """The rows as they are now: the worker may have written some since the snapshot."""
-    return {
-        row.id: row
-        for chunk in chunks(ids)
-        for row in db.query(SourceFile).filter(SourceFile.id.in_(chunk))
-    }
-
-
 def _images_of(db: Session, file_ids: list[int]) -> dict[int, str]:
     """file id → its image's type, for files that are an image's."""
     found: dict[int, str] = {}
@@ -246,7 +243,8 @@ def apply_diff(
     orphans = {row.id: row for row in _orphan_pending(db, source.id)}
     without_item = set(orphans)
     touched = [k.id for k in diff.gone] + [k.id for k in diff.back]
-    fresh = _fresh_rows(db, touched + [k.id for k, _ in diff.changed])
+    # The rows as they are now: the worker may have written some since the snapshot
+    fresh = files_by_id(db, touched + [k.id for k, _ in diff.changed])
 
     forgotten: list[int] = []
     for known in diff.gone:
@@ -456,13 +454,15 @@ def scan_linked_folder() -> ScanResult:
         return ScanResult("not_linked")
     if _purging():
         return ScanResult("busy")
+    # Checked before taking the write lock: a stat of an unreachable share can hang.
+    available = folder.available()
     with write_session() as db:
         source = ensure_source(db, str(folder.root))
         source_id = source.id
         if source.state == SOURCE_DETACHED:  # "Stop using this folder", until restart
             return ScanResult("detached")
         _discard_unsealed(db, source_id)
-        if not folder.available():
+        if not available:
             source.state = SOURCE_OFFLINE
             return ScanResult("offline")
 
@@ -561,8 +561,6 @@ class LinkedScanner:
             return True
 
     def _run(self) -> ScanResult | None:
-        from backend.app.services.originals import forget_availability
-
         from .ingest_worker import get_ingest_worker
 
         try:
@@ -637,15 +635,5 @@ async def rescan_timer(wake_seconds: float = TIMER_WAKE_SECONDS) -> None:
         except Exception:
             logger.warning("Couldn't read linked_rescan_minutes", exc_info=True)
             continue
-        if scanner.due(cast(int, minutes)):
+        if scanner.due(minutes):
             scanner.start("timer")
-
-
-def linked_jobs_busy(db: Session, source_id: int) -> bool:
-    """Whether a batch of the source's items is being processed right now."""
-    return bool(
-        db.query(ImportItem.id)
-        .join(ImportJob, ImportJob.id == ImportItem.job_id)
-        .filter(ImportJob.library_source_id == source_id, ImportItem.state == st.PROCESSING)
-        .first()
-    )

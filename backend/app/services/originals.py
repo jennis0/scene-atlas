@@ -7,7 +7,6 @@ which it only reads). Both are read through the same small interface:
 | Method | Store (``ImageStore``) | Linked folder (``LinkedFolder``) |
 |---|---|---|
 | ``list()`` | (the orphan sweep walks it) | the scan's walk |
-| ``stat(key)`` | yes | yes |
 | ``local_path(key)`` | the stored file | the file, after the containment check |
 | ``put``, ``delete`` | yes | absent: the folder is read-only by type |
 
@@ -51,7 +50,7 @@ class OriginalUnavailable(Exception):
 
 @dataclass(frozen=True)
 class LinkedEntry:
-    """A file found by the walk: its key, size and modification time."""
+    """A file found by the walk."""
 
     rel_key: str
     size: int
@@ -89,24 +88,15 @@ class LinkedFolder:
         itself (``Author/Pack/file``: the parser reads the first part as the author). The
         local import's walk: symlinks and the library's own folders are left out, and so
         is OS junk."""
-        from backend.pipeline.ingest_local import walk_files
-        from backend.pipeline.ingest_queue import is_os_junk, kind_for_path
+        from backend.pipeline.ingest_local import is_media, walk_files
 
         for entry in walk_files(self.root):
             rel_key = Path(entry.path).relative_to(self.root).as_posix()
-            if is_os_junk(rel_key) or kind_for_path(rel_key) not in ("image", "video"):
-                continue
-            if "\\" in rel_key:  # a backslash in a name (not Windows): not a key we can use
+            # A backslash in a name (not Windows) isn't a key that can be read back
+            if not is_media(rel_key) or "\\" in rel_key:
                 continue
             info = entry.stat(follow_symlinks=False)
             yield LinkedEntry(rel_key, info.st_size, info.st_mtime_ns)
-
-    def stat(self, key: str) -> os.stat_result | None:
-        """The file's size and modification time, or None if it can't be read."""
-        try:
-            return self.local_path(key).stat()
-        except (OriginalUnavailable, OSError):
-            return None
 
     def local_path(self, key: str) -> Path:
         """The file for ``key``, after the containment check: the key joined to the root

@@ -90,6 +90,15 @@ def grid_snapshot(image: Image | RefreshTarget) -> tuple:
     )
 
 
+def refreshed_image(db: Session, image_id: int, file_id: int | None) -> Image | None:
+    """The image a refresh updates, unless it was removed (or given another file) since
+    the item was claimed."""
+    image = db.get(Image, image_id)
+    if image is None or file_id is None or image.source_file_id != file_id:
+        return None
+    return image
+
+
 def load_targets(db: Session, file_ids: Iterable[int]) -> dict[int, RefreshTarget]:
     """file id → its image's snapshot, for linked files that already are an image's: an
     item for such a file is a refresh. One query, plus one per image needing size-only
