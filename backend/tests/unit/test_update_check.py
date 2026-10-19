@@ -1,14 +1,16 @@
 """Server-mode update check (backend/app/services/update_check.py, ADR-022).
 
-GitHub is never contacted: fetches are faked, and ``urlopen`` is patched for the tests of
-``fetch_latest_release`` itself.
+GitHub is never contacted: fetches are faked, and ``HTTPSConnection`` is patched for the
+tests of ``fetch_latest_release`` itself.
 """
 
 import asyncio
+import http.client
 import io
 import json
 import logging
-import urllib.error
+import socket
+import ssl
 from datetime import UTC, datetime
 
 import pytest
@@ -133,63 +135,78 @@ class TestReleasePageUrl:
 
 
 class FakeResponse(io.BytesIO):
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        self.close()
+    def __init__(self, body: bytes, status: int):
+        super().__init__(body)
+        self.status = status
 
 
-def patch_urlopen(monkeypatch, result):
-    """Make urlopen return *result* (bytes or a JSON-able object) or raise it."""
+def patch_https(monkeypatch, result, status: int = 200):
+    """Make GitHub answer *status* with *result* (bytes or a JSON-able object), or make
+    the request raise *result*."""
     seen = {}
 
-    def fake_urlopen(request, timeout):
-        seen["request"], seen["timeout"] = request, timeout
-        if isinstance(result, BaseException):
-            raise result
-        body = result if isinstance(result, bytes) else json.dumps(result).encode()
-        return FakeResponse(body)
+    class FakeConnection:
+        def __init__(self, host, timeout):
+            seen["host"], seen["timeout"] = host, timeout
 
-    monkeypatch.setattr(update_check.urllib.request, "urlopen", fake_urlopen)
+        def request(self, method, path, headers):
+            seen["method"], seen["path"], seen["headers"] = method, path, headers
+            if isinstance(result, BaseException):
+                raise result
+
+        def getresponse(self):
+            body = result if isinstance(result, bytes) else json.dumps(result).encode()
+            return FakeResponse(body, status)
+
+        def close(self):
+            seen["closed"] = True
+
+    monkeypatch.setattr(update_check.http.client, "HTTPSConnection", FakeConnection)
     return seen
-
-
-def http_error(code: int) -> urllib.error.HTTPError:
-    return urllib.error.HTTPError(update_check.LATEST_RELEASE_API, code, "x", {}, None)  # pyright: ignore[reportArgumentType]
 
 
 class TestFetchLatestRelease:
     def test_returns_the_tagged_version(self, monkeypatch):
-        seen = patch_urlopen(
+        seen = patch_https(
             monkeypatch,
             {"tag_name": "v0.3.0", "draft": False, "prerelease": False, "html_url": "x"},
         )
         assert fetch_latest_release("SceneAtlas/0.2.0") == v("0.3.0")
-        request = seen["request"]
-        assert request.full_url == update_check.LATEST_RELEASE_API
-        assert request.get_header("User-agent") == "SceneAtlas/0.2.0"
+        assert seen["host"] == "api.github.com"
+        assert (seen["method"], seen["path"]) == (
+            "GET",
+            "/repos/jennis0/scene-atlas/releases/latest",
+        )
+        assert seen["headers"]["User-Agent"] == "SceneAtlas/0.2.0"
         assert seen["timeout"] == update_check.REQUEST_TIMEOUT_SECONDS
+        assert seen["closed"]
 
     def test_no_releases_yet(self, monkeypatch):
-        patch_urlopen(monkeypatch, http_error(404))
+        patch_https(monkeypatch, {"message": "Not Found"}, status=404)
         assert fetch_latest_release("ua") is None
+
+    @pytest.mark.parametrize("status", [301, 403, 429, 500])  # moved, rate limited, broken
+    def test_other_statuses(self, monkeypatch, status):
+        seen = patch_https(monkeypatch, {"message": "x"}, status=status)
+        with pytest.raises(UpdateCheckError, match=f"HTTP {status}"):
+            fetch_latest_release("ua")
+        assert seen["closed"]
 
     @pytest.mark.parametrize(
         "failure",
         [
-            http_error(403),  # rate limited
-            http_error(429),
-            http_error(500),
-            urllib.error.URLError("Name or service not known"),  # offline / air-gapped
+            socket.gaierror("Name or service not known"),  # offline / air-gapped
+            ssl.SSLCertVerificationError("certificate verify failed"),
+            http.client.RemoteDisconnected("closed"),
             TimeoutError("timed out"),
             ConnectionResetError("reset"),
         ],
     )
     def test_network_failures(self, monkeypatch, failure):
-        patch_urlopen(monkeypatch, failure)
+        seen = patch_https(monkeypatch, failure)
         with pytest.raises(UpdateCheckError):
             fetch_latest_release("ua")
+        assert seen["closed"]
 
     @pytest.mark.parametrize(
         "body",
@@ -206,12 +223,12 @@ class TestFetchLatestRelease:
         ],
     )
     def test_malformed_or_unusable_responses(self, monkeypatch, body):
-        patch_urlopen(monkeypatch, body)
+        patch_https(monkeypatch, body)
         with pytest.raises(UpdateCheckError):
             fetch_latest_release("ua")
 
     def test_oversized_response(self, monkeypatch):
-        patch_urlopen(monkeypatch, b" " * (update_check.MAX_RESPONSE_BYTES + 1))
+        patch_https(monkeypatch, b" " * (update_check.MAX_RESPONSE_BYTES + 1))
         with pytest.raises(UpdateCheckError, match="too large"):
             fetch_latest_release("ua")
 

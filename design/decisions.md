@@ -602,7 +602,7 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 4. **Failures are quiet and keep the last good answer.** 404 (no release yet) counts as up to date; timeouts, offline hosts, rate limiting and malformed responses log one warning per streak.
 5. **Versions are compared by their release numbers,** and a stable release beats a prerelease of the same numbers. Prereleases are never offered. A running version that isn't a plain release (a dev build) is reported as `unknown` and never nags.
 6. **One Settings section for both modes,** fed by Electron or the backend. Server mode is read-only: the version, the status, and links to the release notes and the upgrade guide. No toast on a server: most people behind its proxy can't upgrade it, so a toast would only be noise for them.
-7. **Stdlib `urllib`, no new dependency,** and a small comparator rather than `packaging`: neither an HTTP client nor `packaging` is a declared runtime dependency (both arrive only through `huggingface-hub`).
+7. **Stdlib `http.client` to a fixed host and path, no new dependency,** and a small comparator rather than `packaging`: neither an HTTP client nor `packaging` is a declared runtime dependency (both arrive only through `huggingface-hub`).
 
 **Alternatives considered:**
 

@@ -16,8 +16,6 @@ import json
 import logging
 import re
 import threading
-import urllib.error
-import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -26,7 +24,8 @@ from ..models.schemas import UpdateCheckResponse, UpdateStatusKind
 
 logger = logging.getLogger(__name__)
 
-LATEST_RELEASE_API = "https://api.github.com/repos/jennis0/scene-atlas/releases/latest"
+GITHUB_API_HOST = "api.github.com"
+LATEST_RELEASE_PATH = "/repos/jennis0/scene-atlas/releases/latest"
 RELEASES_URL = "https://github.com/jennis0/scene-atlas/releases"
 
 # A little after startup, so the check doesn't compete with it; then daily.
@@ -100,24 +99,30 @@ def fetch_latest_release(user_agent: str) -> ReleaseVersion | None:
     Raises UpdateCheckError for anything else: no network, a timeout, rate limiting, or
     a response that isn't a release.
     """
-    request = urllib.request.Request(
-        LATEST_RELEASE_API,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": user_agent,
-        },
-    )
+    # http.client with a fixed host and path, not urllib: no URL, so no scheme, is ever
+    # taken from data. HTTPSConnection verifies the certificate by default.
+    connection = http.client.HTTPSConnection(GITHUB_API_HOST, timeout=REQUEST_TIMEOUT_SECONDS)
     try:
-        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:  # noqa: S310  # nosec B310  # fixed https URL
-            body = response.read(MAX_RESPONSE_BYTES + 1)
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:  # no release published yet (or the repository is private)
-            return None
-        raise UpdateCheckError(f"GitHub answered HTTP {exc.code}") from exc
-    except (urllib.error.URLError, http.client.HTTPException, OSError) as exc:
-        reason = getattr(exc, "reason", None) or exc
-        raise UpdateCheckError(f"could not reach GitHub ({reason})") from exc
+        connection.request(
+            "GET",
+            LATEST_RELEASE_PATH,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "User-Agent": user_agent,
+            },
+        )
+        response = connection.getresponse()
+        status = response.status
+        body = response.read(MAX_RESPONSE_BYTES + 1)
+    except (http.client.HTTPException, OSError) as exc:
+        raise UpdateCheckError(f"could not reach GitHub ({exc})") from exc
+    finally:
+        connection.close()
+    if status == 404:  # no release published yet (or the repository is private)
+        return None
+    if status != 200:
+        raise UpdateCheckError(f"GitHub answered HTTP {status}")
     if len(body) > MAX_RESPONSE_BYTES:
         raise UpdateCheckError("the response was too large")
     try:
