@@ -22,6 +22,16 @@ on:
         description: 'Version to release (e.g. 0.5.0) — only used when publish is true'
         type: string
         required: false
+      # The upgrade test compares search results before and after updating
+      # (design/testing.md#upgrade-test). Library problems always fail it.
+      accept_search_changes:
+        description: 'Accept changed search results in the upgrade test (needs a reason)'
+        type: boolean
+        default: false
+      search_change_reason:
+        description: 'Why search results changed — shown in the test report and the release notes'
+        type: string
+        required: false
 
 # Read-only by default; the publish job asks for what it needs.
 permissions:
@@ -241,6 +251,13 @@ jobs:
           echo "::error::Set the version input to publish a release"
           exit 1
 
+      - name: Require a reason to accept search changes
+        if: inputs.accept_search_changes && inputs.search_change_reason == ''
+        shell: bash
+        run: |
+          echo "::error::Set search_change_reason to say why search results are expected to change"
+          exit 1
+
       # ── Set version from input ──────────────────────────────────────────
       - name: Set version
         if: inputs.publish && inputs.version != ''
@@ -355,7 +372,56 @@ jobs:
           path: e2e/playwright-report-packaged/
           retention-days: 7
 
+      # ── Upgrade test (design/testing.md#upgrade-test) ────────────────────
+      # The same code packaged as version 0.0.0 is installed, given a library, and
+      # updated to this build from a local feed. The library and its search results
+      # are compared before and after. Windows only for now.
+      - name: Build the old version for the upgrade test
+        if: matrix.platform == 'windows'
+        shell: bash
+        run: |
+          npx electron-builder --win nsis --publish never \
+            -c.extraMetadata.version=0.0.0 -c.directories.output=dist-upgrade-old
+          version=$(node -p "require('./package.json').version")
+          mkdir dist-upgrade-feed
+          cp dist-electron/latest.yml "dist-electron/Scene-Atlas-Setup-$version.exe" \
+            "dist-electron/Scene-Atlas-Setup-$version.exe.blockmap" dist-upgrade-feed/
+          # The old build's blockmap lets the app download only the blocks that changed.
+          cp dist-upgrade-old/Scene-Atlas-Setup-0.0.0.exe.blockmap dist-upgrade-feed/
+          echo "UPGRADE_NEW_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Cache the search model for the upgrade test
+        if: matrix.platform == 'windows'
+        uses: actions/cache@v6
+        with:
+          path: .upgrade-model-cache
+          key: upgrade-model-small-${{ hashFiles('backend/app/services/model_registry.py') }}
+
+      - name: Upgrade test
+        if: matrix.platform == 'windows'
+        run: npm run test:upgrade
+        env:
+          UPGRADE_OLD_INSTALLER: ${{ github.workspace }}\dist-upgrade-old\Scene-Atlas-Setup-0.0.0.exe
+          UPGRADE_FEED_DIR: ${{ github.workspace }}\dist-upgrade-feed
+          UPGRADE_MODEL_CACHE: ${{ github.workspace }}\.upgrade-model-cache
+          ACCEPT_SEARCH_CHANGES: ${{ inputs.accept_search_changes }}
+          SEARCH_CHANGE_REASON: ${{ inputs.search_change_reason }}
+          E2E_IMAGE_KEY: ${{ secrets.E2E_IMAGE_KEY }}
+
+      - name: Upload upgrade test report
+        if: always() && matrix.platform == 'windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: upgrade-test-report
+          path: |
+            e2e/upgrade-report/
+            e2e/playwright-report-upgrade/
+          if-no-files-found: ignore
+          retention-days: 30
+
       # ── Upload artifacts ─────────────────────────────────────────────────
+      # The installers plus electron-updater's metadata (latest*.yml, blockmaps), which
+      # the publish job uploads with them (design/electron.md#updates).
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -365,13 +431,16 @@ jobs:
             dist-electron/*.dmg
             dist-electron/*.AppImage
             dist-electron/*.deb
+            dist-electron/*.blockmap
+            dist-electron/latest*.yml
           if-no-files-found: error
           retention-days: 30
 
   # ── Stage 4: Publish ──────────────────────────────────────────────────────
   # One release from all three builds, created only once every build has passed
   # (the build matrix doesn't fail fast, so publishing from it could release a
-  # partial set). Installers only: there is no auto-updater, so no update metadata.
+  # partial set). The installers go up with electron-updater's metadata, which the
+  # installed apps read to find the release (design/electron.md#updates).
   publish:
     name: Publish GitHub Release
     needs: [build]
@@ -381,18 +450,41 @@ jobs:
       actions: read
       contents: write
     steps:
+      # First: checkout cleans the workspace, which would delete release/.
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: 'latest'
+
       - name: Download installers
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern 'scene-atlas-*' --dir release
 
+      # A mismatch between latest*.yml and the uploaded files breaks every installed
+      # app's update, so it stops the release (design/testing.md#update-metadata-check).
+      - name: Verify update metadata
+        env:
+          VERSION: ${{ inputs.version }}
+        run: uv run --no-project --with pyyaml python scripts/release/verify_update_metadata.py --dir release --version "$VERSION"
+
       - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ inputs.version }}
+          ACCEPT_SEARCH_CHANGES: ${{ inputs.accept_search_changes }}
+          SEARCH_CHANGE_REASON: ${{ inputs.search_change_reason }}
         run: |
+          notes=()
+          if [ "$ACCEPT_SEARCH_CHANGES" = true ]; then
+            notes=(--notes "Search results change in this release: $SEARCH_CHANGE_REASON")
+          fi
           gh release create "v$VERSION" release/*/* \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "Scene Atlas $VERSION" \
+            "${notes[@]}" \
             --generate-notes

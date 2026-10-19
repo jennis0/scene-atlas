@@ -20,6 +20,8 @@ import {
   withDisplayPref,
 } from './displayPrefs'
 import { hasForeignEntries, prepareStorageDirs } from './storageDirs'
+import { Updater } from './updater'
+import type { UpdateState } from './updatePolicy'
 
 const isDev = !app.isPackaged
 const isMac = process.platform === 'darwin'
@@ -37,6 +39,7 @@ let setupWindow: BrowserWindow | null = null
 let sidecarProcess: ChildProcess | null = null
 let currentAppDataDir: string | null = null
 let currentImageLibraryDir: string | null = null
+let updater: Updater | null = null
 
 // The packaged UI is served by the sidecar, so its origin is the backend's.
 let backendOrigin: string | null = null
@@ -344,6 +347,37 @@ handleTrusted('system:change-storage-dirs', async (_event, newAppDataDir, newIma
   return { error: null }
 })
 
+// Updates (design/electron.md#updates)
+
+handleTrusted('updates:get-state', () => updater?.getState() ?? null)
+handleTrusted('updates:check', () => updater?.check() ?? null)
+handleTrusted('updates:set-enabled', (_event, enabled) => {
+  if (typeof enabled !== 'boolean' || !updater) return updater?.getState() ?? null
+  updateConfig({ checkForUpdates: enabled })
+  return updater.setEnabled(enabled)
+})
+// Doesn't resolve when the installer starts: the app quits.
+handleTrusted('updates:install', () => updater?.install())
+handleTrusted('updates:open-download', () => updater?.openDownload())
+
+function broadcastUpdateState(state: UpdateState): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send('updates:state', state)
+  }
+}
+
+function startUpdater(): void {
+  const logPath = path.join(app.getPath('userData'), 'updater.log')
+  rotateLog(logPath)
+  updater = new Updater({
+    enabled: loadConfig()?.checkForUpdates ?? true,
+    logPath,
+    stopBackend: () => stopSidecar(QUIT_GRACE_MS),
+    onChange: broadcastUpdateState,
+  })
+  updater.start()
+}
+
 // Windows
 
 function showSetupWindow(): void {
@@ -584,7 +618,9 @@ app.on('second-instance', () => {
 })
 
 app.whenReady().then(() => {
-  if (hasInstanceLock) start()
+  if (!hasInstanceLock) return
+  startUpdater()
+  start()
 })
 
 app.on('window-all-closed', () => {

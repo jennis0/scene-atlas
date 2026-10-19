@@ -16,6 +16,8 @@ interface AppConfig {
   displayPrefs?: DisplayPrefs
   /** The UI's last background and text colours, for the window and title bar at launch */
   windowColors?: WindowColors
+  /** False when the user turned update checks off in Settings; absent means on */
+  checkForUpdates?: boolean
 }
 
 /** Legacy config shape written by older versions. */
@@ -62,6 +64,9 @@ export function loadConfig(): AppConfig | null {
       imageLibraryDir: parsed.imageLibraryDir,
       displayPrefs: sanitizeDisplayPrefs(parsed.displayPrefs),
       ...(windowColors ? { windowColors } : {}),
+      ...(typeof parsed.checkForUpdates === 'boolean'
+        ? { checkForUpdates: parsed.checkForUpdates }
+        : {}),
     }
   } catch {
     return null

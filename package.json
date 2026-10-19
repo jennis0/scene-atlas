@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Scene Atlas — tabletop RPG scene manager with semantic search",
   "author": "jennis0 <joe.ennis18@gmail.com>",
+  "homepage": "https://jennis0.github.io/scene-atlas/",
   "main": "electron/dist/main.js",
   "private": true,
   "scripts": {
@@ -10,11 +11,12 @@
     "electron:dev": "concurrently --kill-others-on-fail \"cd frontend && npm run dev\" \"wait-on http://localhost:5173 && tsc -p electron/tsconfig.json && electron .\"",
     "electron:build": "tsc -p electron/tsconfig.json && electron-builder",
     "frontend:build": "cd frontend && npm install && npm run build",
-    "test:electron": "node --test \"electron/test/*.test.ts\"",
+    "test:electron": "node --test \"electron/test/*.test.ts\" \"e2e/upgrade/*.test.ts\"",
     "test:e2e": "cd e2e && npx playwright test --project=chromium",
     "test:e2e:ui": "cd e2e && npx playwright test --ui",
     "test:e2e:headed": "cd e2e && npx playwright test --project=chromium --headed",
-    "test:packaged": "cd e2e && npx playwright test -c packaged.config.ts"
+    "test:packaged": "cd e2e && npx playwright test -c packaged.config.ts",
+    "test:upgrade": "cd e2e && npx playwright test -c upgrade.config.ts"
   },
   "lint-staged": {
     "backend/**/*.py": [
@@ -47,5 +49,8 @@
     "lint-staged": "^17.6.0",
     "typescript": "~6.0.3",
     "wait-on": "^9.5.1"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }

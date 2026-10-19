@@ -6,6 +6,7 @@ import { SettingRow } from '@/components/settings/SettingRow'
 import { SettingsSection } from '@/components/settings/SettingsSection'
 import { ToggleSwitch } from '@/components/settings/ToggleSwitch'
 import { NumberSetting } from '@/components/settings/NumberSetting'
+import { UpdatesSection } from '@/components/settings/UpdatesSection'
 import { SegmentedControl } from '@/components/settings/SegmentedControl'
 import { useSettingsDraft } from '@/hooks/useSettingsDraft'
 import { useStorageDirs } from '@/hooks/useStorageDirs'
@@ -332,6 +333,9 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                 )}
               </SettingsSection>
             )}
+
+            <UpdatesSection />
+
             <SettingsSection title="Search Model">
               <p className="text-xs text-muted-foreground">
                 Active model:{' '}

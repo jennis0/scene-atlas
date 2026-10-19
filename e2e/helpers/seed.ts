@@ -6,7 +6,6 @@ import { listMediaFiles } from "./images";
 
 // Seeds the backend through the import API (ADR-018, design/ingestion.md §7).
 
-const API = `${BACKEND_URL}/api/v1/imports`;
 const MANIFEST_CHUNK = 2000;
 
 interface ImportJobDetail {
@@ -47,12 +46,16 @@ async function api<T>(
  * Import every media file under `imageDir` and wait for it to finish. The
  * first 2 are scenes so the scene-type filter tests have data.
  */
-export async function seedTestData(imageDir: string): Promise<void> {
+export async function seedTestData(
+  imageDir: string,
+  backendUrl: string = BACKEND_URL,
+): Promise<void> {
+  const importsUrl = `${backendUrl}/api/v1/imports`;
   const files = listMediaFiles(imageDir);
   if (files.length === 0) throw new Error(`No images found in ${imageDir}`);
   console.log(`[seed] Importing ${files.length} file(s) from ${imageDir}`);
 
-  const job = await api<{ id: string }>("POST", API, {
+  const job = await api<{ id: string }>("POST", importsUrl, {
     json: { label: "E2E seed", default_image_type: "battlemap" },
   });
   const jobId = job.id;
@@ -74,19 +77,19 @@ export async function seedTestData(imageDir: string): Promise<void> {
   for (let i = 0; i < manifest.length; i += MANIFEST_CHUNK) {
     const res = await api<{ items: ManifestItem[]; ignored: number }>(
       "POST",
-      `${API}/${jobId}/manifest`,
+      `${importsUrl}/${jobId}/manifest`,
       { json: { files: manifest.slice(i, i + MANIFEST_CHUNK) } },
     );
     items.push(...res.items);
   }
 
-  await api("POST", `${API}/${jobId}/seal`);
+  await api("POST", `${importsUrl}/${jobId}/seal`);
 
   // Send hashes first so files already in the library are skipped without upload.
   const waiting = items.filter((it) => it.state === "awaiting_bytes");
   const hashed = await api<{ items: { item_id: number; state: string }[] }>(
     "POST",
-    `${API}/${jobId}/hashes`,
+    `${importsUrl}/${jobId}/hashes`,
     {
       json: {
         items: waiting.map((it) => ({
@@ -107,7 +110,7 @@ export async function seedTestData(imageDir: string): Promise<void> {
 
   for (const it of waiting) {
     if (!stillWaiting.has(it.item_id)) continue;
-    await api("PUT", `${API}/${jobId}/items/${it.item_id}/content`, {
+    await api("PUT", `${importsUrl}/${jobId}/items/${it.item_id}/content`, {
       bytes: fs.readFileSync(byRef.get(it.client_ref)!),
     });
   }
@@ -115,7 +118,7 @@ export async function seedTestData(imageDir: string): Promise<void> {
     `[seed] Sent ${stillWaiting.size} file(s); waiting for processing`,
   );
 
-  const detail = await waitForImport(jobId, 300_000);
+  const detail = await waitForImport(importsUrl, jobId, 300_000);
   const c = detail.counts;
   console.log(
     `[seed] Import ${detail.status}: ${c.done} done, ${c.duplicate} duplicate, ` +
@@ -128,7 +131,7 @@ export async function seedTestData(imageDir: string): Promise<void> {
         error_stage: string | null;
         error_reason: string | null;
       }[];
-    }>("GET", `${API}/${jobId}/items?state=failed&limit=50`);
+    }>("GET", `${importsUrl}/${jobId}/items?state=failed&limit=50`);
     const lines = failed.items.map(
       (f) => `  ${f.relative_path}: [${f.error_stage}] ${f.error_reason}`,
     );
@@ -139,13 +142,14 @@ export async function seedTestData(imageDir: string): Promise<void> {
 }
 
 async function waitForImport(
+  importsUrl: string,
   jobId: string,
   timeoutMs: number,
 ): Promise<ImportJobDetail> {
   const deadline = Date.now() + timeoutMs;
   let last = "";
   while (Date.now() < deadline) {
-    const detail = await api<ImportJobDetail>("GET", `${API}/${jobId}`);
+    const detail = await api<ImportJobDetail>("GET", `${importsUrl}/${jobId}`);
     const c = detail.counts;
     const line = `${detail.status} ${c.done + c.duplicate + c.failed + c.skipped}/${c.total}`;
     if (line !== last) console.log(`[seed]   ${line}`);

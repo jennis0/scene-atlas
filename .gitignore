@@ -99,6 +99,13 @@ e2e/test-results/
 e2e/playwright-report/
 e2e/test-results-packaged/
 e2e/playwright-report-packaged/
+# Upgrade test (e2e/upgrade): the old build, its update feed, the cached model, the report
+dist-upgrade-old/
+dist-upgrade-feed/
+.upgrade-model-cache/
+e2e/test-results-upgrade/
+e2e/playwright-report-upgrade/
+e2e/upgrade-report/
 e2e/blob-report/
 
 # Stress test generated files
