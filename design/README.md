@@ -13,7 +13,7 @@ How each major subsystem works.
 | [backend.md](backend.md) | Backend API server -- FastAPI, services, configuration, endpoints |
 | [storage.md](storage.md) | Data storage -- SQLite schema, LanceDB vectors, ImageStore filesystem, backups |
 | [resource-management.md](resource-management.md) | Concurrency and resources -- prepare pool, heavy-op semaphore, JobRunner, IngestWorker, memory budget, resource-aware defaults |
-| [first-run.md](first-run.md) | First-run experience in both modes: storage window, setup wizard, gate, theme preference |
+| [first-run.md](first-run.md) | First-run experience in both modes: provisional first launch, setup wizard (including the desktop library step), gate, theme preference |
 | [electron.md](electron.md) | Electron desktop app -- windows, IPC, sidecar lifecycle, packaging, GPU builds |
 | [gpu-acceleration.md](gpu-acceleration.md) | ONNX Runtime execution providers -- `inference_device`, CUDA / DirectML / CoreML, CPU fallback |
 

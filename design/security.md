@@ -104,14 +104,15 @@ Codacy Cloud analyses every PR (gate: 0 new issues at Info and above). The repos
 
 `.codacy.yml` excludes tests (`backend/tests`, `stress_tests`, `e2e`, `*.test.ts(x)`) and build output from analysis. Tests are still linted locally by ruff and eslint.
 
-### 6. MEDIUM: Electron IPC Changing Storage Paths
+### 6. MEDIUM: Electron IPC choosing the library's folders
 
 **Status**: Partially mitigated.
 
-The renderer can call `system:change-storage-dirs` (exposed as `window.electronAPI.changeStorageDirs`) with two paths. The main process (`electron/src/main.ts`) then writes them to the app config and relaunches the app with the backend pointed at the new data and library roots. Current checks:
+The renderer can call `library:apply` (exposed as `window.electronAPI.applyLibrary`) with the app data, store and linked folders ([library-setup.md](library-setup.md)). The main process (`electron/src/main.ts`) writes them to the app config and restarts the backend on them. Current checks:
 - The handler is registered with `handleTrusted`, which rejects calls whose sender frame is not an app URL (the backend sidecar origin, `file:` for `loading.html`, or the dev server in development).
-- Both arguments must be non-empty absolute paths.
-- Both directories are created if needed and must pass a write test.
+- Every path must be absolute. The store and app data may not be, or contain, the linked folder (`parseLibraryDirs`), and the backend's startup check repeats that rule.
+- The app data and store folders are created if needed and must pass a write test. The linked folder is never created or written.
+- Only empty first-launch (provisional) folders are ever deleted, and only when they hold nothing Scene Atlas didn't create.
 
 There is no restriction on which absolute paths are accepted, so code running in the renderer could point the backend at any writable location. Renderer windows run with `contextIsolation`, `sandbox` and no `nodeIntegration`, and navigation away from app URLs is blocked, which limits who can reach the channel.
 
@@ -162,7 +163,7 @@ Overrides that clear findings without waiting for upstream (drop them once the p
 ## Open Items
 
 1. Session-based authentication (Finding 1).
-2. Constrain the paths accepted by `system:change-storage-dirs` (Finding 6).
+2. Constrain the paths accepted by `library:apply` (Finding 6).
 3. CSRF protection alongside auth (Finding 9).
 
 Backlog priorities are tracked in [status-and-roadmap.md](status-and-roadmap.md).

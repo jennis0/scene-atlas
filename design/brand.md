@@ -26,7 +26,7 @@ Why the curves matter: an earlier draft drew the pages as flat panels meeting in
 | `assets/icon.ico` | Windows app icon, 16–256 px, from the full-bleed tile (Windows shows icons small and without the macOS margin) |
 | `frontend/public/favicon.svg`, `docs/public/favicon.svg` | Web UI and docs site favicons; the docs nav bar also uses it as its logo |
 | `frontend/src/components/brand/markPaths.ts` | The mark's paths for `BrandMark` (generated) |
-| `electron/setup.html`, `electron/loading.html` | Inline SVG between `<!-- brand-mark -->` comments (generated) |
+| `electron/loading.html` | Inline SVG between `<!-- brand-mark -->` comments (generated) |
 | `assets/brand/lockup-dark.png`, `lockup-light.png` | Mark and Cinzel wordmark for the README header, swapped by GitHub's light/dark theme |
 | `assets/brand/social-preview.png` | 1280×640 social preview: lockup, tagline, platforms. GitHub has no API for it: upload by hand in **Settings → General → Social preview** |
 | `docs/public/social-preview.png` | The same image, as the website's `og:image` for link previews |
