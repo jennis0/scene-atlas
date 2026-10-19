@@ -6,7 +6,7 @@
 import { chromium } from '@playwright/test'
 
 const [server, out] = process.argv.slice(2)
-const QUERY = 'giant skull in the desert'
+const QUERY = 'snowy mountain pass'
 
 const browser = await chromium.launch()
 for (const scheme of ['dark', 'light']) {
@@ -18,8 +18,11 @@ for (const scheme of ['dark', 'light']) {
   await page.goto(server, { waitUntil: 'networkidle' })
   await page.getByRole('group', { name: 'Image type' }).getByRole('button', { name: /Maps/ }).click()
   await page.getByTitle('Groups').click()
+  await page.waitForLoadState('networkidle')
   await page.getByLabel('Search the library').fill(QUERY)
-  await page.keyboard.press('Enter')
+  // The button, not Enter: Enter straight after the view switch is sometimes lost
+  await page.getByRole('button', { name: 'Search', exact: true }).click()
+  await page.getByText('Relevance').first().waitFor() // the sort switches once results arrive
   await page.waitForLoadState('networkidle')
   await page.waitForTimeout(2500) // thumbnails fade in
   await page.screenshot({

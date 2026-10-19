@@ -57,17 +57,17 @@ Commit the outputs; nothing generates them at build time.
 
 ## Screenshots
 
-The README screenshot (`docs/public/screenshots/search-{dark,light}.webp`) is a search for "giant skull in the desert" in the grouped Maps view: it shows search by content and variant groups in one image.
+The README screenshot (`docs/public/screenshots/search-{dark,light}.webp`) is a search for "snowy mountain pass" in the grouped Maps view: each map comes up led by its snowy variant, which shows search by content and variant groups in one image. "ruined cathedral" is a good alternative that shows three creators.
 
 **Rules for the art in screenshots:**
 
-- Only openly licensed art, credited under the screenshot: Moonlight Maps (CC BY-NC-SA 4.0: their licence covers all their works, paid ones included, for non-commercial use) and Fantasy Atlas's free maps (CC BY-NC 4.0). Because Moonlight's licence is ShareAlike, the screenshot is shared under CC BY-NC-SA 4.0. The non-commercial licences hold only while Scene Atlas and its promotion stay free.
+- Only openly licensed art, credited under the screenshot for whatever is visible in it: Moonlight Maps (CC BY-NC-SA 4.0: their licence covers all their works, paid ones included, for non-commercial use), Fantasy Atlas's free maps (CC BY-NC 4.0) and 2-Minute Tabletop's free maps (CC BY-NC 4.0, credit "Map by 2-Minute Tabletop"). Because Moonlight's licence is ShareAlike, the screenshot is shared under CC BY-NC-SA 4.0. The non-commercial licences hold only while Scene Atlas and its promotion stay free.
 - Thumbnails only: no screenshot shows an individual map at full size, so no screenshot works as a copy of a map. Captures are at 1x.
 - Never commit the maps themselves.
 
 Other creators' terms, checked 2026-10-19, are in the project's research notes. In short: Elven Tower's Creative Commons Collection is CC BY 4.0 and Manea Roliste's packs are CC BY-NC 4.0, both usable. Czepeku, Neutral Party, Domille, Venatus and Seafoot need permission. Forgotten Adventures is personal use only. Tom Cartos's open licence has an AI clause that needs his confirmation first.
 
-**Regenerating:** put the maps in `demo_maps/` (gitignored locally; layout in `scripts/demo/import_library.py`), then:
+**Regenerating:** put the maps in `demo_maps/`, with any zips unzipped into one folder each (gitignored locally; layout in `scripts/demo/import_library.py`), then:
 
 ```bash
 uv run python -m scripts.demo.download_paintings /tmp/paintings     # CC0 scenes, optional

@@ -20,10 +20,10 @@ Free and open source. Runs as a desktop app on Windows, macOS and Linux, or self
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/public/screenshots/search-dark.webp">
-  <img src="docs/public/screenshots/search-light.webp" alt="Scene Atlas showing results for &quot;giant skull in the desert&quot;: groups of battlemap variants, led by their desert versions">
+  <img src="docs/public/screenshots/search-light.webp" alt="Scene Atlas showing results for &quot;snowy mountain pass&quot;: groups of battlemap variants, each led by its snowy version">
 </picture>
 
-<sub>Searching "giant skull in the desert". Maps by <a href="https://www.moonlight-maps.com">Moonlight Maps</a> (CC BY-NC-SA 4.0) and <a href="https://www.patreon.com/fantasy_atlas">Fantasy Atlas</a> (CC BY-NC 4.0); this screenshot is shared under CC BY-NC-SA 4.0.</sub>
+<sub>Searching "snowy mountain pass": each map comes up with its snowy version first. Maps by <a href="https://www.moonlight-maps.com">Moonlight Maps</a>, CC BY-NC-SA 4.0; this screenshot is shared under the same licence.</sub>
 
 ## Features
 

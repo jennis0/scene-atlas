@@ -7,7 +7,13 @@ The maps are not in the repo (see design/brand.md, Screenshots). Expected layout
 
     <maps dir>/Moonlight Maps/<map>/VTT/*.jpg     (the 72 dpi copies; MA/ is skipped)
     <maps dir>/Fantasy Atlas/<map>/*.jpg
+    <maps dir>/<any other creator>/<map>/**   unzipped downloads; the app sorts each image
+                                              (battlemap, scene, or set aside, e.g. tokens)
     <paintings dir>/scenes/*.jpg, <paintings dir>/portraits/*.jpg   (download_paintings.py)
+
+Unzip downloads into one folder per zip first. Zip files are ignored: imported as zips, they
+lose the zip's name and folder, so groups split and the creator is unknown (see
+design/status-and-roadmap.md).
 
 Usage:
     uv run python -m scripts.demo.import_library http://127.0.0.1:8123 demo_maps <paintings dir>
@@ -23,6 +29,8 @@ from pathlib import Path
 import httpx
 
 MANIFEST_CHUNK = 2000
+CURATED = {"Moonlight Maps", "Fantasy Atlas"}  # laid out by hand, typed explicitly
+AS_DOWNLOADED = {".jpg", ".jpeg", ".png", ".webp"}
 
 
 def collect(maps: Path, paintings: Path) -> list[tuple[Path, str, str]]:
@@ -35,6 +43,10 @@ def collect(maps: Path, paintings: Path) -> list[tuple[Path, str, str]]:
         files.append((f, f"Moonlight Maps/{f.parent.parent.name}/{f.name}", "battlemap"))
     for f in sorted((maps / "Fantasy Atlas").glob("*/*.jpg")):
         files.append((f, f"Fantasy Atlas/{f.parent.name}/{f.name}", "battlemap"))
+    for creator in sorted(d for d in maps.iterdir() if d.is_dir() and d.name not in CURATED):
+        for f in sorted(creator.rglob("*")):
+            if f.is_file() and f.suffix.lower() in AS_DOWNLOADED:
+                files.append((f, f.relative_to(maps).as_posix(), "auto"))
     for kind in ("scenes", "portraits"):
         for f in sorted((paintings / kind).glob("*.jpg")):
             files.append((f, f"{kind.title()}/{f.name}", "scene"))
@@ -106,7 +118,7 @@ def main() -> None:
     c = detail["counts"]
     print(
         f"Import {detail['status']}: {c['done']} done, {c['duplicate']} duplicate, "
-        f"{c['failed']} failed, {detail['group_count']} groups"
+        f"{c['failed']} failed, {c.get('sorted_out', 0)} set aside, {detail['group_count']} groups"
     )
 
 
