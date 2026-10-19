@@ -23,6 +23,10 @@ on:
         type: string
         required: false
 
+# Read-only by default; the publish job asks for what it needs.
+permissions:
+  contents: read
+
 jobs:
   # ── Stage 1: Full test suite ──────────────────────────────────────────────
   test-backend:

@@ -93,10 +93,12 @@ describe('defaultStorageBase', () => {
   })
 
   test('Windows falls back to the standard Local AppData path', () => {
-    assert.equal(
-      defaultStorageBase('win32', {}, dirs),
-      'C:\\Users\\sam\\AppData\\Local\\Scene Atlas',
-    )
+    for (const LOCALAPPDATA of [undefined, '', 'relative\\dir']) {
+      assert.equal(
+        defaultStorageBase('win32', { LOCALAPPDATA }, dirs),
+        'C:\\Users\\sam\\AppData\\Local\\Scene Atlas',
+      )
+    }
   })
 
   test('macOS and Linux use Documents', () => {

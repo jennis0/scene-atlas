@@ -86,7 +86,10 @@ export function defaultStorageBase(
   dirs: { home: string; documents: string },
 ): string {
   if (platform === 'win32') {
-    const localAppData = env.LOCALAPPDATA || path.win32.join(dirs.home, 'AppData', 'Local')
+    // Unset, empty or relative falls back to the standard location
+    const set = env.LOCALAPPDATA
+    const localAppData =
+      set && path.win32.isAbsolute(set) ? set : path.win32.join(dirs.home, 'AppData', 'Local')
     return path.win32.join(localAppData, 'Scene Atlas')
   }
   return path.join(dirs.documents, 'Scene Atlas')

@@ -2,9 +2,15 @@ import { AlertCircle, Loader2 } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import type { EmbeddingStatus } from '@/lib/api/modelsApi'
 
-const PROBLEM_LABELS: Partial<Record<EmbeddingStatus, string>> = {
-  missing: 'Search model not downloaded',
-  error: 'Search model unavailable',
+function problemLabel(status: EmbeddingStatus): string | null {
+  switch (status) {
+    case 'missing':
+      return 'Search model not downloaded'
+    case 'error':
+      return 'Search model unavailable'
+    default:
+      return null
+  }
 }
 
 const PILL =
@@ -27,7 +33,7 @@ export function SearchModelStatus({ status, message }: SearchModelStatusProps) {
     )
   }
 
-  const label = PROBLEM_LABELS[status]
+  const label = problemLabel(status)
   if (!label) return null
   return (
     <Popover>
