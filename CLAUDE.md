@@ -41,4 +41,4 @@ IMPORTANT: It must be possible to build on both windows and linux and run on Win
 - At the end of each feature or bugfix, commit it with a useful but short message
 - Make sure you are running ruff format/check over all python code and ESLint/Prettier over all JS code prior to commit
 - The pre-push hook validates lint, types (pyright), dead code (knip), duplication (jscpd) and unit tests locally — CI only runs on PRs (security, integration, frontend build, the same quality gates)
-- To release: trigger the Release workflow manually against main → tests → E2E → builds → verify artifacts → re-run with publish=true
+- To release: bump the version in a PR (`python scripts/release/release_version.py bump X.Y.Z`), merge, run the Release workflow against main with publish=true, check the draft release it creates, then publish it on GitHub (design/releasing.md)

@@ -8,6 +8,8 @@ from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from backend import __version__
+
 _REPO_ROOT = Path(__file__).parent.parent.parent
 _LEGACY_LIBRARY_DIR = _REPO_ROOT / "images"
 
@@ -41,7 +43,7 @@ class Settings(BaseSettings):
 
     # Application
     app_name: str = "Scene Atlas"
-    app_version: str = "0.1.0"
+    app_version: str = __version__
     debug: bool = False
 
     # Deployment mode: 'app' when running as Electron desktop sidecar,

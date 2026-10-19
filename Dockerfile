@@ -14,11 +14,14 @@ FROM python:3.12-slim AS runtime
 
 # Build arg: which onnxruntime extra to install (cpu, gpu, gpu-directml)
 ARG EXTRA=cpu
-# The app runs as this unprivileged user. It must be able to write the IMAGE_DIR
-# bind mount, so match it to the host owner of that directory (docker-compose
-# passes APP_UID/APP_GID through from .env).
-ARG APP_UID=1000
-ARG APP_GID=1000
+# The release version, for the image's labels (the Release workflow passes it).
+ARG VERSION=dev
+
+LABEL org.opencontainers.image.title="Scene Atlas" \
+      org.opencontainers.image.description="Search and browse tabletop RPG battlemaps and scenes" \
+      org.opencontainers.image.source="https://github.com/jennis0/scene-atlas" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version="${VERSION}"
 
 # System dependencies for OpenCV headless, Pillow, and general build tools
 RUN apt-get update && \
@@ -31,8 +34,11 @@ RUN apt-get update && \
         curl \
     && rm -rf /var/lib/apt/lists/*
 
-RUN groupadd --gid "${APP_GID}" app \
-    && useradd --uid "${APP_UID}" --gid app --create-home --shell /usr/sbin/nologin app
+# The default user. The published image is the same for everyone, so the user that must
+# write the IMAGE_DIR bind mount is picked at run time instead: docker-compose.yml runs
+# the container as APP_UID:APP_GID from .env (docs/deploy/server.md).
+RUN groupadd --gid 1000 app \
+    && useradd --uid 1000 --gid app --create-home --shell /usr/sbin/nologin app
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
@@ -54,12 +60,17 @@ RUN uv sync --frozen --extra "${EXTRA}" --no-dev
 # Copy built frontend into static serving location
 COPY --from=frontend-build /build/frontend/dist/ /app/frontend/dist/
 
-# Mount points for the data volume and image library. A fresh named volume copies
-# this ownership; the image bind mount keeps its host ownership (see APP_UID).
-RUN mkdir -p /app/data /app/images && chown app:app /app/data /app/images
+# Mount points for the data volume and image library. A fresh named volume copies this
+# directory's owner and mode, so /app/data is writable by whichever user the container
+# runs as; what that user creates inside is theirs alone. The image bind mount keeps its
+# host ownership (see APP_UID).
+RUN mkdir -p /app/data /app/images && chown app:app /app/data /app/images \
+    && chmod 0777 /app/data
 
 # Run the venv's executables directly: `uv run` would try to re-sync the root-owned venv.
 ENV PATH="/app/.venv/bin:${PATH}"
+# A run-time user may have no home directory; libraries that cache under ~ use this.
+ENV HOME=/tmp
 
 USER app
 

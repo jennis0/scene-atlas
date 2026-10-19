@@ -584,3 +584,32 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 - The AppImage updater writes the new version under its own versioned name and deletes the old file, so a shortcut to the old file name stops working.
 - The packaged-app tests point the updater at a closed port, so test runs never update.
 - The upgrade test runs on Windows only, from a build of the same code. Upgrading from the previous published release (real migrations, the old updater's own code) and Linux are on the roadmap.
+
+## ADR-023: Versions in the repo, draft releases and a published Docker image
+
+**Date:** 2026-10-19
+**Status:** Implemented (branch `feature/release-process`). How to release: [releasing.md](releasing.md).
+
+**Context:** The Release workflow took the version as an input and wrote it into `package.json` on the build runners only. The repo stayed at 0.1.0, so the backend (`pyproject.toml`, `backend/__init__.py`, `settings.app_version`) reported 0.1.0 in every release, as did every Docker and source install: no server could tell which release it ran, so no update check could work. Releasing meant a dry run, then a second run with `publish=true` that rebuilt everything, so the artifacts checked were never the ones shipped, and the release went live at once. Nothing stopped a publish from a branch, a version already released or older than the last, or a prerelease being marked latest and offered to every install. Server installs built the image from a clone and updated with `git pull` on `main`, i.e. onto unreleased code.
+
+**Decision:**
+
+1. **The version lives in the repo** and changes in a PR: `package.json` (with its lockfile) for the desktop app and `backend/__init__.py` for the backend, which `pyproject.toml` reads (hatch dynamic version) and `config.py` imports. `scripts/release/release_version.py bump` sets both; a unit test fails if they disagree. The frontend's unused version is gone.
+2. **A preflight job** checks the version first: publishing only from `main`, a plain semver, newer than every `v*` tag.
+3. **One run makes a draft release** from its own builds; a person checks it and publishes it on GitHub. Drafts are invisible to electron-updater and to the Docker `latest` tag. Hyphenated versions are GitHub prereleases.
+4. **A CPU Docker image on GHCR**, pushed as `sha-<commit>` by the run and tagged with the version and `latest` only when the draft is published (`release-published.yml`). The container user moves from a build argument to Compose's run-time `user:`, so one image serves every host.
+
+**Alternatives considered:**
+
+- **Version from the git tag** (hatch-vcs or stamping at build time). Rejected: Docker builds, PyInstaller and source installs without `.git` would each need plumbing to learn their version, and a bump PR is a small price for a version visible in the code.
+- **The workflow commits the bump to `main`.** Rejected: it needs a token that bypasses branch protection, and every change to `main` goes through a PR.
+- **Start as root and drop privileges in an entrypoint** (the PUID/PGID pattern) for the runtime user. Rejected for now: it can fix a volume's ownership when the UID changes, but runs as root at start and adds a script; Compose's `user:` with a world-writable volume root does the job without root.
+- **Push `<version>` and `latest` from the run.** Rejected: a draft that is later discarded would already be what `docker compose pull` fetches.
+
+**Consequences:**
+
+- A release takes a bump PR, then the workflow, then a click to publish.
+- `main` between releases reports the last release's version.
+- Server installs without a clone: the release carries `docker-compose.yml` and `env.example`. The GPU profile still builds from a checkout of a release tag.
+- The GHCR package must be made public once, by hand, after the first push.
+- Changing `APP_UID` after the first start needs a `chown -R` of the data volume.
