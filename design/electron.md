@@ -157,7 +157,7 @@ macOS is built only on the arm64 runner; there is no Intel or universal build.
 
 **What the spec leaves out:** each was checked against the PE import tables of the bundled binaries and the importing code's `try/except ImportError`:
 
-- pyarrow's Arrow Flight, Substrait and cloud filesystems (`_flight`, `_substrait`, `_s3fs`, `_gcsfs`, `_azurefs`, `_hdfs`, with the `arrow_flight`/`arrow_python_flight`/`arrow_substrait`/`arrow_s3` libraries only they load), plus the headers, Cython sources, import libraries and tests the wheel ships. LanceDB uses none of them.
+- pyarrow's Arrow Flight, Substrait and cloud filesystems (`_flight`, `_substrait`, `_s3fs`, `_gcsfs`, `_azurefs`, `_hdfs`; on Windows also the `arrow_flight`/`arrow_python_flight`/`arrow_substrait`/`arrow_s3` DLLs only they load. On macOS and Linux those libraries stay: pyarrow's core lib links `libarrow_substrait` directly), plus the headers, Cython sources, import libraries and tests the wheel ships. LanceDB uses none of them.
 - Pillow's AVIF codec (`PIL._avif`, 7 MB); AVIF isn't an import format.
 - Not `hf_xet`, which an earlier spec excluded: the model repos are on Hugging Face's Xet storage, and huggingface-hub 2.x can't download Xet files without it.
 

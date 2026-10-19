@@ -193,15 +193,21 @@ _CUDA_LIB_RE = _re.compile(
     r'|libonnxruntime_providers_cuda)'
 )
 
-# pyarrow files nothing loads at runtime: the libraries of the modules excluded above
-# (only those modules link them, per their import tables), and the C++ headers,
-# Cython sources, import libraries and tests the wheel ships for building extensions.
+# pyarrow files nothing loads at runtime: the C++ headers, Cython sources, import
+# libraries and tests the wheel ships for building extensions; and on Windows, the DLLs
+# of the modules excluded above, which only those modules import. Not on macOS or Linux:
+# there pyarrow's core lib links libarrow_substrait itself, so dropping it breaks import
+# (the self-check catches this).
+_PYARROW_UNUSED_LIBS = (
+    [r'arrow_(python_)?(flight|substrait|s3)[^/]*\.dll'] if sys.platform == 'win32' else []
+)
 _PYARROW_UNUSED_RE = _re.compile(
     r'^pyarrow/('
-    r'(lib)?arrow_(python_)?(flight|substrait|s3)[^/]*\.(dll|so[.\d]*|dylib)'
-    r'|(include|includes|src|tests)/.*'
-    r'|[^/]*\.(lib|pxd|pyx|pxi|h)'
-    r')$'
+    + '|'.join(_PYARROW_UNUSED_LIBS + [
+        r'(include|includes|src|tests)/.*',
+        r'[^/]*\.(lib|pxd|pyx|pxi|h)',
+    ])
+    + r')$'
 )
 
 # .dist-info directories are all kept (see metadata_datas above): a whitelist of the
