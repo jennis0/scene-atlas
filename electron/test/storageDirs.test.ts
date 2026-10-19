@@ -33,8 +33,13 @@ describe('hasForeignEntries', () => {
     assert.equal(hasForeignEntries(root), false)
   })
 
-  test('a missing folder is fine (it will be created)', () => {
+  test('a missing folder holds nothing', () => {
     assert.equal(hasForeignEntries(path.join(root, 'new')), false)
+  })
+
+  test("a folder that can't be read can't be vouched for", () => {
+    touch('file')
+    assert.equal(hasForeignEntries(path.join(root, 'file')), true)
   })
 
   test('an existing image library is fine', () => {
@@ -85,13 +90,6 @@ describe('hasForeignEntries', () => {
   test('shard names are lower-case hex only', () => {
     touch('AB', 'x.png')
     assert.equal(hasForeignEntries(root), true)
-  })
-
-  test('the other storage folder, or a folder containing it, is expected', () => {
-    const appData = path.join(root, 'Scene Atlas', 'data')
-    fs.mkdirSync(appData, { recursive: true })
-    assert.equal(hasForeignEntries(root, appData), false)
-    assert.equal(hasForeignEntries(root, path.join(root, 'elsewhere')), true)
   })
 })
 

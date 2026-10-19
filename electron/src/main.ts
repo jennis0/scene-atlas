@@ -37,11 +37,12 @@ import {
   isMissingOrEmpty,
   parseLibraryDirs,
   provisionalDirsToDelete,
+  removeProvisionalDirs,
   unavailableLinkedError,
   type FolderKind,
   type LibraryDirs,
 } from './libraryDirs'
-import { hasForeignEntries, isAbsolutePath, prepareStorageDirs } from './storageDirs'
+import { isAbsolutePath, prepareStorageDirs } from './storageDirs'
 
 const isDev = !app.isPackaged
 const isMac = process.platform === 'darwin'
@@ -300,7 +301,8 @@ handleTrusted('library:apply', (_event, raw) => {
 
   const current = currentDirs ?? libraryDirsOf(config)
   const changed = dirsChanged(current, next)
-  const replaced = config.provisional && changed ? provisionalDirsToDelete(current, next) : []
+  const replaced =
+    config.provisional && changed ? provisionalDirsToDelete(current, next, getDefaultDirs()) : []
   saveConfig(withChosenLibrary(config, next))
   if (!changed) return { error: null, restarted: false }
 
@@ -573,48 +575,12 @@ async function restartBackend(dirs: LibraryDirs, replacedProvisional: string[]):
     backendOrigin = null
     // Forced past the grace period: the new backend may need the same folders' locks.
     await stopSidecar(QUIT_GRACE_MS, true)
-    await removeProvisionalDirs(replacedProvisional)
+    await removeProvisionalDirs(replacedProvisional, getDefaultDirs())
     // Closed meanwhile (macOS keeps running): the next window starts its own backend.
     if (!win || mainWindow !== win) return
     await startBackend(dirs)
   } finally {
     restarting = false
-  }
-}
-
-/**
- * Delete first-launch folders the user replaced in setup. Nothing can have been imported
- * into them (the gallery is gated until setup is complete), and each is kept if it holds
- * anything Scene Atlas didn't create.
- */
-async function removeProvisionalDirs(dirs: string[]): Promise<void> {
-  const defaultBase = path.dirname(getDefaultDirs().appData)
-  for (const dir of dirs) {
-    if (hasForeignEntries(dir)) {
-      console.log(`[electron] Keeping ${dir}: it holds other files`)
-      continue
-    }
-    // Windows can hold the stopped backend's files open for a moment.
-    for (let attempt = 1; ; attempt++) {
-      try {
-        fs.rmSync(dir, { recursive: true, force: true })
-        break
-      } catch (err) {
-        if (attempt === 5) {
-          console.warn(`[electron] Couldn't delete ${dir}:`, err)
-          break
-        }
-        await new Promise((resolve) => setTimeout(resolve, 500))
-      }
-    }
-    // The "Scene Atlas" folder the defaults sit in, once nothing is left in it.
-    if (path.dirname(dir) === defaultBase) {
-      try {
-        fs.rmdirSync(defaultBase) // only succeeds when empty
-      } catch {
-        // Something else is in it, or it's gone already.
-      }
-    }
   }
 }
 

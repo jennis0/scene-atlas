@@ -89,22 +89,21 @@ export function isSamePath(
 
 /**
  * True when *dir* holds files or folders Scene Atlas didn't create, e.g. the user's
- * existing map collection. Either storage folder may hold the other's entries (one
- * folder for both is allowed), and *otherRoot* or a folder containing it is expected.
- * Stops at the first such entry, so a huge folder is cheap to check.
+ * existing map collection, so it must not be deleted. Either storage folder may hold the
+ * other's entries (one folder for both is allowed). Stops at the first such entry, so a
+ * huge folder is cheap to check.
  */
-export function hasForeignEntries(dir: string, otherRoot?: string): boolean {
+export function hasForeignEntries(dir: string): boolean {
   let handle: fs.Dir
   try {
     handle = fs.opendirSync(dir)
-  } catch {
-    return false // missing or unreadable: prepareStorageDirs reports it
+  } catch (err) {
+    // Missing holds nothing; anything else (a file, no access) can't be vouched for.
+    return (err as NodeJS.ErrnoException).code !== 'ENOENT'
   }
   try {
     for (let entry = handle.readSync(); entry !== null; entry = handle.readSync()) {
-      if (isOwnEntry(entry.name)) continue
-      if (otherRoot && isSameOrInside(otherRoot, path.join(dir, entry.name))) continue
-      return true
+      if (!isOwnEntry(entry.name)) return true
     }
     return false
   } finally {

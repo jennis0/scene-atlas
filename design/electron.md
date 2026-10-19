@@ -74,7 +74,7 @@ Node-only modules (no `electron` import, unit tested with `node --test` in `elec
 
 - **`storageDirs.ts`**
   - **`prepareStorageDirs`** creates the app data folder and the store and write-tests them, on every launch (a drive may have been unmounted) and before applying new folders. It is never called on the linked folder, which is read-only.
-  - **`hasForeignEntries`** decides whether a replaced provisional folder may be deleted. Its own entries are dotfiles, two-character lower-case hex shards, `backups`, the library marker (`scene-atlas-library.json`) and the app data entries (`battlemap.db*`, `lancedb`, `store`, `logs`, …), plus OS clutter. Both lists are accepted in either folder, so one folder for both is allowed (the backend's storage lock is per resolved root, so that's safe). Update the lists whenever the backend writes a new top-level entry to either root; a missing entry only means a provisional folder is kept.
+  - **`hasForeignEntries`** decides whether a replaced provisional folder may be deleted; a folder it can't read counts as foreign. Its own entries are dotfiles, two-character lower-case hex shards, `backups`, the library marker (`scene-atlas-library.json`) and the app data entries (`battlemap.db*`, `lancedb`, `store`, `logs`, …), plus OS clutter. Both lists are accepted in either folder, so one folder for both is allowed (the backend's storage lock is per resolved root, so that's safe). Update the lists whenever the backend writes a new top-level entry to either root; a missing entry only means a provisional folder is kept.
   - **`isSameOrInside`** / **`isSamePath`** compare folders, case-insensitively on Windows and macOS.
 - **`libraryDirs.ts`** checks folders sent by `applyLibrary` (absolute; the store and app data may not be the linked folder or contain it, mirroring the backend, which is authoritative), decides whether they changed, which provisional folders they replace, and refuses a store inside a linked folder that is missing (creating it would create the linked folder).
 - **`appConfig.ts`** reads the config file's shape (below).
@@ -93,7 +93,7 @@ Everything else in setup (appearance, stored format, tag packs, search model) is
 4. Otherwise `restartBackend()`, and the call never resolves:
    1. show `loading.html` in the same window;
    2. `stopSidecar(QUIT_GRACE_MS, force)`: past the grace period it is killed on every platform, since the new backend may need the same folders' locks;
-   3. if the config was provisional, delete the replaced default folders (`provisionalDirsToDelete`), each only when `hasForeignEntries` is false, then the empty `Scene Atlas` folder they sat in. A folder that is, holds or sits inside a new folder is never deleted;
+   3. if the config was provisional, delete the replaced default folders (`provisionalDirsToDelete`, `removeProvisionalDirs`), each only when `hasForeignEntries` is false, then the empty `Scene Atlas` folder they sat in. Only the current defaults are candidates, and a folder that is, holds or sits inside a new folder is never deleted;
    4. `startBackend()` on the new folders, which loads the UI when it is ready. The preload runs again, so the wizard sees `libraryChosen`.
 
 A second call while restarting never resolves. In dev there's no sidecar: the config is saved and the call resolves `{ restarted: false }`; the developer's backend ignores the folders (set `APP_DATA_DIR`, `IMAGE_LIBRARY_DIR`, `LINKED_LIBRARY_DIR` and restart it).
