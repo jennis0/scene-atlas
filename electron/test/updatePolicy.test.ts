@@ -62,10 +62,23 @@ describe('releasePageUrl', () => {
       releasePageUrl('1.0.0-beta.1'),
       'https://github.com/jennis0/scene-atlas/releases/tag/v1.0.0-beta.1',
     )
+    assert.equal(
+      releasePageUrl('1.0.0-rc-2'),
+      'https://github.com/jennis0/scene-atlas/releases/tag/v1.0.0-rc-2',
+    )
   })
 
   test('falls back to the releases list for anything that is not a version', () => {
-    for (const version of [undefined, '', '1.0', '1.0.0/../../evil', '1.0.0?x=1']) {
+    for (const version of [
+      undefined,
+      '',
+      '1.0',
+      '1.0.0-',
+      '1.0.0-beta/1',
+      'x1.0.0-beta',
+      '1.0.0/../../evil',
+      '1.0.0?x=1',
+    ]) {
       assert.equal(releasePageUrl(version), 'https://github.com/jennis0/scene-atlas/releases')
     }
   })

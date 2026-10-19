@@ -35,7 +35,16 @@ export const FIRST_CHECK_DELAY_MS = 15_000
 export const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
 
 const RELEASES_URL = 'https://github.com/jennis0/scene-atlas/releases'
-const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
+// A version is "1.2.3" or "1.2.3-beta.1": a release, then an optional prerelease after
+// the first hyphen. Two simple patterns rather than one with a nested optional group.
+const RELEASE = /^\d+\.\d+\.\d+$/
+const PRERELEASE = /^[0-9A-Za-z.-]+$/
+
+function isPlainVersion(version: string): boolean {
+  const hyphen = version.indexOf('-')
+  if (hyphen === -1) return RELEASE.test(version)
+  return RELEASE.test(version.slice(0, hyphen)) && PRERELEASE.test(version.slice(hyphen + 1))
+}
 
 /**
  * Installing needs an install the app can replace itself: the NSIS install on Windows and
@@ -72,7 +81,7 @@ export function parseFeedOverride(raw: string | undefined): string | null {
 /** The release page to download *version* from; the releases list for anything that isn't
  * a plain version, so text from the feed never ends up in the URL. */
 export function releasePageUrl(version: string | undefined): string {
-  return version && SEMVER.test(version) ? `${RELEASES_URL}/tag/v${version}` : RELEASES_URL
+  return version && isPlainVersion(version) ? `${RELEASES_URL}/tag/v${version}` : RELEASES_URL
 }
 
 /** Whether a check may start now: not while one is running, nor once an update is found. */

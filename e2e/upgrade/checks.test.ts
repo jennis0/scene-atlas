@@ -2,6 +2,7 @@
 import { describe, test } from "node:test";
 import * as assert from "node:assert/strict";
 import {
+  cell,
   compareSnapshots,
   failsRelease,
   planQueries,
@@ -223,6 +224,13 @@ describe("failsRelease and renderReport", () => {
     assert.match(report, /every image, group, tag, edit and file came through/);
     assert.match(report, /1 of 1 queries changed\*\* \(accepted: New ranking\)/);
     assert.match(report, /\| text:cave \| same results in the same order \| Cave \(#1\)<br>Cave Lava \(#2\) \| Cave Lava \(#2\) \|/);
+  });
+
+  test("table cells escape backslashes and pipes and stay on one line", () => {
+    assert.equal(cell("a|b"), "a\\|b");
+    assert.equal(cell("ends in \\"), "ends in \\\\");
+    assert.equal(cell("a\\|b"), "a\\\\\\|b");
+    assert.equal(cell("two\nlines"), "two lines");
   });
 
   test("the report says when search is unchanged", () => {

@@ -65,7 +65,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   installUpdate: (): Promise<void> => ipcRenderer.invoke('updates:install'),
   openUpdateDownload: (): Promise<void> => ipcRenderer.invoke('updates:open-download'),
   onUpdateState: (callback: (state: unknown) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, state: unknown) => callback(state)
+    const listener = (_event: Electron.IpcRendererEvent, state: unknown) => {
+      callback(state)
+    }
     ipcRenderer.on('updates:state', listener)
     return () => {
       ipcRenderer.removeListener('updates:state', listener)

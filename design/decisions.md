@@ -562,6 +562,7 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 **Context:** The desktop app had no update path. A release without an updater can never update itself, so it had to be in place before the first public release. Builds are unsigned (no paid signing for now), the Windows installer is NSIS, Linux ships an AppImage and a .deb, and macOS a dmg. The installer is about 275 MB, most of it the Python sidecar.
 
 **Decision:**
+
 1. **electron-updater with the GitHub provider**, reading `latest*.yml` from GitHub Releases. The builds keep `--publish never`; the Release workflow's publish job uploads the metadata with the installers. Blockmaps are back on, so Windows downloads differentially.
 2. **Install where an install can replace itself, otherwise notify.** Windows (NSIS) and Linux AppImage download in the background and install on restart or quit. macOS (unsigned, so Squirrel.Mac would reject the update) and the .deb only say a version is out and open its release page.
 3. **Stop the backend before installing.** The NSIS installer starts when install is called, before the app quits, and would find the sidecar's files in use.
@@ -570,12 +571,14 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 6. **Releases are gated on an upgrade test**: an old build installed for real is updated from a local feed, and the library and the results of a set of queries are compared before and after. Library problems always fail; changed search results fail unless the release accepts them with a reason, which goes into the release notes. A pre-publish check stops a release whose update metadata doesn't match its assets.
 
 **Alternatives considered:**
+
 - **Electron's built-in `autoUpdater`** (Squirrel), alone or through update.electronjs.org. Rejected: Windows needs Squirrel.Windows installers instead of NSIS, Linux isn't supported, and macOS needs signing.
 - **Wait for code signing.** Rejected: the first release would have no way to update, and its users would have to reinstall by hand. The belief that unsigned updates warn in SmartScreen each time was wrong as far as we know: SmartScreen keys on the Mark-of-the-Web, which electron-updater's download doesn't get. To be confirmed on a real PC.
 - **Notify-only everywhere.** Simpler, but most users are on Windows, where a 275 MB manual download and reinstall per release is what an updater is for.
 - **Expected results committed as goldens** for the upgrade test. Rejected: the old version's results are the right baseline for "an update doesn't change what you see", and need no upkeep. The golden search tests already pin intended ranking changes within a version.
 
 **Consequences:**
+
 - Unsigned, the only integrity check on an update is the sha512 in `latest.yml`, from the same release: whoever can publish a release can update every install. Windows signing (SignPath) closes that; it then needs `publisherName` set.
 - macOS auto-install needs an Apple Developer account and a `zip` mac target.
 - The AppImage updater writes the new version under its own versioned name and deletes the old file, so a shortcut to the old file name stops working.

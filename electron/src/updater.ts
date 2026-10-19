@@ -41,11 +41,17 @@ function fileLogger(logPath: string) {
       // Logging must never break updating.
     }
   }
+  // No debug: electron-updater's is optional, and its debug output is per-chunk noise.
   return {
-    info: (message?: unknown) => write('info', message),
-    warn: (message?: unknown) => write('warn', message),
-    error: (message?: unknown) => write('error', message),
-    debug: () => {},
+    info: (message?: unknown) => {
+      write('info', message)
+    },
+    warn: (message?: unknown) => {
+      write('warn', message)
+    },
+    error: (message?: unknown) => {
+      write('error', message)
+    },
   }
 }
 
@@ -97,21 +103,25 @@ export class Updater {
       this.log.warn(`Ignoring SCENE_ATLAS_UPDATE_FEED (loopback http only): ${feedOverride}`)
     }
 
-    updater.on('checking-for-update', () => this.set({ status: 'checking' }))
-    updater.on('update-not-available', () => this.set({ status: 'up-to-date' }))
-    updater.on('update-available', (info: UpdateInfo) =>
+    updater.on('checking-for-update', () => {
+      this.set({ status: 'checking' })
+    })
+    updater.on('update-not-available', () => {
+      this.set({ status: 'up-to-date' })
+    })
+    updater.on('update-available', (info: UpdateInfo) => {
       this.set(
         mode === 'install'
           ? { status: 'downloading', version: info.version, percent: 0 }
           : { status: 'available', version: info.version },
-      ),
-    )
-    updater.on('download-progress', (progress: ProgressInfo) =>
-      this.set({ status: 'downloading', percent: wholePercent(progress.percent) }),
-    )
-    updater.on('update-downloaded', (info: UpdateInfo) =>
-      this.set({ status: 'ready', version: info.version, percent: 100 }),
-    )
+      )
+    })
+    updater.on('download-progress', (progress: ProgressInfo) => {
+      this.set({ status: 'downloading', percent: wholePercent(progress.percent) })
+    })
+    updater.on('update-downloaded', (info: UpdateInfo) => {
+      this.set({ status: 'ready', version: info.version, percent: 100 })
+    })
     updater.on('error', (err: Error) => {
       this.log.error(err.stack ?? err.message)
       const downloading = this.state.status === 'downloading'
@@ -139,8 +149,9 @@ export class Updater {
     if (this.state.status === 'unsupported' || !canCheck(this.state.status)) {
       return this.getState()
     }
-    // Failures also arrive as an 'error' event, which sets the state.
-    this.updater?.checkForUpdates().catch(() => {})
+    this.updater?.checkForUpdates().catch(() => {
+      // Failures also arrive as an 'error' event, which sets the state.
+    })
     return this.getState()
   }
 

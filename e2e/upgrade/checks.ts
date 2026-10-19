@@ -294,8 +294,9 @@ function label(id: number, spec: QuerySpec, options: ReportOptions): string {
   return `${names[String(id)] ?? "?"} (#${id})`;
 }
 
-function cell(text: string): string {
-  return text.replace(/\|/g, "\\|");
+/** Text for a Markdown table cell: backslashes first, so an escaped pipe can't be undone. */
+export function cell(text: string): string {
+  return text.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/[\r\n]+/g, " ");
 }
 
 /** The comparison as Markdown, for the job summary and the uploaded report. */
