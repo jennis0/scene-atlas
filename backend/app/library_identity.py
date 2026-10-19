@@ -434,7 +434,6 @@ def inspect_folders(
     store_marker = read_marker(store) if store is not None else None
     app_marker = read_marker(app_data) if app_data is not None else None
 
-    # The folders not given come from the found library's hints.
     hints: dict[str, str | None] = {}
     if store_marker is not None and store is not None:
         hints = marker_hints(store, store_marker)

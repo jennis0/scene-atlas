@@ -129,9 +129,7 @@ def touch(path: Path, mtime_ns: int) -> None:
     os.utime(path, ns=(mtime_ns, mtime_ns))
 
 
-# ---------------------------------------------------------------------------
 # The first scan
-# ---------------------------------------------------------------------------
 
 
 def test_first_scan_imports_the_folder_in_place(linked):
@@ -220,9 +218,7 @@ def test_a_no_change_rescan_of_a_large_folder_is_a_few_queries(linked, monkeypat
     assert elapsed < 10, elapsed
 
 
-# ---------------------------------------------------------------------------
 # Rescans: add, delete, move, edit
-# ---------------------------------------------------------------------------
 
 
 def test_added_files_join_their_pack(forest):
@@ -271,9 +267,7 @@ def test_a_moved_file_keeps_its_image(forest):
     assert forest.client.get(f"/api/v1/images/{image.id}/file").status_code == 200
 
 
-# ---------------------------------------------------------------------------
 # Edited files: refresh (§4.5)
-# ---------------------------------------------------------------------------
 
 DAY = "Czepeku/Forest/Forest_Day.png"
 NIGHT = "Czepeku/Forest/Forest_Night.png"
@@ -565,9 +559,7 @@ def test_the_source_tree_is_never_changed(linked):
     assert tree_digest(linked.root) == before
 
 
-# ---------------------------------------------------------------------------
 # Processing guards
-# ---------------------------------------------------------------------------
 
 
 def test_a_file_changed_while_read_is_read_again(linked, monkeypatch):
@@ -616,9 +608,7 @@ def test_a_key_outside_the_folder_is_never_read(linked, tmp_path):
     assert linked.client.get(f"/api/v1/images/{image_id}/file").status_code == 404
 
 
-# ---------------------------------------------------------------------------
 # Offline
-# ---------------------------------------------------------------------------
 
 
 def test_an_offline_folder_marks_nothing_missing(forest):
@@ -657,9 +647,7 @@ def test_a_scan_waits_while_its_folder_is_offline(linked):
     assert linked.api.detail(job_id)["counts"]["done"] == 1
 
 
-# ---------------------------------------------------------------------------
 # Removing images (§4.6, §4.7)
-# ---------------------------------------------------------------------------
 
 
 def test_a_removed_image_stays_removed(forest):
@@ -757,9 +745,7 @@ def test_purge_never_touches_the_linked_folder(forest):
     assert forest.sync().new == 2
 
 
-# ---------------------------------------------------------------------------
 # The scan endpoint and startup
-# ---------------------------------------------------------------------------
 
 
 def test_scan_endpoint(linked):

@@ -303,7 +303,6 @@ def detach_source(db: Session, source: LibrarySource) -> None:
 
 
 def open_linked_jobs(db: Session, source_id: int) -> list[ImportJob]:
-    """The source's imports that haven't finished."""
     return (
         db.query(ImportJob)
         .filter(

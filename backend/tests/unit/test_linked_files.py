@@ -69,9 +69,7 @@ def add_item(db, row: SourceFile, state: str, **kw) -> ImportItem:
     return item
 
 
-# ---------------------------------------------------------------------------
 # sync_files: item outcomes are written back
-# ---------------------------------------------------------------------------
 
 
 def test_outcomes_are_written_back(db_session, source):
@@ -137,9 +135,7 @@ def test_items_without_a_file_are_left_alone(db_session, source):
     sync_files(db_session, [item])  # nothing to do, nothing raised
 
 
-# ---------------------------------------------------------------------------
 # Moves: a missing image takes the file that has its bytes
-# ---------------------------------------------------------------------------
 
 
 def test_a_missing_image_moves_to_its_file(db_session, source):
@@ -186,9 +182,7 @@ def test_duplicates_take_over_on_a_rescan(db_session, source):
     assert image.source_file_id == copy.id
 
 
-# ---------------------------------------------------------------------------
 # Removing images
-# ---------------------------------------------------------------------------
 
 
 def test_removing_an_image_marks_its_files_removed(db_session, source):

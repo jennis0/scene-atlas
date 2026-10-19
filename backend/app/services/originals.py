@@ -50,7 +50,7 @@ class OriginalUnavailable(Exception):
 
 @dataclass(frozen=True)
 class LinkedEntry:
-    """A file found by the walk: its key, size and modification time."""
+    """A file found by the walk."""
 
     rel_key: str
     size: int

@@ -48,9 +48,7 @@ def decide(found: Found, *, linked: Path | None = None, root=Path("/lib")):
     return li.decide(app_data=root / "data", store=root / "images", linked=linked, found=found)
 
 
-# ---------------------------------------------------------------------------
 # The rules: every row of the startup check table (§3.3)
-# ---------------------------------------------------------------------------
 
 
 class TestDecide:
@@ -127,9 +125,7 @@ class TestContainment:
         assert decision.outcome == "error"
 
 
-# ---------------------------------------------------------------------------
 # Markers
-# ---------------------------------------------------------------------------
 
 
 class TestMarkers:
@@ -191,9 +187,7 @@ class TestMarkers:
         assert li.read_marker(tmp_path) == Marker(X, "store", {"app_data": str(tmp_path)})
 
 
-# ---------------------------------------------------------------------------
 # Real folders: the startup check, opening, and reading a database
-# ---------------------------------------------------------------------------
 
 
 class Library:
@@ -339,9 +333,7 @@ class TestStartup:
         assert li.read_database(lib.app_data / "none.db") is None
 
 
-# ---------------------------------------------------------------------------
 # Inspecting folders the user picks
-# ---------------------------------------------------------------------------
 
 
 def inspect(**folders) -> li.Inspection:
@@ -436,9 +428,7 @@ class TestInspect:
         assert {p: p.stat().st_mtime_ns for p in lib.store.rglob("*")} == before
 
 
-# ---------------------------------------------------------------------------
 # The walk skips library folders (§1)
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("entry", [MARKER_FILENAME, LOCK_FILENAME])

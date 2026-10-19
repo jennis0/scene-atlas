@@ -35,9 +35,7 @@ def maps(tmp_path) -> Path:
     return root
 
 
-# ---------------------------------------------------------------------------
 # list(): the scan's walk
-# ---------------------------------------------------------------------------
 
 
 def test_list_gives_keys_from_the_folder_itself(maps):
@@ -69,9 +67,7 @@ def test_list_skips_symlinks(maps, tmp_path):
     assert [e.rel_key for e in LinkedFolder(maps).list()] == ["Czepeku/Forest/Forest_Day.png"]
 
 
-# ---------------------------------------------------------------------------
 # local_path(): the containment check
-# ---------------------------------------------------------------------------
 
 
 def test_local_path_reads_a_file_in_the_folder(maps):
@@ -131,9 +127,7 @@ def test_the_folder_has_no_put_or_delete():
     assert not hasattr(LinkedFolder, "delete")
 
 
-# ---------------------------------------------------------------------------
 # original_path(): an image's original, stored or linked
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture

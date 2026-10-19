@@ -175,7 +175,6 @@ class PreparedItem:
             path.unlink(missing_ok=True)
 
 
-# What preparing an item can give
 type Prepared = PreparedItem | DecodedItem | ItemFailure | EarlyDuplicate | RefreshUnchanged
 
 

@@ -32,9 +32,7 @@ def _maps(root: Path, count: int) -> Path:
     return root
 
 
-# ---------------------------------------------------------------------------
 # POST /library/inspect
-# ---------------------------------------------------------------------------
 
 
 def test_inspect_is_not_found_in_server_mode(test_client, tmp_path):
@@ -68,9 +66,7 @@ def test_inspect_needs_absolute_paths(test_client, app_mode):
     assert r.status_code == 422
 
 
-# ---------------------------------------------------------------------------
 # GET /library/status
-# ---------------------------------------------------------------------------
 
 
 def test_status_without_a_linked_folder(test_client, tmp_db):
@@ -94,9 +90,7 @@ def test_status_names_the_linked_folder(test_client, monkeypatch, tmp_path, mode
     assert test_client.get(f"{BASE}/status").json()["linked"]["state"] == "online"
 
 
-# ---------------------------------------------------------------------------
 # Startup
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -146,9 +140,7 @@ def test_startup_refuses_a_store_containing_the_linked_folder(roots, monkeypatch
         pass
 
 
-# ---------------------------------------------------------------------------
 # Purge
-# ---------------------------------------------------------------------------
 
 
 def test_purge_rewrites_the_store_marker(test_client, tmp_db):

@@ -25,9 +25,7 @@ def entry(key: str, size=10, mtime=100) -> LinkedEntry:
     return LinkedEntry(key, size, mtime)
 
 
-# ---------------------------------------------------------------------------
 # diff_files
-# ---------------------------------------------------------------------------
 
 
 def test_new_files():
@@ -101,9 +99,7 @@ def test_diff_of_a_large_folder_is_fast():
     assert diff.unchanged == count
 
 
-# ---------------------------------------------------------------------------
 # LinkedScanner
-# ---------------------------------------------------------------------------
 
 
 class _Gate:
