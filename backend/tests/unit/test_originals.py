@@ -145,7 +145,7 @@ def linked_root(maps, monkeypatch):
     originals.forget_availability()
 
 
-def _linked_image(rel_key: str | None) -> Image:
+def _linked_image(rel_key: str) -> Image:
     image = Image(filename="x.png", source_file_id=1)
     image.source_file = SourceFile(id=1, rel_key=rel_key, size=1, mtime_ns=1)
     return image
@@ -166,9 +166,10 @@ def test_original_of_a_linked_image(linked_root):
     with pytest.raises(OriginalUnavailable) as caught:
         original_path(_linked_image("Czepeku/gone.png"))
     assert caught.value.state == "missing"
-    # A row that gave up its path to an edited file (§4.5)
+    # An image whose file row is gone
+    image = Image(filename="x.png", source_file_id=1)
     with pytest.raises(OriginalUnavailable):
-        original_path(_linked_image(None))
+        original_path(image)
 
 
 def test_original_of_a_linked_image_whose_folder_is_offline(linked_root, monkeypatch):

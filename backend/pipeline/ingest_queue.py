@@ -32,6 +32,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.config import settings
 from backend.app.models import (
+    Image,
     ImageGroup,
     ImportGroup,
     ImportItem,
@@ -45,6 +46,7 @@ from backend.app.services.ingest_state import ItemEvent
 from backend.app.services.linked_files import Version, move_if_missing, sync_files
 
 from .error_classifier import KIND_FILE, KIND_SYSTEM, KIND_TRANSIENT
+from .linked_refresh import KIND_REFRESH_GONE, REFRESH_GONE_REASON, RefreshTarget, load_targets
 
 logger = logging.getLogger(__name__)
 
@@ -669,6 +671,9 @@ class ClaimedItem:
     source_file_id: int | None = None
     source_key: str | None = None
     source_version: Version | None = None
+    # A linked file that already is an image's: the item refreshes that image in place
+    # (design/library-setup.md §4.5). The image as it was when the item was claimed.
+    refresh: RefreshTarget | None = None
     # Grid sizes (NxM) named by other files in the same import group, both orientations.
     # Candidates for size-only grid detection, never truth (design/grid-detection-v3.md).
     sibling_grid_counts: tuple[tuple[int, int], ...] = ()
@@ -705,12 +710,25 @@ def _sibling_grid_counts(
     return {gid: tuple(counts) for gid, counts in found.items()}
 
 
+@dataclass(frozen=True)
+class _LinkedSources:
+    """The linked folder keys of a batch's linked items, and the images of those that
+    are refreshes."""
+
+    keys: dict[int, str]
+    targets: dict[int, RefreshTarget]
+
+
 def _snapshot(
     item: ImportItem,
     sibling_grid_counts: tuple[tuple[int, int], ...] = (),
     source_roots: tuple[str, ...] = (),
-    source_keys: dict[int, str | None] | None = None,
+    linked: _LinkedSources | None = None,
 ) -> ClaimedItem:
+    file_id = item.source_file_id
+    refresh = linked.targets.get(file_id) if linked and file_id is not None else None
+    # A refresh keeps the image's type, whatever the scan queued it as
+    image_type = (refresh.image_type or BATTLEMAP) if refresh is not None else item.image_type
     return ClaimedItem(
         id=item.id,
         job_id=item.job_id,
@@ -718,8 +736,8 @@ def _snapshot(
         kind=item.kind,
         relative_path=item.relative_path,
         filename=item.filename,
-        image_type=item.image_type,
-        parsed=effective_parsed(item.image_type, json.loads(item.parsed) if item.parsed else {}),
+        image_type=image_type,
+        parsed=effective_parsed(image_type, json.loads(item.parsed) if item.parsed else {}),
         staging_key=item.staging_key,
         source_hash=item.source_hash,
         attempts=item.attempts,
@@ -727,20 +745,27 @@ def _snapshot(
         sibling_grid_counts=sibling_grid_counts,
         source_path=item.source_path,
         source_roots=source_roots if item.source_path else (),
-        source_file_id=item.source_file_id,
-        source_key=(source_keys or {}).get(item.source_file_id)
-        if item.source_file_id is not None
-        else None,
+        source_file_id=file_id,
+        source_key=linked.keys.get(file_id) if linked and file_id is not None else None,
+        refresh=refresh,
     )
 
 
-def _source_keys(db: Session, items: list[ImportItem]) -> dict[int, str | None]:
-    """The linked folder keys of the batch's linked items, in one query."""
+def _linked_sources(db: Session, items: list[ImportItem]) -> _LinkedSources:
+    """The batch's linked files: their keys, and which already are an image's (one
+    query; the images are loaded only for those)."""
     ids = [item.source_file_id for item in items if item.source_file_id is not None]
     if not ids:
-        return {}
-    rows = db.query(SourceFile.id, SourceFile.rel_key).filter(SourceFile.id.in_(ids))
-    return dict(cast(Iterable[tuple[int, str | None]], rows))
+        return _LinkedSources({}, {})
+    rows = (
+        db.query(SourceFile.id, SourceFile.rel_key, Image.id)
+        .outerjoin(Image, Image.source_file_id == SourceFile.id)
+        .filter(SourceFile.id.in_(ids))
+        .all()
+    )
+    keys = {file_id: rel_key for file_id, rel_key, _ in rows}
+    with_image = [file_id for file_id, _, image_id in rows if image_id is not None]
+    return _LinkedSources(keys, load_targets(db, with_image))
 
 
 def _claimable_filter(now: datetime):
@@ -788,13 +813,13 @@ def claim_next_batch(
             db, {item.import_group_id for item in items if item.import_group_id is not None}
         )
         roots = tuple(available[job_id])
-        keys = _source_keys(db, items)
+        linked = _linked_sources(db, items)
         return job_id, [
             _snapshot(
                 item,
                 siblings.get(item.import_group_id, ()) if item.import_group_id else (),
                 roots,
-                keys,
+                linked,
             )
             for item in items
         ]
@@ -843,6 +868,9 @@ class ItemFailure:
     stage: str
     reason: str
     detail: str = ""
+    # Linked items: the (size, mtime) of the file that failed, recorded on its row so a
+    # rescan only reads it again once it changes
+    source_version: Version | None = None
 
 
 # Failures that aren't the file's fault: the item goes back to ready, attempt refunded.
@@ -899,7 +927,12 @@ def record_failures(failures: list[ItemFailure], now: datetime | None = None) ->
             item.error_stage = failure.stage
             item.error_reason = failure.reason
             item.error_detail = failure.detail[:4000] if failure.detail else None
-        sync_files(db, items.values())
+        versions = {
+            f.item_id: f.source_version
+            for f in failures
+            if f.source_version and f.item_id in items and items[f.item_id].state == st.FAILED
+        }
+        sync_files(db, items.values(), versions)
         for job_id in job_ids:
             recompute_job_status(db, job_id)
     return job_ids
@@ -949,6 +982,64 @@ def record_early_duplicates(duplicates: list[EarlyDuplicate]) -> set[str]:
             # A linked image whose file is missing: this is its file, moved (§4.4)
             if item.source_file_id is not None and item.duplicate_of_image_id is not None:
                 move_if_missing(db, item.duplicate_of_image_id, item.source_file_id)
+        for job_id in job_ids:
+            recompute_job_status(db, job_id)
+    return job_ids
+
+
+@dataclass(frozen=True)
+class RefreshUnchanged:
+    """A refresh whose file has the image's bytes (it was only touched): nothing to
+    redo, only the file's version to record (design/library-setup.md §4.5)."""
+
+    item_id: int
+    image_id: int
+    source_hash: str
+    source_version: Version
+
+
+def finish_refresh_gone(item: ImportItem) -> None:
+    """A refresh whose image was removed meanwhile: skipped, with nothing to retry."""
+    item.state = st.next_item_state(item.state, ItemEvent.REFRESH_GONE)
+    item.error_kind = KIND_REFRESH_GONE
+    item.error_stage = "commit"
+    item.error_reason = REFRESH_GONE_REASON
+
+
+def refresh_target_present(db: Session, image_id: int, file_id: int | None) -> bool:
+    """Whether the image a refresh targets still exists and is still that file's."""
+    image = db.get(Image, image_id)
+    return image is not None and file_id is not None and image.source_file_id == file_id
+
+
+def record_refresh_unchanged(unchanged: list[RefreshUnchanged]) -> set[str]:
+    """Finish refreshes whose bytes didn't change: done, with their file's new version
+    recorded. Returns the affected job ids."""
+    if not unchanged:
+        return set()
+    job_ids: set[str] = set()
+    with write_session() as db:
+        items = {
+            item.id: item
+            for item in db.query(ImportItem).filter(
+                ImportItem.id.in_([u.item_id for u in unchanged])
+            )
+        }
+        settled: list[ImportItem] = []
+        for entry in unchanged:
+            item = items.get(entry.item_id)
+            if item is None or item.state != st.PROCESSING:
+                continue
+            job_ids.add(item.job_id)
+            settled.append(item)
+            if not refresh_target_present(db, entry.image_id, item.source_file_id):
+                finish_refresh_gone(item)
+                continue
+            item.state = st.next_item_state(item.state, ItemEvent.COMMITTED)
+            item.image_id = entry.image_id
+            item.source_hash = entry.source_hash
+            item.error_kind = item.error_stage = item.error_reason = item.error_detail = None
+        sync_files(db, settled, {u.item_id: u.source_version for u in unchanged})
         for job_id in job_ids:
             recompute_job_status(db, job_id)
     return job_ids

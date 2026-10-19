@@ -8,6 +8,7 @@ folder set as ``LINKED_LIBRARY_DIR`` would set it.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import time
 from datetime import timedelta
@@ -17,7 +18,7 @@ import pytest
 from sqlalchemy import insert
 
 from backend.app.config import settings
-from backend.app.models import Image, ImportItem, ImportJob, LibrarySource, SourceFile
+from backend.app.models import Image, ImportItem, ImportJob, LibrarySource, SourceFile, Tag
 from backend.app.models.database import (
     FILE_DUPLICATE,
     FILE_IMAGE,
@@ -31,6 +32,7 @@ from backend.app.services import get_thumbnail_store, originals
 from backend.app.services import ingest_state as st
 from backend.pipeline import ingest_queue as q
 from backend.pipeline import linked_scan
+from backend.pipeline.linked_refresh import REFRESH_GONE_REASON
 from backend.pipeline.linked_scan import LinkedScanner, ScanResult, reconcile_linked_source
 
 from .test_imports_api import BASE, image_bytes
@@ -269,32 +271,266 @@ def test_a_moved_file_keeps_its_image(forest):
     assert forest.client.get(f"/api/v1/images/{image.id}/file").status_code == 200
 
 
-def test_an_edited_file_is_added_as_new_until_refresh(forest):
-    """§4.5 interim: the edited file is a new image and the old one is missing."""
-    old = forest.images()["Czepeku/Forest/Forest_Day.png"]
-    (forest.root / "Czepeku/Forest/Forest_Day.png").write_bytes(image_bytes(9))
+# ---------------------------------------------------------------------------
+# Edited files: refresh (§4.5)
+# ---------------------------------------------------------------------------
 
+DAY = "Czepeku/Forest/Forest_Day.png"
+NIGHT = "Czepeku/Forest/Forest_Night.png"
+
+
+def thumbnail_files() -> set[str]:
+    base = get_thumbnail_store().base_dir
+    return {p.name for p in base.rglob("*") if p.is_file() and ".incoming" not in p.parts}
+
+
+def thumbnails_of(image: Image) -> set[str]:
+    """Every size of an image's thumbnail (they share a stem and extension)."""
+    key = str(image.thumbnail_key)
+    stem, ext = key.rsplit("_", 1)[0], key.rsplit(".", 1)[1]
+    return {f"{stem}_{w}x{h}.{ext}" for w, h in settings.thumbnail_sizes}
+
+
+def tag_values(api, image_id: int) -> set[str]:
+    with api.SessionLocal() as db:
+        return {t.value for t in db.query(Tag).filter(Tag.image_id == image_id)}
+
+
+def embed_as(monkeypatch, value: float, before=None) -> list:
+    """Embeddings of ``value``; ``before`` runs first, once (to act mid-refresh)."""
+    calls: list = []
+
+    def embed(paths, **kwargs):
+        if before is not None and not calls:
+            before()
+        calls.append(paths)
+        return [[value] * 8 for _ in paths]
+
+    monkeypatch.setattr(
+        "backend.pipeline.tasks.embedding_generation.batch_generate_clip_embeddings", embed
+    )
+    return calls
+
+
+def test_an_edited_file_refreshes_its_image_in_place(forest, monkeypatch):
+    old = forest.images()[DAY]
+    r = forest.client.patch(
+        f"/api/v1/images/{old.id}",
+        json={
+            "name": "Sunlit Glade",
+            "gridded": True,
+            "grid_width": 20,
+            "grid_height": 15,
+            "grid_type": "square",
+        },
+    )
+    assert r.status_code == 200, r.text
+    with forest.api.SessionLocal() as db:
+        db.add(Tag(image_id=old.id, category="biome", value="glade", source="manual"))
+        db.commit()
+    tags = tag_values(forest.api, old.id)
+    old_thumbnails = thumbnails_of(old)
+    assert old_thumbnails <= thumbnail_files()
+    jobs = len(forest.jobs())
+
+    edited = image_bytes(9, size=(80, 60))
+    (forest.root / DAY).write_bytes(edited)
+    embed_as(monkeypatch, 0.9)
     result = forest.sync()
-    assert result.changed == 1
+    assert (result.changed, result.refresh, result.new) == (1, 1, 1)
+    assert len(forest.jobs()) == jobs + 1
+    assert forest.api.detail(str(result.job_id))["counts"]["done"] == 1
+
     images = forest.images()
-    assert len(images) == 3
-    assert images["Czepeku/Forest/Forest_Day.png"].id != old.id
-    assert forest.image(old.id)["file_state"] == "missing"
-    # The next scan finds nothing to do
+    assert len(images) == 2
+    image = images[DAY]
+    body = forest.image(image.id)
+    # The same image, with everything the user gave it
+    assert image.id == old.id
+    assert (image.name, image.group_id, image.image_type) == (
+        "Sunlit Glade",
+        old.group_id,
+        "battlemap",
+    )
+    assert (image.author, image.import_job_id) == (old.author, old.import_job_id)
+    assert "glade" in tags and tag_values(forest.api, image.id) == tags
+    assert (body["gridded"], body["grid_width"], body["grid_height"]) == (True, 20, 15)
+    assert body["grid_source"] == "user"
+    # and what comes from the file, from the edited one
+    assert (image.width, image.height) == (80, 60)
+    assert image.file_size == len(edited)
+    assert image.content_hash == image.stored_hash == hashlib.sha256(edited).hexdigest()
+    assert image.pixel_hash != old.pixel_hash and image.phash is not None
+    assert image.thumbnail_key != old.thumbnail_key
+    assert thumbnails_of(image) <= thumbnail_files()
+    assert not old_thumbnails & thumbnail_files()  # the old thumbnails are gone
+    vector = forest.api.vectors.get_embedding(image.id)
+    assert vector is not None and vector[0] == pytest.approx(0.9)
+    assert forest.client.get(f"/api/v1/images/{image.id}/file").content == edited
+    assert body["file_state"] == "ok"
+
+    row = forest.rows()[DAY]
+    stat = (forest.root / DAY).stat()
+    assert (row.state, row.image_id) == (FILE_IMAGE, image.id)
+    assert (row.size, row.mtime_ns) == (stat.st_size, stat.st_mtime_ns)
+    assert row.content_hash == image.content_hash
+    assert forest.sync().job_id is None  # nothing more to do
+
+
+def test_a_touched_file_is_not_read_again(forest, monkeypatch):
+    day = forest.root / DAY
+    old = forest.images()[DAY]
+    touch(day, day.stat().st_mtime_ns + 5_000_000_000)
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("the file was processed")
+
+    # Hashed to tell, but never decoded, thumbnailed or embedded
+    monkeypatch.setattr("backend.pipeline.ingest_process.plan_decode", refuse)
+    monkeypatch.setattr("backend.pipeline.ingest_process._decode", refuse)
+    monkeypatch.setattr(
+        "backend.pipeline.tasks.embedding_generation.batch_generate_clip_embeddings", refuse
+    )
+    result = forest.sync()
+    assert (result.changed, result.refresh) == (1, 1)
+    assert forest.api.detail(str(result.job_id))["counts"]["done"] == 1
+    image = forest.images()[DAY]
+    assert (image.id, image.thumbnail_key, image.content_hash) == (
+        old.id,
+        old.thumbnail_key,
+        old.content_hash,
+    )
+    assert forest.image(image.id)["file_state"] == "ok"
+    assert forest.rows()[DAY].mtime_ns == day.stat().st_mtime_ns
     assert forest.sync().job_id is None
 
 
-def test_a_touched_file_keeps_its_image(forest):
-    day = forest.root / "Czepeku/Forest/Forest_Day.png"
-    image = forest.images()["Czepeku/Forest/Forest_Day.png"]
-    touch(day, day.stat().st_mtime_ns + 5_000_000_000)
+def test_a_failed_refresh_leaves_the_image_as_it_was(forest):
+    old = forest.images()[DAY]
+    good = image_bytes(9, size=(80, 60))
+    (forest.root / DAY).write_bytes(good[: len(good) // 2])  # saved halfway
 
     result = forest.sync()
-    assert result.changed == 1
-    images = forest.images()
-    assert len(images) == 2 and images["Czepeku/Forest/Forest_Day.png"].id == image.id
+    assert result.refresh == 1
+    assert forest.api.detail(str(result.job_id))["counts"]["failed"] == 1
+    image = forest.images()[DAY]
+    assert (image.id, image.thumbnail_key, image.content_hash, image.width) == (
+        old.id,
+        old.thumbnail_key,
+        old.content_hash,
+        old.width,
+    )
+    assert thumbnails_of(old) <= thumbnail_files()
     assert forest.image(image.id)["file_state"] == "ok"
-    assert forest.rows()["Czepeku/Forest/Forest_Day.png"].mtime_ns == day.stat().st_mtime_ns
+    row = forest.rows()[DAY]
+    assert (row.state, row.image_id) == (FILE_IMAGE, old.id)
+    assert row.reason
+    assert forest.sync().job_id is None  # the version that failed isn't read again
+
+    (forest.root / DAY).write_bytes(good)  # saved in full
+    assert forest.sync().refresh == 1
+    image = forest.images()[DAY]
+    assert (image.id, image.width) == (old.id, 80)
+    assert forest.rows()[DAY].reason is None
+
+
+def test_an_image_removed_during_its_refresh_is_skipped(forest, monkeypatch):
+    old = forest.images()[DAY]
+    night = forest.images()[NIGHT]
+    (forest.root / DAY).write_bytes(image_bytes(9))
+    job_id = forest.scan().job_id
+
+    def remove():
+        assert forest.client.delete(f"/api/v1/images/{old.id}").status_code == 200
+
+    embed_as(monkeypatch, 0.5, before=remove)
+    forest.api.worker.drain()
+    detail = forest.api.detail(str(job_id))
+    assert detail["counts"]["skipped"] == 1 and detail["status"] == "completed"
+    with forest.api.SessionLocal() as db:
+        item = db.query(ImportItem).filter(ImportItem.job_id == job_id).one()
+        assert item.error_reason == REFRESH_GONE_REASON
+    assert list(forest.images()) == [NIGHT]
+    assert forest.rows()[DAY].state == FILE_REMOVED
+    assert thumbnail_files() == thumbnails_of(night)  # nothing left of the refresh
+    assert forest.sync().job_id is None  # and it stays removed
+
+
+def test_a_touched_file_whose_image_was_removed_is_skipped(forest, monkeypatch):
+    day = forest.root / DAY
+    old = forest.images()[DAY]
+    touch(day, day.stat().st_mtime_ns + 5_000_000_000)
+    job_id = forest.scan().job_id
+    real = q.record_refresh_unchanged
+
+    def remove_first(unchanged):
+        assert forest.client.delete(f"/api/v1/images/{old.id}").status_code == 200
+        return real(unchanged)
+
+    monkeypatch.setattr("backend.pipeline.ingest_process.record_refresh_unchanged", remove_first)
+    forest.api.worker.drain()
+    assert forest.api.detail(str(job_id))["counts"]["skipped"] == 1
+    assert forest.rows()[DAY].state == FILE_REMOVED
+
+
+def test_a_refresh_never_overwrites_a_user_edit_made_meanwhile(forest, monkeypatch):
+    old = forest.images()[DAY]
+    (forest.root / DAY).write_bytes(image_bytes(9, size=(80, 60)))
+    forest.scan()
+
+    def edit():
+        r = forest.client.patch(
+            f"/api/v1/images/{old.id}",
+            json={"name": "Renamed", "gridded": True, "grid_width": 8, "grid_height": 6},
+        )
+        assert r.status_code == 200, r.text
+
+    embed_as(monkeypatch, 0.5, before=edit)
+    forest.api.worker.drain()
+    body = forest.image(old.id)
+    assert body["name"] == "Renamed"
+    assert (body["grid_width"], body["grid_height"], body["grid_source"]) == (8, 6, "user")
+    assert (body["width"], body["height"]) == (80, 60)  # refreshed all the same
+
+
+def test_an_edited_file_with_another_maps_bytes_is_refreshed_in_place(forest):
+    """The user's file is the truth: it stays its image's, even holding another's bytes."""
+    images = forest.images()
+    (forest.root / DAY).write_bytes(FOREST[NIGHT])
+
+    result = forest.sync()
+    assert result.refresh == 1
+    assert forest.api.detail(str(result.job_id))["counts"]["done"] == 1
+    after = forest.images()
+    assert {k: v.id for k, v in after.items()} == {k: v.id for k, v in images.items()}
+    assert after[DAY].content_hash == after[NIGHT].content_hash
+    rows = forest.rows()
+    assert rows[DAY].state == rows[NIGHT].state == FILE_IMAGE
+
+
+def test_a_cancelled_refresh_is_offered_again(forest):
+    old = forest.images()[DAY]
+    (forest.root / DAY).write_bytes(image_bytes(9, size=(80, 60)))
+    job_id = forest.scan().job_id
+    assert forest.client.post(f"{BASE}/{job_id}/cancel").status_code == 200
+    row = forest.rows()[DAY]
+    assert (row.state, row.image_id) == (FILE_IMAGE, old.id)  # still the image's file
+    assert forest.images()[DAY].width == old.width
+
+    result = forest.sync()
+    assert result.refresh == 1
+    assert forest.images()[DAY].width == 80
+
+
+def test_a_refresh_is_queued_once_while_it_waits(forest):
+    (forest.root / DAY).write_bytes(image_bytes(9))
+    first = forest.scan()
+    (forest.root / DAY).write_bytes(image_bytes(10, size=(70, 50)))  # edited again, unread
+    second = forest.scan()
+    assert first.refresh == 1 and second.job_id is None
+    forest.api.worker.drain()
+    image = forest.images()[DAY]
+    assert image.content_hash == hashlib.sha256(image_bytes(10, size=(70, 50))).hexdigest()
     assert forest.sync().job_id is None
 
 

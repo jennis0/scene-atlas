@@ -93,7 +93,9 @@ def sync_files(
     - done → ``image``; duplicate → ``duplicate`` (with the image it matches);
     - skipped by Auto → ``skipped`` with the reason; skipped otherwise (Cancel, a skipped
       group) → the row is deleted, so the next scan offers the file again;
-    - failed → ``failed`` with the reason; open again (Retry, Include) → ``pending``.
+    - failed → ``failed`` with the reason; open again (Retry, Include) → ``pending``;
+    - a file that already is an image's (a refresh, §4.5) stays the image's: see
+      ``_sync_refresh``.
     """
     linked = [item for item in items if item.source_file_id is not None]
     if not linked:
@@ -110,6 +112,9 @@ def sync_files(
         if row is None or row.state == FILE_REMOVED:
             continue
         version = (versions or {}).get(item.id)
+        if row.state == FILE_IMAGE:
+            _sync_refresh(row, item, version)
+            continue
         if version is not None:
             row.size, row.mtime_ns = version
         if item.source_hash:
@@ -127,6 +132,24 @@ def sync_files(
         else:  # open again
             row.state, row.image_id, row.reason = FILE_PENDING, None, None
     delete_files(db, forgotten)
+
+
+def _sync_refresh(row: SourceFile, item: ImportItem, version: Version | None) -> None:
+    """A file that already is an image's: its item was a refresh (§4.5), and the row stays
+    the image's whatever became of the item. Done records the version read and its hash;
+    failed records the version that failed (a rescan reads it again once it changes) and
+    why. Anything else (Cancel, Retry, recovery) leaves the row as it was, so a rescan
+    still sees the file as changed and offers it again."""
+    if item.state not in (st.DONE, st.FAILED):
+        return
+    if version is not None:
+        row.size, row.mtime_ns = version
+    if item.state == st.DONE:
+        if item.source_hash:
+            row.content_hash = item.source_hash
+        row.reason = None
+    else:
+        row.reason = item.error_reason
 
 
 def delete_files(db: Session, file_ids: list[int]) -> None:
