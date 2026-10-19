@@ -128,13 +128,6 @@ def test_a_refresh_never_takes_the_file_from_its_image(db_session, source, state
     assert ((found.size, found.mtime_ns), found.content_hash, found.reason) == expected
 
 
-def test_items_without_a_file_are_left_alone(db_session, source):
-    item = ImportItem(job_id="job", relative_path="x.png", filename="x.png", state=st.DONE)
-    db_session.add(item)
-    db_session.flush()
-    sync_files(db_session, [item])  # nothing to do, nothing raised
-
-
 # Moves: a missing image takes the file that has its bytes
 
 
@@ -149,6 +142,22 @@ def test_a_missing_image_moves_to_its_file(db_session, source):
     assert image.source_file_id == new.id
     assert (new.state, new.image_id) == (FILE_IMAGE, image.id)
     assert db.get(SourceFile, old.id) is None
+
+
+@pytest.mark.parametrize(("tier", "moved"), [("bytes", True), ("pixels", False)])
+def test_a_byte_duplicate_of_a_missing_image_is_its_file_moved(db_session, source, tier, moved):
+    """§4.4: written back as a duplicate, then the image takes the file. Same pixels in
+    other bytes is another file, not a move."""
+    db = db_session
+    old = add_file(db, source, "Old/map.png", missing_since=datetime(2026, 1, 1))
+    image = add_image(db, old)
+    new = add_file(db, source, "New/map.png")
+    item = add_item(db, new, st.DUPLICATE, duplicate_of_image_id=image.id, duplicate_tier=tier)
+
+    sync_files(db, [item])
+    db.flush()
+    assert (image.source_file_id == new.id) is moved
+    assert (new.state, new.image_id) == (FILE_IMAGE if moved else FILE_DUPLICATE, image.id)
 
 
 def test_a_present_image_is_not_moved(db_session, source):

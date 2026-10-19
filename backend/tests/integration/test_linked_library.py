@@ -706,6 +706,24 @@ def test_stop_using_the_folder(forest):
     assert tree_digest(forest.root) == before
 
 
+def test_stop_using_waits_for_a_scan_or_a_batch_in_progress(forest, monkeypatch):
+    """Removing the folder's images under a running scan or commit would race them."""
+    scanner = linked_scan.get_linked_scanner()
+    monkeypatch.setattr(scanner, "_running", True)
+    assert forest.client.delete(f"{LIBRARY}/linked").status_code == 409
+    monkeypatch.setattr(scanner, "_running", False)
+
+    (forest.root / DAY).write_bytes(image_bytes(9))
+    job_id = forest.scan().job_id
+    with forest.api.SessionLocal() as db:  # its batch is being processed
+        db.query(ImportItem).filter(ImportItem.job_id == job_id).update({"state": st.PROCESSING})
+        db.commit()
+    assert forest.client.delete(f"{LIBRARY}/linked").status_code == 409
+    assert forest.jobs()[-1].status == st.JOB_CANCELLED  # the cancellation is kept
+    assert len(forest.images()) == 2
+    assert forest.status()["state"] == "online"
+
+
 def test_undo_is_refused_for_a_linked_scan(forest):
     job_id = forest.jobs()[0].id
     r = forest.client.delete(f"{BASE}/{job_id}")
@@ -854,6 +872,15 @@ def test_an_oversized_file_fails_without_being_read(linked):
     row = linked.rows()["A/Big.png"]
     assert (row.state, row.reason) == ("failed", q.OVERSIZED_REASON)
     assert linked.images() == {}
+
+
+def test_files_over_a_scans_limit_are_added_by_the_next_scan(linked, monkeypatch):
+    monkeypatch.setattr(settings, "max_local_import_items", 2)
+    write_tree(linked.root, {f"A/Map {i}.png": image_bytes(i + 1) for i in range(3)})
+    assert linked.sync().new == 2
+    assert linked.sync().new == 1
+    assert len(linked.images()) == 3
+    assert linked.sync().job_id is None
 
 
 def test_a_scan_interrupted_before_sealing_is_redone(linked, monkeypatch):

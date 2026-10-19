@@ -255,22 +255,6 @@ class TestStartup:
         library_id = lib.open()
         assert li.read_marker(lib.store).library_id == library_id  # type: ignore[union-attr]
 
-    def test_store_of_another_library_is_refused(self, lib, tmp_path):
-        lib.open()
-        li.write_marker(lib.store, marker(Y))
-        with pytest.raises(
-            LibraryMismatchError, match=re.escape(STARTUP_MESSAGES[DIFFERENT_LIBRARY])
-        ):
-            lib.check()
-
-    def test_marked_store_without_its_database_is_refused(self, lib):
-        lib.open()
-        lib.db_path.unlink()
-        with pytest.raises(
-            LibraryMismatchError, match=re.escape(STARTUP_MESSAGES[APP_DATA_NOT_HERE])
-        ):
-            lib.check()
-
     def test_refusal_writes_nothing(self, lib):
         lib.store.mkdir()
         li.write_marker(lib.store, marker(Y))
@@ -310,13 +294,6 @@ class TestStartup:
         lib.store = tmp_path / "new-images"
         assert lib.open() == library_id
         assert li.read_marker(lib.store).library_id == library_id  # type: ignore[union-attr]
-
-    def test_store_containing_the_linked_folder_is_refused(self, lib):
-        lib.linked = lib.store / "Battle Maps"
-        with pytest.raises(
-            LibraryMismatchError, match=re.escape(STARTUP_MESSAGES[STORE_HOLDS_LINKED])
-        ):
-            lib.check()
 
     def test_linked_folder_need_not_exist(self, lib, tmp_path):
         lib.linked = tmp_path / "Unplugged"

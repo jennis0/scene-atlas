@@ -6,7 +6,6 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -15,6 +14,7 @@ from backend.app import library_identity as li
 from backend.app.config import settings
 from backend.app.main import app
 from backend.app.storage_lock import LOCK_FILENAME
+from backend.tests.unit.test_library_identity import maps_folder
 
 BASE = "/api/v1/library"
 
@@ -22,14 +22,6 @@ BASE = "/api/v1/library"
 @pytest.fixture
 def app_mode(monkeypatch):
     monkeypatch.setattr(settings, "app_mode", "app")
-
-
-def _maps(root: Path, count: int) -> Path:
-    for i in range(count):
-        path = root / "Author" / f"Map {i}.png"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b"x")
-    return root
 
 
 # POST /library/inspect
@@ -41,7 +33,7 @@ def test_inspect_is_not_found_in_server_mode(test_client, tmp_path):
 
 
 def test_inspect_counts_a_maps_folder(test_client, app_mode, tmp_path):
-    r = test_client.post(f"{BASE}/inspect", json={"linked": str(_maps(tmp_path / "Maps", 3))})
+    r = test_client.post(f"{BASE}/inspect", json={"linked": str(maps_folder(tmp_path / "Maps", 3))})
     assert r.status_code == 200, r.text
     assert r.json() == {
         "outcome": "new",

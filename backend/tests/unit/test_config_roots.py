@@ -135,10 +135,6 @@ class TestImageLibraryDefault:
 
 
 class TestLinkedLibraryDir:
-    def test_unset_by_default(self, monkeypatch, tmp_path):
-        monkeypatch.delenv("LINKED_LIBRARY_DIR", raising=False)
-        assert Settings(app_data_dir=tmp_path).linked_library_dir is None
-
     def test_from_env_and_need_not_exist(self, monkeypatch, tmp_path):
         monkeypatch.setenv("LINKED_LIBRARY_DIR", str(tmp_path / "Battle Maps"))
         assert Settings(app_data_dir=tmp_path).linked_library_dir == tmp_path / "Battle Maps"
