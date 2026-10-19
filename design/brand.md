@@ -27,6 +27,8 @@ Why the curves matter: an earlier draft drew the pages as flat panels meeting in
 | `frontend/public/favicon.svg`, `docs/public/favicon.svg` | Web UI and docs site favicons; the docs nav bar also uses it as its logo |
 | `frontend/src/components/brand/markPaths.ts` | The mark's paths for `BrandMark` (generated) |
 | `electron/setup.html`, `electron/loading.html` | Inline SVG between `<!-- brand-mark -->` comments (generated) |
+| `assets/brand/lockup-dark.png`, `lockup-light.png` | Mark and Cinzel wordmark for the README header, swapped by GitHub's light/dark theme |
+| `assets/brand/social-preview.png` | 1280×640 social preview: lockup, tagline, platforms. GitHub has no API for it: upload by hand in **Settings → General → Social preview** |
 
 `electron-builder.yml` already points at `assets/icon.{ico,icns,png}`.
 
@@ -45,7 +47,39 @@ Change the geometry or colours in `scripts/build/build_icons.py`, then run:
 uv run python scripts/build/build_icons.py
 ```
 
-It rewrites every file above. Commit the outputs; nothing generates them at build time.
+It rewrites every file above except the PNG lockups and social preview, which need the Cinzel and Figtree fonts and are built by a second script:
+
+```bash
+uv run python -m scripts.build.build_brand_images
+```
+
+Commit the outputs; nothing generates them at build time.
+
+## Screenshots
+
+The README screenshot (`docs/public/screenshots/search.webp`, dark and light themes split along a diagonal) is a search for "woodland path at night" in the grouped Maps view: maps from all three creators come up led by their night-time variants, which shows search by content and variant groups in one image. "snowy mountain pass" (all Moonlight) is the most striking alternative.
+
+**Rules for the art in screenshots:**
+
+- Only openly licensed art, credited under the screenshot for whatever is visible in it: Moonlight Maps (CC BY-NC-SA 4.0: their licence covers all their works, paid ones included, for non-commercial use), Fantasy Atlas's free maps (CC BY-NC 4.0) and 2-Minute Tabletop's free maps (CC BY-NC 4.0, credit "Map by 2-Minute Tabletop"). Because Moonlight's licence is ShareAlike, the screenshot is shared under CC BY-NC-SA 4.0. The non-commercial licences hold only while Scene Atlas and its promotion stay free.
+- Thumbnails only: no screenshot shows an individual map at full size, so no screenshot works as a copy of a map. Captures are at 1x.
+- Never commit the maps themselves.
+
+Other creators' terms, checked 2026-10-19, are in the project's research notes. In short: Elven Tower's Creative Commons Collection is CC BY 4.0 and Manea Roliste's packs are CC BY-NC 4.0, both usable. Czepeku, Neutral Party, Domille, Venatus and Seafoot need permission. Forgotten Adventures is personal use only. Tom Cartos's open licence has an AI clause that needs his confirmation first.
+
+**Regenerating:** put the maps in `demo_maps/`, with any zips unzipped into one folder each (gitignored locally; layout in `scripts/demo/import_library.py`), then:
+
+```bash
+uv run python -m scripts.demo.download_paintings /tmp/paintings     # CC0 scenes, optional
+APP_DATA_DIR=/tmp/demo/data IMAGE_LIBRARY_DIR=/tmp/demo/images \
+  uv run uvicorn backend.app.main:app --port 8123                   # a clean instance
+# set it up: POST /api/v1/models/medium/download, PUT /api/v1/tags/packs {"packs": ["common", "fantasy"]},
+# POST /api/v1/models/setup-complete, then restart so the model loads
+uv run python -m scripts.demo.import_library http://127.0.0.1:8123 demo_maps /tmp/paintings
+node scripts/demo/screenshots.mjs http://127.0.0.1:8123 /tmp/shots
+uv run python -m scripts.demo.split_screenshot /tmp/shots/search-dark.png /tmp/shots/search-light.png \
+  docs/public/screenshots/search.webp
+```
 
 ## Directions tried and rejected
 
