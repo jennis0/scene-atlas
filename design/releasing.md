@@ -1,6 +1,6 @@
 # Releasing
 
-How a version is set, built, checked and published, and how each kind of install picks it up ([ADR-023](decisions.md#adr-023-versions-in-the-repo-draft-releases-and-a-published-docker-image)). Updating the desktop app itself is in [electron.md](electron.md#updates); what the Release workflow tests is in [testing.md](testing.md).
+How a version is set, built, checked and published, and how each kind of install picks it up ([ADR-024](decisions.md#adr-024-versions-in-the-repo-draft-releases-and-a-published-docker-image)). Updating the desktop app itself is in [electron.md](electron.md#updates); what the Release workflow tests is in [testing.md](testing.md).
 
 ## Making a release
 

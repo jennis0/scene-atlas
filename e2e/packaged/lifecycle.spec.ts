@@ -96,6 +96,57 @@ test("serves the UI from the backend; closing the window stops the backend", asy
   expect(backendAppLog(profile.appData)).toContain("Shutdown complete");
 });
 
+test("zoom applies at once, follows the shortcuts and comes back at the next launch", async () => {
+  profile = makeProfile(true);
+  const app = await launch(profile);
+  const page = await waitForBackendUi(app.browser);
+  // Chromium folds the zoom into devicePixelRatio.
+  const dpr = () => page.evaluate(() => window.devicePixelRatio);
+  const base = await dpr();
+
+  await page.evaluate(() => {
+    const api = (window as any).electronAPI;
+    api.setDisplayPref("scene-atlas-zoom", "150");
+    api.setZoom(150);
+  });
+  await expect.poll(dpr).toBeCloseTo(base * 1.5);
+
+  // The page handles the zoom shortcuts (lib/zoom.ts).
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+0" : "Control+0");
+  await expect.poll(dpr).toBeCloseTo(base);
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+=" : "Control+=");
+  await expect.poll(dpr).toBeCloseTo(base * 1.1);
+
+  await page.evaluate(() => window.close());
+  await waitUntil("app to quit", () => !isAlive(app.child.pid!), 30_000);
+
+  // The preload applies the saved zoom before the page paints.
+  const again = await launch(profile);
+  const relaunched = await waitForBackendUi(again.browser);
+  expect(await relaunched.evaluate(() => window.devicePixelRatio)).toBeCloseTo(base * 1.1);
+});
+
+test("the window opens at its saved size and saves it again on close", async () => {
+  profile = makeProfile(true);
+  // Electron's CDP can't resize a window (no Browser.setWindowBounds), so the size is
+  // seeded; electron/test/windowState.test.ts covers where it reopens.
+  const configPath = path.join(profile.userData, "scene-atlas-config.json");
+  const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  const windowState = { x: 40, y: 40, width: 1100, height: 760, maximized: false };
+  fs.writeFileSync(configPath, JSON.stringify({ ...config, windowState }));
+
+  const app = await launch(profile);
+  const page = await waitForBackendUi(app.browser);
+  expect(await page.evaluate(() => [window.outerWidth, window.outerHeight])).toEqual([
+    1100, 760,
+  ]);
+
+  await page.evaluate(() => window.close());
+  await waitUntil("app to quit", () => !isAlive(app.child.pid!), 30_000);
+  const saved = JSON.parse(fs.readFileSync(configPath, "utf8")).windowState;
+  expect(saved).toMatchObject({ width: 1100, height: 760, maximized: false });
+});
+
 test("the updater reports its version and checks the feed it is given", async () => {
   profile = makeProfile(true);
   const app = await launch(profile);

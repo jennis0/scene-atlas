@@ -1,4 +1,4 @@
-"""Server-mode update check (backend/app/services/update_check.py, ADR-022).
+"""Server-mode update check (backend/app/services/update_check.py, ADR-023).
 
 GitHub is never contacted: fetches are faked, and ``HTTPSConnection`` is patched for the
 tests of ``fetch_latest_release`` itself.

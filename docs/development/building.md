@@ -95,6 +95,8 @@ See the [Configuration Reference](/deploy/configuration) and `.env.example` for 
 npm run electron:dev
 ```
 
+**WSL:** WSLg doesn't pass Windows' display scaling to Linux apps, so on a 4K screen the Linux build opens at 100% and looks tiny. Add `export GDK_SCALE=2` (or your Windows scale, rounded) to `~/.bashrc`, or use Settings → Appearance → Zoom.
+
 ### Production Build
 
 **Tool:** electron-builder (`electron-builder.yml`)

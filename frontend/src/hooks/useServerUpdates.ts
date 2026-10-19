@@ -13,7 +13,7 @@ function safeReleaseUrl(url: string): string {
 }
 
 /**
- * The server's update check (design/backend.md, ADR-022). Undefined in the desktop app,
+ * The server's update check (design/backend.md, ADR-023). Undefined in the desktop app,
  * whose updater is useAppUpdates, and until the backend has answered.
  */
 export function useServerUpdates(): ServerUpdateStatus | undefined {

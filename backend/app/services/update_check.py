@@ -1,4 +1,4 @@
-"""Server-mode update check: is a newer Scene Atlas release out? (ADR-022)
+"""Server-mode update check: is a newer Scene Atlas release out? (ADR-023)
 
 A self-hosted server asks GitHub for the latest release shortly after startup and then
 once a day, and keeps the answer in memory for ``GET /api/v1/system/updates``. Nothing

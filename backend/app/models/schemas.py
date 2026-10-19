@@ -513,7 +513,7 @@ class AppSettingsPatch(BaseModel):
     stored_lossless: bool | None = None
 
 
-# Updates (server mode, ADR-022)
+# Updates (server mode, ADR-023)
 
 
 # disabled: no checks (desktop app, or CHECK_FOR_UPDATES=false); pending: no check has
