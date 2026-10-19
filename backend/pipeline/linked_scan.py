@@ -9,10 +9,10 @@ scan that finds nothing new reads no file and creates no job.
 Applying the diff:
 
 - **new**: a ``pending`` row and an item, in one import job for the scan;
-- **changed**: until refresh exists (§4.5), re-processed as a new file. An image's row
-  gives up its path and is marked missing: the image keeps its place and metadata, and
-  the edited file becomes a new image. (A file only touched, same bytes, matches the
-  image by hash and the image moves to it.) Other rows go back to ``pending``;
+- **changed**: an image's file gets a **refresh** item in the same job (§4.5,
+  ``linked_refresh``), which updates the image in place. Its row keeps the version the
+  image was made from until the refresh records what it read, so a refresh that is
+  cancelled or lost is offered again by the next scan. Other rows go back to ``pending``;
 - **gone**: an image's row gets ``missing_since`` and the image is kept. Rows without an
   image (duplicates, skipped, failed) are deleted: there's nothing to keep;
 - **back again** (missing, same size and mtime): ``missing_since`` is cleared.
@@ -43,7 +43,7 @@ from sqlalchemy import delete, exists, insert, select, update
 from sqlalchemy.orm import Session
 
 from backend.app.config import settings
-from backend.app.models import ImportItem, ImportJob, LibrarySource, SourceFile
+from backend.app.models import Image, ImportItem, ImportJob, LibrarySource, SourceFile
 from backend.app.models.database import (
     FILE_DUPLICATE,
     FILE_FAILED,
@@ -72,6 +72,7 @@ from backend.app.services.shutdown import ShutdownRequested, raise_if_shutting_d
 from .error_classifier import KIND_FILE
 from .ingest_queue import (
     AUTO,
+    BATTLEMAP,
     OVERSIZED_REASON,
     _session,
     apply_plan,
@@ -160,7 +161,7 @@ def known_files(db: Session, source_id: int) -> list[KnownFile]:
             SourceFile.mtime_ns,
             SourceFile.state,
             SourceFile.missing_since.isnot(None),
-        ).where(SourceFile.source_id == source_id, SourceFile.rel_key.isnot(None))
+        ).where(SourceFile.source_id == source_id)
     )
     return [KnownFile(*row) for row in rows]
 
@@ -174,6 +175,7 @@ class ScanResult:
     state: Literal["online", "offline", "detached", "not_linked", "busy"]
     new: int = 0  # files queued: new, changed, or left pending without an item
     changed: int = 0
+    refresh: int = 0  # of the files queued, edited images' files (§4.5)
     gone: int = 0
     back: int = 0
     moved: int = 0  # missing images that took over a duplicate
@@ -192,7 +194,6 @@ def _orphan_pending(db: Session, source_id: int) -> list[SourceFile]:
         .filter(
             SourceFile.source_id == source_id,
             SourceFile.state == FILE_PENDING,
-            SourceFile.rel_key.isnot(None),
             ~open_item,
         )
         .order_by(SourceFile.id)
@@ -207,6 +208,33 @@ def _fresh_rows(db: Session, ids: list[int]) -> dict[int, SourceFile]:
         for chunk in chunks(ids)
         for row in db.query(SourceFile).filter(SourceFile.id.in_(chunk))
     }
+
+
+def _images_of(db: Session, file_ids: list[int]) -> dict[int, str]:
+    """file id → its image's type, for files that are an image's."""
+    found: dict[int, str] = {}
+    for chunk in chunks(file_ids):
+        rows = db.execute(
+            select(Image.source_file_id, Image.image_type).where(Image.source_file_id.in_(chunk))
+        )
+        for file_id, image_type in rows:
+            if file_id is not None:
+                found[file_id] = image_type or BATTLEMAP
+    return found
+
+
+def _with_open_item(db: Session, file_ids: list[int]) -> set[int]:
+    """The files with an item still to be processed."""
+    found: set[int] = set()
+    for chunk in chunks(file_ids):
+        rows = db.scalars(
+            select(ImportItem.source_file_id).where(
+                ImportItem.source_file_id.in_(chunk),
+                ImportItem.state.in_(st.OPEN_ITEM_STATES),
+            )
+        )
+        found.update(file_id for file_id in rows if file_id is not None)
+    return found
 
 
 def apply_diff(
@@ -240,6 +268,10 @@ def apply_diff(
 
     # (entry, row to reuse): None makes a new row
     queue: list[tuple[LinkedEntry, SourceFile | None]] = []
+    edited = [k.id for k, _ in diff.changed if k.state == FILE_IMAGE]
+    image_types = _images_of(db, edited)
+    refreshing = _with_open_item(db, edited)
+    refresh: dict[int, str] = {}  # file id → its image's type
     for known, entry in diff.changed:
         row = fresh.get(known.id)
         orphans.pop(known.id, None)
@@ -249,12 +281,13 @@ def apply_diff(
             row.size, row.mtime_ns = entry.size, entry.mtime_ns
             if row.id in without_item:
                 queue.append((entry, row))
-        elif row.state == FILE_IMAGE:
-            # Until refresh (§4.5): the image keeps this row, without its path, and is
-            # missing; the edited file is new.
-            row.rel_key = None
-            row.missing_since = row.missing_since or now
-            queue.append((entry, None))
+        elif row.state == FILE_IMAGE and row.id in image_types:
+            # Edited in place: refresh its image (§4.5). The row keeps the version the
+            # image was made from until the refresh records the one it read.
+            row.missing_since = None
+            if row.id not in refreshing:  # an open refresh reads the file as it is then
+                refresh[row.id] = image_types[row.id]
+                queue.append((entry, row))
         elif row.state != FILE_REMOVED:
             row.state, row.image_id, row.reason = FILE_PENDING, None, None
             row.size, row.mtime_ns, row.content_hash = entry.size, entry.mtime_ns, None
@@ -262,13 +295,11 @@ def apply_diff(
             queue.append((entry, row))
 
     # The orphans left are unchanged files (changed and gone ones were handled above)
-    queue += [
-        (LinkedEntry(row.rel_key or "", row.size, row.mtime_ns), row) for row in orphans.values()
-    ]
+    queue += [(LinkedEntry(row.rel_key, row.size, row.mtime_ns), row) for row in orphans.values()]
     queue += [(entry, None) for entry in diff.new]
 
     delete_files(db, forgotten)
-    db.flush()  # a changed image's row gives up its key before a new row takes it
+    db.flush()
     result.moved = repoint_to_duplicates(db, source.id)
 
     if len(queue) > max_new:
@@ -279,8 +310,9 @@ def apply_diff(
         )
         queue = queue[:max_new]
     if queue:
-        result.job_id = _queue_files(db, source, folder, queue)
+        result.job_id = _queue_files(db, source, folder, queue, refresh)
     result.new = len(queue)
+    result.refresh = sum(1 for _, row in queue if row is not None and row.id in refresh)
     source.state = SOURCE_ONLINE
     source.last_scan_at = now
     return result
@@ -291,10 +323,14 @@ def _queue_files(
     source: LibrarySource,
     folder: LinkedFolder,
     queue: list[tuple[LinkedEntry, SourceFile | None]],
+    refresh: dict[int, str],
 ) -> str:
     """One import job for the scan, labelled with the folder's name, with an item per
     file (Auto image type), read where it is. Left unsealed: the caller plans it once the
     paths are parsed, outside the write lock (``seal_scan``).
+
+    ``refresh``: file id → image type, for the edited files of images (§4.5). Their items
+    have their image's type, and an oversized one fails without the row leaving its image.
 
     Rows and items are inserted in bulk: a first scan can add tens of thousands."""
     max_size = get_app_settings(db).max_import_file_size
@@ -323,7 +359,8 @@ def _queue_files(
 
     items = []
     oversized: list[int] = []
-    for entry, _ in queue:
+    for entry, row in queue:
+        file_id = file_ids[entry.rel_key]
         item = {
             "job_id": job.id,
             "kind": kind_for_path(entry.rel_key) or "image",
@@ -331,10 +368,10 @@ def _queue_files(
             "filename": PurePosixPath(entry.rel_key).name,
             "size": entry.size,
             "last_modified": entry.mtime_ns // 1_000_000,
-            "image_type": AUTO,
+            "image_type": refresh.get(file_id, AUTO),
             "state": st.READY,
             "source_path": str(folder.root / entry.rel_key),
-            "source_file_id": file_ids[entry.rel_key],
+            "source_file_id": file_id,
             "error_kind": None,
             "error_stage": None,
             "error_reason": None,
@@ -346,7 +383,10 @@ def _queue_files(
                 error_stage="validate",
                 error_reason=OVERSIZED_REASON,
             )
-            oversized.append(file_ids[entry.rel_key])
+            if row is not None and file_id in refresh:  # the image keeps its file
+                row.size, row.mtime_ns, row.reason = entry.size, entry.mtime_ns, OVERSIZED_REASON
+            else:
+                oversized.append(file_id)
         items.append(item)
     for chunk in chunks(items, _INSERT_CHUNK):
         db.execute(insert(ImportItem), chunk)
@@ -448,12 +488,13 @@ def scan_linked_folder() -> ScanResult:
     if result.job_id is not None:
         seal_scan(result.job_id)
     logger.info(
-        "Linked scan of %s: %d files listed in %.1fs; %d to add, %d changed, %d gone, "
-        "%d back, %d moved",
+        "Linked scan of %s: %d files listed in %.1fs; %d to read (%d to refresh), "
+        "%d changed, %d gone, %d back, %d moved",
         folder.name,
         len(found),
         listed,
         result.new,
+        result.refresh,
         result.changed,
         result.gone,
         result.back,

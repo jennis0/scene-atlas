@@ -107,7 +107,7 @@ def upgrade():
         "source_files",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("source_id", sa.Integer(), nullable=False),
-        sa.Column("rel_key", sa.Text(), nullable=True),
+        sa.Column("rel_key", sa.Text(), nullable=False),
         sa.Column("size", sa.Integer(), nullable=False),
         sa.Column("mtime_ns", sa.Integer(), nullable=False),
         sa.Column("content_hash", sa.String(64), nullable=True),

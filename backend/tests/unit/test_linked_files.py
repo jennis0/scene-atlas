@@ -102,6 +102,34 @@ def test_outcomes_are_written_back(db_session, source):
     assert db.get(ImportItem, items[5].id).source_file_id is None  # pyright: ignore[reportOptionalMemberAccess]
 
 
+@pytest.mark.parametrize(
+    ("state", "kw", "expected"),
+    [
+        # Refreshed: the version read and its hash
+        (st.DONE, {"source_hash": "n" * 64}, ((42, 4242), "n" * 64, None)),
+        # Failed: the version that failed and why; the image keeps its old bytes' hash
+        (st.FAILED, {"error_reason": "Broken"}, ((42, 4242), "o" * 64, "Broken")),
+        # Cancelled, retried, recovered: untouched, so a rescan offers it again
+        (st.SKIPPED, {"error_reason": "Cancelled"}, ((1, 1), "o" * 64, None)),
+        (st.READY, {}, ((1, 1), "o" * 64, None)),
+    ],
+)
+def test_a_refresh_never_takes_the_file_from_its_image(db_session, source, state, kw, expected):
+    """§4.5: an image's file stays the image's whatever its refresh item became."""
+    db = db_session
+    row = add_file(db, source, "A/map.png", content_hash="o" * 64)
+    image = add_image(db, row)
+    item = add_item(db, row, state, **kw)
+    sync_files(db, [item], {item.id: (42, 4242)})
+    db.flush()
+    db.expire_all()
+
+    found = db.get(SourceFile, row.id)
+    assert found is not None
+    assert (found.state, found.image_id) == (FILE_IMAGE, image.id)
+    assert ((found.size, found.mtime_ns), found.content_hash, found.reason) == expected
+
+
 def test_items_without_a_file_are_left_alone(db_session, source):
     item = ImportItem(job_id="job", relative_path="x.png", filename="x.png", state=st.DONE)
     db_session.add(item)

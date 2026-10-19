@@ -90,9 +90,8 @@ class SourceFile(Base):
     source_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("library_sources.id"), nullable=False
     )
-    # POSIX path relative to the folder ("Author/Pack/file.jpg"). NULL once the file was
-    # replaced by an edited one: the row then only keeps its image's place (§4.5).
-    rel_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # POSIX path relative to the folder ("Author/Pack/file.jpg")
+    rel_key: Mapped[str] = mapped_column(Text, nullable=False)
     size: Mapped[int] = mapped_column(Integer, nullable=False)
     mtime_ns: Mapped[int] = mapped_column(Integer, nullable=False)
     content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)

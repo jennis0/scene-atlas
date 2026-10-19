@@ -65,6 +65,7 @@ class ItemEvent(StrEnum):
     IMPORT_AS_COPY_NEEDS_BYTES = "import_as_copy_needs_bytes"
     SKIP = "skip"  # cancel, finish-without, skip group, abandoned upload
     SORTED_OUT = "sorted_out"  # Auto: the image-type head says token/other (design §5.6)
+    REFRESH_GONE = "refresh_gone"  # a linked image being refreshed was removed meanwhile
     INCLUDE = "include"  # user override of a sorted-out item, bytes present
     INCLUDE_NEEDS_BYTES = "include_needs_bytes"
 
@@ -88,6 +89,7 @@ _TRANSITIONS: dict[tuple[str, ItemEvent], str] = {
     (PROCESSING, ItemEvent.RECOVERED): READY,
     (PROCESSING, ItemEvent.CRASH_LIMIT): FAILED,
     (PROCESSING, ItemEvent.SORTED_OUT): SKIPPED,
+    (PROCESSING, ItemEvent.REFRESH_GONE): SKIPPED,
     (FAILED, ItemEvent.RETRY): READY,
     (FAILED, ItemEvent.RETRY_NEEDS_BYTES): AWAITING_BYTES,
     (DUPLICATE, ItemEvent.IMPORT_AS_COPY): READY,
