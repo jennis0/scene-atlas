@@ -1,6 +1,6 @@
 // Take the README screenshots from a running demo instance (see design/brand.md, Screenshots).
 // Captures at 1x so maps stay thumbnail-sized, crops below the third row of cards, and
-// writes PNGs; convert to WebP for docs/public/screenshots/.
+// writes dark and light PNGs; split_screenshot.py combines them for docs/public/screenshots/.
 //
 // Usage: node scripts/demo/screenshots.mjs http://127.0.0.1:8123 <out dir>
 import { chromium } from '@playwright/test'

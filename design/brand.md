@@ -57,7 +57,7 @@ Commit the outputs; nothing generates them at build time.
 
 ## Screenshots
 
-The README screenshot (`docs/public/screenshots/search-{dark,light}.webp`) is a search for "woodland path at night" in the grouped Maps view: maps from all three creators come up led by their night-time variants, which shows search by content and variant groups in one image. "snowy mountain pass" (all Moonlight) is the most striking alternative.
+The README screenshot (`docs/public/screenshots/search.webp`, dark and light themes split along a diagonal) is a search for "woodland path at night" in the grouped Maps view: maps from all three creators come up led by their night-time variants, which shows search by content and variant groups in one image. "snowy mountain pass" (all Moonlight) is the most striking alternative.
 
 **Rules for the art in screenshots:**
 
@@ -76,7 +76,9 @@ APP_DATA_DIR=/tmp/demo/data IMAGE_LIBRARY_DIR=/tmp/demo/images \
 # set it up: POST /api/v1/models/medium/download, PUT /api/v1/tags/packs {"packs": ["common", "fantasy"]},
 # POST /api/v1/models/setup-complete, then restart so the model loads
 uv run python -m scripts.demo.import_library http://127.0.0.1:8123 demo_maps /tmp/paintings
-node scripts/demo/screenshots.mjs http://127.0.0.1:8123 /tmp/shots   # then convert to WebP
+node scripts/demo/screenshots.mjs http://127.0.0.1:8123 /tmp/shots
+uv run python -m scripts.demo.split_screenshot /tmp/shots/search-dark.png /tmp/shots/search-light.png \
+  docs/public/screenshots/search.webp
 ```
 
 ## Directions tried and rejected

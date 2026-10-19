@@ -18,10 +18,7 @@ Scene Atlas keeps your battlemaps and scene art in one place and helps you find 
 
 Free and open source. Runs as a desktop app on Windows, macOS and Linux, or self-hosted on your own server.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/public/screenshots/search-dark.webp">
-  <img src="docs/public/screenshots/search-light.webp" alt="Scene Atlas showing results for &quot;woodland path at night&quot;: groups of battlemap variants from three creators, each led by its night-time version">
-</picture>
+<img src="docs/public/screenshots/search.webp" alt="Scene Atlas showing results for &quot;woodland path at night&quot;: groups of battlemap variants from three creators, each led by its night-time version, in dark and light themes">
 
 <sub>Searching "woodland path at night". Maps by <a href="https://www.moonlight-maps.com">Moonlight Maps</a> (CC BY-NC-SA 4.0), <a href="https://2minutetabletop.com">2-Minute Tabletop</a> (CC BY-NC 4.0) and <a href="https://www.patreon.com/fantasy_atlas">Fantasy Atlas</a> (CC BY-NC 4.0); this screenshot is shared under CC BY-NC-SA 4.0.</sub>
 
