@@ -92,17 +92,24 @@ export async function launch(profile: Profile, extraArgs: string[] = []): Promis
     [`--user-data-dir=${profile.userData}`, `--remote-debugging-port=${cdpPort}`, ...extraArgs],
     { stdio: "ignore" },
   );
-  return { child, cdpPort, browser: await connect(cdpPort) };
+  let exited = false;
+  child.once("exit", () => (exited = true));
+  // A second instance quits before it serves DevTools: stop waiting when it does.
+  return { child, cdpPort, browser: await connect(cdpPort, 60_000, () => exited) };
 }
 
 /** Connect over CDP, retrying while the app starts (or relaunches) on that port. */
-export async function connect(cdpPort: number, timeoutMs = 60_000): Promise<Browser> {
+export async function connect(
+  cdpPort: number,
+  timeoutMs = 60_000,
+  gone: () => boolean = () => false,
+): Promise<Browser> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     try {
       return await chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`);
     } catch (err) {
-      if (Date.now() > deadline) throw err;
+      if (gone() || Date.now() > deadline) throw err;
       await sleep(250);
     }
   }
