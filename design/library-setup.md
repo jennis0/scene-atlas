@@ -231,7 +231,7 @@ Store and linked files are both read through a small source interface:
 | Method | Store | Linked folder |
 |---|---|---|
 | `list()` | (sweep only) | the walk (§4.3) |
-| `stat(key)` | yes | yes |
+| `stat(key)` | yes | none: the scan gets sizes and times from its walk |
 | `open(key)` / `local_path(key)` | path | path, after the containment check |
 | `put`, `delete` | yes | **absent**, so the read-only rule is enforced by the type |
 
