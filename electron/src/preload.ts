@@ -70,4 +70,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const factor = zoomFactor(percent)
     if (factor !== null) webFrame.setZoomFactor(factor)
   },
+
+  // Updates (design/electron.md#updates). The state is null before the updater exists.
+  getUpdateState: (): Promise<unknown> => ipcRenderer.invoke('updates:get-state'),
+  checkForUpdates: (): Promise<unknown> => ipcRenderer.invoke('updates:check'),
+  setUpdatesEnabled: (enabled: boolean): Promise<unknown> =>
+    ipcRenderer.invoke('updates:set-enabled', enabled),
+  // Quits into the installer; resolves only if there was nothing to install.
+  installUpdate: (): Promise<void> => ipcRenderer.invoke('updates:install'),
+  openUpdateDownload: (): Promise<void> => ipcRenderer.invoke('updates:open-download'),
+  onUpdateState: (callback: (state: unknown) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, state: unknown) => {
+      callback(state)
+    }
+    ipcRenderer.on('updates:state', listener)
+    return () => {
+      ipcRenderer.removeListener('updates:state', listener)
+    }
+  },
 })

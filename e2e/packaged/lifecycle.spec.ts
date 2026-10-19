@@ -111,7 +111,7 @@ test("zoom applies at once, follows the shortcuts and comes back at the next lau
   });
   await expect.poll(dpr).toBeCloseTo(base * 1.5);
 
-  // The main process catches Ctrl (Cmd) + 0 before the page and the default menu.
+  // The page handles the zoom shortcuts (lib/zoom.ts).
   await page.keyboard.press(process.platform === "darwin" ? "Meta+0" : "Control+0");
   await expect.poll(dpr).toBeCloseTo(base);
   await page.keyboard.press(process.platform === "darwin" ? "Meta+=" : "Control+=");
@@ -145,6 +145,31 @@ test("the window opens at its saved size and saves it again on close", async () 
   await waitUntil("app to quit", () => !isAlive(app.child.pid!), 30_000);
   const saved = JSON.parse(fs.readFileSync(configPath, "utf8")).windowState;
   expect(saved).toMatchObject({ width: 1100, height: 760, maximized: false });
+});
+
+test("the updater reports its version and checks the feed it is given", async () => {
+  profile = makeProfile(true);
+  const app = await launch(profile);
+  const page = await waitForBackendUi(app.browser);
+  const version = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "..", "..", "package.json"), "utf8"),
+  ).version;
+
+  const state = await page.evaluate(() => (window as any).electronAPI.getUpdateState());
+  expect(state).toMatchObject({ currentVersion: version, checksEnabled: true });
+  // The unpacked build isn't an AppImage, so only Windows installs.
+  expect(state.mode).toBe(process.platform === "win32" ? "install" : "notify");
+
+  // launch() points the updater at a closed port: the check fails, and says so.
+  await page.evaluate(() => (window as any).electronAPI.checkForUpdates());
+  await expect
+    .poll(() => page.evaluate(() => (window as any).electronAPI.getUpdateState()), {
+      timeout: 30_000,
+    })
+    .toMatchObject({ status: "error", error: "Couldn't check for updates." });
+  expect(fs.readFileSync(path.join(profile.userData, "updater.log"), "utf8")).toContain(
+    "Using the update feed http://127.0.0.1:9/",
+  );
 });
 
 test("the backend doesn't outlive a killed app", async () => {

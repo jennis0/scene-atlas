@@ -6,6 +6,7 @@ import { Gallery } from './pages/Gallery'
 import ErrorBoundary from './components/ErrorBoundary'
 import { SetupWizard } from './components/setup/SetupWizard'
 import { WindowDragBar } from './components/WindowDragBar'
+import { UpdateNotifier } from './components/UpdateNotifier'
 import { modelsApi, type SetupStatus } from './lib/api/modelsApi'
 import { useTheme } from './contexts/ThemeContext'
 import { listenForZoomKeys } from './lib/zoom'
@@ -81,6 +82,7 @@ function App() {
           </Routes>
         </div>
       </Router>
+      <UpdateNotifier />
       {/* Outside the app root so toasts stay usable while a modal inerts the page */}
       {createPortal(
         <div data-modal-exempt="">

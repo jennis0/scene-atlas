@@ -82,12 +82,12 @@ async def lifespan(app: FastAPI):
     try:
         engine = get_engine(settings.database_url)
         init_db(engine)
-    except Exception:
+    except Exception as exc:
         db_path = settings.database_url.replace("sqlite:///", "")
         logger.critical(
-            "STARTUP ERROR: Could not initialize database at %s. "
-            "Check that the directory exists and is writable.",
+            "STARTUP ERROR: Could not initialize database at %s: %s",
             db_path,
+            exc,
         )
         raise
     logger.info("Database initialized")

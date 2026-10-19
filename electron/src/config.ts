@@ -19,6 +19,8 @@ interface AppConfig {
   windowColors?: WindowColors
   /** The main window's last size, position and maximised state (windowState.ts) */
   windowState?: WindowState
+  /** False when the user turned update checks off in Settings; absent means on */
+  checkForUpdates?: boolean
 }
 
 /** Legacy config shape written by older versions. */
@@ -67,6 +69,9 @@ export function loadConfig(): AppConfig | null {
       displayPrefs: sanitizeDisplayPrefs(parsed.displayPrefs),
       ...(windowColors ? { windowColors } : {}),
       ...(windowState ? { windowState } : {}),
+      ...(typeof parsed.checkForUpdates === 'boolean'
+        ? { checkForUpdates: parsed.checkForUpdates }
+        : {}),
     }
   } catch {
     return null

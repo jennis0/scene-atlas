@@ -99,6 +99,12 @@ Every handler is registered through `handleTrusted()`, which rejects calls whose
 | `prefs:get-sync` | preload → main | Synchronous (`sendSync`), once per page load: the config's `displayPrefs`, exposed as `electronAPI.displayPrefs` |
 | `prefs:set` | renderer → main | `(key, value)`: saves one display choice (validated); the theme also sets `nativeTheme.themeSource` |
 | `window:set-colors` | renderer → main | `{ background, foreground }` hex: sets the window background and the Windows title-bar overlay, and saves them for the next launch |
+| `updates:get-state` | renderer → main | The updater's state (`UpdateState` in `updatePolicy.ts`), null before it starts |
+| `updates:check` | renderer → main | Check now, even with automatic checks off; returns the state |
+| `updates:set-enabled` | renderer → main | `(boolean)`: turns automatic checks on or off and saves it to the config |
+| `updates:install` | renderer → main | Stops the backend and quits into the downloaded version's installer |
+| `updates:open-download` | renderer → main | Notify mode: opens the new version's release page |
+| `updates:state` | main → renderer | Every state change, to every window |
 
 ### Preload API Surface
 
@@ -111,6 +117,8 @@ window.electronAPI = {
   chooseAppDataDir: () => Promise<string | null>,
   chooseImageLibraryDir: () => Promise<string | null>,
   changeStorageDirs: (appDataDir, imageLibraryDir) => Promise<{ error: string | null }>,
+  getUpdateState, checkForUpdates, setUpdatesEnabled,   // see Updates
+  installUpdate, openUpdateDownload, onUpdateState,
 }
 ```
 
@@ -226,16 +234,46 @@ There is one build per platform; GPU support comes from the onnxruntime package 
 
 The PyInstaller spec keeps onnxruntime's `entry_points.txt` (DirectML plugin registration). UPX is off: it corrupted bundled shared libraries (numpy's OpenBLAS), slows startup and trips Windows antivirus. At runtime `ort_providers.py` resolves the provider and falls back to CPU (see [gpu-acceleration.md](gpu-acceleration.md)).
 
-**Releases and updates:** there is no auto-updater, so electron-builder publishes nothing (`publish: null`) and writes no update metadata (`latest.yml`, `.blockmap`). The Release workflow's `publish` job creates the GitHub Release `v<version>` from the three builds' installers, and only once all three have passed. An updater would need code signing first: an unsigned Windows installer warns in SmartScreen on every update. macOS builds are signed and notarized only when the Apple signing secrets are set (none are yet); the build step unsets empty ones, because electron-builder reads an empty `CSC_LINK` as a path and fails.
+**Releases:** the builds run with `--publish never`; the Release workflow's `publish` job creates the GitHub Release `v<version>` from the three builds' installers and update metadata, only once all three have passed and the metadata is checked. See [Updates](#updates). macOS builds are signed and notarized only when the Apple signing secrets are set (none are yet); the build step unsets empty ones, because electron-builder reads an empty `CSC_LINK` as a path and fails.
 
 **Windows specifics:** installers are named without spaces (`Scene-Atlas-Setup-<version>.exe`; GitHub rewrites spaces in asset names). electron-builder picks up `assets/icon.ico`, `icon.icns` and `icon.png` by name from `buildResources` ([brand.md](brand.md) covers how they're drawn). `main.ts` sets the AppUserModelID to the `appId`, matching the installer's shortcuts, or a pinned shortcut and the running app show as two taskbar icons. The sidecar is spawned with `windowsHide`: it is a console program, and Windows would otherwise open a console window beside the app.
+
+## Updates
+
+The app updates itself with electron-builder's **electron-updater**, not Electron's built-in `autoUpdater` (Squirrel), which needs Squirrel.Windows installers, has no Linux support and only works on signed macOS builds ([ADR-021](decisions.md#adr-021-auto-update-with-electron-updater)).
+
+**Feed.** `publish` in `electron-builder.yml` names the GitHub repo, which electron-builder writes into `resources/app-update.yml`. The app reads `latest.yml` (Windows), `latest-mac.yml` or `latest-linux.yml` from the latest GitHub Release (the releases Atom feed, so no API rate limit), skipping drafts and, for a non-prerelease version, prereleases. The builds write those files and the `.blockmap`s next to the installers; nothing else changes about how a release is made.
+
+**What each install does** (`updateModeFor` in `updatePolicy.ts`):
+
+| Install | Mode | Why |
+|---|---|---|
+| Windows (NSIS) | install | Downloads in the background (differentially from the blockmaps, so a release that mostly changes the UI downloads far less than the 275 MB installer) and installs on restart or quit |
+| Linux AppImage (`APPIMAGE` set) | install | Replaces the AppImage: the new file takes the new version's name (`Scene-Atlas-<version>-x86_64.AppImage`) and the old one is deleted, so a shortcut to the old name breaks. A renamed file without a version in its name is overwritten in place |
+| macOS | notify | Squirrel.Mac only installs a build whose signature matches; ours are unsigned. Signing also needs a `zip` mac target |
+| Linux .deb | notify | Belongs to the package manager |
+
+Notify mode says a version is out and opens its release page (`releasePageUrl`; anything from the feed that isn't a plain version opens the releases list instead). `updater.ts` picks the updater itself (`createAppUpdater`) rather than leaving it to electron-updater, which on Linux reads `resources/package-type`: the `.deb` build writes that file into the unpacked app the AppImage is also built from, so an AppImage built after it would update itself as a `.deb`; and without the file it falls back to the AppImage updater, which doesn't check at all outside an AppImage. Linux notify mode uses the `.deb` updater, which checks anywhere and, with `autoDownload` off, never downloads. An updater that reports itself inactive puts the state at `unsupported`, so Settings hides the section instead of showing a check that never runs.
+
+**When.** 15 s after launch, then every 6 h, and whenever the user presses Check now (which works with automatic checks off). Settings → Updates turns automatic checks off (`checkForUpdates: false` in the config); the UI shows the version, the state and the action, and a toast says once per version that an update is ready (`UpdateNotifier`).
+
+**Installing.** *Restart to update* stops the backend (`stopSidecar`, up to `QUIT_GRACE_MS`) **before** calling the updater's `install(silent, runAfter)`, because the NSIS installer is spawned at that call, not at quit, and would find the backend's files in use; the installer runs silently into the existing install and starts the new version. If the installer can't start, the app relaunches on the current version so the backend comes back. Quitting with an update downloaded installs it (`autoInstallOnAppQuit`) from the `quit` event, which comes after `will-quit` has already stopped the backend. A storage change's `app.exit()` skips `quit`, so it never installs. A per-machine install asks for elevation (electron-updater runs the installer through `elevate.exe`).
+
+**Signatures.** Unsigned, the only check is the sha512 in `latest.yml`, which comes from the same release as the installer: anyone who can publish a release can update every install. electron-updater compares the installer's Authenticode publisher with `publisherName` in `app-update.yml` only once that is set, so a move to signed builds (SignPath) needs `win.signtoolOptions.publisherName`; installs from unsigned builds still accept the first signed one. SmartScreen keys on the Mark-of-the-Web, which a browser adds and electron-updater's download doesn't, so only the first, manual install should warn (not yet checked on a real PC; see the roadmap).
+
+**Data across versions.** Migrations only go forward, so the backend snapshots the database before running pending ones ([storage.md](storage.md#backups)); going back to an older version means restoring that snapshot.
+
+**Logs.** `{userData}/updater.log` (rotated like `backend.log`).
+
+**Testing.** `electron/test/updatePolicy.test.ts` (the rules), the packaged-app tests (state over IPC, the feed override), and the upgrade test in the Release workflow, which installs an old build and updates it from a local feed ([testing.md](testing.md#upgrade-test)). `SCENE_ATLAS_UPDATE_FEED` replaces the GitHub feed with a generic one for those tests; `parseFeedOverride` only accepts plain http on `127.0.0.1`, so it can't point an install at another machine. The packaged-app launcher sets it to a closed port, so test runs never contact GitHub or install a real release.
 
 ## Config Storage
 
 | Item | Location |
 |------|----------|
-| App config | `{userData}/scene-atlas-config.json` — `{ appDataDir, imageLibraryDir, displayPrefs?, windowColors?, windowState? }` (`windowState`: see [Window state](#window-state)). `displayPrefs` and `windowColors` are the UI's display choices and colours (see [first-run.md](first-run.md#desktop-display-choices-and-window-colours)); they're sanitised on load (`displayPrefs.ts`). Older configs may also hold `convertToWebp` or `pendingStoredFormat`, which are ignored: the stored format is chosen in the setup wizard |
+| App config | `{userData}/scene-atlas-config.json` — `{ appDataDir, imageLibraryDir, displayPrefs?, windowColors?, windowState?, checkForUpdates? }` (`windowState`: see [Window state](#window-state); `checkForUpdates: false` turns automatic update checks off). `displayPrefs` and `windowColors` are the UI's display choices and colours (see [first-run.md](first-run.md#desktop-display-choices-and-window-colours)); they're sanitised on load (`displayPrefs.ts`). Older configs may also hold `convertToWebp` or `pendingStoredFormat`, which are ignored: the stored format is chosen in the setup wizard |
 | Backend log | `{userData}/backend.log` (+ `backend.log.1` after rotation) |
+| Updater log | `{userData}/updater.log` (+ `updater.log.1`) |
 | Default app data dir | Windows: `%LOCALAPPDATA%/Scene Atlas/data`; macOS, Linux: `{Documents}/Scene Atlas/data` |
 | Default image library dir | Windows: `%LOCALAPPDATA%/Scene Atlas/images`; macOS, Linux: `{Documents}/Scene Atlas/images` |
 
@@ -256,6 +294,8 @@ On Windows, Documents is often redirected into OneDrive (the Windows 11 default 
 | `electron/src/config.ts` | Config load/save/migration, default directories |
 | `electron/src/windowFrame.ts` | Frame per platform, menus, starting colours, and where the main window opens and how its state is saved |
 | `electron/src/windowState.ts` | The main window's saved bounds: validation and where it reopens (tests in `electron/test/`) |
+| `electron/src/updater.ts` | Wires electron-updater to the state the UI shows; install stops the backend first |
+| `electron/src/updatePolicy.ts` | Update rules: install or notify per platform, the feed override, the state's shape (tests in `electron/test/`) |
 | `electron/src/displayPrefs.ts` | Validation for display choices and window colours from the UI or config; `themeSourceFor` (tests in `electron/test/`) |
 | `electron/src/storageDirs.ts` | Storage folder checks: create + write-test, non-empty-folder detection (tests in `electron/test/`, run with `npm run test:electron`) |
 | `electron/setup.html` | Setup window HTML (first-run directory picker); fonts bundled in `electron/fonts/`, so it needs no network and its CSP has no remote origins |

@@ -354,7 +354,7 @@ Other environment variables: `EMBEDDING_MODEL` (operator override of the active 
 
 1. `setup_logging()` — console + rotating file handlers; sets Pillow's pixel limit to `max_image_pixels` and turns `DecompressionBombWarning` into an error.
 2. Lock both storage roots (`storage_lock.py`): an OS lock on `<root>/.backend.lock` in `APP_DATA_DIR` and, if it exists, `IMAGE_LIBRARY_DIR`. If another process holds either, startup fails with `StorageLockedError` (uvicorn exits with code 3). The desktop sidecar (`APP_MODE=app`) waits up to 30 s first, so a relaunch can outlast the previous sidecar's graceful shutdown. Filesystems without lock support (some network shares) log a warning and run unguarded.
-3. `get_engine()` + `init_db()` — runs Alembic migrations (stamps pre-Alembic databases at head).
+3. `get_engine()` + `init_db()` — runs Alembic migrations (stamps pre-Alembic databases at head). Pending migrations are preceded by a SQLite snapshot in `backups/pre-migration/`; if it fails, startup stops unmigrated ([storage.md](storage.md#backups)).
 4. `seed_tag_categories()`, `seed_default_settings()` (first boot only), `backfill_search_text()`, then read app settings.
 5. `init_prepare_pool(max_concurrent_prepare)`; store engine on `app.state.db_engine`; create `app.state.heavy_op_semaphore`.
 6. Set `settings.vector_size` from the model manifest.

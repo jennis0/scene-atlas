@@ -554,10 +554,43 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 
 ---
 
+## ADR-021: Auto-update with electron-updater
+
+**Date:** 2026-10-19
+**Status:** Implemented (PR #39). Current behaviour: [electron.md](electron.md#updates); the upgrade test: [testing.md](testing.md#upgrade-test).
+
+**Context:** The desktop app had no update path. A release without an updater can never update itself, so it had to be in place before the first public release. Builds are unsigned (no paid signing for now), the Windows installer is NSIS, Linux ships an AppImage and a .deb, and macOS a dmg. The installer is about 275 MB, most of it the Python sidecar.
+
+**Decision:**
+
+1. **electron-updater with the GitHub provider**, reading `latest*.yml` from GitHub Releases. The builds keep `--publish never`; the Release workflow's publish job uploads the metadata with the installers. Blockmaps are back on, so Windows downloads differentially.
+2. **Install where an install can replace itself, otherwise notify.** Windows (NSIS) and Linux AppImage download in the background and install on restart or quit. macOS (unsigned, so Squirrel.Mac would reject the update) and the .deb only say a version is out and open its release page.
+3. **Stop the backend before installing.** The NSIS installer starts when install is called, before the app quits, and would find the sidecar's files in use.
+4. **Automatic checks can be turned off** in Settings (the library staying on the machine is the app's pitch, and a check contacts GitHub). Check now works either way.
+5. **A database snapshot before pending migrations**, because migrations only go forward (`backups/pre-migration/`, five kept; startup stops if the snapshot fails).
+6. **Releases are gated on an upgrade test**: an old build installed for real is updated from a local feed, and the library and the results of a set of queries are compared before and after. Library problems always fail; changed search results fail unless the release accepts them with a reason, which goes into the release notes. A pre-publish check stops a release whose update metadata doesn't match its assets.
+
+**Alternatives considered:**
+
+- **Electron's built-in `autoUpdater`** (Squirrel), alone or through update.electronjs.org. Rejected: Windows needs Squirrel.Windows installers instead of NSIS, Linux isn't supported, and macOS needs signing.
+- **Wait for code signing.** Rejected: the first release would have no way to update, and its users would have to reinstall by hand. The belief that unsigned updates warn in SmartScreen each time was wrong as far as we know: SmartScreen keys on the Mark-of-the-Web, which electron-updater's download doesn't get. To be confirmed on a real PC.
+- **Notify-only everywhere.** Simpler, but most users are on Windows, where a 275 MB manual download and reinstall per release is what an updater is for.
+- **Expected results committed as goldens** for the upgrade test. Rejected: the old version's results are the right baseline for "an update doesn't change what you see", and need no upkeep. The golden search tests already pin intended ranking changes within a version.
+
+**Consequences:**
+
+- Unsigned, the only integrity check on an update is the sha512 in `latest.yml`, from the same release: whoever can publish a release can update every install. Windows signing (SignPath) closes that; it then needs `publisherName` set.
+- macOS auto-install needs an Apple Developer account and a `zip` mac target.
+- The AppImage updater writes the new version under its own versioned name and deletes the old file, so a shortcut to the old file name stops working.
+- The packaged-app tests point the updater at a closed port, so test runs never update.
+- The upgrade test runs on Windows only, from a build of the same code. Upgrading from the previous published release (real migrations, the old updater's own code) and Linux are on the roadmap.
+
+---
+
 ## ADR-022: System title bar on Linux, and desktop zoom
 
 **Date:** 2026-10-19
-**Status:** Implemented (branch `feature/linux-window-zoom`). Current behaviour: [electron.md](electron.md#window-frame).
+**Status:** Implemented (PR #40). Current behaviour: [electron.md](electron.md#window-frame).
 
 **Context:** On Linux the borderless window's caption buttons are drawn by Electron in GNOME's style (circles), which looks wrong on other desktops and in WSLg. Separately, the desktop app had no zoom: no visible menu, Chromium's zoom is per origin (and the origin changes with the backend's port), and Text size doesn't scale images. Under WSLg a 4K screen also reports a scale of 1, so the Linux build is tiny there.
 
