@@ -309,3 +309,50 @@ class TestDownloadModelDiskSpaceCheck:
         resp = test_client.post("/api/v1/models/small/download")
         assert resp.status_code == 200
         assert resp.json()["status"] == "downloading"
+
+
+class TestEmbeddingStatus:
+    """The search-model pill: a state and a sentence, never an exception's text."""
+
+    URL = "/api/v1/models/embedding-status"
+
+    def _state(self, monkeypatch, *, service=None, error=None, ready=True, activating=False):
+        import threading
+
+        from backend.app.api import models as models_api
+        from backend.app.services import clip_service
+
+        event = threading.Event()
+        if ready:
+            event.set()
+        monkeypatch.setattr(clip_service, "_clip_service", service)
+        monkeypatch.setattr(clip_service, "_clip_error", error)
+        monkeypatch.setattr(clip_service, "_clip_ready", event)
+        monkeypatch.setattr(models_api, "_model_activating", lambda: activating)
+
+    def test_ready(self, test_client, monkeypatch):
+        self._state(monkeypatch, service=object())
+        assert test_client.get(self.URL).json() == {"status": "ready", "message": None}
+
+    def test_still_loading(self, test_client, monkeypatch):
+        self._state(monkeypatch, ready=False)
+        assert test_client.get(self.URL).json()["status"] == "loading"
+
+    def test_downloading(self, test_client, monkeypatch):
+        self._state(monkeypatch, activating=True)
+        data = test_client.get(self.URL).json()
+        assert data["status"] == "loading"
+        assert "downloading" in data["message"]
+
+    def test_no_model_downloaded(self, test_client, monkeypatch):
+        self._state(monkeypatch)
+        data = test_client.get(self.URL).json()
+        assert data["status"] == "missing"
+        assert "Settings" in data["message"]
+
+    def test_load_failure_hides_the_exception(self, test_client, monkeypatch):
+        self._state(monkeypatch, error=RuntimeError("[ONNXRuntimeError] : 3 : NO_SUCHFILE"))
+        data = test_client.get(self.URL).json()
+        assert data["status"] == "error"
+        assert "ONNX" not in data["message"]
+        assert "Settings" in data["message"]

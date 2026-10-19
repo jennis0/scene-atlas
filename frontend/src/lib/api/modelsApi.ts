@@ -27,6 +27,15 @@ export interface SetupStatus {
   gpu_provider: string | null // e.g. "CUDAExecutionProvider" or null
 }
 
+/** loading (or downloading) → ready; missing: none downloaded; error: one failed to load */
+export type EmbeddingStatus = 'loading' | 'ready' | 'missing' | 'error'
+
+interface EmbeddingStatusResponse {
+  status: EmbeddingStatus
+  /** A sentence for the UI, never an exception's text */
+  message: string | null
+}
+
 export const modelsApi = {
   list: async (): Promise<{ models: ModelInfo[] }> => {
     const { data } = await api.get<{ models: ModelInfo[] }>('/models/')
@@ -56,10 +65,8 @@ export const modelsApi = {
     await api.delete(`/models/${name}/embeddings`)
   },
 
-  embeddingStatus: async (): Promise<{ status: string; error: string | null }> => {
-    const { data } = await api.get<{ status: string; error: string | null }>(
-      '/models/embedding-status',
-    )
+  embeddingStatus: async (): Promise<EmbeddingStatusResponse> => {
+    const { data } = await api.get<EmbeddingStatusResponse>('/models/embedding-status')
     return data
   },
 

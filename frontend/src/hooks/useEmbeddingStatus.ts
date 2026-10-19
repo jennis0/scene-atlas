@@ -1,23 +1,25 @@
 import { useState, useEffect } from 'react'
-import { modelsApi } from '@/lib/api/modelsApi'
-
-export type EmbeddingStatus = 'loading' | 'ready' | 'error'
+import { modelsApi, type EmbeddingStatus } from '@/lib/api/modelsApi'
 
 interface UseEmbeddingStatusReturn {
   status: EmbeddingStatus
-  error?: string
+  /** Why the model isn't ready, for the UI */
+  message?: string
 }
 
+/** Statuses that can still turn into "ready" without a reload (a download from Settings). */
+const POLLED: ReadonlySet<EmbeddingStatus> = new Set(['loading', 'missing'])
+
 /**
- * Polls the embedding-status endpoint every 3 seconds while the model is loading.
- * Stops polling once the status becomes "ready" or "error".
+ * Polls the embedding-status endpoint every 3 seconds until the model is ready or has
+ * failed to load.
  */
 export function useEmbeddingStatus(): UseEmbeddingStatusReturn {
   const [status, setStatus] = useState<EmbeddingStatus>('loading')
-  const [error, setError] = useState<string | undefined>(undefined)
+  const [message, setMessage] = useState<string | undefined>(undefined)
 
   useEffect(() => {
-    if (status !== 'loading') return
+    if (!POLLED.has(status)) return
 
     let cancelled = false
 
@@ -25,9 +27,8 @@ export function useEmbeddingStatus(): UseEmbeddingStatusReturn {
       try {
         const result = await modelsApi.embeddingStatus()
         if (cancelled) return
-        const s = result.status as EmbeddingStatus
-        setStatus(s)
-        if (result.error) setError(result.error)
+        setStatus(result.status)
+        setMessage(result.message ?? undefined)
       } catch {
         // Network error during poll — keep trying
       }
@@ -43,5 +44,5 @@ export function useEmbeddingStatus(): UseEmbeddingStatusReturn {
     }
   }, [status])
 
-  return { status, error }
+  return { status, message }
 }

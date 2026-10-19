@@ -99,14 +99,23 @@ class TestLoadManifest:
             _load_manifest(tmp_path)
 
 
+def _write_downloaded_model(models_dir, manifest):
+    """A manifest plus empty encoder files: CLIPService checks they exist before loading
+    them, and these tests mock onnxruntime's sessions."""
+    (models_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    for key, default in (
+        ("vision_encoder", "clip_vision_encoder.onnx"),
+        ("text_encoder", "clip_text_encoder.onnx"),
+    ):
+        (models_dir / manifest.get(key, default)).touch()
+
+
 class TestManifestPreprocessing:
     """Tests that manifest values are correctly applied to preprocessing."""
 
     def _make_service_with_manifest(self, tmp_path, manifest):
         """Create a CLIPService with mocked ONNX sessions and a real manifest."""
-        (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-        # Create dummy ONNX files (CLIPService tries to load them)
-        # We'll mock the onnxruntime import instead
+        _write_downloaded_model(tmp_path, manifest)
         tok_dir = tmp_path / "tokenizer"
         tok_dir.mkdir()
         # Create a minimal tokenizer.json (enough for the Tokenizer constructor)
@@ -382,7 +391,7 @@ class TestSentencePieceServiceInit:
             "vision_encoder": "clip_vision_encoder.onnx",
             "text_encoder": "clip_text_encoder.onnx",
         }
-        (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        _write_downloaded_model(tmp_path, manifest)
 
         tok_dir = tmp_path / "tokenizer"
         tok_dir.mkdir()

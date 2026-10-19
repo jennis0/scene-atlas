@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef } from 'react'
-import { Upload, LayoutGrid, Layers, Tag, Settings, Sun, Moon, Loader2 } from 'lucide-react'
+import { Upload, LayoutGrid, Layers, Tag, Settings, Sun, Moon } from 'lucide-react'
 import { GalleryFilterPanel } from '@/components/GalleryFilterPanel'
 import { GallerySearchBar } from '@/components/GallerySearchBar'
 import { GalleryResultsBar } from '@/components/GalleryResultsBar'
+import { SearchModelStatus } from '@/components/SearchModelStatus'
 import { Button } from '@/components/ui/button'
 import { useTheme } from '@/contexts/ThemeContext'
 import { isApp } from '@/lib/appMode'
 import { useCompactHeader } from '@/lib/compactLayout'
 import type { UseGallerySearchReturn } from '@/hooks/useGallerySearch'
-import type { EmbeddingStatus } from '@/hooks/useEmbeddingStatus'
+import type { EmbeddingStatus } from '@/lib/api/modelsApi'
 import type { ImageTypeFilter } from '@/components/import/fileFilter'
 import { isAnyDialogOpen } from '@/components/ui/dialogStack'
 
@@ -21,7 +22,7 @@ export interface GalleryHeaderProps {
     editAllLoading?: boolean
   }
   embeddingStatus: EmbeddingStatus
-  embeddingError?: string
+  embeddingMessage?: string
   onOpenImport: () => void
   onOpenTagManagement: () => void
   onOpenSystemInfo: () => void
@@ -41,7 +42,7 @@ function isTypingTarget(el: EventTarget | null) {
 export function GalleryHeader({
   search,
   embeddingStatus,
-  embeddingError,
+  embeddingMessage,
   onOpenImport,
   onOpenTagManagement,
   onOpenSystemInfo,
@@ -208,20 +209,7 @@ export function GalleryHeader({
         >
           <GallerySearchBar search={search} inputRef={searchRef} />
 
-          {embeddingStatus === 'loading' && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-warning/15 text-warning shrink-0">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              Search model loading&hellip;
-            </span>
-          )}
-          {embeddingStatus === 'error' && (
-            <span
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-destructive/15 text-destructive shrink-0 cursor-help"
-              title={embeddingError ?? 'Unknown error'}
-            >
-              Search model unavailable
-            </span>
-          )}
+          <SearchModelStatus status={embeddingStatus} message={embeddingMessage} />
 
           <GalleryFilterPanel
             filters={filters}

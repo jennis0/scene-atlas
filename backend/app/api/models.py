@@ -3,6 +3,7 @@
 import json
 import logging
 from datetime import UTC, datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -94,8 +95,9 @@ class ActiveModelResponse(BaseModel):
 
 
 class EmbeddingStatusResponse(BaseModel):
-    status: str  # "loading" | "ready" | "error"
-    error: str | None
+    status: Literal["loading", "ready", "missing", "error"]
+    # A sentence for the UI. Exception text stays in the app log: it means nothing to a user.
+    message: str | None = None
 
 
 # Background job helpers
@@ -189,21 +191,47 @@ def list_models() -> ModelListResponse:
 def get_embedding_status() -> EmbeddingStatusResponse:
     """Return the current status of the embedding model (CLIP service).
 
-    - "loading": model is still initialising in the background
-    - "ready": model is loaded and available for inference
-    - "error": model failed to load
+    - "loading": loading in the background, or being downloaded and activated
+    - "ready": loaded and available for inference
+    - "missing": no model downloaded (e.g. its download failed)
+    - "error": a downloaded model failed to load
     """
     if _clip_module._clip_service is not None:
-        return EmbeddingStatusResponse(status="ready", error=None)
+        return EmbeddingStatusResponse(status="ready")
+    if _model_activating():
+        return EmbeddingStatusResponse(
+            status="loading", message="The search model is downloading and will load when done."
+        )
     if _clip_module._clip_error is not None:
-        return EmbeddingStatusResponse(status="error", error=str(_clip_module._clip_error))
-    # No service and no error: either still loading, or no model configured yet.
-    # Both cases show "loading" to the frontend — the setup wizard handles model selection.
-    return EmbeddingStatusResponse(status="loading", error=None)
+        return EmbeddingStatusResponse(
+            status="error",
+            message=(
+                "The search model couldn't be loaded, so searching by description is off. "
+                "Choosing it again under Search Model in Settings may fix it; the app log "
+                "has the details."
+            ),
+        )
+    if not _clip_module._clip_ready.is_set():
+        return EmbeddingStatusResponse(status="loading")
+    return EmbeddingStatusResponse(
+        status="missing",
+        message=(
+            "No search model is downloaded, so searching by description is off. "
+            "Choose one under Search Model in Settings."
+        ),
+    )
 
 
 def _activation_job_name(model_name: str) -> str:
     return f"Activate model: {model_name}"
+
+
+def _model_activating() -> bool:
+    """Whether a model download-and-activate job is queued or running."""
+    runner = get_job_runner()
+    return any(
+        runner.get_active_job_id(_activation_job_name(name)) is not None for name in MODEL_NAMES
+    )
 
 
 @router.get("/setup-status", response_model=SetupStatusResponse)
@@ -232,15 +260,11 @@ def get_setup_status(db: Session = Depends(get_db)) -> SetupStatusResponse:
     recommended = get_default_model(has_gpu)
 
     setup_completed = is_setup_completed(db)
-    runner = get_job_runner()
-    model_activating = any(
-        runner.get_active_job_id(_activation_job_name(name)) is not None for name in MODEL_NAMES
-    )
 
     return SetupStatusResponse(
         needs_model=needs_model,
         setup_completed=setup_completed,
-        model_activating=model_activating,
+        model_activating=_model_activating(),
         recommended=recommended,
         has_gpu=has_gpu,
         gpu_provider=gpu_provider,

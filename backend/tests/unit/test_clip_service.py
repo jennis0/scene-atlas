@@ -4,8 +4,8 @@ These tests cover the new public/private symbols added for model management:
 _get_active_model_name, _has_real_gpu_provider, get_effective_model_name,
 reload_clip_service, wait_for_clip_ready.
 
-CLIPService itself is not instantiated here — ONNX model files are required
-for that and are absent in unit tests.
+CLIPService is only instantiated here without model files (the not-downloaded
+path): loading one needs ONNX model files, which unit tests don't have.
 """
 
 import threading
@@ -132,6 +132,31 @@ class TestWaitForClipReady:
         finally:
             if not orig_is_set:
                 clip_mod._clip_ready.clear()
+
+
+class TestModelNotDownloaded:
+    def test_missing_files_raise_file_not_found(self, tmp_path):
+        """Checked before ONNX Runtime, whose NoSuchFile _load_clip() would count as a failure."""
+        import pytest
+
+        from backend.app.services.clip_service import CLIPService
+
+        with pytest.raises(FileNotFoundError, match="not downloaded"):
+            CLIPService(models_dir=tmp_path, device="cpu")
+
+    def test_load_without_a_model_is_not_an_error(self, tmp_path, monkeypatch):
+        import backend.app.services.clip_service as clip_mod
+
+        monkeypatch.setattr(clip_mod, "_default_models_dir", lambda: tmp_path)
+        monkeypatch.setattr(clip_mod, "_clip_service", None)
+        monkeypatch.setattr(clip_mod, "_clip_error", None)
+        monkeypatch.setattr(clip_mod, "_clip_ready", threading.Event())
+
+        clip_mod._load_clip()
+
+        assert clip_mod._clip_ready.is_set()
+        assert clip_mod._clip_service is None
+        assert clip_mod._clip_error is None
 
 
 class TestStartClipBackgroundLoad:
