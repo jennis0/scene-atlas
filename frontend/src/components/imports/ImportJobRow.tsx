@@ -1,7 +1,7 @@
 /**
  * One import in the activity dock: status icon, label, a 3px progress track,
  * and a one-line status. Hover reveals pause/resume, or undo and dismiss once
- * finished (no undo for a scan of the linked folder). Dismiss only hides the row, so it needs no confirm; undo deletes
+ * finished. Dismiss only hides the row, so it needs no confirm; undo deletes
  * images, so the dock confirms it first.
  */
 

@@ -45,7 +45,7 @@ export function useLibraryInspect(dirs: LibraryDirs | null) {
   const state: InspectState =
     key === null ? { status: 'idle' } : answer?.key === key ? answer.state : { status: 'checking' }
   const result = state.status === 'done' ? state.result : null
-  /** Why the backend refuses these folders; Continue must stay blocked */
+  /** Why the backend refuses these folders, if it does */
   const refusal =
     result?.outcome === 'error' ? (result.message ?? "Couldn't use these folders.") : null
   const retry = () => {
