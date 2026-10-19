@@ -177,12 +177,14 @@ Called at seal time (`ingest_queue.plan_job`) to group an import's files into im
 ### Pass 0: `folder/file` paths, group or creator
 
 A folder that holds files directly is either one map's folder ("Golden Forest/") or a creator's folder of loose maps ("partyoftwo/"). `_folder_names_group` reads it as the group when at least 70% of its files do one of two things:
+
 - carry the folder's name, which is cleaned and stripped of variant words first, so "dww-hydra-island-print" matches "dww-hydra-island-blood-print";
 - contain only variant words: lighting, season, weather, state, theme, population, style and perspective tags; grid and junk words; numbers, sizes and versions ("Night_Snow_Gridded", "2", "30x30").
 
 It is never the group when the folder is generic, when it is named after a creator already in the library (`plan_job` passes `known_authors` from `ImageGroup.author`), or when a file's `by<Name>` names the folder ("mutenn/DillingerGateByMutenn_GL").
 
 **Calibration (2026-10-19, the real 56k library):** each real map folder (`author/G/file`) was replayed as `G/file`, and each creator folder with loose files (`author/file`) as itself.
+
 - Map folders recognised: 486 of 834. The rest keep the old reading (creator = folder, groups by file-name prefix), so they are no worse than before.
 - Creator folders misread on a first import: 3 of 39. All three put their own name on every file: `leasealair` (276 files), `2mtt_community` (163) and `stained_karbon` (2). They look exactly like a map folder; the known-creator check stops it once the creator is in the library.
 - Dropped signals: file count and the number of prefix groups don't separate the two kinds ("Magic Wizard Tower" has 254 files, and many creator folders hold a single map).

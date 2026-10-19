@@ -703,151 +703,21 @@ class ImageParser:
         parts = path_obj.parts
         stem = path_obj.stem
 
-        # Author
-        author = self._author_from_stem(stem) or (parts[0] if parts else "Unknown")
+        # Grid from the file name (battlemaps only); the NxM is cut from the stem either way
+        grid, stem = self._grid_from_name(stem, clean, is_scene)
 
-        # Grid detection (from filename) — battlemaps only
-        gridded = None
-        grid_type = None
-        grid_width = None
-        grid_height = None
-        grid_size_alternatives: list[list[int]] = []
-
-        if not is_scene:
-            grid_text = self._split_camel(stem).lower().replace("_", " ").replace("-", " ")
-            if self._grid_negative_re.search(grid_text):
-                gridded = False
-            elif self._grid_hex_stem_re.search(grid_text):
-                gridded = True
-                grid_type = "hex"
-            elif self._grid_positive_re.search(grid_text):
-                gridded = True
-                grid_type = "square"
-
-            # Also check path parts for grid info
-            if gridded is None:
-                full_path_grid = (
-                    self._split_camel(clean).lower().replace("_", " ").replace("-", " ")
-                )
-                if self._grid_negative_re.search(full_path_grid):
-                    gridded = False
-                elif self._grid_hex_re.search(full_path_grid):
-                    gridded = True
-                    grid_type = "hex"
-                elif self._grid_positive_re.search(full_path_grid):
-                    gridded = True
-                    grid_type = "square"
-
-            # Dimensions
-            dim_match = self._dim_re.search(stem)
-            if dim_match:
-                grid_width = int(dim_match.group(1))
-                grid_height = int(dim_match.group(2))
-                grid_size_alternatives = self._glued_digit_readings(
-                    dim_match.group(1), dim_match.group(2)
-                )
-                stem = stem.replace(dim_match.group(0), " ")
-        else:
-            # Still strip dimension patterns from stem for cleaner names,
-            # but don't record them as grid dimensions
-            dim_match = self._dim_re.search(stem)
-            if dim_match:
-                stem = stem.replace(dim_match.group(0), " ")
-
-        # Hierarchy: author / [generic...] / group / [subgroups...] / file
-        subgroups_raw: list[str] = []
-        group_raw = "Unknown"
-        group_from_folder = False
-        if len(parts) == 2 and folder_is_group:
-            group_raw = parts[0]
-            group_from_folder = True
-            author = self._author_from_stem(stem)
-        elif len(parts) >= 3:
-            # Skip consecutive generic folders after the author to find the group
-            group_idx = 1
-            while group_idx < len(parts) - 1 and self.is_generic_folder(parts[group_idx]):
-                group_idx += 1
-
-            if group_idx < len(parts) - 1:
-                # Found a non-generic folder — that's the group
-                group_raw = parts[group_idx]
-                subgroups_raw = list(parts[group_idx + 1 : -1])
-                group_from_folder = True
-            else:
-                # All intermediate folders are generic — the top folder IS the group
-                # Clean it of dimensions/tier info
-                top_clean = self._dim_re.sub("", parts[0]).strip()
-                top_clean = re.sub(r"\b[Tt]ier\s*\d+\b", "", top_clean).strip()
-                # Remove trailing generic words that leaked into the folder name
-                for gw in ("full resolution", "gridless", "gridded", "high res", "low res"):
-                    top_clean = re.sub(
-                        rf"\b{re.escape(gw)}\b", "", top_clean, flags=re.IGNORECASE
-                    ).strip()
-                group_raw = top_clean or parts[0]
-                subgroups_raw = list(parts[1:-1])
-                group_from_folder = True
-                author = None  # Can't determine author from this structure
-
-        # Fallback: infer group from filename stem
-        if self.is_generic_folder(group_raw) or group_raw == "Unknown":
-            # Take first underscore segment (or first dash segment, or whole stem)
-            if "_" in stem:
-                group_raw = stem.split("_")[0]
-            elif "-" in stem:
-                group_raw = stem.split("-")[0]
-            else:
-                group_raw = stem
-            group_from_folder = False
+        group_raw, subgroups_raw, group_from_folder, author = self._hierarchy(
+            parts, stem, folder_is_group
+        )
 
         # Clean group name & build scene name
         effective_author = author if group_from_folder else None
         group_name = self._clean_group_name(group_raw, author=effective_author)
-
-        # Packs often nest a copy of their own folder ("Abyssal Fall [various]/
-        # Abyssal Fall [various]/Gridless"); that copy is not a subgroup.
-        while (
-            subgroups_raw
-            and self._clean_group_name(subgroups_raw[0], author=effective_author) == group_name
-        ):
-            subgroups_raw = subgroups_raw[1:]
-        subgroups = [c for c in (self._clean_subgroup(s) for s in subgroups_raw) if c]
-        subgroup = " / ".join(subgroups) if subgroups else None
-
+        subgroups = self._clean_subgroups(subgroups_raw, group_name, effective_author)
         name = self._build_name(stem, author, group_name, subgroups)
 
-        # Build exclusion set for tag extraction
-        # Note: we intentionally do NOT exclude group name or subgroup tokens —
-        # those words are valid semantic tags (e.g. "desert" from "Desert Canyon").
-        # Author exclusion only applies when group_from_folder=True (3+ level paths
-        # where parts[0] is a real author folder, not a map group folder).
-        # For 2-level paths (folder/file) parts[0] is the group/map folder.
-        exclusions: set[str] = {"by"}
-        if not is_scene:
-            exclusions.update(self._grid_stop_words)
-        exclusions.update(self._scene_junk_words if is_scene else self._junk_words)
-        if author and group_from_folder:
-            exclusions.update(self._get_token_set(author))
-        if grid_width is not None:
-            exclusions.update([str(grid_width), str(grid_height)])
-
-        # Extract and categorize tags
-        raw_words = self._extract_raw_words(stem, exclusions)
-        tags = self._categorize_words(raw_words, confidence=0.9)
-
-        # Also extract tags from path parts (lower confidence)
-        path_words: list[str] = []
-        for part in parts[:-1]:  # Skip filename
-            part_tokens = self._get_token_set(part)
-            for token in part_tokens:
-                if token not in exclusions and len(token) >= 3:
-                    path_words.append(token)
-        path_tags = self._categorize_words(path_words, confidence=0.7)
-
-        # Merge: filename tags win over path tags
-        tag_keys = {(t["category"], t["value"]) for t in tags}
-        for pt in path_tags:
-            if (pt["category"], pt["value"]) not in tag_keys:
-                tags.append(pt)
+        exclusions = self._tag_exclusions(is_scene, author if group_from_folder else None, grid)
+        tags = self._tags(stem, parts, exclusions)
 
         return {
             "author": author,
@@ -855,15 +725,144 @@ class ImageParser:
             "name": name,
             "group_from_folder": group_from_folder,
             "subgroups": subgroups,
-            "subgroup": subgroup,
+            "subgroup": " / ".join(subgroups) if subgroups else None,
             "tags": tags,
-            "gridded": gridded,
-            "grid_type": grid_type,
-            "grid_width": grid_width,
-            "grid_height": grid_height,
-            "grid_size_alternatives": grid_size_alternatives,
+            **grid,
             "filename": path_obj.name,
         }
+
+    def _grid_state(self, text: str, hex_re: re.Pattern[str]) -> tuple[bool | None, str | None]:
+        """(gridded, grid_type) from grid words in ``text``."""
+        text = self._split_camel(text).lower().replace("_", " ").replace("-", " ")
+        if self._grid_negative_re.search(text):
+            return False, None
+        if hex_re.search(text):
+            return True, "hex"
+        if self._grid_positive_re.search(text):
+            return True, "square"
+        return None, None
+
+    def _grid_from_name(self, stem: str, path: str, is_scene: bool) -> tuple[dict, str]:
+        """Grid fields from the file name, and the stem with its NxM cut out.
+
+        Scenes have no grid fields, but their NxM is still cut for a cleaner name.
+        The stem decides first; folders count only if it says nothing.
+        """
+        grid: dict = {
+            "gridded": None,
+            "grid_type": None,
+            "grid_width": None,
+            "grid_height": None,
+            "grid_size_alternatives": [],
+        }
+        if not is_scene:
+            gridded, grid_type = self._grid_state(stem, self._grid_hex_stem_re)
+            if gridded is None:
+                gridded, grid_type = self._grid_state(path, self._grid_hex_re)
+            grid["gridded"], grid["grid_type"] = gridded, grid_type
+        dim_match = self._dim_re.search(stem)
+        if not dim_match:
+            return grid, stem
+        if not is_scene:
+            grid["grid_width"] = int(dim_match.group(1))
+            grid["grid_height"] = int(dim_match.group(2))
+            grid["grid_size_alternatives"] = self._glued_digit_readings(
+                dim_match.group(1), dim_match.group(2)
+            )
+        return grid, stem.replace(dim_match.group(0), " ")
+
+    def _hierarchy(
+        self, parts: tuple[str, ...], stem: str, folder_is_group: bool
+    ) -> tuple[str, list[str], bool, str | None]:
+        """(group_raw, subgroups_raw, group_from_folder, author) from the path's folders.
+
+        Hierarchy: author / [generic...] / group / [subgroups...] / file. A ``by<Name>``
+        in the file name overrides the top folder as author.
+        """
+        author: str | None = self._author_from_stem(stem) or (parts[0] if parts else "Unknown")
+        group_raw, subgroups_raw, group_from_folder = "Unknown", [], False
+        if len(parts) == 2 and folder_is_group:
+            group_raw, group_from_folder = parts[0], True
+            author = self._author_from_stem(stem)
+        elif len(parts) >= 3:
+            group_raw, subgroups_raw, top_is_group = self._group_below_author(parts)
+            group_from_folder = True
+            if top_is_group:
+                author = None  # Can't determine author from this structure
+
+        # Fallback: infer group from filename stem
+        if self.is_generic_folder(group_raw) or group_raw == "Unknown":
+            group_raw, group_from_folder = self._group_from_stem(stem), False
+        return group_raw, subgroups_raw, group_from_folder, author
+
+    def _group_below_author(self, parts: tuple[str, ...]) -> tuple[str, list[str], bool]:
+        """(group_raw, subgroups_raw, top_is_group) for a path of 3+ parts."""
+        # Skip consecutive generic folders after the author to find the group
+        group_idx = 1
+        while group_idx < len(parts) - 1 and self.is_generic_folder(parts[group_idx]):
+            group_idx += 1
+        if group_idx < len(parts) - 1:
+            # Found a non-generic folder — that's the group
+            return parts[group_idx], list(parts[group_idx + 1 : -1]), False
+        # All intermediate folders are generic — the top folder IS the group.
+        # Clean it of dimensions/tier info and generic words that leaked into its name.
+        top_clean = self._dim_re.sub("", parts[0]).strip()
+        top_clean = re.sub(r"\b[Tt]ier\s*\d+\b", "", top_clean).strip()
+        for gw in ("full resolution", "gridless", "gridded", "high res", "low res"):
+            top_clean = re.sub(rf"\b{re.escape(gw)}\b", "", top_clean, flags=re.IGNORECASE).strip()
+        return top_clean or parts[0], list(parts[1:-1]), True
+
+    @staticmethod
+    def _group_from_stem(stem: str) -> str:
+        """First underscore segment (or first dash segment, or the whole stem)."""
+        for sep in ("_", "-"):
+            if sep in stem:
+                return stem.split(sep)[0]
+        return stem
+
+    def _clean_subgroups(
+        self, subgroups_raw: list[str], group_name: str, author: str | None
+    ) -> list[str]:
+        # Packs often nest a copy of their own folder ("Abyssal Fall [various]/
+        # Abyssal Fall [various]/Gridless"); that copy is not a subgroup.
+        while (
+            subgroups_raw and self._clean_group_name(subgroups_raw[0], author=author) == group_name
+        ):
+            subgroups_raw = subgroups_raw[1:]
+        return [c for c in (self._clean_subgroup(s) for s in subgroups_raw) if c]
+
+    def _tag_exclusions(self, is_scene: bool, folder_author: str | None, grid: dict) -> set[str]:
+        """Words never taken as tags.
+
+        Group name and subgroup tokens are deliberately kept: they are valid semantic
+        tags ("desert" from "Desert Canyon"). The author is excluded only when it came
+        from a folder above the group (``folder_author``); in a ``folder/file`` path
+        read as creator/file, the folder is usually the map's own.
+        """
+        exclusions: set[str] = {"by"}
+        if not is_scene:
+            exclusions.update(self._grid_stop_words)
+        exclusions.update(self._scene_junk_words if is_scene else self._junk_words)
+        if folder_author:
+            exclusions.update(self._get_token_set(folder_author))
+        if grid["grid_width"] is not None:
+            exclusions.update([str(grid["grid_width"]), str(grid["grid_height"])])
+        return exclusions
+
+    def _tags(self, stem: str, parts: tuple[str, ...], exclusions: set[str]) -> list[dict]:
+        """Tags from the file name, plus ones from its folders at lower confidence."""
+        tags = self._categorize_words(self._extract_raw_words(stem, exclusions), confidence=0.9)
+        path_words = [
+            token
+            for part in parts[:-1]  # Skip filename
+            for token in self._get_token_set(part)
+            if token not in exclusions and len(token) >= 3
+        ]
+        path_tags = self._categorize_words(path_words, confidence=0.7)
+        # Merge: filename tags win over path tags
+        tag_keys = {(t["category"], t["value"]) for t in tags}
+        tags.extend(pt for pt in path_tags if (pt["category"], pt["value"]) not in tag_keys)
+        return tags
 
     @staticmethod
     def _glued_digit_readings(left: str, right: str) -> list[list[int]]:
@@ -888,7 +887,7 @@ class ImageParser:
             return False
         cleaned = self._clean_group_name(folder)
         folder_keys = {_name_key(folder), _name_key(cleaned)} - {""}
-        if folder_keys & known_authors:
+        if folder_keys & known_authors or self._stems_name_creator(stems, folder_keys):
             return False
         # The folder's name without its own variant words: "dww-hydra-island-print" holds
         # "dww-hydra-island-blood-print"
@@ -898,14 +897,16 @@ class ImageParser:
         if len(name_key) < 3:
             return False
         folder_words = set(self._words(folder))
-        hits = 0
-        for stem in stems:
-            by_author = self._author_from_stem(stem)
-            if by_author and _name_key(by_author) in folder_keys:
-                return False
-            if name_key in _name_key(stem) or self._only_variant_words(stem, folder_words):
-                hits += 1
+        hits = sum(
+            name_key in _name_key(stem) or self._only_variant_words(stem, folder_words)
+            for stem in stems
+        )
         return hits >= _FOLDER_GROUP_SHARE * len(stems)
+
+    def _stems_name_creator(self, stems: list[str], creator_keys: set[str]) -> bool:
+        """Whether any file name's "by<Name>" is one of ``creator_keys``."""
+        authors = (self._author_from_stem(stem) for stem in stems)
+        return any(_name_key(a) in creator_keys for a in authors if a)
 
     def _words(self, text: str) -> list[str]:
         """Lower-case words of ``text``, split at CamelCase and any punctuation."""
@@ -1035,7 +1036,34 @@ class ImageParser:
             parsed = self.parse(rp, image_type=image_type)
             parsed_files.append({"relative_path": rp, "parsed": parsed})
 
-        # Pass 0: folder/file paths whose folder is a map, not a creator
+        self._regroup_map_folders(parsed_files, image_type, known_authors)
+
+        # Split into folder-based and filename-based groups
+        folder_based: dict[tuple[str, str], list[dict]] = {}
+        filename_based: list[dict] = []
+        for pf in parsed_files:
+            if pf["parsed"]["group_from_folder"]:
+                key = (pf["parsed"]["author"], pf["parsed"]["group_name"])
+                folder_based.setdefault(key, []).append(pf)
+            else:
+                filename_based.append(pf)
+
+        # Pass 1: folder-based groups
+        raw_folder_groups = [
+            {"author": author, "group_name": group_name, "files": files}
+            for (author, group_name), files in folder_based.items()
+        ]
+        # Pass 1.5: merge folder-based groups that are actually subgroups
+        # of the same group. Detects the pattern:
+        #   GroupName 30x30/SubGroupA/{files}
+        #   GroupName 30x30/SubGroupB/{files}
+        # where the top folder IS the group and subfolders are subgroups.
+        return self._merge_subgroup_folders(raw_folder_groups) + self._prefix_groups(filename_based)
+
+    def _regroup_map_folders(
+        self, parsed_files: list[dict], image_type: str, known_authors: Iterable[str]
+    ) -> None:
+        """Pass 0: re-parse ``folder/file`` paths whose folder is a map, not a creator."""
         by_top_folder: dict[str, list[dict]] = {}
         for pf in parsed_files:
             parts = Path(pf["relative_path"]).parts
@@ -1050,101 +1078,38 @@ class ImageParser:
                         pf["relative_path"], image_type=image_type, folder_is_group=True
                     )
 
-        # Split into folder-based and filename-based groups
-        folder_based: dict[tuple[str, str], list[dict]] = {}
-        filename_based: list[dict] = []
+    def _prefix_groups(self, files: list[dict]) -> list[dict]:
+        """Pass 2: group files by a shared file-name prefix within each parent folder."""
+        by_folder: dict[str, list[dict]] = {}
+        for pf in files:
+            by_folder.setdefault(str(Path(pf["relative_path"]).parent), []).append(pf)
+        return [g for group in by_folder.values() for g in self._prefix_groups_in_folder(group)]
 
-        for pf in parsed_files:
-            if pf["parsed"]["group_from_folder"]:
-                key = (pf["parsed"]["author"], pf["parsed"]["group_name"])
-                folder_based.setdefault(key, []).append(pf)
+    def _prefix_groups_in_folder(self, files: list[dict]) -> list[dict]:
+        # Sort by filename stem for prefix detection
+        files.sort(key=lambda f: Path(f["relative_path"]).stem.lower())
+        # Infer author from top-level folder
+        first_parts = Path(files[0]["relative_path"]).parts
+        top_folder = first_parts[0] if len(first_parts) > 1 else None
+
+        groups: list[dict] = []
+        prefix = ""
+        for f in files:
+            stem = Path(f["relative_path"]).stem
+            common = self._common_prefix_words(prefix, stem) if groups else ""
+            if len(common) >= 6:
+                # Merge into current group — tighten prefix
+                prefix = common
+                groups[-1]["files"].append(f)
             else:
-                filename_based.append(pf)
-
-        result: list[dict] = []
-
-        # Pass 1: folder-based groups
-        raw_folder_groups: list[dict] = []
-        for (author, group_name), files in folder_based.items():
-            raw_folder_groups.append(
-                {
-                    "author": author,
-                    "group_name": group_name,
-                    "files": files,
-                }
-            )
-
-        # Pass 1.5: merge folder-based groups that are actually subgroups
-        # of the same group. Detects the pattern:
-        #   GroupName 30x30/SubGroupA/{files}
-        #   GroupName 30x30/SubGroupB/{files}
-        # where the top folder IS the group and subfolders are subgroups.
-        raw_folder_groups = self._merge_subgroup_folders(raw_folder_groups)
-        result.extend(raw_folder_groups)
-
-        # Pass 2: prefix-based merging within same parent folder
-        if filename_based:
-            # Group by parent folder first
-            by_folder: dict[str, list[dict]] = {}
-            for pf in filename_based:
-                parent = str(Path(pf["relative_path"]).parent)
-                by_folder.setdefault(parent, []).append(pf)
-
-            for _parent_folder, files in by_folder.items():
-                # Sort by filename stem for prefix detection
-                files.sort(key=lambda f: Path(f["relative_path"]).stem.lower())
-
-                # Infer author from top-level folder
-                top_folder = (
-                    Path(files[0]["relative_path"]).parts[0]
-                    if len(Path(files[0]["relative_path"]).parts) > 1
-                    else None
+                prefix = self._split_camel(stem).replace("_", " ").replace("-", " ")
+                groups.append(
+                    {"author": top_folder, "group_name": f["parsed"]["group_name"], "files": [f]}
                 )
-
-                groups: list[dict] = []
-                current_group: dict | None = None
-                current_prefix: str = ""
-
-                for f in files:
-                    stem = Path(f["relative_path"]).stem
-
-                    if current_group is None:
-                        # Start first group
-                        current_prefix = self._split_camel(stem).replace("_", " ").replace("-", " ")
-                        current_group = {
-                            "author": top_folder,
-                            "group_name": f["parsed"]["group_name"],
-                            "files": [f],
-                        }
-                    else:
-                        # Check common prefix with current group
-                        common = self._common_prefix_words(current_prefix, stem)
-
-                        if len(common) >= 6:
-                            # Merge into current group — tighten prefix
-                            current_prefix = common
-                            current_group["files"].append(f)
-                        else:
-                            # Start new group
-                            groups.append(current_group)
-                            current_prefix = (
-                                self._split_camel(stem).replace("_", " ").replace("-", " ")
-                            )
-                            current_group = {
-                                "author": top_folder,
-                                "group_name": f["parsed"]["group_name"],
-                                "files": [f],
-                            }
-
-                if current_group:
-                    # For multi-file prefix groups, use the common prefix as group name
-                    if len(current_group["files"]) > 1 and current_prefix:
-                        current_group["group_name"] = current_prefix.strip()
-                    groups.append(current_group)
-
-                result.extend(groups)
-
-        return result
+        # The last multi-file prefix group is named after its common prefix
+        if len(groups[-1]["files"]) > 1 and prefix:
+            groups[-1]["group_name"] = prefix.strip()
+        return groups
 
 
 if __name__ == "__main__":
