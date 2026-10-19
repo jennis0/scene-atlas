@@ -7,7 +7,7 @@ import { GalleryResultsBar } from '@/components/GalleryResultsBar'
 import { SearchModelStatus } from '@/components/SearchModelStatus'
 import { Button } from '@/components/ui/button'
 import { useTheme } from '@/contexts/ThemeContext'
-import { isFrameless, windowChrome } from '@/lib/appMode'
+import { isFrameless, TITLE_BAR_BAND, TRAFFIC_LIGHT_INSET, windowChrome } from '@/lib/appMode'
 import { useCompactHeader } from '@/lib/compactLayout'
 import type { UseGallerySearchReturn } from '@/hooks/useGallerySearch'
 import type { EmbeddingStatus } from '@/lib/api/modelsApi'
@@ -140,9 +140,9 @@ export function GalleryHeader({
 
   return (
     <header className="border-b border-border/70 bg-card">
-      {/* Windows/Linux: draggable titlebar strip matching the OS overlay zone */}
-      {needsOverlayPadding && <div className="h-8 drag-region" />}
-      <div className={`container mx-auto px-4 ${isMac ? 'pl-20' : ''}`}>
+      {/* Windows: draggable strip under the caption buttons */}
+      {needsOverlayPadding && <div className={`${TITLE_BAR_BAND} drag-region`} />}
+      <div className={`container mx-auto px-4 ${isMac ? TRAFFIC_LIGHT_INSET : ''}`}>
         <div
           className={`${compact ? '' : needsOverlayPadding ? 'pt-2 pb-2' : 'pt-4 pb-3'} flex flex-wrap gap-x-4 gap-y-2 items-center justify-between border-b border-border/70 ${isFrameless ? 'drag-region' : ''}`}
         >

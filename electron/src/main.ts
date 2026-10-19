@@ -6,6 +6,7 @@ import {
   IpcMainInvokeEvent,
   Menu,
   nativeTheme,
+  screen,
   shell,
 } from 'electron'
 import * as fs from 'fs'
@@ -21,6 +22,7 @@ import {
   withDisplayPref,
 } from './displayPrefs'
 import { hasForeignEntries, prepareStorageDirs } from './storageDirs'
+import { MIN_SIZE, restoredBounds } from './windowState'
 
 const isDev = !app.isPackaged
 const isMac = process.platform === 'darwin'
@@ -404,12 +406,39 @@ function showSetupWindow(): void {
   })
 }
 
+/** The screens' work areas, the primary first (windowState.ts). */
+function workAreas(): Electron.Rectangle[] {
+  const primary = screen.getPrimaryDisplay()
+  const others = screen.getAllDisplays().filter((d) => d.id !== primary.id)
+  return [primary, ...others].map((d) => d.workArea)
+}
+
+/** Save the window's size, position and maximised state as the user changes them. */
+function rememberWindowState(win: BrowserWindow): void {
+  let timer: NodeJS.Timeout | undefined
+  const save = () => {
+    clearTimeout(timer)
+    if (win.isDestroyed()) return
+    // The bounds it un-maximises to, so a maximised window still remembers its size.
+    updateConfig({ windowState: { ...win.getNormalBounds(), maximized: win.isMaximized() } })
+  }
+  const saveSoon = () => {
+    clearTimeout(timer)
+    timer = setTimeout(save, 1000)
+  }
+  win.on('resize', saveSoon)
+  win.on('move', saveSoon)
+  win.on('maximize', save)
+  win.on('unmaximize', save)
+  win.on('close', save)
+}
+
 function createMainWindow(): BrowserWindow {
+  const saved = loadConfig()?.windowState ?? null
   const win = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    minWidth: 900,
-    minHeight: 600,
+    ...restoredBounds(saved, workAreas()),
+    minWidth: MIN_SIZE.width,
+    minHeight: MIN_SIZE.height,
     ...frameOptions(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -418,9 +447,11 @@ function createMainWindow(): BrowserWindow {
       sandbox: true,
     },
   })
+  if (saved?.maximized) win.maximize()
 
   hardenWindow(win)
   removeMenu(win)
+  rememberWindowState(win)
 
   win.webContents.on('did-finish-load', () => {
     if (backendError !== null) win.webContents.send('backend-error', backendError)

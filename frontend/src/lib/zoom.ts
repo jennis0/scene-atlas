@@ -37,11 +37,22 @@ export function getZoom(): number {
   return current
 }
 
+/**
+ * Zoom the page to *level*, and publish it as --zoom: the room left for the window's own
+ * controls is sized in window pixels from it (TITLE_BAR_BAND in lib/appMode.ts). At
+ * startup this re-applies the zoom the preload already set, to publish --zoom before the
+ * first paint.
+ */
+export function applyZoom(level: number) {
+  document.documentElement.style.setProperty('--zoom', String(level / 100))
+  window.electronAPI?.setZoom?.(level)
+}
+
 export function setZoom(level: number) {
   const value = parse(String(level))
   current = value
   writePref(ZOOM_STORAGE_KEY, String(value))
-  window.electronAPI?.setZoom?.(value)
+  applyZoom(value)
   listeners.forEach((listener) => listener())
 }
 

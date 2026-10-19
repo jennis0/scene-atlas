@@ -140,6 +140,12 @@ In dev mode the sidecar is not spawned — the developer runs the backend on por
 
 Linux kept the borderless overlay until 2026-10-19 ([ADR-022](decisions.md#adr-022-system-title-bar-on-linux-and-desktop-zoom)). Electron draws GNOME-style (Adwaita) caption buttons there, circles that look wrong on any other desktop, and a system frame matches the desktop's theme and scaling. On macOS and Windows, pages mark drag regions (`isFrameless`); on Linux they don't need to, and the gallery header drops the overlay's top band.
 
+The caption buttons and traffic lights keep their size whatever the zoom or Text size, so the room the page leaves for them is in window pixels: `TITLE_BAR_BAND` (32 px, the overlay's height) and `TRAFFIC_LIGHT_INSET` (80 px) in `appMode.ts` divide by `--zoom`, which `lib/zoom.ts` sets on the root element. In rem the band grew with Text size, and in plain px it would grow with zoom, leaving an empty strip at 200% and header controls under the buttons at 80%. Chromium's `env(titlebar-area-*)` values would do the same job, but whether they account for page zoom is unverified.
+
+### Window state
+
+The main window opens at the size and position it was last left at, maximised if it was (`windowState.ts`, saved as `windowState` in the config on resize, move, maximise and close; the un-maximised bounds come from `getNormalBounds`). `restoredBounds` keeps the size between the minimum (900×600) and the screen it opens on, so the 1400×900 default also fits a 1366×768 laptop, and keeps the position only while 100×20 px of the window's top edge is on a screen, so a window last on an unplugged monitor opens on the primary one. Wayland compositors place windows themselves and ignore the position. The setup window isn't remembered.
+
 ### Zoom
 
 Settings → Appearance → Zoom (80–200%, desktop only: a browser has its own) and Ctrl + / − / 0 (⌘ on macOS). It scales the whole page, images included; Text size scales only text and its spacing. Kept as the `scene-atlas-zoom` display choice ([first-run.md](first-run.md#desktop-display-choices-and-window-colours)), not Chromium's per-origin zoom, which is lost whenever the backend's port changes.
@@ -228,7 +234,7 @@ The PyInstaller spec keeps onnxruntime's `entry_points.txt` (DirectML plugin reg
 
 | Item | Location |
 |------|----------|
-| App config | `{userData}/scene-atlas-config.json` — `{ appDataDir, imageLibraryDir, displayPrefs?, windowColors? }`. `displayPrefs` and `windowColors` are the UI's display choices and colours (see [first-run.md](first-run.md#desktop-display-choices-and-window-colours)); they're sanitised on load (`displayPrefs.ts`). Older configs may also hold `convertToWebp` or `pendingStoredFormat`, which are ignored: the stored format is chosen in the setup wizard |
+| App config | `{userData}/scene-atlas-config.json` — `{ appDataDir, imageLibraryDir, displayPrefs?, windowColors?, windowState? }` (`windowState`: see [Window state](#window-state)). `displayPrefs` and `windowColors` are the UI's display choices and colours (see [first-run.md](first-run.md#desktop-display-choices-and-window-colours)); they're sanitised on load (`displayPrefs.ts`). Older configs may also hold `convertToWebp` or `pendingStoredFormat`, which are ignored: the stored format is chosen in the setup wizard |
 | Backend log | `{userData}/backend.log` (+ `backend.log.1` after rotation) |
 | Default app data dir | Windows: `%LOCALAPPDATA%/Scene Atlas/data`; macOS, Linux: `{Documents}/Scene Atlas/data` |
 | Default image library dir | Windows: `%LOCALAPPDATA%/Scene Atlas/images`; macOS, Linux: `{Documents}/Scene Atlas/images` |
@@ -248,6 +254,7 @@ On Windows, Documents is often redirected into OneDrive (the Windows 11 default 
 | `electron/src/setup.preload.ts` | Setup window preload: exposes `setupAPI` |
 | `electron/src/sidecar.ts` | Sidecar spawn, port discovery, stdout parsing |
 | `electron/src/config.ts` | Config load/save/migration, default directories |
+| `electron/src/windowState.ts` | The main window's saved bounds: validation and where it reopens (tests in `electron/test/`) |
 | `electron/src/displayPrefs.ts` | Validation for display choices and window colours from the UI or config; `themeSourceFor` (tests in `electron/test/`) |
 | `electron/src/storageDirs.ts` | Storage folder checks: create + write-test, non-empty-folder detection (tests in `electron/test/`, run with `npm run test:electron`) |
 | `electron/setup.html` | Setup window HTML (first-run directory picker); fonts bundled in `electron/fonts/`, so it needs no network and its CSP has no remote origins |

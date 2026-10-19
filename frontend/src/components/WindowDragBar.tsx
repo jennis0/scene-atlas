@@ -1,4 +1,4 @@
-import { isFrameless } from '@/lib/appMode'
+import { isFrameless, TITLE_BAR_BAND } from '@/lib/appMode'
 
 /**
  * The desktop window has no title bar on Windows and macOS (design/electron.md#window-frame),
@@ -15,7 +15,7 @@ export function WindowDragBar() {
     <div
       aria-hidden="true"
       data-testid="window-drag-bar"
-      className="fixed inset-x-0 top-0 h-8 drag-region"
+      className={`fixed inset-x-0 top-0 ${TITLE_BAR_BAND} drag-region`}
     />
   )
 }

@@ -56,6 +56,8 @@ describe('zoom', () => {
     expect(localStorage.getItem('scene-atlas-zoom')).toBe('125')
     expect(api.setDisplayPref).toHaveBeenCalledWith('scene-atlas-zoom', '125')
     expect(api.setZoom).toHaveBeenCalledWith(125)
+    // The room for the window's controls is sized from this
+    expect(document.documentElement.style.getPropertyValue('--zoom')).toBe('1.25')
   })
 
   it('maps the shortcuts, with Cmd on macOS and Ctrl elsewhere', async () => {

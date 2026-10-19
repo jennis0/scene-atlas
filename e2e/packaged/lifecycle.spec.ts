@@ -126,6 +126,27 @@ test("zoom applies at once, follows the shortcuts and comes back at the next lau
   expect(await relaunched.evaluate(() => window.devicePixelRatio)).toBeCloseTo(base * 1.1);
 });
 
+test("the window opens at its saved size and saves it again on close", async () => {
+  profile = makeProfile(true);
+  // Electron's CDP can't resize a window (no Browser.setWindowBounds), so the size is
+  // seeded; electron/test/windowState.test.ts covers where it reopens.
+  const configPath = path.join(profile.userData, "scene-atlas-config.json");
+  const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  const windowState = { x: 40, y: 40, width: 1100, height: 760, maximized: false };
+  fs.writeFileSync(configPath, JSON.stringify({ ...config, windowState }));
+
+  const app = await launch(profile);
+  const page = await waitForBackendUi(app.browser);
+  expect(await page.evaluate(() => [window.outerWidth, window.outerHeight])).toEqual([
+    1100, 760,
+  ]);
+
+  await page.evaluate(() => window.close());
+  await waitUntil("app to quit", () => !isAlive(app.child.pid!), 30_000);
+  const saved = JSON.parse(fs.readFileSync(configPath, "utf8")).windowState;
+  expect(saved).toMatchObject({ width: 1100, height: 760, maximized: false });
+});
+
 test("the backend doesn't outlive a killed app", async () => {
   profile = makeProfile(true);
   const app = await launch(profile);

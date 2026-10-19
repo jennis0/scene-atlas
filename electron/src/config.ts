@@ -8,6 +8,7 @@ import {
   type WindowColors,
 } from './displayPrefs'
 import { defaultStorageBase } from './storageDirs'
+import { sanitizeWindowState, type WindowState } from './windowState'
 
 interface AppConfig {
   appDataDir: string
@@ -16,6 +17,8 @@ interface AppConfig {
   displayPrefs?: DisplayPrefs
   /** The UI's last background and text colours, for the window and title bar at launch */
   windowColors?: WindowColors
+  /** The main window's last size, position and maximised state (windowState.ts) */
+  windowState?: WindowState
 }
 
 /** Legacy config shape written by older versions. */
@@ -57,11 +60,13 @@ export function loadConfig(): AppConfig | null {
     // Older configs may also carry convertToWebp or pendingStoredFormat: the stored format
     // is now chosen in the setup wizard and kept by the backend (design/first-run.md).
     const windowColors = sanitizeWindowColors(parsed.windowColors)
+    const windowState = sanitizeWindowState(parsed.windowState)
     return {
       appDataDir: parsed.appDataDir,
       imageLibraryDir: parsed.imageLibraryDir,
       displayPrefs: sanitizeDisplayPrefs(parsed.displayPrefs),
       ...(windowColors ? { windowColors } : {}),
+      ...(windowState ? { windowState } : {}),
     }
   } catch {
     return null

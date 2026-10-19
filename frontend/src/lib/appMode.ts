@@ -38,3 +38,12 @@ export const windowChrome: WindowChrome = !isApp
 
 /** The window has no title bar, so pages must mark where it can be dragged. */
 export const isFrameless = windowChrome !== 'native'
+
+// The window's own controls keep their size whatever the zoom or text size, so the room
+// left for them is in window pixels: CSS px divided by the zoom, which lib/zoom.ts
+// publishes as --zoom. rem would grow with Text size, and plain px with zoom.
+
+/** The band the Windows caption buttons cover (titleBarOverlay.height in electron/src/main.ts) */
+export const TITLE_BAR_BAND = 'h-[calc(32px/var(--zoom,1))]'
+/** Room beside the macOS traffic lights */
+export const TRAFFIC_LIGHT_INSET = 'pl-[calc(80px/var(--zoom,1))]'

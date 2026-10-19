@@ -5,7 +5,8 @@ import { modelsApi, type SetupStatus } from './lib/api/modelsApi'
 import App from './App'
 
 const mode = vi.hoisted(() => ({ isApp: false, hasTitleBar: false }))
-vi.mock('./lib/appMode', () => ({
+vi.mock('./lib/appMode', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./lib/appMode')>()),
   get isApp() {
     return mode.isApp
   },

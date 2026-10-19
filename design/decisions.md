@@ -574,4 +574,6 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 **Consequences:**
 - The Linux window looks like every other app on that desktop, not like the Windows and macOS builds.
 - F11 (full screen) and Ctrl+W no longer work on Windows and Linux, as they came from the default menu.
+- The room left for the window's own controls is sized in window pixels from the zoom, so zoom and Text size don't push header controls under the Windows caption buttons or the macOS traffic lights.
+- The main window now remembers its size, position and maximised state (also requested 2026-10-19).
 - Zoom at 200% puts most windows into the compact layout, so the layout reflows rather than scrolling sideways.
