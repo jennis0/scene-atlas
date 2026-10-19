@@ -57,7 +57,7 @@ Commit the outputs; nothing generates them at build time.
 
 ## Screenshots
 
-The README screenshot (`docs/public/screenshots/search-{dark,light}.webp`) is a search for "snowy mountain pass" in the grouped Maps view: each map comes up led by its snowy variant, which shows search by content and variant groups in one image. "ruined cathedral" is a good alternative that shows three creators.
+The README screenshot (`docs/public/screenshots/search-{dark,light}.webp`) is a search for "woodland path at night" in the grouped Maps view: maps from all three creators come up led by their night-time variants, which shows search by content and variant groups in one image. "snowy mountain pass" (all Moonlight) is the most striking alternative.
 
 **Rules for the art in screenshots:**
 

@@ -6,7 +6,7 @@
 import { chromium } from '@playwright/test'
 
 const [server, out] = process.argv.slice(2)
-const QUERY = 'snowy mountain pass'
+const QUERY = 'woodland path at night'
 
 const browser = await chromium.launch()
 for (const scheme of ['dark', 'light']) {

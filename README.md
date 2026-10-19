@@ -20,10 +20,10 @@ Free and open source. Runs as a desktop app on Windows, macOS and Linux, or self
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/public/screenshots/search-dark.webp">
-  <img src="docs/public/screenshots/search-light.webp" alt="Scene Atlas showing results for &quot;snowy mountain pass&quot;: groups of battlemap variants, each led by its snowy version">
+  <img src="docs/public/screenshots/search-light.webp" alt="Scene Atlas showing results for &quot;woodland path at night&quot;: groups of battlemap variants from three creators, each led by its night-time version">
 </picture>
 
-<sub>Searching "snowy mountain pass": each map comes up with its snowy version first. Maps by <a href="https://www.moonlight-maps.com">Moonlight Maps</a>, CC BY-NC-SA 4.0; this screenshot is shared under the same licence.</sub>
+<sub>Searching "woodland path at night". Maps by <a href="https://www.moonlight-maps.com">Moonlight Maps</a> (CC BY-NC-SA 4.0), <a href="https://2minutetabletop.com">2-Minute Tabletop</a> (CC BY-NC 4.0) and <a href="https://www.patreon.com/fantasy_atlas">Fantasy Atlas</a> (CC BY-NC 4.0); this screenshot is shared under CC BY-NC-SA 4.0.</sub>
 
 ## Features
 
