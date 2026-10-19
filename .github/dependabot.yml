@@ -30,6 +30,12 @@ updates:
       # typescript-eslint supports TS < 6.1.
       - dependency-name: typescript
         versions: [">=6.1.0"]
+      # Tailwind 4 is a migration with a visual pass, and tailwind-merge 3 only knows
+      # Tailwind 4's classes (design/status-and-roadmap.md, "Framework majors").
+      - dependency-name: tailwindcss
+        versions: [">=4.0.0"]
+      - dependency-name: tailwind-merge
+        versions: [">=3.0.0"]
 
   - package-ecosystem: npm
     directory: "/docs"
@@ -59,7 +65,14 @@ updates:
       actions:
         patterns: ["*"]
 
+  # The image's Python and Node versions move together with CI, the release build and
+  # .python-version/.nvmrc, which Dependabot can't do, and CI doesn't build the image.
   - package-ecosystem: docker
     directory: "/"
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
