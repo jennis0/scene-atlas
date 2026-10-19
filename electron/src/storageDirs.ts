@@ -22,6 +22,9 @@ const APP_DATA_ENTRIES = new Set([
 /** What the backend creates in the image library folder, besides <xx>/<yy>/ shards. */
 const IMAGE_LIBRARY_ENTRIES = new Set(['backups'])
 
+/** The library marker, at the root of both folders (design/library-setup.md §3.2). */
+export const LIBRARY_MARKER = 'scene-atlas-library.json'
+
 /** OS clutter that doesn't make a folder "someone else's". */
 const OS_ENTRIES = new Set([
   'desktop.ini',
@@ -38,13 +41,42 @@ function isOwnEntry(name: string): boolean {
     SHARD_DIR.test(name) ||
     APP_DATA_ENTRIES.has(name) ||
     IMAGE_LIBRARY_ENTRIES.has(name) ||
+    name === LIBRARY_MARKER ||
     OS_ENTRIES.has(name.toLowerCase())
   )
 }
 
-function isSameOrInside(child: string, parent: string): boolean {
-  const rel = path.relative(parent, child)
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
+function pathFor(platform: NodeJS.Platform): path.PlatformPath {
+  return platform === 'win32' ? path.win32 : path.posix
+}
+
+/**
+ * True when *child* is *parent* or a folder inside it. Both should be absolute. Windows
+ * and macOS paths compare case-insensitively, as their file systems usually do.
+ */
+export function isSameOrInside(
+  child: string,
+  parent: string,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  const p = pathFor(platform)
+  let c = p.resolve(child)
+  let par = p.resolve(parent)
+  if (platform === 'win32' || platform === 'darwin') {
+    c = c.toLowerCase()
+    par = par.toLowerCase()
+  }
+  const rel = p.relative(par, c)
+  return rel === '' || (rel !== '..' && !rel.startsWith('..' + p.sep) && !p.isAbsolute(rel))
+}
+
+/** True when both paths name the same folder (see isSameOrInside). */
+export function isSamePath(
+  a: string,
+  b: string,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return isSameOrInside(a, b, platform) && isSameOrInside(b, a, platform)
 }
 
 /**
@@ -95,11 +127,12 @@ export function defaultStorageBase(
   return path.join(dirs.documents, 'Scene Atlas')
 }
 
-/** Create both storage roots and check they are writable. Returns an error message or null. */
+/** Create both storage roots and check they are writable. Never called on the linked
+ * folder, which is read-only (design/library-setup.md §1). Returns an error message or null. */
 export function prepareStorageDirs(appDataDir: string, imageLibraryDir: string): string | null {
   const dirs: [string, string][] = [
-    ['App data folder', appDataDir],
-    ['Image library folder', imageLibraryDir],
+    ['Search data folder', appDataDir],
+    ['Imported maps folder', imageLibraryDir],
   ]
   for (const [label, dir] of dirs) {
     try {

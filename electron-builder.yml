@@ -14,7 +14,6 @@ artifactName: Scene-Atlas-${version}-${arch}.${ext}
 # Files to include in the app package
 files:
   - electron/dist/**/*
-  - electron/setup.html
   - electron/loading.html
   - electron/fonts/**/*
   - "!**/*.map"
@@ -46,7 +45,7 @@ electronFuses:
   enableEmbeddedAsarIntegrityValidation: true
   onlyLoadAppFromAsar: true
   # Left on (Electron's default): without it file:// can't read inside app.asar, so
-  # setup.html and loading.html fail with ERR_FILE_NOT_FOUND. Turning it off means
+  # loading.html fails with ERR_FILE_NOT_FOUND. Turning it off means
   # serving them from a custom protocol (protocol.handle) instead.
   grantFileProtocolExtraPrivileges: true
 

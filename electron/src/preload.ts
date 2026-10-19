@@ -10,13 +10,24 @@ ipcRenderer.on('backend-error', (_event, message: string) => {
   errorListeners.forEach((cb) => cb(message))
 })
 
-// The UI's display choices from the app config, read before the page's first paint
-// (design/first-run.md). A snapshot: the UI keeps later changes itself.
+// Read from the app config before the page's first paint (a snapshot):
+// - the UI's display choices (design/first-run.md); the UI keeps later changes itself;
+// - whether setup's library step is done (design/library-setup.md §2.2).
 let displayPrefs: Record<string, string> = {}
+let libraryChosen = false
 try {
-  displayPrefs = ipcRenderer.sendSync('prefs:get-sync') ?? {}
+  const state = ipcRenderer.sendSync('prefs:get-sync')
+  displayPrefs = state?.displayPrefs ?? {}
+  libraryChosen = state?.libraryChosen === true
 } catch {
   // Main process unavailable: the UI falls back to its localStorage
+}
+
+type FolderKind = 'appData' | 'store' | 'linked'
+interface LibraryDirs {
+  appData: string
+  store: string
+  linked: string | null
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -36,19 +47,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
   },
 
-  getAppDataDir: (): Promise<string | null> => ipcRenderer.invoke('system:get-app-data-dir'),
-  getImageLibraryDir: (): Promise<string | null> =>
-    ipcRenderer.invoke('system:get-image-library-dir'),
-  chooseAppDataDir: (): Promise<string | null> => ipcRenderer.invoke('system:choose-app-data-dir'),
-  chooseImageLibraryDir: (): Promise<string | null> =>
-    ipcRenderer.invoke('system:choose-image-library-dir'),
-  // Saves config AND restarts. Call only when user confirms they've moved files.
-  // Resolves only if the new locations are rejected.
-  changeStorageDirs: (
-    appDataDir: string,
-    imageLibraryDir: string,
-  ): Promise<{ error: string | null }> =>
-    ipcRenderer.invoke('system:change-storage-dirs', appDataDir, imageLibraryDir),
+  // The library's folders (design/library-setup.md)
+  libraryChosen,
+  getStorageDirs: (): Promise<LibraryDirs & { defaults: { appData: string; store: string } }> =>
+    ipcRenderer.invoke('library:get-dirs'),
+  chooseFolder: (kind: FolderKind, current?: string): Promise<string | null> =>
+    ipcRenderer.invoke('library:choose-folder', kind, current),
+  // Resolves only when the folders are rejected or unchanged; otherwise the backend
+  // restarts on them and this page is replaced.
+  applyLibrary: (dirs: LibraryDirs): Promise<{ error: string | null; restarted: boolean }> =>
+    ipcRenderer.invoke('library:apply', dirs),
 
   // Local imports (design/local-ingest.md): the backend reads these paths itself.
   // '' for a File with no path on disk.

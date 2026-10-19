@@ -3,7 +3,14 @@ import * as assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { defaultStorageBase, hasForeignEntries, prepareStorageDirs } from '../src/storageDirs.ts'
+import {
+  defaultStorageBase,
+  hasForeignEntries,
+  isSameOrInside,
+  isSamePath,
+  LIBRARY_MARKER,
+  prepareStorageDirs,
+} from '../src/storageDirs.ts'
 
 let root: string
 
@@ -48,6 +55,13 @@ describe('hasForeignEntries', () => {
   test('one folder holding both is fine', () => {
     touch('battlemap.db')
     touch('0f', '1e', 'key.png')
+    assert.equal(hasForeignEntries(root), false)
+  })
+
+  test("the library marker is one of Scene Atlas's own entries", () => {
+    touch(LIBRARY_MARKER)
+    touch('battlemap.db')
+    assert.equal(LIBRARY_MARKER, 'scene-atlas-library.json')
     assert.equal(hasForeignEntries(root), false)
   })
 
@@ -103,8 +117,14 @@ describe('defaultStorageBase', () => {
 
   test('macOS and Linux use Documents', () => {
     const unix = { home: '/home/sam', documents: '/home/sam/Documents' }
-    assert.equal(defaultStorageBase('linux', {}, unix), path.join('/home/sam/Documents', 'Scene Atlas'))
-    assert.equal(defaultStorageBase('darwin', {}, unix), path.join('/home/sam/Documents', 'Scene Atlas'))
+    assert.equal(
+      defaultStorageBase('linux', {}, unix),
+      path.join('/home/sam/Documents', 'Scene Atlas'),
+    )
+    assert.equal(
+      defaultStorageBase('darwin', {}, unix),
+      path.join('/home/sam/Documents', 'Scene Atlas'),
+    )
   })
 })
 
@@ -124,6 +144,29 @@ describe('prepareStorageDirs', () => {
   test('reports a folder that cannot be created', () => {
     touch('file')
     const error = prepareStorageDirs(path.join(root, 'file', 'data'), root)
-    assert.match(error ?? '', /^App data folder can't be used/)
+    assert.match(error ?? '', /^Search data folder can't be used/)
+  })
+})
+
+describe('isSameOrInside', () => {
+  test('a folder is inside itself and its parents, not its siblings', () => {
+    assert.equal(isSameOrInside('/maps', '/maps', 'linux'), true)
+    assert.equal(isSameOrInside('/maps/Scene Atlas', '/maps', 'linux'), true)
+    assert.equal(isSameOrInside('/maps', '/maps/Scene Atlas', 'linux'), false)
+    assert.equal(isSameOrInside('/maps2', '/maps', 'linux'), false)
+    assert.equal(isSameOrInside('/..maps', '/', 'linux'), true)
+  })
+
+  test('trailing separators and dot segments are normalised', () => {
+    assert.equal(isSameOrInside('/maps/a/../b/', '/maps/', 'linux'), true)
+    assert.equal(isSamePath('/maps/', '/maps', 'linux'), true)
+  })
+
+  test('Windows and macOS compare case-insensitively, Linux does not', () => {
+    assert.equal(isSamePath('D:\\Battle Maps', 'd:\\battle maps', 'win32'), true)
+    assert.equal(isSameOrInside('D:\\Maps\\Scene Atlas', 'd:\\maps', 'win32'), true)
+    assert.equal(isSameOrInside('D:\\Maps', 'E:\\Maps', 'win32'), false)
+    assert.equal(isSamePath('/Users/sam/Maps', '/users/sam/maps', 'darwin'), true)
+    assert.equal(isSamePath('/home/sam/Maps', '/home/sam/maps', 'linux'), false)
   })
 })

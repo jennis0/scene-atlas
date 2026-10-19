@@ -11,9 +11,9 @@ Download, install, and run. No dependencies to manage.
    - macOS: `.dmg` (Apple Silicon only; on Intel Macs use the Docker or standalone server)
    - Linux: `.AppImage` or `.deb`
 
-2. **Choose storage locations.** On first run the app asks for an app data location (database, thumbnails, search index) and an image library location (Scene Atlas's managed copy of your images). These are directories Scene Atlas manages itself. Your original images are never modified; they are copied into the library during import.
+2. **Choose your library.** On first run, after choosing a theme and text size, start a new library or use a folder of maps you already have. Scene Atlas reads that folder where it is and never modifies your files. Maps you import in the app are copied into the *Imported maps* folder; the database, thumbnails and search index go in the *Search data* folder. The defaults suit most people.
 
-3. **Finish setup.** Choose a theme and text size, how imported images are stored, which genre tag packs to add, and a search model. The app recommends a model for your hardware (Small is ~250 MB); it downloads in the background once you finish.
+3. **Finish setup.** Choose how imported images are stored, which genre tag packs to add, and a search model. The app recommends a model for your hardware (Small is ~250 MB); it downloads in the background once you finish.
 
 4. **Import your first images.** Click **Import**, drag in some files, and let processing run. See [Importing](/guide/importing) for details.
 
